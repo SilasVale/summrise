@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 167 (**NEW FINDING (B1): the body scanner has a CPU-budget cap on
+one of its two scanners and none on the other — and the module's own header claims otherwise.** Round
+165's queue paid for itself on its second item). Commit: journal + ledger. No code change yet.
+  (1) THE DEFECT, STATED EXACTLY: `body-scan.ts` exists to keep the /v1/* hot path inside the Workers
+  Free 10 ms CPU budget (Error 1102). `scanTopLevelModel` bounds its char-by-char walk with
+  `MAX_SCAN_BYTES = 2 MiB` (line 136) — and its own comment (lines 18-20) says why: "cap the char-by-char
+  model scan at a fixed ceiling regardless of body size." Its SIBLING `scanTopLevelField` (line 53) walks
+  the same kind of body char-by-char with NO cap of any kind, and it is the one that handles nested
+  values (`braces`/`inString` tracking), so it is the MORE expensive of the two per byte.
+  (2) AND THE MODULE'S HEADER CLAIMS THE OPPOSITE: lines 11-15 assert "the scans are bounded by design
+  (2MB sampling window + cheap indexOf image scan)". That sentence is the module's stated safety
+  property, and it is FALSE for one of its three scan paths — the exact "claim set drifts from the code"
+  shape this loop has closed four times (rounds 120/125/129/142).
+  (3) IT IS REACHABLE ON THE PATH THE CAP PROTECTS, verified by call site rather than assumed:
+  `translate.ts:427` calls `rawWithOxAlphaReasoningDefault(body)` (which calls `scanTopLevelField`), and
+  `translate.ts:1402` calls `rawWithDeepSeekProvider(forwardBody)` (same). Both run per request on the
+  translation hot path — i.e. exactly where a multi-MB body meets a 10 ms budget.
+  (4) WHY THE EXISTING SUITE DID NOT CATCH IT: `gateway/test/body-scan.test.mjs` exists and is green.
+  The asymmetry is a property of the RELATIONSHIP between two functions (one capped, one not), and no
+  assertion states that relationship — the same shape as rounds 146/161: a comparison that nothing
+  performs. Whether the suite pins the cap on the capped one at all is the next round's first check.
+  (5) THE FIX, DESIGNED AND DELIBERATELY NOT RUSHED: mirror the cap (`const n = Math.min(raw.length,
+  MAX_SCAN_BYTES)`) into `scanTopLevelField`'s walk, and correct the header sentence to say which scans
+  are bounded and why the third is safe (the `estimateTokens` helpers already carry their own
+  `ESTIMATE_SAMPLE` bound, so the header's "the scans" spans three functions with two different
+  mechanisms). The one behaviour to think through before writing it: an uncapped scan that returns null
+  beyond the cap changes `rawWithTopLevelField`'s fallback arm, which APPENDS the field at the body's
+  last `}` — and appending a second `provider`/`reasoning` key to a body that already has one past 2 MiB
+  is a different bug from the CPU one. Round 153's rule applies: a fail-closed-ish gate or a hot-path
+  rewrite gets a full budget.
+  (6) STILL OPEN: B1 above (designed); the 13 remaining unexamined files (round 165's list, minus
+  `http.ts` and `body-scan.ts` — both now READ, and one of them produced this); plus the seven rows of
+  the round-157 table.
+
 Last updated: 2026-09-14 round 166 (round 165's queue, first item: `gateway/src/http.ts` — the
 FOUNDATION module every response passes through — read for the first time in 166 rounds. VERDICT: CLEAN,
 and the reason it is clean is the design. Plus the SIXTH instrument illusion, caught by its own tell).
