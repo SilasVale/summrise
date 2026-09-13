@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 169 (**NEW FINDING B2 (security): an environment-assignment prefix
+is grantable, so one approval auto-approves every later command sharing that prefix.** Round 165's queue,
+third item — `approval.rs`, the never-opened approval seam). Commit: journal + ledger. No code change yet.
+  (1) THE DOCUMENTED PROPERTY, QUOTED: `is_simple_command` returns true when "the first word is the whole
+  story about what program runs, and nothing in the string can chain, substitute, redirect or glob"
+  (approval.rs:60-61). That is the security claim the whole grant mechanism rests on.
+  (2) IT IS FALSE FOR AN ASSIGNMENT PREFIX, AND `=` IS NOT IN `UNSAFE`: `UNSAFE` (line 53-56) is the
+  denylist the module trusts, and it holds 23 chars — `; & | \n \r `` ` `` $ < > ( ) { } " ' \ * ? [ ] ! # ~`
+  — with no `=`. So `PATH=/evil ls` is "simple", `grant_for` returns **`PATH=/evil`** (the env prefix, not
+  a program), and `grant_matches("PATH=/evil", "PATH=/evil rm -rf /")` returns **true**: both sides are
+  "simple" and the first words are equal. The second command never asks.
+  (3) REPRODUCED IN THE RIGHT LAYER, which matters because this module IS the string layer — no shell
+  needed: the three-call trace above was run as pure string logic. That is the difference between a
+  hypothesis and a finding, and it cost one command.
+  (4) ZERO TEST COVERAGE OF THE FORM: the module's tests (lines 99-206) are thorough — the shell-metachar
+  property, chaining, the same-word family, empty/blank, and the "ordinary commands stay grantable"
+  counterweight — and not one case mentions an assignment prefix. The existing suite would have caught a
+  MISSING metachar; it cannot catch this, because nothing states the property for the first word alone.
+  (5) THE FIX, DESIGNED (round 153's rule: a security gate gets a full budget): refuse when the FIRST
+  WORD contains `=` — i.e. `is_simple_command` gains `let first = t.split_whitespace().next();` and
+  rejects `first.contains('=')`. NOT adding `=` to `UNSAFE`, which is the obvious but wrong move: it
+  would make `git log --format=%H` and `curl -d a=b` ask every time, and an `=` in a LATER word cannot
+  change which program runs. The narrow check encodes the documented property exactly instead of
+  approximating it. Tests to add with it: the `PATH=/evil` pair above (both halves), plus the
+  counterweights that must STAY grantable (`git log --format=%H`, `curl -d a=b`) — the same
+  both-sides-of-the-boundary shape rounds 160/168 used.
+  (6) STILL OPEN: B2 above (designed); the 12 remaining unexamined files (round 165's list — `http.ts`
+  read clean, `body-scan.ts` read and fixed, `approval.rs` read and it produced this); plus the seven
+  rows of the round-157 table.
+
 Last updated: 2026-09-14 round 168 (B1 FIXED: the CPU ceiling now applies to BOTH scanners, and the
 two meanings of "not found" are separated — the fix is small but its shape is the loop's oldest one).
 Commit: gateway/ + mirror + journal. Tests: gateway 848 -> 850 (two new), zero red.
