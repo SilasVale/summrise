@@ -127,3 +127,25 @@ reconcile_clear() {
   awk -v v="$ver" '/^[[:space:]]*#/ {print; next} $1 != v {print}' "$RECONCILE_LEDGER" > "$tmp"
   mv "$tmp" "$RECONCILE_LEDGER"
 }
+
+# ── the installer manifest verdict (round 130) ───────────────────────────────
+# A DEPLOY THAT LEAVES THE MANIFEST BEHIND IS NOT A SUCCESS.
+# `build-installer.sh`'s default path staged the exe, deployed the worker and
+# printed "== done ==" with the new URLs — while `/api/version` still described
+# the PREVIOUS installer (or none), because nothing rewrote version.json. The
+# landing page asks the manifest before offering the button (round 125), so that
+# build was invisible at best and advertised a stale digest at worst, and the run
+# said it succeeded. `publish-release.sh:309` tells operators to run this script
+# standalone, so the path is not hypothetical.
+#
+# Echoes one verdict for <manifest-json> <sha256-of-the-exe-just-deployed>:
+#   ok               the manifest advertises exactly this build
+#   absent           no installer is advertised at all — this door will not link it
+#   mismatch:<sha>   the manifest advertises a DIFFERENT installer
+installer_manifest_verdict() {
+  local json="$1" want="$2" got
+  got="$(printf '%s' "$json" | grep -oP '"installer_sha256":"\K[^"]+' | head -1)" || got=""
+  if [ -z "$got" ]; then echo "absent"; return 0; fi
+  if [ "$got" = "$want" ]; then echo "ok"; return 0; fi
+  echo "mismatch:$got"
+}

@@ -526,6 +526,37 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 130 (D12: the standalone installer deploy published a new
+Setup.exe while `/api/version` still described the PREVIOUS one — or none — and printed "== done ==").
+Commit: this round's scripts/ + docs. Tests: release-lib 45 (was 38), four mutations caught.
+  (1) THE DEFECT, AND WHY IT IS NOT HYPOTHETICAL. `build-installer.sh`'s default path stages the
+  exe, copies it over the `ValeAgent-Setup.exe` alias, deploys the worker and prints the new URLs —
+  and NOTHING rewrites `version.json`, so `/api/version` keeps advertising the previous installer (or
+  advertises none at all). Since round 125 the landing page asks the manifest BEFORE offering the
+  button, so such a build is invisible at best; at worst the door keeps serving the previous
+  installer with the manifest's blessing. `publish-release.sh:309` TELLS operators to run this
+  script standalone, so the path is the documented one, not an accident.
+  (2) THE FIX MAKES THE SILENT SUCCESS LOUD. After deploying, the script computes the exe's sha256
+  and compares it with what `/api/version` advertises: `ok` continues, `absent` and
+  `mismatch:<sha>` exit 1 with the reason and the way out (`publish-release.sh <ver>`, which writes
+  the manifest and smokes it). The comparison is `installer_manifest_verdict` in
+  `scripts/lib/release-lib.sh` — the lib the CI suite already drives — so it has behavioural tests
+  (ok / absent / empty / mismatch / garbage) rather than a source grep, and the CALL SITE is pinned
+  to run BEFORE the success line, because a verdict printed after "== done ==" guards nothing.
+  (3) FOUR MUTATIONS, ALL CAUGHT: the verdict always answering ok, an empty manifest reading as ok,
+  the wiring deleted, and the wiring moved after the success line.
+  (4) AND ONE OF THEM EXPOSED A WART IN MY OWN TEST: the order check was a python heredoc whose
+  `sys.exit(1)` died under `set -e` BEFORE printing anything, so the caught mutation produced no
+  diagnostic — half a test. It is pure shell now and prints "FAIL: the verdict runs BEFORE the
+  success line". A mutation that is caught silently still leaves the next reader guessing.
+  (5) NOT EXECUTED, AND SAYING SO: the deploy path itself was not run — running it publishes. What is
+  proven is the comparison (five behavioural cases) and the wiring (source pins, order included).
+  The next real installer build is the first live exercise of it, and it now fails loudly rather than
+  reporting a success nobody can see.
+  (6) STILL OPEN: D13 (the orchestrator has no executable coverage); the extension's X1 (the last
+  HIGH — needs a design decision), X3, X6, X8; the proxies' P4-P10; the three unreconciled versions
+  (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 129 (P3: three of the five vrelay handlers did not implement the
 upstream budget their own README documents — and the ledger's P2 line was stale, found by checking it
 against code and live probes instead of trusting it). Commit: this round's proxies/ + docs.

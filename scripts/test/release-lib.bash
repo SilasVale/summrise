@@ -171,4 +171,36 @@ case "$(sed -n '/^SRC_TS=/,/^fi$/p' scripts/publish-release.sh)" in
   *) PASS=$((PASS+1));;
 esac
 
+# ── the installer manifest verdict (round 130) ──────────────────────────────
+SHA_A="$(printf 'exe-a' | sha256sum | cut -d' ' -f1)"
+SHA_B="$(printf 'exe-b' | sha256sum | cut -d' ' -f1)"
+check "the manifest advertises this build" \
+  "$(installer_manifest_verdict "{\"installer_sha256\":\"$SHA_A\"}" "$SHA_A")" "ok"
+check "no installer advertised at all" \
+  "$(installer_manifest_verdict '{"sha256":"x"}' "$SHA_A")" "absent"
+check "...and an EMPTY answer reads as absent, not as a match" \
+  "$(installer_manifest_verdict '' "$SHA_A")" "absent"
+check "a different installer is a mismatch, and named" \
+  "$(installer_manifest_verdict "{\"installer_sha256\":\"$SHA_B\"}" "$SHA_A")" "mismatch:$SHA_B"
+check "garbage in the manifest is absent, not a crash" \
+  "$(installer_manifest_verdict 'not json' "$SHA_A")" "absent"
+
+# The WIRING: a deploy path that can drop the verdict silently is the defect this
+# round fixed, so the call site is pinned too (build-installer.sh has no harness of
+# its own — it builds NSIS installers).
+BI="$(sed -n '/wrangler deploy/,$p' scripts/build-installer.sh)"
+check_match "the deploy path consults the manifest verdict" "$BI" "installer_manifest_verdict"
+case "$BI" in
+  *'"== done =="'*) ;;
+  *) echo "FAIL: build-installer.sh no longer prints its completion line (did the pin's anchor move?)"; exit 1;;
+esac
+# ...and the verdict must come BEFORE the success line, or it guards nothing.
+# Pure shell, so a failure PRINTS (my first version used a python heredoc whose
+# sys.exit(1) died under `set -e` before the message — a caught mutation with no
+# diagnostic is half a test).
+V_LINE="$(grep -n 'installer_manifest_verdict' scripts/build-installer.sh | tail -1 | cut -d: -f1)"
+D_LINE="$(grep -n '^echo "== done =="' scripts/build-installer.sh | cut -d: -f1)"
+check "the verdict runs BEFORE the success line" \
+  "$([ "${V_LINE:-0}" -lt "${D_LINE:-0}" ] && echo before || echo after)" "before"
+
 echo "release-lib: $PASS checks passed"

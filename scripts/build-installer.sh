@@ -20,6 +20,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VER="${1:?usage: ./scripts/build-installer.sh <1.2.N> [--no-deploy]}"
+# The manifest verdict (round 130) lives in the lib the CI suite already drives.
+# shellcheck source=lib/release-lib.sh
+source "scripts/lib/release-lib.sh"
 case "$VER" in -*) echo "::error::usage: ./scripts/build-installer.sh <1.2.N> [--no-deploy]" >&2; exit 1;; esac
 shift || true
 NO_DEPLOY=0
@@ -185,6 +188,27 @@ if [[ -z "$CF_TOKEN" ]]; then
   exit 1
 fi
 (cd index && CLOUDFLARE_API_TOKEN="$CF_TOKEN" npx wrangler deploy)
+
+# A DEPLOY THAT LEAVES THE MANIFEST BEHIND IS NOT A SUCCESS (round 130).
+# This path staged the exe, deployed the worker and printed "== done ==" with the
+# new URLs while `/api/version` still described the PREVIOUS installer (or none),
+# because nothing rewrote version.json — and publish-release.sh:309 tells operators
+# to run this script standalone. Since round 125 the landing page asks the manifest
+# BEFORE offering the button, so such a build is invisible at best; at worst the
+# door keeps serving the previous installer with the manifest's blessing.
+EXE_SHA="$(sha256sum "$EXE" | cut -d' ' -f1)"
+MANIFEST_JSON="$(curl -sS -m 30 "$CDN_BASE/api/version" 2>/dev/null)" || MANIFEST_JSON=""
+VERDICT="$(installer_manifest_verdict "$MANIFEST_JSON" "$EXE_SHA")"
+case "$VERDICT" in
+  ok) echo "  manifest: /api/version advertises THIS installer (installer_sha256 matches)" ;;
+  *)
+    echo "::error::deployed, but /api/version does not advertise this installer ($VERDICT)" >&2
+    echo "  the door links ValeAgent-Setup.exe only when the manifest carries installer +" >&2
+    echo "  installer_sha256, so this build is invisible — or the previous one is still the" >&2
+    echo "  one being offered. Use ./scripts/publish-release.sh $VER (it writes the manifest" >&2
+    echo "  and smokes it), or rewrite version.json's installer fields for $VER by hand." >&2
+    exit 1 ;;
+esac
 
 echo "== done =="
 echo "  versioned: $CDN_BASE/vale-agent/ValeAgent-Setup-$VER.exe"
