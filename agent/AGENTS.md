@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 184 (round 165's queue, eighth item: the rest of the registry trio.
+`models-probe.ts` is a private collaborator that the DIRECTORY CONTRACT did not list — so the contract's
+completeness claim could not be checked against the enumeration meant to support it. Fixed, plus my own
+ninth instrument slip recorded). Commit: gateway/ + mirror + journal. Tests: gateway 853, zero red.
+  (1) THE FINDING, VERIFIED BY CONSUMER GREP RATHER THAN BY READING: `registry.ts`'s DIRECTORY CONTRACT
+  enumerates the private collaborators as "device-proxy.ts (devices only), translate-vision.ts +
+  model-route.ts (translate only)" and then asserts "Currently every collaborator has exactly one
+  consumer, which is what keeps them here". Measured: device-proxy ← devices.ts ✓, translate-vision ←
+  translate.ts ✓, model-route ← translate.ts ✓ — and **models-probe ← admin.ts, absent from the list**
+  while satisfying its rule exactly (one consumer). So the enumeration named three of four, and the
+  claim it supports is unverifiable from the list that is supposed to support it.
+  (2) THE SHAPE IS ROUND 149's, AND THAT IS WHY IT IS WORTH A ROUND: that round found four copies of a
+  fact the log said had two, and named the general form — "the list of surfaces is itself a claim". This
+  is the same form one level up: not a surface missing from a list of surfaces, but a CATEGORY missing
+  from the taxonomy that defines the category. The fix is the enumeration itself (now four entries, with
+  the evidence and the round tag where the next reader will hit it), because a contract that cannot be
+  checked is a contract nobody is keeping.
+  (3) AND MY OWN SLIP, RECORDED BECAUSE IT IS THE NINTH IN THIS STRETCH: I first tried to enumerate the
+  non-plugin files with `grep -q 'satisfies Plugin'`, which flagged EIGHT files as "非插件" — including
+  `admin.ts`, `auth.ts` and `translate.ts`, which are plugins that simply do not use that idiom. The
+  instrument answered a different question than the one I asked ("does this file use this syntax?"
+  instead of "is this file a plugin?") and I caught it by reading the output instead of counting it. The
+  consumer grep that replaced it is the right instrument for this question because it measures the
+  RELATIONSHIP the contract is about. Same family as 179's destroyed test and 166's 100% rate: the cheap
+  question "what did my instrument actually measure?" continues to be the highest-yield one in this loop.
+  (4) `model-route.ts` ITSELF READS CLEAN on the parts checked — the per-channel key RULES are DATA
+  (`CHANNEL_KEY_RULES` + `registerChannelKey`, SOLID Round-26: "adding a channel registers one entry
+  instead of appending another if-line"), and the header records the round-68 defect the shape fixes: the
+  old code checked ADMIN_ID's keys, so a BYOK user with only an og key was told og was unusable and
+  routed to ds, which the user lacks → 502 on every model=auto request. That is the user-scoped
+  correctness argument this loop keeps finding as the difference between "works for the admin" and
+  "works"; it was already fixed, and the extraction preserved it.
+  (5) STILL OPEN: `models-probe.ts`'s body (198 lines — its exports were located but not read);
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the seven
+  rows of the round-157 table.
+
 Last updated: 2026-09-14 round 183 (the gap round 182 named is CLOSED: the `routes` field now has
 assertions — and one of them is SELF-REFERENTIAL, which is the strongest form a field assertion can take).
 Commit: gateway/test/ + journal. Tests: gateway 853, zero red.

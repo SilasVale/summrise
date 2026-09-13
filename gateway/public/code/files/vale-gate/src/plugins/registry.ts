@@ -18,10 +18,19 @@
  * DIRECTORY CONTRACT (layering review 2026-09-06): plugins/ holds (1) the
  * route plugins themselves, (2) this framework, and (3) each plugin's
  * EXCLUSIVE collaborator modules — device-proxy.ts (devices only),
- * translate-vision.ts + model-route.ts (translate only). A module with two
- * live consumers is NOT a private collaborator: it belongs in src/ as
- * foundation. Currently every collaborator has exactly one consumer, which
- * is what keeps them here; revisit on the first second consumer.
+ * translate-vision.ts + model-route.ts (translate only), models-probe.ts
+ * (admin only). A module with two live consumers is NOT a private
+ * collaborator: it belongs in src/ as foundation. Currently every
+ * collaborator has exactly one consumer, which is what keeps them here;
+ * revisit on the first second consumer.
+ *
+ * round-184: `models-probe.ts` was MISSING from this list while satisfying its
+ * rule (verified by consumer grep: device-proxy←devices, translate-vision and
+ * model-route←translate, models-probe←admin), so the completeness claim above
+ * could not be checked against the enumeration that was supposed to support it.
+ * The list is a claim; this is the second time in this log that the claim, not
+ * the code, was the thing out of date (round 149 counted four copies of a fact
+ * the list said had two).
  */
 
 /** Workers env bindings — the shape we touch (typed loosely; full bindings live in wrangler config). */
