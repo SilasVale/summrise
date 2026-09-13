@@ -526,7 +526,49 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 113 (the tunnel's REMOTE config failure was invisible — the same
+Last updated: 2026-09-14 round 114 (d1 IS BACK, current on 1.2.364 — and the whole round was spent
+verifying ON THE REAL DEVICE the fixes rounds 110/111 could only pin). No code change; nothing
+released.
+Commit: this round's docs commit. Device: 1.2.364, install `D:\Vale`, data `C:\ProgramData\Vale`,
+one live PTY over the tunnel.
+  (1) THE HUMAN RECOVERY WORKED AND THE DEVICE IS CURRENT: `vale status` answers RUNNING /
+  release 1.2.364 / this CLI 1.2.364 / `this device is current` / update none in flight. Ledger
+  item 1 (d1 recovery) is closed. Everything below is evidence FROM that device, read-only.
+  (2) THE BOOT TASK'S CONTRACT IS REAL — AND ITS PROTECTIVE HALF IS PROVEN BY EFFECT. The live
+  task carries `MSFT_TaskBootTrigger` + `MSFT_TaskTimeTrigger` repeated every PT5M,
+  `MultipleInstances=IgnoreNew`, `RestartCount=3`, `RestartInterval=PT1M`. Round 110 could only
+  pin that in source. Then `schtasks /run /tn ValeAgent` while the agent was healthy was REFUSED
+  (`LastTaskResult 0x800710E0`) and the process table stayed at exactly ONE vale-agent, same
+  PID 3308, same `StartTime 0:43:27` — a healthy agent is never interrupted and no second
+  instance can stack, which is the half that protects the live session.
+  (3) THE TUNNEL SUPERVISOR NOW SPAWNS (round 110 fix 1). `startup.log` contains
+  `cloudflared tunnel: launched from install dir (supervised)`. Round 110's finding was that
+  `Select-String cloudflared` over that same file returned ZERO lines — the supervised path had
+  never run on this device. It has now, and the tunnel carrying this session IS that child.
+  (4) THE RUN JOURNAL IS ALIVE, BUT ITS FIRST VERDICT IS A GAP RATHER THAN AN ANSWER.
+  `run-state.txt` shows `started=1789317807 last=1789318348 exited=0` with `last` refreshed ~40 s
+  before the read, and the boot line says `run journal: no previous run on record (first start, or
+  the journal was cleared)`. That is CORRECT — the journal only exists since 1.2.363 and this
+  00:43 boot is the first on 1.2.364 — so the "restarted every 1-2 hours" mystery is STILL OPEN:
+  the instrument is armed and answers at the NEXT boot. A later reader must not read that line as
+  "the previous run was clean".
+  (5) DELIBERATELY NOT TESTED, AND IT IS A JUDGMENT TO HAND OVER: the boot task's OTHER half —
+  revive an agent that is DEAD. Killing the agent takes cloudflared with it (the kill-on-close
+  job), so the ONLY device goes dark for up to five minutes, and if the revival failed it would
+  need a human again one day after a multi-day outage. That is a blast-radius decision on the only
+  device: proposed as a maintenance window, not taken.
+  (6) A CONFLICT FOUND INSIDE OUR OWN CONSTITUTION, recorded not resolved: the CHARTER's
+  blast-radius row puts "published releases" in the propose column while the goal objective says
+  release cadence is the loop's, reserving sign-off for full rollout and deprecation windows.
+  Read strictly, the CHARTER forbids what the objective grants. Proposal in the ledger
+  (CHARTER-1): replace that cell with "a release that replaces the current version for everyone,
+  and closing a deprecation window". Until the user answers, the stricter text wins and no release
+  ships.
+  (7) STILL OPEN: the restart mystery (armed); reviving a dead agent (proposed window); round 105's
+  panel leftovers; index F2/F3 (memory F5's code half was closed in round 110 through a real
+  failure seam — a live test would mean corrupting the store, so it stays test-level by choice).
+
+Previous round: 2026-09-14 round 113 (the tunnel's REMOTE config failure was invisible — the same
 silent-success shape round 111 fixed one call BELOW it — and the verdict the operator reads is now
 a pure, mutation-proven function). d1 still dark; nothing released.
 Commit: ad4ab8f4. Gates: cargo test 613 (lib 553) + `--features terminal,keyring` 664 (lib 604) +

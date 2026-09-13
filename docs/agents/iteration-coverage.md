@@ -10,18 +10,26 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 113**; HEAD `23593d5f` (round 112's journal).
+- Round log head: **round 114**; HEAD `3782802b` (round 113's journal).
 - **HEAD WAS RED AND NOBODY KNEW**: `tests/module_map.rs` failed against BOTH guides because
   round 110 added `src/runstate.rs` without adding it to the module map, and round 111 shipped
   on top of that. Found by round 112's independent gate run, fixed there. The lesson is cheap to
   state and expensive to forget: `cargo test` also runs `tests/`, and one of those tests READS THE
   GUIDES — so adding a module is a map change, not only a code change.
-- **d1 is DARK (tunnel 530) and needs one human touch** — `vale tunnel start`, then
-  `npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz`,
-  then `vale update`. 1.2.363 and 1.2.364 are published but on NO device, and four
-  agent fixes are unverified at runtime until it is back. Restoring this channel is
-  the highest-value work available (CHARTER: device regression is a gate).
-- No device means: agent-side changes stop at `cargo test` + `clippy` + `xwin check` + static pins.
+- **d1 IS BACK AND CURRENT (1.2.364)** — `vale status`: RUNNING, `this device is current`, no
+  update in flight; install `D:\Vale`, data `C:\ProgramData\Vale`. The multi-day dark period is
+  over. Round 114 spent the live session verifying what rounds 110/111 could only pin: the boot
+  task's revival contract (trigger/settings read from the live task, and the protective half
+  proven BY EFFECT — a manual start while healthy is refused and the process count stays 1), the
+  tunnel supervisor's spawn line, and the run journal. All read-only; see the round-114 log.
+- **The restart-every-1-2-hours mystery is still OPEN, with the instrument now armed**: the run
+  journal exists and is heartbeating, but its first boot line reads "no previous run on record"
+  because the journal only exists since 1.2.363 — so the NEXT boot is the one that answers it.
+  Do not read that line as "the previous run was clean".
+- **NOT tested, deliberately**: reviving a DEAD agent (the boot task's other half). Killing the
+  agent takes cloudflared with it (kill-on-close job), darkening the only device for up to five
+  minutes, with a human recovery if the revival fails. Proposed as a maintenance window, not
+  taken.
 
 ## Surfaces
 
@@ -54,7 +62,7 @@ Seeded 2026-09-14 at round 110.
 | ops `scripts/` (publish / installer / audit / cdn-from-ci) | partial | 102–110 | CDN-vs-GitHub reconcile proposal awaits sign-off; `npm publish` awaits `npm login` |
 | ops CI (`ci.yml`, `release.yml`) | partial | 102–110 | — |
 | docs (README / ARCHITECTURE / ADRs / this ledger) | partial | — | — |
-| field device d1 | BLOCKED | 110 | dark since 1.2.362; recovery needs one human action |
+| field device d1 | seen | 114 | current on 1.2.364; verified live (boot-task contract, tunnel supervisor, run journal). NOT tested: reviving a dead agent — proposed maintenance window. |
 
 ## Open items (each needs an owner round)
 
@@ -74,13 +82,33 @@ no behavioural test can reach it. A remote config that did not land now reads
 `PARTIAL (host): … NOT updated (<cause>) — a remote configuration OVERRIDES the local file, so
 verify this tunnel before trusting it`.
 
-1. **d1 recovery** — one human action; then install 1.2.364 and verify the round-110/111 fixes at runtime (boot-task repetition trigger, tunnel supervisor paths, memory refusal paths, and now the tunnel card's verdicts).
-2. **Agent restarted every 1–2 h before round 110** (cause unknown) — `runstate.rs` now answers this on the next occurrence; read it at the first boot after recovery.
-3. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
-4. **Round 99 leftovers** — memory F5, index F2/F3.
-5. **Panel F5** (host allowlist family match) — recorded as hardening only.
-6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
-7. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
+**Closed in round 114: d1 recovery.** The device is up, current on 1.2.364, and round 114 used it
+to verify the round-110/111 device fixes at runtime (boot-task trigger + IgnoreNew read from the
+live task and the protective half proven by effect; the tunnel supervisor's spawn line; the run
+journal heartbeating).
+
+1. **CHARTER-1 — a conflict inside our own constitution (proposal, waits for the user).** The
+   CHARTER's blast-radius row puts "published releases" in the propose column, while the goal
+   objective says release cadence is the loop's and reserves sign-off for full rollout and
+   deprecation windows. Read strictly, the CHARTER forbids what the objective grants. Proposed
+   replacement for that cell: **"a release that replaces the current version for everyone, and
+   closing a deprecation window"** — publishing under the cadence stays autonomous, replacing
+   everyone's version does not. Until the user answers, no release ships (the CHARTER is stricter,
+   and stricter wins).
+2. **Reviving a DEAD agent is untested** (the boot task's other half). Killing the agent takes
+   cloudflared with it, so the only device goes dark for up to five minutes and needs a human if
+   the revival fails. Proposed: a maintenance window — `Stop-Process vale-agent`, then confirm the
+   task revives it within 5 minutes and the tunnel returns.
+3. **Agent restarted every 1–2 h before round 110** (cause unknown) — the run journal is armed and
+   answers it at the NEXT boot; its first line, "no previous run on record", is a gap in the
+   instrument, not a clean bill of health.
+5. **Round 99 leftovers** — index F2/F3 (round 110 closed the code half of memory F5: the unread
+   `load_failed` flag and the `true`-after-a-failed-append were both fixed, with the test forced
+   through a REAL failure seam. A live test would mean corrupting the store on the only device,
+   so it stays test-level by choice, not by omission).
+6. **Panel F5** (host allowlist family match) — recorded as hardening only.
+7. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
+8. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
 
 ## Finding ID registry
 
