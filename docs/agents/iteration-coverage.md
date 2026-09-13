@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 114**; HEAD `3782802b` (round 113's journal).
+- Round log head: **round 115**; HEAD `cccad7f0` (the index F2/F3 fix, deployed).
 - **HEAD WAS RED AND NOBODY KNEW**: `tests/module_map.rs` failed against BOTH guides because
   round 110 added `src/runstate.rs` without adding it to the module map, and round 111 shipped
   on top of that. Found by round 112's independent gate run, fixed there. The lesson is cheap to
@@ -43,11 +43,11 @@ Seeded 2026-09-14 at round 110.
 | gateway `mcp.ts` / `mcp-tools.ts` / `mcp-browser.ts` | seen | 78, 89 | — |
 | gateway `reliability` / `upstream` / `channels` / `body-scan` / `http` | partial | 64, 89 | — |
 | gateway console SPA (`gateway/ui`) | seen | 61, 91–93 | — |
-| index worker | partial | 99 | F2, F3 |
+| index worker | seen | 99, 115 | — (F2/F3 closed and DEPLOYED round 115) |
 | proxies (zen-go / zen-us / vrelay) | partial | 64 | — |
 | extension (Vale Code Links) | unseen | — | — |
 | agent `plugins/terminal` (26 tools) | partial | 88, SOLID | — |
-| agent `plugins/memory` | seen | 99, 110 | F5 (sanitizer vs pre-fix bytes) |
+| agent `plugins/memory` | seen | 99, 110 | F5 was closed in round 110 in code (the unread `load_failed` flag; `true` after a failed append) with the test forced through a REAL failure seam — the LIVE half stays test-level by choice, since proving it on the device means corrupting the store |
 | agent `plugins/runs` + `runs.rs` | seen | 110 | — |
 | agent `plugins/update` | seen | 553–555, SOLID | layout-v2 migration + rollback still need a device run |
 | agent `plugins/system` / `mcp_client` / `playwright` | partial | 89, SOLID R98 | — |
@@ -87,6 +87,16 @@ to verify the round-110/111 device fixes at runtime (boot-task trigger + IgnoreN
 live task and the protective half proven by effect; the tunnel supervisor's spawn line; the run
 journal heartbeating).
 
+**Closed in round 115: index F2 + F3, deployed and verified live.** `vale-playwright.zip` is an
+executed artifact at a MUTABLE key, so it now carries R2's content digest as a quoted ETag plus
+`public, no-cache` and the object's authoritative size: a revalidating device gets a 304 (0 bytes),
+a replaced bundle changes the digest, and a stale archive can no longer be served for a day. The
+three binary proxies now answer every failure — including a REJECTED fetch, which used to become
+the platform's 500 HTML — through one `proxyFailure` helper carrying the JSON envelope this file
+already defined for uploads, with `cache-control: no-store`. Live: 200 + etag `"5fd7cf29…"` +
+`content-length 31374231` + `public, no-cache`; `If-None-Match` → 304/0 bytes; a non-matching
+validator → the full body; tgz, `version.json` and the cloudflared proxy unchanged.
+
 1. **CHARTER-1 — a conflict inside our own constitution (proposal, waits for the user).** The
    CHARTER's blast-radius row puts "published releases" in the propose column, while the goal
    objective says release cadence is the loop's and reserves sign-off for full rollout and
@@ -103,13 +113,9 @@ journal heartbeating).
    answers it at the NEXT boot; its first line, "no previous run on record", is a gap in the
    instrument, not a clean bill of health.
 4. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
-5. **Round 99 leftovers** — index F2/F3 (round 110 closed the code half of memory F5: the unread
-   `load_failed` flag and the `true`-after-a-failed-append were both fixed, with the test forced
-   through a REAL failure seam. A live test would mean corrupting the store on the only device,
-   so it stays test-level by choice, not by omission).
-6. **Panel F5** (host allowlist family match) — recorded as hardening only.
-7. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
-8. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
+5. **Panel F5** (host allowlist family match) — recorded as hardening only.
+6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
+7. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
 
 ## Finding ID registry
 
@@ -118,7 +124,9 @@ skips the suffix allowlist at dial time (fixed round 95) · `panel F1` loopback
 branch trusts a client Host header · `panel F2` `?grant=` not single-use over
 eventual consistency, no device-side audit · `panel F3` grant route shape check
 looser than the gateway's · `panel F5` host allowlist family match · `memory F5`
-sanitizer gap on pre-fix bytes · `index F2/F3` (round 99) · `tunnel F1`
+a failed append reported as a saved record, an unreadable store read as EMPTY
+(fixed round 110) · `index F2/F3` no validator on the executed bundle, failures
+outside the file's protocol (fixed and deployed round 115) · `tunnel F1`
 `update_remote_config` failed silently · `tunnel F2` the FAILED branch was unpinned
 (both fixed round 113).
 

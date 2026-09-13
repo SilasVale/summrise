@@ -526,10 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 114 (d1 IS BACK, current on 1.2.364 — and the whole round was spent
+Last updated: 2026-09-14 round 115 (index F2/F3 closed and DEPLOYED: the executed playwright
+bundle was served from a MUTABLE key with a day-long cache and no validator, and all three binary
+proxies answered failures outside their own file's protocol). No agent/release change.
+Commit: cccad7f0. Deploy: `vale-dist` version `921e3b16`. Tests: index 83 (was 75).
+  (1) F2 — `vale-playwright.zip` is an EXECUTED artifact at a mutable R2 key, and it was served
+  `public, max-age=86400` with NO validator while `vale setup` stages it unhashed: a device could
+  spend a day being handed a stale archive. It now sends R2's own content digest as a quoted ETag
+  with `public, no-cache` (REVALIDATE, not "do not store") and the object's authoritative
+  `content-length`. VERIFIED LIVE: 200 + `etag "5fd7cf29…"` + `content-length 31374231` +
+  `public, no-cache`; `If-None-Match` → **304 with 0 bytes**; a non-matching validator → the full
+  31374231-byte body. Regression clean on the tgz, `version.json` and the cloudflared proxy.
+  (2) F3 — one `proxyFailure` helper now owns every failure on all three routes: 502 with the JSON
+  envelope this file already defined for the upload path, plus `cache-control: no-store` (a cached
+  failure outlives the outage). Each route also wraps its upstream in try/catch, so a REJECTED
+  fetch (DNS, TLS, a GitHub 5xx storm) is a documented 502 instead of the platform's 500 HTML page
+  that no device-side reader parses. `electron-route.test.mjs` had RECORDED this gap in its own
+  header ("no try/catch around the fetch … deliberately not cemented here") — the comment is
+  corrected and `test/proxy-routes.test.mjs` cements it.
+  (3) EIGHT PINS, FIVE MUTATIONS, ALL CAUGHT: the old caching (3 failures), ignoring
+  If-None-Match (1), a constant instead of a content-derived ETag (2), removing the try/catch (1),
+  and reverting the envelope to bare text (5).
+  (4) NOT LIVE-VERIFIED, stated so the green is not overread: the F3 FAILURE paths (rejected fetch,
+  non-ok upstream, R2 read failure). Triggering them live means breaking GitHub or deleting the
+  bundle; the evidence there is the unit pins plus the mutation proofs, not a device.
+  (5) THE HARNESS HAD TO GROW THE READ SHAPE THE ROUTE RELIES ON: the in-memory R2 mock now
+  returns `size` and a CONTENT-DERIVED `httpEtag` (md5, quoted, as a bucket does) — a constant
+  etag would have let the staleness test pass for the wrong reason, which is the failure mode this
+  repo keeps finding in its own tests.
+  (6) STILL OPEN: CHARTER-1 (waiting on the user, so NO release shipped this round either); the
+  dead-agent revival test (proposed maintenance window); the restart mystery (journal armed for
+  the next boot); round 105's panel leftovers; memory F5's live half (test-level by choice).
+
+Previous round: 2026-09-14 round 114 (d1 IS BACK, current on 1.2.364 — and the whole round was spent
 verifying ON THE REAL DEVICE the fixes rounds 110/111 could only pin). No code change; nothing
 released.
-Commit: this round's docs commit. Device: 1.2.364, install `D:\Vale`, data `C:\ProgramData\Vale`,
+Commit: 447b7814 + a3fb769d. Device: 1.2.364, install `D:\Vale`, data `C:\ProgramData\Vale`,
 one live PTY over the tunnel.
   (1) THE HUMAN RECOVERY WORKED AND THE DEVICE IS CURRENT: `vale status` answers RUNNING /
   release 1.2.364 / this CLI 1.2.364 / `this device is current` / update none in flight. Ledger
