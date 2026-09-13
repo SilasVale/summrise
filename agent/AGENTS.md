@@ -526,6 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 125 (D4: the landing page handed fresh installs a THREE-RELEASE-OLD
+installer and said nothing — measured live, then closed by making the door offer only what the
+release describes). DEPLOYED. Commit: this round's index/ + docs.
+Deploy: `vale-dist` `3e313b52-2bd2-4fa2-9c14-d266e37ece8b`; index suite 89 (was 83).
+  (1) THE MEASUREMENT, and it is the whole reason this was worth a round. The live manifest for
+  1.2.364 carries `version`/`download`/`sha256` and NO installer — 1.2.364 was published tgz-only,
+  the documented emergency path. Meanwhile:
+    `ValeAgent-Setup.exe`         -> 200, etag f1dc1c8e86ab125f9f8d078b23ed400c
+    `ValeAgent-Setup-1.2.361.exe` -> 200, etag f1dc1c8e86ab125f9f8d078b23ed400c
+    `ValeAgent-Setup-1.2.36{2,3,4}.exe` -> 404
+  Same etag = same bytes: the alias served the **1.2.361** installer while `/api/version` advertised
+  1.2.364, and the landing page linked it unconditionally. A fresh-install user got a three-release-
+  old installer from a page that promised the current one, and nothing anywhere said so.
+  (2) THE RULE APPLIED IS THE ONE THIS LOOP KEEPS RE-LEARNING: name nothing you cannot back. The
+  page renders the installer button only when the manifest carries BOTH `installer` AND
+  `installer_sha256`; when it carries neither (or the manifest cannot be read at all) the page says
+  so and points at the npm channel, which is current and is the supported one anyway. The template's
+  `safePageUrl(setupUrl, "/vale-agent/ValeAgent-Setup.exe")` FALLBACK was itself the trap: it would
+  have resurrected the link from a null argument, so it is gone rather than defaulted.
+  (3) TWO TEST LAYERS, AND THE SECOND ONE IS WHY THIS IS PINNED. The template test proves the page
+  honours a null URL; the ROUTE test drives the real worker handler with a mocked ASSETS binding and
+  asserts on the SERVED HTML. Mutation M2 (handler sets setupUrl unconditionally, manifest never
+  read) fails ONLY the route test — 3 failures there, zero in the template test — which is exactly
+  the half that was broken in production. A third case pins the HALF-written manifest (`installer`
+  without `installer_sha256`) as no promise, matching the smoke's own "both or neither" rule.
+  (4) THREE MUTATIONS, ALL CAUGHT: template always renders the button (4 failures), handler never
+  reads the manifest (3), handler accepts a half-manifest (1). Index suite 89 (was 83).
+  (5) DEPLOYED AND VERIFIED LIVE: `curl https://agent.saisi.online/` now has ZERO occurrences of
+  "Download Windows installer" and ZERO of `ValeAgent-Setup.exe`, one instance of the honest hint,
+  and three of the npm command; `/api/version` is unchanged and `build.sh index`'s own smoke passed
+  (v1.2.364, versioned + latest binary sha verified).
+  (6) NOT FIXED, AND NAMED SO IT IS NOT MISTAKEN FOR CLOSED: the alias ITSELF still serves the
+  1.2.361 installer, and `smoke_index_release` still says nothing about it when the manifest does
+  not advertise one. Nothing links it now, so the user-visible harm is gone — but it is a stale
+  artifact nobody names, recorded as D4b in the ledger. Refreshing it means building an installer
+  for 1.2.364, which is a release action (CHARTER-1 still unanswered).
+  (7) STILL OPEN: D4b, D5-D9, D11-D13; the extension's X1/X3/X6/X8; the proxies' P2-P10; the three
+  unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 124 (D10: the online installer's CDN fallback handed `npm install
 -g` a tarball it had never hashed — the one path that fetches EXECUTABLE CODE over the network, on
 the branch the script takes deliberately when the embedded payload is missing).

@@ -15,9 +15,16 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   const safeInstaller = escHtml(
     safePageUrl(installerUrl, "/vale-agent/vale-agent-latest.tgz"),
   );
-  const safeSetup = escHtml(
-    safePageUrl(setupUrl, "/vale-agent/ValeAgent-Setup.exe"),
-  );
+  // THE DOOR MUST NOT OFFER WHAT THE RELEASE DOES NOT DESCRIBE (round 125).
+  // A tgz-only publish leaves the ValeAgent-Setup.exe alias serving the PREVIOUS
+  // release while /api/version advertises the new one, so a "Download Windows
+  // installer" button would hand a fresh install the old build. The caller passes
+  // a URL only when the manifest advertises an installer; the fallback that used
+  // to live here would have resurrected the link anyway, so there is none.
+  const setupBlock = setupUrl
+    ? `<a class="btn-primary" href="${escHtml(safePageUrl(setupUrl, "/vale-agent/ValeAgent-Setup.exe"))}">Download Windows installer</a>
+        <span class="hint">Easiest path: one setup.exe (needs admin + internet, no Node.js required). Or the manual channel below.</span>`
+    : `<span class="hint">No Windows installer is published for this release — use the npm channel below: it installs the same agent and updates itself.</span>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -327,8 +334,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
 
     <div class="card">
       <div class="actions">
-        <a class="btn-primary" href="${safeSetup}">Download Windows installer</a>
-        <span class="hint">Easiest path: one setup.exe (needs admin + internet, no Node.js required). Or the manual channel below.</span>
+        ${setupBlock}
         <code class="cmd">npm i -g ${safeInstaller}</code>
         <span class="hint">Run on the Windows machine connected to the device. Requires Node.js + admin rights.</span>
       </div>

@@ -608,7 +608,32 @@ export default {
     // domain is hardcoded.
     const installerUrl = `${url.origin}/vale-agent/vale-agent-latest.tgz`;
     // Windows setup.exe 别名（build-installer.sh 每次发版同步），同源、无硬编码。
-    const setupUrl = `${url.origin}/vale-agent/ValeAgent-Setup.exe`;
+    //
+    // ...BUT ONLY WHEN THIS RELEASE ACTUALLY PUBLISHED ONE (round 125). A tgz-only
+    // publish (the documented emergency path) leaves the versionless alias serving
+    // the PREVIOUS release while /api/version advertises the new one — so linking
+    // it unconditionally hands a fresh install the old build and says nothing. The
+    // manifest is the only thing that knows: it carries `installer` +
+    // `installer_sha256` exactly when build-installer.sh produced one for THIS
+    // version. Unreadable manifest = no promise, not a guess.
+    let setupUrl = null;
+    try {
+      const mresp = await env.ASSETS.fetch(
+        new Request("https://worker.local/vale-agent/version.json"),
+      );
+      if (mresp.ok) {
+        const mj = await mresp.json();
+        if (
+          mj &&
+          typeof mj.installer === "string" &&
+          typeof mj.installer_sha256 === "string"
+        ) {
+          setupUrl = `${url.origin}/vale-agent/ValeAgent-Setup.exe`;
+        }
+      }
+    } catch {
+      /* no installer advertised — the npm channel below is the honest path */
+    }
 
     return new Response(PAGE(consoleUrl, installerUrl, setupUrl), {
       headers: { "content-type": "text/html; charset=utf-8" },
