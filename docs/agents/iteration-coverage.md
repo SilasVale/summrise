@@ -102,6 +102,7 @@ journal heartbeating).
 3. **Agent restarted every 1–2 h before round 110** (cause unknown) — the run journal is armed and
    answers it at the NEXT boot; its first line, "no previous run on record", is a gap in the
    instrument, not a clean bill of health.
+4. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
 5. **Round 99 leftovers** — index F2/F3 (round 110 closed the code half of memory F5: the unread
    `load_failed` flag and the `true`-after-a-failed-append were both fixed, with the test forced
    through a REAL failure seam. A live test would mean corrupting the store on the only device,
