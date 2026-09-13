@@ -78,6 +78,24 @@ Design signals: the same fix shape appearing a second time (= missing single
 owner), a pair defect, one logic hand-written at N sites, a seam no test can
 see, an incident post-mortem, field feedback.
 
+### Ideas have a channel (proposals)
+
+Structural creativity belongs to the loop; direction belongs to the user. When a
+round produces an idea that is bigger than its own change — a new surface, a
+different shape for something, a "this should exist" — it writes an unnumbered
+`docs/adr/proposal-*.md`. Proposals need no approval to be written, and the
+three already in the repo (`proposal-control-path`, `proposal-game-design`,
+`proposal-interactive-browser`) are the precedent: nobody asked for them.
+
+Three rules keep ideas from rotting:
+
+- every proposal is registered in the round log the round it appears;
+- every proposal reaches an explicit status (adopted / rejected / parked) within
+  30 rounds — a proposal may not sit undecided forever;
+- when the user rejects one, the reason is written INTO the proposal — a
+  rejection reason is a new constraint, and constraints are what the next idea
+  is built from.
+
 Pull skills when they fit: `codebase-design`, `domain-modeling`, `prototype`,
 `grilling`, `writing-for-agents`.
 

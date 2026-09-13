@@ -53,6 +53,11 @@ Seeded 2026-09-14 at round 110.
 
 ## Open items (each needs an owner round)
 
+0. **ORPHAN CHANGE IN THE TREE** — `agent/src/tunnel.rs` carries ~61 uncommitted lines from an
+   interrupted round: `install_tunnel_config()` making a failed config write neither report
+   success nor bump the restart generation, plus a test that fails it through a real
+   un-writable path. It is good work and must not be lost: round 1 adopts it — run the gates,
+   commit it if green (it belongs with round 110's supervisor fixes), revert with a note if not.
 1. **d1 recovery** — one human action; then install 1.2.364 and verify the round-110 fixes at runtime (boot-task repetition trigger, tunnel supervisor paths, memory refusal paths).
 2. **Agent restarted every 1–2 h before round 110** (cause unknown) — `runstate.rs` now answers this on the next occurrence; read it at the first boot after recovery.
 3. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
