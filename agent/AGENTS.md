@@ -526,6 +526,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 148 (P9c CLOSED — as NOT A DEFECT. The "unlabelled upstream" it
+described was manufactured by my own test: a string-bodied Response is AUTO-LABELLED text/plain by the
+constructor, so the state the test claimed to exercise could not exist). Commit: proxies/ + docs.
+Tests: zen-us 13, `todo` count ZERO (was 1).
+  (1) HOW IT DIED, AND WHY THAT IS THE ROUND: the ledger said the mechanism was unestablished, so I
+  enumerated every `return new Response` in zen-us. Four candidates: the OPTIONS preflight (null body),
+  `/v1/models`, and the two pass-throughs I fixed in 136/137 — both of which DO carry the
+  `|| "text/event-stream"` fallback. `corsHeaders` sets no content-type, so the `...cors` spread could
+  not be clobbering it. The remaining explanation was the harness, and one command confirmed it:
+  `new Response("data: {}\n\n", { status: 200 }).headers.get("content-type")` is
+  `"text/plain;charset=UTF-8"` — the Fetch spec labels a STRING body automatically.
+  (2) SO THE RELAY WAS RIGHT AND THE TEST WAS WRONG: the stub always declared a type, the pass-through
+  faithfully forwarded it, and the fallback the finding accused the code of skipping was never
+  reachable in that scenario. A real upstream that declares nothing sends no header, and the fallback
+  applies there — which is exactly what rounds 136/137 built and pinned.
+  (3) THE TEST IS NOW THE HONEST FORM OF THE INTENT: "an upstream that labels its body text/plain is
+  forwarded AS text/plain" — the relay must not OVERRIDE what the upstream said; the SSE fallback is
+  for an answer that says NOTHING, which a string-bodied Response cannot express. The `todo` is gone
+  because the premise is gone, and zen-us's todo count is zero for the first time.
+  (4) THE META-LESSON, WHICH IS NOW THREE TIMES OVER IN THIS STRETCH: round 136 read a second code
+  path as a conversion branch (137 corrected it), round 143 found a second copy of a claim I had just
+  fixed, and now 148 finds a finding manufactured by the instrument. When a test says the code is
+  wrong, the cheapest next question is whether the TEST can express the state it claims to test — one
+  command answered it here, after 11 rounds of carrying a phantom in the ledger.
+  (5) STILL OPEN: D13's build path (cannot be driven without publishing); the three unreconciled
+  versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery. Both the
+  extension surface AND the proxies' finding list are now CLEAR.
+
 Last updated: 2026-09-14 round 147 (a VERIFICATION round closing the 139-146 stretch: every suite
 re-run in one sweep after thirteen commits' worth of change — nothing red, and the two counts that
 should have moved, moved). No code changed; commit: journal + ledger only.

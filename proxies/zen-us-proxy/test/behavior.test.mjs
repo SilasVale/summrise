@@ -299,23 +299,35 @@ test("a real SSE answer keeps its SSE label (and an unlabelled one still default
   }
 });
 
-// MEASURED, NOT ASSUMED (round 137), and it CORRECTS the claim round 136 made in
-// its own comment: on this path an upstream that declares NO content-type does not
-// get the historical SSE label back — the answer arrives unlabelled. Two of the
-// three sites were fixed (rounds 136/137); this is the third behaviour, recorded as
-// P9c in the ledger and reproduced here. `todo` keeps the suite green while the gap
-// stays visible, and the runner says so when it closes.
-test("an upstream that declares no content-type keeps the SSE label", { todo: "zen-us: an unlabelled upstream answer comes back unlabelled — ledger P9c" }, async () => {
+// P9c WAS A PHANTOM, AND THE INSTRUMENT THAT KILLED IT WAS ONE NODE COMMAND
+// (round 148). Round 137 recorded "an upstream that declares no content-type comes
+// back unlabelled" as an open finding, on the strength of this test. The test was
+// WRONG, not the code: `new Response("string", { status: 200 })` AUTO-LABELS the body
+// `text/plain;charset=UTF-8` (the Fetch spec's default for a string body — verified:
+// `node -e 'console.log(new Response("x",{status:200}).headers.get("content-type"))'`).
+// So the stub could never produce the state the test claimed to exercise, the relay
+// faithfully forwarded `text/plain`, and the SSE fallback it was accused of skipping
+// was never reachable in that scenario. A real upstream that declares nothing sends
+// no content-type header at all, and the fallback DOES apply there.
+test("an upstream that labels its body text/plain is forwarded AS text/plain", async () => {
+  // The honest form of what round 137 was reaching for: the relay must not OVERRIDE
+  // what the upstream said. Falling back to SSE is for an answer that says NOTHING —
+  // which a string-bodied Response cannot express, because the constructor labels it.
   const real = globalThis.fetch;
-  globalThis.fetch = async () => new Response("data: {}\n\n", { status: 200 });
+  globalThis.fetch = async () => new Response("not sse at all", { status: 200 });
   try {
     const r = await worker.fetch(
       req("POST", "/v1/responses", { bearer: "sk-zen-us-caller-0123456789", body: { model: "x", stream: true } }),
       { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: "sk-zen-us-test-key-0123456789" },
     );
     assert.equal(r.status, 200);
-    assert.match(r.headers.get("content-type") || "", /text\/event-stream/, "unlabelled defaults to SSE");
+    assert.match(
+      r.headers.get("content-type") || "",
+      /text\/plain/,
+      "the upstream's own label wins over our fallback",
+    );
   } finally {
     globalThis.fetch = real;
   }
 });
+
