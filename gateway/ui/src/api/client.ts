@@ -191,6 +191,11 @@ export const api = {
     usEgress?: boolean;
     search?: boolean;
     responsesOnly?: boolean;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+    /** Default when the client sends none; the client's own value always wins. */
+    reasoningEffort?: "low" | "medium" | "high" | "max";
   }) =>
     request<{ ok: boolean }>("/api/admin/models", { method: "POST", body: JSON.stringify(spec) }),
   /** Built-ins are DISABLED, not deleted — their six facets cannot be re-derived. */

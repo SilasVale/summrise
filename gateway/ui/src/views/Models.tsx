@@ -90,6 +90,9 @@ export default function ModelsView() {
     name: "",
     contextWindow: "",
     maxTokens: "",
+    // Typed as the union (plus "") so the empty option is "no default" rather than
+    // an arbitrary string the API would have to reject.
+    reasoningEffort: "" as "" | "low" | "medium" | "high" | "max",
   });
   const [advanced, setAdvanced] = useState(false);
   const [newProvider, setNewProvider] = useState({ prefix: "", label: "", baseURL: "", api: "", apiKey: "" });
@@ -209,6 +212,9 @@ export default function ModelsView() {
         await api.addModel({
           id,
           ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+          // A DEFAULT, not a policy: the client's own reasoning always wins, which is
+          // the only reason a form may set it at all.
+          ...(draft.reasoningEffort ? { reasoningEffort: draft.reasoningEffort } : {}),
           ...(ctx !== undefined ? { contextWindow: ctx } : {}),
           ...(max !== undefined ? { maxTokens: max } : {}),
           ...(draft.wire.trim() ? { wire: draft.wire.trim() } : {}),
@@ -216,7 +222,16 @@ export default function ModelsView() {
           ...(draft.search ? { search: true } : {}),
         });
         toast(t("models.added"));
-        setDraft({ id: "", wire: "", usEgress: false, search: false, name: "", contextWindow: "", maxTokens: "" });
+        setDraft({
+          id: "",
+          wire: "",
+          usEgress: false,
+          search: false,
+          name: "",
+          contextWindow: "",
+          maxTokens: "",
+          reasoningEffort: "",
+        });
         await load();
       } catch (err) {
         toast(err instanceof ApiError ? err.message : t("route.fail"), true);
@@ -446,7 +461,16 @@ export default function ModelsView() {
                     aria-expanded={isOpen}
                     onClick={() => {
                       setOpen(isOpen ? null : prefix);
-                      setDraft({ id: "", wire: "", usEgress: false, search: false, name: "", contextWindow: "", maxTokens: "" });
+                      setDraft({
+          id: "",
+          wire: "",
+          usEgress: false,
+          search: false,
+          name: "",
+          contextWindow: "",
+          maxTokens: "",
+          reasoningEffort: "",
+        });
                       setNewModel("");
                     }}
                   >
@@ -618,6 +642,26 @@ export default function ModelsView() {
                           value={draft.contextWindow}
                           onChange={(e) => setDraft({ ...draft, contextWindow: e.target.value })}
                         />
+                      </label>
+                      <label>
+                        <span>{t("models.effortLabel")}</span>
+                        <select
+                          className="form-input"
+                          value={draft.reasoningEffort}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              reasoningEffort: e.target.value as typeof draft.reasoningEffort,
+                            })
+                          }
+                        >
+                          <option value="">{t("models.effortNone")}</option>
+                          {["low", "medium", "high", "max"].map((lv) => (
+                            <option key={lv} value={lv}>
+                              {lv}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label>
                         <span>{t("models.maxLabel")}</span>

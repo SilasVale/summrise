@@ -107,6 +107,19 @@ export interface ModelSpec {
   contextWindow?: number;
   /** Max output tokens, same rule. */
   maxTokens?: number;
+  /** Default reasoning effort when the CLIENT does not send one.
+   *
+   *  A THIRD CATEGORY, and the reason it may live in a form at all: unlike `wire` or
+   *  `usEgress`, this is not a routing decision — it is a DEFAULT PARAMETER, and the
+   *  client's own `reasoning` always wins (see the injection site in translate.ts).
+   *  A value that cannot be overridden would change what a request means; one that can
+   *  only fills a gap does not.
+   *
+   *  CONSULTED BY RECORD, NOT BY WIRE NAME. The built-in flags (`reasoningMax`) are
+   *  looked up by wire, which is why that file insists a wire slug be unique; a
+   *  per-model default that two models could share through a wire collision would be
+   *  exactly the kind of silent inheritance this field exists to avoid. */
+  reasoningEffort?: "low" | "medium" | "high" | "max";
   /** Reasoning-effort model: default effort=max when the client sends none.
    *
    *  The MECHANISM follows the path, so it is part of the facet:

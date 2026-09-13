@@ -155,6 +155,16 @@ function parseModelSpec(body: any): { spec?: ModelSpec; error?: string } {
     if (field === "contextWindow") spec.contextWindow = n;
     else spec.maxTokens = n;
   }
+  // The reasoning DEFAULT. An unknown level is refused here rather than dropped: a
+  // typo that silently means "no default" is a behaviour change nobody can see.
+  const effort = String(body?.reasoningEffort ?? "").trim();
+  if (effort) {
+    if (!["low", "medium", "high", "max"].includes(effort))
+      return {
+        error: `reasoningEffort must be one of low, medium, high, max — got ${JSON.stringify(effort)}`,
+      };
+    spec.reasoningEffort = effort as "low" | "medium" | "high" | "max";
+  }
   return { spec };
 }
 

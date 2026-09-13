@@ -584,3 +584,81 @@ test("MODEL facets: a name with control characters is refused", async () => {
   assert.equal(res.status, 400);
   assert.match(String(res.body?.error?.message ?? ""), /name/);
 });
+
+/* ------------- the reasoning default -------------
+ *
+ * A DEFAULT PARAMETER, not a routing decision: the client's own `reasoning` always
+ * wins, which is the only reason a form may own it. Consulted BY RECORD — keying the
+ * lookup on the route kind left a console-added model on a BUILT-IN channel unable to
+ * declare anything, which is the case these two tests exist for.
+ */
+const effortBody = {
+  model: "og/new-thing",
+  max_tokens: 16,
+  messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+};
+
+test("EFFORT: a model declaring a level gets it when the client sends none", async () => {
+  const { call, json } = await harness();
+  await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/new-thing", reasoningEffort: "high" },
+    }),
+  );
+  let seen;
+  const res = await withFetch(
+    async (url, init) => {
+      seen = { url: String(url), init };
+      return openaiReply("ok");
+    },
+    () => call("POST", "/v1/messages", { auth: false, body: effortBody }),
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const sent = JSON.parse(seen.init.body);
+  assert.deepEqual(sent.reasoning, { effort: "high" });
+});
+
+test("EFFORT: the default NEVER clobbers a client's own value", async () => {
+  // The claim "a default, not a policy" has to hold where a client CAN speak: the
+  // OpenAI-format arm forwards the body, so the client's own `reasoning` must arrive
+  // upstream untouched. (On the Anthropic arm there is nothing to preserve — the
+  // translator does not map Anthropic's `thinking` at all, which `translate.ts` states
+  // at the injection site; asserting it here would have been asserting a fiction, and
+  // the first version of this test did exactly that.)
+  const { call, json } = await harness();
+  await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/deepseek-v4.1-flash", reasoningEffort: "high" },
+    }),
+  );
+  let seen;
+  const res = await withFetch(
+    async (url, init) => {
+      seen = { url: String(url), init };
+      return openaiReply("ok");
+    },
+    () =>
+      call("POST", "/v1/chat/completions", {
+        auth: false,
+        body: {
+          model: "og/deepseek-v4.1-flash",
+          max_tokens: 16,
+          reasoning: { effort: "low" },
+          messages: [{ role: "user", content: "hi" }],
+        },
+      }),
+  );
+  assert.ok(res.status === 200 || res.status === 409, `unexpected ${res.status}`);
+  assert.deepEqual(JSON.parse(seen.init.body).reasoning, { effort: "low" });
+});
+
+test("EFFORT: an unknown level is refused by name rather than silently dropped", async () => {
+  const { call, json } = await harness();
+  const res = await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/new-thing", reasoningEffort: "turbo" },
+    }),
+  );
+  assert.equal(res.status, 400);
+  assert.match(String(res.body?.error?.message ?? ""), /reasoningEffort/);
+});

@@ -30,10 +30,11 @@
 import { cget, cset, cdel, type Env } from "./cache.ts";
 import { MODEL_REGISTRY, ROUTE_INFO, type ModelSpec } from "../channels.ts";
 import {
+  SUPPORTED_PROVIDER_APIS,
   advertisedProviderModels,
   barePrefix,
   customProviders,
-  SUPPORTED_PROVIDER_APIS,
+  providerForPrefix,
 } from "./providers.ts";
 
 const CUSTOM_KEY = "models:custom";
@@ -262,4 +263,26 @@ export function isBuiltIn(id: string): boolean {
 /** Forget the per-isolate cache (tests, and any explicit resync). */
 export function dropModelCache(): void {
   cdel(CUSTOM_KEY, DISABLED_KEY);
+}
+
+/**
+ * The reasoning default a model DECLARES, looked up BY RECORD.
+ *
+ * Two stores can own a model's declaration: a console-added record on a built-in
+ * channel, or a model inside a custom provider's record. Both are form-owned, so both
+ * are consulted here rather than through `wireSpec` (which is the built-in registry's
+ * by-wire lookup and cannot see either).
+ *
+ * Returns null when nothing declares one — the caller then falls back to the registry's
+ * built-in behaviour, which is what keeps every existing model unchanged.
+ */
+export async function declaredReasoningEffort(env: Env, id: string): Promise<string | null> {
+  const custom = (await customModels(env)).find((m) => m.id === id);
+  if (custom?.reasoningEffort) return custom.reasoningEffort;
+  const slash = id.indexOf("/");
+  if (slash < 0) return null;
+  const provider = await providerForPrefix(env, id.slice(0, slash + 1));
+  const bare = id.slice(slash + 1);
+  const model = (provider?.models ?? []).find((m) => String(m?.id ?? "") === bare);
+  return (model as { reasoningEffort?: string } | undefined)?.reasoningEffort ?? null;
 }

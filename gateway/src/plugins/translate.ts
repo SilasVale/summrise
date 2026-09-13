@@ -21,7 +21,7 @@
  * just the entry points.
  */
 
-import { advertisedIds, extraModelEntries } from "../store/models.ts";
+import { advertisedIds, declaredReasoningEffort, extraModelEntries } from "../store/models.ts";
 import { providerKey, providerModelVision, type ProviderSpec } from "../store/providers.ts";
 import { findUserByToken, getUserKeys, getGlobalSetting, globalSettingEnabled } from "../store.ts";
 import {
@@ -1004,7 +1004,6 @@ async function handleGatewayImpl(
       // translation — round-46 Medium #3).
       if (route.type !== "passthrough" || route.upstream !== OG_ZEN_ANTHROPIC) {
         model = searchModel;
-        // eslint-disable-next-line no-useless-assignment
         effectiveModel = searchModel;
         body.model = searchWireModel;
         upstreamModel = searchWireModel;
@@ -1449,12 +1448,24 @@ async function handleGatewayImpl(
   // (channels.ts's wireSpec strips the channel), so a provider model that
   // happens to reuse an og/ wire spelling would inherit that og/ model's
   // reasoning default. A provider-declared route carries no built-in facets.
-  if (
-    route.kind !== "custom" &&
-    reasoningMaxParsedFor(upstreamModel) &&
-    openaiReq.reasoning === undefined
-  ) {
-    openaiReq.reasoning = { effort: "max" };
+  // THE REASONING DEFAULT, from whichever store owns the declaration. A built-in
+  // model's comes from the registry BY WIRE NAME (which is why those entries must have
+  // a unique wire); a form-owned model's comes from its RECORD, by id — a per-model
+  // default must not be inheritable through a wire collision.
+  //
+  // A CLIENT THAT SENT `reasoning` ALWAYS WINS. That is what makes this a default
+  // rather than a policy, and it is why the value may be edited from the console at
+  // all.
+  // THE RECORD IS CONSULTED FIRST, whatever channel the prefix belongs to. Keying this
+  // on `route.kind === "custom"` was wrong: a model ADDED FROM THE CONSOLE to a
+  // built-in channel has an ordinary route kind, so it would never have been asked —
+  // the record is the form-owned store, and the route kind says nothing about which
+  // store a declaration lives in.
+  const declaredEffort =
+    (await declaredReasoningEffort(env, effectiveModel)) ??
+    (route.kind === "custom" ? null : reasoningMaxParsedFor(upstreamModel) ? "max" : null);
+  if (declaredEffort && openaiReq.reasoning === undefined) {
+    openaiReq.reasoning = { effort: declaredEffort };
   }
   const translateKey =
     route.kind === "custom" ? bearerKey : route.kind === "commandgoat" ? byok.cmd : byok.opencodeGo;

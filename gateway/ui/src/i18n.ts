@@ -350,6 +350,8 @@ const I18N = {
     "models.nameLabel": "显示名",
     "models.ctxLabel": "上下文窗口（tokens）",
     "models.maxLabel": "最大输出（tokens）",
+    "models.effortLabel": "推理档位（客户端未指定时的默认）",
+    "models.effortNone": "不设默认",
   },
   en: {
     "app.sub": "AI relay & devices",
@@ -711,6 +713,8 @@ const I18N = {
     "models.nameLabel": "Display name",
     "models.ctxLabel": "Context window (tokens)",
     "models.maxLabel": "Max output (tokens)",
+    "models.effortLabel": "Reasoning effort (default when the client sends none)",
+    "models.effortNone": "No default",
   },
 } as const;
 
