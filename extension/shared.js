@@ -38,9 +38,14 @@ const LINKABLE_DOT_DIRS = [".github"];
 
 // Normalize to a bare https:// origin (path/query dropped), or null when the
 // value is not a well-formed https:// URL. Canonical guard: the code-server
-// session rides on browser cookies (Access + code-server password), so the
-// origin must never be a cleartext http:// URL (MITM leak) or something that
-// isn't a URL at all.
+// session rides on browser cookies — and THE COOKIES ARE THE ONLY GATE, which is
+// what makes this check load-bearing rather than tidy (round 141, X8). The live
+// server runs `--auth none` (pm2 args: ["--auth","none","/home/zhengsaisi"]), so
+// there is NO code-server password; Cloudflare Access is the single gate in front
+// of it. An earlier version of this comment said "Access + code-server password",
+// which named a credential that does not exist and read as defence-in-depth where
+// there is none. So the origin must never be a cleartext http:// URL (an Access
+// cookie over http is the whole door) or something that isn't a URL at all.
 function httpsOrigin(v) {
   try {
     const u = new URL(v);

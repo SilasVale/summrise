@@ -526,6 +526,33 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 141 (X8: the extension told its reader there was a code-server
+password behind Cloudflare Access. There is not — the live server runs `--auth none`, so Access is the
+ONLY gate in front of a shell, and the comment made the https requirement read as defence-in-depth
+where it is the whole door). Commit: extension/ + docs. Tests: extension 11, unchanged.
+  (1) THE CLAIM, AND THE FACT, BOTH READ RATHER THAN ASSUMED. `extension/shared.js` said the session
+  "rides on browser cookies (Access + code-server password)". Ground truth on this box: `pm2 jlist`
+  shows the live app running `["--auth","none","/home/zhengsaisi"]` — there is NO code-server password,
+  because auth is off entirely. The same file says `--auth none` twelve lines earlier, so the file
+  contradicted itself and the wrong half was the one describing the security model.
+  (2) WHY IT MATTERS MORE THAN A TYPO: with `--auth none`, anyone who reaches that port has a shell,
+  and the ONLY thing in front of it is Cloudflare Access. So the https-only check the comment sits
+  above is not a tidy-up — an Access cookie over cleartext http IS the whole door. The old wording
+  implied a second factor that would catch a leak; there is none to catch it.
+  (3) THE FIX STATES THE MODEL AND ITS CONSEQUENCE: `--auth none` (with the pm2 args quoted), Access as
+  the single gate, and the sentence that makes the guard load-bearing rather than decorative.
+  (4) NO COMMENT-PIN, AND WHY: adding a test that asserts the comment's wording would be satisfied by
+  my own explanatory prose — the exact defect round 124 found when a `cp` check passed against the
+  comment naming the file. A source pin on prose proves nothing the prose cannot fake; the evidence
+  here is the pm2 reading, recorded above, and the extension suite is 11 green (a comment cannot move
+  it, which is consistent with what round 139 learned the hard way about the mirror).
+  (5) NOT VERIFIED IN A BROWSER, the standing limit: the extension is loaded unpacked and this loop
+  holds no browser session. What is established is the SECURITY MODEL, read off the running process —
+  not the extension's behaviour.
+  (6) STILL OPEN: D13 (the orchestrator has no executable coverage); P9c in the proxies; X3, X6 in the
+  extension; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival window;
+  the restart mystery.
+
 Last updated: 2026-09-14 round 140 (P8: `count_tokens` counted a third of the request — tools and
 system, which are frequently the LARGEST part of an Anthropic call, were invisible to the number a
 client sizes its context window with). Commit: proxies/ + docs.
