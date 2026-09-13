@@ -204,3 +204,51 @@ test("unknown path 404s (gated paths first, then the envelope)", async () => {
     restore();
   }
 });
+
+/* ---- credential redaction on the error path (round 131) ---- */
+
+test("a provider that echoes the key back cannot leak it to the client", async () => {
+  // The worker had NO redaction anywhere while the gateway redacts and pins it:
+  // a provider echoing the key in a 4xx message handed it to the caller verbatim.
+  const KEY = "sk-zen-test-key-0123456789abcdef";
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { message: `invalid api key: ${KEY}` } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const r = await worker.fetch(
+      req("POST", "/v1/messages", { key: "ck-secret", body: { model: "x", messages: [] } }),
+      { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: KEY },
+    );
+    const body = await r.text();
+    assert.equal(r.status, 400, "the upstream status still reaches the caller");
+    assert.ok(!body.includes(KEY), `the provider's echo leaked the key: ${body}`);
+    assert.ok(body.includes("***"), `the redaction must be visible: ${body}`);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("a key shorter than 8 chars is NOT redacted blindly (it would mangle text)", async () => {
+  // The gateway's own guard: replacing a 2-char secret would rewrite unrelated
+  // words. Pinned here so a future "simplify" cannot delete the guard.
+  const KEY = "ab";
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { message: "abort: bad request" } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const r = await worker.fetch(
+      req("POST", "/v1/messages", { key: "ck-secret", body: { model: "x", messages: [] } }),
+      { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: KEY },
+    );
+    const body = await r.text();
+    assert.ok(body.includes("abort"), `short secrets must not carve up words: ${body}`);
+  } finally {
+    globalThis.fetch = real;
+  }
+});

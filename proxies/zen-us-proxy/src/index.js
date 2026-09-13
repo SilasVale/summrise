@@ -103,13 +103,36 @@ function requestHost(request) {
 // err.message), fall back to "Upstream {status}". Shared by the /v1/
 // responses and /v1/messages flows — the messages flow adds a 5xx
 // pre-branch (generic client text + server-side detail log) above this.
-async function relayUpstreamError(upstream, cors) {
+async function relayUpstreamError(upstream, cors, secrets) {
   let message = `Upstream ${upstream.status}`;
   try {
     const err = await upstream.json();
     message = err.error?.message || err.message || message;
   } catch {}
-  return jsonError(upstream.status, message, "api_error", cors);
+  // Round 131: this is the ONE place a provider's own words reach the client on
+  // this worker, so it is where the credential must die.
+  return jsonError(upstream.status, redactSecrets(message, secrets), "api_error", cors);
+}
+
+/** Redact the EXACT credential strings this request carried (round 131).
+ *
+ * Ported from the gateway's `redactSecrets` (translate.ts), because this worker
+ * had NO redaction on any error path while the gateway redacts and pins it: a
+ * provider that echoes the key back in a 4xx error message handed it to the
+ * client verbatim. Value-based, not a pattern — it works for ANY key format, and
+ * a provider cannot defeat it by choosing an unusual shape.
+ *
+ * Guards, same as the gateway's: an absent/empty secret is skipped, and anything
+ * shorter than 8 chars is left alone (too generic — replacing it would mangle
+ * unrelated text, and no real credential is that short). Longest first, so an
+ * overlapping shorter secret cannot carve up a longer one and leave a residue.
+ */
+function redactSecrets(text, secrets) {
+  let out = String(text == null ? "" : text);
+  const distinct = [...new Set((secrets || []).filter((s) => typeof s === "string" && s.length >= 8))];
+  distinct.sort((a, b) => b.length - a.length);
+  for (const s of distinct) out = out.split(s).join("***");
+  return out;
 }
 
 function corsHeaders(request) {
@@ -222,7 +245,7 @@ export default {
           },
         );
         if (!upstream.ok) {
-          return relayUpstreamError(upstream, cors);
+          return relayUpstreamError(upstream, cors, [env.OPENCODE_GO_API_KEY, request.headers.get("x-api-key")]);
         }
         return new Response(upstream.body, {
           status: upstream.status,
@@ -267,10 +290,10 @@ export default {
             const err = await upstream.json();
             detail = err.error?.message || detail;
           } catch {}
-          console.error(`[zen-us] upstream 5xx: ${detail}`);
+          console.error(`[zen-us] upstream 5xx: ${redactSecrets(detail, [env.OPENCODE_GO_API_KEY])}`);
           return jsonError(upstream.status, "Upstream unavailable", "api_error", cors);
         }
-        return relayUpstreamError(upstream, cors);
+        return relayUpstreamError(upstream, cors, [env.OPENCODE_GO_API_KEY, request.headers.get("x-api-key")]);
       }
       return new Response(upstream.body, {
         status: upstream.status,

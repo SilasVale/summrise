@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 131 (P4, credential class: a provider that echoes the API key back
+in a 4xx error message handed it to the caller — neither Cloudflare worker had any redaction while
+the gateway redacts and pins it). Commit: this round's proxies/ + docs.
+Tests: zen-go 14 (was 12), zen-us 10 (was 8), three mutations caught.
+  (1) THE VECTOR, AND WHY IT IS THE TOP PRIORITY CLASS. The gateway has had a value-based
+  `redactSecrets` since its own audit (translate.ts, exported for pins, used at five relay call
+  sites). The two Cloudflare workers had NO redaction on ANY error path: `zen-go` echoed
+  `err.error?.message` straight into the client response, and `zen-us` did the same through its
+  shared `relayUpstreamError`. A provider that answers 400 with "invalid api key: sk-…" therefore
+  relayed the credential to the caller verbatim. Nothing was pinned the other way.
+  (2) THE FIX IS THE GATEWAY'S ALGORITHM, PORTED RATHER THAN REINVENTED: replace the EXACT literal
+  credential strings the request carried (value-based, so ANY key format works and no provider can
+  defeat it by choosing an unusual shape), skipping anything empty or shorter than 8 characters
+  (replacing a 2-char secret would mangle unrelated words), longest first so a shorter secret cannot
+  carve up a longer one and leave a residue. Applied to the client-facing 4xx text in both workers
+  and to the 5xx `console.error` detail (a log a human reads). The secrets list includes the
+  worker's own upstream key, the caller's `x-api-key` and its bearer token — whoever's credential
+  the provider echoes, it dies here.
+  (3) THREE MUTATIONS, ALL CAUGHT, in the right suites: no redaction in zen-go (zen-go fails, zen-us
+  stays green), no redaction in zen-us's shared helper, and the <8-char guard removed — the last one
+  fails in BOTH, because a 2-char "key" turns the word "abort" into "***". That guard is now pinned
+  by its own test, since it is exactly the kind of line a later "simplification" deletes.
+  (4) NOT DEPLOYED, STATED PLAINLY: deploying a Cloudflare worker is a release action, and this
+  session has left every deploy of that kind to the next authorised release (P3's relay shape is in
+  the same position). The fix is committed, tested and mutating — not live.
+  (5) STILL OPEN IN THIS SURFACE: `zen.js` / `proxy.js` (vrelay) have no redaction either, and
+  `github.ts`/`gform.ts` copy upstream 5xx bodies verbatim — both recorded, neither closed here,
+  because a round that closes a pair by halves is the defect this loop keeps finding.
+  (6) STILL OPEN overall: D13 (the orchestrator has no executable coverage); the extension's X1 (the
+  last HIGH — needs a design decision), X3, X6, X8; the proxies' P5-P10; the three unreconciled
+  versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 130 (D12: the standalone installer deploy published a new
 Setup.exe while `/api/version` still described the PREVIOUS one — or none — and printed "== done ==").
 Commit: this round's scripts/ + docs. Tests: release-lib 45 (was 38), four mutations caught.

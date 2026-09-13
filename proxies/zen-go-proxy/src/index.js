@@ -60,6 +60,27 @@ function requestHost(request) {
   }
 }
 
+/** Redact the EXACT credential strings this request carried (round 131).
+ *
+ * Ported from the gateway's `redactSecrets` (translate.ts), because this worker
+ * had NO redaction on any error path while the gateway redacts and pins it: a
+ * provider that echoes the key back in a 4xx error message handed it to the
+ * client verbatim. Value-based, not a pattern — it works for ANY key format, and
+ * a provider cannot defeat it by choosing an unusual shape.
+ *
+ * Guards, same as the gateway's: an absent/empty secret is skipped, and anything
+ * shorter than 8 chars is left alone (too generic — replacing it would mangle
+ * unrelated text, and no real credential is that short). Longest first, so an
+ * overlapping shorter secret cannot carve up a longer one and leave a residue.
+ */
+function redactSecrets(text, secrets) {
+  let out = String(text == null ? "" : text);
+  const distinct = [...new Set((secrets || []).filter((s) => typeof s === "string" && s.length >= 8))];
+  distinct.sort((a, b) => b.length - a.length);
+  for (const s of distinct) out = out.split(s).join("***");
+  return out;
+}
+
 function corsHeaders(request) {
   const origin = request.headers.get("origin") || "";
   const headers = {
@@ -195,7 +216,7 @@ export default {
             const err = await upstream.json();
             detail = err.error?.message || detail;
           } catch {}
-          console.error(`[zen-go] upstream 5xx: ${detail}`);
+          console.error(`[zen-go] upstream 5xx: ${redactSecrets(detail, [env.OPENCODE_GO_API_KEY])}`);
           return jsonError(upstream.status, "Upstream unavailable", "api_error", cors);
         }
         let message = `Upstream ${upstream.status}`;
@@ -203,6 +224,13 @@ export default {
           const err = await upstream.json();
           message = err.error?.message || message;
         } catch {}
+        // The client must never receive a credential, whatever the provider
+        // decided to echo back.
+        message = redactSecrets(message, [
+          env.OPENCODE_GO_API_KEY,
+          request.headers.get("x-api-key"),
+          (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, ""),
+        ]);
         return jsonError(upstream.status, message, "api_error", cors);
       }
 
