@@ -2980,3 +2980,10 @@ body[data-theme="dark"] .note.tip {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+/* The facet editor's buttons sit on the grid's last row rather than inside a label. */
+.prov-facets-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}

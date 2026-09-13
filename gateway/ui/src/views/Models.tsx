@@ -99,6 +99,17 @@ export default function ModelsView() {
     reasoningEffort: "" as "" | "low" | "medium" | "high" | "max",
   });
   const [advanced, setAdvanced] = useState(false);
+  // WHICH MODEL'S FACETS ARE BEING EDITED, and a draft for it. Editing is only
+  // possible for a record this console OWNS: a built-in's six facets are pinned in the
+  // registry (the server answers 409 for one), and a provider's model is edited by
+  // re-posting the provider that owns it.
+  const [editFacets, setEditFacets] = useState<string | null>(null);
+  const [facetDraft, setFacetDraft] = useState({
+    name: "",
+    contextWindow: "",
+    maxTokens: "",
+    reasoningEffort: "" as "" | "low" | "medium" | "high" | "max",
+  });
   const [newProvider, setNewProvider] = useState({ prefix: "", label: "", baseURL: "", api: "", apiKey: "" });
   const [newModel, setNewModel] = useState("");
   // The probe result is keyed by prefix so a stale answer cannot be shown against a
@@ -203,6 +214,48 @@ export default function ModelsView() {
     [load, t, toast],
   );
 
+  /** Open the facet editor on a model, seeded from what it currently declares. */
+  const openFacets = useCallback(
+    (id: string) => {
+      const f = facets[id] ?? {};
+      setFacetDraft({
+        name: f.name ?? "",
+        contextWindow: f.contextWindow ? String(f.contextWindow) : "",
+        maxTokens: f.maxTokens ? String(f.maxTokens) : "",
+        reasoningEffort: (f.reasoningEffort as typeof facetDraft.reasoningEffort) ?? "",
+      });
+      setEditFacets(id);
+    },
+    [facets, facetDraft.reasoningEffort],
+  );
+
+  /** Save them. The add route UPSERTS by id, so editing a record and creating one are
+   *  the same call — there is no second write path to keep in step. An EMPTIED field is
+   *  omitted rather than sent as zero/empty, which is how the server spells "unset". */
+  const saveFacets = useCallback(async () => {
+    if (!editFacets) return;
+    const n = (v: string) => (v.trim() ? Number(v) : undefined);
+    setAdding(true);
+    try {
+      await api.addModel({
+        id: editFacets,
+        ...(facetDraft.name.trim() ? { name: facetDraft.name.trim() } : {}),
+        ...(n(facetDraft.contextWindow) !== undefined
+          ? { contextWindow: n(facetDraft.contextWindow) }
+          : {}),
+        ...(n(facetDraft.maxTokens) !== undefined ? { maxTokens: n(facetDraft.maxTokens) } : {}),
+        ...(facetDraft.reasoningEffort ? { reasoningEffort: facetDraft.reasoningEffort } : {}),
+      });
+      toast(t("models.added"));
+      setEditFacets(null);
+      await load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+    } finally {
+      setAdding(false);
+    }
+  }, [editFacets, facetDraft, load, t, toast]);
+
   /** Add a model to ONE provider. The prefix is the row's, not a dropdown: the
    *  context is the provider you opened, so an id can no longer be filed under a
    *  channel the user did not mean. */
@@ -290,9 +343,40 @@ export default function ModelsView() {
           baseURL: p.baseURL,
           api: p.api,
           ...(p.keyEnv ? { apiKeyEnv: p.keyEnv } : {}),
-          models: [...p.models.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens, input: m.input })), { id }],
+          models: [
+            ...p.models.map((m) => ({
+              id: m.id,
+              name: m.name,
+              contextWindow: m.contextWindow,
+              maxTokens: m.maxTokens,
+              reasoningEffort: m.reasoningEffort,
+              input: m.input,
+            })),
+            // The same folded facets the built-in path declares. A provider's model is
+            // re-posted through the record that owns it, so this stays the ONE write
+            // shape for that store.
+            {
+              id,
+              ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+              ...(draft.contextWindow.trim() ? { contextWindow: Number(draft.contextWindow) } : {}),
+              ...(draft.maxTokens.trim() ? { maxTokens: Number(draft.maxTokens) } : {}),
+              ...(draft.reasoningEffort ? { reasoningEffort: draft.reasoningEffort } : {}),
+            },
+          ],
         });
         setNewModel("");
+        // The draft is consumed, so the next add starts clean — a facet left over from
+        // the previous model would be declared on this one without being asked for.
+        setDraft({
+          id: "",
+          wire: "",
+          usEgress: false,
+          search: false,
+          name: "",
+          contextWindow: "",
+          maxTokens: "",
+          reasoningEffort: "",
+        });
         toast(t("models.added"));
         await load();
       } catch (err) {
@@ -301,7 +385,7 @@ export default function ModelsView() {
         setAdding(false);
       }
     },
-    [newModel, load, t, toast],
+    [newModel, draft, load, t, toast],
   );
 
   const removeProvider = useCallback(
@@ -554,6 +638,19 @@ export default function ModelsView() {
                             >
                               {t("models.setCurrent")}
                             </button>
+                            {/* Editing appears only where editing is real — a built-in's
+                                facets are pinned in the registry and the server says 409. */}
+                            {isAdmin && custom.includes(id) && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-mini"
+                                disabled={adding}
+                                aria-expanded={editFacets === id}
+                                onClick={() => (editFacets === id ? setEditFacets(null) : openFacets(id))}
+                              >
+                                {t("models.editFacets")}
+                              </button>
+                            )}
                             {isAdmin && (
                               <button
                                 type="button"
@@ -569,6 +666,76 @@ export default function ModelsView() {
                         </li>
                       ))}
                     </ul>
+                  )}
+
+                  {isAdmin && editFacets && editFacets.startsWith(prefix) && (
+                    <div className="prov-facets">
+                      <label>
+                        <span>{t("models.nameLabel")}</span>
+                        <input
+                          className="form-input"
+                          value={facetDraft.name}
+                          onChange={(e) => setFacetDraft({ ...facetDraft, name: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>{t("models.ctxLabel")}</span>
+                        <input
+                          className="form-input"
+                          inputMode="numeric"
+                          value={facetDraft.contextWindow}
+                          onChange={(e) =>
+                            setFacetDraft({ ...facetDraft, contextWindow: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>{t("models.maxLabel")}</span>
+                        <input
+                          className="form-input"
+                          inputMode="numeric"
+                          value={facetDraft.maxTokens}
+                          onChange={(e) => setFacetDraft({ ...facetDraft, maxTokens: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>{t("models.effortLabel")}</span>
+                        <select
+                          className="form-input"
+                          value={facetDraft.reasoningEffort}
+                          onChange={(e) =>
+                            setFacetDraft({
+                              ...facetDraft,
+                              reasoningEffort: e.target.value as typeof facetDraft.reasoningEffort,
+                            })
+                          }
+                        >
+                          <option value="">{t("models.effortNone")}</option>
+                          {["low", "medium", "high", "max"].map((lv) => (
+                            <option key={lv} value={lv}>
+                              {lv}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="prov-facets-actions">
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          disabled={adding}
+                          onClick={() => void saveFacets()}
+                        >
+                          {t("models.editFacetsSave")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => setEditFacets(null)}
+                        >
+                          {t("models.editFacetsCancel")}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {isAdmin && (
@@ -642,16 +809,14 @@ export default function ModelsView() {
                           onChange={(e) => setDraft({ ...draft, wire: e.target.value })}
                         />
                       )}
-                      {!isCustom && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          aria-expanded={advanced}
-                          onClick={() => setAdvanced(!advanced)}
-                        >
-                          {t("models.advanced")}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        aria-expanded={advanced}
+                        onClick={() => setAdvanced(!advanced)}
+                      >
+                        {t("models.advanced")}
+                      </button>
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
@@ -663,7 +828,7 @@ export default function ModelsView() {
                     </div>
                   )}
 
-                  {isAdmin && !isCustom && advanced && (
+                  {isAdmin && advanced && (
                     <div className="prov-facets">
                       <label>
                         <span>{t("models.nameLabel")}</span>
