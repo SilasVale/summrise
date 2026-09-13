@@ -526,6 +526,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 138 (a VERIFICATION round: every suite this loop has touched across
+27 rounds, run in one sweep — nothing red anywhere, and one `todo` counted as what it is). No code
+changed; commit: this round's journal + ledger only.
+Gates, measured just now, all green:
+  gateway 848 | index 89 | extension 11 | zen-go 14 | zen-us 13 (12 pass, 1 TODO) | vrelay 69
+  scripts: release-lib 45, release-audit 25, smoke-index 12, build-pins 31
+  gateway/ui: suite + `smoke:models` MODELS RENDER OK + `smoke:overview` OVERVIEW RENDER OK
+  agent: `cargo fmt --check` OK, 13 test binaries ok, zero FAILED
+  (1) WHY THIS ROUND EXISTS. The objective's completion criterion is "账本全绿 + 零开放项 + …, 连续 3
+  轮无新发现", and after twenty-seven rounds of touching nine suites the honest question is not "what
+  should I fix next" but "is any of it red". Measuring beats assuming: no round in this stretch ever
+  re-ran EVERY suite, so a regression in a suite I had stopped touching would have gone unnoticed.
+  (2) AND NOTHING WAS RED. That is worth stating plainly because it is the first time the whole tree
+  has been measured in one pass since this stretch began — the per-round gates each covered their own
+  surface, and the aggregate is now on the record.
+  (3) THE ONE `todo` IS COUNTED, NOT HIDDEN: zen-us has 12 passes and 1 todo (P9c — an upstream that
+  declares no content-type comes back unlabelled). node:test reports that as "fail 0", which is exactly
+  why the number is spelled out here rather than left to the summary line to imply completeness.
+  (4) WHAT THE SWEEP DOES NOT COVER, said so the green is not overread: the agent's Windows behaviour
+  (no device in this loop), the browser behaviour of the extension (loaded unpacked, no browser
+  session), and anything that requires a DEPLOY (rounds 129/131/132/133/135/136/137 are committed,
+  tested and mutating — NOT live). Those three limits have been stated each round; they are the same
+  three, and they are why "all green" here means "the repository agrees with itself", not "production
+  is verified".
+  (5) STILL OPEN, unchanged by this round: D13 (the orchestrator has no executable coverage); P6, P8,
+  P9c in the proxies; X3, X6, X8 in the extension; the three unreconciled versions (1.2.362-364);
+  CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 137 (P9b closed — and it closed by proving that MY round-136 reading was
 wrong: the failing case took the second of two identical pass-through sites, so the fix had been applied
 to one of a pair. The `todo` test I left behind is what caught it, and one round-136 claim is corrected).
