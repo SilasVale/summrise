@@ -526,6 +526,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 143 (X6, and it was THREE defects in 25 lines — including a SECOND
+COPY of the security-model claim round 141 fixed, which is the pair-defect committed by me, one round
+after I wrote the lesson down). Commit: extension/ + docs. Tests: extension 12 (was 11), three
+mutations caught.
+  (1) THE PAIR-DEFECT, COMMITTED AGAIN: `extension/options/options.js` opened with "authenticated at
+  the app layer (Cloudflare Access + the code-server password)" — the same claim round 141 corrected in
+  `shared.js`, in a second file I did not open. Round 141's own journal entry says the class is "fixed
+  in one of a pair"; one round later I did it again. What caught it this time was READING THE WHOLE
+  FILE rather than grepping for the thing I already knew about, which is the difference between the two
+  instruments and the reason this round found three defects where the ledger named one.
+  (2) THE UI ASSERTED A STATE THAT WAS NOT IN EFFECT — the ledger's actual X6 wording, now precise: the
+  checkbox was `st.studioLinksEnabled !== false` (opt-OUT) while round 134 flipped the content script to
+  `=== true` (opt-IN). So for every user who never touched the setting, the box rendered CHECKED and the
+  feature was OFF. A default that disagrees with the thing it controls is worse than either default.
+  (3) AN UNUSABLE ORIGIN WAS STORED AS THE DEFAULT: `httpsOrigin(raw) || DEFAULT_STUDIO_ORIGIN` meant
+  that typing a bad address saved a value the user never typed, under their name, and reported
+  "已保存". It now REFUSES, keeps what they wrote in the box, and says why — a message the user can act
+  on instead of a silent substitution they cannot see.
+  (4) THREE MUTATIONS, ALL CAUGHT, one per defect: the checkbox back to opt-OUT, the silent
+  substitution restored, and the phantom password restored. The pins are SOURCE checks because the page
+  talks to `chrome.*` and the DOM and cannot be imported — and they match the ACT (`=== true`, the
+  `|| DEFAULT` expression) rather than a word, which is round 124's lesson applied.
+  (5) NOT BROWSER-VERIFIED (standing limit): the options page was not opened. What is proven is the
+  predicate, the refusal and the absence of the phantom claim, all read from the file the browser loads.
+  (6) STILL OPEN: D13 (the orchestrator has no executable coverage, re-verified in 142); P9c (mechanism
+  unestablished); X3; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery.
+
 Last updated: 2026-09-14 round 142 (a LEDGER-VERIFICATION round: the four remaining open items checked
 against the code rather than trusted — a third of them needed correcting, which is now the FOURTH
 sweep in which that happened). No code changed; commit: journal + ledger only.

@@ -134,3 +134,36 @@ test("linkify is OFF by default and opts IN explicitly", () => {
   assert.match(src, /studioLinksEnabled === true/, "the opt-in must be explicit");
   assert.doesNotMatch(src, /studioLinksEnabled !== false/, "!== false is opt-out, not opt-in");
 });
+
+/* ---- the options page states the state that is in effect (round 143) ---- */
+
+test("options/options.js: opt-in checkbox, no silent substitution, no phantom password", () => {
+  // The options page cannot be imported (it talks to chrome.* + the DOM), so these
+  // are SOURCE checks — and they match the ACT, not a word: round 124 taught that a
+  // pin satisfied by an explanatory comment proves nothing.
+  const src = readFileSync(new URL("../options/options.js", import.meta.url), "utf8");
+
+  // 1. The checkbox must use the SAME predicate the content script does (=== true).
+  // With `!== false` a user who never touched the setting saw it CHECKED while the
+  // feature was off — the UI asserting a state that was not in effect.
+  assert.match(
+    src,
+    /studioLinksEnabled"\)\.checked = st\.studioLinksEnabled === true;/,
+    "the toggle must be opt-IN, matching content/studio-links.js",
+  );
+
+  // 2. An unusable origin must be REFUSED, not replaced by the default.
+  assert.doesNotMatch(
+    src,
+    /httpsOrigin\(raw\) \|\| DEFAULT_STUDIO_ORIGIN/,
+    "an invalid origin must not be silently replaced by the default",
+  );
+
+  // 3. The phantom credential must not be back (round 141 fixed shared.js; this
+  // file carried a second copy — the pair-defect).
+  assert.doesNotMatch(
+    src,
+    /code-server\s+password/i,
+    "there is no code-server password: the live server runs --auth none",
+  );
+});
