@@ -5,6 +5,7 @@
 // screenshot path anymore — the page explains that the browser needs the
 // desktop app.
 import { EmbeddedBrowserPane } from "./EmbeddedBrowserPane";
+import { Icon } from "../ui/Icon";
 
 interface Props {
   token: string;
@@ -28,7 +29,15 @@ export function BrowserPage({ token }: Props) {
     <div className="browser-page">
       <div className="browser-mode-b-placeholder">
         <div className="browser-placeholder">
-          <span style={{ fontSize: 40 }}>🖥</span>
+          {/* AN ICON, NOT AN EMOJI. This was `<span style={{fontSize:40}}>🖥</span>`:
+              an emoji in the platform font, which renders as a TOFU BOX wherever that
+              font has no colour glyph for it — exactly what the first screenshot of
+              this page showed. It also broke two house rules at once (the icon system
+              in ui/Icon.tsx owns every glyph in this app, and inline styles are not
+              how this sheet sizes anything). */}
+          <span className="browser-placeholder-mark" aria-hidden="true">
+            <Icon name="browser" size={26} />
+          </span>
           <p><strong>The browser needs the Vale desktop app</strong></p>
           <p className="browser-mode-b-hint">
             This page is served by the agent. Open it inside the Vale Desktop

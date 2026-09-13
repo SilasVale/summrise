@@ -1242,7 +1242,8 @@ pre code {
 .btn-accent {
   background: var(--accent);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 14px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 4px 14px -6px color-mix(in srgb, var(--accent) 55%, transparent);
   /* `--accent-fg`, not `#fff`. White on the dark theme's `--accent` (#ffa94d) is
      1.90:1 — the login button, the most important control on the site, failing AA by
      a factor of two. The dark value is #2b1a09 (8.80 base / 10.41 hover), which is

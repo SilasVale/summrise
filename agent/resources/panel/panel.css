@@ -3614,6 +3614,20 @@ code {
   pointer-events: none;
 }
 .browser-placeholder p { margin: 0; font-size: var(--fs-base); }
+/* The glyph sits in a soft tile so the state reads as a deliberate empty state
+   rather than as loose text — the same treatment the crash card and the connection
+   form give their marks. */
+.browser-placeholder-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: var(--surface-chip);
+  color: var(--chrome-ink-dim);
+  box-shadow: inset 0 1px 0 var(--glass-rim);
+}
 /* --faint at 0.7 opacity was the worst of the opacity-on-text sites: a token
    already known to be weak, weakened again by a property no probe reads. */
 .browser-placeholder-sub { font-size: var(--fs-xs) !important; color: var(--chrome-ink-dim); }

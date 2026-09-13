@@ -134,7 +134,12 @@ export default function Users() {
             {t("invite.new")} <code className="mono">{inviteCode}</code>
           </div>
         ) : (
-          <p className="muted">{t("invite.gen")} →</p>
+          /* THE BODY USED TO REPEAT THE BUTTON. It rendered `t("invite.gen") →` —
+             the header's own label plus an arrow, inside a <p>, so it read as a link
+             that does nothing while the real button sat directly above it. A body
+             that has nothing to report should explain the mechanism instead of
+             echoing the control. */
+          <p className="muted">{t("invite.empty")}</p>
         )}
       </Card>
 

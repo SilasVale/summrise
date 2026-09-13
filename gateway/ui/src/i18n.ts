@@ -212,6 +212,7 @@ const I18N = {
     "invite.title": "邀请码",
     "invite.gen": "生成邀请码",
     "invite.new": "新邀请码（一次性，用完即焚）：",
+    "invite.empty": "邀请码用来让别人在这台网关上注册自己的账号，一次性使用。",
     "invite.genFail": "生成失败",
     "users.list": "用户列表",
     "users.empty": "还没有其他用户。",
@@ -536,6 +537,8 @@ const I18N = {
     "invite.title": "Invite codes",
     "invite.gen": "Generate invite",
     "invite.new": "New invite (one-time):",
+    "invite.empty":
+      "An invite lets someone create their own account on this gateway. Each code works once.",
     "invite.genFail": "Generation failed",
     "users.list": "Users",
     "users.empty": "No other users yet.",
