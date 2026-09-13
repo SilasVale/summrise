@@ -459,3 +459,81 @@ test("VISION: a text-only provider model still gets its images described first",
     "the description did not replace the image in the provider's request",
   );
 });
+
+/* ---------------- probe (what the upstream actually serves) ----------------
+ *
+ * A route that DIALS OUT carrying a credential, so its three failure modes are
+ * each pinned by name: it must never turn "could not check" into "offers nothing",
+ * it must refuse a private address AT DIAL TIME, and the adopt list must be
+ * prefixed so the panel cannot file a model under the wrong channel.
+ */
+test("PROBE: an unroutable prefix reports NOT CHECKED rather than an empty catalogue", async () => {
+  const { call, json } = await harness();
+  const res = await json(await call("POST", "/api/admin/models/probe", { body: { prefix: "nope/" } }));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.checked, false);
+  assert.ok(res.body.reason, "a refusal must carry a reason");
+  assert.equal(res.body.offered, undefined, "nothing may be reported as offered");
+});
+
+test("PROBE: a private upstream is refused at dial time, not merely at registration", async () => {
+  // The guard is the one the REGISTRATION path uses (deviceHostError). A record that
+  // predates it, or one written by a path that forgot to call it, must still not be
+  // dialled — which is only true if the check runs on the URL about to be fetched.
+  const { call, json } = await harness({
+    "providers:custom": [
+      {
+        prefix: "evil/",
+        label: "Evil",
+        baseURL: "https://127.0.0.1/v1",
+        api: "openai-completions",
+        apiKey: "sk-evil",
+        models: [{ id: "m" }],
+      },
+    ],
+  });
+  const res = await json(await call("POST", "/api/admin/models/probe", { body: { prefix: "evil/" } }));
+  assert.equal(res.status, 502);
+  assert.match(String(res.body?.error?.message ?? ""), /private|loopback|refus|not allowed/i);
+});
+
+test("PROBE: a rejected credential is a CHECK problem, not an empty catalogue", async () => {
+  const { call, json } = await harness();
+  await addProvider(call, json);
+  const res = await json(
+    await withFetch(
+      async () => new Response("nope", { status: 401 }),
+      () => call("POST", "/api/admin/models/probe", { body: { prefix: "my/" } }),
+    ),
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.body.checked, false);
+  assert.match(String(res.body.reason), /credential|401|403/i);
+});
+
+test("PROBE: the adopt list is PREFIXED and carries only what we do not advertise", async () => {
+  const { call, json } = await harness();
+  await addProvider(call, json, { models: [{ id: "llama-3" }] });
+  let seen;
+  const res = await json(
+    await withFetch(
+      async (url, init) => {
+        seen = { url: String(url), init };
+        return new Response(JSON.stringify({ data: [{ id: "llama-3" }, { id: "llama-4" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+      () => call("POST", "/api/admin/models/probe", { body: { prefix: "my/" } }),
+    ),
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.checked, true);
+  // Derived from the route the ROUTER resolved — not a second copy of the upstream table.
+  assert.equal(seen.url, "https://api.example.com/models");
+  // The credential the request would have used travels with the probe.
+  assert.match(String(seen.init.headers.authorization), /^Bearer sk-/);
+  // Never follow a redirect carrying that credential.
+  assert.equal(seen.init.redirect, "manual");
+  assert.deepEqual(res.body.notAdvertised, ["my/llama-4"]);
+});

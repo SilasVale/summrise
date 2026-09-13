@@ -136,6 +136,11 @@
       "group": "vale-gate"
     },
     {
+      "name": "src/plugins/models-probe.ts",
+      "path": "files/vale-gate/src/plugins/models-probe.ts",
+      "group": "vale-gate"
+    },
+    {
       "name": "src/plugins/registry.ts",
       "path": "files/vale-gate/src/plugins/registry.ts",
       "group": "vale-gate"

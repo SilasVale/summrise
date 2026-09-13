@@ -49,6 +49,7 @@ import {
 import { ROUTE_INFO, type ModelSpec } from "../channels.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
 import { requireAdmin } from "../session.ts";
+import { adminProbeModels } from "./models-probe.ts";
 import type { PluginContext } from "./registry.ts";
 
 const ADMIN_BASE = "/api/admin";
@@ -413,6 +414,9 @@ export default {
         m === "PUT" && p.startsWith(`${ADMIN_BASE}/models/`) && p.endsWith("/enabled"),
       handler: (req: Request, env: Env) => adminEnableModel(req, env, request_admin_model_id(req)),
     });
+    // Ask the upstream what it serves and diff it against what we advertise.
+    // Admin-only like every other write-adjacent route here: it spends a credential.
+    add("POST", `${ADMIN_BASE}/models/probe`, adminProbeModels);
     add("GET", `${ADMIN_BASE}/providers`, adminListProviders);
     add("POST", `${ADMIN_BASE}/providers`, adminAddProvider);
     // Dynamic: DELETE /api/admin/providers/{prefix}. The prefix ends in a slash
