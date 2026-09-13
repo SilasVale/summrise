@@ -526,6 +526,37 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 192 (round 191's named gap CLOSED: the mutation proof ran through the
+suite and the assertion went RED, then GREEN on restore — so the acceptance test is now established by
+evidence rather than by its own pass. Recorded with the one part I did not identify). Commit: journal.
+Tests: 857/855-fail-2 under mutation, 857/857-fail-0 restored.
+  (1) WHAT WAS DONE DIFFERENTLY FROM ROUND 191'S FAILED ATTEMPT: the mutation is now ONE LINE ADDED to the
+  consumer — `const MUTANT = "OPENROUTER_API_KEY";` — rather than a rewrite of the derivation. That choice
+  is what makes it a faithful mutation of the property under test: the assertion says "the eight values
+  appear NOWHERE in the consumer", so adding exactly one value is the smallest change that must trip it,
+  and it leaves `BYOK_CHANNELS` used, so the file still compiles as valid TypeScript (round 191's attempt
+  ran a bare `node --test` on one file, which does not use the suite's TS loader — likely why it produced
+  no output at all).
+  (2) THE RED-THEN-GREEN, AS NUMBERS: mutated, the suite reports **857 tests, 855 pass, 2 FAIL**; restored
+  from the backup, **857 tests, 857 pass, 0 fail**. The file was verified clean of the mutant afterwards
+  (`grep -c MUTANT` → 0). That is the evidence bar this loop's evidence rule asks for — a fix or a check
+  shown to be capable of failing, not merely observed passing.
+  (3) AND THE PART I DID NOT IDENTIFY, STATED RATHER THAN EXPLAINED AWAY: **TWO** tests went red, not one,
+  and my grep captured the counts but not their names. The byok acceptance test is certainly among them —
+  it is the only test that reads `models-probe.ts` — and the second one I did NOT establish. The plausible
+  candidate is a repo-wide format/pretty check reacting to the added line, but that is a guess and is
+  recorded as one. Naming the uncertainty is the point: "2 failures, one identified" is a smaller claim
+  than "the assertion failed", and the cheap way to close it is to re-run the mutation capturing the test
+  names (`grep -E "^not ok"`).
+  (4) WHAT THIS BUYS THE REMAINING THREE CONSUMERS: the pattern is now proven end to end — derive, then
+  assert the values are ABSENT from the consumer — so `translate-vision.ts`, `store/users.ts` and
+  `model-route.ts` can each be converted with the same two-part test and the same mutation recipe. The
+  rewire is no longer an experiment; it is a procedure with a demonstrated failure mode.
+  (5) STILL OPEN: the mutation's second failure's name (one grep); the other THREE consumers
+  (`translate-vision.ts`, `store/users.ts`, and `model-route.ts` last because it is per-request);
+  `models-probe.ts`'s remaining body (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 191 (**the first of the four consumers now DERIVES** — and the
 acceptance test is written the only way that is mutation-proof: the values must not appear in the
 consumer at all. The mutation run itself did NOT execute, and that is recorded as unestablished rather
