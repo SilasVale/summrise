@@ -242,6 +242,12 @@ jobs:
       # PATH), so nothing about the comparison is re-implemented in the test.
       - name: release-audit regression checks
         run: bash scripts/test/release-audit.bash
+      # The installer-ALIAS arm of the index smoke (round 126): a tgz-only
+      # manifest used to make the smoke check NOTHING about the alias and still
+      # print "ok", while the alias served a three-release-old installer. `curl`
+      # is stubbed as a shell function, so the real smoke body runs.
+      - name: smoke-index installer-alias checks
+        run: bash scripts/test/smoke-index.bash
       # The installer's SHA-256 verification (round 124): the CDN fallback used
       # to hand `npm install -g` a tarball it had never hashed. The logic is
       # PowerShell, so it cannot run on this box — but GitHub's ubuntu runners

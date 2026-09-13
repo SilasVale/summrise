@@ -37,6 +37,7 @@ assert_want_sha256() {
 
 smoke_index_release() {
   local want_version="$1" want_sha="$2"
+  local stale_alias=0
   assert_want_sha256 "$want_sha" || return 1
   local base="${SMOKE_BASE_URL:-https://agent.saisi.online}"
   local retry_sleep="${SMOKE_RETRY_SLEEP:-3}"
@@ -159,7 +160,35 @@ smoke_index_release() {
       return 1
     fi
     echo "  ok: installer smoke passed (versioned + alias binary sha verified)"
+  else
+    # THE MANIFEST SAYS NOTHING ABOUT AN INSTALLER — SO SAY WHAT THE ALIAS IS.
+    #
+    # Round 125 measured this exact state and it is why this branch exists: the
+    # CDN's `ValeAgent-Setup.exe` was serving the **1.2.361** installer (same
+    # etag) while the release was 1.2.364, because 1.2.364 shipped tgz-only. The
+    # whole installer block sits behind the `if` above, so the smoke checked
+    # NOTHING here and still printed "ok: /api/version smoke passed".
+    #
+    # It is not a failure — a tgz-only publish is the documented emergency path —
+    # but a stale artifact NOBODY NAMES is how the landing page got away with
+    # offering it for three releases. So: name it, every time.
+    local alias_now=""
+    alias_now="$(curl -fsSL -m 120 "$base/vale-agent/ValeAgent-Setup.exe" 2>/dev/null | sha256sum | cut -d' ' -f1)" || alias_now=""
+    if [ -z "$alias_now" ]; then
+      echo "  ok: no installer advertised for v$want_version, and the ValeAgent-Setup.exe alias is absent (consistent)"
+    else
+      stale_alias=1
+      echo "  -- WARN: the manifest advertises NO installer for v$want_version, but the"
+      echo "     ValeAgent-Setup.exe alias still serves a build: ${alias_now:0:24}…"
+      echo "     Nothing links it (the landing page asks the manifest first), so fresh installs"
+      echo "     get the npm channel. This is a STALE ARTIFACT, not a broken one — rebuild it with"
+      echo "     ./scripts/build-installer.sh $want_version when an installer is wanted again."
+    fi
   fi
-  echo "  ok: /api/version smoke passed (v$want_version, versioned + latest binary sha verified)"
+  if [ "${stale_alias:-0}" = 1 ]; then
+    echo "  ok: /api/version smoke passed (v$want_version, versioned + latest binary sha verified) — WITH A STALE INSTALLER ALIAS (see the WARN above)"
+  else
+    echo "  ok: /api/version smoke passed (v$want_version, versioned + latest binary sha verified)"
+  fi
   return 0
 }

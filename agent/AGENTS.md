@@ -526,6 +526,47 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 126 (D4b: the release smoke was SILENT about the state round 125
+measured — a tgz-only manifest made it check nothing about the installer alias and still print "ok").
+Commit: this round's scripts/ + ci.yml + docs. Tests: smoke-index 12 checks (new file), four
+mutations caught.
+  (1) THE HOLE WAS A BRANCH, NOT A BUG. The smoke's entire installer block sits behind
+  `if [ -n "$inst_url" ] || [ -n "$inst_want" ]` — i.e. it only runs when the manifest ADVERTISES an
+  installer. A tgz-only publish advertises none, so the smoke checked NOTHING about the alias and
+  still printed "ok: /api/version smoke passed". That is exactly the state 2026-09-14 was in (the
+  alias served the 1.2.361 installer while the release was 1.2.364), and round 125 could only fix
+  the page that linked it — not the check that never mentioned it.
+  (2) THE NEW BRANCH NAMES WHAT IT SEES, WITHOUT FAILING THE RELEASE. Absent alias -> reported as
+  consistent; present alias -> reported WITH its digest, the words "STALE ARTIFACT", the rebuild
+  command, and a summary line that now ends "— WITH A STALE INSTALLER ALIAS (see the WARN above)".
+  It must NOT fail: a tgz-only publish is the documented emergency path, and tightening it into an
+  error would break a path the release design deliberately allows. One of the four mutations proves
+  exactly that (making it `return 1` fails the "does not fail the release" check).
+  (3) THE SMOKE'S BODY FINALLY HAS A TEST. `scripts/test/smoke-index.bash` drives the REAL
+  `smoke_index_release` with `curl` stubbed as a shell function — the instrument release-audit.bash
+  established — and it reproduces the measured live state as a fixture (tgz-only manifest + a stale
+  alias present). The scout's earlier note stands corrected for this arm: it was "live-only",
+  it is now covered, and the CI scripts job runs it.
+  (4) TWO TRAPS THIS HARNESS WALKED INTO, BOTH WORTH KEEPING. (a) Bash locals are DYNAMICALLY
+  scoped: my fixture named `live` was shadowed by `smoke_index_release`'s own `local live`, so the
+  stub read an empty string and the suite failed with "live version mismatch: want 9.9.9, got:" —
+  release-audit.bash had already written this lesson down and I re-learned it; the fixtures are
+  prefixed FIX_* now. (b) The deployment serves TWO manifest shapes: `/vale-agent/version.json` is
+  the file publish writes (flat `tarball`/`installer` basenames) while `/api/version` is the
+  WORKER's answer, which rewrites both into absolute URLs (index/src/index.js:445). A harness that
+  serves one shape for both tests a deployment that does not exist — which is why my first fixture
+  failed the advertised-installer case, and why the harness now serves both.
+  (5) FOUR MUTATIONS, ALL CAUGHT, and the first one was redone because its first form was a lie:
+  deleting the else branch outright broke the script's `fi` structure (a syntax failure, which
+  proves nothing about the branch), so it was re-run as a semantically-equivalent no-op — which
+  fails case 2 properly. The others: making a stale alias fatal, dropping it from the summary line,
+  and reporting its existence without its digest.
+  (6) NOT DONE: the alias ITSELF still serves the 1.2.361 installer. Naming it is what code can do;
+  replacing it means building an installer for a current version, which is a release action and
+  CHARTER-1 is still unanswered.
+  (7) STILL OPEN: D5-D9, D11-D13; the extension's X1/X3/X6/X8; the proxies' P2-P10; the three
+  unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 125 (D4: the landing page handed fresh installs a THREE-RELEASE-OLD
 installer and said nothing — measured live, then closed by making the door offer only what the
 release describes). DEPLOYED. Commit: this round's index/ + docs.
