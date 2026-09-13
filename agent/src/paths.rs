@@ -833,4 +833,58 @@ mod resolution_tests {
         assert_eq!(std::fs::read(base.join("newdir/extra.txt")).unwrap(), b"x");
         let _ = std::fs::remove_dir_all(&base);
     }
+    /// NOBODY MAY SPELL A LEGACY LOCATION BY HAND.
+    ///
+    /// `paths.rs` is the single source of truth for where things live, and it carries the
+    /// v2 migration table precisely so no caller has to know the old names. That rule had
+    /// no test, and `supervise_tunnel` (winmain.rs) hand-joined
+    /// `install_dir\tools\cloudflared.exe` and `install_dir\tunnel.yml` — the PRE-v2
+    /// locations — for months. On a v2 install its `exists()` check was always false, so
+    /// the supervisor polled forever, said nothing, and the tunnel only ran when a human
+    /// ran `vale tunnel start`. After an update restarted the agent the device went dark
+    /// (Cloudflare 530) with no trace in any log.
+    ///
+    /// WHAT IS MATCHED IS THE DEFECT'S SHAPE, not any mention of the word "tools": a path
+    /// built by joining a legacy directory name ONTO AN INSTALL ROOT. A test that builds
+    /// `tmp.join("tools")` to exercise file writing is doing something else entirely, and
+    /// the first version of this check flagged it — a guard that cries wolf is a guard
+    /// somebody deletes.
+    #[test]
+    fn no_source_spells_a_pre_v2_location_by_hand() {
+        const ROOTS: [&str; 3] = ["inst.join(", "install.join(", "install_dir().join("];
+        const LEGACY: [&str; 2] = ["\"tools\"", "\"tunnel.yml\""];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src is readable") {
+                let path = entry.expect("readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                // paths.rs is where the legacy names are DEFINED (the migration table).
+                if path.file_name().and_then(|n| n.to_str()) == Some("paths.rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("source is readable");
+                for line in text.lines() {
+                    if ROOTS.iter().any(|r| line.contains(r))
+                        && LEGACY.iter().any(|l| line.contains(l))
+                    {
+                        offenders.push(format!("{}: {}", path.display(), line.trim()));
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "a source file builds an install path by hand from a pre-layout-v2 name — use \
+             the paths.rs helper, which is registry-first AND carries the migration; \
+             offenders: {offenders:?}"
+        );
+    }
 }

@@ -18,15 +18,20 @@ use crate::{log_line, run_server};
 pub(crate) const SERVICE_NAME: &str = "ValeCommand";
 
 /// C2 unified process model — the AGENT owns the cloudflared tunnel:
-/// spawn-if-absent from the boxed install dir tools\cloudflared.exe with
-/// --config tunnel.yml. No Windows service, no external owner, single
-/// supervision path (setup no longer installs the legacy service; an
-/// upgrade removes it).
+/// spawn-if-absent from the BOXED component (`paths::cloudflared_bin()`,
+/// i.e. `<install>\components\cloudflared.exe`) with `--config`
+/// `paths::tunnel_file()` (`<install>\etc\tunnel.yml`). No Windows
+/// service, no external owner, single supervision path (setup no longer
+/// installs the legacy service; an upgrade removes it).
+///
+/// THE PATHS ARE NAMED THROUGH `paths.rs` AND NOT SPELLED OUT HERE. The
+/// comments in this function used to say `tools\` and the code agreed with
+/// them, which is how a supervisor spent months polling a directory that no
+/// longer exists — see the note at the probe below.
 pub(crate) fn supervise_tunnel() {
-    let install_dir = vale_agent::paths::install_dir();
-    // C2: cloudflared is BOXED under install_dir\tools\ and the AGENT owns
-    // the tunnel lifecycle (spawn-if-absent on boot). No Windows service,
-    // no external owner — this is the single supervision path.
+    // C2: cloudflared is a BOXED COMPONENT and the AGENT owns the tunnel
+    // lifecycle (spawn-if-absent on boot). No Windows service, no external
+    // owner — this is the single supervision path.
     // Supervision audit #1: the OLD code spawned cloudflared once,
     // fire-and-forget — a tunnel that exited (CF network-fatal, cert
     // churn, OOM) left the device DARK while /api/status kept answering,
@@ -41,7 +46,9 @@ pub(crate) fn supervise_tunnel() {
     // private current-thread runtime on a plain thread: correct in ANY
     // context, panic-proof placement.
     std::thread::spawn(move || {
-        let inst = install_dir;
+        // No install root is captured: the paths.rs helpers resolve the two files this
+        // thread needs, per read, and carrying the root here is exactly how the hand-joined
+        // legacy paths got in.
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -55,14 +62,40 @@ pub(crate) fn supervise_tunnel() {
         rt.block_on(async move {
             use std::time::{Duration, Instant};
             let mut backoff: u64 = 5;
+            // Only so the not-staged line is not repeated every 30 s forever.
+            let mut warned_absent = false;
             loop {
-                let cf = inst.join("tools").join("cloudflared.exe");
-                let cfg = inst.join("tunnel.yml");
+                // THE PATHS COME FROM `paths.rs`, and that is the whole bug this fixes:
+                // these were hand-joined as `install_dir\tools\cloudflared.exe` and
+                // `install_dir\tunnel.yml` — the PRE-layout-v2 locations — so on a v2
+                // install the `exists()` check below was ALWAYS false and this loop
+                // polled every 30 s forever. The tunnel therefore only ever ran when
+                // something else started it (a manual `vale tunnel start`, provisioning
+                // from the Settings card), and after an update restarted the agent
+                // nothing brought it back: the device went dark (Cloudflare 530) until a
+                // human noticed. `cloudflared_bin()`/`tunnel_file()` are registry-first
+                // AND carry the legacy-path migration, so the hand-joined copies were
+                // also the one place that would not have followed a future move.
+                let cf = vale_agent::paths::cloudflared_bin();
+                let cfg = vale_agent::paths::tunnel_file();
                 if !(cf.exists() && cfg.exists()) {
-                    // Not staged yet — provision downloads later; keep polling.
+                    // SAY IT ONCE. The original logged NOTHING here, which is why a
+                    // supervisor that could never do its job left no trace at all: the
+                    // d1 incident was diagnosed from an absent process and a 530, not
+                    // from the log. A supervisor that can do nothing must still name the
+                    // files it is waiting for.
+                    if !warned_absent {
+                        log_line(&format!(
+                            "cloudflared tunnel: not staged yet — waiting for {} and {} (polling every 30s)",
+                            cf.display(),
+                            cfg.display()
+                        ));
+                        warned_absent = true;
+                    }
                     tokio::time::sleep(Duration::from_secs(30)).await;
                     continue;
                 }
+                warned_absent = false;
                 let my_gen = vale_agent::tunnel_ctl::generation();
                 match tokio::process::Command::new(&cf)
                     .args(["tunnel", "--config"])
