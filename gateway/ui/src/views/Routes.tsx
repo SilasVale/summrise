@@ -103,8 +103,13 @@ export default function RoutesView() {
             </Badge>
           }
         >
+          {/* THE BUTTON NAMES ITS ACTION. It used to read "Toggle", which says what
+              KIND of control it is and nothing about what pressing it will do — while
+              the badge beside it already carries the current state. A control whose
+              label is a category forces the reader to work out the polarity from the
+              state pill and then invert it; naming the outcome removes the step. */}
           <button className="btn btn-secondary btn-sm" disabled={usproxyLoading} onClick={handleToggleProxy}>
-            {t("usproxy.toggle")}
+            {usproxyOn ? t("usproxy.turnOff") : t("usproxy.turnOn")}
           </button>
         </Card>
       )}

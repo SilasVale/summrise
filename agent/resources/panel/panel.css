@@ -3244,12 +3244,16 @@ code {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: var(--surface);
+  /* NO OPAQUE BACKGROUND, and this was the whole reason these two pages looked like
+     a different product: they were the LAST surfaces still painting --surface over
+     the paper ground while every other page let it through. Both were also the two
+     the screenshot harness had never captured (it shot five of seven pages), so
+     nothing ever looked at them — a page nobody renders is a page nobody fixes. */
 }
 .activity-head {
   flex: none;
   padding: 12px 16px 10px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--glass-hairline);
   background: var(--surface);
 }
 .activity-head-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -3274,7 +3278,7 @@ code {
 /* A quiet line, never an empty container: a titled empty list reads as a
    feature that failed to load. */
 .activity-empty {
-  margin: 0; padding: 14px 16px; max-width: 66ch;
+  margin: 12px 16px; padding: 12px 14px; max-width: 72ch;
   font-size: var(--fs-sm); line-height: 1.6; color: var(--muted);
 }
 
@@ -3773,7 +3777,11 @@ button.dtab-close:hover { opacity: 1; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: var(--surface);
+  /* NO OPAQUE BACKGROUND, and this was the whole reason these two pages looked like
+     a different product: they were the LAST surfaces still painting --surface over
+     the paper ground while every other page let it through. Both were also the two
+     the screenshot harness had never captured (it shot five of seven pages), so
+     nothing ever looked at them — a page nobody renders is a page nobody fixes. */
 }
 /* With a trail open the page itself must NOT scroll: the trajectory renderer
    owns its own scroll region (#traj-view → .traj-list), and two nested
@@ -3783,7 +3791,7 @@ button.dtab-close:hover { opacity: 1; }
 .archive-head {
   flex: none;
   padding: 12px 16px 10px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--glass-hairline);
   background: var(--surface);
 }
 .archive-head-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -3804,7 +3812,7 @@ button.dtab-close:hover { opacity: 1; }
 /* A quiet line, never an empty container: a titled empty list reads as a
    feature that failed to load. */
 .archive-empty {
-  margin: 0; padding: 14px 16px; max-width: 66ch;
+  margin: 12px 16px; padding: 12px 14px; max-width: 72ch;
   font-size: var(--fs-sm); line-height: 1.6; color: var(--muted);
 }
 /* A read that FAILED is not an empty archive. The sentence says so, and the
@@ -3818,6 +3826,16 @@ button.dtab-close:hover { opacity: 1; }
   color: var(--danger-on-soft);
   background: var(--danger-soft);
   border-left: 2px solid var(--danger);
+  /* The stripe stays (it is the SHAPE channel the test pins), but it is a pane now:
+     margin + radius + the material's hairline, so a failed read reads as a block on
+     the page rather than as a full-bleed band across it. */
+  margin: 12px 16px;
+  padding: 12px 14px;
+  max-width: 72ch;
+  border-radius: 10px;
+  border-top: 1px solid var(--glass-hairline);
+  border-right: 1px solid var(--glass-hairline);
+  border-bottom: 1px solid var(--glass-hairline);
 }
 .archive-note-fail {
   color: var(--danger-on-soft);

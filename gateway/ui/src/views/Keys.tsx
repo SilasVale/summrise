@@ -180,7 +180,22 @@ export default function Keys() {
 
   return (
     <div>
-      <PageHeader title={t("keys.title")} description={t("keys.lede")} />
+      <PageHeader
+        title={t("keys.title")}
+        description={t("keys.lede")}
+        // THE PAGE ANSWERS ITS OWN QUESTION, in the same slot and with the same idiom
+        // the Models page uses for its count. You come here to fix keys, so the first
+        // thing it should say is how many are missing — the Overview tile ("0/8 keys
+        // ready") knew, and the page you click through to did not.
+        actions={
+          <Badge tone="muted">
+            {t("keys.summary", {
+              done: String(KEY_NAMES.filter((n) => keys[n]?.configured).length),
+              total: String(KEY_NAMES.length),
+            })}
+          </Badge>
+        }
+      />
       <div className="cards">
         {KEY_NAMES.map((name) => {
           const info = keys[name];
@@ -205,17 +220,22 @@ export default function Keys() {
                 </Badge>
               </div>
 
-              <div className="row">
-                <code className="token" style={{ flex: 1 }}>
-                  {info?.masked || t("key.notConfigured")}
-                </code>
-                {configured && (
+              {/* ONLY WHEN THERE IS A VALUE. The badge above already carries the
+                  state, so an unconfigured card printed "Not configured" twice — once
+                  as a badge and once inside a box styled to look like an input — and
+                  eight of those boxes were the heaviest thing on the page. Nothing to
+                  show, nothing rendered: the action below is the whole card. */}
+              {configured && (
+                <div className="row">
+                  <code className="token" style={{ flex: 1 }}>
+                    {info?.masked}
+                  </code>
                   <CopyButton
                     text={info?.masked || ""}
-                    // The list carries only the masked display value — fetch
-                    // the FULL key at click time (session-gated reveal) so
-                    // the clipboard gets the real credential, not the mask.
-                    // Failures (reveal or clipboard) toast once via onFailed.
+                    // The list carries only the masked display value — fetch the
+                    // FULL key at click time (session-gated reveal) so the clipboard
+                    // gets the real credential, not the mask. Failures (reveal or
+                    // clipboard) toast once via onFailed.
                     getText={async () => {
                       const { value } = await api.revealKey(name);
                       return value;
@@ -223,19 +243,23 @@ export default function Keys() {
                     onFailed={() => toast(t("key.revealFail"), true)}
                     small
                   />
-                )}
-              </div>
+                </div>
+              )}
 
               <div className="key-card-actions">
+                {/* THE PRIMARY ACTION IS "SET KEY", NOT "EDIT" ×8. A page whose job
+                    is to fill in what is missing cannot have eight equally loud solid
+                    buttons, none of which is the thing to do next; on a configured
+                    card the same control steps back to a ghost. */}
                 <button
-                  className="btn btn-primary btn-mini"
+                  className={`btn ${configured ? "btn-ghost" : "btn-primary"} btn-mini`}
                   onClick={() => {
                     setEditingName(name);
                     setEditValue("");
                     setResultBox(null);
                   }}
                 >
-                  {t("btn.edit")}
+                  {configured ? t("btn.edit") : t("btn.setKey")}
                 </button>
                 <button
                   className="btn btn-ghost btn-mini"
