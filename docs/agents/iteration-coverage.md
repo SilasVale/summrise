@@ -10,9 +10,8 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 117**; HEAD `9777a1df` + the round-116 gateway fix + this round's console
-  fix (all DEPLOYED; `vale-gate` version `ad12cdbc-c047-4b30-87f6-c9c70d9b4ca6`, console bundle
-  `index-498eVwrs.js`).
+- Round log head: **round 118**; the round-116/117/118 fixes are all DEPLOYED (`vale-gate`
+  version `54cf4314-d286-4d5c-9b00-c796afe8f19f`, console bundle `index-CSsrgJsf.js`).
 - **A "STILL OPEN" LINE IS A CLAIM, NOT A FACT — two rounds running now.** Round 115 found memory
   F5 already closed since round 110; round 116 read round 105's three leftovers and found two of
   them touched by four later commits (`99b42928`, `5030ab60`, `9249e790`, `1d8b8468`) that were
@@ -104,6 +103,11 @@ already defined for uploads, with `cache-control: no-store`. Live: 200 + etag `"
 `content-length 31374231` + `public, no-cache`; `If-None-Match` → 304/0 bytes; a non-matching
 validator → the full body; tgz, `version.json` and the cloudflared proxy unchanged.
 
+**Closed in round 118: the file layer's per-ID marking.** A model the CONFIG FILE declares kept a
+live `Edit facets` and a live `Delete/Disable`: both answered 200 and the next deploy silently
+reverted them. The panel already carried the sentence for exactly this — the per-ID facts simply
+never arrived. Now they do.
+
 **Closed in round 117: four per-model controls now match the store that owns the model.**
 A provider's model has a facet editor (a re-post with one entry rebuilt); the DEFAULT row's edit
 button is gone (every save was a 400); "Adopt" carries untouched entries verbatim instead of
@@ -140,9 +144,10 @@ deployed mirror is byte-identical to the tested source.
    rebuilt); **F6** the DEFAULT row's dead "Edit facets" button (every save was a 400); **F7**
    "Adopt" erasing declared `reasoningEffort`; **F8** the Delete button that 404'd on a provider's
    model. Evidence: `npm run smoke:models` (14 checks, 6 mutations caught).
-   - **OPEN (F9): the file layer is marked per PREFIX only**, so a file-declared `models:` /
-     `overrides:` entry stays editable in the panel and the next deploy silently reverts it — the
-     panel already receives `file.{providers,models,overrides}` and reads only `.text`.
+   - **F9 CLOSED (round 118): the file layer is now marked per ID too.** `GET /api/admin/models`
+     returns `fileModels` / `fileOverrides` from the same pure helper the prefix list uses, so a
+     file-declared model offers no edit, no delete, and shows the config-file tag. Proven by 20
+     harness checks (with a CONTROL case) and four mutations.
    - **OPEN (F10): no onboarding / needs-setup hint anywhere** — Overview has no zero-key branch
      and i18n has no such key.
 5. **Panel F5** (host allowlist family match) — recorded as hardening only.
@@ -155,7 +160,8 @@ deployed mirror is byte-identical to the tested source.
 skips the suffix allowlist at dial time (fixed round 95) · `panel F1` loopback
 branch trusts a client Host header · `panel F2` `?grant=` not single-use over
 eventual consistency, no device-side audit · `panel F3` grant route shape check
-looser than the gateway's · `panel F5` host allowlist family match · `panel F6/F7/F8` a 400-ing edit button on the DEFAULT row,
+looser than the gateway's · `panel F5` host allowlist family match · `panel F9` the file layer was marked per prefix only (fixed
+round 118) · `panel F6/F7/F8` a 400-ing edit button on the DEFAULT row,
 "Adopt" erasing effort, a 404-ing delete (fixed round 117) · `memory F5`
 a failed append reported as a saved record, an unreadable store read as EMPTY
 (fixed round 110) · `index F2/F3` no validator on the executed bundle, failures

@@ -526,10 +526,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 117 (the panel's per-model controls now write to the store that
+Last updated: 2026-09-14 round 118 (the console offered Edit and Delete on a model the CONFIG FILE
+declares — both answered 200 and the next deploy silently reverted them; the panel had the words
+for this and never the per-ID facts). DEPLOYED. No agent/release change.
+Commit: this round's console + gateway fix + mirror. `vale-gate` version
+`54cf4314-d286-4d5c-9b00-c796afe8f19f`; console bundle `index-CSsrgJsf.js`; gateway suite 848,
+console 11, `smoke:models` 20 checks.
+  (1) F9, THE LAST "SILENT UNDO". The file layer (`config/models.ts`) WINS for every id it
+  declares, and the panel was told about file-declared PREFIXES only (`filePrefixes`). So a
+  file-declared MODEL — and any console record whose id the file also declares — kept a live
+  `Edit facets` and a live `Delete/Disable`, each answering 200, each undone by the next deploy.
+  What made this one worth the round: the panel ALREADY carried the sentence for it
+  ("Declared in config/models.ts; an edit here is reverted by the next deploy, so the control is
+  off") — the vocabulary existed, the facts never arrived.
+  (2) THE FIX IS ONE ARRAY PAIR ON THE WIRE. `GET /api/admin/models` now returns `fileModels` and
+  `fileOverrides` from the SAME pure `fileDeclaredKeys(loadCatalogueFile(...))` the prefix list
+  already used, so the two cannot disagree about what the file declares. The panel suppresses the
+  edit control and the delete control for those ids and shows the existing config-file tag on the
+  model row — absence of controls reads as a bug without it.
+  (3) THE WIRE CONTRACT IS PINNED INCLUDING THE EMPTY CASE: the e2e test asserts both keys are
+  ARRAYS on a deployment that declares nothing, because a field that appears only when non-empty
+  cannot be told apart from a field the server does not support.
+  (4) EVIDENCE, 20 CHECKS AND FOUR MUTATIONS: `smoke:models` gained a file-declared model that is
+  ALSO console-owned (the exact collision the merge produces) and asserts: the config-file tag is
+  shown, the edit control is gone, the delete control is gone — plus a CONTROL case (a model the
+  file does not declare still offers delete), without which all three would also pass on a row
+  that rendered nothing, the false pass this harness has fallen into twice. Mutations caught:
+  dropping `!fileIds.includes(id)` from the edit gate, from the delete gate, removing the tag, and
+  — server side — removing the two arrays from the response.
+  (5) DEPLOYED AND VERIFIED: `api.saisi.online/assets/index-CSsrgJsf.js` is byte-identical to the
+  local build (`cmp`, 329,597 bytes), `index.html` serves that hash, and `/api/admin/models` still
+  answers 401 without a session. The code-viewer mirror test ALSO caught this round's edit before
+  the deploy did (it fails until `sync-code-viewer.sh` runs) — the guard doing its job, worth
+  naming because a direct `wrangler deploy` would have shipped a stale mirror.
+  (6) STILL OPEN: F10 (no onboarding/needs-setup hint anywhere); CHARTER-1 (so still no release);
+  the dead-agent revival window; the restart mystery (journal armed).
+
+Previous round: 2026-09-14 round 117 (the panel's per-model controls now write to the store that
 OWNS the model, or are not rendered at all — the provider-model editor round 105 left out, plus
 three lying controls found in round 116). DEPLOYED. No agent/release change.
-Commit: this round's console fix + mirror. `vale-gate` version `ad12cdbc-c047-4b30-87f6-c9c70d9b4ca6`;
+Commit: 178c646d. `vale-gate` version `ad12cdbc-c047-4b30-87f6-c9c70d9b4ca6`;
 console bundle `index-498eVwrs.js`; gateway suite 848, console 11 (unchanged key set).
   (1) THE RULE THIS ROUND APPLIES, in the page's own words: no control is better than one whose
   effect is a lie. Four controls were measured against it:

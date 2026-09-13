@@ -139,6 +139,13 @@ test("DISABLE: a built-in leaves the catalogue AND stops being usable", async ()
   const state = await json(await call("GET", "/api/admin/models"));
   assert.ok(state.body.disabled.includes(id), "the disabled list does not name it");
   assert.ok(!state.body.custom.includes(id), "a built-in must not appear as custom");
+  // AND THE FILE LAYER IS NAMED, PER ID. The console disables a control only where the file
+  // wins, and the file wins per ID — the panel was told about file-declared PREFIXES only, so
+  // an edit to a file-declared MODEL answered 200 and was silently reverted by the next deploy.
+  // The two keys must be on the wire even when nothing is declared: a field that appears only
+  // when non-empty is a field the panel cannot distinguish from "not supported".
+  assert.ok(Array.isArray(state.body.fileModels), "fileModels is not on the wire");
+  assert.ok(Array.isArray(state.body.fileOverrides), "fileOverrides is not on the wire");
 
   // And back on.
   const on = await json(await call("PUT", `/api/admin/models/${id}/enabled`));

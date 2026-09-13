@@ -291,9 +291,21 @@ async function adminModelState(request: Request, env: Env): Promise<Response> {
   if (gate instanceof Response) return gate;
 
   const custom = await customModels(env);
+  // WHICH IDS THE FILE OWNS, PER ID — because the merge makes the file win for exactly the
+  // ids it declares, so a panel edit to one of them returns 200 and is then silently reverted
+  // by the next deploy. The panel was already told about file-declared PREFIXES (see
+  // adminListProviders) and already has the words for it ("Declared in config/models.ts; an
+  // edit here is reverted by the next deploy, so the control is off") — what it never got was
+  // the model-level facts, so every such control stayed live. Read from the SAME pure helper
+  // the prefix list uses, so the two cannot disagree about what the file declares.
+  const declared = fileDeclaredKeys(
+    loadCatalogueFile({ knownPrefixes: RESERVED_PREFIXES, parseProvider: parseProviderSpec }),
+  );
   return jsonOk({
     custom: custom.map((m) => m.id),
     disabled: [...(await disabledModels(env))],
+    fileModels: [...declared.models],
+    fileOverrides: [...declared.overrides],
     // WHAT EACH CONSOLE-OWNED MODEL DECLARES. Without this the panel could set a
     // display name, a capacity and a reasoning default and then never show them
     // again — declaring without seeing is how a value silently disappears.

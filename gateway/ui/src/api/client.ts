@@ -222,6 +222,10 @@ export const api = {
       disabled: string[];
       /** What each CONSOLE-OWNED model declares, by id. */
       facets?: Record<string, ModelFacets>;
+      /** Ids the CONFIG FILE declares. The file wins for these, so a panel edit is reverted
+       *  by the next deploy — the controls stay off, exactly as they do for `filePrefixes`. */
+      fileModels?: string[];
+      fileOverrides?: string[];
     }>("/api/admin/models"),
   addModel: (spec: {
     id: string;

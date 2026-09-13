@@ -109,6 +109,11 @@ export default function ModelsView() {
   // the next deploy would undo — the same rule as `Edit facets` on a model that cannot be
   // edited: no control is better than one whose effect is a lie.
   const [filePrefixes, setFilePrefixes] = useState<string[]>([]);
+  // ...and the IDS the file declares — the same rule one level down. The merge makes the file
+  // win per id, so a facet edit or a delete on a file-declared model answers 200 and is then
+  // silently reverted by the next deploy. Until round 118 the panel was told only about
+  // PREFIXES, which is why those controls stayed live on file-declared models.
+  const [fileIds, setFileIds] = useState<string[]>([]);
   // The configuration document, opened on demand (an escape hatch, not page furniture).
   const [doc, setDoc] = useState<string | null>(null);
   const [docBusy, setDocBusy] = useState(false);
@@ -184,6 +189,7 @@ export default function ModelsView() {
           setCustom(st.custom || []);
           setDisabled(st.disabled || []);
           setFacets(st.facets || {});
+          setFileIds([...(st.fileModels || []), ...(st.fileOverrides || [])]);
         })
         .catch(() => {});
       void api
@@ -700,6 +706,14 @@ export default function ModelsView() {
                       {models.map((id) => (
                         <li key={id} className="prov-model">
                           <code className="prov-model-id">{id}</code>
+                          {/* The model-level twin of the row header's tag: this ID is declared
+                              in config/models.ts, which is why it offers no editor and no
+                              delete. Without it the absence of controls reads as a bug. */}
+                          {fileIds.includes(id) && (
+                            <span className="prov-tag" title={t("models.fileOwnedHint")}>
+                              {t("models.fileOwned")}
+                            </span>
+                          )}
                           {/* What the model declares, in the row that owns it. Only the
                               facets a model MAY own appear here — never wire/us-egress,
                               which are routing semantics and live in the registry. */}
@@ -740,6 +754,7 @@ export default function ModelsView() {
                                 possible outcome is an error is worse than no button. */}
                             {isAdmin &&
                               !filePrefixes.includes(prefix.replace(/\/$/, "")) &&
+                              !fileIds.includes(id) &&
                               (isCustom || (prefix !== "none" && custom.includes(id))) && (
                               <button
                                 type="button"
@@ -758,8 +773,10 @@ export default function ModelsView() {
                             {/* NO DELETE on a provider's model: this button calls the MODEL
                                 route, which owns neither the id nor the list — it answers
                                 `404 No custom model <id>`. Removing one model from a provider is
-                                an edit of the provider record, not a delete of a model record. */}
-                            {isAdmin && !isCustom && (
+                                an edit of the provider record, not a delete of a model record.
+                                And none for a FILE-declared id: the file wins, so the delete
+                                would come back on the next deploy. */}
+                            {isAdmin && !isCustom && !fileIds.includes(id) && (
                               <button
                                 type="button"
                                 className="btn btn-danger btn-mini"

@@ -36,14 +36,28 @@ const routes = {
   "/api/health": { channels: [{ prefix: "og/", ok: true }] },
   "/api/me/route": { effective: "og/deepseek/deepseek-v4.1-flash" },
   "/api/admin/public": {
-    models: ["og/deepseek/deepseek-v4.1-flash", "my/llama-3", "deepseek/deepseek-v4.1-flash"],
+    models: [
+      "og/deepseek/deepseek-v4.1-flash",
+      "og/from-file",
+      "my/llama-3",
+      "deepseek/deepseek-v4.1-flash",
+    ],
     routes: [
-      { prefix: "og/", backend: "og", models: ["deepseek/deepseek-v4.1-flash"] },
+      { prefix: "og/", backend: "og", models: ["deepseek/deepseek-v4.1-flash", "from-file"] },
       { prefix: "my/", backend: "my", models: ["llama-3"] },
       { prefix: "none", backend: "", models: ["deepseek/deepseek-v4.1-flash"] },
     ],
   },
-  "/api/admin/models": { custom: [], disabled: [], facets: {} },
+  // A model the CONFIG FILE declares AND the console also has a record for: the file wins, so
+  // every control the console offers on it is a no-op that answers 200. The panel was told
+  // about file-declared PREFIXES only, which is why this one kept its controls until round 118.
+  "/api/admin/models": {
+    custom: ["og/from-file"],
+    disabled: [],
+    facets: { "og/from-file": { name: "From file" } },
+    fileModels: ["og/from-file"],
+    fileOverrides: [],
+  },
   "/api/admin/providers": {
     providers: [
       {
@@ -202,6 +216,35 @@ checks.push([
   !!defaultRow && editBtn(defaultRow) === null,
 ]);
 
+
+// ── the FILE-declared model, asserted while ITS row is the open one ──────────────────
+const ogRow = rowFor("og");
+await openRow(ogRow);
+const modelRow = (row, id) =>
+  [...(row?.querySelectorAll(".prov-model") || [])].find(
+    (n) => (n.querySelector(".prov-model-id")?.textContent || "") === id,
+  );
+const fileModel = modelRow(ogRow, "og/from-file");
+const plainModel = modelRow(ogRow, "og/deepseek/deepseek-v4.1-flash");
+checks.push(["the og row renders both models", !!fileModel && !!plainModel]);
+checks.push([
+  "a FILE-declared model shows the config-file tag",
+  (fileModel?.querySelector(".prov-tag")?.textContent || "").includes("配置文件"),
+]);
+checks.push([
+  "a FILE-declared model offers NO edit control (the file would revert it)",
+  (fileModel?.querySelector(".prov-model-actions button[aria-expanded]") ?? null) === null,
+]);
+checks.push([
+  "a FILE-declared model offers NO delete control",
+  (fileModel?.querySelector(".prov-model-actions button.btn-danger") ?? null) === null,
+]);
+// THE CONTROL CASE: without it, all three assertions above would also pass on a row that
+// rendered nothing at all — the false-pass this harness has already fallen into twice.
+checks.push([
+  "CONTROL: a model the file does NOT declare still offers delete",
+  (plainModel?.querySelector(".prov-model-actions button.btn-danger") ?? null) !== null,
+]);
 
 let fail = 0;
 for (const [name, ok] of checks) {
