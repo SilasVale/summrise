@@ -16,7 +16,14 @@
 (() => {
   // Distinct from null: reserved semantics no longer needed (no API), kept
   // only for the resolvedCache shape.
-  let cfg = { origin: DEFAULT_STUDIO_ORIGIN, enabled: true };
+  // DEFAULT OFF (round 134, ADR 0010). This content script rewrites text nodes the
+  // DSH React client owns, and the client reconciles those nodes IN PLACE: its next
+  // streaming chunk writes to a node this script has already replaced, so the reply
+  // freezes at the injected link and a later structural diff can throw inside React's
+  // commit phase. A feature whose measured effect is corrupting the host UI does not
+  // belong on by default — it stays available, explicitly, and the README no longer
+  // claims the rewrite is safe.
+  let cfg = { origin: DEFAULT_STUDIO_ORIGIN, enabled: false };
   /** path candidate -> { dir: string, at: number } */
   const resolvedCache = new Map();
   const RX_TTL_MS = 5 * 60 * 1000;
@@ -25,7 +32,7 @@
     try {
       const st = await chrome.storage.local.get(["studioOrigin", "studioLinksEnabled"]);
       cfg.origin = httpsOrigin(st.studioOrigin || DEFAULT_STUDIO_ORIGIN) || DEFAULT_STUDIO_ORIGIN;
-      cfg.enabled = st.studioLinksEnabled !== false;
+      cfg.enabled = st.studioLinksEnabled === true; // opt IN, never out
     } catch {
       /* extension context gone */
     }

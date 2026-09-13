@@ -7,6 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const { DEFAULT_STUDIO_ORIGIN, httpsOrigin, resolveDir, studioFolderUrl, extractPathJobs } = require("../shared.js");
@@ -121,4 +122,15 @@ test("extractPathJobs: empty and prose-only yield nothing", () => {
   // A path that is real but unopenable is still MATCHED — it is resolveDir that
   // refuses it, and the content script then leaves the text alone.
   assert.equal(resolveDir(extractPathJobs("see /usr/bin/env bash")[0].bare), "");
+});
+
+// X1's decision is a DEFAULT, and a default lives in the content script (which
+// cannot be imported here — it talks to chrome.*). Pinned by reading it, the
+// instrument this repo uses where a platform cannot be driven. ADR 0010 records
+// why: the rewrite freezes the host client's streaming replies.
+test("linkify is OFF by default and opts IN explicitly", () => {
+  const src = readFileSync(new URL("../content/studio-links.js", import.meta.url), "utf8");
+  assert.match(src, /enabled: false/, "the default must be off");
+  assert.match(src, /studioLinksEnabled === true/, "the opt-in must be explicit");
+  assert.doesNotMatch(src, /studioLinksEnabled !== false/, "!== false is opt-out, not opt-in");
 });

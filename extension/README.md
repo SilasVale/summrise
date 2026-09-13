@@ -24,8 +24,13 @@ folders, not file+line — the line number rides in the link tooltip.
 
 ## Notes
 
-- The original text node is replaced wholesale with a single `<span>` wrapper
-  so streaming appends never fight it; the options toggle turns it off.
+- The original text node is replaced wholesale with a single `<span>` wrapper.
+  **That is also why this feature is OFF by default** (ADR 0010): the host client
+  reconciles its text nodes in place, so its next streaming chunk writes to a node
+  this script already replaced — the reply freezes at the injected link, and a later
+  structural diff can throw inside the framework's commit phase. The options toggle
+  turns it on for a page where that is acceptable; a host-side renderer is the real
+  fix and removes this gate.
 - The Vale Browser Control half of this extension (device Chrome pairing +
   `chrome.debugger` driving via the gateway) was removed in round-262 — the
   Vale desktop Electron shell replaced it. The gateway's extension-pairing

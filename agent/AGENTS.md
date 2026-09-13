@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 134 (X1 — the ledger's last HIGH — got the DECISION it had been
+waiting for: path linkification is off by default, because it rewrites nodes the host reconciles in
+place. ADR 0010 records the tradeoff, the rejected options and the deletion criterion).
+Commit: this round's extension/ + docs. Tests: extension 11 (was 10), two mutations caught.
+  (1) THE DEFECT WAS A DEFAULT, NOT A BUG. The content script replaced the text node it found with a
+  `<span>` wrapper — and the host client reconciles its markdown text nodes IN PLACE, so its next
+  streaming chunk writes to the node this script already detached: the reply freezes at the injected
+  link, and a later structural diff can throw inside React's commit phase. The README claimed the
+  opposite ("replaced wholesale … so streaming appends never fight it"), and the default was ON
+  (`studioLinksEnabled !== false`, i.e. opt-OUT).
+  (2) THE DECISION, AND WHY IT IS THE HONEST ONE: a feature whose measured effect is corrupting the
+  host UI does not belong on by default — and the corruption is SILENT, so it reads as the model
+  having stopped generating. It is now opt-IN (`=== true`), the README states the tradeoff instead
+  of claiming safety, and the detection code (pure guards, workspace allowlist, refusal rules) is
+  kept because the real fix needs it.
+  (3) ADR 0010 CARRIES THE FOUR THINGS THE PROTOCOL ASKS FOR: rejected options (keep it on and
+  document — no; remove it — loses working tested logic; patch the rewrite to be React-safe —
+  impossible from outside, since the framework reconciles by node IDENTITY and every replacement
+  leaves it pointing at the old node); a measurable metric (with the setting off, a streamed reply
+  contains no injected node and does not freeze); a failure criterion (links appear while off, or a
+  reply freezes while on); and a DELETION CRITERION (delete the gate, its pin and this ADR when
+  linkification is rendered host-side).
+  (4) TWO MUTATIONS, BOTH CAUGHT: the default back to on, and the opt-in back to opt-out. The pin
+  reads the content script, because it cannot be imported — it talks to `chrome.*`.
+  (5) NOT BROWSER-VERIFIED, and this is the round's limit: the extension is loaded unpacked on
+  dsh.saisi.online and this loop holds no browser session. What is proven is the default and the
+  predicate; the FREEZE itself is the audit's measurement, not re-measured here, and the user
+  verifying one streamed reply with the setting on/off is the check that closes it.
+  (6) STILL OPEN: D13 (the orchestrator has no executable coverage); the proxies' P6-P10; X3, X6, X8
+  in the extension; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery.
+
 Last updated: 2026-09-14 round 133 (P5b: the 5xx contract is now uniform across ALL FIVE relay
 handlers — github.ts and gform.ts were the last two passing an upstream error body through).
 Commit: this round's proxies/ + docs. Tests: vrelay 68 (was 64), three mutations caught.
