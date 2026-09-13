@@ -59,7 +59,13 @@ function upstreamUrl(base: string, path: string): { url?: URL; error?: string } 
 const MAX_REDIRECTS = 3;
 
 // Upstream fetch budget: fail fast instead of hanging a client.
-const UPSTREAM_TIMEOUT_MS = 30000;
+// The HEADER budget (see proxies/README.md:13): it covers waiting for response
+// headers ONLY, and the body then streams untimed. Configurable so a test can
+// distinguish that from a whole-fetch budget without sleeping 30 s (round 129).
+const UPSTREAM_TIMEOUT_MS = Number(
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.VALE_RELAY_HEADER_TIMEOUT_MS ?? 30000,
+);
 
 function errorResponse(message: string, status = 400): Response {
   return new Response(JSON.stringify({ error: message }), {
@@ -140,13 +146,25 @@ export default async function handler(request: Request): Promise<Response> {
 
   try {
     for (let redirects = 0; ; redirects += 1) {
-      const response = await fetch(upstream, {
-        method: request.method,
-        headers,
-        body: request.method === "POST" ? request.body : undefined,
-        redirect: "manual",
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      });
+      // AbortSignal.timeout starts a clock that keeps RUNNING while the body
+      // streams, so a git clone/push (README:108 documents a 725 MB push path) or a
+      // release-asset download was cut mid-body at 30 s — while the file's own
+      // contract says the budget covers headers only. zen.js/proxy.js have had the
+      // correct shape since ff5ad05a; this is that shape.
+      const ac = new AbortController();
+      const headerTimer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(upstream, {
+          method: request.method,
+          headers,
+          body: request.method === "POST" ? request.body : undefined,
+          redirect: "manual",
+          signal: ac.signal,
+        });
+      } finally {
+        clearTimeout(headerTimer);
+      }
       const target = allowedRedirect(response, upstream);
       if (!target || response.status < 300 || response.status >= 400) {
         const out = responseHeaders(response);

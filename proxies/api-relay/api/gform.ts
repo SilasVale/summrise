@@ -78,7 +78,13 @@ function upstreamUrl(base: string, path: string): { url?: URL; error?: string } 
 const MAX_REDIRECTS = 5;
 
 // Upstream fetch budget: fail fast instead of hanging a client.
-const UPSTREAM_TIMEOUT_MS = 30000;
+// The HEADER budget (see proxies/README.md:13): it covers waiting for response
+// headers ONLY, and the body then streams untimed. Configurable so a test can
+// distinguish that from a whole-fetch budget without sleeping 30 s (round 129).
+const UPSTREAM_TIMEOUT_MS = Number(
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.VALE_RELAY_HEADER_TIMEOUT_MS ?? 30000,
+);
 // Rewrite ceiling: response bodies are fully buffered by response.text()
 // before rewriting, so bound memory explicitly. Bodies declaring MORE than
 // this via content-length skip the rewrite and stream straight through
@@ -268,13 +274,25 @@ export default async function handler(request: Request): Promise<Response> {
         const cookie = request.headers.get("cookie");
         if (cookie) effectiveHeaders.set("cookie", cookie);
       }
-      const response = await fetch(upstream, {
-        method,
-        headers: effectiveHeaders,
-        body,
-        redirect: "manual",
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      });
+      // AbortSignal.timeout starts a clock that keeps RUNNING while the body
+      // streams, so a git clone/push (README:108 documents a 725 MB push path) or a
+      // release-asset download was cut mid-body at 30 s — while the file's own
+      // contract says the budget covers headers only. zen.js/proxy.js have had the
+      // correct shape since ff5ad05a; this is that shape.
+      const ac = new AbortController();
+      const headerTimer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(upstream, {
+          method,
+          headers: effectiveHeaders,
+          body,
+          redirect: "manual",
+          signal: ac.signal,
+        });
+      } finally {
+        clearTimeout(headerTimer);
+      }
       if (response.status >= 300 && response.status < 400) {
         const target = redirectTarget(response, upstream);
         if (!target) {

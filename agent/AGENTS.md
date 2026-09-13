@@ -526,6 +526,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 129 (P3: three of the five vrelay handlers did not implement the
+upstream budget their own README documents — and the ledger's P2 line was stale, found by checking it
+against code and live probes instead of trusting it). Commit: this round's proxies/ + docs.
+Tests: vrelay 60 (was 56), release-lib 38, release-audit 25, smoke-index 12, build-pins 31.
+  (1) THE LEDGER WAS WRONG FOR THE THIRD TIME, and this round started by checking rather than
+  trusting. Its proxies row still listed **P2 as open** ("the same shape in github/gform (open
+  proxy)") while round 120 had already put `upstreamUrl`'s resolved-origin assert into all THREE
+  handlers — verified now in the code (3/3) and LIVE: `/api/github/web//example.com/` and
+  `/api/gform//example.com/` both answer **400**, which is also the first time gform was probed at
+  all (round 120's matrix covered git, github and the info/refs spelling). Corrected in the ledger.
+  (2) P3, FIXED AS A CONTRACT MATTER. `proxies/README.md:13` promises "a 30s timeout that covers
+  waiting for response headers only — streamed response bodies … forwarded untimed"; `git.ts`,
+  `github.ts` and `gform.ts` used `AbortSignal.timeout()`, whose clock keeps running while the body
+  streams, while `zen.js`/`proxy.js` have had the correct `AbortController` + `clearTimeout` shape
+  since ff5ad05a. All three now use that shape, and the budget is readable from
+  `VALE_RELAY_HEADER_TIMEOUT_MS` so a test can tell the two shapes apart in milliseconds instead of
+  sleeping 30 s.
+  (3) AND THEN THE HONEST PART, WHICH IS THE ROUND'S REAL RESULT: the discriminating test shows the
+  OLD shape does not truncate either. With a 120 ms budget and a body that drips for 400 ms, both
+  shapes deliver the full body on Node 24/undici — aborting a signal after the Response has been
+  returned does not cancel its body stream in this runtime. So the audit's "bodies are cut at 30 s"
+  is **NOT established**, and I did not claim it: what was real is a documented contract that three
+  handlers did not implement. The test now proves the property the contract asks for (a body
+  outliving the budget still arrives; a HEADER outliving it is still aborted at ~127 ms), and the
+  test file's own comment was rewritten to say exactly what it does and does not establish — a
+  comment claiming a reproduced defect would have been the same defect class this loop has been
+  closing for eight rounds.
+  (4) THREE MUTATIONS, ALL CAUGHT: reverting git to the whole-fetch signal, keeping the
+  AbortController but never clearing the timer, and fixing only github. All three are caught by the
+  source pin that requires the shape in all three files — the behavioural pair cannot see them, and
+  saying which instrument caught what is the point: the pin is what keeps "fixed in two of three"
+  from shipping.
+  (5) NOT DEPLOYED, deliberately: the relay deploy is a release action, the shape change is
+  behaviour-preserving in this runtime (see 3), and the next deploy will carry it. Recorded so a
+  later round does not read "committed" as "live".
+  (6) STILL OPEN: D12 (two installer deploy paths disagree about the manifest), D13 (the
+  orchestrator has no executable coverage); the extension's X1 (the last HIGH — needs a design
+  decision), X3, X6, X8; the proxies' P4-P10; the three unreconciled versions (1.2.362-364);
+  CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 128 (three build inputs that are HAND-COPIED, each with a single
 source of truth and NOTHING comparing them — the toolchain in five sites, cargo-xwin's pin, and the
 shipped-file list). Commit: this round's scripts/ + workflows + docs.
