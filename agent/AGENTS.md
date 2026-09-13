@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 186 (**the BYOK vocabulary is FOUR tables, not the two round 185
+assumed — and the comment that warns about drift names a file that holds no table at all**). Commit:
+journal. No code change.
+  (1) THE MEASUREMENT, DONE THE WAY ROUND 185 SAID TO DO IT (search by VALUE, not by name): all eight
+  key names were grepped across `gateway/src`, then each hit file was classified by DENSITY — a table
+  literal has its entries clustered, a consumer has them scattered. Result: **four files hold a table** —
+  `model-route.ts` (8 hits, 7-line span), `models-probe.ts` (8, 7), `translate-vision.ts` (8, 7),
+  `store/users.ts` (9, 15) — while `translate.ts` (18 hits, **712-line span**), `auth.ts` (11, 164) and
+  `tooling.ts` (10, 50) are CONSUMERS, and `store.ts` holds one bare constant.
+  (2) SO ROUND 185's FINDING SHARPENS INTO TWO, AND THE SECOND IS THE INTERESTING ONE. First: the drift
+  surface is **four independently-typed copies of one eight-name vocabulary**, not two — every one of them
+  must be edited when a channel gains a BYOK key, and nothing compares them. Second: `models-probe.ts`'s
+  comment says its table is "keyed by the ROUTE KIND … the same vocabulary `translate.ts`'s missing-key
+  table uses" — and **`translate.ts` contains no table**. The warning about drift names the wrong file.
+  A reader who follows it to `translate.ts` finds scattered consumers and no table to compare against,
+  which is worse than no pointer: it reads as verification already done.
+  (3) AND THE DENSITY TEST IS THE ROUND'S METHODOLOGICAL POINT, small but reusable: "this name appears in
+  file X" and "file X is a source of truth for this name" are different claims, and the SPAN between the
+  first and last hit separates them without reading a line. Four tables vs four consumers is exactly the
+  distinction that makes the hazard real or imaginary — and the same test would have answered round 184's
+  question too (where a `satisfies Plugin` grep mis-classified three plugins).
+  (4) WHAT I HAVE **NOT** ESTABLISHED, NAMED RATHER THAN IMPLIED: I have not compared the four tables'
+  CONTENTS against each other — the measurement proves four independent sources EXIST, not that they
+  disagree today. Whether they agree is exactly what nothing in the suite knows, which is the finding.
+  The fix is one of the two the loop has used before (rounds 130/146): promote the vocabulary to a single
+  source the four import, or add a test that asserts set-equality of their keys. The first removes the
+  class; the second only detects it — and this file's own header argues for removal ("a second naming of
+  channels is how two tables drift apart").
+  (5) STILL OPEN: that fix (four tables, one vocabulary); `models-probe.ts`'s remaining body (lines
+  70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the
+  seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 185 (round 165's queue, ninth item: `models-probe.ts` READ — and it
 NAMES this loop's favourite defect in its own comment while relying on nothing to prevent it). Commit:
 journal. No code change.
