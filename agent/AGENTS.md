@@ -526,6 +526,47 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 189 (the four-table promotion SPECIFIED rather than started: the
+decision was made in 188, and what the change actually needs is the DATA — eight rows carrying two key
+vocabularies plus `envKey: null` — so this round typed the data instead of beginning a four-module edit on
+a per-request path at the end of a budget). Commit: journal. No code change.
+  (1) THE DATA, READ OFF THE FOUR TABLES AND RECONCILED INTO ONE ROW PER CHANNEL (this is the content the
+  next round imports; the two keys per row are the two vocabularies round 187 measured):
+    | prefix | kind         | userKey              | envKey               |
+    |--------|--------------|----------------------|----------------------|
+    | og     | opencode     | OPENCODE_GO_API_KEY  | OPENCODE_GO_API_KEY  |
+    | ds     | deepseek     | DEEPSEEK_API_KEY     | DEEPSEEK_API_KEY     |
+    | qw     | qwen         | QWEN_API_KEY         | QWEN_API_KEY         |
+    | or     | openrouter   | OPENROUTER_API_KEY   | OPENROUTER_API_KEY   |
+    | nv     | nvidia       | NVAPI_KEY            | **null**             |
+    | gmi    | gmi          | GMI_API_KEY          | **null**             |
+    | cm     | commandgoat  | CMD_API_KEY          | CMD_API_KEY          |
+    | amd    | amd          | AMD_API_KEY          | AMD_API_KEY          |
+    The prefix↔kind pairing is the piece no existing table holds: `model-route.ts` keys by prefix,
+    `models-probe.ts` and `translate-vision.ts` key by kind, and NOTHING in the repo maps one to the other.
+    So the shared source is not a merge of four tables — it is the table the four can all DERIVE from, and
+    the derivation is the thing that does not exist today.
+  (2) AND `translate-vision.ts` NEEDS A THIRD FACET, which the row above does not carry: its entries are
+  `{key, shape}` where shape is `"anthropic"` (ds, or, qw, amd) or `"openai"` (opencode, commandgoat,
+  nvidia, gmi). A shared source with only `userKey`/`envKey` would force that file to keep its own table
+  and the class survives. The row must therefore carry `shape` too — discovered by reading the fourth
+  table rather than assumed from the three that agree, which is round 186's lesson applied before the
+  merge rather than after.
+  (3) SO THE DESIGN IS NOW COMPLETE AND THE NEXT ROUND IS TYPING, NOT DECIDING: one module exporting the
+  eight rows (prefix, kind, userKey, envKey|null, shape); `model-route.ts` derives `CHANNEL_KEY_RULES`,
+  `models-probe.ts` derives `BYOK_KEY_FOR_KIND`, `translate-vision.ts` derives its key+shape table, and
+  `store/users.ts` derives `USER_KEY_NAMES` as the set of non-null `userKey` values. The acceptance test is
+  the one that could not be written before: **each of the four derived shapes must equal what its table
+  holds today** — which is checkable only because this round wrote the rows down.
+  (4) WHY THE ROWS ARE THE DELIVERABLE AND NOT A PREFIX TO THE EDIT: three of the four tables were read and
+  reconciled here, and two facts surfaced only in the reconciling — that no prefix→kind map exists anywhere,
+  and that `shape` is a fourth facet. Both would have been discovered MID-EDIT by someone typing quickly,
+  which is how a merge deletes a distinction (round 188's criterion). Writing the data first is the same
+  move as round 180/181's reads: cheap now, impossible to skip later.
+  (5) STILL OPEN: type the module + rewire the four (design complete, data complete, acceptance test named);
+  `models-probe.ts`'s remaining body (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 188 (the four-table fix stops being a choice: one measurement shows the
 "cheaper" option needs exports too, so both options touch all four tables — and one of them removes the
 hazard instead of pinning a snapshot of it). Commit: journal. No code change.
