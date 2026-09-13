@@ -526,6 +526,33 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 149 (I checked the ONE protocol obligation I had been skipping:
+`docs/ARCHITECTURE.md`'s boundary verdicts, which every round is supposed to update in the same commit.
+Ten rounds of skipping had left it carrying TWO wrong claims — including the FOURTH copy of the phantom
+code-server password). Commit: docs/ + journal.
+  (1) THE FINDING THAT MATTERS: the claim round 141 "fixed" has FOUR copies, not two. `shared.js`
+  (141) and `options/options.js` (143) are code; `docs/ARCHITECTURE.md` carried two more — the studio
+  row AND the documented-trade-offs table — and both were still asserting "password + Access double
+  gate" for a server that runs `--auth none`. My 141 entry called it "the pair-defect"; it was a quad,
+  and I found the other half only by going back to the surfaces I had not opened. The lesson is not
+  "grep harder" but "the list of surfaces is itself a claim": I had assumed two.
+  (2) WHY THE DOC COPIES SURVIVED: the protocol asks for an ARCHITECTURE.md update in the same commit
+  as every round, and I updated journal + ledger only for rounds 139-148. A ten-round gap is exactly
+  how a document accumulates claims that its own code has stopped making. Worth stating plainly: the
+  obligation exists because the doc is a READER-FACING claim set, and an unread claim set drifts.
+  (3) WHAT ELSE HAD GONE STALE, fixed in the same pass: the extension row now records ADR 0010 (OFF by
+  default) and the two fixes that followed (the options predicate, X3's per-node WeakSet); the counts
+  were re-measured (index 83 → 89, relay 56 → 69, extension 9 → 13, proxies 20 → 28 with zen-go 15 +
+  zen-us 13 and todo 0) and the script suites are listed for the first time (release-lib 45,
+  release-audit 25, smoke-index 12, build-pins 32, publish-release 3).
+  (4) AND ONE HONEST NOTE ABOUT THE PIN TOTALS at the top of that file: they are a MIXED ledger — a
+  static pin count that SOLID rounds maintained, next to runner counts that this loop re-measures. They
+  are now labelled as such rather than silently blended, which is the same "two things that must agree"
+  shape this loop keeps closing.
+  (5) STILL OPEN: D13's build path (cannot be driven without publishing); the three unreconciled
+  versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery. Extension and
+  proxies surfaces are CLEAR.
+
 Last updated: 2026-09-14 round 148 (P9c CLOSED — as NOT A DEFECT. The "unlabelled upstream" it
 described was manufactured by my own test: a string-bodied Response is AUTO-LABELLED text/plain by the
 constructor, so the state the test claimed to exercise could not exist). Commit: proxies/ + docs.
