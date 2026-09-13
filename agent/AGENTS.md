@@ -526,6 +526,35 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 147 (a VERIFICATION round closing the 139-146 stretch: every suite
+re-run in one sweep after thirteen commits' worth of change — nothing red, and the two counts that
+should have moved, moved). No code changed; commit: journal + ledger only.
+Measured just now:
+  gateway 848 | index 89 | extension 13 (was 11 at the round-138 sweep) | zen-go 15 (was 14)
+  zen-us 13 (12 pass, 1 TODO — P9c) | vrelay 69
+  scripts: release-lib 45, release-audit 25, smoke-index 12, build-pins 32 (was 31),
+           publish-release 3 (NEW — the suite did not exist at the last sweep)
+  (1) THE DELTA IS THE POINT, not the green: thirteen new checks exist that did not exist at round
+  138, and each one is tied to a named finding — extension +2 (X1's opt-in pin, X6's three acts, X3's
+  encoding), zen-go +1 (P8's count_tokens shape), build-pins +1 (the unwired-test check), and a whole
+  new suite for the release orchestrator's refusal path (D13). A verification round that reported the
+  same numbers twice would mean the rounds between them had changed nothing measurable.
+  (2) THE ONE `todo` IS STILL COUNTED, STILL THE SAME ONE: zen-us's P9c (an upstream that declares no
+  content-type comes back unlabelled). node:test reports it as `fail 0`, which is why the number is
+  spelled out — and why the mechanism being UNESTABLISHED (round 142's correction) is not the same as
+  it being fixed.
+  (3) WHAT THE SWEEP DOES NOT COVER, unchanged and worth repeating at the end of a stretch: the agent's
+  Windows behaviour (no device in this loop), the extension's behaviour in a browser (loaded unpacked,
+  no browser session), and everything that needs a DEPLOY — rounds 129/131/132/133/135/136/137 are
+  committed, tested and mutating, NOT live. "All green" means the repository agrees with itself.
+  (4) AND THE HONEST SUMMARY OF THE STRETCH: nine findings closed (X1, X3, X6, X8, P6, P8, P9, P9b,
+  P10) plus two ledger claims corrected (142) and one test wired that had not been (146) — and FOUR of
+  those rounds found that MY OWN previous claim was wrong (136/137/143/145-146), which is the rate a
+  loop should be honest about rather than smooth over.
+  (5) STILL OPEN: D13's build path (cannot be driven without publishing); P9c (mechanism
+  unestablished); the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery. The extension surface is CLEAR.
+
 Last updated: 2026-09-14 round 146 (I wired the test I wrote one round earlier — it was in NO
 workflow, so it would have run for exactly one person, once. The fix is not the missing line but the
 missing COMPARISON: the test directory and the CI step list now have a check between them). Commit:
