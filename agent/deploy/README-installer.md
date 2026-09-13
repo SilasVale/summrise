@@ -46,6 +46,20 @@ $300–500/年，即时信任）——买完设 `VALE_SIGN_CRT/VALE_SIGN_KEY`
    卡片填 网关地址 + 注册码（控制台 → 设备管理 → 生成注册码）一键登记；
    或重装前手动跑 `vale setup --reg-key <码>`。
 
+## CDN 回退的完整性校验（round-124）
+
+自带 tgz 缺失时（杀软隔离、解压不全）安装器会回退 CDN 下载 —— 这条路现在**先校验再装**：
+下载到临时文件 → 读 `/api/version` 的 `sha256`（且版本号必须与本次安装的版本一致）→
+`Get-FileHash` 比对 → 通过才交给 npm；不符或清单缺该版本的摘要就退出（**exit 7**），
+并打印清单地址。2026-09-14 实测：`vale-agent-1.2.364.tgz`、清单、`latest` 别名三者摘要一致
+（`9ed7063e…`），所以这条闸门在真实产物上是放行的。
+
+人工验证（需要一台 Windows，且**故意**把下载弄坏）：把 `-CdnBase` 指向一个自制目录，
+放一个内容被改过的 tgz + 一份列出正确 sha256 的 `api/version`，期望 **exit 7** 且不产生
+npm 安装。本仓库内可跑的只有逻辑单测（`pwsh -File agent/deploy/lib/ValeIntegrity.tests.ps1`，
+CI 的 ubuntu runner 自带 pwsh）与接线 pin（`agent/tests/installer_integrity.rs`）。
+
+
 ## 卸载测试
 
 控制面板 → 卸载 Vale Agent：任务/程序目录/注册表/快捷方式应清除，

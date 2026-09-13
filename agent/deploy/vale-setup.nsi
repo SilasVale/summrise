@@ -115,6 +115,13 @@ Section "Install" SEC01
   ; 自包含：pinned tgz 一起 File 进来，ps1 优先用 -LocalTgz 装。
   SetOutPath "$INSTDIR\scripts"
   File "vale-online-setup.ps1"
+  ; round-124: the installer dot-sources this (SHA-256 verification for the CDN
+  ; fallback), so it MUST ship beside it. Forgetting a File line here breaks the
+  ; installed flow at RUNTIME on the user's machine, which no test on this box
+  ; can see — which is why the coupling is pinned in agent/tests/.
+  SetOutPath "$INSTDIR\scripts\lib"
+  File "lib\ValeIntegrity.ps1"
+  SetOutPath "$INSTDIR\scripts"
   File "vale-agent-${VALE_VERSION}.tgz"
   SetOutPath "$INSTDIR"
   ReadEnvStr $3 "ProgramData"

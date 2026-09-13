@@ -50,6 +50,10 @@ New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "scripts") | Ou
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
 try { Start-Transcript -Path (Join-Path $DataDir "logs\installer.log") -Append | Out-Null } catch { }
 
+# round-124: SHA-256 verification for the CDN fallback (shipped beside this file
+# as lib\ValeIntegrity.ps1; NSIS File + build-installer.sh both carry it).
+. (Join-Path $PSScriptRoot "lib\ValeIntegrity.ps1")
+
 function Download-File([string]$url, [string]$dest, [string]$what) {
   # 主源一次 + 备用源一次；调用方决定失败是否致命。
   $mirrors = @($url)
@@ -124,6 +128,28 @@ if ($LocalTgz -and (Test-Path $LocalTgz)) {
 } else {
   if ($LocalTgz) { Say "自带包缺失（$LocalTgz），回退 CDN 下载..." }
   Say "安装 vale-agent $ValeVersion ..."
+
+  # 校验后才装（round-124）。这条路从网络取的是**要执行的代码**，而 /api/version
+  # 本来就带正确摘要，其它消费者（agent_update）也一律拒绝未校验的字节；这里以前
+  # 什么都没查就交给 npm。自带包那条路不需要查（它来自已签名的安装包本身）。
+  $dl = Join-Path $env:TEMP "vale-agent-$ValeVersion.tgz"
+  if (-not (Download-File $tgz $dl "vale-agent $ValeVersion")) {
+    Write-Host "[vale-setup] 下载失败（$tgz），退出。"; exit 6
+  }
+  $manifestUrl = "$CdnBase/api/version"
+  $expected = ""
+  try {
+    $manifest = (Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing -TimeoutSec 60).Content
+    $expected = Get-ManifestSha256 -ManifestJson $manifest -Version $ValeVersion
+  } catch { Say "读取版本清单失败（$manifestUrl）：$($_.Exception.Message)" }
+  if (-not (Test-FileSha256 -Path $dl -Expected $expected)) {
+    Write-Host "[vale-setup] 校验失败：下载的 tgz 与版本清单的 sha256 不符（或清单缺少该版本的摘要），拒绝安装。"
+    Write-Host "  清单：$manifestUrl"
+    Remove-Item $dl -ErrorAction SilentlyContinue
+    exit 7
+  }
+  Say "sha256 校验通过（$expected）"
+  $tgz = $dl
 }
 & $npmCmd install -g --prefix $NpmGlobal $tgz
 if ($LASTEXITCODE -ne 0) { Write-Host "[vale-setup] npm 安装失败，退出。"; exit 6 }

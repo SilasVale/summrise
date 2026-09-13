@@ -141,6 +141,10 @@ fi
 STAGE="$(mktemp -d)/installer"
 mkdir -p "$STAGE/res"
 cp agent/deploy/vale-setup.nsi agent/deploy/vale-online-setup.ps1 agent/deploy/vale-agent.ico "$STAGE/"
+# round-124: the ps1 dot-sources lib/ValeIntegrity.ps1 — stage it too, or the
+# installer builds fine and fails on the user's machine.
+mkdir -p "$STAGE/lib"
+cp agent/deploy/lib/ValeIntegrity.ps1 "$STAGE/lib/"
 cp agent/deploy/res/header.bmp agent/deploy/res/welcome.bmp "$STAGE/res/"
 # 自包含前置：pinned tgz 必须已 stage（publish 先 pack，顺序反了就地失败）。
 TGZ_SRC="index/public/vale-agent/vale-agent-$VER.tgz"

@@ -242,6 +242,19 @@ jobs:
       # PATH), so nothing about the comparison is re-implemented in the test.
       - name: release-audit regression checks
         run: bash scripts/test/release-audit.bash
+      # The installer's SHA-256 verification (round 124): the CDN fallback used
+      # to hand `npm install -g` a tarball it had never hashed. The logic is
+      # PowerShell, so it cannot run on this box — but GitHub's ubuntu runners
+      # ship pwsh. Guarded rather than assumed: if a runner ever lacks pwsh, the
+      # step says so LOUDLY instead of reporting a green that means nothing.
+      # (The WIRING is pinned independently, in agent/tests/installer_integrity.rs.)
+      - name: installer integrity tests (pwsh)
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -File agent/deploy/lib/ValeIntegrity.tests.ps1
+          else
+            echo "::warning::pwsh is not installed on this runner — the installer's verification LOGIC was NOT tested here"
+          fi
       # The model-drift report's PURE half. The report itself needs four live
       # third-party endpoints, so it can never be a CI gate — an unreachable
       # upstream would fail the build for a reason unrelated to the change. What

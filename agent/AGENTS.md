@@ -526,6 +526,48 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 124 (D10: the online installer's CDN fallback handed `npm install
+-g` a tarball it had never hashed — the one path that fetches EXECUTABLE CODE over the network, on
+the branch the script takes deliberately when the embedded payload is missing).
+Commit: this round's agent/deploy + agent/tests + ci.yml. Gates: agent 618 tests (+2), fmt, clippy
+-D warnings, xwin all green.
+  (1) WHAT WAS MISSING, MEASURED: `grep -n "api/version\|sha256\|Get-FileHash" agent/deploy/*.ps1`
+  returned NOTHING. The installer never verified anything, while `/api/version` carries the digest
+  and the agent's own updater refuses unverified bytes ("refusing unverifiable install"; a sha
+  mismatch skips the install). The fallback is not exotic: it is the branch taken when the
+  NSIS-embedded tgz is absent on disk — AV quarantine, a partial extract — i.e. exactly when the
+  machine is already worth distrusting.
+  (2) THE FIX SPLIT BY WHAT CAN BE TESTED WHERE. The verification LOGIC is a new side-effect-free
+  file (`agent/deploy/lib/ValeIntegrity.ps1`: manifest → digest, file → digest, verdict) with its
+  own plain-assert test suite (`ValeIntegrity.tests.ps1`, 17 checks) that runs on CI's pwsh — the
+  runner HAS pwsh, this box does not, and the step is guarded so a runner without it says so LOUDLY
+  rather than reporting a green that means nothing. The WIRING is pinned in Rust
+  (`agent/tests/installer_integrity.rs`), because no PowerShell executes here: order matters and is
+  asserted — dot-source → manifest → verify → install → refuse. The bundled payload is exempt BY
+  DESIGN (it arrives inside the signed installer).
+  (3) A PACKAGING COUPLING I HAD TO LEARN BEFORE IT BIT ME: the installer dot-sources the lib, so
+  the lib must be shipped — THREE sites (`File "lib\ValeIntegrity.ps1"` in `vale-setup.nsi`, a `cp`
+  into the makensis stage in `build-installer.sh`, and the dot-source itself). Miss either of the
+  first two and the installer builds fine and fails at RUNTIME on the user's machine, which nothing
+  on this box can see. The pin now enumerates every `$PSScriptRoot` dot-source and requires a real
+  `File` directive and a real `cp` line for each.
+  (4) THAT PIN WAS ITSELF BROKEN, AND A MUTATION FOUND IT. My first version asserted
+  `build.contains("ValeIntegrity.ps1")` — satisfied by MY OWN EXPLANATORY COMMENT naming the file,
+  so disabling the `cp` left it green. It now matches the ACT (`File ` / `cp ` line prefixes, not
+  the word), and both commented-out forms fail: four mutations caught in total (no verify call,
+  install moved before the check, no `File` line, no `cp` line).
+  (5) VERIFIED AGAINST THE LIVE CDN, which is what makes the check safe to ship: the digest of
+  `vale-agent-1.2.364.tgz` (what the installer downloads), the manifest's `sha256`, and the
+  `latest` alias are ALL `9ed7063e…` — so the new gate passes on the real artifact rather than
+  rejecting every install.
+  (6) NOT PROVEN, AND IT CANNOT BE HERE: that a real Windows install REFUSES a corrupted download.
+  That needs a device and a deliberately corrupted file; it belongs in a maintenance window, not in
+  a claim. What is proven is the logic (runner), the wiring (source pins), and that the live
+  artifact satisfies the check.
+  (7) STILL OPEN: D4-D9, D11-D13 in the release machinery; the extension's X1/X3/X6/X8; the
+  proxies' P2-P10; CHARTER-1; the dead-agent revival window; the restart mystery; the three
+  unreconciled versions (1.2.362-364).
+
 Last updated: 2026-09-14 round 123 (D3: the reconcile leg was printed text, so nothing could fail
 because it never happened — the debt is now a TRACKED FILE and the next publish refuses until it is
 settled). ADR 0009. Commit: this round's scripts/ + docs.
