@@ -10,7 +10,12 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 115**; HEAD `cccad7f0` (the index F2/F3 fix, deployed).
+- Round log head: **round 116**; HEAD `9777a1df` + this round's gateway fix (DEPLOYED,
+  `vale-gate` version `2484d970-af69-4bd2-add8-b729fae54393`).
+- **A "STILL OPEN" LINE IS A CLAIM, NOT A FACT — two rounds running now.** Round 115 found memory
+  F5 already closed since round 110; round 116 read round 105's three leftovers and found two of
+  them touched by four later commits (`99b42928`, `5030ab60`, `9249e790`, `1d8b8468`) that were
+  never written into this journal at all (rounds 106–109 have no entry). Verify before inheriting.
 - **HEAD WAS RED AND NOBODY KNEW**: `tests/module_map.rs` failed against BOTH guides because
   round 110 added `src/runstate.rs` without adding it to the module map, and round 111 shipped
   on top of that. Found by round 112's independent gate run, fixed there. The lesson is cheap to
@@ -38,7 +43,8 @@ Seeded 2026-09-14 at round 110.
 | gateway `device-fetch` + `plugins/devices` | seen | 89, 90, 95 | F5 host allowlist is a family match — hardening only |
 | gateway `store/` (KV cache, grants) | seen | 94 | grant single-use needs the device-side backstop (shipped) |
 | gateway `auth` / `session` / `access` | seen | 61, 89 | — |
-| gateway `plugins/admin` + `models-probe` + `model-route` | seen | 105 | panel cannot EDIT a declared facet; provider-model effort missing from the add row; no needs-setup hint |
+| gateway `plugins/admin` + `store/providers` (custom providers) | seen | 116 | F6 a dead "Edit facets" button on the DEFAULT row; F7 "Adopt" erases declared effort; F8 Delete 404s on provider models; F9 the file layer is marked per prefix only; the provider-model editor itself |
+| gateway `plugins/models.ts` + `models-probe` + `model-route` (the catalogue) | seen | 105, 116 | F6 above; a provider write propagates in ≤60 s but `models:*` takes up to 24 h (`store/cache.ts`), so a built-in facet edit can read back stale |
 | gateway `plugins/translate` (+vision) | seen | SOLID R117–R121 | — |
 | gateway `mcp.ts` / `mcp-tools.ts` / `mcp-browser.ts` | seen | 78, 89 | — |
 | gateway `reliability` / `upstream` / `channels` / `body-scan` / `http` | partial | 64, 89 | — |
@@ -97,6 +103,14 @@ already defined for uploads, with `cache-control: no-store`. Live: 200 + etag `"
 `content-length 31374231` + `public, no-cache`; `If-None-Match` → 304/0 bytes; a non-matching
 validator → the full body; tgz, `version.json` and the cloudflared proxy unchanged.
 
+**Closed in round 116: the provider record could not be updated without its key.** `POST
+/api/admin/providers` demanded exactly one of `apiKey`/`apiKeyEnv` on EVERY post while the admin
+view returns only a mask — so the console's documented edit path ("re-post the prefix", in
+`adminAddProvider`'s own comment) was a 400 for every panel-created provider, taking "add a model",
+"Adopt" and any future per-model edit with it. An omitted key is now carried forward from the
+stored record; a create still demands one and a supplied key still replaces it. Deployed, and the
+deployed mirror is byte-identical to the tested source.
+
 1. **CHARTER-1 — a conflict inside our own constitution (proposal, waits for the user).** The
    CHARTER's blast-radius row puts "published releases" in the propose column, while the goal
    objective says release cadence is the loop's and reserves sign-off for full rollout and
@@ -112,7 +126,26 @@ validator → the full body; tgz, `version.json` and the cloudflared proxy uncha
 3. **Agent restarted every 1–2 h before round 110** (cause unknown) — the run journal is armed and
    answers it at the NEXT boot; its first line, "no previous run on record", is a gap in the
    instrument, not a clean bill of health.
-4. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
+4. **The panel's provider-model surface — round 105's leftovers, VERIFIED in round 116** (two
+   read-only scouts; the claims had been carried across four commits that touched that very page).
+   - **CLOSED: "provider-model effort is not in the add row"** — it lives in the row's Advanced
+     block (`Models.tsx:884-933`) and the server has always accepted it.
+   - **OPEN (b2): a model inside a CUSTOM provider has NO editor.** The intent is written at
+     `Models.tsx:687-693` and the gate `(!pv || custom.includes(id))` makes it unreachable. The
+     server half is now in place (round 116), so the fix is a sibling of `addModelToProvider` that
+     replaces ONE entry in the re-posted record, plus widening that gate.
+   - **OPEN (F6): the DEFAULT row's models render an "Edit facets" button whose every save is a
+     400** — `unknown channel prefix deepseek/`, because `parseModelSpec` knows only the registry
+     prefixes. A control that cannot work is worse than no control.
+   - **OPEN (F7): "Adopt" silently erases declared `reasoningEffort`** — `adoptModel` re-posts the
+     existing models without the field, and the server replaces the array wholesale.
+   - **OPEN (F8): the Delete/Disable button renders on provider-model rows and 404s**
+     (`No custom model my/llama-3`).
+   - **OPEN (F9): the file layer is marked per PREFIX only**, so a file-declared `models:` /
+     `overrides:` entry stays editable in the panel and the next deploy silently reverts it — the
+     panel already receives `file.{providers,models,overrides}` and reads only `.text`.
+   - **OPEN (F10): no onboarding / needs-setup hint anywhere** — Overview has no zero-key branch
+     and i18n has no such key.
 5. **Panel F5** (host allowlist family match) — recorded as hardening only.
 6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
 7. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.

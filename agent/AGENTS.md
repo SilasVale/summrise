@@ -526,7 +526,57 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 115 (index F2/F3 closed and DEPLOYED: the executed playwright
+Last updated: 2026-09-14 round 116 (a provider record could not be UPDATED without re-sending its
+key — so the console's own documented edit path, "re-post the prefix", was a 400 for every provider
+the console creates). CREATE still demands a key; UPDATE now keeps the stored one. DEPLOYED.
+Commit: this round's fix commit + mirror. `vale-gate` version `2484d970-af69-4bd2-add8-b729fae54393`;
+gateway suite 848.
+  (1) THE DEFECT, AND WHY NOTHING SAW IT. `parseProviderSpec` required exactly one of
+  `apiKey`/`apiKeyEnv` on EVERY post, while `publicProvider` returns only `keyMasked`/`keyReady`
+  for an inline key — the console never holds the value. Meanwhile `adminAddProvider`'s own comment
+  documents re-posting a prefix as THE edit path ("re-posting a prefix is how an operator edits the
+  provider they own"). Consequence: the panel's "add a model to this provider", its "Adopt" button,
+  and any future per-model edit all answered `400 a key is required` for a panel-created provider —
+  and `submitProvider` only ever sends an inline `apiKey`, so that is EVERY provider the panel
+  creates. Four paths, one 400, zero tests: the suite only ever created WITH a key and never
+  re-posted.
+  (2) THE FIX. `parseProviderSpec(body, { keepKeyFrom })`: an omitted key is carried forward from
+  the STORED record, and only the caller that has a record passes it (`adminAddProvider` looks the
+  prefix up first). A create has nothing to keep and is refused exactly as before; an update that
+  SENDS a key still replaces it, which is how rotation must keep working.
+  (3) THREE PINS, THREE MUTATIONS, ALL CAUGHT: requiring a key on every post (the old rule) fails
+  the keyless-update test (1 failed); letting the CREATE path keep a synthesized key fails two (2);
+  making the stored key win over a supplied one fails rotation (1). ONE OF MY FIRST MUTATIONS WAS A
+  NO-OP — I mutated a branch `keep` can never reach, so the suite stayed green — which is worth
+  keeping: a mutation that cannot fail looks exactly like a test that cannot fail, and only reading
+  the mutated line tells them apart.
+  (4) DEPLOYED, VERIFIED BY THE STRONGEST CHAIN AVAILABLE FROM HERE: the deployed worker's own
+  source mirror serves `src/store/providers.ts` and `src/plugins/admin.ts` BYTE-IDENTICAL to the
+  local files (`cmp`), the new comment is present in the deployed copy, and the route answers 401
+  with the proper envelope without a session. NOT done: an authenticated live POST, which needs the
+  production admin password this loop does not hold — the behavioural evidence is 32 e2e tests
+  driven through the REAL dispatcher, i.e. the same code path the worker runs.
+  (5) TWO READ-ONLY SCOUTS MAPPED THE SURFACE INDEPENDENTLY and agreed with the fix; they also
+  turned up FOUR ADJACENT DEFECTS, all recorded in the ledger: (a) the DEFAULT ("none") row's models
+  render an "Edit facets" control whose every save 400s — `unknown channel prefix deepseek/`,
+  because `parseModelSpec` only knows the registry prefixes; (b) `adoptModel` re-posts existing
+  models WITHOUT `reasoningEffort`, so "Adopt" silently erases every declared effort default on
+  that provider (the provider array is replaced wholesale); (c) the Delete/Disable button renders
+  on provider-model rows and 404s (`No custom model my/llama-3`); (d) the file layer's marking is
+  PREFIX-level only, so a file-declared `models:`/`overrides:` entry stays editable in the panel
+  and the next deploy silently reverts it — the silent undo a neighbouring comment says must not
+  happen (the panel already receives `file.{providers,models,overrides}` and reads only `.text`).
+  (6) LEDGER CORRECTION, the second round running: round 105's "provider-model effort is not in the
+  panel's add row" is CLOSED (it lives in the row's Advanced block), and "can the panel edit a
+  facet" is PARTIAL — built-ins and console-owned records are editable; a model inside a CUSTOM
+  provider is not, and THAT is the item this round unblocks. The general lesson: a STILL OPEN line
+  carried across rounds is a claim, not a fact. Rounds 106-109 are not even written down in this
+  journal, which is how three claims survived four commits that touched exactly that page.
+  (7) STILL OPEN: the provider-model facet editor (server half now in place); no onboarding/
+  needs-setup hint anywhere; panel F6/F7/F8/F9 above; CHARTER-1; the dead-agent revival window;
+  the restart mystery (journal armed).
+
+Previous round: 2026-09-14 round 115 (index F2/F3 closed and DEPLOYED: the executed playwright
 bundle was served from a MUTABLE key with a day-long cache and no validator, and all three binary
 proxies answered failures outside their own file's protocol). No agent/release change.
 Commit: cccad7f0. Deploy: `vale-dist` version `921e3b16`. Tests: index 83 (was 75).

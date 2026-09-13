@@ -173,6 +173,67 @@ test("ADMIN: add → list → delete round-trips, and the key never comes back",
   assert.equal(again.status, 404, "deleting an unknown provider did not 404");
 });
 
+test("UPDATE without a key keeps the stored one — the console only ever holds the mask", async () => {
+  const { env, call, json } = await harness();
+  await addProvider(call, json);
+
+  // What an EDIT can send: the record exactly as the admin view returns it, whose key is a
+  // mask. Re-posting a prefix is the documented way to edit the provider a console owns, so
+  // this body is the console's real edit body — and it carries no key, because the server
+  // never gives the value back.
+  const listed = await json(await call("GET", "/api/admin/providers"));
+  const view = listed.body.providers[0];
+  const edited = await json(
+    await call("POST", "/api/admin/providers", {
+      body: {
+        prefix: view.prefix,
+        label: view.label,
+        baseURL: view.baseURL,
+        api: view.api,
+        ...(view.keyEnv ? { apiKeyEnv: view.keyEnv } : {}),
+        models: [
+          { id: "llama-3", name: "Llama 3 (edited)", contextWindow: 200000 },
+          { id: "llama-4" },
+        ],
+      },
+    }),
+  );
+  assert.equal(
+    edited.status,
+    200,
+    `a keyless EDIT was refused: ${JSON.stringify(edited.body)}`,
+  );
+  assert.equal(edited.body.provider.keyReady, true, "the stored key did not survive the edit");
+  assert.deepEqual(edited.body.provider.advertised, ["my/llama-3", "my/llama-4"]);
+  const stored = JSON.parse(env._kv.get("providers:custom"));
+  assert.equal(stored[0].apiKey, PROVIDER_KEY, "the stored inline key was replaced by nothing");
+});
+
+test("UPDATE that SENDS a key replaces it — rotation still works", async () => {
+  const { env, call, json } = await harness();
+  await addProvider(call, json);
+  const rotated = "sk-rotated-key-424242";
+  const r = await json(
+    await call("POST", "/api/admin/providers", {
+      body: providerBody({ apiKey: rotated }),
+    }),
+  );
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(JSON.parse(env._kv.get("providers:custom"))[0].apiKey, rotated);
+});
+
+test("CREATE without a key is still refused — keeping is only for a prefix that exists", async () => {
+  const { env, call, json } = await harness();
+  const r = await json(
+    await call("POST", "/api/admin/providers", {
+      body: providerBody({ prefix: "fresh/", apiKey: undefined }),
+    }),
+  );
+  assert.equal(r.status, 400, `a keyless CREATE answered ${r.status}`);
+  assert.match(String(r.body?.error?.message ?? ""), /a key is required/);
+  assert.equal(env._kv.get("providers:custom"), undefined, "a keyless create wrote a record");
+});
+
 test("VALIDATION: the API refuses a reserved prefix, a private host and an unsupported protocol", async () => {
   const { call, json } = await harness();
   const cases = [

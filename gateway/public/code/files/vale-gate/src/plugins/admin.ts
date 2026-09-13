@@ -14,6 +14,7 @@ import {
   customProviders,
   deleteCustomProvider,
   parseProviderSpec,
+  providerForPrefix,
   publicProvider,
   putCustomProvider,
 } from "../store/providers.ts";
@@ -371,7 +372,14 @@ async function adminAddProvider(request: Request, env: Env): Promise<Response> {
   const gate = await requireAdmin(request, env);
   if (gate instanceof Response) return gate;
 
-  const { spec, error, status } = parseProviderSpec(await readJson(request));
+  const raw = await readJson(request);
+  // CREATE demands a key; UPDATE may omit it and keep the stored one. The console holds only
+  // `keyMasked`, so without this a re-post that edits a model answered 400 "a key is
+  // required" — on the very path this comment below documents as the edit path.
+  const existing = await providerForPrefix(env, String(raw?.prefix ?? ""));
+  const { spec, error, status } = parseProviderSpec(raw, {
+    keepKeyFrom: existing ? { apiKey: existing.apiKey, apiKeyEnv: existing.apiKeyEnv } : undefined,
+  });
   if (error || !spec)
     return jsonError(status || 400, error || "invalid provider", "invalid_request");
   // Upsert by prefix, like putCustomModel is by id: re-posting a prefix is how

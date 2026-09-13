@@ -397,6 +397,7 @@ function parseProviderModel(raw: any, at: number): { model?: ProviderModel; erro
  *  only has to map the error onto a status. */
 export function parseProviderSpec(
   body: any,
+  opts: { keepKeyFrom?: { apiKey?: string; apiKeyEnv?: string } } = {},
 ): { spec?: ProviderSpec } & Partial<ProviderParseError> {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { error: "body must be a JSON object", status: 400 };
@@ -471,7 +472,17 @@ export function parseProviderSpec(
       status: 400,
     };
   }
-  if (!apiKeyEnv && !apiKey) {
+  // AN UPDATE MAY OMIT THE KEY; A CREATE MAY NOT.
+  //
+  // `POST /api/admin/providers` is the edit path for a record the console owns —
+  // `adminAddProvider`'s own comment says "re-posting a prefix is how an operator edits the
+  // provider they own" — but the admin view never returns the key, only `keyMasked`. So
+  // demanding a key on EVERY re-post made the documented edit path impossible for a record
+  // whose key is inline: adding or editing a model in it answered 400 "a key is required".
+  // The caller passes what the STORED record already has, and only for an existing prefix;
+  // a create has nothing to keep and is refused exactly as before.
+  const keep = !apiKeyEnv && !apiKey ? opts.keepKeyFrom : undefined;
+  if (!apiKeyEnv && !apiKey && !keep) {
     return {
       error:
         "a key is required: apiKeyEnv (the NAME of a Worker secret, DSH's settings.yaml spelling) or apiKey (an inline value stored in KV)",
@@ -513,7 +524,11 @@ export function parseProviderSpec(
   }
   const spec: ProviderSpec = { prefix, label, baseURL, api, models };
   if (apiKeyEnv) spec.apiKeyEnv = apiKeyEnv;
-  if (apiKey) spec.apiKey = apiKey;
+  else if (apiKey) spec.apiKey = apiKey;
+  // The stored key, carried forward because the body omitted it — never a synthesis: an
+  // update that DOES send one replaces it, which is how key rotation must keep working.
+  else if (keep?.apiKeyEnv) spec.apiKeyEnv = keep.apiKeyEnv;
+  else if (keep?.apiKey) spec.apiKey = keep.apiKey;
   return { spec };
 }
 
