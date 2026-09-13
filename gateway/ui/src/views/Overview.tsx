@@ -9,6 +9,7 @@ import {
   type Device,
   type DeviceStatus,
   type HealthChannel,
+  type ProviderView,
 } from "../api/client.ts";
 import { maskToken } from "../lib/format.ts";
 import { Card, PageHeader, CopyButton } from "../components/ui.tsx";
@@ -63,6 +64,10 @@ export default function Overview() {
   const [status, setStatus] = useState<Record<string, DeviceStatus>>({});
   const [channels, setChannels] = useState<HealthChannel[]>([]);
   const [users, setUsers] = useState<number | null>(null);
+  // `null` for the same reason `devices` is: a read that has not happened (or FAILED) must not
+  // be rendered as "you have none". The first-run hint below is the one thing on this page that
+  // makes a claim about what is MISSING, so it is the one thing that must not guess.
+  const [providers, setProviders] = useState<ProviderView[] | null>(null);
 
   const loadDashboard = useCallback(async () => {
     api
@@ -87,6 +92,12 @@ export default function Overview() {
         .getUsers()
         .then((u) => setUsers(u.users?.length ?? null))
         .catch(() => {});
+      // Custom providers hold credentials TOO (`keyReady` is the record's own key resolving),
+      // so "0/8 keys" is not "no credentials" — see the first-run hint.
+      api
+        .getProviders()
+        .then((r) => setProviders(r.providers || []))
+        .catch(() => setProviders(null));
       try {
         const s = await api.getPluginStatus(true);
         setStatus(s.devices || {});
@@ -130,6 +141,20 @@ export default function Overview() {
   const isAdmin = user?.role === "admin";
   const onlineCount = (devices ?? []).filter((d) => status[d.name]?.agent_up).length;
   const channelsOk = channels.filter((c) => c.ok).length;
+
+  /* ── the first-run hint ──────────────────────────────────────────────────────────────
+   * A fresh operator lands on four zeroes and the page never said which action comes first.
+   * Both lines are conditioned on data this page ALREADY reads, and both follow the rule the
+   * tiles state for themselves: a read that failed is not a zero.
+   *
+   * "0/8 keys" is NOT "no credentials": a CUSTOM PROVIDER's record carries its own key, and
+   * `keyReady` is that key resolving in this deployment. So the key line needs the provider
+   * read to have SUCCEEDED and to name no ready key — anything less would tell an operator who
+   * is already serving traffic to go and set up a key.
+   */
+  const noKeys = configuredCount === 0 && providers !== null && !providers.some((p) => p.keyReady);
+  const noDevices = devices !== null && devices.length === 0 && isAdmin;
+  const firstRun = noKeys || noDevices;
 
   const stats = [
     {
@@ -175,6 +200,28 @@ export default function Overview() {
           </button>
         }
       />
+
+      {/* ── first run: what to do next, said once and only when it is true ── */}
+      {firstRun && (
+        <Card className="ov-firstrun" title={t("overview.firstRun")}>
+          {noKeys && (
+            <p className="ov-firstrun-line">
+              {t("overview.firstRunKeys")}{" "}
+              <Link to="/keys">
+                {t("nav.keys")} →
+              </Link>
+            </p>
+          )}
+          {noDevices && (
+            <p className="ov-firstrun-line">
+              {t("overview.firstRunDevices")}{" "}
+              <Link to="/devices">
+                {t("nav.devices")} →
+              </Link>
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* ── hero: stat band + token side card ── */}
       <div className="ov-hero">

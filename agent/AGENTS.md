@@ -526,12 +526,47 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 118 (the console offered Edit and Delete on a model the CONFIG FILE
+Last updated: 2026-09-14 round 119 (the console never told a first-run operator what to do — and the
+hint that fixes it has to stay QUIET for an operator whose credentials live somewhere the key
+matrix cannot see). DEPLOYED. No agent/release change.
+Commit: this round's console fix + mirror. `vale-gate` version
+`3187a717-f35d-48e3-a0d3-16eb9624a0b4`; console bundle `index-CR3KX755.js`; gateway suite 848,
+console 11, `smoke:overview` 8 checks.
+  (1) F10, the last item of round 105's list. A fresh deployment landed on four zeroes and nothing
+  said which action came first. The Overview now carries a "Start here" card with two lines — add
+  a channel key (→ /keys) and register a device (→ /devices) — each rendered only while its own
+  precondition holds.
+  (2) THE HONESTY RULE, which is the whole reason this was worth a round rather than an afternoon:
+  "0/8 keys" is NOT "no credentials". A CUSTOM PROVIDER's record carries its own key and
+  `keyReady` is that key resolving here, so the key line additionally requires the provider read
+  to have SUCCEEDED and to name no ready provider. The page already states this discipline for its
+  tiles (`null` = not read or the read FAILED, never `[]`) and the hint is the one element that
+  makes a claim about what is MISSING — so it is the one that must not guess. Same for devices:
+  a failed read renders nothing rather than "no devices yet".
+  (3) EVIDENCE: `smoke:overview` mounts the built bundle three times — fresh (both lines and both
+  links), configured (NO card), and 0/8 keys WITH a ready provider (no key line). 8 checks.
+  (4) A HOLE IN MY OWN MUTATION RUNNER, found by the mutations that "passed". Two of them did not
+  compile (`providers` became unread → TS6133) and my runner piped the build into /dev/null, so
+  the harness exercised the PREVIOUS bundle and reported success. That is round 101's "source →
+  build → shoot, in that order" in a new place, and it means A MUTATION THAT CANNOT BUILD LOOKS
+  EXACTLY LIKE A TEST THAT CANNOT FAIL. The runner now hard-fails on a build error and prints the
+  TS line. Re-run with compiling mutations: ignoring `keyReady` fails scene 3, forcing `noKeys`
+  false fails scene 1, letting the device line render with devices present fails scene 2 — and the
+  non-compiling one is now reported as a build failure instead of a pass.
+  (5) DEPLOYED AND VERIFIED: `api.saisi.online/assets/index-CR3KX755.js` is byte-identical to the
+  local build (`cmp`, 330,805 bytes) and `index.html` serves that hash.
+  (6) THE STANDING LIST IS NOW CLEAR OF OFFLINE WORK. Round 105's leftovers are all closed (b2 +
+  F6/F7/F8 in 117, F9 in 118, F10 here), and what remains waits on someone: CHARTER-1 on the user,
+  the dead-agent revival on a maintenance window, the restart mystery on the next boot. So the
+  next rounds go to the DISCOVERY track the protocol describes — the ledger still lists `unseen`
+  surfaces (the extension, the agent's `design` plugin, brand) and `partial` ones (proxies, the
+  deploy PowerShell, CI).
+
+Previous round: 2026-09-14 round 118 (the console offered Edit and Delete on a model the CONFIG FILE
 declares — both answered 200 and the next deploy silently reverted them; the panel had the words
 for this and never the per-ID facts). DEPLOYED. No agent/release change.
-Commit: this round's console + gateway fix + mirror. `vale-gate` version
-`54cf4314-d286-4d5c-9b00-c796afe8f19f`; console bundle `index-CSsrgJsf.js`; gateway suite 848,
-console 11, `smoke:models` 20 checks.
+Commit: c4a6df5e. `vale-gate` version `54cf4314-d286-4d5c-9b00-c796afe8f19f`;
+console bundle `index-CSsrgJsf.js`; gateway suite 848, console 11, `smoke:models` 20 checks.
   (1) F9, THE LAST "SILENT UNDO". The file layer (`config/models.ts`) WINS for every id it
   declares, and the panel was told about file-declared PREFIXES only (`filePrefixes`). So a
   file-declared MODEL — and any console record whose id the file also declares — kept a live

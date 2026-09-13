@@ -96,6 +96,10 @@ const I18N = {
     "role.user": "用户",
     "overview.title": "概览",
     "overview.lede": "你的网关凭证与后端密钥状态。",
+    "overview.firstRun": "从这里开始",
+    "overview.firstRunKeys":
+      "还没有可用的渠道密钥——网关会回退到部署的默认渠道。要用自己的额度或其它模型，先添加一个。",
+    "overview.firstRunDevices": "还没有注册任何设备——安装命令和注册密钥在设备页。",
     "overview.keysHint": "各后端渠道的密钥配置状态：",
     "overview.devicesTitle": "设备速览",
     "overview.devicesFail": "设备列表读取失败",
@@ -460,6 +464,10 @@ const I18N = {
     "role.user": "User",
     "overview.title": "Overview",
     "overview.lede": "Your gateway credentials and backend key status.",
+    "overview.firstRun": "Start here",
+    "overview.firstRunKeys":
+      "No channel key is usable yet — the gateway falls back to the deployment default. To use your own quota or another model, add one first.",
+    "overview.firstRunDevices": "No device is registered yet — the install command and a registration key are on the devices page.",
     "overview.keysHint": "Backend key status:",
     "overview.devicesTitle": "Devices at a glance",
     "overview.devicesFail": "Could not read the device list",

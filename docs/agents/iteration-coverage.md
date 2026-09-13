@@ -10,8 +10,13 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 118**; the round-116/117/118 fixes are all DEPLOYED (`vale-gate`
-  version `54cf4314-d286-4d5c-9b00-c796afe8f19f`, console bundle `index-CSsrgJsf.js`).
+- Round log head: **round 119**; the console/gateway fixes of rounds 116-119 are all DEPLOYED
+  (`vale-gate` version `3187a717-f35d-48e3-a0d3-16eb9624a0b4`, console bundle `index-CR3KX755.js`).
+- **THE STANDING LIST IS CLEAR OF OFFLINE WORK**, so the loop moves to the DISCOVERY track the
+  protocol describes: the surfaces below still marked `unseen` (the extension, the agent's `design`
+  plugin, brand) and `partial` (proxies, the deploy PowerShell, CI) are the fuel now. The three
+  items that remain open all wait on someone outside the loop: the user (CHARTER-1), a maintenance
+  window (the dead-agent revival), the next boot (the restart mystery).
 - **A "STILL OPEN" LINE IS A CLAIM, NOT A FACT — two rounds running now.** Round 115 found memory
   F5 already closed since round 110; round 116 read round 105's three leftovers and found two of
   them touched by four later commits (`99b42928`, `5030ab60`, `9249e790`, `1d8b8468`) that were
@@ -48,7 +53,7 @@ Seeded 2026-09-14 at round 110.
 | gateway `plugins/translate` (+vision) | seen | SOLID R117–R121 | — |
 | gateway `mcp.ts` / `mcp-tools.ts` / `mcp-browser.ts` | seen | 78, 89 | — |
 | gateway `reliability` / `upstream` / `channels` / `body-scan` / `http` | partial | 64, 89 | — |
-| gateway console SPA (`gateway/ui`) | seen | 61, 91–93 | — |
+| gateway console SPA (`gateway/ui`) | seen | 61, 91–93, 117–119 | two behavioural harnesses now exist (`smoke:models`, `smoke:overview` — jsdom over the BUILT bundle); other pages still have none |
 | index worker | seen | 99, 115 | — (F2/F3 closed and DEPLOYED round 115) |
 | proxies (zen-go / zen-us / vrelay) | partial | 64 | — |
 | extension (Vale Code Links) | unseen | — | — |
@@ -103,6 +108,11 @@ already defined for uploads, with `cache-control: no-store`. Live: 200 + etag `"
 `content-length 31374231` + `public, no-cache`; `If-None-Match` → 304/0 bytes; a non-matching
 validator → the full body; tgz, `version.json` and the cloudflared proxy unchanged.
 
+**Closed in round 119: the last item of round 105's list — the first-run hint.** The Overview now
+tells a fresh operator what to do, and stays quiet when the deployment already has credentials of a
+kind the key matrix cannot see (a custom provider's own key). Round 105's leftovers are now ALL
+closed: b2 + F6/F7/F8 in 117, F9 in 118, F10 here.
+
 **Closed in round 118: the file layer's per-ID marking.** A model the CONFIG FILE declares kept a
 live `Edit facets` and a live `Delete/Disable`: both answered 200 and the next deploy silently
 reverted them. The panel already carried the sentence for exactly this — the per-ID facts simply
@@ -148,8 +158,11 @@ deployed mirror is byte-identical to the tested source.
      returns `fileModels` / `fileOverrides` from the same pure helper the prefix list uses, so a
      file-declared model offers no edit, no delete, and shows the config-file tag. Proven by 20
      harness checks (with a CONTROL case) and four mutations.
-   - **OPEN (F10): no onboarding / needs-setup hint anywhere** — Overview has no zero-key branch
-     and i18n has no such key.
+   - **F10 CLOSED (round 119): the Overview carries a "Start here" card** — add a channel key
+     (→ /keys) and register a device (→ /devices) — each line rendered only while its own
+     precondition holds, and the key line additionally requires that no CUSTOM PROVIDER holds a
+     ready key, because 0/8 keys is not "no credentials". Proven by `smoke:overview` (three scenes,
+     8 checks) and four mutations.
 5. **Panel F5** (host allowlist family match) — recorded as hardening only.
 6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
 7. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
@@ -160,7 +173,7 @@ deployed mirror is byte-identical to the tested source.
 skips the suffix allowlist at dial time (fixed round 95) · `panel F1` loopback
 branch trusts a client Host header · `panel F2` `?grant=` not single-use over
 eventual consistency, no device-side audit · `panel F3` grant route shape check
-looser than the gateway's · `panel F5` host allowlist family match · `panel F9` the file layer was marked per prefix only (fixed
+looser than the gateway's · `panel F5` host allowlist family match · `panel F10` no first-run hint (fixed round 119) · `panel F9` the file layer was marked per prefix only (fixed
 round 118) · `panel F6/F7/F8` a 400-ing edit button on the DEFAULT row,
 "Adopt" erasing effort, a 404-ing delete (fixed round 117) · `memory F5`
 a failed append reported as a saved record, an unreadable store read as EMPTY
