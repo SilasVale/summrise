@@ -526,6 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 122 (the release audit's two unfalsifiable verdicts: a missing
+GitHub token was indistinguishable from "not released yet", and an artifact difference it could not
+explain was reported as OK — the two checks standing between a build and every device).
+Commit: this round's scripts/ + tests. Tests: release-audit 25 checks (was 9), four mutations caught.
+  (1) D1 — THE GUARD THAT COULD NOT TELL "I COULD NOT ASK" FROM "THERE IS NOTHING TO CHECK".
+  `audit_asset_names` returned 1 for BOTH "the release does not exist" and "no token / API error",
+  and `publish-release.sh --skip-reconcile` read it through `|| true` + a grep. So an expired
+  GitHub token made a re-publish print "first publish", SKIP the P0 audit, and report success. It
+  now answers in THREE verdicts — 0 exists (names printed), 3 does not exist, 1 could not be asked
+  — by reading the HTTP status instead of hiding it behind `curl -f` (which is what made a 404 and
+  a dead token look alike in the first place). The caller branches on the code and REFUSES on
+  anything but 3. A second hole closed with it: a release that EXISTS but lists no tgz used to fall
+  through to "first publish" and skip the audit; existing is now enough to refuse.
+  (2) D2 — AN AUDIT THAT CANNOT EXPLAIN A DIFFERENCE HAS NOT CLEARED IT. When content and modes
+  matched and the tarball bytes still differed, the function printed WARN and returned 0, and the
+  caller printed "audit OK: … its source-derived files match the GitHub asset" — a verdict the
+  audit had explicitly failed to reach, on the one artifact that IS the release, contradicting the
+  rule stated 25 lines above it in the same file. It fails now, and says what to do.
+  (3) THE MEASUREMENT THAT REFRAMES BOTH: this is not a hypothetical path. Asked for real with the
+  box's own GitHub token, `audit_release_asset 1.2.364` fails — and the cause is not the token:
+  the newest release in `SilasVale/vale` is **v1.2.361**, and `v1.2.363` / `v1.2.364` answer 404.
+  The CDN has been shipping versions with NO GitHub release and NO tag, the post-publish checklist's
+  tag step has not been executed since 1.2.361, and the audit has therefore never run on a real
+  release. `--skip-reconcile` was never the exception; it is the only path recent releases took.
+  The loop did NOT create the missing tags: a release artifact is a published-release action and
+  CHARTER-1 is unanswered, so the stricter text wins. Ledger item 5 carries this.
+  (4) FOUR MUTATIONS, ALL CAUGHT, and one of them was the point of the round: reverting D2's arm to
+  `return 0`, merging 404 back into "could not ask", putting the caller's `|| true` back, and
+  dropping the `rc != 3` refusal each turn the suite red. The caller has no harness of its own (it
+  never did), so its guard is pinned by a SOURCE check — the same instrument this repo uses for the
+  boot-task contract and the pre-v2 path rule.
+  (5) NOT CHANGED: no boundary verdict moves (the verdict vocabulary is documented in the audit's
+  own header, which now states all three codes), and nothing was deployed — `scripts/` is not a
+  runtime surface. What remains open is the reconciliation itself, which needs the user's answer on
+  CHARTER-1 rather than more code.
+  (6) STILL OPEN: D3 (the tag/release/audit stage is printed text rather than code — now MEASURED
+  as never-executed since 1.2.361), D4-D13; the extension's X1/X3/X6/X8; the proxies' P2-P10;
+  CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 121 (the extension stops minting one-click links into credential
 homes: it refuses anything outside the project, resolves relative mentions against the workspace,
 and no longer turns prose into links). No deploy — the extension is loaded unpacked in the browser.

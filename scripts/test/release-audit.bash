@@ -132,4 +132,74 @@ mk_tgz "$WORK/cdn.tgz"  package 644 "hello"
 out="$(run_audit "$WORK/gh.tgz" "$WORK/cdn.tgz" 2>&1)" && rc=0 || rc=$?
 check "content drift must FAIL" "$rc" "1"
 
+# --- 5. the bytes-differ-and-I-cannot-say-why arm must FAIL ----------------
+# This arm returned 0 ("WARN … unexplained packaging metadata") and the caller
+# then printed "audit OK: … its source-derived files match the GitHub asset" —
+# a verdict the function had explicitly failed to reach, on the one artifact
+# that IS the release. Identical content AND modes, different mtimes: exactly
+# the case that reaches it.
+mk_tgz_ts() { # mk_tgz_ts <out.tgz> <touch-when>
+  local out="$1" when="$2" d; d="$(mktemp -d)"
+  mkdir -p "$d/package"
+  printf 'hello\n' > "$d/package/a.txt"; chmod 644 "$d/package/a.txt"
+  printf 'exe\n'   > "$d/package/vale-agent.exe"; chmod 644 "$d/package/vale-agent.exe"
+  find "$d" -exec touch -d "$when" {} +
+  tar czf "$out" -C "$d" package
+  rm -rf "$d"
+}
+mk_tgz_ts "$WORK/gh.tgz"  "2020-01-01T00:00:00Z"
+mk_tgz_ts "$WORK/cdn.tgz" "2021-06-15T12:00:00Z"
+out="$(run_audit "$WORK/gh.tgz" "$WORK/cdn.tgz" 2>&1)" && rc=0 || rc=$?
+check "identical content+mode but different tarball BYTES must FAIL" "$rc" "1"
+has "and say the difference could not be named" "$out" "cannot name the difference"
+
+# --- 6. the three verdicts of audit_asset_names ----------------------------
+# rc 1 ("could not ask") and rc 3 ("does not exist") are NOT the same thing:
+# `--skip-reconcile`'s guard reads 3 as first-publish and must refuse on 1.
+# Both were 1 before round 122, so an expired token skipped a P0 audit and the
+# run reported success.
+names_code() { # names_code <http-code|network> -> rc; names printed on 0
+  local want="$1"
+  curl() {
+    local url=""
+    while [ $# -gt 0 ]; do case "$1" in -w) shift 2;; -*) shift;; *) url="$1"; shift;; esac; done
+    [ "$want" = "network" ] && return 7
+    printf '{"assets":[{"name":"vale-agent-9.9.9.tgz"}]}\n%s\n' "$want"
+    return 0
+  }
+  audit_asset_names 9.9.9
+}
+out="$(names_code 200 2>&1)" && rc=0 || rc=$?
+check "HTTP 200 = the release exists" "$rc" "0"
+has "and its asset names come back" "$out" "vale-agent-9.9.9.tgz"
+out="$(names_code 404 2>&1)" && rc=0 || rc=$?
+check "HTTP 404 = the release does NOT exist (rc 3)" "$rc" "3"
+out="$(names_code 500 2>&1)" && rc=0 || rc=$?
+check "HTTP 500 = could not ask (rc 1)" "$rc" "1"
+has "and names the status" "$out" "HTTP 500"
+out="$(names_code 403 2>&1)" && rc=0 || rc=$?
+check "HTTP 403 = could not ask (rc 1)" "$rc" "1"
+out="$(names_code network 2>&1)" && rc=0 || rc=$?
+check "a network failure = could not ask (rc 1)" "$rc" "1"
+has "and says the call failed" "$out" "failed (network)"
+# No token at all: same verdict, and it must not be mistaken for 404 either.
+mkdir -p "$WORK/nohome"
+out="$(GITHUB_TOKEN= GH_TOKEN= HOME="$WORK/nohome" audit_asset_names 9.9.9 2>&1)" && rc=0 || rc=$?
+check "no token = could not ask (rc 1)" "$rc" "1"
+has "and says so" "$out" "no GitHub token"
+
+# --- 7. the caller must not flatten those verdicts again -------------------
+# publish-release.sh has no test harness of its own (the orchestrator never
+# did), so this is a SOURCE pin — the same instrument the repo uses for the
+# boot-task contract and the pre-v2 path rule. It fails if someone puts the
+# `|| true` back or drops the rc branch.
+GUARD="$(sed -n '/^if \[ "\$SKIP_RECONCILE" -eq 1 \]/,/^else$/p' scripts/publish-release.sh)"
+has "the guard branch exists" "$GUARD" "audit_asset_names"
+case "$GUARD" in *"audit_asset_names \"\$VER\" >\"\$SKIP_LIST\" 2>/dev/null || true"*)
+  echo "FAIL: the --skip-reconcile guard swallows the verdict again (|| true)"; exit 1;;
+  *) PASS=$((PASS+1));;
+esac
+has "and distinguishes 'does not exist' from 'could not ask'" "$GUARD" 'SKIP_RC" -ne 3'
+has "and refuses rather than skipping when it could not ask" "$GUARD" "refusing to skip the audit"
+
 echo "release-audit: all $PASS checks passed"

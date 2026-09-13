@@ -364,12 +364,24 @@ if [ "$SKIP_RECONCILE" -eq 1 ]; then
   # pipefail (round-288: grep -q exits early, SIGPIPEs the producer, and the
   # pipeline reports failure even on a match).
   SKIP_LIST="/tmp/audit-assets-skip-${VER}.txt"
-  audit_asset_names "$VER" >"$SKIP_LIST" 2>/dev/null || true
-  if grep -qx "vale-agent-${VER}.tgz" "$SKIP_LIST"; then
-    echo "::error::--skip-reconcile refused: GitHub release v$VER already ships vale-agent-$VER.tgz — rerun WITHOUT the flag so the audit executes" >&2
+  SKIP_ERR="/tmp/audit-assets-skip-${VER}.err"
+  # rc 3 = the release does not exist (a genuine first publish) and is the ONLY
+  # case this flag may cover. rc 1 = the question could not be ASKED (no token,
+  # network, API error) — never permission to skip a P0 audit. `|| true` here
+  # used to flatten both into "first publish", so an expired token skipped the
+  # audit and the run reported success (round 122).
+  if audit_asset_names "$VER" >"$SKIP_LIST" 2>"$SKIP_ERR"; then
+    echo "::error::--skip-reconcile refused: GitHub release v$VER already EXISTS ($(tr '\n' ' ' <"$SKIP_LIST")) — rerun WITHOUT the flag so the audit executes" >&2
     exit 1
+  else
+    SKIP_RC=$?
+    if [ "$SKIP_RC" -ne 3 ]; then
+      echo "::error::--skip-reconcile cannot be honoured: whether GitHub release v$VER exists could not be determined — refusing to skip the audit" >&2
+      sed 's/^/  /' "$SKIP_ERR" >&2 || true
+      exit 1
+    fi
   fi
-  echo "-- WARN: --skip-reconcile given and no auditable GitHub asset v$VER exists yet (first publish) — audit SKIPPED, verify post-tag via the checklist below"
+  echo "-- WARN: --skip-reconcile given and no GitHub release v$VER exists yet (first publish) — audit SKIPPED, verify post-tag via the checklist below"
 else
   audit_release_asset "$VER" "$CDN_BASE" || {
     echo "  the asset is built by release.yml AFTER the tag push below." >&2

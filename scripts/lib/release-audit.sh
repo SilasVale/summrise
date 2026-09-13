@@ -20,7 +20,9 @@
 # Verdicts:
 #   0  all source-derived files identical (exe hash difference is expected and
 #      reported, with both hashes recorded for the ledger)
-#   1  a source-derived file differs, or the audit could not run (fail closed)
+#   1  a source-derived file differs, or the audit could not run or could not be
+#      completed (fail closed) — including "the bytes differ and I cannot say
+#      why", which is NOT an OK verdict (round 122)
 #
 # Usage: audit_release_asset <version> <cdn_base>
 #   env: GITHUB_TOKEN / GH_TOKEN, or ~/.github-token
@@ -38,15 +40,40 @@ _audit_token() {
 
 # audit_asset_names <version>
 # Print the release's asset names (one per line) via one cheap API call — no
-# artifact download. Returns non-zero when the release does not exist (or no
-# token), so callers can distinguish "not built yet" from "audit failed".
+# artifact download.
+#
+# THREE VERDICTS, because two of them are not the same thing and the caller used
+# to be unable to tell them apart (round 122):
+#   0  the release EXISTS and its asset names are printed (possibly none)
+#   3  the release does NOT exist yet — the only state that means "first publish"
+#   1  the question could not be ASKED (no token, network or API error)
+#
+# Verdict 1 is why the return codes are distinct. `return 1` for both states let
+# `publish-release.sh --skip-reconcile`'s `|| true` turn an expired GitHub token
+# into "no release exists" — which skipped the P0 audit and reported success.
 audit_asset_names() {
   local ver="$1" token; token="$(_audit_token)"
-  [[ -n "$token" ]] || return 1
-  curl -fsSL -m 60 -H "Authorization: Bearer ${token}" \
-    -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/${AUDIT_REPO}/releases/tags/v${ver}" 2>/dev/null \
-    | grep -o '"name": *"[^"]*\.tgz"' | sed 's/.*: *"//; s/"$//'
+  if [[ -z "$token" ]]; then
+    echo "::error::cannot list assets for v${ver}: no GitHub token (GITHUB_TOKEN/GH_TOKEN/~/.github-token)" >&2
+    return 1
+  fi
+  local api="https://api.github.com/repos/${AUDIT_REPO}/releases/tags/v${ver}"
+  # NO -f: the HTTP status is the ANSWER here, not a failure to hide. With -f a
+  # 404 and an expired token both came back as "curl exited non-zero".
+  local body code
+  body="$(curl -sSL -m 60 -w $'\n%{http_code}' -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" "$api" 2>/dev/null)" || {
+    echo "::error::cannot list assets for v${ver}: the GitHub API call failed (network)" >&2
+    return 1
+  }
+  code="${body##*$'\n'}"; body="${body%$'\n'*}"
+  case "$code" in
+    200) ;;
+    404) return 3 ;;
+    *) echo "::error::cannot list assets for v${ver}: GitHub answered HTTP ${code}" >&2; return 1 ;;
+  esac
+  printf '%s\n' "$body" | grep -o '"name": *"[^"]*\.tgz"' | sed 's/.*: *"//; s/"$//'
+  return 0
 }
 
 # audit_release_asset <version> <cdn_base>
@@ -183,11 +210,20 @@ audit_release_asset() {
   if [[ -z "$exe_cdn" ]]; then
     # No mode drift and no content drift, yet the tarball BYTES differ: that
     # leaves ordering/mtime-level metadata, which this comparison cannot name.
-    # Report it as unknown rather than as a cause.
-    echo "release audit WARN: every file's content AND mode match, but the tarball bytes differ (unexplained packaging metadata)"
-    echo "  CDN: ${cdn_sha:0:24}…"
-    echo "  GH : ${gh_sha:0:24}…"
-    return 0
+    #
+    # IT USED TO RETURN 0 (round 122). The caller then printed "audit OK: …
+    # its source-derived files match the GitHub asset" — a verdict this function
+    # had explicitly failed to reach, on the one artifact that IS the release.
+    # Twenty-five lines above, this same file states the rule: "the tgz IS the
+    # release, and two different tgz files are two different releases however
+    # identical their contents." An audit that cannot explain a difference has
+    # not cleared it.
+    echo "::error::release audit FAILED: every file's content AND mode match, yet the two tarballs' BYTES differ — this audit cannot name the difference, and the tgz IS the release" >&2
+    echo "  CDN: ${cdn_sha:0:24}…" >&2
+    echo "  GH : ${gh_sha:0:24}…" >&2
+    echo "  Rebuild one side so both come from one artifact (\`./scripts/publish-cdn-from-ci.sh <ver>\`)," >&2
+    echo "  or name the metadata difference before shipping." >&2
+    return 1
   fi
 
   echo "release audit OK (source-identical): every source-derived file matches byte-for-byte."
