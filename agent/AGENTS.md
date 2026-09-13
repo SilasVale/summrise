@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 172 (round 165's queue, fifth item: the `store/` surfaces. TWO of the
+three read — `regkeys.ts` and `settings.ts`, both CLEAN — and `settings.ts` carries a latent wording trap
+worth recording rather than patching. `file-config.ts` (179 lines) NOT yet read). Commit: journal.
+  (1) `regkeys.ts` — CLEAN, and the invariant is enforced in ONE place: every accessor lowercases the
+  code (`String(code).toLowerCase()`) and every key is prefixed, so a caller cannot create a case-variant
+  duplicate. The lifecycle is documented where it lives: 1h TTL for a leaked key, SPENT at first
+  authenticated use (`consumeRegKey` deletes AND writes a 15-min grant so one install's
+  tunnel-token → register pair completes on one key), and `listRegKeys` filters expired-but-unreaped
+  names because "KV list() keeps returning the NAMES of expired-but-not-yet-reaped keys" — a real KV
+  behaviour pinned in a comment and handled, instead of showing the operator a pile of dead keys.
+  (2) `settings.ts` — CLEAN, and the three round-tagged invariants are all about the SAME failure: raw
+  truthiness on a string setting reads an explicit OFF as ON. round-94 persists "0" instead of deleting
+  (so an env fallback is shadowed rather than resurrected), round-95/96 normalize AT THE READ including
+  the CACHE-HIT path (the isolate that just wrote "0" kept reading it as ON for the TTL), and round-439
+  fixes `s === "1"` storing boolean `true` as "0" — a silent INVERSION, recorded as changing no live
+  bytes because no caller passes a boolean today.
+  (3) THE PAIR THAT MUST AGREE, CHECKED RATHER THAN ASSUMED: `normalizeSetting` ("0"/"false" → null,
+  everything else passes through) and `globalSettingEnabled` (off for null/undefined/""/"0"/"false").
+  They agree on every value `getGlobalSetting` can return, and the reason is structural, not luck:
+  `normalizeSetting` NEVER returns "0"/"false", so `!!v` and `globalSettingEnabled(v)` coincide — which
+  is why the remaining raw-truthiness consumers (`auth.ts:645`'s probe URL, `translate.ts:835`) are
+  safe. I grepped for a consumer comparing `=== "1"` — the form the comment promises — and found NONE.
+  (4) THE LATENT TRAP, RECORDED NOT PATCHED: `normalizeSetting`'s doc says "Normalize a raw setting
+  value to the canonical form: "1" = on, null = off", and that is LOOSER THAN THE CODE — it canonicalizes
+  only the OFF side; an ON value from an env var stays `"true"`/`"yes"`/whatever. Nothing breaks today
+  (both readers treat any non-OFF as ON), but the wording invites a future consumer to write
+  `v === "1"` and read an env-provided ON as OFF. The honest fix is a one-line comment change ("null =
+  off; every other value = on") rather than a behaviour change, and it is deferred for the same reason
+  round 159 deferred its trap: it is a doc-only edit and this round is out of budget. One-line for
+  whoever takes it.
+  (5) STILL OPEN: `file-config.ts` (the third store, 179 lines — the ONLY item of the trio not read);
+  the plugins registry trio, `agent/src/plugins/playwright/helper.js`, the three `vale-command-core`
+  contract files, and the rest of round 165's list; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 171 (round 165's queue, fourth item: `gateway/src/lib/ratelimit.ts` —
 VERDICT: CLEAN, the documented table matches the code exactly, and I raised one false alarm on the way
 and caught it with one command). Commit: journal. No code change.
