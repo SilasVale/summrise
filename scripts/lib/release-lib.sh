@@ -48,16 +48,26 @@ prune_last5_per_minor() {
   done
 }
 
-# Installer prune (companion to the tgz last-5-per-minor above): keep the
-# newest $2 (default 5) versioned ValeAgent-Setup-1.*.*.exe + the versionless
-# ValeAgent-Setup.exe alias (never pruned — the landing page links it).
-# Versioned installers pin their tgz at build time, so evicting superseded
-# ones is safe; the alias always tracks the newest build staged by the
-# release flow.
+# Installer prune: keep the newest $2 (default 5) versioned
+# ValeAgent-Setup-1.*.*.exe PER MAJOR.MINOR, plus the versionless
+# ValeAgent-Setup.exe alias (never pruned — the landing page links it when the
+# manifest advertises one).
+#
+# PER MINOR, because this comment used to CALL ITSELF the companion to the tgz
+# last-5-per-minor policy above while doing something else: a flat last-5 across
+# all 1.x. Round 127 measured what that costs — with five 1.2.x installers and a
+# 1.3 line at the cap, the flat policy deleted EVERY 1.2.x installer. A versioned
+# installer pins the tgz it was built against, so the previous line's rollback
+# path went with them — the exact loss the tgz policy exists to prevent, and its
+# own comment says so 20 lines above. The one-minor test fixture could not tell
+# the two policies apart; there is a two-minor one now.
 prune_installers() {
   local dir="$1" keep_n="${2:-5}"
   shopt -s nullglob
-  mapfile -t KEEP_EXE < <(ls "$dir"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | sort -V | tail -n "$keep_n")
+  mapfile -t KEEP_EXE < <(ls "$dir"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | sort -V | awk -v keep="$keep_n" '
+    { ver = $0; sub(/.*ValeAgent-Setup-/, "", ver); sub(/\.exe$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
+    END { for (k in c) { from = (c[k] > keep ? c[k] - keep + 1 : 1); for (i = from; i <= c[k]; i++) print line[k, i] } }
+  ')
   local f k keep=0
   for f in "$dir"/ValeAgent-Setup-1.*.*.exe; do
     keep=0

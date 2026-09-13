@@ -107,6 +107,23 @@ check "installer prune keeps newest 5 versioned" \
   "ValeAgent-Setup-1.2.302.exe ValeAgent-Setup-1.2.303.exe ValeAgent-Setup-1.2.304.exe ValeAgent-Setup-1.2.305.exe ValeAgent-Setup-1.2.306.exe "
 check "installer alias untouched" "$(cat "$T/ValeAgent-Setup.exe")" "alias"
 check "installer prune leaves unrelated files" "$(cat "$T/unrelated.txt")" "keep"
+# 4b. TWO minor lines: the installer prune must be PER MINOR, like the tgz policy
+#     its own comment calls it a companion to. A flat last-5 evicts 1.2.x the
+#     moment 1.3.x ships five — and a versioned installer pins the tgz it was
+#     built against, so the rollback path the tgz policy protects goes with it.
+#     THE ONE-MINOR FIXTURE ABOVE CANNOT TELL THE TWO POLICIES APART (round 127).
+rm -rf "$T" && mkdir -p "$T"
+mkexe() { for v in "$@"; do echo "payload-$v" > "$T/ValeAgent-Setup-$v.exe"; done; }
+mkexe 1.2.301 1.2.302 1.2.303 1.2.304 1.2.305 1.3.0 1.3.1 1.3.2 1.3.3 1.3.4 1.3.5
+echo alias > "$T/ValeAgent-Setup.exe"
+prune_installers "$T" >/dev/null
+check "installer prune is PER MINOR: every 1.2 survives a 1.3 line at the cap" \
+  "$(ls "$T"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | xargs -r -n1 basename | sort -V | tr '\n' ' ')" \
+  "ValeAgent-Setup-1.2.301.exe ValeAgent-Setup-1.2.302.exe ValeAgent-Setup-1.2.303.exe ValeAgent-Setup-1.2.304.exe ValeAgent-Setup-1.2.305.exe ValeAgent-Setup-1.3.1.exe ValeAgent-Setup-1.3.2.exe ValeAgent-Setup-1.3.3.exe ValeAgent-Setup-1.3.4.exe ValeAgent-Setup-1.3.5.exe "
+check "and the new line is still capped at 5" \
+  "$(ls "$T"/ValeAgent-Setup-1.3.*.exe 2>/dev/null | wc -l)" "5"
+check "installer alias untouched by the two-minor prune" "$(cat "$T/ValeAgent-Setup.exe")" "alias"
+
 rm -rf "$T" && mkdir -p "$T"
 out=$(prune_installers "$T")
 check "empty asset dir installer-prunes nothing and stays silent" "$out" ""
@@ -140,5 +157,18 @@ check_match "the skip path RECORDS the debt" "$(sed -n '/--skip-reconcile given 
 check_match "a passing audit CLEARS it" "$(sed -n '/audit OK: CDN serves this run/,+2p' scripts/publish-release.sh)" "reconcile_clear"
 check_match "and the next publish refuses while it is owed" "$(sed -n '/^# THE RECONCILE GATE/,/^fi$/p' scripts/publish-release.sh)" "refusing to publish"
 check_match "naming the way out" "$(sed -n '/^# THE RECONCILE GATE/,/^fi$/p' scripts/publish-release.sh)" "acknowledge-unreconciled"
+
+# ── the release scripts' own silent self-disabling checks (round 127) ────────
+# These are SOURCE pins, the instrument this file already uses for the reconcile
+# gate: publish-release.sh has no harness of its own, and the two shapes below
+# are both "a check that quietly stops checking".
+check_match "an undateable exe input REFUSES instead of defaulting to zero" \
+  "$(sed -n '/^SRC_TS=/,/^fi$/p' scripts/publish-release.sh)" "cannot date the exe inputs"
+check_match "...and never falls back to the \${VAR:-0} default that disabled it" \
+  "$(sed -n '/^SRC_TS=/,/^fi$/p' scripts/publish-release.sh)" "Refusing to disable the exe-staleness gate"
+case "$(sed -n '/^SRC_TS=/,/^fi$/p' scripts/publish-release.sh)" in
+  *'SRC_TS=${SRC_TS:-0}'*) echo "FAIL: the silent-zero default is back in publish-release.sh"; exit 1;;
+  *) PASS=$((PASS+1));;
+esac
 
 echo "release-lib: $PASS checks passed"

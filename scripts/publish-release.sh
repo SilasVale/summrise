@@ -138,7 +138,15 @@ if ! cmp -s "$EXE_BUILD" "$NPM_DIR/vale-agent.exe"; then
   exit 1
 fi
 SRC_TS=$(git log -1 --format=%ct -- agent/src agent/build.rs agent/resources/panel-react agent/resources/panel agent/Cargo.toml agent/Cargo.lock)
-SRC_TS=${SRC_TS:-0}
+# AN EMPTY ANSWER IS "I CANNOT DATE THE INPUTS", NOT "ZERO" (round 127).
+# `git log <path>` exits 0 with NO OUTPUT when the path list matches no commit at
+# all, and `${SRC_TS:-0}` then made `EXE_TS -lt 0` false for every exe: a rename or
+# removal under agent/src turned "the exe must postdate its inputs" into a no-op
+# WITH NO MESSAGE, leaving the 30-day cap as the only staleness bound.
+if [ -z "$SRC_TS" ]; then
+  echo "::error::cannot date the exe inputs: 'git log -- <paths>' returned nothing (did a path move?). Refusing to disable the exe-staleness gate silently." >&2
+  exit 1
+fi
 # ...and the working tree of those inputs must be clean: build.sh bakes
 # the CURRENT panel SPA into the exe (include_str!), so uncommitted panel
 # or rust changes mean the exe matches neither HEAD nor CI. build.rs counts:

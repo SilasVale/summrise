@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 127 (two release checks that had quietly stopped checking: the
+installer prune evicted the PREVIOUS minor line's installers, and the exe-staleness gate disabled
+itself the moment its input paths matched no commit). Commit: this round's scripts/ + docs.
+Tests: release-lib 38 checks (was 32), release-audit 25, smoke-index 12; five mutations caught.
+  (1) D11, MEASURED RED FIRST. `prune_installers`'s own comment calls it "companion to the tgz
+  last-5-per-minor above" while the code kept a FLAT last-5 across all 1.x — and the existing test
+  used ONE minor line, so it could not tell the two policies apart. I wrote the two-minor fixture
+  before touching the function, and it failed exactly as the audit predicted: with five 1.2.x
+  installers and a 1.3 line at the cap, the flat policy deleted EVERY 1.2.x installer. A versioned
+  installer pins the tgz it was built against, so the previous line's rollback path went with them —
+  the precise loss the tgz policy's own comment says it exists to prevent, 20 lines above. Fixed by
+  keying on major.minor, the same awk shape as its sibling; three checks, three mutations caught
+  (back to flat, prune nothing, prune the alias).
+  (2) D9, AND I RE-VERIFIED THE CLAIM MYSELF BEFORE ACTING ON IT: `X=$(git log -1 --format=%ct --
+  agent/does-not-exist-xyz)` returns **rc 0 with EMPTY output**, so `SRC_TS=${SRC_TS:-0}` made
+  `EXE_TS -lt 0` false for every exe — a rename or removal under agent/src turned "the exe must
+  postdate its inputs" into a no-op WITH NO MESSAGE, leaving the 30-day cap as the only staleness
+  bound. It now REFUSES, naming the reason. Pinned by source checks (publish-release.sh has no
+  harness of its own): two mutations caught, and the normal path was checked to still see a real
+  timestamp (`SRC_TS=1789321458`).
+  (3) THE SHAPE IS THE SAME ONE THIS LOOP HAS BEEN CLOSING FOR FIVE ROUNDS, and saying so is the
+  point: a check whose failure cannot fail the run (rounds 122-123 in the audit), a branch that
+  never runs (round 126), a rule a comment satisfied (round 124), and now a policy that contradicts
+  its own comment while its test cannot see the difference. The instrument that found each was the
+  mutation, not the reading.
+  (4) NOT DONE: nothing deployed (scripts/ is not a runtime surface), no boundary verdict moves, and
+  the stale installer alias plus the three unreconciled versions remain RELEASE actions that
+  CHARTER-1 gates.
+  (5) STILL OPEN: D5-D8, D12-D13 in the release machinery; the extension's X1/X3/X6/X8; the proxies'
+  P2-P10; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival window;
+  the restart mystery.
+
 Last updated: 2026-09-14 round 126 (D4b: the release smoke was SILENT about the state round 125
 measured — a tgz-only manifest made it check nothing about the installer alias and still print "ok").
 Commit: this round's scripts/ + ci.yml + docs. Tests: smoke-index 12 checks (new file), four
