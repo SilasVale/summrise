@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 171 (round 165's queue, fourth item: `gateway/src/lib/ratelimit.ts` —
+VERDICT: CLEAN, the documented table matches the code exactly, and I raised one false alarm on the way
+and caught it with one command). Commit: journal. No code change.
+  (1) THE DOCUMENTED TABLE VS THE CODE, CHECKED RATHER THAN ASSUMED: the header claims the factory
+  collapsed "three verbatim copies" with ONE deliberate axis (`kvSeed`) and names the sites — probe
+  seeded, auth register and devices public gate memory-only. Measured: exactly three call sites
+  (`tooling.ts:41` probe `kvSeed: true`; `auth.ts:62` auth-rate; `devices.ts:757` pub-rate), and the
+  memory-only pair is memory-only *by default* (no `kvSeed` key at all), which is the stronger form —
+  a caller cannot get the seeded behaviour by forgetting an option. The `round-104` reasoning is in the
+  header where the decision lives: a per-request KV write here would let an attacker exhaust the
+  Free-plan daily write quota, so the per-isolate ceiling is the accepted trade.
+  (2) AND A DESIGN POINT WORTH RECORDING, because it is the shape this loop keeps asking for: the
+  devices limiter is built ONCE and applied to THREE public one-shot routes through a single `gate()`
+  wrapper (`/api/register`, `/api/devices/self-register`, `/api/install/tunnel-token`). One owner, three
+  routes — so a FOURTH public route cannot be added without passing through the same gate, instead of
+  each route remembering to limit itself.
+  (3) MY FALSE ALARM, AND ITS TELL (the SEVENTH in this stretch): I saw `createIpRateLimiter({...})`
+  inside a function body at devices.ts:757 while the other two are module-level constants, and inferred
+  "built per request → the counters Map is recreated every call → this gate never trips". One `sed` of
+  the enclosing scope killed it: the function is `setup(ctx: PluginContext)`, which runs ONCE at plugin
+  registration. **"Inside a function" is not "per request" — the question is WHICH function and WHEN it
+  runs**, and scope-reading answers it in one command. The previous six tells were a wrong host (152), a
+  rate of 100% (166), a refutation matching its own grep (159), a test that could not express its
+  premise (148), an assumed pair (143), and a code path misread (136/137); this one is new: it is the
+  first where a STRUCTURAL clue (call sites at different scopes) pointed at a real difference in
+  behaviour that did not exist.
+  (4) WHAT THE MODULE ALSO GETS RIGHT, verified line by line: the capacity cap runs on first sight only,
+  which is sufficient because the fast path cannot ADD keys (so the map is bounded at 4097 by
+  construction); the fast path and the first-sight path agree on the boundary (`hit >= limit` vs
+  `cur >= limit`, both pre-increment); fail-open on any internal error matches the breaker's documented
+  posture; and the missing-header case shares one "unknown" bucket, which the suite PINS as intended
+  rather than leaving it to be discovered.
+  (5) STILL OPEN: the 11 remaining unexamined files (the three `store/` surfaces, the `plugins/` registry
+  trio, `agent/src/plugins/playwright/helper.js`, the three `vale-command-core` contract files, and the
+  rest); plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 170 (B2 FIXED, and it is a SECURITY fix: an environment-assignment
 prefix is no longer grantable, so one approval can no longer auto-approve every later command sharing
 that prefix). Commit: agent/ + journal. Tests: approval 13 -> 15, whole agent suite + clippy green.
