@@ -526,6 +526,31 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 163 (the list is CLEARED: the remaining two source-text absence
+assertions are converted, and a SINGLE mutation that quotes BOTH retired forms at once now leaves the
+suite green — the class is inert to its own obituaries). Commit: extension/ + journal. Tests: extension
+13; the positive halves were genuinely unasserted, which is why both were converts not deletes.
+  (1) BOTH WERE CONVERTS, AND THE PROCEDURE SAID SO: round 162's test is "is the positive fact already
+  asserted?" — for `:156` (the silent-substitution fallback) nothing asserted that the REFUSAL exists,
+  only that a FORM was absent; for `:187` (the parent-stamp) `examined.has(node)` pinned the READ half
+  while nothing pinned the WRITE half (`examined.add(node)`). So each conversion ADDED a fact, rather
+  than restating one — the opposite of round 162's redundant case, decided by the same question.
+  (2) AND THAT IS THE THIRD OUTCOME OF THE SAME PROCEDURE, which is worth recording as the procedure's
+  completion: round 160 CONVERTED (no positive fact existed), round 162 DELETED (the fact already sat
+  two lines above), this round CONVERTED TWO (each missing its own half). Three rounds, four assertions,
+  one question asked each time — and no judgement call in any of them.
+  (3) THE MUTATION IS NOW A DOUBLE OBITUARY: one edit adds to `options.js` a comment quoting
+  `httpsOrigin(raw) || DEFAULT_STUDIO_ORIGIN` AND to `studio-links.js` a comment quoting the
+  `data-vs-processed` parent stamp — i.e. both retired forms, named in prose. The suite is GREEN (13/13).
+  Under the old absence forms the same tree would have been red on both counts: the class is now inert
+  to exactly the event that created it.
+  (4) SO THE ABSENCE-ASSERTION LIST IS EMPTY, and the last three rounds' worth of instrument work is
+  done: 159 found the trap by catching its own check lying, 160/162/163 removed every instance, and 161
+  drew the boundary that kept the removal from spreading to the runtime-value family (eleven-plus
+  assertions in the gateway suite that are CORRECT and were deliberately untouched).
+  (5) STILL OPEN: exactly the seven rows of the round-157 table — six of them outside the loop's
+  authority. Nothing else.
+
 Last updated: 2026-09-14 round 162 (round 161's list, first entry: the absence assertion at
 `shared.test.mjs:135` turned out to be REDUNDANT rather than convertible — so it was deleted, and the
 deletion is evidence-backed by the coverage NOT moving). Commit: extension/ + journal. Tests: extension

@@ -157,11 +157,16 @@ test("options/options.js: opt-in checkbox, no silent substitution, no phantom pa
     "the toggle must be opt-IN, matching content/studio-links.js",
   );
 
-  // 2. An unusable origin must be REFUSED, not replaced by the default.
-  assert.doesNotMatch(
+  // 2. An unusable origin must be REFUSED (round 143's act), asserted POSITIVELY
+  // (round 163): this was `doesNotMatch(src, /httpsOrigin\(raw\) \|\| DEFAULT_STUDIO_ORIGIN/)`,
+  // which carried round 159's false-alarm class — a comment quoting the retired
+  // fallback would trip it — while proving only that a FORM is absent, not that the
+  // refusal exists. The positive fact was not asserted anywhere, so this is a
+  // CONVERT rather than a delete (round 162's decision procedure).
+  assert.match(
     src,
-    /httpsOrigin\(raw\) \|\| DEFAULT_STUDIO_ORIGIN/,
-    "an invalid origin must not be silently replaced by the default",
+    /if \(!origin\) \{/,
+    "an unusable origin must be REFUSED, not replaced by the default",
   );
 
   // 3. The file must STATE the true security model (round 141 fixed shared.js; this
@@ -187,12 +192,15 @@ test("content/studio-links.js: examined means the NODE, and in-place edits are s
   // imported) matching the ACT, not a word — round 124's lesson.
   const src = readFileSync(new URL("../content/studio-links.js", import.meta.url), "utf8");
 
-  // 1. The no-path branch must NOT stamp the parent: an attribute there says "this
-  // whole element is finished", which is how later streaming chunks got skipped.
-  assert.doesNotMatch(
+  // 1. The no-path branch must record the NODE (round 144's act), asserted
+  // POSITIVELY (round 163): this was the `doesNotMatch` on the parent-stamp, which
+  // carried round 159's false-alarm class and proved only that a FORM is gone. What
+  // X3 actually fixed is that the per-node set is WRITTEN; `examined.has(node)` below
+  // pins the read half, and nothing pinned the write half until now.
+  assert.match(
     src,
-    /\.parentElement\??\.setAttribute\("data-vs-processed", "1"\)/,
-    "the processed attribute must not be set on an element to mean 'its text was seen'",
+    /examined\.add\(node\);/,
+    "the no-path branch must record the NODE, not stamp its parent",
   );
 
   // 2. The skip decision must consult the per-node set.
