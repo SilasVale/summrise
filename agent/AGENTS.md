@@ -526,63 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 120 (THE DISCOVERY ROUND: four read-only scouts on surfaces no
-round had audited — the extension, the agent's `design` plugin, proxies/vrelay, the release
-machinery — ~45 findings, TWO HIGHs fixed here, one of them LIVE-CONFIRMED and deployed).
-Commits: f4360a97 (agent), 2bc7b59f (proxies), 3093a542 (the ledger + docs cadence).
-Gates: agent 616 lib (+3) + features + clippy -D warnings + fmt + xwin; vrelay 56 (+2), deployed.
-  (1) THE VRELAY HOST ESCAPE (HIGH, live-confirmed, FIXED+DEPLOYED+VERIFIED). `validPath` accepted
-  `//evil.example/x` and `new URL("//evil.example/x", "https://github.com")` resolves to
-  `https://evil.example/x` — a protocol-relative path REPLACES the origin — while `git.ts`
-  forwards the caller's `authorization` by design. Before: `curl https://v.saisi.online/api/git//
-  example.com/` → **200 with Example Domain's HTML**. After the deploy: all three escape forms
-  (git, github, and the info/refs spelling) answer **400**, the legitimate route still answers 200
-  (229,491 bytes), and the keyless 401 gate is intact. Two layers now: the shape check refuses
-  `//` raw AND percent-encoded, and every handler composes its upstream URL through a guard that
-  asserts the RESOLVED ORIGIN. The guard is duplicated in three standalone modules by necessity
-  (the bundle is flat), so a test pins the three copies BYTE-IDENTICAL — three copies of a check
-  is how this codebase loses one of them.
-  (2) `page_view` STOPPED LYING ABOUT WHAT IT FETCHED (design plugin, HIGH+MED). A non-2xx was
-  returned as the page — a 404/500, or the 530 page d1's tunnel served for days, arrived as
-  `content` with `truncated:false`. Its token redactor walked the literal `__PANEL_TOKEN__` and
-  replaced whatever sat between the next two quotes: measured on the shipped bundle,
-  `page_view(page="panel-js")` returned 613,677 bytes for a 613,667-byte file — a SILENT SEMANTIC
-  EDIT of the source the tool exists to show — while `{"__PANEL_TOKEN__":"tok"}` came back with
-  the value INTACT. Redaction is by VALUE now (the token is plumbed in), the pattern walk survives
-  only as the fallback, the result reports `redactions`, and four more lies are closed: the
-  description no longer advertises a "remote host" the gate refuses, the port defaults to the
-  CONFIGURED one (18080 read a stranger's service on a custom-port install), the read is bounded
-  (not just the return), and redirects are not followed past the loopback gate. One VACUOUS
-  assertion replaced: `content.is_char_boundary(content.len())` is true for EVERY `&str` and could
-  never fail; the CJK hazard is now asserted where it can fail.
-  (3) THE LEDGER'S `unseen` MARK WAS WRONG, AND IT WAS MINE. The `design` plugin was audited in
-  round-383 (its page TABLE — the HTTP layer above had never been looked at), and my round-119
-  line said "the ledger still lists unseen surfaces … the agent's design plugin". That is the
-  SECOND round running where an inherited mark proved stale, and the first where the claim was
-  mine rather than an earlier round's. The scouts' STEP 0 (grep the round log for the surface,
-  report the hits) is what settles it, and every scout now does it before auditing.
-  (4) THE SYSTEMIC FINDING BEHIND THE HIGH: **CI does not run the vrelay tests** — it runs both
-  Cloudflare workers' suites and only `node --check`s these handlers (`.github/workflows/ci.yml`).
-  That is why a host escape lived through seven rounds of "gate" work on those exact files. It is
-  recorded as the reason, not an excuse, and it is finding D-something in the ledger.
-  (5) THE OTHER TWO SURFACES, RECORDED NOT FIXED (the ledger carries all ~45 with file:line):
-  * extension (X1-X8): a HIGH — rewriting React-owned text nodes freezes DSH's streamed replies
-  and can throw in React's commit phase, while the README claims the opposite; and no allowlist on
-  the linked folder, so any chat text mints a one-click link into `.ssh`/`.dsh` inside the
-  already-authenticated IDE session.
-  * release machinery (D1-D13): three HIGHs — `--skip-reconcile`'s refusal guard is neutralized by
-  `|| true`, so a missing GitHub token reads as "first publish" and the P0 audit is skipped while
-  the run reports success; an unexplained tarball difference is a PASS; and the tag/release/audit
-  stage is printed text rather than code, so nothing can fail because it never happened. Plus the
-  installer's CDN fallback npm-installing an UNVERIFIED tgz.
-  (6) d1, READ-ONLY EXCEPT ONE REVERSIBLE SWITCH: the Task Scheduler operational log was DISABLED,
-  so the "restarted every 1-2 h" mystery had no history to read; it is enabled now (`wevtutil sl
-  Microsoft-Windows-TaskScheduler/Operational /e:true`, verified `enabled: true`, 10 MB cap), so
-  the next restart arrives with a timestamp and a trigger. Measured at 01:37:02: `started=
-  1789317807 last=1789320989 exited=0`, process StartTime 00:43:27 → **53m35s of uninterrupted
-  uptime**, INSIDE the old 1-2 h window, so it proves nothing yet.
-  (7) STILL OPEN: everything above that was recorded and not fixed; CHARTER-1 (the user); the
-  dead-agent revival window (the user); the restart mystery (instrument now doubled).
+Last updated: 2026-09-14 round 121 (the extension stops minting one-click links into credential
+homes: it refuses anything outside the project, resolves relative mentions against the workspace,
+and no longer turns prose into links). No deploy — the extension is loaded unpacked in the browser.
+Commit: bd2a12d3. Tests: extension 10 (was 9), four mutations caught.
+  (1) X2/X5/X7 CLOSED, all in the same pure function (`extension/shared.js`), because all three
+  were the same mistake: `resolveDir` answered for anything. `/home/zhengsaisi/.ssh/id_rsa` in a
+  chat message minted a link into the KEY DIRECTORY of an already-authenticated IDE session (and
+  `.dsh`, `.aws`, `.gnupg` likewise); the relative base was the user's HOME while DSH runs in the
+  project, so every relative mention linked to a folder that does not exist — and the test PINNED
+  that wrong output; and prose with slashes became links through BOTH matcher arms (`read/write`
+  via the relative one, its `/write` via the absolute one). Now: strictly inside the code-server
+  root, no dot-segment except `.github` (the one dot-directory that is project content rather than
+  a credential store), the real workspace base, a leading boundary on the absolute arm, and a
+  known-extension rule for relative mentions. A refused mention stays TEXT.
+  (2) ONE RULE WAS DELETED, BY A MUTATION THAT COULD NOT FAIL IT. A separate `..` check looked
+  like defence in depth; removing it changed no test, because the dot-segment rule already refuses
+  every input it did (`..` IS a dot segment). An unfalsifiable check in a security path is worse
+  than no check — it reads as coverage that does not exist — so it is gone and the remaining rule
+  says traversal is covered there. Four mutations that DO fail: re-admitting dot-dirs, restoring
+  the home base, dropping the leading boundary, removing the root allowlist.
+  (3) X4 IS HALF-CLOSED AND SAID SO: an extensionless FILE mention (`Makefile`) still resolves to
+  itself, so the link opens its parent directory. The dot heuristic's other half — a dot-DIRECTORY
+  losing its last segment — is gone with the dot rule, since such a mention is now refused rather
+  than mis-resolved.
+  (4) X1 IS NOT FIXED, DELIBERATELY. The extension rewrites text nodes the DSH React client owns,
+  which freezes streamed replies and can throw in React's commit phase — while the README claims
+  the opposite. The audit's own verdict is that this cannot be repaired inside the current
+  approach (a DOM rewrite of a framework-managed subtree); it needs a design decision about where
+  the link should live, which is a round of its own, not a drive-by inside a security fix.
+  (5) NOT VERIFIED IN A BROWSER, stated so the green is not overread: this extension is loaded
+  UNPACKED on dsh.saisi.online and this loop holds no browser session. The pure functions are
+  pinned by 10 tests and four mutations; the DOM behaviour (X1/X3) and the visual result are
+  browser-verification items for the user.
+  (6) STILL OPEN: X1, X3, X6, X8 in the extension; the proxies' P2-P10; the release machinery's
+  D1-D13; CHARTER-1 (the user); the dead-agent revival window (the user); the restart mystery
+  (instruments doubled).
 
 Previous round: 2026-09-14 round 118 (the console offered Edit and Delete on a model the CONFIG FILE
 declares — both answered 200 and the next deploy silently reverted them; the panel had the words

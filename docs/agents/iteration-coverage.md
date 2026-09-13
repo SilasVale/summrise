@@ -10,7 +10,9 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 120** (the DISCOVERY round: four read-only scouts on surfaces no round
+- Round log head: **round 121** (the extension's link allowlist: it now refuses credential homes,
+  resolves relative mentions against the real workspace, and stops turning prose into links);
+- Round 120 (the DISCOVERY round: four read-only scouts on surfaces no round
   had audited — extension, the agent's `design` plugin, proxies/vrelay, the release machinery —
   ~45 findings, two HIGHs fixed here, one of them LIVE-CONFIRMED and deployed); the console/gateway fixes of rounds 116-119 are all DEPLOYED
   (`vale-gate` version `3187a717-f35d-48e3-a0d3-16eb9624a0b4`, console bundle `index-CR3KX755.js`).
@@ -58,7 +60,7 @@ Seeded 2026-09-14 at round 110.
 | gateway console SPA (`gateway/ui`) | seen | 61, 91–93, 117–119 | two behavioural harnesses now exist (`smoke:models`, `smoke:overview` — jsdom over the BUILT bundle); other pages still have none |
 | index worker | seen | 99, 115 | — (F2/F3 closed and DEPLOYED round 115) |
 | proxies (zen-go / zen-us / vrelay) | seen | 64, 120 | P1 (HIGH) protocol-relative path sent the caller's GitHub token to any host — FIXED + DEPLOYED + verified live in round 120; P2 the same shape in github/gform (open proxy); P3 three of five handlers use whole-fetch timeouts while streaming; P4 no credential redaction in any proxy error path; P5 the 5xx-generic-text contract violated in two handlers; P6 a stale routing comment at the decision site; P7 the disproven zen-us US pin still asserted in its own files; P8 `count_tokens` ignores system+tools; P9 zen-us labels every response `text/event-stream`; P10 a comment promises no silent target fallback that the code performs. **CI does not run these 54 tests** — only `node --check` |
-| extension (Vale Code Links) | seen | 120 | X1 (HIGH) rewrites React-owned text nodes → streaming freezes; X2 no folder allowlist: any chat text mints a one-click link into `.ssh`/`.dsh` inside the authenticated IDE; X3 the processed-stamp kills later content; X4 the dot heuristic is wrong both ways; X5 the "configurable base" is hardcoded and the test pins the WRONG path; X6 options shows an origin that is not in effect; X7 prose becomes links (`read/write`); X8 the security model named in comments is wrong (`--auth none`) |
+| extension (Vale Code Links) | seen | 120, 121 | **X2/X5/X7 CLOSED in 121** (no link outside the code-server root, no dot-directory but `.github`, the workspace base, a leading boundary + a known-extension rule for relative mentions), and X4 half-closed (an extensionless FILE still resolves to itself — recorded as a known limit, not guessed at with a name list); X1 (HIGH) rewrites React-owned text nodes → streaming freezes; X2 no folder allowlist: any chat text mints a one-click link into `.ssh`/`.dsh` inside the authenticated IDE; X3 the processed-stamp kills later content; X4 the dot heuristic is wrong both ways; X5 the "configurable base" is hardcoded and the test pins the WRONG path; X6 options shows an origin that is not in effect; X7 prose becomes links (`read/write`); X8 the security model named in comments is wrong (`--auth none`) |
 | agent `plugins/terminal` (26 tools) | partial | 88, SOLID | — |
 | agent `plugins/memory` | seen | 99, 110 | F5 was closed in round 110 in code (the unread `load_failed` flag; `true` after a failed append) with the test forced through a REAL failure seam — the LIVE half stays test-level by choice, since proving it on the device means corrupting the store |
 | agent `plugins/runs` + `runs.rs` | seen | 110 | — |
