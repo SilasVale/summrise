@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 166 (round 165's queue, first item: `gateway/src/http.ts` — the
+FOUNDATION module every response passes through — read for the first time in 166 rounds. VERDICT: CLEAN,
+and the reason it is clean is the design. Plus the SIXTH instrument illusion, caught by its own tell).
+Commit: journal. No code change.
+  (1) WHAT THE FILE DOES AND WHY IT IS RIGHT: `CORS_HEADERS` deliberately omits
+  `Access-Control-Allow-Origin`, and `jsonOk`/`jsonError` spread only that constant — so a response
+  built by them carries NO ACAO unless something adds it. Something does: `index.ts`'s dispatch
+  boundary wraps EVERY outbound response (`:108` the cache hit, `:114` the main path, plus each explicit
+  error inside the dispatcher). The two things that must agree — the helpers omitting ACAO, the boundary
+  reflecting it — agree by construction, because the concern has exactly ONE owner at the boundary
+  rather than a rule 198 call sites must remember. That is the shape this loop keeps asking for, found
+  already in place in the one file nobody had read.
+  (2) THE ILLUSION, AND ITS TELL: I first grepped "does each `return jsonOk(...)` get withCors?" and got
+  **198 unwrapped out of 198** — a 100% anomaly rate. That number is a statement about the INSTRUMENT,
+  not the code: no real codebase has 198 consecutive identical mistakes, and the next cheapest question
+  ("where is CORS actually applied?") answered it in one grep. This is the SIXTH instrument-induced
+  false signal in this stretch (136/137, 143, 148, 152, 159) and the first whose tell was a RATE rather
+  than a match. Recorded as a rule: **a 100% failure rate is a measurement bug until proven otherwise.**
+  (3) WHAT THE FILE ALSO GETS RIGHT, worth noting because a never-read file is where the opposite is
+  usually found: `isAllowedOrigin` requires the loopback origin AND a loopback request host (the audit-P2
+  fix — production used to reflect any localhost origin); `withCors` deliberately returns WebSocket 101
+  responses untouched (no mutable headers); `errorTypeForStatus` has ONE definition for a decision that
+  was written out four times, with the incident it prevents named in the comment (a bare `api_error` on
+  a 429 tells Claude Code to give up instead of backing off).
+  (4) SO ROUND 165's LIST IS 14, NOT 15, and the first entry is closed by READING rather than by a
+  change — which is the correct outcome for a verification round and the cheapest possible one. The
+  next entry is `gateway/src/body-scan.ts` (a body scanner: where a bypass would live).
+  (5) STILL OPEN: the 14 remaining unexamined files (round 165's list, minus `http.ts`); plus exactly
+  the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 165 (**15 of 121 source files have never been mentioned by any
 round** — the loop's own discovery mode 1, run for the first time in this stretch, and it found real
 unexamined work that does NOT need the user). Commit: journal + ledger. No code change.
