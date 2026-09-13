@@ -21,7 +21,12 @@
  * just the entry points.
  */
 
-import { advertisedIds, declaredReasoningEffort, extraModelEntries } from "../store/models.ts";
+import {
+  advertisedIds,
+  declaredReasoningEffort,
+  extraModelEntries,
+  facetOverrides,
+} from "../store/models.ts";
 import { providerKey, providerModelVision, type ProviderSpec } from "../store/providers.ts";
 import { findUserByToken, getUserKeys, getGlobalSetting, globalSettingEnabled } from "../store.ts";
 import {
@@ -713,21 +718,29 @@ async function handleGatewayImpl(
     const live = await advertisedIds(env);
     const off = new Set(MODELS.map((m) => m.id).filter((id) => !live.includes(id)));
     const extra = await extraModelEntries(env);
+    // What an operator added to a BUILT-IN model's listing. The registry supplies the
+    // routing facets and never a display one, so this decorates rather than overrides —
+    // and a custom record's own values stay authoritative where both could speak.
+    const overrides = new Map((await facetOverrides(env)).map((o) => [o.id, o]));
     const entries = [...MODELS.filter((m) => !off.has(m.id)), ...extra];
     return jsonOk({
       object: "list",
-      data: entries.map((m: any, i) => ({
-        id: m.id,
-        object: "model",
-        created: 1785000000 + i,
-        owned_by: m.owned_by,
-        // Facets only a CUSTOM PROVIDER model declares. A client can use them
-        // (DSH's discovery reads context_window/max_tokens off this listing);
-        // built-in entries stay exactly as they were.
-        ...(m.name ? { name: m.name } : {}),
-        ...(m.context_window ? { context_window: m.context_window } : {}),
-        ...(m.max_tokens ? { max_tokens: m.max_tokens } : {}),
-      })),
+      data: entries.map((m: any, i) => {
+        const ov = overrides.get(m.id);
+        return {
+          id: m.id,
+          object: "model",
+          created: 1785000000 + i,
+          owned_by: m.owned_by,
+          // A client can USE these (DSH's discovery reads context_window/max_tokens off
+          // this listing), which is why they are the ones a form may own.
+          ...(m.name || ov?.name ? { name: m.name || ov?.name } : {}),
+          ...(m.context_window || ov?.contextWindow
+            ? { context_window: m.context_window || ov?.contextWindow }
+            : {}),
+          ...(m.max_tokens || ov?.maxTokens ? { max_tokens: m.max_tokens || ov?.maxTokens } : {}),
+        };
+      }),
     });
   }
 

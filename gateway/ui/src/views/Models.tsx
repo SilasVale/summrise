@@ -638,9 +638,14 @@ export default function ModelsView() {
                             >
                               {t("models.setCurrent")}
                             </button>
-                            {/* Editing appears only where editing is real — a built-in's
-                                facets are pinned in the registry and the server says 409. */}
-                            {isAdmin && custom.includes(id) && (
+                            {/* Editing appears where editing is real. A built-in's
+                                ROUTING facets stay pinned, but its display ones are an
+                                override the console owns; a custom record is editable
+                                outright. A model belonging to a CUSTOM PROVIDER is edited
+                                through that provider's record, which has no editor for an
+                                existing model yet — so it gets no control rather than a
+                                control that would write to the wrong store. */}
+                            {isAdmin && (!pv || custom.includes(id)) && (
                               <button
                                 type="button"
                                 className="btn btn-ghost btn-mini"

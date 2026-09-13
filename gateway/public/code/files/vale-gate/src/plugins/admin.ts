@@ -3,8 +3,10 @@ import {
   customModels,
   deleteCustomModel,
   disabledModels,
+  facetOverrides,
   isBuiltIn,
   putCustomModel,
+  putFacetOverride,
   setModelDisabled,
 } from "../store/models.ts";
 import {
@@ -174,8 +176,30 @@ async function adminAddModel(request: Request, env: Env): Promise<Response> {
 
   const { spec, error } = parseModelSpec(await readJson(request));
   if (error || !spec) return jsonError(400, error || "invalid model", "invalid_request");
-  if (isBuiltIn(spec.id))
-    return jsonError(409, `${spec.id} is a built-in model — disable it instead`, "invalid_request");
+  if (isBuiltIn(spec.id)) {
+    // A BUILT-IN'S ROUTING FACETS ARE PINNED IN THE REGISTRY, and its DISPLAY facets are
+    // not in the registry at all — so an operator may add the latter and never the
+    // former. A stored record carrying `wire` or `usEgress` would be a second,
+    // contradictory copy of a routing decision, so those fields are refused BY NAME
+    // rather than quietly ignored: an operator who set one must not believe it took.
+    const pinned = (["wire", "usEgress", "search", "responsesOnly"] as const).filter(
+      (f) => (spec as unknown as Record<string, unknown>)[f] !== undefined,
+    );
+    if (pinned.length)
+      return jsonError(
+        400,
+        `a built-in model's ${pinned.join(", ")} is pinned in the channel registry — only name, contextWindow, maxTokens and reasoningEffort can be stored for it`,
+        "invalid_request",
+      );
+    const next = await putFacetOverride(env, {
+      id: spec.id,
+      ...(spec.name ? { name: spec.name } : {}),
+      ...(spec.contextWindow ? { contextWindow: spec.contextWindow } : {}),
+      ...(spec.maxTokens ? { maxTokens: spec.maxTokens } : {}),
+      ...(spec.reasoningEffort ? { reasoningEffort: spec.reasoningEffort } : {}),
+    });
+    return jsonOk({ ok: true, override: spec.id, overrides: next.map((o) => o.id) });
+  }
   const next = await putCustomModel(env, spec);
   return jsonOk({ ok: true, model: spec, custom: next.map((m) => m.id) });
 }
@@ -216,17 +240,34 @@ async function adminModelState(request: Request, env: Env): Promise<Response> {
     // WHAT EACH CONSOLE-OWNED MODEL DECLARES. Without this the panel could set a
     // display name, a capacity and a reasoning default and then never show them
     // again — declaring without seeing is how a value silently disappears.
-    facets: Object.fromEntries(
-      custom.map((m) => [
-        m.id,
-        {
-          ...(m.name ? { name: m.name } : {}),
-          ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
-          ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
-          ...(m.reasoningEffort ? { reasoningEffort: m.reasoningEffort } : {}),
-        },
-      ]),
-    ),
+    facets: {
+      // A built-in's OVERRIDE is the same KIND of fact as a custom record's facets — what
+      // the model declares — so the panel reads one map and the editor seeds itself from
+      // it without needing to know which store answered. A custom record wins where both
+      // could speak, because moving a model to that store is the deliberate act.
+      ...Object.fromEntries(
+        (await facetOverrides(env)).map((o) => [
+          o.id,
+          {
+            ...(o.name ? { name: o.name } : {}),
+            ...(o.contextWindow ? { contextWindow: o.contextWindow } : {}),
+            ...(o.maxTokens ? { maxTokens: o.maxTokens } : {}),
+            ...(o.reasoningEffort ? { reasoningEffort: o.reasoningEffort } : {}),
+          },
+        ]),
+      ),
+      ...Object.fromEntries(
+        custom.map((m) => [
+          m.id,
+          {
+            ...(m.name ? { name: m.name } : {}),
+            ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
+            ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+            ...(m.reasoningEffort ? { reasoningEffort: m.reasoningEffort } : {}),
+          },
+        ]),
+      ),
+    },
   });
 }
 

@@ -158,10 +158,20 @@ test("VALIDATION: the channel prefix is checked against the REAL route table", a
     "the error does not name the prefix problem",
   );
 
-  // A built-in cannot be re-added as custom — that would shadow a record carrying six
-  // facets with one carrying a fraction of them.
+  // A built-in must not be SHADOWED by a custom record — that would replace a record
+  // carrying six facets with one carrying a fraction of them.
+  //
+  // This used to be a 409 and is now the override store, which DECORATES the registry
+  // entry and cannot contradict it (routing fields are refused there by name — see the
+  // OVERRIDE tests). The status code was never the property; THIS is, so it is what gets
+  // asserted.
   const dup = await json(await call("POST", "/api/admin/models", { body: { id: "og/mimo-v2.5" } }));
-  assert.equal(dup.status, 409, "re-adding a built-in as custom was allowed");
+  assert.equal(dup.status, 200, "a built-in override was refused outright");
+  const state = await json(await call("GET", "/api/admin/models"));
+  assert.ok(
+    !state.body.custom.includes("og/mimo-v2.5"),
+    "a built-in was shadowed by a custom record",
+  );
 
   // And an id without a prefix at all.
   const noprefix = await json(

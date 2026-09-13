@@ -38,6 +38,8 @@ import {
 } from "./providers.ts";
 
 const CUSTOM_KEY = "models:custom";
+/** Built-in display overrides — see FacetOverride. */
+const OVERRIDE_KEY = "models:overrides";
 const DISABLED_KEY = "models:disabled";
 
 /** Read a JSON array from KV, tolerating anything malformed — a catalogue that
@@ -129,6 +131,45 @@ export async function extraModelEntries(env: Env): Promise<
     ...(model.maxTokens ? { max_tokens: model.maxTokens } : {}),
   }));
   return [...custom, ...provided];
+}
+
+/**
+ * FORM-OWNED DISPLAY OVERRIDES FOR A BUILT-IN MODEL.
+ *
+ * A built-in record carries six ROUTING facets pinned in `channels.ts` — and none of the
+ * display ones, because a compile-time registry has no reason to hold a human name. This
+ * is the layer that lets an operator add what a client can USE (a name, a context window,
+ * a max-output, a reasoning default) WITHOUT moving anything that changes where a request
+ * goes: a stored record cannot contradict the registry on `wire` or `usEgress`, because
+ * the admin route refuses those fields for a built-in id outright.
+ *
+ * Keyed by advertised id, stored as a list so it reuses the same read/write helpers (and
+ * their cache invalidation) as every other store here.
+ */
+export interface FacetOverride {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high" | "max";
+}
+
+export async function facetOverrides(env: Env): Promise<FacetOverride[]> {
+  return readList<FacetOverride>(env, OVERRIDE_KEY);
+}
+
+/** Add or replace one built-in's override, dropping fields the caller emptied. */
+export async function putFacetOverride(env: Env, o: FacetOverride): Promise<FacetOverride[]> {
+  const cur = await facetOverrides(env);
+  // EMPTYING EVERY FIELD REMOVES IT. An override is a decoration, so clearing all of it
+  // must leave the model exactly as the registry describes — otherwise a stale empty
+  // record would sit in the store looking like a decision somebody made.
+  const emptied = !o.name && !o.contextWindow && !o.maxTokens && !o.reasoningEffort;
+  const next = emptied
+    ? cur.filter((x) => x.id !== o.id)
+    : [...cur.filter((x) => x.id !== o.id), o];
+  await writeList(env, OVERRIDE_KEY, next);
+  return next;
 }
 
 /** Is this id advertised right now? The gate for BOTH setting a route and using one. */
@@ -284,5 +325,9 @@ export async function declaredReasoningEffort(env: Env, id: string): Promise<str
   const provider = await providerForPrefix(env, id.slice(0, slash + 1));
   const bare = id.slice(slash + 1);
   const model = (provider?.models ?? []).find((m) => String(m?.id ?? "") === bare);
-  return (model as { reasoningEffort?: string } | undefined)?.reasoningEffort ?? null;
+  const fromProvider = (model as { reasoningEffort?: string } | undefined)?.reasoningEffort;
+  if (fromProvider) return fromProvider;
+  // LAST, because an override DECORATES a built-in: it may set the reasoning default the
+  // registry never had, and it cannot contradict the registry about anything else.
+  return (await facetOverrides(env)).find((o) => o.id === id)?.reasoningEffort ?? null;
 }

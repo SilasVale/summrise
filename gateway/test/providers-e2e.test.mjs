@@ -711,3 +711,87 @@ test("FACETS: an unsupported field on a PROVIDER model is still refused by name"
   const msg = JSON.stringify(res.body);
   assert.match(msg, /unsupported field/i, `the refusal must NAME the field: ${msg}`);
 });
+
+/* ------------- built-in overrides -------------
+ *
+ * A built-in's SIX ROUTING FACETS are pinned in the registry and its display facets are
+ * not in the registry at all — so an operator may add the latter and never the former.
+ * These four tests pin both halves of that sentence plus the two edges: clearing every
+ * field removes the decoration, and an override's reasoning default is actually honoured
+ * by the router rather than merely stored.
+ */
+test("OVERRIDE: a built-in accepts display facets and a client sees them", async () => {
+  const { call, json } = await harness();
+  const res = await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/deepseek-v4.1-flash", name: "Flash", contextWindow: 1000000, maxTokens: 65536 },
+    }),
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const list = await json(await call("GET", "/v1/models", { auth: false }));
+  const entry = (list.body?.data ?? []).find((m) => m.id === "og/deepseek-v4.1-flash");
+  assert.ok(entry, "the built-in stopped being advertised");
+  assert.equal(entry.name, "Flash");
+  assert.equal(entry.context_window, 1000000);
+  assert.equal(entry.max_tokens, 65536);
+});
+
+test("OVERRIDE: a routing field on a built-in is REFUSED BY NAME, never stored", async () => {
+  // The whole safety of this layer: a stored record must not be able to contradict the
+  // registry about where a request goes. Each pinned field is checked by name, because an
+  // operator who set one and saw 200 would believe it took effect.
+  const { call, json } = await harness();
+  for (const body of [
+    { id: "og/deepseek-v4.1-flash", wire: "sneaky" },
+    { id: "og/deepseek-v4.1-flash", usEgress: true },
+    { id: "og/deepseek-v4.1-flash", search: true },
+  ]) {
+    const res = await json(await call("POST", "/api/admin/models", { body }));
+    assert.equal(res.status, 400, `${JSON.stringify(body)} was accepted`);
+    const msg = String(res.body?.error?.message ?? "");
+    assert.match(msg, /pinned in the channel registry/);
+    assert.match(msg, new RegExp(Object.keys(body).find((k) => k !== "id")));
+  }
+});
+
+test("OVERRIDE: clearing every field removes the decoration", async () => {
+  const { call, json } = await harness();
+  await json(
+    await call("POST", "/api/admin/models", { body: { id: "og/deepseek-v4.1-flash", name: "Flash" } }),
+  );
+  let st = await json(await call("GET", "/api/admin/models"));
+  assert.equal(st.body.facets["og/deepseek-v4.1-flash"].name, "Flash");
+  // An empty override is not a decision, and leaving one behind would look like one.
+  await json(await call("POST", "/api/admin/models", { body: { id: "og/deepseek-v4.1-flash" } }));
+  st = await json(await call("GET", "/api/admin/models"));
+  assert.equal(st.body.facets["og/deepseek-v4.1-flash"], undefined);
+});
+
+test("OVERRIDE: a built-in's declared reasoning default reaches the router", async () => {
+  // Storing a value and USING it are different facts. This is the one facet whose effect
+  // is not visible on the listing, so it is the one that could be stored and ignored.
+  const { call, json } = await harness();
+  await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/deepseek-v4.1-flash", reasoningEffort: "low" },
+    }),
+  );
+  let seen;
+  const res = await withFetch(
+    async (url, init) => {
+      seen = { url: String(url), init };
+      return openaiReply("ok");
+    },
+    () =>
+      call("POST", "/v1/messages", {
+        auth: false,
+        body: {
+          model: "og/deepseek-v4.1-flash",
+          max_tokens: 16,
+          messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        },
+      }),
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(JSON.parse(seen.init.body).reasoning, { effort: "low" });
+});
