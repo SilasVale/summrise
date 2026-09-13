@@ -47,6 +47,11 @@ Why the split: the writer's own tests have asserted the wrong field twice
 2. **Promise vs implementation** — every check a docstring/README/comment claims, verified to actually run (round 95 found a documented suffix allowlist that had never executed at dial time).
 3. **Pairs** — register/rename, add/update, import/export, save/load, list/get, enable/disable: one path validates, the other does not. The repo's most frequent defect shape.
 4. **Red-first tests / mutation** — disable the guard, the test MUST fail; a test that cannot fail proves nothing.
+   A check must also be shown to have run against the artifact you just changed: in rounds 117-119
+   three of this loop's OWN verifications passed for the wrong reason — a DOM assertion against a
+   collapsed row, a mutation that hit an unreachable branch, and a harness reading the PREVIOUS
+   bundle because the mutated source did not compile and the build error was swallowed. Ask both
+   questions every time: what makes this fail, and did it run on the new bytes?
 5. **Live and device drift** — `cmp` deployed assets, mirror parity, authenticated real probes; the probe proves itself first (a missing `-X POST` once produced a false 404).
 
 Priority order: credential/authorization > data loss or silent wrong answer >
