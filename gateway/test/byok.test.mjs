@@ -26,6 +26,19 @@ test("byok: NO ENV FALLBACK is expressible — the fact a flattened merge would 
   assert.equal(BYOK_CHANNELS.filter((c) => c.envKey !== null).length, 6);
 });
 
+test("byok: models-probe DERIVES its table — a re-typed copy fails this", async () => {
+  // The acceptance test round 189 named, in the only form that is mutation-proof: the
+  // values must not appear in the consumer at all. If someone re-types the table (the exact
+  // way the four-copy drift started), this goes red — and it does so without needing the
+  // private BYOK_KEY_FOR_KIND exported, which is what round 188 measured as the cost of the
+  // alternative. Rewired round 191; the other three consumers are still their own copies.
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/plugins/models-probe.ts", import.meta.url), "utf8");
+  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
+  assert.deepEqual(leaked, [], `models-probe must not re-type these: ${leaked.join(", ")}`);
+  assert.match(src, /BYOK_CHANNELS\.map/, "and it must derive them from the shared source");
+});
+
 test("byok: the two vocabularies genuinely differ (a merge of one name would be a coincidence)", () => {
   const sameName = BYOK_CHANNELS.filter((c) => c.prefix === c.kind).map((c) => c.kind);
   assert.deepEqual(sameName, ["gmi", "amd"], "only two channels use the same word for both");

@@ -24,6 +24,7 @@
 // for those. A wrong endpoint would produce a confident, wrong catalogue diff.
 import { deviceHostError } from "../device-fetch.ts";
 import { RESERVED_PREFIXES } from "../channels.ts";
+import { BYOK_CHANNELS } from "../store/byok.ts";
 import { fetchWithTimeout, upstreamTimeoutMs } from "../reliability.ts";
 import { jsonError, jsonOk } from "../http.ts";
 import { requireAdmin } from "../session.ts";
@@ -43,19 +44,20 @@ export function upstreamModelsUrl(upstream: string): string | null {
   return upstream.endsWith(suffix) ? upstream.slice(0, -suffix.length) + "/models" : null;
 }
 
-/** Which of the caller's BYOK keys this channel uses. Keyed by the ROUTE KIND the
- *  router reports, which is the same vocabulary `translate.ts`'s missing-key table
- *  uses — a second naming of channels is how two tables drift apart. */
-const BYOK_KEY_FOR_KIND: Record<string, string> = {
-  openrouter: "OPENROUTER_API_KEY",
-  commandgoat: "CMD_API_KEY",
-  qwen: "QWEN_API_KEY",
-  nvidia: "NVAPI_KEY",
-  gmi: "GMI_API_KEY",
-  amd: "AMD_API_KEY",
-  opencode: "OPENCODE_GO_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-};
+/** Which of the caller's BYOK keys this channel uses, keyed by the ROUTE KIND the router
+ *  reports. DERIVED from `store/byok.ts` since round 191 rather than typed here.
+ *
+ *  The comment this replaced said the risk out loud — "a second naming of channels is how two
+ *  tables drift apart" — and then named a file that holds no table, so a reader who followed
+ *  the pointer found scattered consumers and nothing to compare against. It was one of FOUR
+ *  independently-typed copies of this vocabulary (round 186), with nothing comparing them;
+ *  round 187 measured that their values happened to agree; round 188 showed the "cheap" fix
+ *  (a cross-table test) needed exports too; and round 189 found the two facts that only
+ *  surfaced in reconciling them — that no prefix<->kind map existed anywhere, and that
+ *  `translate-vision.ts` needed a third facet. The shared source is round 190's answer. */
+const BYOK_KEY_FOR_KIND: Record<string, string> = Object.fromEntries(
+  BYOK_CHANNELS.map((c) => [c.kind, c.userKey]),
+);
 
 /** Upstream ids from either dialect we speak: an OpenAI-style `{data:[{id}]}`, an
  *  Anthropic-style `{data:[{id}]}`, or a bare array. Anything else is not a list. */

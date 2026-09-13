@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 191 (**the first of the four consumers now DERIVES** — and the
+acceptance test is written the only way that is mutation-proof: the values must not appear in the
+consumer at all. The mutation run itself did NOT execute, and that is recorded as unestablished rather
+than glossed). Commit: gateway/ + mirror + journal. Tests: gateway 857 = 856 + 1, zero red.
+  (1) WHY `models-probe.ts` FIRST: of the four consumers it is the safest to convert — a PRIVATE table
+  with exactly one use (`:133`), and the file is the admin PROBE, not the per-request path
+  (`model-route.ts` is, and it is deliberately left for a full budget). The conversion is one expression:
+  `Object.fromEntries(BYOK_CHANNELS.map((c) => [c.kind, c.userKey]))`, plus one import.
+  (2) AND THE COMMENT IT REPLACED IS GONE RATHER THAN KEPT: the old docblock was the one that said "a
+  second naming of channels is how two tables drift apart" and then pointed at a file holding no table
+  (round 186). Leaving it above a DERIVED table would have preserved a warning about a state that no
+  longer exists here; the replacement records the arc (186→191) and the two facts round 189 found only by
+  reconciling.
+  (3) THE ACCEPTANCE TEST IS THE FORM ROUND 189 NAMED, MADE MECHANICAL: not "the derived table equals the
+  old one" (that needs the private table exported — round 188 measured that as the cost of the
+  alternative) but **"the eight values appear NOWHERE in the consumer, and it derives from BYOK_CHANNELS"**.
+  That is mutation-proof by construction: re-typing the table is precisely what turns it red, and
+  re-typing is precisely how the four-copy drift began. It also states in the test itself that the other
+  three consumers are still their own copies, so a future reader knows the count.
+  (4) **THE MUTATION RUN DID NOT EXECUTE, AND I AM NOT CLAIMING IT DID.** I re-inserted a literal into the
+  consumer and ran `node --test test/byok.test.mjs` to watch the new assertion go red; the command produced
+  NO matching output (my grep found neither a pass nor a fail line), and the file was restored from the
+  backup immediately afterwards — verified by the two greps above (one `BYOK_CHANNELS.map`, zero
+  `constructor === Object`). The likely cause is the invocation, not the assertion: a bare `node --test`
+  on one file does not use the suite's TypeScript loader, so the module may not have loaded at all. The
+  evidence for the assertion is therefore its PASS in the full suite (857 = 856 + 1, the predicted count)
+  and NOT a red-then-green mutation — recorded plainly, because round 170's lesson is that a claim of
+  proof is the thing that must be narrow. Cheap next step: repeat the mutation through `npm test`, which
+  does use the loader.
+  (5) STILL OPEN: that mutation re-run (through the suite, not a bare `node --test`); the other THREE
+  consumers (`translate-vision.ts`, `store/users.ts`, and `model-route.ts` last because it is per-request);
+  `models-probe.ts`'s remaining body (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 190 (**the four-table single source EXISTS** — `store/byok.ts`,
 eight rows, three facets, zero imports — and it carries the one fact a flattened merge would have deleted).
 Commit: gateway/ + mirror + journal. Tests: gateway 856 = 853 + 3, zero red.
