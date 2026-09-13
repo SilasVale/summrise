@@ -526,7 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 112 (THE TREE WAS RED AND NOBODY KNEW — round 110's new
+Last updated: 2026-09-14 round 113 (the tunnel's REMOTE config failure was invisible — the same
+silent-success shape round 111 fixed one call BELOW it — and the verdict the operator reads is now
+a pure, mutation-proven function). d1 still dark; nothing released.
+Commit: ad4ab8f4. Gates: cargo test 613 (lib 553) + `--features terminal,keyring` 664 (lib 604) +
+clippy `-D warnings` both configs + fmt + xwin check, all green.
+  (1) tunnel F1. `update_remote_config` returned `()` through EIGHT bare `return`s and
+  `provision_tunnel` discarded the result, so a failed REMOTE config update left no trace anywhere
+  — while the file's own comment records that a remote configuration OVERRIDES the local
+  `tunnel.yml`. A device could come up on a stale ingress with the local file claiming 127.0.0.1
+  and the card saying `ok`. It returns `RemoteConfig::Updated | Failed(reason)` now, and all eight
+  paths name their own cause.
+  (2) tunnel F2, and the reason this round exists: the operator's line is decided by a pure
+  `tunnel_outcome(local, remote, hostname)`, so the branch that had NO coverage is a value with
+  four tested cases. A failed local write keeps round 111's exact wording; both landed is the only
+  plain `ok`; a remote config that did not land is
+  `PARTIAL (host): local config written, remote config NOT updated (<cause>) — a remote
+  configuration OVERRIDES the local file, so verify this tunnel before trusting it`; and when both
+  halves fail the WORSE verdict wins.
+  (3) FOUR MUTATIONS, ALL CAUGHT — including the one round 112 measured as invisible. The remote
+  arm reporting plain success, the local arm reporting success, the PARTIAL string dropping its
+  CAUSE, and the CALL SITE inventing `RemoteConfig::Updated` instead of forwarding `remote`. The
+  last cannot be seen behaviourally (that caller does network I/O), so it is pinned by reading the
+  source — the way this repo already pins the boot-task contract and the pre-v2 path rule.
+  (4) DELIBERATELY UNCHANGED: the route still answers `ok: true` with the tunnel verdict in its own
+  field, and the panel renders `tunnel: <verdict>`. Registration and the tunnel are INDEPENDENT
+  outcomes of one request; collapsing them into one boolean would be round 105's facet-split
+  mistake in reverse. Recorded so a later round does not re-litigate it without new evidence.
+  (5) NOT PINNED, stated so a green suite is not overread: the eight CAUSE STRINGS live on network
+  paths no test reaches. What is proven is that whatever cause arrives reaches the card together
+  with its consequence; the wording of each cause stays a reading job.
+  (6) d1 IS STILL DARK (530) and nothing here can reach it: one human touch recovers everything —
+  `vale tunnel start` then
+  `npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz`
+  then `vale update`.
+  (7) STILL OPEN: the agent restarted every 1-2 hours before round 110 (cause unknown —
+  `runstate.rs` answers it on the next boot); round 105's panel leftovers; memory F5 and index
+  F2/F3 from round 99; the console's file layer still has no APPLY half.
+
+Previous round: 2026-09-14 round 112 (THE TREE WAS RED AND NOBODY KNEW — round 110's new
 `runstate.rs` never reached the module map, so `tests/module_map.rs` failed against BOTH guides,
 and round 111 — paused, gateless — shipped on top of it). d1 still dark; nothing released.
 Commit: 4038f5d0 (the map fix). Gates: cargo test 611 (lib 551) + `--features terminal,keyring`
