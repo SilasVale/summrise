@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 170 (B2 FIXED, and it is a SECURITY fix: an environment-assignment
+prefix is no longer grantable, so one approval can no longer auto-approve every later command sharing
+that prefix). Commit: agent/ + journal. Tests: approval 13 -> 15, whole agent suite + clippy green.
+  (1) THE FIX IS TWO LINES OF INTENT: `is_simple_command` now also rejects a command whose FIRST WORD
+  contains `=`. That is the whole change — the interesting part is what it is NOT. Adding `=` to `UNSAFE`
+  is the obvious move and the wrong one: `git log --format=%H` and `curl -d a=b` would then ask every
+  time, and an `=` in a LATER word cannot change which program runs. The check encodes the documented
+  property ("the first word is the whole story about what program runs") instead of approximating it —
+  which is the difference between fixing the finding and hiding it.
+  (2) THE TEST PAIR PINS BOTH SIDES, the shape rounds 160/168 established: `an_assignment_prefix_is_never
+  _a_grant` asserts all FOUR halves of the hole (not simple, no grant, and both `grant_matches` forms
+  false — including the exact pre-fix exploit `("PATH=/evil", "PATH=/evil rm -rf /")`), and
+  `an_equals_in_a_later_word_stays_grantable` asserts the counterweight that would have been broken by
+  the lazy fix (git/curl forms still grant the PROGRAM, not the flag). A test that only refused the
+  prefix would have left the cost of the wrong fix unmeasured.
+  (3) THE PRE-FIX STATE IS RECORDED IN THE TEST COMMENT, not only in this journal — so the next reader
+  sees what the assertion is protecting against without opening the log. Round 148's lesson (a test that
+  cannot express its own premise is worse than no test) applied in the other direction: a test whose
+  premise is invisible is half a test.
+  (4) EVIDENCE: approval 13 -> 15 tests, all green; `cargo test --features terminal,keyring` over the
+  whole crate green; `cargo clippy --features terminal,keyring --all-targets -- -D warnings` clean. No
+  mirror sync needed (the code-viewer mirror is gateway-only). B2 is CLOSED.
+  (5) AND THE SCORE FROM ROUND 165's SCAN, since this closes its third item: two of the three files read
+  produced a real finding (`body-scan.ts` -> B1, fixed in 168; `approval.rs` -> B2, fixed here) and the
+  third was clean by design (`http.ts`). A queue built from "what has nobody ever read", rather than from
+  what past findings happened to touch, has now paid twice in three items.
+  (6) STILL OPEN: the 12 remaining unexamined files (`ratelimit.ts`, the three stores, the registry trio,
+  `helper.js`, the three core contract files, and the remaining playwright/store surfaces); plus the
+  seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 169 (**NEW FINDING B2 (security): an environment-assignment prefix
 is grantable, so one approval auto-approves every later command sharing that prefix.** Round 165's queue,
 third item — `approval.rs`, the never-opened approval seam). Commit: journal + ledger. No code change yet.

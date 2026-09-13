@@ -61,7 +61,25 @@ const UNSAFE: &[char] = &[
 /// nothing in the string can chain, substitute, redirect or glob.
 pub fn is_simple_command(cmd: &str) -> bool {
     let t = cmd.trim();
-    !t.is_empty() && !t.chars().any(|c| UNSAFE.contains(&c))
+    if t.is_empty() || t.chars().any(|c| UNSAFE.contains(&c)) {
+        return false;
+    }
+    // B2 (round 170): an environment-assignment prefix (`PATH=/evil ls`) makes the
+    // first word an ASSIGNMENT, not a program — so a grant derived from it is the
+    // prefix string, and `grant_matches("PATH=/evil", "PATH=/evil rm -rf /")` was
+    // true: one approval silently covered every later command sharing that prefix.
+    // The property documented above ("the first word is the whole story about what
+    // program runs") is exactly what this rejects.
+    //
+    // `=` is deliberately NOT added to UNSAFE: an `=` in a LATER word
+    // (`git log --format=%H`, `curl -d a=b`) cannot change which program runs, and
+    // banning it there would make ordinary commands ask every time for no safety
+    // gained. The narrow check encodes the property instead of approximating it.
+    !t
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .contains('=')
 }
 
 /// The grant a command would create: its first whitespace-separated word.
@@ -202,5 +220,25 @@ mod tests {
             grant_for(&format!("display {}", "x".repeat(500))).as_deref(),
             Some("display")
         );
+    }
+
+    #[test]
+    fn an_assignment_prefix_is_never_a_grant() {
+        // B2: the first word is an ASSIGNMENT, not a program. Pre-fix this was
+        // "simple", the grant was the literal prefix, and the second call was true.
+        assert!(!is_simple_command("PATH=/evil ls"));
+        assert_eq!(grant_for("PATH=/evil ls"), None);
+        assert!(!grant_matches("PATH=/evil", "PATH=/evil rm -rf /"));
+        assert!(!grant_matches("PATH=/evil ls", "PATH=/evil rm -rf /"));
+    }
+
+    #[test]
+    fn an_equals_in_a_later_word_stays_grantable() {
+        // The counterweight: refusing `=` ANYWHERE would break these, and an `=`
+        // after the program name cannot change which program runs.
+        assert!(is_simple_command("git log --format=%H"));
+        assert_eq!(grant_for("git log --format=%H").as_deref(), Some("git"));
+        assert!(is_simple_command("curl -d a=b"));
+        assert_eq!(grant_for("curl -d a=b").as_deref(), Some("curl"));
     }
 }
