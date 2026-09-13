@@ -56,6 +56,20 @@ test("byok: USER_KEY_NAMES IS the source — set-equal, and absent from the cons
   assert.deepEqual(leaked, [], `users.ts must not re-type these: ${leaked.join(", ")}`);
 });
 
+test("byok: translate-vision derives the EIGHT and keeps the NINTH", async () => {
+  // This is the assertion the round exists for. `byok.ts` covers eight BYOK channels;
+  // VISION_BACKENDS needs NINE kinds, because `custom` is a route kind with no BYOK channel
+  // behind it. A naive full-table derivation drops it, and the failure is silent —
+  // VISION_BACKENDS[kind] would be undefined and every describe against a custom provider
+  // would answer "视觉模型后端不支持".
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/plugins/translate-vision.ts", import.meta.url), "utf8");
+  assert.match(src, /BYOK_CHANNELS\.map/, "the eight must be derived");
+  assert.match(src, /custom:\s*\{\s*key:\s*""/, "and `custom` must survive, explicitly");
+  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
+  assert.deepEqual(leaked, [], `translate-vision must not re-type these: ${leaked.join(", ")}`);
+});
+
 test("byok: the two vocabularies genuinely differ (a merge of one name would be a coincidence)", () => {
   const sameName = BYOK_CHANNELS.filter((c) => c.prefix === c.kind).map((c) => c.kind);
   assert.deepEqual(sameName, ["gmi", "amd"], "only two channels use the same word for both");

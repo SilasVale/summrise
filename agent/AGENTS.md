@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 194 (the THIRD consumer derives — and the table it derives needed a
+NINTH entry the shared source cannot hold, found by reading the file rather than assuming from the tables
+that agreed. Mutation proven by DELETING that entry). Commit: gateway/ + mirror + journal. Tests:
+gateway 859 = 858 + 1, zero red; mutation 857-pass/2-fail.
+  (1) THE FINDING, AND WHY THE FILE HAD TO BE READ: `translate-vision.ts`'s VISION_BACKENDS carries the
+  eight BYOK kinds AND a ninth — `custom: { key: "", shape: "openai" }` — with a comment explaining it: a
+  custom provider serves its models through the OpenAI-compatible dialect this gateway registers
+  (`store/providers.ts`) and its key comes from its own record rather than from `ukeys`, "so `key` is
+  unused for this kind". `byok.ts` CANNOT express it: `userKey` is a required string and this kind has no
+  key at all. **The shared source covers eight; this table needs nine.**
+  (2) AND THE FAILURE MODE IS SILENT, WHICH IS WHY IT IS WORTH A ROUND: a naive "derive the whole table"
+  would drop `custom`, `VISION_BACKENDS[route.kind]` would be undefined, and the very next line returns
+  `"(图片描述失败：视觉模型后端不支持)"` — so every describe against a custom provider would fail with a
+  message that blames the backend rather than the missing entry. No throw, no log, a wrong diagnosis
+  offered by the code itself.
+  (3) SO THE DERIVATION IS EIGHT PLUS ONE, WITH THE ONE WRITTEN WHERE ITS REASON IS: the spread derives the
+  eight from `BYOK_CHANNELS`, and `custom` stays a literal on the next line under a comment saying it is
+  NOT a BYOK channel and why. That is the honest shape — the derivation covers what the source covers, and
+  the extra entry is visibly extra rather than hidden in a spread.
+  (4) THE SHAPE IS ROUND 189's, TWICE IN THE SAME FILE: that round found the `shape` facet by reading this
+  table instead of assuming it from the three that agreed, and this round found the ninth entry the same
+  way. Both times the assumption would have come from tables that DID agree, and both times the file
+  disagreed — which is the argument for reading the consumer before deriving from a source, not just after
+  something fails.
+  (5) THE MUTATION IS A DELETION AND IT WENT RED: with `custom: { key: "", shape: "openai" }` REMOVED — the
+  exact bug this round exists to prevent — the suite reports **859 tests, 857 pass, 2 FAIL**; restored,
+  `grep -c 'custom: { key'` → 1. And that reproduces round 192's "2 failures, not 1" under a SECOND,
+  independent mutation, which upgrades that round's formatter guess from speculation to a pattern with two
+  observations behind it — while still not naming it. The cheap close remains one grep (`^not ok`).
+  (6) STILL OPEN: the LAST consumer (`model-route.ts` — per-request, so it needs a full budget); the name of
+  the recurring second failure (one grep, now with two sightings); `models-probe.ts`'s remaining body
+  (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files;
+  plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 193 (the SECOND consumer derives — and reading its consumers to
 check the ORDER turned up a correction to this arc's own premise: round 187's "nothing compares them" was
 TOO STRONG, because one pair was already under test). Commit: gateway/ + mirror + journal. Tests:

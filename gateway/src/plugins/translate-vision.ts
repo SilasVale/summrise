@@ -11,6 +11,7 @@
  * with the returned text so every model can "see" the picture.
  */
 
+import { BYOK_CHANNELS } from "../store/byok.ts";
 import { getGlobalSetting, globalSettingEnabled } from "../store.ts";
 import { providerKey } from "../store/providers.ts";
 import { toOpenAIRequest } from "../anthropic-translate.ts";
@@ -222,18 +223,19 @@ export async function describeImage(
   // failed. shape picks the response reader:
   //   anthropic — upstream speaks /v1/messages (content[] text blocks);
   //   openai    — upstream speaks /v1/chat/completions (choices[0].message).
+  // The eight BYOK channels are DERIVED from `store/byok.ts` since round 194.
+  //
+  // `custom` is NOT one of them and is deliberately written out here: it is a route KIND
+  // with no BYOK channel behind it — its models are served through the OpenAI-compatible
+  // dialect this gateway registers (`store/providers.ts`) and its key comes from its own
+  // record rather than from `ukeys`, so `key` is unused. A naive "derive the whole table"
+  // would have DROPPED this entry, and the failure mode is silent: `VISION_BACKENDS[kind]`
+  // would be undefined and every describe against a custom provider would answer
+  // "视觉模型后端不支持". The shared source covers eight; THIS table needs nine — recorded
+  // because that mismatch is the same shape as the `shape` facet round 189 found only by
+  // reading this file instead of assuming from the three tables that agreed.
   const VISION_BACKENDS: Record<string, { key: string; shape: "anthropic" | "openai" }> = {
-    deepseek: { key: "DEEPSEEK_API_KEY", shape: "anthropic" },
-    openrouter: { key: "OPENROUTER_API_KEY", shape: "anthropic" },
-    qwen: { key: "QWEN_API_KEY", shape: "anthropic" },
-    amd: { key: "AMD_API_KEY", shape: "anthropic" },
-    opencode: { key: "OPENCODE_GO_API_KEY", shape: "openai" },
-    commandgoat: { key: "CMD_API_KEY", shape: "openai" },
-    nvidia: { key: "NVAPI_KEY", shape: "openai" },
-    gmi: { key: "GMI_API_KEY", shape: "openai" },
-    // A custom provider serves its models through the OpenAI-compatible dialect
-    // this gateway registers (store/providers.ts), and its key comes from its own
-    // record rather than from `ukeys` — so `key` is unused for this kind.
+    ...Object.fromEntries(BYOK_CHANNELS.map((c) => [c.kind, { key: c.userKey, shape: c.shape }])),
     custom: { key: "", shape: "openai" },
   };
   const backend = VISION_BACKENDS[route.kind];
