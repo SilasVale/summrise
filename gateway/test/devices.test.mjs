@@ -352,7 +352,22 @@ test("plugins/status: ?fresh=1 bypasses the 30s probe cache; cached call does no
     const auth = { cookie: await adminCookie() };
     const first = await worker.fetch(req("GET", "/api/plugins/status", auth), env);
     assert.equal(first.status, 200);
-    const j1 = (await first.json()).devices.dFresh;
+    // round-183: the SAME response must carry the dead-route report (round 179's
+    // instrument, wired in round 182). Asserted here rather than in a new test because
+    // this test already holds the harness — a fresh worker fetch with an admin session —
+    // and a field whose only evidence is "the code adds it" is the shape this log keeps
+    // closing. `hits` counts only the route that SERVED, so every entry is a number.
+    const body = await first.json();
+    const j1 = body.devices.dFresh;
+    assert.ok(Array.isArray(body.routes), "the response carries the route statistics");
+    assert.ok(
+      body.routes.every((r) => typeof r.index === "number" && typeof r.hits === "number"),
+      "every entry is {index, hits}",
+    );
+    assert.ok(
+      body.routes.some((r) => r.hits > 0),
+      "at least the route that served this very request has been counted",
+    );
     assert.equal(j1.agent_up, true);
     assert.equal(j1.tunnel_up, true);
     assert.equal(j1.version, "9.8.7");

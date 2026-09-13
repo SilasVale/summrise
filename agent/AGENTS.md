@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 183 (the gap round 182 named is CLOSED: the `routes` field now has
+assertions — and one of them is SELF-REFERENTIAL, which is the strongest form a field assertion can take).
+Commit: gateway/test/ + journal. Tests: gateway 853, zero red.
+  (1) THE HARNESS WAS ALREADY THERE, SO NO NEW SCAFFOLDING: `test/devices.test.mjs:338` already does a
+  full `worker.fetch("GET", "/api/plugins/status", auth)` with the admin session minted, and it already
+  parsed that response. So the field's assertions went into that test — three lines, reusing a fixture
+  someone had already built and paid for. A new test file would have duplicated the harness to assert
+  something the existing fetch already had in hand.
+  (2) THE ASSERTIONS, AND WHY THE THIRD IS THE IMPORTANT ONE: (a) `routes` is an array; (b) every entry is
+  `{index: number, hits: number}`; and (c) **`routes.some(r => r.hits > 0)`** — "at least the route that
+  served THIS request has been counted". That last one is SELF-REFERENTIAL: the response that carries the
+  statistics is the statistics' own evidence, because serving it incremented the counter. A field
+  assertion can hardly be stronger, and it is a strictly better test than the one round 182 contemplated
+  ("a ctx-carrying call adds the field"), because it proves the counter is LIVE ON THE REAL REQUEST PATH
+  rather than merely wired.
+  (3) AND THE ONE ARM THAT REMAINS UNTESTED IS NAMED RATHER THAN IMPLIED: the ctx-LESS call omitting
+  `routes` cannot be reached through the worker (it always passes ctx now), so testing it would need
+  `pluginStatus` exported or a direct module import — a change to the module's surface for one assertion
+  about a branch no caller takes. The optionality is structural (`...(ctx ? {...} : {})`), the only
+  caller passes ctx, and I judged an export-for-testability change to be worth LESS than the assertion it
+  would buy. Recorded as a judgement, not an oversight, so the next reader can disagree with it cheaply.
+  (4) THE FOUR-ROUND ARC IS COMPLETE, and it is worth stating as one thing because it is the loop's
+  slowest and most reliable shape: round 179 BUILT the instrument (lazy `hits`, zero registration-site
+  changes), 180 found its home and stopped rather than guess, 181 read one level deeper and CORRECTED its
+  own predecessor's plan, 182 connected it with every anchor known, and 183 gave it evidence. Every one of
+  those rounds was cheap; the expensive thing would have been any one of them guessing.
+  (5) STILL OPEN: the ctx-less arm (judgement above); `models-probe.ts` + `model-route.ts`;
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the seven
+  rows of the round-157 table.
+
 Last updated: 2026-09-14 round 182 (the `routeStats` wiring is DONE — round 181's single read
 confirmed the anchor EXACTLY, and the three-part change it predicted was applied as three assertions plus
 an import). Commit: gateway/ + mirror + journal. Tests: gateway 853, zero red (unchanged, as an additive
