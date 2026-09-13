@@ -5,6 +5,21 @@ Read it with `docs/CHARTER.md` (what counts as success) and
 `docs/agents/iteration-coverage.md` (what has been looked at, what is open)
 before every round. Keep it short enough to be read every round.
 
+## User input — the top of the queue
+
+The user's ideas are the loop's top-priority work and its anchor against drift
+(round 100: "aurora" was the loop interpreting a request rather than following
+one). They arrive written in `docs/agents/ideas.md`, or said in the session — in
+which case the loop APPENDS them to that inbox so they survive the round.
+
+Each entry gets either a round of its own, or an explicit reasoned verdict in the
+round log, with evidence. It is never dropped silently and never reinterpreted
+into something else. `docs/CHARTER.md` is the user's alone: the loop may only
+propose changes to it.
+
+The user may pause the loop at any time, and changing direction costs nothing —
+the journal plus these files are the resume anchor.
+
 ## Roles — readers may be many, the writer is exactly one
 
 | Role | Who | Hard constraints |
