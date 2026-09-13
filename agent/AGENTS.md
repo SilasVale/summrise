@@ -526,6 +526,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 173 (round 172's deferred one-liner EXECUTED: `settings.ts`'s doc no
+longer promises a canonical form it does not produce — and the fix names the consumer mistake it was
+inviting, so the next reader gets a rule instead of a fact). Commit: gateway/ + mirror + journal.
+Tests: gateway 850, zero red.
+  (1) WHAT CHANGED AND WHY IT IS MORE THAN A WORD: the comment said "Normalize a raw setting value to
+  the canonical form: "1" = on, null = off". The function canonicalizes only the OFF side, so an ON value
+  from a Worker var stays `"true"`/`"yes"`/whatever — meaning a consumer trusting the comment could write
+  `v === "1"` and read an env-provided ON as OFF. The replacement states the rule ("null = off, EVERY
+  OTHER VALUE = on"), records that this is a round-173 wording fix, and ends with the instruction:
+  read it through `globalSettingEnabled()`, or test truthiness — **do not compare it to "1"**. A comment
+  that says what NOT to do is the form that survives a reader who never sees this journal.
+  (2) AND IT IS A PURE DOC CHANGE, VERIFIED AS ONE: no behaviour changed, the whole suite stayed at 850,
+  and the only red was `code viewer: the tracked mirror matches what src/ would publish` — the mirror
+  obligation for a `gateway/src` edit, caught by the test rather than by my memory for the SECOND time in
+  six rounds (168 was the first). Round 139's lesson is now a working instrument, not a lesson.
+  (3) `file-config.ts` SURVEYED, NOT YET READ — and the survey alone says it is a different kind of file
+  from the other two stores: it is the FILE LAYER of the model catalogue (`config/models.ts`, applied at
+  `wrangler deploy`, never written at runtime), it parses ONCE at module load with the SAME validators the
+  admin routes use (so a typo breaks the deploy instead of shipping a model the upstream rejects), and its
+  precedence rule is an exported PURE function (`mergeLayers`: file wins per id/prefix, KV supplies the
+  rest) separated from the import precisely because "a build-time JSON import cannot be varied per test,
+  and the precedence is the part that can silently lose an operator's work". That is the loop's favourite
+  shape ALREADY IN PLACE — a rule with one owner and a testable seam — and it is recorded here as a
+  SURVEY so the next round reads the body rather than re-deriving the intent.
+  (4) STILL OPEN: `file-config.ts`'s body (the third store, surveyed but unread); the plugins registry
+  trio; `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; the rest
+  of round 165's list; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 172 (round 165's queue, fifth item: the `store/` surfaces. TWO of the
 three read — `regkeys.ts` and `settings.ts`, both CLEAN — and `settings.ts` carries a latent wording trap
 worth recording rather than patching. `file-config.ts` (179 lines) NOT yet read). Commit: journal.

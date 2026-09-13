@@ -5,9 +5,17 @@
 
 import { cdel, cget, cset, type Env } from "./cache.ts";
 
-/** Normalize a raw setting value to the canonical form: "1" = on, null = off.
+/** Normalize a raw setting value at the READ: null = off, EVERY OTHER VALUE = on.
  *  "0"/"false" (explicit OFF persisted by the console) → null; anything else
- *  passes through. (round-95/96) */
+ *  passes through. (round-95/96)
+ *
+ *  NOT "canonical form: \"1\" = on" (round-173 wording fix): this function only
+ *  canonicalizes the OFF side, so an ON value that came from a Worker var stays
+ *  whatever the var says ("true", "yes", …). Both readers treat any non-OFF as
+ *  ON, which is why that is safe — but a consumer comparing `=== "1"` would read
+ *  an env-provided ON as OFF. Read the value through globalSettingEnabled(), or
+ *  test it for truthiness; do not compare it to "1". */
+
 function normalizeSetting(v: string | null | undefined): string | null {
   if (v !== null && v !== undefined && (v === "0" || v === "false")) return null;
   return v as string | null;
