@@ -40,8 +40,12 @@ const PAGES: &[(&str, PageSource)] = &[
 /// flooding the model with a multi-MB console bundle.
 const MAX_PAGE_BYTES: usize = 64 * 1024;
 
-fn parse_target(t: &str) -> Result<(String, u16), DeviceError> {
-    // host:port (default 18080) — always the LOCAL agent, never arbitrary.
+fn parse_target(t: &str, default_port: u16) -> Result<(String, u16), DeviceError> {
+    // host:port (default = the CONFIGURED server port) — always the LOCAL agent, never arbitrary.
+    // The default used to be a hardcoded 18080 while the agent's port is `config.server.port`;
+    // the sibling modules state the rule for exactly this reason (`src/tunnel.rs`: "a hardcoded
+    // 18080 502s custom-port installs"). On a custom-port install the old default read a
+    // STRANGER'S service on 18080 and presented it as the panel design.
     let (host, port) = match t.rsplit_once(':') {
         Some((h, p)) => (
             h.to_string(),
@@ -49,7 +53,7 @@ fn parse_target(t: &str) -> Result<(String, u16), DeviceError> {
                 message: format!("bad port in target: {t}"),
             })?,
         ),
-        None => (t.to_string(), 18080),
+        None => (t.to_string(), default_port),
     };
     // Plugin audit MED: the comment promised "always the LOCAL agent" but
     // the host came straight from the caller — an internal GET-read + port
@@ -62,10 +66,32 @@ fn parse_target(t: &str) -> Result<(String, u16), DeviceError> {
     Ok((host, port))
 }
 
-/// Replace a `name = "value"` assignment (e.g. the panel's injected
-/// window.__PANEL_TOKEN__) with `<redacted>` — a design review must never
-/// receive a live credential.
-fn redact_tokens(s: &str) -> String {
+/// Remove the device token from anything `page_view` returns.
+///
+/// REDACT BY VALUE. This used to walk the literal `__PANEL_TOKEN__` and replace whatever sat
+/// between the next two quotes. That did redact the injected line in the panel HTML — and it
+/// ALSO silently rewrote any file that merely MENTIONS the pattern: `page_view(page="panel-js")`
+/// returned panel.js with `window.__PANEL_TOKEN__)||""` turned into `…||"<redacted>"`, a
+/// semantic edit of the very source the tool exists to show (measured on the shipped bundle:
+/// 613,677 bytes returned for a 613,667-byte file). The same walk also MISSED the token in
+/// other shapes — `{"__PANEL_TOKEN__":"tok"}` came back with the value intact — because
+/// guessing at a shape is not redaction. Knowing the value is.
+///
+/// The pattern walk survives as a FALLBACK only, for a config with no usable token, where a
+/// heuristic that may over-redact beats handing back a live credential.
+fn redact_secrets(s: &str, token: Option<&str>) -> (String, usize) {
+    if let Some(t) = token.filter(|t| !t.is_empty()) {
+        let n = s.matches(t).count();
+        return (s.replace(t, "<redacted>"), n);
+    }
+    let walked = redact_by_pattern(s);
+    let n = usize::from(walked != s);
+    (walked, n)
+}
+
+/// The heuristic fallback: replace a `name = "value"` assignment (e.g. the panel's injected
+/// window.__PANEL_TOKEN__) with `<redacted>`. Prefer [`redact_secrets`] with a real token.
+fn redact_by_pattern(s: &str) -> String {
     const PATTERN: &str = "__PANEL_TOKEN__";
     if !s.contains(PATTERN) {
         return s.to_string();
@@ -110,7 +136,12 @@ fn redact_tokens(s: &str) -> String {
 /// Local pages: / (status), /panel/ (terminal panel HTML), /panel/panel.js,
 /// /panel/panel.css. Remote pages: the console (gateway) and download site
 /// (index worker) so production design is inspectable.
-pub fn page_view(console_url: Option<String>, download_url: Option<String>) -> ToolDef {
+pub fn page_view(
+    console_url: Option<String>,
+    download_url: Option<String>,
+    device_token: Option<String>,
+    local_port: u16,
+) -> ToolDef {
     ToolDef::new(
         "page_view",
         "View a Vale page's design by fetching its HTML/CSS. \
@@ -118,9 +149,10 @@ pub fn page_view(console_url: Option<String>, download_url: Option<String>) -> T
          console (gateway page), console-css (gateway style.css), console-js, \
          download (download site). \
          Returns up to 64KB of source — read the CSS tokens (--accent, --bg, \
-         radii, glass) and HTML structure to evaluate the design. Use target \
-         '127.0.0.1:18080' (default) or a remote host. Remote pages fail \
-         explicitly when the console/download URL is not configured.",
+         radii, glass) and HTML structure to evaluate the design. `target` is \
+         LOOPBACK ONLY (the agent's own port by default); the remote pages come \
+         from the configured console/download URL, and fail explicitly when \
+         that is not configured.",
         json!({
             "type": "object",
             "properties": {
@@ -140,16 +172,21 @@ pub fn page_view(console_url: Option<String>, download_url: Option<String>) -> T
         move |params: Value| {
             let console_url = console_url.clone();
             let download_url = download_url.clone();
+            let device_token = device_token.clone();
             async move {
-                let page = params
-                    .get("page")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("panel");
+                // `page` is REQUIRED by the schema. Defaulting a missing or wrong-typed value to
+                // "panel" answered a question nobody asked with a page they did not name.
+                let page = params.get("page").and_then(|v| v.as_str()).ok_or_else(|| {
+                    DeviceError::InvalidParams {
+                        message: "page is required — one of the names in the enum".into(),
+                    }
+                })?;
                 let target = params
                     .get("target")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("127.0.0.1:18080");
-                let (host, port) = parse_target(target)?;
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("127.0.0.1:{local_port}"));
+                let (host, port) = parse_target(&target, local_port)?;
                 let source = PAGES
                     .iter()
                     .find(|(n, _)| *n == page)
@@ -194,8 +231,13 @@ pub fn page_view(console_url: Option<String>, download_url: Option<String>) -> T
                 // Local static pages need no auth (the panel HTML is public;
                 // the token is injected server-side, the static file itself has
                 // no secrets). Remote pages are public console/download sites.
-                let resp = reqwest::Client::builder()
+                let mut resp = reqwest::Client::builder()
                     .timeout(std::time::Duration::from_secs(10))
+                    // A redirect is not this tool's business. The loopback gate pins the FIRST
+                    // hop; reqwest's default (10 hops) would carry the fetch wherever a 30x
+                    // pointed — including off this box — and hand the body back as "the page".
+                    // Same rule the gateway's device dialler adopted (`redirect: "manual"`).
+                    .redirect(reqwest::redirect::Policy::none())
                     .build()
                     .map_err(|e| DeviceError::Internal {
                         message: format!("client: {e}"),
@@ -206,16 +248,48 @@ pub fn page_view(console_url: Option<String>, download_url: Option<String>) -> T
                     .map_err(|e| DeviceError::Internal {
                         message: format!("fetch {url}: {e}"),
                     })?;
-                let body = resp.text().await.map_err(|e| DeviceError::Internal {
-                    message: format!("read {url}: {e}"),
-                })?;
-                let len = body.len();
-                let truncated = len > MAX_PAGE_BYTES;
-                // Redact any injected device token before returning: the panel
-                // HTML embeds window.__PANEL_TOKEN__ = "<token>", which a design
-                // review must never see (a leaked review output = device control).
-                // The agent's own token is also never part of a design diff.
-                let redacted = redact_tokens(&body);
+                // A NON-2xx IS NOT THE PAGE. It used to be returned as `content` with no status
+                // field, so a 404/500 — or the 530 page d1's tunnel served for days — was
+                // presented to the model as the design of the page it asked for.
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(DeviceError::Internal {
+                        message: format!(
+                            "{url} answered HTTP {status} — this is not the page's source"
+                        ),
+                    });
+                }
+                // BOUND THE READ, not only the return. `resp.text()` materialises the WHOLE body
+                // before the 64KB clip applies, so a chunked response (or a large file) was read
+                // into memory on a SYSTEM service box with only the 10s timeout in the way.
+                let mut buf: Vec<u8> = Vec::with_capacity(MAX_PAGE_BYTES);
+                let mut truncated = false;
+                loop {
+                    match resp.chunk().await {
+                        Ok(Some(chunk)) => {
+                            if buf.len() + chunk.len() > MAX_PAGE_BYTES {
+                                let room = MAX_PAGE_BYTES - buf.len();
+                                buf.extend_from_slice(&chunk[..room]);
+                                // PROOF, not a guess: bytes are still arriving.
+                                truncated = true;
+                                break;
+                            }
+                            buf.extend_from_slice(&chunk);
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            return Err(DeviceError::Internal {
+                                message: format!("read {url}: {e}"),
+                            })
+                        }
+                    }
+                }
+                let body = String::from_utf8_lossy(&buf).into_owned();
+                let read = body.len();
+                // Redact the device token before returning: the panel HTML embeds it
+                // (window.__PANEL_TOKEN__ = "<token>"), and a design review must never see it —
+                // a leaked review output is device control. BY VALUE: see `redact_secrets`.
+                let (redacted, redactions) = redact_secrets(&body, device_token.as_deref());
                 // char-boundary-safe truncation: slicing a String at a fixed byte
                 // index PANICS when it lands inside a multi-byte UTF-8 char.
                 let text = if truncated {
@@ -227,8 +301,11 @@ pub fn page_view(console_url: Option<String>, download_url: Option<String>) -> T
                 Ok(json!({
                     "page": page,
                     "url": url,
-                    "bytes": body.len(),
+                    // What was READ and kept — no longer the whole body's length, because the
+                    // whole body is no longer read.
+                    "bytes": read,
                     "truncated": truncated,
+                    "redactions": redactions,
                     "content": text,
                 }))
             }
@@ -246,16 +323,19 @@ mod design_tests {
 
     #[test]
     fn parse_target_allows_loopback_only() {
+        // The default port is the CALLER's configured port, not a hardcoded 18080: on a
+        // custom-port install the old default read a stranger's service on 18080.
         assert_eq!(
-            parse_target("127.0.0.1").unwrap(),
+            parse_target("127.0.0.1", 18080).unwrap(),
             ("127.0.0.1".into(), 18080)
         );
+        assert_eq!(parse_target("127.0.0.1", 7740).unwrap().1, 7740);
         assert_eq!(
-            parse_target("127.0.0.1:9999").unwrap(),
+            parse_target("127.0.0.1:9999", 7740).unwrap(),
             ("127.0.0.1".into(), 9999)
         );
         assert_eq!(
-            parse_target("localhost:1").unwrap(),
+            parse_target("localhost:1", 18080).unwrap(),
             ("localhost".into(), 1)
         );
         for bad in [
@@ -266,25 +346,49 @@ mod design_tests {
             "[::1]",
             "",
         ] {
-            assert!(parse_target(bad).is_err(), "{bad:?} must be rejected");
+            assert!(
+                parse_target(bad, 18080).is_err(),
+                "{bad:?} must be rejected"
+            );
         }
-        assert!(parse_target("127.0.0.1:notaport").is_err());
+        assert!(parse_target("127.0.0.1:notaport", 18080).is_err());
     }
 
     #[test]
-    fn redact_tokens_scrubs_injected_panel_token() {
-        let clean = "<html><head></head><body>hi</body></html>";
-        assert_eq!(redact_tokens(clean), clean);
-        let injected = r#"<script>window.__PANEL_TOKEN__="deadbeef";</script>"#;
-        let out = redact_tokens(injected);
-        assert!(!out.contains("deadbeef"), "{out}");
-        assert!(out.contains("__PANEL_TOKEN__=\"<redacted>\""), "{out}");
-        // Multiple occurrences, all scrubbed.
-        let two = format!("{injected} mid {injected}");
-        assert!(!redact_tokens(&two).contains("deadbeef"));
-        // Unterminated value: tail kept verbatim, no hang, no panic.
-        let unterminated = r#"x __PANEL_TOKEN__="abc"#;
-        assert_eq!(redact_tokens(unterminated), unterminated);
+    fn redaction_is_by_value_and_leaves_a_mere_mention_alone() {
+        // THE CORRUPTION CASE, measured on the shipped bundle before this was fixed: panel.js
+        // mentions the pattern with an EMPTY value while the token lives elsewhere in the same
+        // document. The old pattern walk rewrote that line into `…||"<redacted>"` — a semantic
+        // edit of the very source this tool exists to show. Value redaction must not touch a
+        // byte of it.
+        let panel_js = "window.__PANEL_TOKEN__)||\"\"; var other = \"TOKENVALUE\";";
+        let (out, n) = redact_secrets(panel_js, Some("TOKENVALUE"));
+        assert_eq!(n, 1, "{out}");
+        assert!(!out.contains("TOKENVALUE"), "the token survived: {out}");
+        assert!(
+            out.contains("window.__PANEL_TOKEN__)||\"\""),
+            "the source was rewritten: {out}"
+        );
+
+        // THE LEAK CASE: a shape the pattern walk got wrong (it replaced between the wrong
+        // quotes and left the value in place).
+        let jsony = "{\"__PANEL_TOKEN__\":\"TOKENVALUE\"}";
+        let (out, n) = redact_secrets(jsony, Some("TOKENVALUE"));
+        assert_eq!(n, 1);
+        assert!(!out.contains("TOKENVALUE"), "the value leaked: {out}");
+
+        // Several occurrences, all scrubbed.
+        let twice = format!("{panel_js}{panel_js}");
+        assert_eq!(redact_secrets(&twice, Some("TOKENVALUE")).1, 2);
+
+        // No usable token: the pattern walk is the FALLBACK, not the rule.
+        let (out, n) = redact_secrets("a __PANEL_TOKEN__=\"x\";", None);
+        assert_eq!(n, 1);
+        assert!(out.contains("<redacted>"), "{out}");
+
+        // Nothing to do.
+        let (out, n) = redact_secrets("<html>hi</html>", Some("TOKENVALUE"));
+        assert_eq!((out.as_str(), n), ("<html>hi</html>", 0));
     }
 
     #[test]
@@ -302,7 +406,7 @@ mod design_tests {
         // Schema enum parity: every advertised page must resolve (and every
         // resolvable page must be advertised) — the round-262 deletion left
         // 10 dead enum entries that always errored.
-        let def = page_view(None, None);
+        let def = page_view(None, None, None, 18080);
         let enums: Vec<String> = def.input_schema["properties"]["page"]["enum"]
             .as_array()
             .unwrap()
@@ -350,27 +454,45 @@ mod design_tests {
             let _ = sock.write_all(&body_bytes).await;
         });
 
-        let def = page_view(None, None);
+        let def = page_view(None, None, Some("tok123".into()), 18080);
         let out = def
             .handler
             .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
             .await
             .unwrap();
         assert_eq!(out["truncated"], true);
-        assert_eq!(out["bytes"], body.len());
+        // `bytes` is what was READ and kept (the read is bounded now), so it is at most the cap.
+        assert!(
+            out["bytes"].as_u64().unwrap() <= MAX_PAGE_BYTES as u64,
+            "{}",
+            out["bytes"]
+        );
+        assert_eq!(out["redactions"], 1, "the injected token is a redaction");
         assert!(out["url"]
             .as_str()
             .unwrap()
             .contains(&format!("127.0.0.1:{port}")));
         let content = out["content"].as_str().unwrap();
         assert!(content.len() <= MAX_PAGE_BYTES);
-        assert!(content.is_char_boundary(content.len()), "CJK-safe cut");
+        // THE MULTI-BYTE HAZARD, asserted where it can actually fail. The line that used to sit
+        // here — `content.is_char_boundary(content.len())` — is true for EVERY &str (the end of
+        // a String is always a boundary), so it could never fail and was not the CJK evidence
+        // it read as. Strip the ASCII prefix: the remainder must be a whole number of 3-byte
+        // chars, which is exactly what a byte-slicing clip would break.
+        let cjk = &content[content.find('界').unwrap_or(content.len())..];
+        assert_eq!(
+            cjk.len() % 3,
+            0,
+            "a CJK char was cut in half: {} bytes",
+            cjk.len()
+        );
+        assert!(!cjk.is_empty(), "the CJK tail vanished");
         assert!(!content.contains("tok123"), "injected token must not leak");
     }
 
     #[tokio::test]
     async fn page_view_unknown_page_and_remote_without_config_fail_closed() {
-        let def = page_view(None, None);
+        let def = page_view(None, None, None, 18080);
         let err = def
             .handler
             .call(serde_json::json!({ "page": "nope" }))
@@ -383,5 +505,108 @@ mod design_tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("console_url"), "{err:?}");
+    }
+
+    /// A one-shot HTTP stub: answer `status_line` (+ `extra` headers) and `body`, return the port.
+    async fn stub(status_line: &str, extra: String, body: Vec<u8>) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let status_line = status_line.to_string();
+        tokio::spawn(async move {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = vec![0u8; 8192];
+            let mut req = Vec::new();
+            loop {
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                req.extend_from_slice(&buf[..n]);
+                if req.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let head = format!(
+                "{status_line}\r\ncontent-length: {}\r\n{extra}connection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.write_all(&body).await;
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn a_non_2xx_is_an_error_not_a_page() {
+        // The page a device actually got during the multi-day tunnel outage was a 530 error
+        // page. It used to be returned as `content` with no status — the model would have read
+        // it as "the design of the download site".
+        let port = stub(
+            "HTTP/1.1 404 Not Found",
+            String::new(),
+            b"<html>nope</html>".to_vec(),
+        )
+        .await;
+        let def = page_view(None, None, None, 18080);
+        let err = def
+            .handler
+            .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("404"), "{msg}");
+        assert!(
+            !msg.contains("nope"),
+            "the failure must not carry the body: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_redirect_is_not_followed() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        // The redirect target: records any contact, so "did we follow it" is a fact, not a guess.
+        let hits = Arc::new(AtomicUsize::new(0));
+        let inner = hits.clone();
+        let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_port = target.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if target.accept().await.is_ok() {
+                inner.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        let port = stub(
+            "HTTP/1.1 302 Found",
+            format!("location: http://127.0.0.1:{target_port}/\r\n"),
+            Vec::new(),
+        )
+        .await;
+        let def = page_view(None, None, None, 18080);
+        let err = def
+            .handler
+            .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("302"), "{err:?}");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "the redirect target was contacted — the loopback gate pins only the first hop"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_page_is_refused_rather_than_defaulted() {
+        let def = page_view(None, None, None, 18080);
+        let err = def
+            .handler
+            .call(serde_json::json!({ "page": 3 }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("page is required"), "{err:?}");
     }
 }

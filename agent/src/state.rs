@@ -67,6 +67,10 @@ struct RegistryDeps {
     playwright: Arc<PlaywrightManager>,
     download_url: Option<String>,
     console_url: Option<String>,
+    /// The device token `page_view` must redact BY VALUE (it fetches the panel HTML, which the
+    /// agent has already injected the token into), and the port it must default to.
+    device_token: Option<String>,
+    local_port: u16,
     memory: Arc<MemoryStore>,
 }
 
@@ -85,6 +89,8 @@ fn build_registry(deps: &RegistryDeps) -> PluginRegistry {
     registry.register(Box::new(DesignPlugin::new(
         deps.console_url.clone(),
         deps.download_url.clone(),
+        deps.device_token.clone(),
+        deps.local_port,
     )));
     registry.register(Box::new(PlaywrightPlugin::new(deps.playwright.clone())));
     registry.register(Box::new(MemoryPlugin::new(deps.memory.clone())));
@@ -132,6 +138,8 @@ impl AppState {
             playwright: playwright.clone(),
             download_url: config.platform.download_url.clone(),
             console_url: config.platform.console_url.clone(),
+            device_token: config.server.device_token.clone(),
+            local_port: config.server.port,
             memory: memory.clone(),
         });
 

@@ -17,20 +17,35 @@ pub struct DesignPlugin {
     /// `page_view` then errors explicitly instead of a hardcoded host.
     console_url: Option<String>,
     download_url: Option<String>,
+    /// The device's own token. `page_view` fetches the panel HTML, which the agent ALREADY
+    /// injected this token into — so the redactor needs the VALUE. A pattern guess cannot tell
+    /// a credential from a line of panel.js that merely mentions the pattern, and it did not:
+    /// round 120 measured it silently rewriting `window.__PANEL_TOKEN__)||""`.
+    device_token: Option<String>,
+    /// The port this agent actually listens on. The tool used to default to a hardcoded 18080,
+    /// which on a custom-port install reads a STRANGER'S service and presents it as the panel.
+    local_port: u16,
 }
 
 impl DesignPlugin {
-    pub fn new(console_url: Option<String>, download_url: Option<String>) -> Self {
+    pub fn new(
+        console_url: Option<String>,
+        download_url: Option<String>,
+        device_token: Option<String>,
+        local_port: u16,
+    ) -> Self {
         Self {
             console_url,
             download_url,
+            device_token,
+            local_port,
         }
     }
 }
 
 impl Default for DesignPlugin {
     fn default() -> Self {
-        Self::new(None, None)
+        Self::new(None, None, None, 18080)
     }
 }
 
@@ -48,6 +63,8 @@ impl vale_agent_core::Plugin for DesignPlugin {
         vec![tools::page_view(
             self.console_url.clone(),
             self.download_url.clone(),
+            self.device_token.clone(),
+            self.local_port,
         )]
     }
 }
