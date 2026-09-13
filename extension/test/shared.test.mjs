@@ -39,14 +39,45 @@ test("non-URLs are null, never throw", () => {
 test("resolveDir: absolute file → folder, absolute dir kept, slashes trimmed", () => {
   assert.equal(resolveDir("/home/zhengsaisi/vale/gateway/src/index.ts"), "/home/zhengsaisi/vale/gateway/src");
   assert.equal(resolveDir("/home/zhengsaisi/vale/"), "/home/zhengsaisi/vale");
-  assert.equal(resolveDir("/"), "/");
-  assert.equal(resolveDir("/a/b///"), "/a/b");
+  // `/` is outside the studio root, so there is no folder to open — refused.
+  assert.equal(resolveDir("/"), "");
+  assert.equal(resolveDir("/home/zhengsaisi/vale/a/b///"), "/home/zhengsaisi/vale/a/b");
+  // ...and this function no longer answers for paths OUTSIDE the studio root, which
+  // the old fake-path cases did by accident (`/a/b` was a link nobody could open).
+  assert.equal(resolveDir("/a/b///"), "");
 });
 
-test("resolveDir: relative joins the base, file part stripped", () => {
-  assert.equal(resolveDir("gateway/src/index.ts"), "/home/zhengsaisi/gateway/src");
-  assert.equal(resolveDir("notes/"), "/home/zhengsaisi/notes");
-  assert.equal(resolveDir("a/b.js", "/base"), "/base/a");
+test("resolveDir: relative joins the WORKSPACE, file part stripped", () => {
+  // Re-pinned: this used to assert `/home/zhengsaisi/gateway/src`, which does not
+  // exist — the base was the user's home directory while DSH runs in the project.
+  assert.equal(resolveDir("gateway/src/index.ts"), "/home/zhengsaisi/vale/gateway/src");
+  assert.equal(resolveDir("docs/x.md"), "/home/zhengsaisi/vale/docs");
+  assert.equal(resolveDir("notes/"), "/home/zhengsaisi/vale/notes");
+  assert.equal(resolveDir("./gateway/src/index.ts"), "/home/zhengsaisi/vale/gateway/src");
+  assert.equal(resolveDir("a/b.js", "/home/zhengsaisi/x"), "/home/zhengsaisi/x/a");
+});
+
+// The allowlist (round 121). A chat message is untrusted text, and this function
+// turns it into a one-click link inside an ALREADY-AUTHENTICATED IDE session — so
+// what it refuses matters more than what it resolves.
+test("resolveDir refuses what is not the project's to open", () => {
+  for (const evil of [
+    "/home/zhengsaisi/.ssh/id_rsa", // the key directory
+    "/home/zhengsaisi/.dsh/settings.yaml", // the harness's own config
+    "/home/zhengsaisi/.aws/credentials",
+    "/home/zhengsaisi/.gnupg/secring.gpg",
+    "/etc/passwd", // outside the code-server root entirely
+    "/home/zhengsaisi", // the root itself is not a mention's folder
+    "../../etc/passwd", // traversal is refused, not normalised
+    "/home/zhengsaisi/vale/../../.ssh/id_rsa",
+    "",
+  ]) {
+    assert.equal(resolveDir(evil), "", `accepted: ${evil}`);
+  }
+  // ...while project content still resolves, including the ONE dot-directory that
+  // is content rather than credentials.
+  assert.equal(resolveDir("/home/zhengsaisi/vale/.github/workflows"), "/home/zhengsaisi/vale/.github/workflows");
+  assert.equal(resolveDir(".github/workflows/ci.yml"), "/home/zhengsaisi/vale/.github/workflows");
 });
 
 test("studioFolderUrl: folder encoded under the origin", () => {
@@ -77,4 +108,17 @@ test("extractPathJobs: absolute + line, relative, bare filename; noise skipped",
 test("extractPathJobs: empty and prose-only yield nothing", () => {
   assert.deepEqual(extractPathJobs(""), []);
   assert.deepEqual(extractPathJobs("just some words here"), []);
+  // Prose with slashes used to become links through BOTH arms: `read/write` via
+  // the relative one, its `/write` via the absolute one.
+  for (const prose of [
+    "either read/write or and/or him/her",
+    "24/7 support",
+    "TCP/IP stack",
+    "input/output and/or",
+  ]) {
+    assert.deepEqual(extractPathJobs(prose), [], `prose became links: ${prose}`);
+  }
+  // A path that is real but unopenable is still MATCHED — it is resolveDir that
+  // refuses it, and the content script then leaves the text alone.
+  assert.equal(resolveDir(extractPathJobs("see /usr/bin/env bash")[0].bare), "");
 });

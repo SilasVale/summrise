@@ -100,7 +100,12 @@
       let cursor = 0;
       for (const job of jobs) {
         if (job.index > cursor) span.append(document.createTextNode(text.slice(cursor, job.index)));
-        span.append(makeLink(job.raw, resolve(job.bare), job.lineNo));
+        const dir = resolve(job.bare);
+        // A mention we cannot vouch for — outside the folder code-server can open, or
+        // inside a credential home (`.ssh`, `.dsh`) — stays TEXT. Better fewer links
+        // than wrong ones, and never a one-click link into the key directory because a
+        // chat message asked for it.
+        span.append(dir ? makeLink(job.raw, dir, job.lineNo) : document.createTextNode(job.raw));
         cursor = job.index + job.raw.length;
       }
       if (cursor < text.length) span.append(document.createTextNode(text.slice(cursor)));
