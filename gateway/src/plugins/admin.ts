@@ -8,6 +8,7 @@ import {
   setModelDisabled,
 } from "../store/models.ts";
 import {
+  SUPPORTED_PROVIDER_APIS,
   customProviders,
   deleteCustomProvider,
   parseProviderSpec,
@@ -199,7 +200,15 @@ async function adminListProviders(request: Request, env: Env): Promise<Response>
   const gate = await requireAdmin(request, env);
   if (gate instanceof Response) return gate;
   const providers = await customProviders(env);
-  return jsonOk({ providers: providers.map((p) => publicProvider(p, env)) });
+  // `apis` IS THE SERVER TELLING THE FORM WHAT IT CAN SERVE, rather than the form
+  // guessing. The panel used to offer `anthropic-messages` because it looked like a
+  // reasonable second option; this build serves `openai-completions` ONLY, so the
+  // UI was offering a choice the server rejects. Same rule as the DSH provider card,
+  // where the protocol list comes from the adapter's own schema.
+  return jsonOk({
+    providers: providers.map((p) => publicProvider(p, env)),
+    apis: Object.keys(SUPPORTED_PROVIDER_APIS),
+  });
 }
 
 async function adminAddProvider(request: Request, env: Env): Promise<Response> {

@@ -2678,3 +2678,232 @@ body[data-theme="dark"] .note.tip {
     justify-content: flex-start;
   }
 }
+
+/* ================================================================
+   Providers — the Models page as a provider list.
+   The layout DSH uses for the same job: one ROW per provider with a
+   credential dot and an Edit, the model list inside that row's editor,
+   and adding as a trailing dashed placeholder instead of a form that
+   owns the top of the page. The provider (prefix + endpoint + protocol
+   + credential) OWNS its models; that shape is why the list reads this
+   way rather than as flat chips.
+   ================================================================ */
+.prov-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prov-row {
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    var(--glass-shadow);
+}
+/* An open row is the focus of the page: one editor at a time, so it may as well
+   be the one thing that is visually raised. */
+.prov-row.open {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--glass-hairline));
+}
+.prov-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.prov-ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* The lane bar the Routes page uses, so a channel looks the same everywhere. */
+.prov-lane {
+  flex: none;
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+.prov-lane.lane-og { background: var(--accent); }
+.prov-lane.lane-ds { background: var(--chan-ds); }
+.prov-lane.lane-or { background: var(--chan-or); }
+.prov-lane.lane-qw { background: var(--warning); }
+.prov-lane.lane-nv { background: var(--success); }
+.prov-lane.lane-gmi { background: var(--error); }
+.prov-lane.lane-cm { background: var(--accent); }
+.prov-lane.lane-amd { background: var(--error); }
+.prov-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semi);
+  color: var(--text);
+}
+.prov-tag {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+/* THE DOT ANSWERS "CAN I USE THIS?" — one glance, and its title says which fact
+   it is reporting (a custom provider's own key, or a built-in channel's health). */
+.prov-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.prov-dot.ok {
+  background: var(--success);
+  box-shadow: 0 0 0 2.5px var(--success-bg);
+}
+.prov-dot.missing {
+  background: var(--warning);
+  box-shadow: 0 0 0 2.5px var(--warning-bg);
+}
+.prov-count {
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.prov-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.prov-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--glass-hairline);
+}
+.prov-desc {
+  margin: 10px 0 10px;
+  max-width: 76ch;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.prov-models {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prov-model {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+.prov-model-id {
+  font-family: var(--ds-font-family-code);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prov-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.prov-addmodel {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.prov-addmodel .form-input { flex: 1 1 200px; }
+.prov-disabled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.prov-disabled-label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.prov-disabled-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.prov-addrow { margin-top: 4px; }
+/* A dashed placeholder, not a card: adding is the exception on this page. */
+.btn-dashed {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: border-color var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease);
+}
+.btn-dashed:hover {
+  border-color: var(--accent);
+  color: var(--accent-on-soft);
+}
+/* Delete is TEXT, not a glyph: the old chip's × deleted a custom model and
+   DISABLED a built-in one depending on invisible state. */
+.btn-danger-text {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--error-text);
+}
+.btn-danger-text:hover:not(:disabled) { background: var(--error-bg); }
+.prov-newform {
+  margin-top: 10px;
+  padding: 14px;
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    var(--glass-shadow);
+}
+.prov-newgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.prov-newgrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.prov-newgrid label em { text-transform: none; letter-spacing: 0; font-style: normal; }

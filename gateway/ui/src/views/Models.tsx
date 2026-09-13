@@ -1,23 +1,41 @@
-// Models — the catalogue this gateway ADVERTISES, which until now the console
-// fetched and threw away.
+// Models — the catalogue this gateway ADVERTISES, as a PROVIDER LIST.
 //
-// WHY THIS PAGE EXISTS. `/api/admin/public` returns `ROUTE_INFO`: every channel
-// with its `prefix`, `backend`, `desc` and a `models` list DERIVED from
-// `MODEL_REGISTRY` (so it cannot drift from what `/v1/models` serves). The Routes
-// page has always requested it — and used exactly one field, `apiHost`. So the
-// console showed a route SWITCHER and never the catalogue itself: you could pick
-// a model if you already knew its name, and you could not see the 22 advertised
-// ids, which channel each belongs to, or whether that channel is up.
+// WHY THIS PAGE EXISTS, AND WHY IT LOOKS LIKE THIS. `/api/admin/public` returns
+// `ROUTE_INFO`: every channel with its `prefix`, `backend`, `desc` and a `models`
+// list DERIVED from `MODEL_REGISTRY` (so it cannot drift from what `/v1/models`
+// serves). The console used to render that as one flat card per channel with a
+// chip per model, plus a permanent "add a model" form in the page's most valuable
+// slot — a form only an admin sees and almost nobody uses, while the page's own
+// lede says the point is to PICK a route. The chrome was upside down.
 //
-// THE DATA IS THEREFORE ALREADY ON THE WIRE; this only renders it. Model ids come
-// from the server, never from a list typed here — a hand-maintained second copy is
-// what `channels.ts` records as the FIFTH drifted copy of the catalogue.
+// The layout is now the one the DeepSeek Harness uses for the same job, because
+// the shape of the data is the same: a provider (prefix + endpoint + protocol +
+// credential) OWNS a list of models. So:
+//   * one ROW per provider — identity, a [Custom] tag, a credential dot, Edit,
+//     and Delete only where deleting is real (a custom provider);
+//   * the model list lives INSIDE the provider's editor, opened in place, one at
+//     a time;
+//   * adding is a trailing dashed button, not a form that owns the top of the page.
+//
+// EVERY ROUTE HERE ALREADY EXISTED. Providers come from `/api/admin/providers`
+// (keyReady is the dot: the server reduces the credential to a mask, never
+// returns it); models are added/disabled/deleted through `/api/admin/models`; the
+// route is set through `/api/me/route`. The ONE thing this page still cannot do
+// is ask an upstream what it serves and adopt the answer — `scripts/model-drift.mjs`
+// can, but it is an ops tool, not a route, and giving the worker that job means a
+// new outbound-request surface that deserves its own review.
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "../i18n.ts";
 import { useToast } from "../contexts/ToastContext.tsx";
 import { useAuth } from "../contexts/AuthContext.tsx";
-import { api, ApiError, type RouteInfo, type HealthChannel } from "../api/client.ts";
-import { Card, PageHeader, Badge } from "../components/ui.tsx";
+import {
+  api,
+  ApiError,
+  type RouteInfo,
+  type HealthChannel,
+  type ProviderView,
+} from "../api/client.ts";
+import { PageHeader, Badge } from "../components/ui.tsx";
 
 /** The lane colour for a channel prefix — the same mapping the Routes page uses,
  *  so a channel looks the same wherever it appears. */
@@ -34,39 +52,36 @@ function laneClass(prefix: string): string {
   return "lane-def";
 }
 
-/** The channel part of an advertised id: everything before the first `/`.
- *  The no-prefix default channel has no slash at all and reports as "none". */
-function channelOf(id: string): string {
-  const i = id.indexOf("/");
-  return i < 0 ? "none" : id.slice(0, i);
-}
-
 export default function ModelsView() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user } = useAuth();
   const [routes, setRoutes] = useState<RouteInfo[]>([]);
-  // The PREFIXED catalogue (== /v1/models). Chips are rendered from this, never
+  // The PREFIXED catalogue (== /v1/models). Models are rendered from this, never
   // from `routes[].models`, which is bare and would set the wrong channel.
   const [allModels, setAllModels] = useState<string[]>([]);
   const [health, setHealth] = useState<HealthChannel[]>([]);
+  const [providers, setProviders] = useState<ProviderView[]>([]);
+  // What THIS build can speak. Empty until the server says — a hardcoded fallback
+  // here is exactly how the form ended up offering a protocol the server rejects.
+  const [apis, setApis] = useState<string[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
-  // Admin-only: which models this console owns vs which are built-in-but-off, and the
-  // panel that adds one. Non-admins never call it — the routes are admin-gated too.
+  // Admin-only: which models this console owns vs which are built-in-but-off.
+  // Non-admins never get the data — the routes are admin-gated too.
   const [custom, setCustom] = useState<string[]>([]);
   const [disabled, setDisabled] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  // ONE OPEN EDITOR AT A TIME, keyed by prefix. Two open editors would mean two
+  // half-typed drafts and two save paths on one screen; the harness models the
+  // same rule for the same reason.
+  const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({
-    prefix: "",
-    id: "",
-    wire: "",
-    usEgress: false,
-    search: false,
-  });
+  const [draft, setDraft] = useState({ id: "", wire: "", usEgress: false, search: false });
+  const [newProvider, setNewProvider] = useState({ prefix: "", label: "", baseURL: "", api: "", apiKey: "" });
+  const [newModel, setNewModel] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,22 +91,23 @@ export default function ModelsView() {
         api.getHealth().catch(() => null),
         api.getRoute().catch(() => null),
       ]);
-      // A catalogue that could not be read must SAY SO. An empty page here would
-      // claim the gateway advertises nothing, which is a different fact. The
-      // AUTHORITATIVE list is `info.models`; without it there is nothing safe to
-      // render chips from, so this is a failure rather than a fallback to the bare
-      // per-channel names.
+      // A catalogue that could not be read must SAY SO: an empty page would claim
+      // the gateway advertises nothing, which is a different fact.
       if (info?.models?.length) {
         setAllModels(info.models);
         setRoutes(info.routes || []);
       } else setFailed(true);
-      // Best-effort: the page is fully usable read-only, so a 403 here simply means
+      // Best-effort: the page is fully usable read-only, so a 403 here means
       // "no admin controls" rather than an error worth showing.
+      void api.getModelState().then((st) => {
+        setCustom(st.custom || []);
+        setDisabled(st.disabled || []);
+      }).catch(() => {});
       void api
-        .getModelState()
-        .then((st) => {
-          setCustom(st.custom || []);
-          setDisabled(st.disabled || []);
+        .getProviders()
+        .then((r) => {
+          setProviders(r.providers || []);
+          setApis(r.apis || []);
         })
         .catch(() => {});
       if (health?.channels) setHealth(health.channels);
@@ -129,10 +145,7 @@ export default function ModelsView() {
   const removeModel = useCallback(
     async (id: string) => {
       const builtIn = !custom.includes(id);
-      if (
-        !confirm(builtIn ? t("models.disableConfirm", { id }) : t("models.deleteConfirm", { id }))
-      )
-        return;
+      if (!confirm(builtIn ? t("models.disableConfirm", { id }) : t("models.deleteConfirm", { id }))) return;
       setBusy(id);
       try {
         await api.deleteModel(id);
@@ -163,44 +176,117 @@ export default function ModelsView() {
     [load, t, toast],
   );
 
-  const submitModel = useCallback(async () => {
-    // The prefix is a SELECT, so the id cannot name a channel that does not exist —
-    // the server validates it too, because a UI is not a guarantee.
-    const id = draft.prefix + draft.id.trim();
-    if (!draft.id.trim()) return;
+  /** Add a model to ONE provider. The prefix is the row's, not a dropdown: the
+   *  context is the provider you opened, so an id can no longer be filed under a
+   *  channel the user did not mean. */
+  const submitModel = useCallback(
+    async (prefix: string) => {
+      const id = prefix + draft.id.trim();
+      if (!draft.id.trim()) return;
+      setAdding(true);
+      try {
+        await api.addModel({
+          id,
+          ...(draft.wire.trim() ? { wire: draft.wire.trim() } : {}),
+          ...(draft.usEgress ? { usEgress: true } : {}),
+          ...(draft.search ? { search: true } : {}),
+        });
+        toast(t("models.added"));
+        setDraft({ id: "", wire: "", usEgress: false, search: false });
+        await load();
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+      } finally {
+        setAdding(false);
+      }
+    },
+    [draft, load, t, toast],
+  );
+
+  /** Declare a custom provider: prefix + endpoint + protocol + key. Upsert by
+   *  prefix, which is how an operator edits the record they already own. */
+  const submitProvider = useCallback(async () => {
+    const bare = newProvider.prefix.trim().replace(/\/+$/, "");
+    if (!bare || !newProvider.baseURL.trim()) return;
     setAdding(true);
     try {
-      await api.addModel({
-        id,
-        ...(draft.wire.trim() ? { wire: draft.wire.trim() } : {}),
-        ...(draft.usEgress ? { usEgress: true } : {}),
-        ...(draft.search ? { search: true } : {}),
+      await api.addProvider({
+        prefix: bare,
+        label: newProvider.label.trim() || bare,
+        baseURL: newProvider.baseURL.trim(),
+        api: newProvider.api,
+        models: [],
+        ...(newProvider.apiKey.trim() ? { apiKey: newProvider.apiKey.trim() } : {}),
       });
       toast(t("models.added"));
-      setDraft({ prefix: draft.prefix, id: "", wire: "", usEgress: false, search: false });
+      setNewProvider({ prefix: "", label: "", baseURL: "", api: apis[0] || "", apiKey: "" });
+      setOpen(bare + "/");
       await load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : t("route.fail"), true);
     } finally {
       setAdding(false);
     }
-  }, [draft, load, t, toast]);
+  }, [newProvider, load, t, toast]);
 
-  const total = allModels.length;
+  /** Give a custom provider one more model: the record is the owner of its list,
+   *  so this re-posts it with the model appended (the server upserts by prefix). */
+  const addModelToProvider = useCallback(
+    async (p: ProviderView) => {
+      const id = newModel.trim().replace(/^\/+/, "");
+      if (!id) return;
+      setAdding(true);
+      try {
+        await api.addProvider({
+          prefix: p.prefix,
+          label: p.label,
+          baseURL: p.baseURL,
+          api: p.api,
+          ...(p.keyEnv ? { apiKeyEnv: p.keyEnv } : {}),
+          models: [...p.models.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens, input: m.input })), { id }],
+        });
+        setNewModel("");
+        toast(t("models.added"));
+        await load();
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+      } finally {
+        setAdding(false);
+      }
+    },
+    [newModel, load, t, toast],
+  );
+
+  const removeProvider = useCallback(
+    async (prefix: string) => {
+      if (!confirm(t("models.removeProviderConfirm", { prefix }))) return;
+      setBusy(prefix);
+      try {
+        await api.deleteProvider(prefix);
+        toast(t("models.deleted"));
+        await load();
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [load, t, toast],
+  );
+
   /**
-   * The models belonging to one channel card.
+   * The models belonging to one provider.
    *
-   * THE DEFAULT CHANNEL CANNOT BE DERIVED FROM THE PREFIXED CATALOGUE. `"none"` is the
-   * server's sentinel for "no prefix -> Command Code (GOAT), model name passed through
-   * as-is", and every advertised id in that catalogue is PREFIXED — so filtering it for
-   * "ids matching no known prefix" always yields NOTHING. The card rendered `0` and an
-   * empty list while the server's own entry for it lists models and the header badge
-   * said 21.
+   * THE DEFAULT CHANNEL CANNOT BE DERIVED FROM THE PREFIXED CATALOGUE. `"none"` is
+   * the server's sentinel for "no prefix -> Command Code, model name passed through
+   * as-is", and every advertised id in that catalogue is PREFIXED — so filtering it
+   * for "ids matching no known prefix" always yields NOTHING, and that row used to
+   * render 0 while its own server entry listed models.
    *
-   * For that card the server's `routes[].models` ARE the right source, and they are the
-   * right FORM too: they are bare names, and a bare name is exactly what routes there.
-   * (For every other card, `routes[].models` is the trap — bare where the catalogue is
-   * prefixed, which is what set the wrong channel in round 58.)
+   * For that row the server's `routes[].models` ARE the right source, and the right
+   * FORM too (bare names, which is what routes there). For every other row
+   * `routes[].models` is the trap: bare where the catalogue is prefixed, which is
+   * what once set the wrong channel.
    */
   const modelsFor = (prefix: string, fallback: string[]): string[] =>
     prefix && prefix !== "none" ? allModels.filter((m) => m.startsWith(prefix)) : fallback;
@@ -209,157 +295,272 @@ export default function ModelsView() {
   const healthFor = (prefix: string) =>
     health.find((h) => h.id === prefix || h.id === prefix.replace(/\/$/, ""));
 
+  const total = allModels.length;
+  const providerFor = (prefix: string) =>
+    providers.find((p) => p.prefix.replace(/\/$/, "") === prefix.replace(/\/$/, ""));
+
   return (
     <>
       <PageHeader
         title={t("nav.models")}
         description={t("models.lede")}
-        actions={
-          <Badge tone="muted">{loading ? t("loading") : `${total} ${t("models.count")}`}</Badge>
-        }
+        actions={<Badge tone="muted">{loading ? t("loading") : `${total} ${t("models.count")}`}</Badge>}
       />
 
       {failed && (
-        <Card>
-          <p className="models-failed">{t("models.unavailable")}</p>
-        </Card>
+        <div className="banner-error">
+          <span>{t("models.unavailable")}</span>
+          <button className="btn btn-ghost btn-mini" onClick={() => void load()}>
+            {t("devices.retry")}
+          </button>
+        </div>
       )}
 
-      {/* ADD — the whole point of the catalogue being data. The CHANNEL is a select,
-          so a new model cannot name a prefix that does not route, and the optional
-          facets default to the conservative value. */}
-      {isAdmin && !loading && !failed && (
-        <Card title={t("models.addTitle")} description={t("models.addDesc")}>
-          <div className="model-add">
-            <select
-              className="form-input model-add-prefix"
-              value={draft.prefix}
-              onChange={(e) => setDraft({ ...draft, prefix: e.target.value })}
-            >
-              <option value="">{t("models.pickChannel")}</option>
-              {routes
-                .filter((r) => r.prefix && r.prefix !== "none")
-                .map((r) => (
-                  <option key={r.prefix} value={r.prefix}>
-                    {r.prefix} — {r.backend}
-                  </option>
-                ))}
-            </select>
-            <input
-              className="form-input"
-              placeholder={t("models.namePh")}
-              value={draft.id}
-              onChange={(e) => setDraft({ ...draft, id: e.target.value })}
-            />
-            <input
-              className="form-input"
-              placeholder={t("models.wirePh")}
-              value={draft.wire}
-              onChange={(e) => setDraft({ ...draft, wire: e.target.value })}
-            />
-            <label className="model-add-check">
-              <input
-                type="checkbox"
-                checked={draft.usEgress}
-                onChange={(e) => setDraft({ ...draft, usEgress: e.target.checked })}
-              />
-              {t("models.usEgress")}
-            </label>
-            <label className="model-add-check">
-              <input
-                type="checkbox"
-                checked={draft.search}
-                onChange={(e) => setDraft({ ...draft, search: e.target.checked })}
-              />
-              {t("models.search")}
-            </label>
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={adding || !draft.prefix || !draft.id.trim()}
-              onClick={() => void submitModel()}
-            >
-              {adding ? t("models.adding") : t("models.add")}
-            </button>
-          </div>
-          <p className="models-hint">{t("models.addHint")}</p>
-        </Card>
-      )}
-
-      {!loading &&
-        !failed &&
-        routes.map((r) => {
-          const h = healthFor(r.prefix);
-          const models = modelsFor(r.prefix, r.models || []);
+      <ul className="prov-list">
+        {routes.map((r) => {
+          const prefix = r.prefix || "none";
+          const pv = providerFor(prefix);
+          const isCustom = !!pv;
+          const models = modelsFor(prefix, r.models || []);
+          const h = healthFor(prefix);
+          // THE DOT ANSWERS "CAN I USE THIS?" — one signal, two sources, and the
+          // title says which. A built-in channel's credential is the USER's BYOK
+          // key, which this page does not fetch, so its dot reports the channel's
+          // own reachability (the same fact the Routes page shows). A custom
+          // provider's is the record's key, which the server already resolved.
+          const ready = isCustom ? pv!.keyReady : h?.ok !== false;
+          const dotLabel = isCustom
+            ? pv!.keyReady
+              ? t("models.credReady")
+              : t("models.credMissing")
+            : h?.ok === false
+              ? t("models.channelDown")
+              : t("models.channelUp");
+          const isOpen = open === prefix;
+          const mine = disabled.filter((d) => d.startsWith(prefix));
           return (
-            <Card key={r.prefix} className="models-card">
-              <div className="models-head">
-                <span className={`models-prefix ${laneClass(r.prefix)}`}>
-                  {r.prefix && r.prefix !== "none" ? r.prefix : t("models.noPrefix")}
-                </span>
-                <span className="models-backend">{r.backend}</span>
-                {h ? (
+            <li key={prefix} className={`prov-row${isOpen ? " open" : ""}`}>
+              <div className="prov-head">
+                <span className="prov-ident">
+                  <span className={`prov-lane ${laneClass(prefix)}`} aria-hidden="true" />
+                  <span className="prov-name">{r.backend || prefix}</span>
+                  {isCustom && <span className="prov-tag">{t("models.customTag")}</span>}
                   <span
-                    className={`models-health ${h.ok ? "ok" : "bad"}`}
-                    title={h.reason || h.model}
-                  >
-                    {h.ok ? t("models.up") : t("models.down")}
+                    className={`prov-dot${ready ? " ok" : " missing"}`}
+                    role="img"
+                    aria-label={dotLabel}
+                    title={dotLabel}
+                  />
+                  <span className="prov-count">
+                    {t("models.providerModels", { n: String(models.length) })}
                   </span>
-                ) : (
-                  <span className="models-health unknown">{t("models.notChecked")}</span>
-                )}
-                <span className="models-n">{models.length}</span>
-              </div>
-              <p className="models-desc">{r.desc}</p>
-              <div className="models-list">
-                {models.map((id) => (
-                  <span key={id} className="model-chip-wrap">
+                </span>
+                <span className="prov-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    aria-expanded={isOpen}
+                    onClick={() => {
+                      setOpen(isOpen ? null : prefix);
+                      setDraft({ id: "", wire: "", usEgress: false, search: false });
+                      setNewModel("");
+                    }}
+                  >
+                    {isOpen ? t("models.editorClose") : t("btn.edit")}
+                  </button>
+                  {isCustom && isAdmin && (
                     <button
                       type="button"
-                      className={`model-chip${current === id ? " current" : ""}`}
-                      disabled={switching !== null}
-                      title={current === id ? t("models.isCurrent") : t("models.setCurrent")}
-                      onClick={() => void switchTo(id)}
+                      className="btn btn-danger-text btn-sm"
+                      disabled={busy === prefix}
+                      onClick={() => void removeProvider(prefix)}
                     >
-                      {id}
+                      {t("models.removeProvider")}
                     </button>
-                    {isAdmin && (
+                  )}
+                </span>
+              </div>
+
+              {isOpen && (
+                <div className="prov-body">
+                  <p className="prov-desc">
+                    {isCustom
+                      ? `${pv!.baseURL} · ${pv!.api}${pv!.keyMasked ? ` · ${pv!.keyMasked}` : ""}`
+                      : r.desc}
+                  </p>
+
+                  {models.length === 0 ? (
+                    <p className="muted">{t("models.noModels")}</p>
+                  ) : (
+                    <ul className="prov-models">
+                      {models.map((id) => (
+                        <li key={id} className="prov-model">
+                          <code className="prov-model-id">{id}</code>
+                          {current === id && <Badge tone="success">{t("models.currentRoute")}</Badge>}
+                          <span className="prov-model-actions">
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-mini"
+                              disabled={current === id || switching !== null}
+                              title={current === id ? t("models.isCurrent") : t("models.setCurrent")}
+                              onClick={() => void switchTo(id)}
+                            >
+                              {t("models.setCurrent")}
+                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-mini"
+                                disabled={busy !== null}
+                                title={custom.includes(id) ? t("models.delete") : t("models.disable")}
+                                onClick={() => void removeModel(id)}
+                              >
+                                {custom.includes(id) ? t("models.delete") : t("models.disable")}
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {isAdmin && (
+                    <div className="prov-addmodel">
+                      <input
+                        className="form-input"
+                        placeholder={t("models.namePh")}
+                        aria-label={t("models.addToProvider", { prefix })}
+                        value={isCustom ? newModel : draft.id}
+                        onChange={(e) =>
+                          isCustom
+                            ? setNewModel(e.target.value)
+                            : setDraft({ ...draft, id: e.target.value })
+                        }
+                      />
+                      {!isCustom && (
+                        <input
+                          className="form-input"
+                          placeholder={t("models.wirePh")}
+                          aria-label={t("models.wirePh")}
+                          value={draft.wire}
+                          onChange={(e) => setDraft({ ...draft, wire: e.target.value })}
+                        />
+                      )}
                       <button
                         type="button"
-                        className="model-chip-x"
-                        disabled={busy !== null}
-                        title={custom.includes(id) ? t("models.delete") : t("models.disable")}
-                        aria-label={`${custom.includes(id) ? t("models.delete") : t("models.disable")} ${id}`}
-                        onClick={() => void removeModel(id)}
+                        className="btn btn-primary btn-sm"
+                        disabled={adding || (isCustom ? !newModel.trim() : !draft.id.trim())}
+                        onClick={() => (isCustom ? void addModelToProvider(pv!) : void submitModel(prefix))}
                       >
-                        ×
+                        {t("models.add")}
                       </button>
-                    )}
-                  </span>
-                ))}
-              </div>
-            </Card>
+                    </div>
+                  )}
+
+                  {isAdmin && mine.length > 0 && (
+                    <div className="prov-disabled">
+                      <span className="prov-disabled-label">{t("models.disabledTitle")}</span>
+                      {mine.map((id) => (
+                        <span key={id} className="prov-disabled-chip">
+                          <code>{id}</code>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-mini"
+                            disabled={busy !== null}
+                            onClick={() => void enableModel(id)}
+                          >
+                            {t("models.enable")}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </li>
           );
         })}
-      {isAdmin && disabled.length > 0 && (
-        <Card title={t("models.disabledTitle")} description={t("models.disabledDesc")}>
-          <div className="models-list">
-            {disabled.map((id) => (
-              <span key={id} className="model-chip-wrap">
-                <span className="model-chip off">{id}</span>
-                <button
-                  className="btn btn-ghost btn-mini"
-                  disabled={busy !== null}
-                  onClick={() => void enableModel(id)}
-                >
-                  {t("models.enable")}
-                </button>
-              </span>
-            ))}
-          </div>
-        </Card>
+      </ul>
+
+      {/* The trailing ADD, as a dashed placeholder rather than a form that owns the
+          top of the page: a provider is created once and configured rarely. */}
+      {isAdmin && (
+        <div className="prov-addrow">
+          <button
+            type="button"
+            className="btn-dashed"
+            onClick={() => setOpen(open === "@new" ? null : "@new")}
+          >
+            + {t("models.addCustomProvider")}
+          </button>
+          {open === "@new" && (
+            <div className="prov-newform">
+              <p className="prov-desc">{t("models.addCustomHint")}</p>
+              <div className="prov-newgrid">
+                <label>
+                  <span>{t("models.prefix")}</span>
+                  <input
+                    className="form-input"
+                    placeholder="my/"
+                    value={newProvider.prefix}
+                    onChange={(e) => setNewProvider({ ...newProvider, prefix: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>{t("models.label")}</span>
+                  <input
+                    className="form-input"
+                    value={newProvider.label}
+                    onChange={(e) => setNewProvider({ ...newProvider, label: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>{t("models.baseUrl")}</span>
+                  <input
+                    className="form-input"
+                    placeholder="https://api.example.com/v1"
+                    value={newProvider.baseURL}
+                    onChange={(e) => setNewProvider({ ...newProvider, baseURL: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>{t("models.apiKind")}</span>
+                  <select
+                    className="form-input"
+                    value={newProvider.api}
+                    onChange={(e) => setNewProvider({ ...newProvider, api: e.target.value })}
+                  >
+                    {apis.map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>
+                    {t("models.apiKey")} <em className="muted">{t("models.keyKeep")}</em>
+                  </span>
+                  <input
+                    className="form-input"
+                    type="password"
+                    value={newProvider.apiKey}
+                    onChange={(e) => setNewProvider({ ...newProvider, apiKey: e.target.value })}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={adding || !newProvider.prefix.trim() || !newProvider.baseURL.trim()}
+                onClick={() => void submitProvider()}
+              >
+                {t("models.addCustomProvider")}
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </>
   );
 }
-
-export { channelOf };

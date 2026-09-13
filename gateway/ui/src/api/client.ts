@@ -23,6 +23,34 @@ export interface ApiResponse<T> {
   error?: { message: string };
 }
 
+
+/** A custom provider as the console sees it (server-reduced: never the raw key). */
+export interface ProviderView {
+  prefix: string;
+  label: string;
+  baseURL: string;
+  api: string;
+  models: { id: string; name?: string; contextWindow?: number; maxTokens?: number; input?: string[] }[];
+  /** Fully-qualified ids this provider contributes to /v1/models. */
+  advertised: string[];
+  /** Named Worker secret the record points at ("" when the key is inline). */
+  keyEnv: string;
+  keyMasked: string;
+  /** The credential dot: true when a key resolves in THIS deployment. */
+  keyReady: boolean;
+}
+
+/** What the add/edit form submits. Mirrors the server's parseProviderSpec. */
+export interface ProviderDraft {
+  prefix: string;
+  label?: string;
+  baseURL: string;
+  api: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  models: { id: string; name?: string; contextWindow?: number; maxTokens?: number; input?: string[] }[];
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -163,6 +191,30 @@ export const api = {
     request<{ ok: boolean }>(`/api/admin/models/${encodeURIComponent(id)}/enabled`, {
       method: "PUT",
     }),
+
+  /* ── custom PROVIDERS (admin) ──────────────────────────────────────────────
+   * A provider is the layer UNDER a model: a prefix, an endpoint, a protocol and
+   * a credential. Until these three methods existed the records were reachable
+   * only by hand-editing KV — the panel is the writer now, so every guard the
+   * server enforces (reserved prefix, non-https/private baseURL, unsupported
+   * protocol, missing key) arrives as a 4xx FROM HERE rather than as a 502 on
+   * the first request that happens to use the prefix.
+   * `keyReady` is the signal the row's credential dot renders; the inline key is
+   * never returned (the server reduces it to a mask). */
+  getProviders: () =>
+    request<{ providers: ProviderView[]; /** Wire protocols THIS build serves. */ apis: string[] }>(
+      "/api/admin/providers",
+    ),
+  addProvider: (spec: ProviderDraft) =>
+    request<{ ok: boolean; provider: ProviderView; providers: string[] }>(
+      "/api/admin/providers",
+      { method: "POST", body: JSON.stringify(spec) },
+    ),
+  deleteProvider: (prefix: string) =>
+    request<{ ok: boolean; removed: string }>(
+      `/api/admin/providers/${encodeURIComponent(prefix)}`,
+      { method: "DELETE" },
+    ),
 
   setRoute: (model: string | null) =>
     request<unknown>("/api/me/route", {

@@ -58,12 +58,33 @@ const API = {
       "gmi/MiniMaxAI/MiniMax-M3",
       "cm/deepseek/deepseek-v4.1-flash",
       "cm/meituan/LongCat-2.0:free",
+      // A custom provider's models ARE in the authoritative prefixed catalogue (the
+      // server merges them into /v1/models), so the stub must carry them too — the
+      // first version did not, and the provider row rendered "0 models" against a
+      // provider that advertises one.
+      "my/llama-3",
     ],
     apiHost: "api.saisi.online",
     routes: [
       { prefix: "og/", backend: "OpenCode Go", desc: "Primary lane", models: ["og/deepseek-v4.1-flash", "og/gpt-5.6-luna"] },
       { prefix: "or/", backend: "OpenRouter", desc: "BYOK relay", models: ["or/z-ai/glm-5.2:free"] },
       { prefix: "cm/", backend: "Command Code", desc: "Fallback", models: ["cm/deepseek/deepseek-v4.1-flash"] },
+    ],
+  },
+  "/api/admin/providers": {
+    apis: ["openai-completions"],
+    providers: [
+      {
+        prefix: "my/",
+        label: "My Provider",
+        baseURL: "https://api.example.com/v1",
+        api: "openai-completions",
+        models: [{ id: "llama-3", name: "Llama 3" }],
+        advertised: ["my/llama-3"],
+        keyEnv: "",
+        keyMasked: "sk-••••4f2a",
+        keyReady: true,
+      },
     ],
   },
   "/api/admin/password": { set: true },
