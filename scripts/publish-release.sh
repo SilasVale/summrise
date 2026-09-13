@@ -45,6 +45,26 @@ cd "$(dirname "$0")/.."
 # scripts/test/release-lib.bash pins them.
 source "scripts/lib/release-lib.sh"
 
+# The npm package directory, defined ONCE and early: the --check-modes-only entry
+# point below needs it before any guard runs, and a second literal would be the
+# "two things that must agree" shape this loop keeps closing.
+NPM_DIR=agent/vale-agent-npm
+
+# --check-modes-only: run ONLY the pack-input permission gate and exit. That gate
+# exists because `npm pack` preserves worktree modes — a 0600 file packs a tarball
+# that differs from a fresh checkout's by its tar HEADER alone, the measured cause
+# of twenty consecutive "packaging metadata" WARNs and of the 3-byte drift on the
+# 1.2.348 pair. It sits mid-chain (reconcile gate -> version -> exe timestamp ->
+# THIS), so no test could reach it; this entry point is that gate, reachable — the
+# same move --audit-only made for the dual-builder audit. The verdict prints the
+# offending file per line itself; the long explanation stays at the mid-chain call
+# site, where a publish is actually being refused, so the text is not duplicated.
+if [ "${1:-}" = "--check-modes-only" ]; then
+  pack_input_mode_verdict "$PWD" "$NPM_DIR" || exit 1
+  echo "pack input modes match a fresh checkout OK"
+  exit 0
+fi
+
 # --audit-only <ver>: (re)run the dual-builder audit against an ALREADY
 # published release, without repacking or deploying anything. This is the
 # entry point the post-publish checklist names — the asset only exists after
@@ -95,7 +115,6 @@ if [ -n "${PENDING_RECONCILE// /}" ] && [ "$ACK_UNRECONCILED" -eq 0 ]; then
   echo "  Or acknowledge:  rerun with --acknowledge-unreconciled  (this run ADDS to the ledger; it does not clear it)" >&2
   exit 1
 fi
-NPM_DIR=agent/vale-agent-npm
 ASSET_DIR=index/public/vale-agent
 PKG="$NPM_DIR/package.json"
 

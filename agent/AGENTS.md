@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 155 (round 153's step (b): the mode gate is now REACHABLE from the
+script's own entry point — `--check-modes-only` — so the state "tested but unreachable" is closed).
+Commit: scripts/ + docs. Tests: publish-release 7 checks (was 6); one mutation caught.
+  (1) WHAT WAS STILL WRONG AFTER 154: the gate had behavioural tests against the SOURCED FUNCTION, but
+  publish-release.sh's call site is mid-chain, so the script itself still could not be made to run it —
+  the exact state round 153 named. `--check-modes-only` mirrors `--audit-only`: it runs the verdict and
+  exits, before any guard.
+  (2) AND THE OBVIOUS WAY TO WRITE IT WOULD HAVE RE-CREATED THE LOOP'S FAVOURITE DEFECT: the entry point
+  needs the npm directory BEFORE the guards, while `NPM_DIR=` was defined at line 98, after three of
+  them. Hardcoding the path in the branch would have left TWO literals for one fact — "two things that
+  must agree" with nothing comparing them. So the definition MOVED UP instead, to just after the lib is
+  sourced, and there is still exactly one.
+  (3) NO MESSAGE DUPLICATION, deliberately: the entry point prints the verdict (which names the
+  offending file per line) and the mid-chain call site keeps the long `::error` explanation, so the
+  operator-facing paragraph exists once, where a publish is actually refused. The test asserts BOTH: the
+  entry point reports OK on this tree, and the sourced function still refuses a 0600 fixture by name.
+  (4) MUTATION CAUGHT: deleting the entry point turns the reachability case red.
+  (5) WHAT THIS CLOSES, AND WHAT IT DOES NOT: the mode gate is now tested AND reachable. What remains
+  uncovered is everything AFTER it — pack, stage, commit, deploy — which cannot be driven without
+  publishing, and the three unreconciled versions + stale alias that a publish would settle.
+  (6) STILL OPEN: the build path past the gate; the three unreconciled versions (1.2.362-364); the stale
+  installer alias (D4b); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 154 (round 153's design EXECUTED: the pack-input mode gate now
 lives in the tested lib and has behavioural cases — the gate whose absence caused twenty consecutive
 "packaging metadata" WARNs finally runs under a test). Commit: scripts/ + docs. Tests:

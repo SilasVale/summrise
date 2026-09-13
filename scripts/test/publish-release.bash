@@ -44,6 +44,19 @@ printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 # could reach it — which is why a gate whose absence caused twenty consecutive
 # "packaging metadata" WARNs had none. Extracted into release-lib.sh, it has
 # behavioural cases now.
+# The gate is ALSO reachable from the script's own entry point now (round 155):
+# `--check-modes-only` runs it and exits, so the assertion below can drive the
+# REAL script rather than the sourced function. Both are checked: the function for
+# behaviour, the entry point for reachability — a gate no entry point can run is
+# the state this round exists to leave.
+if out=$(bash scripts/publish-release.sh --check-modes-only 2>&1); then
+  grep -q "pack input modes match a fresh checkout OK" <<<"$out" \
+    && ok "--check-modes-only reaches the gate and reports OK" \
+    || bad "entry point ran but did not report: $(head -c 120 <<<"$out")"
+else
+  bad "--check-modes-only refused on this tree: $(head -c 200 <<<"$out")"
+fi
+
 source scripts/lib/release-lib.sh
 
 if pack_input_mode_verdict "$PWD" "agent/vale-agent-npm" >/tmp/mode.out 2>&1; then
