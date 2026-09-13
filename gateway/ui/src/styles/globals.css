@@ -2907,3 +2907,48 @@ body[data-theme="dark"] .note.tip {
   color: var(--text-secondary);
 }
 .prov-newgrid label em { text-transform: none; letter-spacing: 0; font-style: normal; }
+/* ── probe: what the upstream serves vs what we advertise ──────────────────── */
+.prov-probe {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.prov-probe-out {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.prov-probe-label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.prov-probe-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prov-probe-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+.prov-probe-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 76ch;
+}

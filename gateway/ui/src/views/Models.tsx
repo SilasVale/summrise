@@ -34,6 +34,7 @@ import {
   type RouteInfo,
   type HealthChannel,
   type ProviderView,
+  type ProbeResult,
 } from "../api/client.ts";
 import { PageHeader, Badge } from "../components/ui.tsx";
 
@@ -82,6 +83,10 @@ export default function ModelsView() {
   const [draft, setDraft] = useState({ id: "", wire: "", usEgress: false, search: false });
   const [newProvider, setNewProvider] = useState({ prefix: "", label: "", baseURL: "", api: "", apiKey: "" });
   const [newModel, setNewModel] = useState("");
+  // The probe result is keyed by prefix so a stale answer cannot be shown against a
+  // row the user has since opened.
+  const [probe, setProbe] = useState<(ProbeResult & { prefix: string }) | null>(null);
+  const [probing, setProbing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,6 +300,66 @@ export default function ModelsView() {
   const healthFor = (prefix: string) =>
     health.find((h) => h.id === prefix || h.id === prefix.replace(/\/$/, ""));
 
+  /** Ask the upstream what it serves. `checked:false` carries a REASON and is shown
+   *  as such — the server refuses to turn "could not look" into "offers nothing", and
+   *  the panel must not undo that by rendering an empty list. */
+  const runProbe = useCallback(
+    async (prefix: string) => {
+      setProbing(prefix);
+      setProbe(null);
+      try {
+        setProbe({ ...(await api.probeModels(prefix)), prefix });
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+      } finally {
+        setProbing(null);
+      }
+    },
+    [t, toast],
+  );
+
+  /** Adopt one discovered model. The probe returns PREFIXED ids, so for a built-in
+   *  channel this is a direct call to the add route. A custom provider OWNS its list,
+   *  so there the record is re-posted with the model appended — the same path the
+   *  panel's own "add a model" uses, which is why adopting cannot invent a second
+   *  write shape. */
+  const adoptModel = useCallback(
+    async (pv: ProviderView | undefined, qid: string) => {
+      setAdding(true);
+      try {
+        if (pv) {
+          const bare = qid.slice(pv.prefix.replace(/\/+$/, "").length + 1);
+          await api.addProvider({
+            prefix: pv.prefix,
+            label: pv.label,
+            baseURL: pv.baseURL,
+            api: pv.api,
+            ...(pv.keyEnv ? { apiKeyEnv: pv.keyEnv } : {}),
+            models: [
+              ...pv.models.map((m) => ({
+                id: m.id,
+                name: m.name,
+                contextWindow: m.contextWindow,
+                maxTokens: m.maxTokens,
+                input: m.input,
+              })),
+              { id: bare },
+            ],
+          });
+        } else {
+          await api.addModel({ id: qid });
+        }
+        toast(t("models.added"));
+        await load();
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+      } finally {
+        setAdding(false);
+      }
+    },
+    [load, t, toast],
+  );
+
   const total = allModels.length;
   const providerFor = (prefix: string) =>
     providers.find((p) => p.prefix.replace(/\/$/, "") === prefix.replace(/\/$/, ""));
@@ -422,6 +487,55 @@ export default function ModelsView() {
                         </li>
                       ))}
                     </ul>
+                  )}
+
+                  {isAdmin && (
+                    <div className="prov-probe">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={probing !== null}
+                        onClick={() => void runProbe(prefix)}
+                      >
+                        {probing === prefix ? t("models.probing") : t("models.probe")}
+                      </button>
+                      {probe?.prefix === prefix &&
+                        (probe.checked ? (
+                          <div className="prov-probe-out">
+                            {(probe.notAdvertised ?? []).length === 0 ? (
+                              <span className="muted">{t("models.probeNone", { prefix })}</span>
+                            ) : (
+                              <>
+                                <span className="prov-probe-label">{t("models.probeOffered")}</span>
+                                <ul className="prov-probe-list">
+                                  {(probe.notAdvertised ?? []).map((qid) => (
+                                    <li key={qid}>
+                                      <code className="prov-model-id">{qid}</code>
+                                      <button
+                                        type="button"
+                                        className="btn btn-ghost btn-mini"
+                                        disabled={adding}
+                                        onClick={() => void adoptModel(pv, qid)}
+                                      >
+                                        {t("models.probeAdopt")}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            )}
+                            {/* A CHECK, never a verdict: the router normalises names, so a
+                                raw diff reports drift that is not there. */}
+                            {(probe.notOffered ?? []).length > 0 && (
+                              <p className="prov-probe-note">
+                                {t("models.probeNotOffered")}: {(probe.notOffered ?? []).join(", ")}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="prov-probe-note">{probe.reason}</span>
+                        ))}
+                    </div>
                   )}
 
                   {isAdmin && (

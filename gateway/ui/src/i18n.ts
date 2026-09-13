@@ -340,6 +340,12 @@ const I18N = {
     "models.addToProvider": "给 {prefix} 加一个模型",
     "models.editorClose": "收起",
     "models.currentRoute": "当前路由",
+    "models.probe": "检测上游",
+    "models.probing": "检测中…",
+    "models.probeAdopt": "采纳",
+    "models.probeNone": "{prefix} 的广告列表与上游一致。",
+    "models.probeOffered": "上游提供但未广告",
+    "models.probeNotOffered": "广告了但上游没列出（仅作待查，不作结论）",
   },
   en: {
     "app.sub": "AI relay & devices",
@@ -691,6 +697,12 @@ const I18N = {
     "models.addToProvider": "Add a model to {prefix}",
     "models.editorClose": "Close",
     "models.currentRoute": "Current route",
+    "models.probe": "Probe upstream",
+    "models.probing": "Probing…",
+    "models.probeAdopt": "Adopt",
+    "models.probeNone": "{prefix} matches the upstream.",
+    "models.probeOffered": "Offered upstream, not advertised",
+    "models.probeNotOffered": "Advertised but not listed upstream (a check, not a verdict)",
   },
 } as const;
 

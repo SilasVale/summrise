@@ -40,6 +40,18 @@ export interface ProviderView {
   keyReady: boolean;
 }
 
+/** What a probe found. `notOffered` is a CHECK, never a verdict: the router
+ *  normalises names (wire remaps, `[1m]` markers), so a raw diff reports false drift. */
+export interface ProbeResult {
+  checked: boolean;
+  reason?: string;
+  endpoint?: string;
+  offered?: string[];
+  advertised?: string[];
+  notAdvertised?: string[];
+  notOffered?: string[];
+}
+
 /** What the add/edit form submits. Mirrors the server's parseProviderSpec. */
 export interface ProviderDraft {
   prefix: string;
@@ -201,6 +213,14 @@ export const api = {
    * the first request that happens to use the prefix.
    * `keyReady` is the signal the row's credential dot renders; the inline key is
    * never returned (the server reduces it to a mask). */
+  /* Ask the upstream what it serves. `checked:false` is NOT an empty catalogue —
+   * the server refuses to conflate "could not look" with "offers nothing", and the
+   * reason travels with it. `notAdvertised` comes back PREFIXED, ready to adopt. */
+  probeModels: (prefix: string) =>
+    request<ProbeResult>("/api/admin/models/probe", {
+      method: "POST",
+      body: JSON.stringify({ prefix }),
+    }),
   getProviders: () =>
     request<{ providers: ProviderView[]; /** Wire protocols THIS build serves. */ apis: string[] }>(
       "/api/admin/providers",
