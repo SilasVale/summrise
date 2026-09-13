@@ -20,7 +20,7 @@ import { listDevices, touchDeviceSeen, type Device } from "../store.ts";
 import { deviceFetch } from "../device-fetch.ts";
 import { jsonOk, jsonError, withCors } from "../http.ts";
 import { requireSession } from "../session.ts";
-import type { Plugin, PluginContext } from "./registry.ts";
+import { routeStats, type Plugin, type PluginContext } from "./registry.ts";
 
 const PLUGIN_BASE = "/api/plugins";
 
@@ -98,7 +98,10 @@ export async function cachedDeviceProbe(
 // adds the agent version + probe timestamp from the /api/status probe and a
 // `?fresh=1` cache bypass for the console's "check now" button; successful
 // probes feed touchDeviceSeen (write-bounded lastSeen/lastVersion refresh).
-async function pluginStatus(request: Request, env: any): Promise<Response> {
+/** `ctx` is OPTIONAL (round-182): it exists only to add the route statistics, so a
+ *  caller without one gets the SAME response it always got — no field, no behaviour
+ *  change. That is what keeps this an additive change instead of a signature break. */
+async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Promise<Response> {
   const fresh = new URL(request.url).searchParams.get("fresh") === "1";
   const devices = await listDevices(env);
   const out: Record<
@@ -121,7 +124,10 @@ async function pluginStatus(request: Request, env: any): Promise<Response> {
       checked_at: probe.checkedAt,
     };
   }
-  return jsonOk({ devices: out });
+  // The dead-route report (round 179's instrument, wired here in round 182). ADDITIVE:
+  // `routes` appears only when a ctx was passed, so this response keeps its old shape for
+  // any caller that has none.
+  return jsonOk({ devices: out, ...(ctx ? { routes: routeStats(ctx) } : {}) });
 }
 
 export default {
@@ -160,7 +166,7 @@ export default {
         // returns 403 "Admin only" for the same situation; this is that.
         if (!user) return jsonError(401, "Not logged in", "authentication_error");
         if (user.role !== "admin") return jsonError(403, "Admin only", "forbidden");
-        return pluginStatus(request, env);
+        return pluginStatus(request, env, ctx);
       },
     });
   },

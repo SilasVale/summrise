@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 182 (the `routeStats` wiring is DONE — round 181's single read
+confirmed the anchor EXACTLY, and the three-part change it predicted was applied as three assertions plus
+an import). Commit: gateway/ + mirror + journal. Tests: gateway 853, zero red (unchanged, as an additive
+change with no new tests should be).
+  (1) ROUND 181'S PREDICTION WAS EXACT: `pluginStatus` is defined at `mcp.ts:101` and returns
+  `jsonOk({ devices: out })` at line **124** — the very line round 181 named as "the anchor I have not yet
+  read". So the three-part change was (a) pass `ctx` at the one call site, (b) accept it in the signature,
+  (c) add the field to that object — every anchor known before the first keystroke, which is what the
+  previous two rounds' caution bought.
+  (2) THE SAFE FORM WAS CHOSEN DELIBERATELY: the third parameter is OPTIONAL and the field is spread
+  conditionally (`...(ctx ? { routes: routeStats(ctx) } : {})`), so a caller without a ctx gets the SAME
+  response it always got. That is what makes this an ADDITIVE change rather than a signature break — and
+  the grep for other callers returned exactly one line (the one being patched), so the optionality is
+  future-proofing rather than a hedge on unknown code.
+  (3) ALL FOUR EDITS WERE ANCHOR-ASSERTED BEFORE ANY WRITE — the `assert s.count(old)==1` pattern, which is
+  the direct answer to round 179's near-miss (a script that destroyed 15 tests because its guard chose a
+  path instead of guarding the write). Every anchor matched, so the patch could not half-apply; and the
+  suite confirms the count is unchanged at 853 rather than merely green, which is the check that would
+  have caught a deleted file.
+  (4) WHAT IS NOW TRUE THAT WAS NOT: the gateway's dead-route instrument is REACHABLE — `GET
+  /api/plugins/status` (admin-gated) returns `routes: [{index, hits}, …]` alongside the per-device health
+  it always returned. Round 179 built it, round 180 and 181 refused to guess at its home, and this round
+  connected it. The three rounds together are the loop's slowest useful shape: build, verify the claim,
+  correct the claim, connect.
+  (5) THE GAP I AM LEAVING, STATED PLAINLY SO IT IS NOT DISCOVERED LATER AS A SURPRISE: the new field has
+  NO TEST. `routeStats` itself has three (round 179, including the shadowed-route case), and the suite
+  covers the handler's auth arms — but nothing asserts that a ctx-carrying call ADDS `routes` or that a
+  ctx-less call omits it. That is the "a field with no assertion" shape this log has closed repeatedly,
+  and it belongs in the next round with the admin-session fixture the handler's tests already use.
+  (6) STILL OPEN: that test; `models-probe.ts` + `model-route.ts`; `agent/src/plugins/playwright/helper.js`;
+  the three `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 181 (round 180's de-risking CORRECTED one level deeper: `ctx` IS in
 scope in the handler, but the response is built one function further down, so the wiring is a three-part
 change — and I stopped again rather than start a diff I could not finish and verify). Commit: journal.
