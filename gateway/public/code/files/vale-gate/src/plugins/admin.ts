@@ -209,9 +209,24 @@ async function adminModelState(request: Request, env: Env): Promise<Response> {
   const gate = await requireAdmin(request, env);
   if (gate instanceof Response) return gate;
 
+  const custom = await customModels(env);
   return jsonOk({
-    custom: (await customModels(env)).map((m) => m.id),
+    custom: custom.map((m) => m.id),
     disabled: [...(await disabledModels(env))],
+    // WHAT EACH CONSOLE-OWNED MODEL DECLARES. Without this the panel could set a
+    // display name, a capacity and a reasoning default and then never show them
+    // again — declaring without seeing is how a value silently disappears.
+    facets: Object.fromEntries(
+      custom.map((m) => [
+        m.id,
+        {
+          ...(m.name ? { name: m.name } : {}),
+          ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
+          ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+          ...(m.reasoningEffort ? { reasoningEffort: m.reasoningEffort } : {}),
+        },
+      ]),
+    ),
   });
 }
 

@@ -2971,3 +2971,12 @@ body[data-theme="dark"] .note.tip {
   text-transform: uppercase;
   color: var(--text-secondary);
 }
+
+/* What a model declares, shown in its own row: display and discovery only, which is
+   why these and not wire/us-egress appear here. */
+.prov-model-facets {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}

@@ -113,6 +113,8 @@ export interface ProviderModel {
   /** Declared limits, advertised on /v1/models as context_window/max_tokens. */
   contextWindow?: number;
   maxTokens?: number;
+  /** Default reasoning effort when the client sends none. */
+  reasoningEffort?: "low" | "medium" | "high" | "max";
 }
 
 /** A custom provider record (one `providers:custom` entry). */
@@ -316,7 +318,7 @@ export interface ProviderParseError {
   status: number;
 }
 
-const MODEL_FIELDS = ["id", "name", "input", "contextWindow", "maxTokens"];
+const MODEL_FIELDS = ["id", "name", "input", "contextWindow", "maxTokens", "reasoningEffort"];
 
 /** `input` values this gateway understands; anything else is refused rather
  *  than stored-and-ignored. */
@@ -360,6 +362,15 @@ function parseProviderModel(raw: any, at: number): { model?: ProviderModel; erro
     // A model that declares image input must NOT have its images described by
     // the gateway's vision model (preprocessImages) — it can see them itself.
     if (raw.input.map(String).includes("image")) model.vision = true;
+  }
+  // The reasoning DEFAULT, on the same terms as a console-added record: a level the
+  // router cannot speak is refused BY NAME here rather than dropped, because a typo
+  // that silently means "no default" is a behaviour change nobody can see.
+  if (raw.reasoningEffort !== undefined) {
+    const lv = String(raw.reasoningEffort).trim();
+    if (!["low", "medium", "high", "max"].includes(lv))
+      return { error: `${where}.reasoningEffort must be one of low, medium, high, max` };
+    model.reasoningEffort = lv as "low" | "medium" | "high" | "max";
   }
   for (const cap of ["contextWindow", "maxTokens"] as const) {
     const v = raw[cap];

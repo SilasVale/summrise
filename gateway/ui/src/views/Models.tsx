@@ -35,6 +35,7 @@ import {
   type HealthChannel,
   type ProviderView,
   type ProbeResult,
+  type ModelFacets,
 } from "../api/client.ts";
 import { PageHeader, Badge } from "../components/ui.tsx";
 
@@ -74,6 +75,9 @@ export default function ModelsView() {
   // Non-admins never get the data — the routes are admin-gated too.
   const [custom, setCustom] = useState<string[]>([]);
   const [disabled, setDisabled] = useState<string[]>([]);
+  // What a console-owned model DECLARES. Declaring without ever showing it again is how
+  // a value silently disappears from an operator's view of their own catalogue.
+  const [facets, setFacets] = useState<Record<string, ModelFacets>>({});
   const [busy, setBusy] = useState<string | null>(null);
   // ONE OPEN EDITOR AT A TIME, keyed by prefix. Two open editors would mean two
   // half-typed drafts and two save paths on one screen; the harness models the
@@ -118,10 +122,14 @@ export default function ModelsView() {
       } else setFailed(true);
       // Best-effort: the page is fully usable read-only, so a 403 here means
       // "no admin controls" rather than an error worth showing.
-      void api.getModelState().then((st) => {
-        setCustom(st.custom || []);
-        setDisabled(st.disabled || []);
-      }).catch(() => {});
+      void api
+        .getModelState()
+        .then((st) => {
+          setCustom(st.custom || []);
+          setDisabled(st.disabled || []);
+          setFacets(st.facets || {});
+        })
+        .catch(() => {});
       void api
         .getProviders()
         .then((r) => {
@@ -395,6 +403,21 @@ export default function ModelsView() {
   );
 
   const total = allModels.length;
+  /** The declared facets of a model, from whichever store owns the declaration. */
+  const facetsOf = (id: string, pv?: ProviderView): ModelFacets | null => {
+    const own = facets[id];
+    if (own) return own;
+    const bare = id.slice(id.indexOf("/") + 1);
+    const m = pv?.models.find((x) => x.id === bare);
+    if (!m) return null;
+    return {
+      name: m.name,
+      contextWindow: m.contextWindow,
+      maxTokens: m.maxTokens,
+      reasoningEffort: m.reasoningEffort,
+    };
+  };
+
   const providerFor = (prefix: string) =>
     providers.find((p) => p.prefix.replace(/\/$/, "") === prefix.replace(/\/$/, ""));
 
@@ -504,6 +527,22 @@ export default function ModelsView() {
                       {models.map((id) => (
                         <li key={id} className="prov-model">
                           <code className="prov-model-id">{id}</code>
+                          {/* What the model declares, in the row that owns it. Only the
+                              facets a model MAY own appear here — never wire/us-egress,
+                              which are routing semantics and live in the registry. */}
+                          {(() => {
+                            const f = facetsOf(id, pv);
+                            if (!f) return null;
+                            const bits = [
+                              f.name,
+                              f.contextWindow ? `${f.contextWindow} ctx` : "",
+                              f.maxTokens ? `${f.maxTokens} out` : "",
+                              f.reasoningEffort ? `effort ${f.reasoningEffort}` : "",
+                            ].filter(Boolean);
+                            return bits.length ? (
+                              <span className="prov-model-facets">{bits.join(" · ")}</span>
+                            ) : null;
+                          })()}
                           {current === id && <Badge tone="success">{t("models.currentRoute")}</Badge>}
                           <span className="prov-model-actions">
                             <button

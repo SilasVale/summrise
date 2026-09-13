@@ -662,3 +662,52 @@ test("EFFORT: an unknown level is refused by name rather than silently dropped",
   assert.equal(res.status, 400);
   assert.match(String(res.body?.error?.message ?? ""), /reasoningEffort/);
 });
+
+test("FACETS: what a model declares comes back to the panel that declared it", async () => {
+  // The round trip matters as much as the write: a console that can set a display name,
+  // a capacity and a reasoning default and then never show them again loses the value
+  // from the operator's view while keeping it in the record.
+  const { call, json } = await harness();
+  await json(
+    await call("POST", "/api/admin/models", {
+      body: {
+        id: "og/described",
+        name: "Described",
+        contextWindow: 128000,
+        maxTokens: 4096,
+        reasoningEffort: "medium",
+      },
+    }),
+  );
+  const st = await json(await call("GET", "/api/admin/models"));
+  assert.equal(st.status, 200);
+  assert.deepEqual(st.body.facets["og/described"], {
+    name: "Described",
+    contextWindow: 128000,
+    maxTokens: 4096,
+    reasoningEffort: "medium",
+  });
+});
+
+test("FACETS: an unsupported field on a PROVIDER model is still refused by name", async () => {
+  // The allowlist is what keeps routing semantics out of the form. A field that is not
+  // on it must be refused rather than dropped, or an operator could set `wire` here and
+  // believe it took effect.
+  const { call, json } = await harness();
+  const res = await json(
+    await call("POST", "/api/admin/providers", {
+      body: {
+        prefix: "bad/",
+        baseURL: "https://api.example.com",
+        api: "openai-completions",
+        // The key is required BEFORE the models are parsed, and the refusal names it —
+        // which is why this test has to supply one to reach the allowlist at all.
+        apiKey: "sk-xxxxxxxx",
+        models: [{ id: "m1", wire: "sneaky" }],
+      },
+    }),
+  );
+  assert.equal(res.status, 400, `want 400, got ${res.status}: ${JSON.stringify(res.body)}`);
+  const msg = JSON.stringify(res.body);
+  assert.match(msg, /unsupported field/i, `the refusal must NAME the field: ${msg}`);
+});

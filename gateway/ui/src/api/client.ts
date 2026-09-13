@@ -30,7 +30,14 @@ export interface ProviderView {
   label: string;
   baseURL: string;
   api: string;
-  models: { id: string; name?: string; contextWindow?: number; maxTokens?: number; input?: string[] }[];
+  models: {
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+    reasoningEffort?: string;
+    input?: string[];
+  }[];
   /** Fully-qualified ids this provider contributes to /v1/models. */
   advertised: string[];
   /** Named Worker secret the record points at ("" when the key is inline). */
@@ -38,6 +45,15 @@ export interface ProviderView {
   keyMasked: string;
   /** The credential dot: true when a key resolves in THIS deployment. */
   keyReady: boolean;
+}
+
+/** The display/discovery facets a model may declare (never routing semantics). */
+export interface ModelFacets {
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  /** Default when the client sends none; the client's own value always wins. */
+  reasoningEffort?: string;
 }
 
 /** What a probe found. `notOffered` is a CHECK, never a verdict: the router
@@ -52,6 +68,16 @@ export interface ProbeResult {
   notOffered?: string[];
 }
 
+/** One model inside a provider record. */
+export interface ProviderModelDraft {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoningEffort?: string;
+  input?: string[];
+}
+
 /** What the add/edit form submits. Mirrors the server's parseProviderSpec. */
 export interface ProviderDraft {
   prefix: string;
@@ -60,7 +86,14 @@ export interface ProviderDraft {
   api: string;
   apiKey?: string;
   apiKeyEnv?: string;
-  models: { id: string; name?: string; contextWindow?: number; maxTokens?: number; input?: string[] }[];
+  models: {
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+    reasoningEffort?: string;
+    input?: string[];
+  }[];
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -183,7 +216,13 @@ export const api = {
   // Route
   getRoute: () => request<{ model?: string; effective?: string }>("/api/me/route"),
   // ── Model catalogue (admin) — the catalogue is DATA now, not compiled code ──
-  getModelState: () => request<{ custom: string[]; disabled: string[] }>("/api/admin/models"),
+  getModelState: () =>
+    request<{
+      custom: string[];
+      disabled: string[];
+      /** What each CONSOLE-OWNED model declares, by id. */
+      facets?: Record<string, ModelFacets>;
+    }>("/api/admin/models"),
   addModel: (spec: {
     id: string;
     ownedBy?: string;
