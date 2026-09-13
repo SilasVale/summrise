@@ -563,6 +563,100 @@ Commit: bd2a12d3. Tests: extension 10 (was 9), four mutations caught.
   D1-D13; CHARTER-1 (the user); the dead-agent revival window (the user); the restart mystery
   (instruments doubled).
 
+Last updated: 2026-09-14 round 120 (THE DISCOVERY ROUND: four read-only scouts on surfaces no
+round had audited — the extension, the agent's `design` plugin, proxies/vrelay, the release
+machinery — ~45 findings, TWO HIGHs fixed here, one of them LIVE-CONFIRMED and deployed).
+Commits: f4360a97 (agent), 2bc7b59f (proxies), 3093a542 (the ledger + docs cadence).
+Gates: agent 616 lib (+3) + features + clippy -D warnings + fmt + xwin; vrelay 56 (+2), deployed.
+  (1) THE VRELAY HOST ESCAPE (HIGH, live-confirmed, FIXED+DEPLOYED+VERIFIED). `validPath` accepted
+  `//evil.example/x` and `new URL("//evil.example/x", "https://github.com")` resolves to
+  `https://evil.example/x` — a protocol-relative path REPLACES the origin — while `git.ts`
+  forwards the caller's `authorization` by design. Before: `curl https://v.saisi.online/api/git//
+  example.com/` → **200 with Example Domain's HTML**. After the deploy: all three escape forms
+  (git, github, and the info/refs spelling) answer **400**, the legitimate route still answers 200
+  (229,491 bytes), and the keyless 401 gate is intact. Two layers now: the shape check refuses
+  `//` raw AND percent-encoded, and every handler composes its upstream URL through a guard that
+  asserts the RESOLVED ORIGIN. The guard is duplicated in three standalone modules by necessity
+  (the bundle is flat), so a test pins the three copies BYTE-IDENTICAL — three copies of a check
+  is how this codebase loses one of them.
+  (2) `page_view` STOPPED LYING ABOUT WHAT IT FETCHED (design plugin, HIGH+MED). A non-2xx was
+  returned as the page — a 404/500, or the 530 page d1's tunnel served for days, arrived as
+  `content` with `truncated:false`. Its token redactor walked the literal `__PANEL_TOKEN__` and
+  replaced whatever sat between the next two quotes: measured on the shipped bundle,
+  `page_view(page="panel-js")` returned 613,677 bytes for a 613,667-byte file — a SILENT SEMANTIC
+  EDIT of the source the tool exists to show — while `{"__PANEL_TOKEN__":"tok"}` came back with
+  the value INTACT. Redaction is by VALUE now (the token is plumbed in), the pattern walk survives
+  only as the fallback, the result reports `redactions`, and four more lies are closed: the
+  description no longer advertises a "remote host" the gate refuses, the port defaults to the
+  CONFIGURED one (18080 read a stranger's service on a custom-port install), the read is bounded
+  (not just the return), and redirects are not followed past the loopback gate. One VACUOUS
+  assertion replaced: `content.is_char_boundary(content.len())` is true for EVERY `&str` and could
+  never fail; the CJK hazard is now asserted where it can fail.
+  (3) THE LEDGER'S `unseen` MARK WAS WRONG, AND IT WAS MINE. The `design` plugin was audited in
+  round-383 (its page TABLE — the HTTP layer above had never been looked at), and my round-119
+  line said "the ledger still lists unseen surfaces … the agent's design plugin". That is the
+  SECOND round running where an inherited mark proved stale, and the first where the claim was
+  mine rather than an earlier round's. The scouts' STEP 0 (grep the round log for the surface,
+  report the hits) is what settles it, and every scout now does it before auditing.
+  (4) THE SYSTEMIC FINDING BEHIND THE HIGH: **CI does not run the vrelay tests** — it runs both
+  Cloudflare workers' suites and only `node --check`s these handlers (`.github/workflows/ci.yml`).
+  That is why a host escape lived through seven rounds of "gate" work on those exact files. It is
+  recorded as the reason, not an excuse, and it is finding D-something in the ledger.
+  (5) THE OTHER TWO SURFACES, RECORDED NOT FIXED (the ledger carries all ~45 with file:line):
+  * extension (X1-X8): a HIGH — rewriting React-owned text nodes freezes DSH's streamed replies
+  and can throw in React's commit phase, while the README claims the opposite; and no allowlist on
+  the linked folder, so any chat text mints a one-click link into `.ssh`/`.dsh` inside the
+  already-authenticated IDE session.
+  * release machinery (D1-D13): three HIGHs — `--skip-reconcile`'s refusal guard is neutralized by
+  `|| true`, so a missing GitHub token reads as "first publish" and the P0 audit is skipped while
+  the run reports success; an unexplained tarball difference is a PASS; and the tag/release/audit
+  stage is printed text rather than code, so nothing can fail because it never happened. Plus the
+  installer's CDN fallback npm-installing an UNVERIFIED tgz.
+  (6) d1, READ-ONLY EXCEPT ONE REVERSIBLE SWITCH: the Task Scheduler operational log was DISABLED,
+  so the "restarted every 1-2 h" mystery had no history to read; it is enabled now (`wevtutil sl
+  Microsoft-Windows-TaskScheduler/Operational /e:true`, verified `enabled: true`, 10 MB cap), so
+  the next restart arrives with a timestamp and a trigger. Measured at 01:37:02: `started=
+  1789317807 last=1789320989 exited=0`, process StartTime 00:43:27 → **53m35s of uninterrupted
+  uptime**, INSIDE the old 1-2 h window, so it proves nothing yet.
+  (7) STILL OPEN: everything above that was recorded and not fixed; CHARTER-1 (the user); the
+  dead-agent revival window (the user); the restart mystery (instrument now doubled).
+
+Last updated: 2026-09-14 round 119 (the console never told a first-run operator what to do — and the
+hint that fixes it has to stay QUIET for an operator whose credentials live somewhere the key
+matrix cannot see). DEPLOYED. No agent/release change.
+Commit: 07225ef8 + 92f456c4. `vale-gate` version
+`3187a717-f35d-48e3-a0d3-16eb9624a0b4`; console bundle `index-CR3KX755.js`; gateway suite 848,
+console 11, `smoke:overview` 8 checks.
+  (1) F10, the last item of round 105's list. A fresh deployment landed on four zeroes and nothing
+  said which action came first. The Overview now carries a "Start here" card with two lines — add
+  a channel key (→ /keys) and register a device (→ /devices) — each rendered only while its own
+  precondition holds.
+  (2) THE HONESTY RULE, which is the whole reason this was worth a round rather than an afternoon:
+  "0/8 keys" is NOT "no credentials". A CUSTOM PROVIDER's record carries its own key and
+  `keyReady` is that key resolving here, so the key line additionally requires the provider read
+  to have SUCCEEDED and to name no ready provider. The page already states this discipline for its
+  tiles (`null` = not read or the read FAILED, never `[]`) and the hint is the one element that
+  makes a claim about what is MISSING — so it is the one that must not guess. Same for devices:
+  a failed read renders nothing rather than "no devices yet".
+  (3) EVIDENCE: `smoke:overview` mounts the built bundle three times — fresh (both lines and both
+  links), configured (NO card), and 0/8 keys WITH a ready provider (no key line). 8 checks.
+  (4) A HOLE IN MY OWN MUTATION RUNNER, found by the mutations that "passed". Two of them did not
+  compile (`providers` became unread → TS6133) and my runner piped the build into /dev/null, so
+  the harness exercised the PREVIOUS bundle and reported success. That is round 101's "source →
+  build → shoot, in that order" in a new place, and it means A MUTATION THAT CANNOT BUILD LOOKS
+  EXACTLY LIKE A TEST THAT CANNOT FAIL. The runner now hard-fails on a build error and prints the
+  TS line. Re-run with compiling mutations: ignoring `keyReady` fails scene 3, forcing `noKeys`
+  false fails scene 1, letting the device line render with devices present fails scene 2 — and the
+  non-compiling one is now reported as a build failure instead of a pass.
+  (5) DEPLOYED AND VERIFIED: `api.saisi.online/assets/index-CR3KX755.js` is byte-identical to the
+  local build (`cmp`, 330,805 bytes) and `index.html` serves that hash.
+  (6) THE STANDING LIST IS NOW CLEAR OF OFFLINE WORK. Round 105's leftovers are all closed (b2 +
+  F6/F7/F8 in 117, F9 in 118, F10 here), and what remains waits on someone: CHARTER-1 on the user,
+  the dead-agent revival on a maintenance window, the restart mystery on the next boot. So the
+  next rounds go to the DISCOVERY track the protocol describes — the ledger still lists `unseen`
+  surfaces (the extension, the agent's `design` plugin, brand) and `partial` ones (proxies, the
+  deploy PowerShell, CI).
+
 Previous round: 2026-09-14 round 118 (the console offered Edit and Delete on a model the CONFIG FILE
 declares — both answered 200 and the next deploy silently reverted them; the panel had the words
 for this and never the per-ID facts). DEPLOYED. No agent/release change.

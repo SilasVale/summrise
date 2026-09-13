@@ -116,6 +116,12 @@ Pull skills when they fit: `codebase-design`, `domain-modeling`, `prototype`,
 ## Round record (before ending a round)
 
 1. `agent/AGENTS.md`: replace the `Last updated` line and append the round entry — date, round N, one-line verdict, commits, numbered points with evidence and tests, gate numbers, deploy/verify state, `STILL OPEN`.
+   THEN VERIFY THE CHAIN before committing: every round from the head down must still be
+   present (`grep -c '^Last updated: \|^Previous round: '` and read the round numbers). An edit
+   whose range is "from the head to the marker below it" silently DELETES the round that was
+   between them — round 121 lost rounds 119 and 120 that way, and both had to be restored from
+   git. The journal is the only memory that survives a round; a hole in it is not recoverable
+   by the next round.
 2. `docs/agents/iteration-coverage.md`: update the surface row and open items.
 3. Every 10 rounds: the design review from `docs/CHARTER.md`.
 
