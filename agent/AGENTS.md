@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 179 (the dead-route report is BUILT — round 177's design (a),
+implemented with ZERO registration-site changes — and the round nearly shipped a green suite that had
+silently LOST fifteen tests. The count caught it; the colour did not). Commit: gateway/ + mirror +
+journal. Tests: gateway 853 = 850 + 3, zero red.
+  (1) THE INSTRUMENT, BUILT THE WAY ROUND 177 SAID IT HAD TO BE: `PluginRoute.hits` is OPTIONAL and
+  initialised LAZILY inside `dispatch`, so none of the ~20 bare `{match, handler}` push sites changed.
+  A required field would have forced every one of them to edit — and a counter that needs 20 edits to
+  exist is a counter that will drift, which is the same reasoning as D14 (make the instrument impossible
+  to forget, rather than documented for each caller). `dispatch` increments ONLY the route that actually
+  serves, so a shadowed route's counter stays at zero — which IS the signal. `routeStats(ctx)` returns
+  `{index, hits}[]`: the index is the only identifier routes have, and that is a deliberate consequence
+  of not renaming 20 call sites.
+  (2) WHY THIS AND NOT A DUPLICATE CHECK, RESTATED BECAUSE IT IS THE POINT: `match` is a PREDICATE, so
+  two routes can overlap partially and no static comparison finds it — counting what actually happened
+  catches overlap that no static check can, and it reports reality instead of a model of it. That is the
+  choice this framework already made twice (`requireApi` throws, a dependency cycle throws).
+  (3) THE THREE TESTS PIN THE SHAPES THAT MATTER: a served route counts and an unmatched one stays zero;
+  a SHADOWED route (second registration of the same method+path) is reported at zero, which is the
+  finding the instrument exists for; and a bare `{match, handler}` literal — no `hits` field anywhere —
+  is counted from zero, which pins the lazy-init contract so a future required field would fail loudly.
+  (4) AND THE ROUND'S REAL LESSON, WHICH IS ABOUT MY OWN INSTRUMENT: I wrote a script whose guard
+  `if not os.path.exists(A): p = B` chose a fallback path and then wrote to `p` UNCONDITIONALLY. `A`
+  existed, so `p` stayed `A` — and the write destroyed ~15 passing tests in `registry.test.mjs`
+  (**-229 lines**), leaving the suite GREEN at 838. **The colour said success; the COUNT said 12 tests
+  had vanished.** I only noticed because this loop compares counts after test changes (rounds 147/156/164
+  established the habit) — and the recovery was one `git checkout`, verified by the count returning to
+  850 + 3 = 853. A guard that does not guard: the same "two things that must agree with nothing
+  comparing them" shape this log has closed a dozen times, committed by me, in a script written to
+  protect the suite.
+  (5) STILL OPEN: WIRING `routeStats` TO A SURFACE — it is deliberately not exposed yet, because an
+  endpoint or an admin field is a contract change and the instrument's own reader needs a decision
+  (the console's plugins page is the obvious home; agent `/api/plugins/status` is the precedent);
+  `models-probe.ts` + `model-route.ts`; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 178 (**D14 CLOSED — and it corrected my own earlier proposal on the
 way**: the "one-line equality check" rounds 174/175 proposed could not have worked as stated, because one
 call site passed a fresh wrapper whose identity is never equal). Commit: gateway/ + mirror + ledger +

@@ -39,6 +39,15 @@ export interface PluginHelpers {
 export interface PluginRoute {
   match: (method: string, path: string) => boolean;
   handler: (...args: any[]) => any;
+  /**
+   * Times this route has been the FIRST match. Written by `dispatch`, read by
+   * `routeStats`. OPTIONAL and initialised lazily ON PURPOSE (round-179): routes are
+   * pushed as bare `{match, handler}` literals at ~20 sites, so a required field would
+   * have forced every one of them to change — and a counter that needs 20 edits to exist
+   * is a counter that will drift. This is the same reasoning as the deps check (D14):
+   * make the instrument IMPOSSIBLE to forget rather than documented for each caller.
+   */
+  hits?: number;
 }
 
 /** Cross-plugin event emitter (fire-and-forget listeners). */
@@ -142,9 +151,36 @@ export function dispatch(
   ...rest: unknown[]
 ): any {
   for (const r of ctx.routes) {
-    if (r.match(method, path)) return r.handler.apply(null, rest as any[]);
+    // count only the route that actually SERVES the request (first match wins), so a
+    // shadowed route's counter stays where it was — which is the signal.
+    if (r.match(method, path)) {
+      r.hits = (r.hits ?? 0) + 1;
+      return r.handler.apply(null, rest as any[]);
+    }
   }
   return null;
+}
+
+/**
+ * Dead-route report (round-179; the instrument round 177 designed). Every route that has
+ * never been the first match for any request is returned with its registration INDEX,
+ * because routes are anonymous `{match, handler}` literals at ~20 sites and the index is
+ * the only identifier that exists without changing them (round 177: the helper form
+ * covers 3 of ~20, so naming routes through it would have measured a fifth of the
+ * surface).
+ *
+ * WHY THIS AND NOT A DUPLICATE CHECK: `match` is a PREDICATE, so two routes can overlap
+ * partially and no static string comparison finds it. Counting what actually happened
+ * catches overlap that no static check can, and it reports reality instead of a model of
+ * it — the same choice this framework already made twice (`requireApi` throws, a
+ * dependency cycle throws).
+ *
+ * A route with a LOW count is weak evidence (it may be rare); a route with ZERO is the
+ * finding. The index is stable for the life of the isolate because registration happens
+ * once, in `setup`.
+ */
+export function routeStats(ctx: PluginContext): { index: number; hits: number }[] {
+  return ctx.routes.map((r, index) => ({ index, hits: r.hits ?? 0 }));
 }
 
 /** Convenience: register a prefix-matched route on the context. */
