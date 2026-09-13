@@ -117,3 +117,24 @@ test("one-liners: provider injected, reasoning defaulted but respected", () => {
   const kept = '{"model":"ox/y","reasoning":{"effort":"low"}}';
   assert.equal(rawWithOxAlphaReasoningDefault(kept), kept, "client-sent reasoning untouched");
 });
+
+/* ---- B1 (round 168): the walk ceiling, and truncation reported as such ---- */
+
+test("rawWithDeepSeekProvider: a provider field BEYOND the ceiling is left alone, not duplicated", () => {
+  // 2 MiB + padding, so the field sits past MAX_SCAN_BYTES. Pre-fix this took
+  // the append arm and produced a body with TWO top-level "provider" keys.
+  const filler = "x".repeat(2 * 1024 * 1024 + 64);
+  const body = `{"messages":["${filler}"],"provider":{"order":["openai"]}}`;
+  const out = rawWithDeepSeekProvider(body);
+  assert.equal(out, body, "a truncated scan must not append a duplicate key");
+  assert.equal((out.match(/"provider"/g) || []).length, 1, "exactly one provider key survives");
+});
+
+test("rawWithDeepSeekProvider: a provider field WITHIN the ceiling is still replaced in place", () => {
+  const filler = "x".repeat(2 * 1024 * 1024 + 64);
+  const body = `{"provider":{"order":["openai"]},"messages":["${filler}"]}`;
+  const out = rawWithDeepSeekProvider(body);
+  assert.match(out, /"provider":\{"order":\["deepseek"\]/);
+  assert.equal((out.match(/"provider"/g) || []).length, 1, "still exactly one provider key");
+  assert.ok(out.length > 2 * 1024 * 1024, "the rest of the body is preserved");
+});

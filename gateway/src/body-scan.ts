@@ -9,10 +9,17 @@
  * Extracted from index.js (2026-08-12).
  *
  * NO app-level body size limit (round-61): passthrough routes never parse
- * the body, and the scans are bounded by design (2MB sampling window +
- * cheap indexOf image scan) — rejecting large bodies broke legitimate
- * 1M-context requests. The platform's own request-body ceiling is the only
- * bound.
+ * the body, and every scan here is bounded — rejecting large bodies broke
+ * legitimate 1M-context requests. The platform's own request-body ceiling is
+ * the only bound. Each bound is named where it applies (B1, round 168: this
+ * sentence previously claimed "the scans are bounded by design" while
+ * scanTopLevelField had no bound at all):
+ *   - scanTopLevelModel   -> MAX_SCAN_BYTES (2 MiB), a walk ceiling
+ *   - scanTopLevelField   -> MAX_SCAN_BYTES, and it REPORTS truncation so its
+ *                            caller never mistakes "did not finish looking"
+ *                            for "not present"
+ *   - countBase64Payloads -> rounds >= 512 after "data":" + indexOf hops
+ *   - estimateTextTokens  -> ESTIMATE_SAMPLE (128K chars) head sample
  */
 
 // stage-n body-scan audit (HIGH): cap the char-by-char model scan at a
@@ -40,9 +47,14 @@ export function rawWithModel(
 
 /** Force a top-level JSON object field without parsing the full request body. */
 export function rawWithTopLevelField(raw: string, field: string, value: unknown): string {
-  const found = scanTopLevelField(raw, field);
+  const scan = scanTopLevelField(raw, field);
   const encoded = JSON.stringify(value);
-  if (found) return raw.slice(0, found.valueStart) + encoded + raw.slice(found.valueEnd);
+  if (scan.found) return raw.slice(0, scan.found.valueStart) + encoded + raw.slice(scan.found.valueEnd);
+  // B1 (round 168): appending is only safe when the scan actually FINISHED.
+  // Past the ceiling we cannot prove the field is absent, and appending would
+  // put a SECOND `provider`/`reasoning` key on the body — a different defect
+  // from the CPU one this cap exists to prevent. Unchanged is the fail-safe.
+  if (scan.truncated) return raw;
   const close = raw.lastIndexOf("}");
   if (close < 0) return raw;
   const before = raw.slice(0, close).trimEnd();
@@ -50,13 +62,23 @@ export function rawWithTopLevelField(raw: string, field: string, value: unknown)
   return before + separator + JSON.stringify(field) + ":" + encoded + raw.slice(close);
 }
 
-function scanTopLevelField(
-  raw: string,
-  field: string,
-): { valueStart: number; valueEnd: number } | null {
+/** Result of a top-level field scan. `truncated` distinguishes "the body was
+ *  walked to the end and the field is absent" from "the walk hit its CPU
+ *  ceiling and we do not know" — the two have DIFFERENT safe answers in
+ *  rawWithTopLevelField, and conflating them is what B1 was. */
+type FieldScan =
+  | { found: { valueStart: number; valueEnd: number }; truncated: false }
+  | { found: null; truncated: boolean };
+
+function scanTopLevelField(raw: string, field: string): FieldScan {
+  // B1 (round 168): same ceiling as scanTopLevelModel. This walk is the MORE
+  // expensive of the two (it tracks nested values), and on a multi-MB body
+  // it was the one path in this module with no CPU bound at all.
+  const n = Math.min(raw.length, MAX_SCAN_BYTES);
+  const truncated = n < raw.length;
   let depth = 0;
   let i = 0;
-  while (i < raw.length) {
+  while (i < n) {
     if (raw[i] === '"') {
       const start = i++;
       while (i < raw.length) {
@@ -70,7 +92,7 @@ function scanTopLevelField(
         const valueStart = i;
         let braces = 0;
         let inString = false;
-        while (i < raw.length) {
+        while (i < n) {
           const c = raw[i];
           if (inString) {
             if (c === "\\") i += 2;
@@ -94,7 +116,7 @@ function scanTopLevelField(
         }
         let valueEnd = i;
         while (valueEnd > valueStart && /\s/.test(raw[valueEnd - 1]!)) valueEnd--;
-        return { valueStart, valueEnd };
+        return { found: { valueStart, valueEnd }, truncated: false };
       }
       continue;
     }
@@ -102,7 +124,7 @@ function scanTopLevelField(
     else if (raw[i] === "}") depth--;
     i++;
   }
-  return null;
+  return { found: null, truncated };
 }
 
 export function rawWithDeepSeekProvider(raw: string): string {
@@ -113,7 +135,9 @@ export function rawWithDeepSeekProvider(raw: string): string {
  *  "reasoning" field as-is; only when absent default it to effort=max.
  *  (2026-08-22: was an unconditional max override — clients had no say.) */
 export function rawWithOxAlphaReasoningDefault(raw: string): string {
-  if (scanTopLevelField(raw, "reasoning")) return raw;
+  // A truncated scan counts as "possibly present": defaulting effort=max when
+  // the client may have sent its own reasoning field is the wrong way to fail.
+  if (scanTopLevelField(raw, "reasoning").found) return raw;
   return rawWithTopLevelField(raw, "reasoning", { effort: "max" });
 }
 

@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 168 (B1 FIXED: the CPU ceiling now applies to BOTH scanners, and the
+two meanings of "not found" are separated — the fix is small but its shape is the loop's oldest one).
+Commit: gateway/ + mirror + journal. Tests: gateway 848 -> 850 (two new), zero red.
+  (1) THE FIX, AND WHY IT IS NOT JUST `Math.min`: adding the cap alone would have traded a CPU defect for
+  a CORRECTNESS one, because `rawWithTopLevelField` has two arms — replace-in-place when the scan finds
+  the field, APPEND-at-the-last-`}` when it does not. A capped scan can fail to find a field that IS
+  there, so those two meanings had to be separated: `scanTopLevelField` now returns
+  `{found, truncated}`, and the append arm refuses when `truncated`. Past the ceiling we cannot prove
+  absence, so the body is returned UNCHANGED — the fail-safe, and the difference between "not present"
+  and "did not finish looking" is exactly what B1 was.
+  (2) THE SECOND CALLER BENEFITS FOR THE SAME REASON: `rawWithOxAlphaReasoningDefault` returned early on
+  a truthy scan (`if (scanTopLevelField(raw, "reasoning")) return raw`), which conflated the same two
+  cases. It now asks `.found` explicitly and documents the choice: defaulting effort=max when the client
+  may have sent its own reasoning field is the wrong way to fail.
+  (3) THE HEADER NO LONGER LIES, WHICH WAS HALF THE FINDING: its "the scans are bounded by design" is
+  replaced by a list naming EACH bound where it applies — `scanTopLevelModel` and `scanTopLevelField` at
+  `MAX_SCAN_BYTES`, `countBase64Payloads` by its >=512-run + indexOf rule, `estimateTextTokens` by
+  `ESTIMATE_SAMPLE` — with the B1 note recording what the sentence used to claim. A claim set that names
+  its mechanisms can be checked; one that says "by design" cannot.
+  (4) THE TWO TESTS ARE THE FALSIFIABLE HALVES, and both are new behaviour rather than restatements: a
+  `provider` field BEYOND the ceiling is left alone with exactly ONE provider key in the output (pre-fix
+  it took the append arm and produced two); the SAME body with the field WITHIN the ceiling is still
+  replaced in place with the rest of the body preserved. The pair pins the boundary from both sides —
+  the shape rounds 160/163 established for assertions, applied to a hot path.
+  (5) AND THE SUITE CAUGHT MY OWN OBLIGATION BEFORE I DID: the only red was `code viewer: the tracked
+  mirror matches what src/ would publish` — the documented rule that gateway `src` changes require
+  `bash gateway/scripts/sync-code-viewer.sh`. That is round 139's lesson working exactly as designed:
+  the test, not my memory, enforced the mirror. Gateway 848 -> 850, zero red.
+  (6) STILL OPEN: the 13 remaining unexamined files (round 165's list — `http.ts` read clean,
+  `body-scan.ts` read and now FIXED, leaving `approval.rs` / `ratelimit.ts` / the three stores / the
+  registry trio / `helper.js` / the three core contract files); plus the seven rows of the round-157
+  table.
+
 Last updated: 2026-09-14 round 167 (**NEW FINDING (B1): the body scanner has a CPU-budget cap on
 one of its two scanners and none on the other — and the module's own header claims otherwise.** Round
 165's queue paid for itself on its second item). Commit: journal + ledger. No code change yet.
