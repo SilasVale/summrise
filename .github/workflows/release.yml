@@ -238,6 +238,7 @@ jobs:
           # release 1.2.272) — list to a temp file first, then grep.
           tar tzf "$TGZ" > "/tmp/tgz-list-${VER}.txt"
           for F in "vale-agent.exe" \
+                   "README.md" \
                    "vale-desktop-electron/src/main.js" \
                    "vale-desktop-electron/src/preload.js" \
                    "vale-desktop-electron/src/url-policy.js" \

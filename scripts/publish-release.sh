@@ -306,6 +306,7 @@ TGZ="$NPM_DIR/vale-agent-$VER.tgz"
 # then grep with basename-tolerant anchors).
 tar tzf "$TGZ" > "/tmp/tgz-list-${VER}.txt"
 for F in "vale-agent.exe" \
+         "README.md" \
          "vale-desktop-electron/src/main.js" \
          "vale-desktop-electron/src/preload.js" \
          "vale-desktop-electron/src/url-policy.js" \

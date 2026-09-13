@@ -526,6 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 128 (three build inputs that are HAND-COPIED, each with a single
+source of truth and NOTHING comparing them — the toolchain in five sites, cargo-xwin's pin, and the
+shipped-file list). Commit: this round's scripts/ + workflows + docs.
+Tests: build-pins 31 checks (new file, five mutations caught), release-lib 38, release-audit 25,
+smoke-index 12.
+  (1) D5 — THE DRIFT WAS UNDETECTABLE BY DESIGN, and that is why it needed a check rather than a
+  fix. `rust-toolchain.toml` calls itself the single source of truth for BOTH builders while
+  `toolchain: 1.98.1` is hand-copied into FIVE workflow sites, and the release audit explicitly
+  TOLERATES a differing `vale-agent.exe` ("differs by TOOLCHAIN (expected)") — so bumping the .toml
+  alone builds with a new rustc here, keeps 1.98.1 in CI, and the audit still reports OK. The five
+  literals agree TODAY (that is why the check is green) and mutation M2 is the proof it would not
+  stay that way silently: bumping the .toml alone turns it red, naming the file and both values.
+  (2) D7 — AND ONE COPY HAD ALREADY DRIFTED. `ci.yml` installed cargo-xwin with a bare
+  `cargo install cargo-xwin --locked` while `release.yml` pinned 0.23.0 — the pin's own comment
+  names exactly this drift. The check was RED on that line before anything else could run, so the
+  fix is part of this round: CI now installs the same version the builder uses. A CI job validating
+  the Windows target against a different xwin than the release uses is how a release fails having
+  passed CI (or the reverse).
+  (3) D6 — THE FILE WHOSE MODE CAUSED TWENTY RELEASES OF WARN WAS NOT IN ANY CONTENT GATE.
+  `agent/vale-agent-npm/package.json`'s `files[]` is the real source of truth for what the tgz
+  carries, and the same list is hand-maintained in THREE gates (publish-release.sh, release.yml,
+  ci.yml). All three omitted `README.md`. The check now compares each gate against `files[]`, and
+  the ONE real exception — ci.yml's xwin-less job cannot contain `vale-agent.exe` — is carried with
+  its reason AND asserted to stay documented (mutation M4 proves that half too).
+  (4) FIVE MUTATIONS, ALL CAUGHT: unpinning ci.yml's xwin, bumping the .toml alone (the D5
+  scenario), dropping README.md from one gate, dropping the documented-exception comment, and
+  dropping the exe from the gate that has no exception for it.
+  (5) THE SHAPE, STATED PLAINLY BECAUSE IT IS NOW SIX ROUNDS RUNNING: two things that must agree,
+  agreeing only by hand, with no comparison anywhere. Rounds 122-127 found the same shape in the
+  audit, the smoke, the packaging pins and the prune policy. The instrument that finds it is a
+  check that FAILS ON THE CURRENT TREE FIRST — this one did, on the cargo-xwin line.
+  (6) NOT DONE: the structural fix (workflows READING rust-toolchain.toml instead of repeating it)
+  is not attempted — GitHub Actions cannot interpolate a file into `with:` without a job output,
+  and the check makes the duplication safe at a fraction of the risk. Recorded, not silently
+  skipped. Nothing deployed; no boundary verdict moves.
+  (7) STILL OPEN: D12-D13 in the release machinery; the extension's X1/X3/X6/X8; the proxies'
+  P2-P10; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival window;
+  the restart mystery.
+
 Last updated: 2026-09-14 round 127 (two release checks that had quietly stopped checking: the
 installer prune evicted the PREVIOUS minor line's installers, and the exe-staleness gate disabled
 itself the moment its input paths matched no commit). Commit: this round's scripts/ + docs.

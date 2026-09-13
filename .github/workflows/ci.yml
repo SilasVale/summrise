@@ -208,7 +208,12 @@ jobs:
       - name: Install LLVM (llvm-lib needed by ring's cc build)
         run: sudo apt-get update && sudo apt-get install -y llvm
       - name: Install cargo-xwin
-        run: cargo install cargo-xwin --locked
+        # PINNED, like release.yml:168-169. A bare install grabs whatever is newest
+        # that day, so this job would validate the Windows target against a
+        # different cargo-xwin than the builder uses — a new xwin that rejects the
+        # current invocation fails the RELEASE having passed CI, or the reverse.
+        # scripts/test/build-pins.bash keeps the two in step.
+        run: cargo install cargo-xwin --locked --version 0.23.0
       - name: Xwin check
         run: cargo xwin check -p vale-agent --target x86_64-pc-windows-msvc --features terminal,keyring
         working-directory: agent
@@ -248,6 +253,13 @@ jobs:
       # is stubbed as a shell function, so the real smoke body runs.
       - name: smoke-index installer-alias checks
         run: bash scripts/test/smoke-index.bash
+      # The hand-copied build inputs (round 128): the toolchain literal in five
+      # workflow sites vs rust-toolchain.toml, cargo-xwin's pin vs release.yml's,
+      # and the tgz content gates vs package.json's files[]. Each had a single
+      # source of truth and NOTHING comparing them; the release audit cannot
+      # backstop the toolchain one (it tolerates a differing exe by design).
+      - name: build-pin drift checks
+        run: bash scripts/test/build-pins.bash
       # The installer's SHA-256 verification (round 124): the CDN fallback used
       # to hand `npm install -g` a tarball it had never hashed. The logic is
       # PowerShell, so it cannot run on this box — but GitHub's ubuntu runners
@@ -378,7 +390,8 @@ jobs:
           mkdir -p /tmp/packcheck
           mv "vale-agent-npm/$TGZ_NAME" /tmp/packcheck/
           tar tzf "/tmp/packcheck/$TGZ_NAME" > /tmp/tgz-list-ci.txt
-          for F in "vale-desktop-electron/src/main.js" \
+          for F in "README.md" \
+                   "vale-desktop-electron/src/main.js" \
                    "vale-desktop-electron/src/preload.js" \
                    "vale-desktop-electron/src/url-policy.js" \
                    "vale-desktop-electron/icon.png" \
