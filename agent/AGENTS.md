@@ -526,6 +526,37 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 187 (round 186's unestablished question ANSWERED: the four BYOK tables'
+VALUES agree today — so the hazard is latent, not live — and their KEY vocabularies are TWO, which is by
+design for two of them and undocumented for the rest). Commit: journal. No code change.
+  (1) THE ANSWER, MEASURED BY DUMPING EVERY TABLE: all four carry **the same eight env-var names**
+  (`OPENROUTER_API_KEY`, `CMD_API_KEY`, `QWEN_API_KEY`, `NVAPI_KEY`, `GMI_API_KEY`, `AMD_API_KEY`,
+  `OPENCODE_GO_API_KEY`, `DEEPSEEK_API_KEY`) — so there is NO live drift, and round 186's four-table
+  finding is a LATENT hazard, which is the stronger thing to say because it is checkable.
+  (2) AND THE KEYS SPLIT INTO TWO VOCABULARIES, WHICH THE COMMENT DOES NOT MENTION:
+    * `model-route.ts:30-37` keys by **routing PREFIX** (`og, ds, qw, or, nv, gmi, cm, amd`) with
+      `{userKey, envKey}` values — and the `envKey: null` entries (nv, gmi) are a real distinction the
+      other tables cannot express;
+    * `models-probe.ts:50-57` and `translate-vision.ts:226-233` key by **route KIND**
+      (`openrouter, commandgoat, …, deepseek`) — the same vocabulary in both, and the one
+      `models-probe.ts:133` needs (`BYOK_KEY_FOR_KIND[route.kind]`);
+    * `store/users.ts:27-42` has **no keys at all** — a bare list of the eight names.
+  (3) SO THE REFINED FINDING, WITH ITS SHAPE NAMED: four tables share one set of VALUES but TWO key
+  vocabularies plus a keyless list. The risk is therefore precise and bounded — **a channel added to one
+  vocabulary can be missed in the other**, and `model-route.ts`'s `envKey: null` has no equivalent
+  anywhere, so "this channel has no env fallback" is expressible in exactly one of the four. Nothing
+  compares them; the values agreeing today is a fact about who typed them, not a property the suite holds.
+  (4) AND `models-probe.ts`'s COMMENT IS NOW EXACTLY CHARACTERISED, which is better than "wrong": its
+  claim — "the same vocabulary `translate.ts`'s missing-key table uses" — is TRUE of `translate-vision.ts`
+  (the route-kind vocabulary) and FALSE as attribution (`translate.ts` holds no table; it is a consumer
+  with a 712-line hit span). The comment picked the right vocabulary and named the wrong file, which is
+  why round 186's reader-follows-the-pointer objection stands: the pointer leads somewhere the claim
+  cannot be checked.
+  (5) STILL OPEN: the four-table fix (round 186's two options, now with the vocabulary split named as the
+  thing to reconcile — and `envKey: null` as the fact that must survive whatever shape is chosen);
+  `models-probe.ts`'s remaining body (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 186 (**the BYOK vocabulary is FOUR tables, not the two round 185
 assumed — and the comment that warns about drift names a file that holds no table at all**). Commit:
 journal. No code change.
