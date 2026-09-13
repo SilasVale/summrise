@@ -1,3 +1,4 @@
+import { BYOK_CHANNELS } from "./byok.ts";
 /**
  * store/users.ts — user accounts, gateway tokens, per-user backend keys,
  * per-user route selection (RouteDO), invites, and key masking.
@@ -23,24 +24,18 @@ export interface User {
 
 export const ADMIN_USERNAME = "admin";
 export const ADMIN_ID = "admin"; // user ID = username → readable KV keys
-export const USER_KEY_NAMES = [
-  "DEEPSEEK_API_KEY",
-  "OPENCODE_GO_API_KEY",
-  "OPENROUTER_API_KEY",
-  "QWEN_API_KEY",
-  // NVIDIA NIM (build.nvidia.com) — translate.ts already read NVAPI_KEY from
-  // the ukeys blob, but it was never listed here so the console couldn't
-  // manage it. Listed now (key management parity).
-  "NVAPI_KEY",
-  // GMI Cloud Inference Engine (api.gmi-serving.com) — MiniMax Week free tier.
-  "GMI_API_KEY",
-  // Command Code (api.commandcode.ai/provider) — GOAT plan & up. Same key
-  // works for the CLI and the Provider API (Go plan has no API access).
-  "CMD_API_KEY",
-  // AMD Radeon Cloud (developer.amd.com.cn/radeon) — free BYOK pool, the key
-  // is the "rc-…" token from the Radeon developer console.
-  "AMD_API_KEY",
-];
+/** Every env-var name a USER may hold a key for, DERIVED from `store/byok.ts` since round 193.
+ *
+ *  This was the third of four independently-typed copies of the same eight names (round 186).
+ *  Order is NOT load-bearing here — every consumer iterates (`for...of`), tests membership
+ *  (`.includes`) or counts (`length`), and nothing indexes it positionally (verified before the
+ *  change), so deriving it in the source's order is safe.
+ *
+ *  NOTE for the next reader: round 187 said "nothing compares them" and that was TOO STRONG —
+ *  `test/model-route.test.mjs` already asserted that CHANNEL_KEY_RULES covers every entry of
+ *  this list, i.e. ONE PAIR of the four was already under test. The gap was real but smaller
+ *  than the arc's own summary claimed. */
+export const USER_KEY_NAMES: string[] = BYOK_CHANNELS.map((c) => c.userKey);
 
 async function getJSON(env: Env, key: string): Promise<any> {
   if (!env.KEYS) return null;

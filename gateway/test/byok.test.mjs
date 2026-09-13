@@ -39,6 +39,23 @@ test("byok: models-probe DERIVES its table — a re-typed copy fails this", asyn
   assert.match(src, /BYOK_CHANNELS\.map/, "and it must derive them from the shared source");
 });
 
+test("byok: USER_KEY_NAMES IS the source — set-equal, and absent from the consumer", async () => {
+  // The strongest form, available because this consumer is EXPORTED (round 188 measured that
+  // the other two are not). Two assertions, because they catch different things: set-equality
+  // fails if the values drift, and the text check fails if someone re-types the list next to
+  // the derivation — which is how the four-copy problem started.
+  const { USER_KEY_NAMES } = await import("../src/store/users.ts");
+  assert.deepEqual(
+    [...USER_KEY_NAMES].sort(),
+    BYOK_CHANNELS.map((c) => c.userKey).sort(),
+    "USER_KEY_NAMES must be exactly the source's userKey values",
+  );
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/store/users.ts", import.meta.url), "utf8");
+  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
+  assert.deepEqual(leaked, [], `users.ts must not re-type these: ${leaked.join(", ")}`);
+});
+
 test("byok: the two vocabularies genuinely differ (a merge of one name would be a coincidence)", () => {
   const sameName = BYOK_CHANNELS.filter((c) => c.prefix === c.kind).map((c) => c.kind);
   assert.deepEqual(sameName, ["gmi", "amd"], "only two channels use the same word for both");

@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 193 (the SECOND consumer derives — and reading its consumers to
+check the ORDER turned up a correction to this arc's own premise: round 187's "nothing compares them" was
+TOO STRONG, because one pair was already under test). Commit: gateway/ + mirror + journal. Tests:
+gateway 858 = 857 + 1, zero red.
+  (1) THE CORRECTION FIRST, BECAUSE IT IS ABOUT MY OWN SUMMARY: `test/model-route.test.mjs` already
+  asserted **"CHANNEL_KEY_RULES userKeys cover every USER_KEY_NAMES entry"** — one PAIR of the four tables
+  was compared by a test all along, with a comment explaining why it exists ("a console lets users save but
+  no channel rule reads is a dead credential — saved, never usable, confusingly reported as configured").
+  So round 187's finding was real but its summary overreached: the hazard was never "nothing compares them"
+  but "TWO of the six pairs are compared, and the comparisons were written by hand rather than derived".
+  That is a smaller and more accurate claim, and it is recorded against the round that made the larger one.
+  (2) AND THE ORDER QUESTION WAS SETTLED BEFORE THE CHANGE, NOT AFTER: `USER_KEY_NAMES`'s declaration order
+  differs from `BYOK_CHANNELS`'s, so deriving it rewrites the order — which would be a silent defect if
+  anything indexed it positionally. The grep answered it: every consumer iterates (`for (const n of …)` in
+  `admin.ts:117`, `users.ts:274/430`), tests membership (`auth.ts:435`), or counts (`length >= 8` in
+  `key-probe.test.mjs:123`). **Nothing indexes it.** So the derivation is safe for a reason that was
+  measured, and the header now records that reasoning where the next reader will change it.
+  (3) THE STRONGEST ASSERTION FORM, AVAILABLE BECAUSE THIS CONSUMER IS EXPORTED: round 188 measured that
+  only two of the four are, and this is one of them — so unlike `models-probe.ts` (round 191, where the
+  test had to say "the values appear nowhere"), this one asserts BOTH set-equality with the source AND the
+  absence of the literals. The two catch different failures: equality catches drift, absence catches a
+  re-typed copy growing back beside the derivation.
+  (4) AND THE BEST EVIDENCE HERE IS NOT MY OWN TEST: three PRE-EXISTING consumers of the derived list all
+  pass against it — `model-route.test.mjs`'s cross-table coverage, `key-probe.test.mjs`'s COMPLETENESS
+  ("every USER_KEY_NAMES entry probes to a Response"), and `health.test.mjs`'s coverage span. They were
+  written for other purposes and knew nothing about this refactor, which makes them independent evidence
+  that the derived value is the same value. My added assertion is the one that knows what changed.
+  (5) STILL OPEN: the last TWO consumers (`translate-vision.ts` next — private, keyed by kind with a
+  `{key, shape}` value — and `model-route.ts` LAST because it is per-request and needs a full budget);
+  the round-192 mutation's second failure's name (one grep); `models-probe.ts`'s remaining body (lines
+  70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the
+  seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 192 (round 191's named gap CLOSED: the mutation proof ran through the
 suite and the assertion went RED, then GREEN on restore — so the acceptance test is now established by
 evidence rather than by its own pass. Recorded with the one part I did not identify). Commit: journal.
