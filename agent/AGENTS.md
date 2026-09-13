@@ -546,8 +546,13 @@ that prefix). Commit: agent/ + journal. Tests: approval 13 -> 15, whole agent su
   cannot express its own premise is worse than no test) applied in the other direction: a test whose
   premise is invisible is half a test.
   (4) EVIDENCE: approval 13 -> 15 tests, all green; `cargo test --features terminal,keyring` over the
-  whole crate green; `cargo clippy --features terminal,keyring --all-targets -- -D warnings` clean. No
-  mirror sync needed (the code-viewer mirror is gateway-only). B2 is CLOSED.
+  whole crate green (671 passed, 0 failed); clippy exit 0 under `-D warnings`. PRECISION ADDED AFTER
+  COMMITTING, because "clean" invited a reading the run does not support: clippy emits TWO warnings from
+  the third-party `portable-pty` crate (a `cargo-clippy` cfg note), and `-D warnings` does not promote a
+  DEPENDENCY's lints, so our own crates are warning-free while the invocation is not literally silent. I
+  re-ran it to check my own commit message rather than leaving a claim resting on a grep count of 3 —
+  the round-139 lesson (a message asserting a misread run) applied pre-emptively, and the claim survived
+  with a narrower wording. No mirror sync needed (the code-viewer mirror is gateway-only). B2 is CLOSED.
   (5) AND THE SCORE FROM ROUND 165's SCAN, since this closes its third item: two of the three files read
   produced a real finding (`body-scan.ts` -> B1, fixed in 168; `approval.rs` -> B2, fixed here) and the
   third was clean by design (`http.ts`). A queue built from "what has nobody ever read", rather than from
