@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 174 (round 165's queue, sixth item: `file-config.ts` READ. It is the
+best-designed file this queue has produced — and its one comment that counts things is STALE, which is the
+same class this loop has closed a dozen times, found here in the file that explains its own design best).
+Commit: journal. No code change.
+  (1) THE TWO SEAMS ARE BOTH REAL, VERIFIED AGAINST THE CODE RATHER THAN THE PROSE: `mergeLayers` is
+  `[...kv.filter(k => !declared.has(keyOf(k))), ...file]` — file wins per id/prefix, KV supplies the rest,
+  which is exactly what the header promises; and the "same validators the admin routes use" claim is
+  structural, not coincidental — every import is `import type` (erased at build time, so no runtime cycle)
+  and the validators arrive through `deps`. The comment explains WHY that matters: a value import would
+  loop, because `parseProviderSpec` lives in `providers.ts`, which imports this module.
+  (2) THE STALE CLAIM: `loadCatalogueFile`'s cache comment says "both call sites pass the REAL
+  `parseProviderSpec`". There are **SIX** call sites in `src/` (`admin.ts:272/302/372`, `models.ts:81/166`,
+  `providers.ts:213`) plus one in the test — and the SUBSTANCE holds for all seven (every one passes the
+  real validator, `RESERVED_PREFIXES` and `parseProviderSpec`), so this is a count that drifted, not a
+  hazard that exists. The same comment records WHY the author cared: the first version passed a stub here,
+  which is "a cache-poisoning bug with a nasty shape — a valid document failing, or worse, an INVALID one
+  passing, depending on which module happened to import first".
+  (3) AND ONE CALL SITE IS SHAPED DIFFERENTLY, which the comment does not mention: `providers.ts:213`
+  passes `parseProvider: (raw) => parseProviderSpec(raw)` — a WRAPPER, not the bare reference. Behaviourally
+  identical today and harmless because the cache keys on nothing, but it is a second form for one fact, and
+  it is exactly the form that would break the day anyone made `deps` identity-sensitive (`deps === prev`).
+  Recorded, not changed: it is not a defect now, and the honest note is cheaper than a needless edit.
+  (4) THE INVARIANT THIS EXPOSES, WHICH IS THE ROUND'S REAL OUTPUT: "every caller passes EQUIVALENT deps"
+  is a precondition of the shared cache, and **nothing checks it** — it is asserted in a comment whose
+  count was already wrong. The design fix worth considering (NOT rushed here, round 153's rule): if
+  `loadCatalogueFile` closed over the real validators itself, the hazard class would disappear instead of
+  being documented — and the reason it cannot today is the import cycle the comment names, so the fix is a
+  seam question (move `RESERVED_PREFIXES`/`parseProviderSpec` resolution behind a lazily-invoked thunk, or
+  accept the injected-deps design and add a one-line equality check). Either way it needs a full budget and
+  a decision, so it is recorded as a DESIGN ITEM, not attempted here.
+  (5) STILL OPEN: that design item; the plugins registry trio; `agent/src/plugins/playwright/helper.js`;
+  the three `vale-command-core` contract files; the rest of round 165's list; plus the seven rows of the
+  round-157 table.
+
 Last updated: 2026-09-14 round 173 (round 172's deferred one-liner EXECUTED: `settings.ts`'s doc no
 longer promises a canonical form it does not produce — and the fix names the consumer mistake it was
 inviting, so the next reader gets a rule instead of a fact). Commit: gateway/ + mirror + journal.
