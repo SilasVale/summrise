@@ -367,6 +367,13 @@ src/
                    and is a LABEL, NEVER A CREDENTIAL — nothing here returns
                    an authorization decision, and
                    `run_id_is_never_a_credential` pins that.
+  runstate.rs      the agent PROCESS's run journal — NOT `runs.rs`'s AI run
+                   identity, and the pair is easy to confuse: this one is
+                   started / last heartbeat / exited-cleanly for the process
+                   itself, written at boot and beaten on a timer, so a run that
+                   died without a word is distinguishable from one that exited
+                   on purpose. `describe_previous` (pure, tested) owns the one
+                   line the operator reads at the next boot.
   state.rs         AppState { serial_pool, terminal_mgr, event_bus,
                    plugin_registry, config } — managers are Arc<Manager>,
                    managers own their locks internally (inside AppState only
