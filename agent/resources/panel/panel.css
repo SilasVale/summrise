@@ -4044,6 +4044,20 @@ button.dtab-close:hover { opacity: 1; }
   stroke: var(--state-fail);
 }
 
+/* The device's identity in the chrome: the host the panel was reached on. Mono and
+   dimmed because it is a MACHINE NAME (it must not compete with the readings), and
+   clipped rather than wrapped — a long tunnel hostname must never reflow the strip. */
+.instrument-identity {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--chrome-ink-dim);
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: none;
+}
+
 
 /* ============ layout.css ============ */
 /* ============================================================

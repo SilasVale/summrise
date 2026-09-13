@@ -9,10 +9,15 @@ import { WaitingChip } from "./WaitingChip";
  *  delta), and printing 0% there would be a lie the operator cannot see through. */
 const reading = (v: number | null): string => (v === null ? "—" : `${Math.round(v)}%`);
 
-export function StatusBar({ sessions, status, sseState, vitals }: {
+export function StatusBar({ sessions, status, sseState, vitals, identity }: {
   sessions: Session[];
   status: string;
   sseState: "connected" | "down" | "connecting";
+  /** WHICH MACHINE this is. The panel is served BY the device, so the host it was
+   *  reached on IS its identity — and with one front door over several devices that
+   *  is the first thing the chrome should answer. Optional: callers without it
+   *  render exactly as before. */
+  identity?: string;
   /** Optional, so the strip still renders for callers with no vitals yet: the
    *  instrument is an addition to this line, not a precondition for it. */
   vitals?: AgentVitals;
@@ -20,6 +25,12 @@ export function StatusBar({ sessions, status, sseState, vitals }: {
   const live = sessions.filter((s) => !s.closed).length;
   return (
     <div id="statusbar">
+      {identity && (
+        <>
+          <span className="instrument-identity" title={identity}>{identity}</span>
+          <span className="instrument-divider" aria-hidden="true" />
+        </>
+      )}
       {vitals && (
         <span className="instrument">
           <VitalsDial cpu={vitals.cpu} mem={vitals.mem} />
@@ -37,6 +48,18 @@ export function StatusBar({ sessions, status, sseState, vitals }: {
               <span className="instrument-reading">
                 <span className="instrument-label">Up</span>
                 <span className="instrument-value">{vitals.uptime}</span>
+              </span>
+            </>
+          )}
+          {/* The release the device is RUNNING. The desktop strip has always shown
+              it; the panel never did, which meant the density you actually work in
+              was the one that could not tell you what was deployed. */}
+          {vitals.release && (
+            <>
+              <span className="instrument-divider" aria-hidden="true" />
+              <span className="instrument-reading">
+                <span className="instrument-label">Ver</span>
+                <span className="instrument-value">{vitals.release}</span>
               </span>
             </>
           )}

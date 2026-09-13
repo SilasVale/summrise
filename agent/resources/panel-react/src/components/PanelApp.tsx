@@ -21,6 +21,8 @@ import type { SessionView } from "./TabBar";
 import type { usePlugins } from "../hooks/usePlugins";
 
 interface Props {
+  /** The host this panel was reached on — the device's identity in the chrome. */
+  host?: string;
   sessions: Session[];
   activeSid: string | null;
   onActivate: (sid: string) => void;
@@ -100,6 +102,7 @@ export function PanelApp(props: Props) {
             status={props.status}
             sseState={props.sseState as "connected" | "down" | "connecting"}
             vitals={vitals}
+            identity={props.host}
           />
         }
         canvas={

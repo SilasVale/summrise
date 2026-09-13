@@ -30,6 +30,8 @@ import { WaitingChip } from "./WaitingChip";
 import type { usePlugins } from "../hooks/usePlugins";
 
 interface Props {
+  /** The host this panel was reached on — the device's identity in the chrome. */
+  host?: string;
   sessions: Session[];
   activeSid: string | null;
   onActivate: (sid: string) => void;
@@ -96,6 +98,7 @@ const PAGE_TITLES: Record<Page, string> = {
 };
 
 export function DesktopShell({
+  host,
   sessions,
   activeSid,
   onActivate,
@@ -424,7 +427,7 @@ export function DesktopShell({
               <VitalsDial cpu={vitals.cpu} mem={vitals.mem} size={18} />
               <span className="desktop-status-msg">
                 {connected
-                  ? `${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
+                  ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
                   : "connecting…"}
               </span>
               <WaitingChip sessions={sessions} />

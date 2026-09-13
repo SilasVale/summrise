@@ -310,6 +310,7 @@ export function App() {
     return (
       <DesktopShell
         {...shared}
+        host={host}
         /* App OWNS the view map and the shortcut that toggles it; the shell renders
            from it. Passing it is what makes Ctrl+Shift+Y do something. */
         sessionViews={sessionViews}
@@ -333,6 +334,7 @@ export function App() {
   return (
     <PanelApp
       {...shared}
+      host={host}
       onNewSession={(kind) => {
         if (kind === "pty") sessions.openSession("pty", "").catch(() => {});
         else if (kind === "browser") openBrowserSession();
