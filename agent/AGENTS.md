@@ -526,6 +526,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 142 (a LEDGER-VERIFICATION round: the four remaining open items checked
+against the code rather than trusted — a third of them needed correcting, which is now the FOURTH
+sweep in which that happened). No code changed; commit: journal + ledger only.
+  (1) D13 STANDS, WITH A PRECISION THAT MATTERS: no test EXECUTES `publish-release.sh` — nothing in
+  `scripts/test/` drives its guard chain. But three files MENTION it (release-lib.bash, build-pins.bash,
+  release-audit.bash), all as SOURCE PINS, so a reader skimming the test directory could reasonably
+  believe the orchestrator is covered when it is only quoted. The ledger now says which is which.
+  (2) P9c NEEDED CORRECTING, and the correction is about my own certainty rather than the behaviour:
+  the observable (an unlabelled upstream answer comes back unlabelled) is reproduced by its `todo`
+  test, but the ledger no longer implies a known cause. Counting the file gives **2**
+  `text/event-stream` literals against **2** `upstream.headers.get("content-type")` reads — so both SSE
+  sites ARE paired with the read, and the observable CANNOT be explained by a third hardcoded site,
+  which was the natural reading of round 137's note. The mechanism is UNESTABLISHED and is now recorded
+  as such, because a wrong mechanism in a ledger is worse than an open question in one.
+  (3) X3 STANDS: the `data-vs-processed` ancestry stamp is still in `content/studio-links.js` (4
+  occurrences).
+  (4) X6 STANDS, AND ITS PATH WAS WRONG IN MY EARLIER NOTES: the options surface is
+  `extension/options/options.js` — a subdirectory — and `extension/options.js` does not exist. My
+  round-141 grep used the bare path and returned nothing, which could easily have been read as "the
+  item is stale" instead of "I looked in the wrong place". The path is in the ledger now.
+  (5) THE PATTERN, STATED BECAUSE IT KEEPS HAPPENING: rounds 120, 125 and 129 each found a stale
+  ledger claim; this is the fourth sweep and two of four entries needed work. The ledger is a CLAIM
+  SET, not a fact set, and the cheap instrument that keeps it honest is grepping the code for each
+  claim before acting on it — which costs minutes and has now paid four times.
+  (6) STILL OPEN, all four re-verified above: D13, P9c, X3, X6 — plus the three unreconciled versions
+  (1.2.362-364), CHARTER-1, the dead-agent revival window and the restart mystery, none of which this
+  round touches.
+
 Last updated: 2026-09-14 round 141 (X8: the extension told its reader there was a code-server
 password behind Cloudflare Access. There is not — the live server runs `--auth none`, so Access is the
 ONLY gate in front of a shell, and the comment made the https requirement read as defence-in-depth
