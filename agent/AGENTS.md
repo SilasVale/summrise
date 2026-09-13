@@ -519,7 +519,50 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-13 round 102 (RELEASED 1.2.362 — the redesigned panel and the page
+Last updated: 2026-09-13 round 105 (the model-routing refactor toward DSH: providers as rows,
+probe/adopt, and the split between form-owned facets and pinned routing semantics — all
+DEPLOYED and verified live).
+Commits: 05d0009c, b7b9a904, 7d4fe115, e12f4649, 519f000f, f2c5460e. Console live at 0bf377cb.
+  (1) THE MODELS PAGE IS A PROVIDER LIST NOW (05d0009c): one row per provider — lane bar,
+  name, [Custom] tag, ONE credential dot, `N models`, Edit, and Delete as TEXT only where
+  deleting is real. The model list lives inside that row's editor, one editor at a time;
+  adding a model is scoped to the row's prefix instead of a page-wide dropdown; adding a
+  PROVIDER is a trailing dashed placeholder. The removed things matter as much: the
+  permanent add-form that owned the top of the page, the `CHANNEL UP` repeated on every
+  card, and a `×` that DELETED a custom model and DISABLED a built-in one depending on
+  state the reader could not see.
+  (2) A CORRECTNESS FIX HIDING IN THE FORM: it offered `anthropic-messages`, which this
+  build does not serve. Protocols now come from the server (`GET /api/admin/providers`
+  returns `apis`), the same rule as DSH's provider card, whose list comes from the
+  adapter's schema.
+  (3) PROBE/ADOPT (b7b9a904 backend, 7d4fe115 panel): `POST /api/admin/models/probe` asks an
+  upstream what it serves. The guard runs AT DIAL TIME (the same `deviceHostError` the
+  registration path uses), `redirect: "manual"`, the endpoint is DERIVED from the route the
+  router resolved rather than kept in a second table, and the four failure modes each
+  return `checked:false` WITH A REASON — "could not look" is never rendered as "offers
+  nothing". A prefix nobody claims is refused: `resolveRoute` falls through to the default
+  channel, which is the right ROUTING rule and the wrong answer for a probe. FOUND BY THE
+  TEST, not by reading.
+  (4) THE FACET SPLIT, which is the design decision this round turns on. A model may
+  declare name / contextWindow / maxTokens / reasoningEffort — DISPLAY AND DISCOVERY, none
+  of which changes what a request means. `wire`, `usEgress`, `search` and vision change
+  where a request goes, so they stay pinned in `channels.ts` and a form cannot set them (a
+  provider model naming one is REFUSED, not silently dropped). Reasoning effort is a THIRD
+  category — a default parameter the CLIENT can always override, which is the only reason a
+  form may own it.
+  (5) THREE MISTAKES I MADE AND THE TESTS CAUGHT, recorded because each was a silent-wrong-
+  answer shape: the effort lookup keyed on `route.kind === "custom"` (so a model added to a
+  BUILT-IN channel could never declare anything); the client-wins assertion ran on the
+  Anthropic arm, where nothing can be preserved because the translator does not map
+  `thinking` at all; and a probe route registered POST-only, which my own curl verified as
+  404 because I forgot `-X POST` — the deployed route was fine, my instrument was not.
+  (6) DEPLOYED AND VERIFIED: assets byte-identical to the local build (`cmp`), the new route
+  answers 401 with the proper envelope (live and gated), mirror parity 42/42.
+  (7) STILL OPEN: the panel can DECLARE a facet and SEE it but not EDIT it (needs a re-post);
+  provider-model effort is not in the panel's add row yet; no needs-setup/onboarding hint;
+  and round 99's memory F5 / index F2-F3.
+
+Previous round: 2026-09-13 round 102 (RELEASED 1.2.362 — the redesigned panel and the page
 fixes, verified inside the exe before it was published; the page-design pass is complete).
 Commit: 433271ad (release). CDN + /api/version verified. d1 NOT updated (tunnel 530).
   (1) THE EXE WAS VERIFIED BY CONTENT BEFORE PUBLISHING, not by "the build exited 0": its
