@@ -348,3 +348,54 @@ test("a key shorter than 8 chars is NOT redacted blindly (it would mangle text)"
     globalThis.fetch = real;
   }
 });
+
+/* ---- count_tokens counts the whole request (round 140) ---- */
+
+const countReq = (body) =>
+  new Request("https://proxy.example/v1/messages/count_tokens", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": "ck-secret" },
+    body: JSON.stringify(body),
+  });
+
+test("count_tokens counts system and tools, not just messages", async () => {
+  // The endpoint counted only `messages`. A request whose instructions live in
+  // `system` — or whose tool schemas ride in `tools` — was under-reported, and
+  // tool schemas are frequently the largest part of an Anthropic request, so a
+  // client sizing its context from this number could overflow the real limit
+  // while being told there was room.
+  const env = { CLIENT_KEY: "ck-secret" };
+  const messages = [{ role: "user", content: "hi" }];
+  const big = "x".repeat(4000);
+
+  const bare = await (await worker.fetch(countReq({ messages }), env)).json();
+  const withSystem = await (
+    await worker.fetch(countReq({ system: big, messages }), env)
+  ).json();
+  const withTools = await (
+    await worker.fetch(countReq({ tools: [{ name: "t", description: big }], messages }), env)
+  ).json();
+  const withBoth = await (
+    await worker.fetch(countReq({ system: big, tools: [{ name: "t", description: big }], messages }), env)
+  ).json();
+
+  assert.ok(bare.input_tokens > 0, "still counts the messages");
+  assert.ok(
+    withSystem.input_tokens > bare.input_tokens,
+    `system must add tokens (bare=${bare.input_tokens} system=${withSystem.input_tokens})`,
+  );
+  assert.ok(
+    withTools.input_tokens > bare.input_tokens,
+    `tools must add tokens (bare=${bare.input_tokens} tools=${withTools.input_tokens})`,
+  );
+  assert.ok(
+    withBoth.input_tokens > withSystem.input_tokens &&
+      withBoth.input_tokens > withTools.input_tokens,
+    "both together weigh more than either alone",
+  );
+  // The estimate is ~4 chars/token, so 8000 chars of system+tools is ~2000 tokens.
+  assert.ok(
+    withBoth.input_tokens >= 1900 && withBoth.input_tokens <= 2100,
+    `estimate should scale with the payload, got ${withBoth.input_tokens}`,
+  );
+});

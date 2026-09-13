@@ -176,7 +176,18 @@ export default {
           return jsonError(413, "Request body too large", "invalid_request_error", cors);
         }
         const body = await request.json();
-        return jsonOk({ input_tokens: Math.ceil(JSON.stringify(body.messages || []).length / 4) }, cors);
+        // COUNT EVERYTHING THE MODEL MUST READ (round 140). This counted only
+        // `messages`, so a request whose instructions live in `system` — or whose
+        // tool schemas ride in `tools` — was under-reported by however much those
+        // weigh, and tool schemas are frequently the LARGEST part of an Anthropic
+        // request. A client that sizes its context window from this number reads
+        // "there is room" while the real request overflows the model's limit.
+        // Still an ESTIMATE (~4 chars/token), which the endpoint's name does not
+        // pretend otherwise; the fix is that it now estimates the whole request
+        // instead of one third of it.
+        const parts = [body.system, body.tools, body.messages].filter((part) => part != null);
+        const chars = parts.reduce((n, part) => n + JSON.stringify(part).length, 0);
+        return jsonOk({ input_tokens: Math.ceil(chars / 4) }, cors);
       }
 
       if (!(request.method === "POST" && url.pathname.endsWith(VERIFY_PATH))) {

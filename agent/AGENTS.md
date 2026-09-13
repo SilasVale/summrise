@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 140 (P8: `count_tokens` counted a third of the request — tools and
+system, which are frequently the LARGEST part of an Anthropic call, were invisible to the number a
+client sizes its context window with). Commit: proxies/ + docs.
+Tests: zen-go 15 (was 14); mutation caught (back to messages-only).
+  (1) THE DEFECT WAS A NUMBER THAT UNDER-REPORTS. `zen-go`'s `count_tokens` answered
+  `JSON.stringify(body.messages || []).length / 4` — `messages` only. The Anthropic contract puts the
+  instructions in `system` and the tool schemas in `tools`, and a tool-heavy request is mostly tools.
+  So the endpoint said "there is room" for a request that overflows the model's limit: a context-window
+  decision made on a third of the input.
+  (2) THE FIX ESTIMATES THE WHOLE REQUEST — `system`, `tools` and `messages` — and the test pins the
+  SHAPE of that claim rather than a magic number: system alone adds tokens, tools alone add tokens,
+  both together weigh more than either, and 8000 characters of payload lands near 2000 tokens (~4
+  chars/token). Mutation caught: back to `messages` only, which fails the first comparison.
+  (3) WHAT DID NOT CHANGE, AND WHY THAT IS DELIBERATE: it is still an ESTIMATE, not a tokenizer. The
+  endpoint is named `count_tokens`, Anthropic's own is exact, and this one never was — the honest fix
+  is to estimate the right THING, not to pretend to a precision a 4-chars-per-token rule cannot have.
+  Rewriting it as a real tokenizer would add a dependency to a satellite worker for a number whose
+  consumer only needs an order of magnitude; recorded as a rejected option, not silently skipped.
+  (4) NOT DEPLOYED, consistently with 129/131/132/133/135/136/137.
+  (5) STILL OPEN: D13 (the orchestrator has no executable coverage); P9c in the proxies; X3, X6, X8 in
+  the extension; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery.
+
 Last updated: 2026-09-14 round 139 (P6: a comment at the muse-responses decision site named the
 WRONG default exit — and named as the default the one value its own documentation says must not be
 set. The code was right and already pinned twice; only the comment lied). Commit: gateway/ + docs.
