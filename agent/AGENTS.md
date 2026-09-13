@@ -526,10 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 111 (the tunnel CONFIG write was best-effort and the Gateway
+Last updated: 2026-09-14 round 112 (THE TREE WAS RED AND NOBODY KNEW — round 110's new
+`runstate.rs` never reached the module map, so `tests/module_map.rs` failed against BOTH guides,
+and round 111 — paused, gateless — shipped on top of it). d1 still dark; nothing released.
+Commit: 4038f5d0 (the map fix). Gates: cargo test 611 (lib 551) + `--features terminal,keyring`
+662 (lib 602) + clippy `-D warnings` both configs + fmt + xwin check, all green.
+  (1) THE ROUND'S JOB WAS TO VERIFY, NOT TO TRUST. Open item 0 (the orphan `tunnel.rs` change)
+  had already been committed as `86d84e5b` by a PAUSED round that recorded no gate numbers, so
+  round 112 ran the gates itself — and the FIRST command came back red: `cargo test` fails in
+  `tests/module_map.rs`, because `runstate` appears in neither guide's module map. That test
+  READS THE GUIDES, so adding a module is a map change, not only a code change — and two commits
+  shipped without anyone running it. Fixed in 4038f5d0 for both guides, with each entry stating
+  what the module is NOT: `runs.rs` is the AI's run identity, `runstate.rs` is the agent PROCESS's
+  own run journal, and the two names are built to be confused.
+  (2) THE COMMITTED FIX IS REAL, AND MUTATION SAYS EXACTLY HOW REAL. Three mutations, measured:
+  making the write best-effort INSIDE `install_tunnel_config` fails its test (0/1); requesting
+  the restart BEFORE the write fails it too (0/1) — the seam's two properties are genuinely
+  pinned. But mutating the CALLER (`if let Err(e) = install_tunnel_config(..) { return "FAILED: …" }`
+  back to `let _ = …`) leaves the WHOLE SUITE GREEN: the branch the operator actually sees has no
+  coverage at all. That is tunnel F2, and it is round 111's claim stated precisely —
+  "mutation-proven" was true of the seam, not of the decision.
+  (3) THE SAME SHAPE SITS ONE CALL ABOVE THE FIX (tunnel F1, read and recorded, NOT fixed here —
+  a round that verifies should not also rewrite the thing it is verifying). `provision_tunnel`
+  discards `update_remote_config(...)`, which returns `()` through EIGHT bare `return`s, so a
+  failed REMOTE config update leaves no trace anywhere. The file's own comment says the remote
+  config OVERRIDES the local `tunnel.yml` — so a device can come up on a stale ingress while the
+  local file claims `127.0.0.1` and the card says `ok`.
+  (4) d1 IS STILL DARK (530) and nothing in this repository can reach it: one human touch
+  recovers everything — `vale tunnel start` then
+  `npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz`
+  then `vale update`. Until then the agent half stops at tests + clippy + xwin + static pins, and
+  1.2.363/1.2.364 stay unverified at runtime on real hardware.
+  (5) STILL OPEN: tunnel F1/F2 (above); the agent restarted every 1-2 hours before round 110
+  (cause unknown — `runstate.rs` now answers it on the next boot); memory F5 and index F2/F3 from
+  round 99; the console's file layer has no APPLY half yet.
+
+Previous round: 2026-09-14 round 111 (the tunnel CONFIG write was best-effort and the Gateway
 card answered "connected" — the fifth silent failure in this series). PAUSED at the user's
 request with d1 still unreachable.
-Commit: see this round's fix commit. RELEASED: 1.2.363, 1.2.364 (CDN verified); neither is on d1.
+Commit: 86d84e5b. RELEASED: 1.2.363, 1.2.364 (CDN verified); neither is on d1.
   (1) `provision_tunnel` (tunnel.rs) ended with `let _ = atomic_write(tunnel.yml)` followed by
   an UNCONDITIONAL `tunnel_ctl::request_restart()` and `format!("ok ({hostname})")`. A failed
   write therefore: vanished, bumped the generation anyway (so the supervisor relaunches

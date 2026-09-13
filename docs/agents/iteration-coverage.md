@@ -10,7 +10,12 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 110**; HEAD `2ceb6d16`.
+- Round log head: **round 112**; HEAD `86d84e5b` (round 111's tunnel fix).
+- **HEAD WAS RED AND NOBODY KNEW**: `tests/module_map.rs` failed against BOTH guides because
+  round 110 added `src/runstate.rs` without adding it to the module map, and round 111 shipped
+  on top of that. Found by round 112's independent gate run, fixed there. The lesson is cheap to
+  state and expensive to forget: `cargo test` also runs `tests/`, and one of those tests READS THE
+  GUIDES — so adding a module is a map change, not only a code change.
 - **d1 is DARK (tunnel 530) and needs one human touch** — `vale tunnel start`, then
   `npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz`,
   then `vale update`. 1.2.363 and 1.2.364 are published but on NO device, and four
@@ -40,7 +45,7 @@ Seeded 2026-09-14 at round 110.
 | agent `plugins/system` / `mcp_client` / `playwright` | partial | 89, SOLID R98 | — |
 | agent `plugins/design` | unseen | — | — |
 | agent `web/` (auth, panel grant, SSE, api) | seen | 88, 92 | grant single-use / audit record |
-| agent `winmain.rs` boot path + `tunnel.rs` + `runstate.rs` | partial | 110 | the 5-minute repetition trigger and the supervisor fix are pins only — RUNTIME needs a device |
+| agent `winmain.rs` boot path + `tunnel.rs` + `runstate.rs` | partial | 110, 112 | the 5-minute repetition trigger and the supervisor fix are pins only — RUNTIME needs a device; **tunnel F1** `update_remote_config` fails silently; **tunnel F2** the FAILED branch has no coverage |
 | agent `paths.rs` + layout v2 | seen | 555 | — |
 | agent CLI (`vale-agent-npm/bin/vale.js`) | seen | 78 | — |
 | agent packaging + Electron shell (`vale-desktop-electron`) | partial | 555 | — |
@@ -53,18 +58,31 @@ Seeded 2026-09-14 at round 110.
 
 ## Open items (each needs an owner round)
 
-0. **ORPHAN CHANGE IN THE TREE** — `agent/src/tunnel.rs` carries ~61 uncommitted lines from an
-   interrupted round: `install_tunnel_config()` making a failed config write neither report
-   success nor bump the restart generation, plus a test that fails it through a real
-   un-writable path. It is good work and must not be lost: round 1 adopts it — run the gates,
-   commit it if green (it belongs with round 110's supervisor fixes), revert with a note if not.
-1. **d1 recovery** — one human action; then install 1.2.364 and verify the round-110 fixes at runtime (boot-task repetition trigger, tunnel supervisor paths, memory refusal paths).
-2. **Agent restarted every 1–2 h before round 110** (cause unknown) — `runstate.rs` now answers this on the next occurrence; read it at the first boot after recovery.
-3. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
-4. **Round 99 leftovers** — memory F5, index F2/F3.
-5. **Panel F5** (host allowlist family match) — recorded as hardening only.
-6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
-7. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
+**Closed in round 112: the orphan `agent/src/tunnel.rs` change.** It had already been committed
+as `86d84e5b` (round 111, paused, with no gate numbers recorded). Round 112 verified it: both
+correct mutations of the seam fail its test — a best-effort write inside `install_tunnel_config`,
+and a restart requested BEFORE the write. Mutating the CALLER's `if let Err` away stays green,
+which is finding tunnel F2 below rather than a flaw in the committed fix.
+
+1. **tunnel F1 — the silent failure next door.** `provision_tunnel` discards
+   `update_remote_config(...)`'s result, and that function returns `()` through EIGHT bare
+   `return`s (client build, accounts read, JSON parse, no account id, both PUT arms), so a failed
+   REMOTE config update leaves no trace anywhere. The file's own comment says the remote config
+   OVERRIDES the local `tunnel.yml` — so a device can come up on a stale ingress while the local
+   file claims `127.0.0.1` and the card says `ok`. Same shape as the fix committed one call below
+   it. Fix shape: give it a verdict the caller can report.
+2. **tunnel F2 — the FAILED branch is unpinned.** Mutating `provision_tunnel`'s
+   `if let Err(e) = install_tunnel_config(...) { return "FAILED: …" }` back to `let _ = …` leaves
+   the whole suite green (measured in round 112). The test pins the seam, not the decision the
+   operator actually sees. Fix shape: extract a pure `tunnel_outcome(Result<(), String>, hostname)
+   -> String` and test THAT; the async caller keeps its network I/O.
+3. **d1 recovery** — one human action; then install 1.2.364 and verify the round-110 fixes at runtime (boot-task repetition trigger, tunnel supervisor paths, memory refusal paths).
+4. **Agent restarted every 1–2 h before round 110** (cause unknown) — `runstate.rs` now answers this on the next occurrence; read it at the first boot after recovery.
+5. **Round 105 leftovers** — panel facet editing, provider-model effort in the add row, no needs-setup/onboarding hint.
+6. **Round 99 leftovers** — memory F5, index F2/F3.
+7. **Panel F5** (host allowlist family match) — recorded as hardening only.
+8. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
+9. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
 
 ## Finding ID registry
 
@@ -73,7 +91,9 @@ skips the suffix allowlist at dial time (fixed round 95) · `panel F1` loopback
 branch trusts a client Host header · `panel F2` `?grant=` not single-use over
 eventual consistency, no device-side audit · `panel F3` grant route shape check
 looser than the gateway's · `panel F5` host allowlist family match · `memory F5`
-sanitizer gap on pre-fix bytes · `index F2/F3` (round 99).
+sanitizer gap on pre-fix bytes · `index F2/F3` (round 99) · `tunnel F1`
+`update_remote_config` fails silently · `tunnel F2` the FAILED branch is unpinned
+(both round 112).
 
 ## ADR index
 
