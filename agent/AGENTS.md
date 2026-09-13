@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 150 — **THE EVERY-10-ROUND DESIGN REVIEW** (CHARTER.md:53: "did any
+metric move, was any ADR reversed, was the same place changed twice, and is any metric one the loop
+could have raised by itself?"). Commit: journal + ledger. No code changed.
+  (1) DID ANY METRIC MOVE? Yes, and all of them are the same KIND of metric: extension 11 → 13,
+  zen-go 14 → 15, zen-us 12 → 13 with its `todo` 1 → 0, build-pins 31 → 32, publish-release 0 → 3,
+  vrelay 69 flat, gateway 848 flat, index 89 flat; ledger open items 10 → 3 (extension CLEAR, proxies
+  CLEAR, docs aligned). Those are real movements and each is tied to a named finding.
+  (2) WAS ANY ADR REVERSED? No ADR was reversed in this stretch. ADR 0010 (written in round 134, one
+  round before it) was APPLIED to a second surface in 143 without being restated — the options page
+  still used the old opt-OUT predicate after the ADR flipped the content script to opt-IN. That is not
+  a reversal; it is the ADR being right and the code not having caught up, which is worth separating.
+  (3) WAS THE SAME PLACE CHANGED TWICE? **YES, AND THAT IS THE REVIEW'S FINDING.** Three times over:
+  zen-us's 12-line pass-through region took rounds 136, 137 and 148; the one wrong sentence about the
+  code-server password took rounds 141, 143 and 149 (four copies, fixed one per round); the release
+  orchestrator took 145 and 146. The shape is identical in all three: **ONE fact living in N places,
+  with each round opening only the place it already knew about.** Round 149 named the general form —
+  "the list of surfaces is itself a claim" — after assuming the list had two entries when it had four.
+  (4) IS ANY METRIC ONE THE LOOP COULD HAVE RAISED BY ITSELF? **YES: EVERY SINGLE ONE IN (1).** Test
+  counts, ledger rows and finding closures are all things the loop can raise by working. The
+  externally observable metrics did not move at all this stretch: NO deploy, NO release, NO device
+  update. The three unreconciled versions (1.2.362-364) are still unreconciled, the stale
+  `ValeAgent-Setup.exe` alias still serves the 1.2.361 installer, and the four capability unlocks
+  (vrelay's 5xx/timeout changes, the two CF workers' redaction) are still committed-but-not-live. So
+  the honest summary of rounds 141-150 is: **the repository agrees with itself more than it did, and
+  production is exactly where it was** — and the reason is not a defect in the loop, it is CHARTER-1
+  (the user's one-word answer on publish cadence) being unanswered. That gate is doing its job, but it
+  means a loop that reports "10 findings closed" without that sentence is reporting a number it raised
+  itself.
+  (5) WHAT THE NEXT REVIEW SHOULD BE ABLE TO SAY INSTEAD: at least one metric that a USER can observe —
+  a version live on the CDN with a matching manifest, a device updated and verified by effect, an
+  installer alias serving what the release advertises. All three are blocked on the same answer.
+  (6) STILL OPEN, unchanged: D13's build path (cannot be driven without publishing); the three
+  unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 149 (I checked the ONE protocol obligation I had been skipping:
 `docs/ARCHITECTURE.md`'s boundary verdicts, which every round is supposed to update in the same commit.
 Ten rounds of skipping had left it carrying TWO wrong claims — including the FOURTH copy of the phantom
