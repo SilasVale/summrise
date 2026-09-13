@@ -346,6 +346,10 @@ const I18N = {
     "models.probeNone": "{prefix} 的广告列表与上游一致。",
     "models.probeOffered": "上游提供但未广告",
     "models.probeNotOffered": "广告了但上游没列出（仅作待查，不作结论）",
+    "models.advanced": "高级",
+    "models.nameLabel": "显示名",
+    "models.ctxLabel": "上下文窗口（tokens）",
+    "models.maxLabel": "最大输出（tokens）",
   },
   en: {
     "app.sub": "AI relay & devices",
@@ -703,6 +707,10 @@ const I18N = {
     "models.probeNone": "{prefix} matches the upstream.",
     "models.probeOffered": "Offered upstream, not advertised",
     "models.probeNotOffered": "Advertised but not listed upstream (a check, not a verdict)",
+    "models.advanced": "Advanced",
+    "models.nameLabel": "Display name",
+    "models.ctxLabel": "Context window (tokens)",
+    "models.maxLabel": "Max output (tokens)",
   },
 } as const;
 

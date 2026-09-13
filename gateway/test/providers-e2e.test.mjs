@@ -537,3 +537,50 @@ test("PROBE: the adopt list is PREFIXED and carries only what we do not advertis
   assert.equal(seen.init.redirect, "manual");
   assert.deepEqual(res.body.notAdvertised, ["my/llama-4"]);
 });
+
+/* ------------- the three form-owned facets -------------
+ *
+ * name / contextWindow / maxTokens are DISPLAY and DISCOVERY: a client uses them to
+ * describe a model, and none can change what a request MEANS. That is why a form may
+ * own them while wire/usEgress/search stay pinned in the registry. Pinned here: they
+ * survive the round trip, they are REFUSED by name when wrong, and a client actually
+ * sees them on the listing it reads.
+ */
+test("MODEL facets: declared, validated by NAME, and visible to a client on /v1/models", async () => {
+  const { call, json } = await harness();
+
+  const ok = await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/new-thing", name: "New Thing", contextWindow: 200000, maxTokens: 8192 },
+    }),
+  );
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+
+  // The listing a CLIENT reads, not the admin view: discovery fields are only real if
+  // they reach the surface the client actually parses.
+  const list = await json(await call("GET", "/v1/models", { auth: false }));
+  const entry = (list.body?.data ?? []).find((m) => m.id === "og/new-thing");
+  assert.ok(entry, "the added model is not advertised");
+  assert.equal(entry.name, "New Thing");
+  assert.equal(entry.context_window, 200000);
+  assert.equal(entry.max_tokens, 8192);
+});
+
+test("MODEL facets: a zero capacity is refused, because omitting it already means unset", async () => {
+  const { call, json } = await harness();
+  const res = await json(
+    await call("POST", "/api/admin/models", { body: { id: "og/zeroed", contextWindow: 0 } }),
+  );
+  assert.equal(res.status, 400);
+  // The error NAMES the field: this is the only place an operator hears about it.
+  assert.match(String(res.body?.error?.message ?? ""), /contextWindow/);
+});
+
+test("MODEL facets: a name with control characters is refused", async () => {
+  const { call, json } = await harness();
+  const res = await json(
+    await call("POST", "/api/admin/models", { body: { id: "og/ctrl", name: "bad\u0007name" } }),
+  );
+  assert.equal(res.status, 400);
+  assert.match(String(res.body?.error?.message ?? ""), /name/);
+});

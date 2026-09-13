@@ -80,7 +80,18 @@ export default function ModelsView() {
   // same rule for the same reason.
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ id: "", wire: "", usEgress: false, search: false });
+  const [draft, setDraft] = useState({
+    id: "",
+    wire: "",
+    usEgress: false,
+    search: false,
+    // The form-owned facets. Collapsed by default because most models declare none —
+    // DSH folds them behind the same word for the same reason.
+    name: "",
+    contextWindow: "",
+    maxTokens: "",
+  });
+  const [advanced, setAdvanced] = useState(false);
   const [newProvider, setNewProvider] = useState({ prefix: "", label: "", baseURL: "", api: "", apiKey: "" });
   const [newModel, setNewModel] = useState("");
   // The probe result is keyed by prefix so a stale answer cannot be shown against a
@@ -190,14 +201,22 @@ export default function ModelsView() {
       if (!draft.id.trim()) return;
       setAdding(true);
       try {
+        // Numbers travel as numbers: the server refuses a string, and `""` means
+        // "not declared" rather than zero — which is exactly the distinction its
+        // validation message is written around.
+        const ctx = draft.contextWindow.trim() ? Number(draft.contextWindow) : undefined;
+        const max = draft.maxTokens.trim() ? Number(draft.maxTokens) : undefined;
         await api.addModel({
           id,
+          ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+          ...(ctx !== undefined ? { contextWindow: ctx } : {}),
+          ...(max !== undefined ? { maxTokens: max } : {}),
           ...(draft.wire.trim() ? { wire: draft.wire.trim() } : {}),
           ...(draft.usEgress ? { usEgress: true } : {}),
           ...(draft.search ? { search: true } : {}),
         });
         toast(t("models.added"));
-        setDraft({ id: "", wire: "", usEgress: false, search: false });
+        setDraft({ id: "", wire: "", usEgress: false, search: false, name: "", contextWindow: "", maxTokens: "" });
         await load();
       } catch (err) {
         toast(err instanceof ApiError ? err.message : t("route.fail"), true);
@@ -427,7 +446,7 @@ export default function ModelsView() {
                     aria-expanded={isOpen}
                     onClick={() => {
                       setOpen(isOpen ? null : prefix);
-                      setDraft({ id: "", wire: "", usEgress: false, search: false });
+                      setDraft({ id: "", wire: "", usEgress: false, search: false, name: "", contextWindow: "", maxTokens: "" });
                       setNewModel("");
                     }}
                   >
@@ -560,6 +579,16 @@ export default function ModelsView() {
                           onChange={(e) => setDraft({ ...draft, wire: e.target.value })}
                         />
                       )}
+                      {!isCustom && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          aria-expanded={advanced}
+                          onClick={() => setAdvanced(!advanced)}
+                        >
+                          {t("models.advanced")}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
@@ -568,6 +597,37 @@ export default function ModelsView() {
                       >
                         {t("models.add")}
                       </button>
+                    </div>
+                  )}
+
+                  {isAdmin && !isCustom && advanced && (
+                    <div className="prov-facets">
+                      <label>
+                        <span>{t("models.nameLabel")}</span>
+                        <input
+                          className="form-input"
+                          value={draft.name}
+                          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>{t("models.ctxLabel")}</span>
+                        <input
+                          className="form-input"
+                          inputMode="numeric"
+                          value={draft.contextWindow}
+                          onChange={(e) => setDraft({ ...draft, contextWindow: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>{t("models.maxLabel")}</span>
+                        <input
+                          className="form-input"
+                          inputMode="numeric"
+                          value={draft.maxTokens}
+                          onChange={(e) => setDraft({ ...draft, maxTokens: e.target.value })}
+                        />
+                      </label>
                     </div>
                   )}
 

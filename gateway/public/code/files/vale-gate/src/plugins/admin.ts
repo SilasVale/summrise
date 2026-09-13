@@ -128,6 +128,33 @@ function parseModelSpec(body: any): { spec?: ModelSpec; error?: string } {
   if (body?.usEgress === true) spec.usEgress = true;
   if (body?.search === true) spec.search = true;
   if (body?.responsesOnly === true) spec.responsesOnly = true;
+  // The three display facets. Validated here, with NAMED errors, because this is the
+  // only place an operator hears about a mistake — the same reason the id and the
+  // prefix are checked above rather than at first use.
+  const name = String(body?.name ?? "").trim();
+  if (name) {
+    // The control-character class is the point of the check, not an accident:
+    // a newline or a NUL in a display name breaks the listing it is printed in.
+    // eslint-disable-next-line no-control-regex -- same precedent as the provider label
+    if (name.length > 80 || /[\u0000-\u001f\u007f]/.test(name))
+      return { error: "name must be at most 80 characters, with no control characters" };
+    spec.name = name;
+  }
+  for (const [field, raw] of [
+    ["contextWindow", body?.contextWindow],
+    ["maxTokens", body?.maxTokens],
+  ] as const) {
+    if (raw === undefined || raw === null || raw === "") continue;
+    const n = Number(raw);
+    // A capacity is a positive whole number of tokens. Zero and negatives are the
+    // shapes an operator reaches for to mean "unset", which is what OMITTING it
+    // already means — accepting them would put a 0-token window in the catalogue that
+    // a client would then render as a real limit.
+    if (!Number.isInteger(n) || n <= 0 || n > 10_000_000)
+      return { error: `${field} must be a whole number of tokens between 1 and 10000000` };
+    if (field === "contextWindow") spec.contextWindow = n;
+    else spec.maxTokens = n;
+  }
   return { spec };
 }
 

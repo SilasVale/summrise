@@ -110,7 +110,16 @@ export async function extraModelEntries(env: Env): Promise<
     max_tokens?: number;
   }[]
 > {
-  const custom = (await customModels(env)).map((m) => ({ id: m.id, owned_by: m.ownedBy }));
+  // Console-added models carry the same display facets a provider model may declare,
+  // so `/v1/models` describes both the same way. A client reading `context_window`
+  // off the listing cannot tell (and should not care) which store owns the record.
+  const custom = (await customModels(env)).map((m) => ({
+    id: m.id,
+    owned_by: m.ownedBy,
+    ...(m.name ? { name: m.name } : {}),
+    ...(m.contextWindow ? { context_window: m.contextWindow } : {}),
+    ...(m.maxTokens ? { max_tokens: m.maxTokens } : {}),
+  }));
   const provided = (await advertisedProviderModels(env)).map(({ id, provider, model }) => ({
     id,
     owned_by: provider.label || barePrefix(provider.prefix),

@@ -92,6 +92,21 @@ export interface ModelSpec {
   search?: boolean;
   /** Served ONLY by /v1/responses (chat/completions 5xxs upstream). */
   responsesOnly?: boolean;
+  /** Human name, as `/v1/models` reports it and DSH's discovery reads it.
+   *
+   *  THESE THREE ARE THE FORM-OWNED FACETS, and the line is deliberate: name,
+   *  context window and max output tokens are DISPLAY AND DISCOVERY — a client uses
+   *  them to describe a model to a human, and none of them can change what a request
+   *  MEANS. `wire`, `usEgress`, `search` and the vision flag are the other kind:
+   *  they change where a request goes or what the upstream does with it, which is
+   *  why they stay pinned in this registry rather than open to a text field. The
+   *  split is the same one the DSH editor makes — protocol and credential belong to
+   *  the provider, the per-model row carries what the model IS. */
+  name?: string;
+  /** Context window in tokens. Positive integer; a form may set it, routing may not read it. */
+  contextWindow?: number;
+  /** Max output tokens, same rule. */
+  maxTokens?: number;
   /** Reasoning-effort model: default effort=max when the client sends none.
    *
    *  The MECHANISM follows the path, so it is part of the facet:

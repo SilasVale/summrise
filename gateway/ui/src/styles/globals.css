@@ -2952,3 +2952,22 @@ body[data-theme="dark"] .note.tip {
   color: var(--text-secondary);
   max-width: 76ch;
 }
+
+/* The folded facets of a model row: display + discovery only, which is why a form may
+   own these while wire/us-egress stay pinned in the registry. */
+.prov-facets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.prov-facets label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
