@@ -526,6 +526,65 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+## Design review — round 196 (CHARTER.md:53). INTERVAL: rounds 151-195. LAST REVIEW: round 150.
+
+> Overdue by 45 rounds. Written now because the BYOK arc (185-195) closed and a review with real
+> material is worth more than one written on schedule without any. The four questions are answered in
+> the CHARTER's order, and the fourth is answered LAST and AGAINST THE LOOP.
+
+**(1) DID ANY METRIC MOVE?** One, and only one: the gateway test count, 850 → 860. Every other suite is
+unchanged (index 89, extension 13, zen-go 15, zen-us 13, vrelay 69, and the five scripts suites at
+45/25/12/32/7), zero red throughout, `todo 0` tree-wide. **No externally observable metric moved at all:**
+not the live `/v1/models` count, not a CDN artifact, not a release, not a device version. Forty-five
+rounds of work, and the only number that changed is one the loop increments by typing.
+
+**(2) WAS ANY ADR REVERSED?** No. No ADR was superseded, and none was reversed. What DID happen is
+narrower and worth distinguishing: rounds 174/175 proposed a fix that round 178 proved could not work as
+stated (the "one-line equality check" — the call site it had to catch passed a fresh wrapper whose
+identity is never equal), and round 188 flipped round 186's own cost comparison (the "cheaper" option
+needed two exports, so both options touched all four modules). **Both are corrections to the loop's own
+PROPOSALS, made before anything was recorded as an ADR** — which is the cheap place to be wrong, and the
+reason nothing needed reversing.
+
+**(3) WAS THE SAME PLACE CHANGED TWICE?** Yes, repeatedly, and the honest answer requires separating two
+things the question conflates. `models-probe.ts`, `store/users.ts`, `translate-vision.ts` and
+`model-route.ts` were each visited twice (once to measure, once to change), and `registry.ts` three times
+(176, 177, 184). **But no visit undid a previous edit** — the pattern is MEASURE THEN CHANGE, which is
+this loop's deliberate shape and the reason rounds 180/181 exist at all (both stopped rather than guess).
+Thrashing would be edit-undo-edit; this is read-decide-edit, and the difference is that every second visit
+had a different purpose than the first. Recorded so the next review can apply the distinction rather than
+the raw count.
+
+**(4) IS ANY METRIC ONE THE LOOP COULD HAVE RAISED BY ITSELF? — YES, AND IT IS THE ONLY ONE THAT MOVED.**
+The gateway test count is raised entirely by the loop writing assertions. It measures the loop's own
+activity, not the product. **By the CHARTER's own test, therefore, this interval produced no evidence of
+progress that an outside observer could check** — and saying that plainly is what this question exists
+for.
+
+**THE TWO THINGS THIS REVIEW ACTUALLY ESTABLISHES, stated so they are not softened later:**
+
+*(a) The work was real, and its evidence standard was met.* The BYOK arc found four independently-typed
+copies of one vocabulary (186) and ended with all four deriving from one source, with a mutation proof
+(194, deleting `custom` → 2 red) and four PRE-EXISTING consumers confirming the derived value is the same
+value (193, 195). B1 (a CPU cap), B2 (an assignment-prefix grant, security) and D14 (a deps precondition)
+were closed in the same interval. None of that is in doubt.
+
+*(b) It is nonetheless invisible from outside the repository, and the reason is structural.* Every
+remaining externally-observable metric in the round-157 convergence table is gated on ONE of three things:
+CHARTER-1 (a release, which the loop may not make), the device, or a reboot. **So the loop's choice is not
+"internal work or external work" — it is "internal work, or wait".** That is a true statement about the
+constraints, and it is also exactly the situation in which a loop can convince itself it is progressing
+because its own numbers go up.
+
+**RECOMMENDATION, AND IT IS A PROPOSAL TO THE USER RATHER THAN A UNILATERAL MOVE:** the loop has now spent
+45 rounds with zero external movement, and the ceiling is a one-word answer (`CHARTER-1`). Two things
+follow, and the second is the loop's own responsibility: (i) CHARTER-1 should be asked again, explicitly
+and on its own, because every convergence-table row waits on it; (ii) until it is answered, the loop
+should prefer work whose observable is external EVEN WITHOUT a release — the live `/v1/models` surface,
+the CDN manifests, the reachable-from-anonymous set — over work whose only observable is a test count it
+writes itself. That is not a rule the CHARTER imposes; it is the reading of question 4 that the CHARTER
+says keeps the rest honest.
+
 Last updated: 2026-09-14 round 195 (**THE ARC IS CLOSED — all FOUR consumers now derive from
 `store/byok.ts`, and the last one is the per-request path. The round's first act was to check that
 deriving would not quietly remove an EXTENSION POINT, and it does not**). Commit: gateway/ + mirror +
