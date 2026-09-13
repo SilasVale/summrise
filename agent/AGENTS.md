@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 161 (round 160 fixed ONE instance of the absence-assertion trap; this
+round SCANNED for the class — and the scan drew the boundary the previous two rounds had been assuming).
+Commit: journal. No code change.
+  (1) THE CLASS HAS A SHARP EDGE, AND IT IS NOT "absence assertions": it is absence assertions over
+  SOURCE TEXT. The scan found two families, and only one is a trap:
+    A. `assert.doesNotMatch(<file text>, /pattern/)` — `extension/test/shared.test.mjs:135` (the opt-out
+       predicate), `:156`, `:187`. A future comment that QUOTES the retired form trips these, exactly as
+       round 159's closure grep tripped on its own refutation. THREE instances, all in the file round 160
+       touched — round 159 predicted "one file over"; it was two more lines in the same file.
+    B. `assert.ok(!<runtime value>.includes(...))` — eleven-plus in the gateway suite alone (the token
+       must not appear in a minted URL, an env key value must not leak into a view, a passwordHash must
+       be absent, internals must not ship). These read RUNTIME OUTPUT, so no comment can trip them. They
+       are the RIGHT instrument and are untouched.
+  (2) SO ROUND 160's FIX WAS ONE INSTANCE OF A THREE-INSTANCE CLASS, and saying that precisely is worth
+  more than the fix: the general rule is "assert the positive ACT when the subject is a FILE; assert the
+  absence of a VALUE when the subject is OUTPUT". A future round converting :135/:156/:187 should apply
+  round 160's method — find the fact the file is supposed to state and assert THAT — and NOT apply it to
+  family B, where absence is the whole point.
+  (3) NOT CONVERTED THIS ROUND, for round 159's own reason: each conversion needs the test's intent read
+  and a positive fact chosen, and doing three of those at the end of a context budget is how round 145's
+  unwired test happened. Recorded with line numbers so the next round can start from the list rather
+  than from a scan.
+  (4) AND THE HONEST NOTE ABOUT THE PATTERN'S RECURRENCE: this is the third consecutive round where the
+  useful output was a BOUNDARY rather than a fix (159 named the trap, 160 fixed one instance, 161 drew
+  the class edge). That is what a converged track looks like when the remaining work is small and the
+  instruments are the thing being examined — and it is different from busywork only because each round
+  left a checkable statement behind.
+  (5) STILL OPEN: the three source-text absence assertions above; plus exactly the seven rows of the
+  round-157 table, unchanged.
+
 Last updated: 2026-09-14 round 160 (round 159's deferred item executed: the latent trap in my own
 test is gone, and the false alarm it predicted is now REPRODUCED rather than reasoned about). Commit:
 extension/ + journal. Tests: extension 13, unchanged; the mutation is the real-world event.
