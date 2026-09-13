@@ -526,6 +526,30 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 151 (THE FIRST USER-OBSERVABLE MEASUREMENT of this stretch — round
+150's review said the loop had raised only metrics it could raise itself, so this round measured what
+PRODUCTION actually serves; three probes, no deploy, no code change). Commit: journal + ledger.
+  (1) THE NUMBERS, measured against the live host:
+    `/api/version` → `{"version":"1.2.364", "sha256":"9ed7063e…"}` — the manifest is CURRENT.
+    `ValeAgent-Setup.exe`         → 200, etag `f1dc1c8e86ab125f9f8d078b23ed400c`
+    `ValeAgent-Setup-1.2.361.exe` → 200, etag `f1dc1c8e86ab125f9f8d078b23ed400c` (SAME BYTES)
+    landing page `https://agent.saisi.online/` → **0 occurrences of `ValeAgent-Setup.exe`**
+  (2) SO THE FIRST EXTERNALLY OBSERVABLE METRIC THAT MOVED IS ROUND 125's FIX, AND IT IS HOLDING: the
+  door no longer links the stale installer (0 occurrences, where the round-125 entry recorded the link
+  being present before). That is a change a USER can observe, verified now rather than asserted, and it
+  is the answer the round-150 review asked the next one to be able to give.
+  (3) AND THE ARTIFACT DEBT IS RE-CONFIRMED BY MEASUREMENT, not by memory: the versionless alias and the
+  1.2.361 filename return the SAME ETAG, so `ValeAgent-Setup.exe` still serves the 1.2.361 installer
+  while the manifest advertises 1.2.364 — three releases behind, at a guessable URL, with nothing
+  linking it. D4b stands exactly as round 125/126 recorded it; nothing has drifted either way.
+  (4) THE HONEST SHAPE OF THIS ROUND, stated because it is the point: 150 rounds in, THIS is what the
+  loop can measure without a release — three probes of a deployment it is not allowed to change. The
+  remaining externally observable metrics (a matching installer alias, a device updated and verified by
+  effect, the four capability unlocks live) all require the same CHARTER-1 answer. The loop can keep
+  proving the repository agrees with itself; it cannot, by itself, move a byte of production.
+  (5) STILL OPEN: D13's build path; the three unreconciled versions (1.2.362-364); the stale installer
+  alias (D4b, re-measured above); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 150 — **THE EVERY-10-ROUND DESIGN REVIEW** (CHARTER.md:53: "did any
 metric move, was any ADR reversed, was the same place changed twice, and is any metric one the loop
 could have raised by itself?"). Commit: journal + ledger. No code changed.
