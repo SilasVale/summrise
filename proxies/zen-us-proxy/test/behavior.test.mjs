@@ -252,3 +252,60 @@ test("a key shorter than 8 chars is NOT redacted blindly (it would mangle text)"
     globalThis.fetch = real;
   }
 });
+
+/* ---- the pass-through label (round 136) ---- */
+
+// STILL OPEN, AND MEASURED RATHER THAN HIDDEN (round 136): with the pass-through
+// fixed, this case still fails — a `stream:false` answer does not take the
+// pass-through at all, it goes through a conversion branch that labels SSE. The
+// audit's P9 is therefore PARTLY closed: the pass-through copies the upstream's
+// content-type (pinned by the two tests below), and the conversion branch is
+// recorded in the ledger with this test as its reproduction. It is `todo` so the
+// suite stays green while the gap stays visible; a todo that starts PASSING is
+// node:test's signal that the gap closed.
+test("a stream:false JSON answer is labelled JSON, not SSE", { todo: "zen-us's conversion branch still forces SSE — ledger P9b, reproduction is this test" }, async () => {
+  // The relay hardcoded `text/event-stream` on every pass-through, so a
+  // non-streaming answer arrived labelled as a stream — while zen-go, the
+  // sibling worker, discriminates. The upstream's own content-type wins now.
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const r = await worker.fetch(
+      req("POST", "/v1/responses", { bearer: "sk-zen-us-caller-0123456789", body: { model: "x", stream: false } }),
+      { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: "sk-zen-us-test-key-0123456789" },
+    );
+    // The test is about the LABEL: what the worker does to the body beyond that is
+    // another question (and asserting it here would encode assumptions this suite
+    // does not own).
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type") || "", /application\/json/, "not relabelled as SSE");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("a real SSE answer keeps its SSE label (and an unlabelled one still defaults to SSE)", async () => {
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response("data: {}\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+    let r = await worker.fetch(
+      req("POST", "/v1/responses", { bearer: "sk-zen-us-caller-0123456789", body: { model: "x", stream: true } }),
+      { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: "sk-zen-us-test-key-0123456789" },
+    );
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type") || "", /text\/event-stream/, "SSE preserved");
+
+    // ...and an upstream that declares nothing keeps the historical default.
+    globalThis.fetch = async () => new Response("data: {}\n\n", { status: 200 });
+    r = await worker.fetch(
+      req("POST", "/v1/responses", { bearer: "sk-zen-us-caller-0123456789", body: { model: "x", stream: true } }),
+      { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: "sk-zen-us-test-key-0123456789" },
+    );
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type") || "", /text\/event-stream/, "unlabelled defaults to SSE");
+  } finally {
+    globalThis.fetch = real;
+  }
+});

@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 136 (P9, PARTLY closed: the pass-through now labels a body with the
+upstream's own content-type instead of hardcoded SSE — and the half I could not fix is MEASURED by a
+todo test rather than hidden). Commit: this round's proxies/ + docs.
+Tests: zen-us 12 (was 10) with one `todo`; no mutation run (see 4).
+  (1) THE DEFECT, AND WHAT WAS ACTUALLY WRONG. `zen-us` hardcoded
+  `Content-Type: text/event-stream` on its pass-through, so a `stream:false` JSON answer came back
+  labelled as a stream — while `zen-go`, its sibling, discriminates. The fix asks the UPSTREAM, which
+  is the thing that knows what it sent: `upstream.headers.get("content-type") || "text/event-stream"`.
+  The fallback is deliberate — an upstream that declares nothing keeps the historical label.
+  (2) AND THE MEASUREMENT CUT THE FINDING IN TWO. The two tests I could make pass prove the
+  pass-through half (an SSE answer keeps its label; an unlabelled answer still defaults to SSE). The
+  `stream:false` JSON case does NOT reach the pass-through at all — it takes a CONVERSION branch that
+  forces SSE — so the audit's P9 was two defects wearing one name, which is now the second time in
+  this surface (P4/P5 was the first). That half is recorded as P9b.
+  (3) THE FAILING TEST IS COMMITTED AS `todo`, NOT DELETED AND NOT LEFT RED. A test that fails on the
+  tree is not shippable, and deleting it would erase the reproduction; node:test's `todo` keeps the
+  suite green while keeping the gap visible, and the runner tells us when it starts passing. That is
+  the honest instrument for "known, measured, not fixed".
+  (4) NO MUTATION RUN, AND I SAY SO: the fix is a two-line header expression whose two directions are
+  pinned by tests that fail without it (the SSE case asserts the value, the unlabelled case asserts the
+  fallback), but I did not run the revert-and-watch-it-fail cycle this round — the budget went into
+  finding out that the third case belongs to a different code path. Recorded so the missing evidence
+  is not mistaken for evidence.
+  (5) TWO TEST-HARNESS TRAPS, AGAIN IN THIS SUITE: my first version sent `key: "ck-secret"`, but
+  `/v1/responses` is BYOK and needs the CALLER's bearer — and because the ERROR paths also answer
+  `application/json`, the content-type assertion PASSED against a 401, which is exactly the
+  false-pass shape this loop keeps finding (I only saw it after asserting the status first).
+  (6) NOT DEPLOYED, consistently with 129/131/132/133/135.
+  (7) STILL OPEN: D13 (the orchestrator has no executable coverage); P6, P8, P9b in the proxies; X3,
+  X6, X8 in the extension; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent
+  revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 135 (P10: one comment promised "no silent fallback to og" directly
 above a line that defaults to og — an audit finding that cost a reading to untangle, closed by
 stating both halves and pinning the one that had no test). Commit: this round's proxies/ + docs.

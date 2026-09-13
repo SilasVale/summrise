@@ -295,10 +295,16 @@ export default {
         }
         return relayUpstreamError(upstream, cors, [env.OPENCODE_GO_API_KEY, request.headers.get("x-api-key")]);
       }
+      // LABEL THE BODY WITH THE UPSTREAM'S OWN CONTENT TYPE (round 136). This used
+      // to hardcode `text/event-stream` for every pass-through, so a `stream:false`
+      // JSON answer came back labelled as SSE — while the sibling worker
+      // discriminates. The upstream knows what it sent; the relay was overriding it
+      // with a guess. The SSE fallback stays for an upstream that says nothing.
+      const upstreamType = upstream.headers.get("content-type");
       return new Response(upstream.body, {
         status: upstream.status,
         headers: {
-          "Content-Type": "text/event-stream; charset=utf-8",
+          "Content-Type": upstreamType || "text/event-stream; charset=utf-8",
           "Cache-Control": "no-cache",
           ...cors,
         },
