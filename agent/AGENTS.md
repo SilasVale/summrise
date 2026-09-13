@@ -526,6 +526,35 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 152 (a second live measurement round — this time of the RELAY, and
+it produced one real fact, one measured LIMIT, and one instrument illusion I caught myself). Commit:
+journal + ledger. No code changed.
+  (1) THE FACT: the committed zen route IS live, at the host the gateway actually calls. `usProxyBase`
+  (channels.ts:365) defaults to **`https://v.saisi.online`**, not to the host I probed first:
+    `v.saisi.online/api/zen?target=evil` → **401** `{"error":"caller key required (x-api-key or
+    Authorization)"}` — the relay's own auth gate.
+  (2) THE MEASURED LIMIT, which is the useful part: 401 rather than 400 for an UNKNOWN target is
+  correct behaviour (the caller-key gate runs before the target allowlist), and it means **P10's
+  unknown-target rejection is not externally observable without a caller key** — the gate answers
+  first. This loop holds a gateway token, not a vrelay caller key, so round 135's pin could only ever
+  have been a unit test. That is now a MEASURED boundary rather than an assumed one.
+  (3) THE ILLUSION, CAUGHT BY ME THIS TIME AND WORTH THE PARAGRAPH: my first probe hit
+  `api.saisi.online/api/zen` and got a JSON 404 envelope, which I briefly read as "the deployed routing
+  table does not carry the zen prefix" — a live promise-vs-implementation finding. It was my host:
+  `api.saisi.online` is the UPLOAD inbox surface (global AGENTS.md: `/api/upload`), and one grep for
+  `usProxyBase` settled it. **This is the FOURTH instrument-induced illusion in this stretch**
+  (136/137 read a second code path as a conversion branch; 143 assumed a pair when there were four
+  copies; 148's phantom came from a test that could not express its own premise; now this). The
+  pattern is stable enough to name: **every time a measurement says "the code is wrong", the next
+  cheapest question is whether the measurement can express what it claims to measure** — and in all
+  four cases one command answered it.
+  (4) WHAT THE TWO LIVE ROUNDS (151, 152) ESTABLISH TOGETHER: the loop CAN verify a deployment
+  externally, and the reachable set is exactly {what is served anonymously} — manifests, aliases,
+  landing pages, auth gates. Anything behind a credential (the target contract, the redaction paths,
+  the 5xx shape) is out of reach, and that is not a gap in the loop but a property of the surfaces.
+  (5) STILL OPEN: D13's build path; the three unreconciled versions (1.2.362-364); the stale installer
+  alias (D4b); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 151 (THE FIRST USER-OBSERVABLE MEASUREMENT of this stretch — round
 150's review said the loop had raised only metrics it could raise itself, so this round measured what
 PRODUCTION actually serves; three probes, no deploy, no code change). Commit: journal + ledger.
