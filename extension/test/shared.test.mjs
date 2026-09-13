@@ -159,12 +159,19 @@ test("options/options.js: opt-in checkbox, no silent substitution, no phantom pa
     "an invalid origin must not be silently replaced by the default",
   );
 
-  // 3. The phantom credential must not be back (round 141 fixed shared.js; this
-  // file carried a second copy — the pair-defect).
-  assert.doesNotMatch(
+  // 3. The file must STATE the true security model (round 141 fixed shared.js; this
+  // file carried a second copy — the pair-defect). POSITIVE assertion, deliberately
+  // (round 160): this was `assert.doesNotMatch(src, /code-server\s+password/i)`, and
+  // round 159's closure check proved what is wrong with that form — a grep for an
+  // ABSENT claim cannot tell the claim from its REFUTATION, and every honest fix of
+  // this kind writes the very phrase it retracts. The absence form would therefore
+  // false-alarm the day someone documents the fix here; the positive form cannot.
+  // It is still a documentation check, not a behavioural one — it asserts what the
+  // file SAYS, because what this file does is describe the gate.
+  assert.match(
     src,
-    /code-server\s+password/i,
-    "there is no code-server password: the live server runs --auth none",
+    /--auth none/,
+    "options.js must state that code-server runs --auth none (Access is the only gate)",
   );
 });
 

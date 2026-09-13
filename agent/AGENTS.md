@@ -526,6 +526,26 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 160 (round 159's deferred item executed: the latent trap in my own
+test is gone, and the false alarm it predicted is now REPRODUCED rather than reasoned about). Commit:
+extension/ + journal. Tests: extension 13, unchanged; the mutation is the real-world event.
+  (1) THE CHANGE IS ONE ASSERTION: `extension/test/shared.test.mjs` asserted
+  `doesNotMatch(options.js, /code-server\s+password/i)` — the ABSENCE form round 159 proved cannot
+  distinguish a claim from its refutation. It now asserts the POSITIVE fact the file is supposed to
+  state (`/--auth none/`), so documenting the fix can never trip it.
+  (2) AND THE MUTATION IS THE EVENT ITSELF, NOT A STAND-IN: adding a line to `options.js` saying
+  "there is no code-server password any more" — exactly what a future round would write — leaves the
+  NEW assertion GREEN (13/13) and turns the OLD form RED (12/1). That is the false alarm round 159
+  predicted, reproduced on demand rather than argued.
+  (3) WHAT THE ASSERTION STILL IS NOT, said plainly: it is a DOCUMENTATION check, not a behavioural
+  one — it asserts what the file SAYS, because what this file does is describe the gate. The behaviour
+  it describes (no auth in front of code-server) was measured in round 141 off `pm2 jlist`, and that
+  measurement — not this test — is what makes the claim true.
+  (4) WHY THIS WAS DEFERRED FROM 159 AND DONE NOW: round 159 explicitly declined to rewrite a passing
+  test at the end of a context budget, with round 145's unwired test as the precedent. This round
+  started with the budget for it, and the change is four lines plus a comment.
+  (5) STILL OPEN: exactly the seven rows of the round-157 table, unchanged.
+
 Last updated: 2026-09-14 round 159 (a CLOSURE-INTEGRITY round: round 142's ledger sweep was 16
 rounds ago and rounds 143-158 changed code in three trees, so this round re-checked that the recorded
 closures still exist — and it caught its OWN check lying, in a new way). Commit: journal. No code change.
