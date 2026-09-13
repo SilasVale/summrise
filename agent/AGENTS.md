@@ -519,7 +519,61 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-13 round 105 (the model-routing refactor toward DSH: providers as rows,
+Last updated: 2026-09-14 round 110 (four silent-failure fixes, and the reason d1 stayed dark
+for days: the agent's boot task could not revive it, and the tunnel supervisor was probing a
+directory that no longer exists). RELEASED 1.2.363 and 1.2.364 — neither is on d1 yet.
+Commits: 35aaeb38, de1ef852, 7c5edad7, 50643d54, a907506b (1.2.363), eb94d825 (1.2.364).
+  (1) THE TUNNEL SUPERVISOR PROBED A DIRECTORY THAT NO LONGER EXISTS (35aaeb38).
+  `supervise_tunnel` hand-joined `install_dir\tools\cloudflared.exe` and
+  `install_dir\tunnel.yml` — the PRE-layout-v2 locations — so on a v2 install its
+  `exists()` check was always false, the loop polled every 30 s forever, and the branch had
+  NO log line. `Select-String cloudflared` over the whole of d1's startup.log returns ZERO
+  lines. The supervised spawn path has therefore NEVER run on that device: the tunnel only
+  existed when a human ran `vale tunnel start`. Now uses `paths::cloudflared_bin()` /
+  `paths::tunnel_file()` (registry-first AND carrying the legacy migration), and the
+  not-staged branch names the files it is waiting for, once.
+  A GUARD: `no_source_spells_a_pre_v2_location_by_hand` matches the defect's SHAPE (a
+  legacy directory joined onto an install root), not the word "tools" — its first version
+  flagged a temp-dir join in a file-writing test and was narrowed, because a guard that
+  cries wolf gets deleted. Mutation-proven.
+  (2) A PROCESS THAT CAN DIE SILENTLY MAKES EVERY OTHER DIAGNOSIS GUESSWORK (de1ef852).
+  `runstate.rs`: a run journal with three facts — started, last heartbeat, exited cleanly —
+  reported at every boot ("previous run DID NOT EXIT CLEANLY … survived Ns"). A Rust panic
+  writes to stderr, which a boot task does not have; `startup.log` only gains a block when
+  the NEXT run starts. `main.rs` installs a panic hook through the same `log_line`. The pure
+  half (`describe_previous`) is separated and tested 9 ways.
+  (3) MEMORY: THE FLAG WAS SET AND NEVER READ (7c5edad7). `load()` sets `load_failed` when
+  the file exists but cannot be read, and NOTHING consumed it — so `memory_search` answered
+  `{"ok":true,"results":[]}` for a store it had never loaded, which an AI cannot distinguish
+  from "the operator saved nothing". All three read tools now refuse. And `update`/`delete`
+  returned `true` after a LOGGED append failure (`save` had been taught better), so an edit
+  could be reported saved and vanish at the next restart, or a delete could bring the record
+  BACK. Both now return `UpdateOutcome { Unknown, Durable, MemoryOnly }` — the compiler will
+  not let a caller omit the third case. The test is FORCED through the existing `Degrade`
+  seam, not simulated: a real read failure leaves an empty index and makes the guard a no-op,
+  which is how two earlier versions of a related test passed under mutation.
+  (4) THE BOOT TASK COULD NOT REVIVE THE AGENT (50643d54) — `-AtStartup` alone, so a dead
+  agent stayed dead until a reboot or the ELECTRON SHELL's 5-minute pulse, which lives in a
+  USER SESSION and does not exist headless. OBSERVED: d1 unreachable for days with its task
+  sat "Ready". Now a 5-minute repetition trigger paired with `MultipleInstances IgnoreNew`
+  (START IF NOT RUNNING — a healthy agent is never interrupted, and the shell's
+  `schtasks /run ValeAgent` pulse can no longer stack a second agent) plus
+  `-RestartCount 3 -RestartInterval 1min` for the task ENDING. Contract pinned by a static
+  source check, mutation-proven; the RUNTIME behaviour needs a device.
+  (5) PROCESS LESSON, TWICE: `cargo test --lib` CANNOT SEE the bin — it does not compile
+  main.rs — and it reported 548 passing while `cargo clippy --all-targets` found a scope
+  error in the new heartbeat. And this module is `#![cfg(windows)]`: the Linux test run does
+  not compile it either, which is why `cargo xwin check` is not optional after touching it.
+  (6) STILL BLOCKED, AND IT IS THE LOOP THIS ROUND EXPOSES: four agent fixes are committed
+  and TWO RELEASES ARE PUBLISHED (1.2.363, 1.2.364 — CDN contract verified by hash) while d1
+  is unreachable (530). The fix that lets a device heal itself can only be delivered through
+  a device that is up. One human touch on d1 recovers everything:
+  `vale tunnel start` then `npm i -g --prefix (Split-Path (Get-Command vale).Source)
+  https://agent.saisi.online/vale-agent/vale-agent-latest.tgz` then `vale update`.
+  (7) ALSO OPEN: the agent restarted every 1-2 hours before this work (irregular, cause
+  unknown) — the run journal now exists to answer exactly that on the next occurrence.
+
+Previous round: 2026-09-13 round 105 (the model-routing refactor toward DSH: providers as rows,
 probe/adopt, and the split between form-owned facets and pinned routing semantics — all
 DEPLOYED and verified live).
 Commits: 05d0009c, b7b9a904, 7d4fe115, e12f4649, 519f000f, f2c5460e. Console live at 0bf377cb.
