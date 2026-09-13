@@ -53,8 +53,17 @@ if [ "${1:-}" = "--audit-only" ]; then
   VER="${2:?usage: ./scripts/publish-release.sh --audit-only <1.2.N>}"
   # shellcheck source=lib/release-audit.sh
   source "scripts/lib/release-audit.sh"
-  audit_release_asset "$VER" "${SMOKE_BASE_URL:-https://agent.saisi.online}"
-  exit $?
+  if audit_release_asset "$VER" "${SMOKE_BASE_URL:-https://agent.saisi.online}"; then
+    # The audit ran and passed for this version: whatever the reconcile ledger
+    # carried for it is settled. Commit the change — this path otherwise does
+    # not touch the tree.
+    if grep -qx "$VER" <<<"$(reconcile_pending)"; then
+      reconcile_clear "$VER"
+      echo "reconcile ledger: v$VER settled — commit $RECONCILE_LEDGER"
+    fi
+    exit 0
+  fi
+  exit 1
 fi
 
 VER="${1:?usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer]}"
@@ -62,14 +71,30 @@ case "$VER" in -*) echo "::error::usage: ./scripts/publish-release.sh <1.2.N> [-
 shift
 SKIP_RECONCILE=0
 WITH_INSTALLER=0
+ACK_UNRECONCILED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-reconcile) SKIP_RECONCILE=1 ;;
     --with-installer) WITH_INSTALLER=1 ;;
-    *) echo "::error::unknown flag: $1 (usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer])" >&2; exit 1 ;;
+    --acknowledge-unreconciled) ACK_UNRECONCILED=1 ;;
+    *) echo "::error::unknown flag: $1 (usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer] [--acknowledge-unreconciled])" >&2; exit 1 ;;
   esac
   shift
 done
+
+# THE RECONCILE GATE (round 123). A version published with no GitHub release to
+# audit against leaves a debt in the reconcile ledger, and the next publish
+# REFUSES until it is settled. It used to be silence: measured 2026-09-14, the
+# newest GitHub release that existed at all was v1.2.361 while the CDN served
+# 1.2.361-1.2.364 — three versions published with no release, no tag and no audit.
+PENDING_RECONCILE="$(reconcile_pending | tr '\n' ' ')"
+if [ -n "${PENDING_RECONCILE// /}" ] && [ "$ACK_UNRECONCILED" -eq 0 ]; then
+  echo "::error::refusing to publish: these versions are on the CDN with no GitHub release to audit against:" >&2
+  echo "  $PENDING_RECONCILE" >&2
+  echo "  Settle one:      ./scripts/publish-release.sh --audit-only <ver>   (after its tag/release exists)" >&2
+  echo "  Or acknowledge:  rerun with --acknowledge-unreconciled  (this run ADDS to the ledger; it does not clear it)" >&2
+  exit 1
+fi
 NPM_DIR=agent/vale-agent-npm
 ASSET_DIR=index/public/vale-agent
 PKG="$NPM_DIR/package.json"
@@ -320,7 +345,7 @@ prune_installers "$ASSET_DIR"
 echo "remaining: $(ls "$ASSET_DIR"/vale-agent-1.*.*.tgz 2>/dev/null | wc -l) versioned tgz + latest + $(ls "$ASSET_DIR"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | wc -l) versioned installers + alias"
 
 echo "== commit =="
-git add "$PKG" "$ASSET_DIR/version.json"
+git add "$PKG" "$ASSET_DIR/version.json" "$RECONCILE_LEDGER"
 git commit -q -F - <<EOF
 chore(stage-n): release $VER — CDN publish (sha256 + last-5-per-minor prune)
 EOF
@@ -382,6 +407,9 @@ if [ "$SKIP_RECONCILE" -eq 1 ]; then
     fi
   fi
   echo "-- WARN: --skip-reconcile given and no GitHub release v$VER exists yet (first publish) — audit SKIPPED, verify post-tag via the checklist below"
+  # The debt becomes a FILE, not a line of scrollback: the next publish reads it
+  # and refuses until it is settled (round 123).
+  reconcile_record "$VER" "--skip-reconcile: no GitHub release v$VER at publish time"
 else
   audit_release_asset "$VER" "$CDN_BASE" || {
     echo "  the asset is built by release.yml AFTER the tag push below." >&2
@@ -396,6 +424,7 @@ else
     exit 1
   fi
   echo "audit OK: CDN serves this run's pack, and its source-derived files match the GitHub asset"
+  reconcile_clear "$VER"   # a version audited in this run owes nothing
 fi
 
 echo "== done. Next: push main, then create the GitHub tag v$VER via the API"

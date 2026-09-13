@@ -65,3 +65,55 @@ prune_installers() {
     if [ "$keep" -eq 0 ]; then rm -f "$f"; echo "pruned $(basename "$f")"; fi
   done
 }
+
+# ── the reconcile ledger (round 123) ─────────────────────────────────────────
+# WHAT THIS IS FOR. `--skip-reconcile` publishes to the CDN with no GitHub
+# release to audit against, and until round 123 that fact lived ONLY in the
+# operator's scrollback: no file recorded it, so nothing could refuse the next
+# one. Measured 2026-09-14: the newest GitHub release was v1.2.361 while the CDN
+# had shipped 1.2.363 and 1.2.364 — the debt was three versions old, invisible,
+# and `scripts/lib/release-audit.sh` had never once run against a real release.
+#
+# One line per version, `#` comments allowed, TRACKED in git so the debt
+# survives this machine and shows up in review. The alternative — keeping it on
+# the CDN next to version.json — was rejected: a state file that only exists
+# where the publish puts it cannot fail a publish that has not happened yet.
+RECONCILE_LEDGER="${RECONCILE_LEDGER:-docs/agents/release-reconcile.txt}"
+
+# Echo the versions that owe a reconcile, one per line, in file order.
+#
+# ONE awk, NOT `grep -v | awk`. The pipeline version returned grep's status —
+# 1 when the ledger held only comments — and under `set -e -o pipefail` that
+# killed publish-release.sh SILENTLY the first time the ledger existed with every
+# debt settled. Its own test caught it (the suite died with no output, which is
+# what a `set -e` death inside a command substitution looks like). awk exits 0 on
+# empty input, so the question "what is owed?" always has an answer.
+reconcile_pending() {
+  [ -f "$RECONCILE_LEDGER" ] || return 0
+  awk '!/^[[:space:]]*#/ && NF {print $1}' "$RECONCILE_LEDGER"
+}
+
+# Record <ver> as published-but-unreconciled. Idempotent: a re-run must not grow
+# the ledger, or "how many versions owe a reconcile" becomes unanswerable.
+reconcile_record() {
+  local ver="$1" note="${2:-published with no GitHub release to audit against}"
+  # here-string, not `producer | grep -q`: under pipefail an early-exiting grep
+  # SIGPIPEs the producer and the pipeline reports failure even on a match
+  # (round-288, learned the same way in publish-release.sh).
+  if grep -qx "$ver" <<<"$(reconcile_pending)"; then return 0; fi
+  mkdir -p "$(dirname "$RECONCILE_LEDGER")"
+  if [ ! -f "$RECONCILE_LEDGER" ]; then
+    printf '# Versions on the CDN with no GitHub release to audit against.\n' > "$RECONCILE_LEDGER"
+    printf '# Written by scripts/publish-release.sh --skip-reconcile; cleared by --audit-only <ver>.\n' >> "$RECONCILE_LEDGER"
+  fi
+  printf '%s %s %s\n' "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$note" >> "$RECONCILE_LEDGER"
+}
+
+# Clear <ver> — its audit finally ran and passed. Comments are preserved.
+reconcile_clear() {
+  local ver="$1" tmp
+  [ -f "$RECONCILE_LEDGER" ] || return 0
+  tmp="$(mktemp)"
+  awk -v v="$ver" '/^[[:space:]]*#/ {print; next} $1 != v {print}' "$RECONCILE_LEDGER" > "$tmp"
+  mv "$tmp" "$RECONCILE_LEDGER"
+}

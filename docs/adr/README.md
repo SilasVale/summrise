@@ -12,6 +12,7 @@ file here is not an error.
 | [0003](0003-repo-topology-and-brand.md) | Adopted (re-reviewed 2026-08-22) | three-repo topology (`vale` / `vale-forge` / `vale-deploy`) split by audience, soft integration |
 | [0004](0004-one-time-panel-grants.md) | Adopted 2026-09-05 | the device panel is bootstrapped by a gateway-minted one-time 120s grant — the permanent device token never rides in a URL |
 | [0005](0005-write-through-config-state.md) | Adopted 2026-09-05 | agent config is a write-through RwLock (file before swap under one guard) — settings/gateway-connect mutations are visible in-process |
+| [0009](0009-unreconciled-publish-is-a-debt.md) | Adopted 2026-09-14 | an unreconciled publish is a tracked debt; the next publish refuses until it is settled |
 | [0006](0006-retire-studio-adopt-code-server.md) | Adopted 2026-09-06 | Vale Studio retired; code-server behind Access is the code-viewing surface |
 | [0007](0007-scoped-relay-token.md) | Adopted 2026-09-08 | F3 scoped relay token, step 1: per-user relay credential (`role: "relay"`) for settings.json; dual-accept on relay paths, /mcp + recovery stay admin-only; step-3 cutover pending |
 | [0008](0008-install-layout-v2.md) | Adopted 2026-09-09 | install-dir subdirectories (`etc\`/`components\`/`scripts\`, logs + `pwout\` under DataDir); explicit task config argument; one-version migration exception |

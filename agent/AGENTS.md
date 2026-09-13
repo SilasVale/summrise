@@ -526,6 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 123 (D3: the reconcile leg was printed text, so nothing could fail
+because it never happened — the debt is now a TRACKED FILE and the next publish refuses until it is
+settled). ADR 0009. Commit: this round's scripts/ + docs.
+Tests: release-lib 32 checks (was 20), release-audit 25, four mutations caught; the gate was fired
+against the REAL ledger and refused, listing exactly the three measured versions.
+  (1) THE DEBT BECOMES A FILE. `docs/agents/release-reconcile.txt` records every version published
+  with no GitHub release to audit against, and `publish-release.sh` gates on it BEFORE any build,
+  pack or deploy: a non-empty ledger exits 1, names the versions, and offers both ways out
+  (`--audit-only <ver>` to settle one, `--acknowledge-unreconciled` to proceed and ADD to the debt
+  rather than clear it). The record/clear/gate logic lives in `scripts/lib/release-lib.sh`, the lib
+  CI already tests, so it is covered behaviourally rather than by a source grep. `--audit-only` now
+  clears the version it audited.
+  (2) SEEDED WITH THE MEASUREMENT, NOT WITH A GUESS. The live state on 2026-09-14: CDN 200 for
+  1.2.361/362/363/364, GitHub release 404 for 1.2.362/363/364 — so three versions owe a reconcile
+  and 1.2.361 (which HAS a release) deliberately does not. Firing the gate for real returns exactly
+  those three. The missing tags are still NOT created here: that is a published-release action and
+  CHARTER-1 is unanswered.
+  (3) MY OWN TEST CAUGHT A BUG THAT WOULD HAVE KILLED THE FIRST SUCCESSFUL RECONCILE. The ledger
+  reader was `grep -v '^#' | awk ...` — and `grep` exits 1 when it selects nothing, which under
+  `set -e -o pipefail` kills the caller SILENTLY. The failing case is not exotic: it is the ledger
+  holding ONLY its header comments, i.e. the state right after every debt is settled. The suite
+  died with no output (which is what a `set -e` death inside a command substitution looks like), I
+  traced it with `bash -x`, and the reader is one awk now, which exits 0 on empty input. Writing
+  the test before trusting the function is what found it.
+  (4) AND MY MUTATION HARNESS ATE UNCOMMITTED WORK — the same family as round 121's journal loss,
+  one tool over. Undoing four mutations, I restored the LIB from a copy (`cp /tmp/rl.orig`) but the
+  SCRIPT with `git checkout scripts/publish-release.sh`, which silently reverted the gate this
+  round had just added; the next test run is what noticed. RULE NOW WRITTEN DOWN: undo a mutation
+  from a COPY, never from git, unless that file's changes are already committed.
+  (5) FOUR MUTATIONS, ALL CAUGHT: making the ledger never report a debt, recording without
+  de-duplication, clearing everything instead of one version, and dropping the record from the
+  skip path. Every one of them is a way this could look like it works.
+  (6) NOT DONE, AND WHY: the tags/releases for 1.2.362-364 are not created (published-release
+  action, CHARTER-1 unanswered), and the tag step itself is still a checklist item rather than
+  code — which is exactly the DELETION CRITERION this ADR states: when the reconcile leg becomes a
+  required CI follow-up, the ledger, its gate and ADR 0009 all go.
+  (7) STILL OPEN: D4-D13 in the release machinery; the extension's X1/X3/X6/X8; the proxies'
+  P2-P10; CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 122 (the release audit's two unfalsifiable verdicts: a missing
 GitHub token was indistinguishable from "not released yet", and an artifact difference it could not
 explain was reported as OK — the two checks standing between a build and every device).

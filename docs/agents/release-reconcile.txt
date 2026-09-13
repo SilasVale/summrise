@@ -1,0 +1,11 @@
+# Versions on the CDN with no GitHub release to audit against.
+# Written by scripts/publish-release.sh --skip-reconcile; cleared by --audit-only <ver>.
+#
+# MEASURED 2026-09-14 (round 122), which is why this file exists at all: the newest
+# GitHub release in SilasVale/vale was v1.2.361 while the CDN served 1.2.361–1.2.364,
+# so three shipped versions had no release, no tag and therefore no dual-builder audit
+# — and nothing anywhere said so. v1.2.361 is NOT listed: its release exists (HTTP 200)
+# and its audit can run.
+1.2.362 2026-09-14T00:00:00Z backfilled by round 123 from the live state: CDN 200 / GitHub release 404
+1.2.363 2026-09-14T00:00:00Z backfilled by round 123 from the live state: CDN 200 / GitHub release 404
+1.2.364 2026-09-14T00:00:00Z backfilled by round 123 from the live state: CDN 200 / GitHub release 404
