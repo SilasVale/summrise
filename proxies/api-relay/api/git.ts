@@ -26,6 +26,36 @@ const RESPONSE_HEADERS = [
   "last-modified",
   "vary",
 ];
+// ── the origin guard, IDENTICAL in git/github/gform ────────────────────────────────
+//
+// `new URL("//evil.example/x", "https://github.com")` is `https://evil.example/x` — a
+// protocol-relative path REPLACES the origin. The per-handler shape checks (`validPath`,
+// `safePath`) test the path as a STRING; this tests the RESOLVED origin, which is what decides
+// where the request actually goes and what encoding tricks cannot fool. It matters most here:
+// `git.ts` forwards the caller's `authorization` upstream, and all three act as egress proxies.
+//
+// LIVE DEFECT THIS CLOSES (round 120): `GET https://v.saisi.online/api/git//example.com/`
+// returned Example Domain's HTML, with the caller's GitHub token attached. The same hole was
+// reachable through `/api/github/web//host/` and `/api/gform/...`.
+//
+// The three copies are byte-identical and PINNED as such by `test/host-escape.test.mjs`: the
+// handlers compile to standalone modules (the bundle is flat), so one cannot import another —
+// and a guard that exists in three places is exactly how this codebase loses a check on one of
+// them. The parity test is what makes "three copies" safe here.
+function upstreamUrl(base: string, path: string): { url?: URL; error?: string } {
+  let url: URL;
+  try {
+    url = new URL(path, base);
+  } catch {
+    return { error: "uncomposable upstream path" };
+  }
+  const want = new URL(base);
+  if (url.origin !== want.origin) {
+    return { error: `path escapes the upstream origin (${url.origin} != ${want.origin})` };
+  }
+  return { url };
+}
+
 const MAX_REDIRECTS = 3;
 
 // Upstream fetch budget: fail fast instead of hanging a client.
@@ -46,9 +76,14 @@ function errorResponse(message: string, status = 400): Response {
 // Exported for direct pins (SOLID Round-22; additive — handler untouched).
 export function validPath(value: string): boolean {
   if (!value || !value.startsWith("/") || value.includes("\\") || value.includes("\0") || value.includes("..")) return false;
+  // `//host` is PROTOCOL-RELATIVE: it passes a "starts with /" test and then replaces the origin
+  // in `new URL(path, base)`. The origin assert below is the real guard; this is the shape that
+  // should never have been called a rooted path.
+  if (value.startsWith("//")) return false;
   try {
     const decoded = decodeURIComponent(value);
     return decoded.startsWith("/") &&
+      !decoded.startsWith("//") &&
       !decoded.includes("\\") &&
       !decoded.includes("..") &&
       !/[\0-\x1f]/.test(decoded);
@@ -96,7 +131,9 @@ export default async function handler(request: Request): Promise<Response> {
   const path = incoming.searchParams.get("path");
   if (!path || !validPath(path)) return errorResponse("invalid GitHub path");
 
-  let upstream = new URL(path, UPSTREAM);
+  const composed = upstreamUrl(UPSTREAM, path);
+  if (composed.error) return errorResponse(composed.error);
+  let upstream = composed.url;
   upstream.search = incoming.search;
   upstream.searchParams.delete("path");
   const headers = requestHeaders(request);
