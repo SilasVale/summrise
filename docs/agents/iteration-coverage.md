@@ -81,6 +81,26 @@ Seeded 2026-09-14 at round 110.
 
 ## Open items (each needs an owner round)
 
+### What remains, and what each item needs (round 157 — the convergence table)
+
+Every remaining item is gated on something the LOOP cannot supply. Written as a table
+so a later round — or the user — can pick one up without re-deriving why it is stuck:
+
+| # | Item | What it needs | Who | Evidence on record |
+|---|---|---|---|---|
+| 1 | **CHARTER-1** (publish freely vs ask first) | one word from the user | **user** | `docs/CHARTER.md`; every release action below waits on it |
+| 2 | 1.2.362-364 unreconciled (CDN 200 / GitHub release 404) | a release | release action (1) | `docs/agents/release-reconcile.txt`; round 151 measured the live manifest |
+| 3 | Stale `ValeAgent-Setup.exe` alias (D4b) — still serves the **1.2.361** installer | an installer build for a current version | release action (1) | round 151: alias and `-1.2.361.exe` return the SAME etag `f1dc1c8e…` |
+| 4 | Four capability unlocks (vrelay 5xx/header-timeout; both CF workers' redaction) | a deploy | release action (1) | rounds 129/131/132/133 committed + tested + mutation-proven; NOT live |
+| 5 | D13's build path past the mode gate (pack/stage/commit/deploy) | a publish to drive it | release action (1) | the gate itself is now tested AND reachable (rounds 154/155) |
+| 6 | Dead-agent revival window | an agent death to observe | device / time | instruments armed: the run journal + the newly enabled TaskScheduler operational log |
+| 7 | The restart mystery (round 17: the CLI never executed on d1) | a boot with the armed instruments | device / time | three explanations eliminated, not guessed away; belongs at the MCP tool-call transport |
+
+Read the table as the loop's honest boundary: **items 2-5 are one decision away** (item 1),
+item 6-7 are one boot away, and nothing else is open — the extension surface, the proxies'
+finding list and the doc claim sets are all CLEAR as of round 156, with `todo 0` across the tree.
+
+
 **Closed in round 112: the orphan `agent/src/tunnel.rs` change.** It had already been committed
 as `86d84e5b` (round 111, paused, with no gate numbers recorded). Round 112 verified it: both
 correct mutations of the seam fail its test — a best-effort write inside `install_tunnel_config`,

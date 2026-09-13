@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 157 (a CONVERGENCE round: the technical track has stopped moving, so
+this round wrote the hand-off instead of inventing work — every remaining item now names what it needs
+and who can supply it). Commit: ledger + journal. No code changed.
+  (1) THE TABLE, in `docs/agents/iteration-coverage.md`: seven rows. Items 2-5 (three unreconciled
+  versions, the stale alias, the four capability unlocks, D13's build path) are ALL one decision away —
+  CHARTER-1. Items 6-7 (the dead-agent revival window, the round-17 restart mystery) are one BOOT away,
+  with the instruments already armed. Item 1 is the user's one word. Nothing else is open: the
+  extension surface, the proxies' finding list and the doc claim sets are CLEAR, and the tree reports
+  `todo 0` (round 156).
+  (2) WHY A TABLE AND NOT MORE ROUNDS: rounds 151-156 each closed something real (two live
+  measurements, the mode gate's extraction, its entry point, a full sweep), and the last of those
+  closed the final item that did NOT need a release. Inventing a seventh round of internal work would
+  raise exactly the metric round 150's review indicted — a number the loop raises by itself — so the
+  honest output of a converged track is a HAND-OFF, not another green.
+  (3) AND THE LOOP'S OWN LIMIT, STATED AS A FACT RATHER THAN A COMPLAINT: it can verify production
+  (rounds 151/152 established exactly what is reachable anonymously) but it cannot move a byte of it.
+  Every remaining item is gated on an authority the loop was explicitly not given: the user's publish
+  cadence (CHARTER-1), the device, or a reboot. That is the design working, not the loop stalling.
+  (4) WHAT A FUTURE ROUND CAN STILL DO WITHOUT ANY OF THAT: re-verify the ledger against the code (the
+  instrument that has paid four times — rounds 120/125/129/142), re-measure the live surfaces for
+  drift, and keep the tree green. Those are cheap and worth doing; none of them changes the table.
+  (5) STILL OPEN: exactly the seven rows above. Six of the seven are outside the loop's authority.
+
 Last updated: 2026-09-14 round 156 (a VERIFICATION round after 148-155: every suite re-run in one
 sweep, nothing red, and for the FIRST TIME the whole tree reports `todo 0` — no known-gap markers left
 in any suite). No code changed; commit: journal + ledger.
