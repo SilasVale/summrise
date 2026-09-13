@@ -162,6 +162,23 @@ fn main() {
         ));
     }
 
+    // ── RUN JOURNAL + PANIC HOOK ────────────────────────────────────────────────
+    // WHAT THE PREVIOUS RUN DID, said at the top of every start. Without it a death is
+    // invisible: `startup.log` only gains a block when the NEXT run begins, and a Rust
+    // panic writes to stderr, which a boot task does not have. "The agent restarts every
+    // couple of hours" was unexplainable for exactly that reason (d1, 2026-09-13).
+    let journal_dir = vale_agent::paths::data_dir();
+    let (_prev_run, run_line) = vale_agent::runstate::begin(&journal_dir);
+    log_line(&run_line);
+
+    // A PANIC MUST LAND IN THE FILE, not on a stderr nobody owns. The default hook is
+    // chained so the message still reaches a console when there is one.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log_line(&format!("PANIC: {info}"));
+        default_hook(info);
+    }));
+
     // Must run before ANY child spawns: every PTY shell, SSH/serial session,
     // and helper this process creates joins our kill-on-close job, so the
     // kernel reaps them whenever the agent dies — update swap, Stop-Process,
@@ -530,6 +547,26 @@ pub(crate) async fn run_server(config_path: PathBuf) {
     // are silent (the console may be offline at boot).
     {
         let reg_state = state.clone();
+        // ── HEARTBEAT ───────────────────────────────────────────────────────────
+        // Refreshes the run journal so the NEXT start can say how long this run lived.
+        // Without it the journal knows only when a run STARTED, and "died immediately at
+        // boot" is indistinguishable from "ran for nine hours" — the distinction that
+        // matters most when a device goes dark.
+        {
+            // Resolved HERE rather than captured: this spawn sits inside a nested scope
+            // that the boot-time binding does not reach (the compiler said so, and the
+            // lib-only test run could not — it does not build the bin at all).
+            let beat_dir = vale_agent::paths::data_dir();
+            let started = vale_agent::runstate::load(&beat_dir)
+                .map(|r| r.started)
+                .unwrap_or(0);
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    vale_agent::runstate::beat(&beat_dir, started);
+                }
+            });
+        }
         tokio::spawn(async move {
             // Supervision audit #2: the old loop SNAPSHOT-READ the config
             // once and — violating the documented saisi decouple — fell back

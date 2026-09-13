@@ -198,6 +198,7 @@ pub mod metrics;
 pub(crate) mod operation;
 pub mod paths;
 pub mod plugins;
+pub mod runstate;
 pub mod session_log;
 pub mod state;
 /// Internal-only (no embedding consumer): byte-budget text clipping, shared by
