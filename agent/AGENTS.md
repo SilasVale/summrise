@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 164 (a VERIFICATION sweep closing the instrument stretch — and its
+result is that NOTHING MOVED, which is the evidence the stretch was about assertion QUALITY rather than
+coverage volume). No code changed; commit: journal.
+  (1) THE NUMBERS ARE IDENTICAL TO ROUND 156's SWEEP, every one: gateway 848, index 89, extension 13,
+  zen-go 15, zen-us 13 (todo 0), vrelay 69; scripts release-lib 45, release-audit 25, smoke-index 12,
+  build-pins 32, publish-release 7. Four assertions were reworked across rounds 160/162/163 and not one
+  count moved — because each round's claim was that it changed what an EXISTING assertion could see, not
+  that it added a test. A stretch that had reported a rising count here would have been reporting
+  coverage, not quality.
+  (2) SO THE STRETCH'S EVIDENCE IS ELSEWHERE AND NAMED: round 160 green-under-refutation / red-under-old-
+  form; round 162 the count unchanged across a DELETION; round 163 green under a DOUBLE refutation. Each
+  is a property of the assertion, not of a tally — which is why the sweep's flat numbers are the
+  confirming evidence rather than a disappointing result.
+  (3) THE WHOLE TREE IS GREEN WITH `todo 0`, unchanged since round 156: the instrument work neither
+  added nor removed a known-gap marker, and no suite was left red at any point in it (each round ran its
+  suite before committing, and round 162 checked the count before and after its deletion).
+  (4) WHAT THE THREE LIMITS STILL ARE, restated because a sweep invites over-reading: the agent's
+  Windows behaviour, the extension's behaviour in a browser, and everything needing a deploy. Rounds
+  151/152 measured exactly what the third one costs.
+  (5) STILL OPEN: exactly the seven rows of the round-157 table — six of them outside the loop's
+  authority. The absence-assertion list is empty (round 163), and this sweep closes the stretch that
+  produced it.
+
 Last updated: 2026-09-14 round 163 (the list is CLEARED: the remaining two source-text absence
 assertions are converted, and a SINGLE mutation that quotes BOTH retired forms at once now leaves the
 suite green — the class is inert to its own obituaries). Commit: extension/ + journal. Tests: extension
