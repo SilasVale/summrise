@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 188 (the four-table fix stops being a choice: one measurement shows the
+"cheaper" option needs exports too, so both options touch all four tables — and one of them removes the
+hazard instead of pinning a snapshot of it). Commit: journal. No code change.
+  (1) THE MEASUREMENT THAT DECIDED IT: a cross-table value test can only reach what is EXPORTED, and of the
+  four tables exactly TWO are — `model-route.ts`'s `CHANNEL_KEY_RULES` (line 29) and `store/users.ts`'s
+  `USER_KEY_NAMES` (line 26). The other two are private: `models-probe.ts`'s `BYOK_KEY_FOR_KIND` (the module
+  exports only `upstreamModelsUrl`/`offeredIds`/`adminProbeModels`/`PROBE_DIALECTS`) and
+  `translate-vision.ts`'s key table (line 226, inside a function, with only `isVisionCapable`/
+  `preprocessImages`/`describeImage` exported).
+  (2) SO ROUND 186's FRAMING WAS WRONG IN ONE DIRECTION, AND THIS IS WHY THE ROUND WAS WORTH TAKING: it
+  presented (a) "promote to a single source" and (b) "a set-equality test" with (b) implied cheaper. Measured,
+  (b) needs TWO NEW EXPORTS — i.e. it also edits all four modules — while still only DETECTING drift after
+  it happens. (a) edits the same four modules and REMOVES the class. **The comparison flips: the option that
+  was described as stronger is also the one that touches no more files.**
+  (3) AND THAT IS THE LOOP'S OLDEST PATTERN APPEARING AS A COST ESTIMATE RATHER THAN A DEFECT: "add a test"
+  reads as the light-touch move until you ask what the test must be able to SEE. Round 183 found the
+  opposite case — a field whose test cost nothing because the harness already existed — and the pair is the
+  general rule: the price of a test is the price of reaching its subject, and that price is set by the
+  exports, not by the assertions.
+  (4) THE DECISION, WITH ITS SHAPE AND ITS ONE HARD CONSTRAINT: promote the vocabulary to a single source
+  the four import (option (a)), because it is now known to cost the same as the alternative and it removes
+  the hazard. The constraint that must survive whatever shape is chosen is `model-route.ts`'s
+  `envKey: null` for nv and gmi — "this channel has no env fallback" is expressible in exactly ONE of the
+  four tables today, so a naive merge that flattens to `kind → keyName` would DELETE a distinction. That is
+  the deletion criterion: a shared source that cannot say `envKey: null` is not a solution, it is a loss of
+  information.
+  (5) STILL OPEN: that promotion (shape decided, constraint named, cost measured); `models-probe.ts`'s
+  remaining body (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core`
+  contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 187 (round 186's unestablished question ANSWERED: the four BYOK tables'
 VALUES agree today — so the hazard is latent, not live — and their KEY vocabularies are TWO, which is by
 design for two of them and undocumented for the rest). Commit: journal. No code change.
