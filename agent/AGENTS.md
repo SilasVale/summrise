@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 158 (round 157's point (4) executed: a DRIFT RE-MEASUREMENT of the
+convergence table's evidence — and it completed the one row that was only half-measured). Commit:
+journal + ledger. No code change.
+  (1) ZERO DRIFT IN SEVEN ROUNDS: `/api/version` still advertises `1.2.364` with the same sha256
+  (`9ed7063e…`), and the installer alias still returns etag `f1dc1c8e86ab125f9f8d078b23ed400c` — byte
+  for byte what round 151 measured. Nothing has moved on the live surfaces, which is itself the
+  expected answer and worth recording as measured rather than assumed.
+  (2) AND THE ROW THAT WAS ONLY HALF-MEASURED IS NOW WHOLE: round 151 probed the CDN side of "1.2.362-364
+  are unreconciled" (CDN 200), while the GitHub side was asserted from `release-reconcile.txt`. This
+  round asked GitHub directly — the newest tag is **`v1.2.361`**, so no release exists for any of the
+  three. The claim now has BOTH halves measured, which is the difference between a ledger entry and a
+  fact (the distinction rounds 120/125/129/142 kept having to enforce).
+  (3) WHAT THAT BUYS, STATED PLAINLY BECAUSE IT IS SMALL: it does not close a row or move a metric. It
+  makes row 2 of the convergence table's evidence complete, and it demonstrates the one thing a
+  converged loop can still do usefully — verify that the hand-off is still TRUE. A table written from
+  memory decays; this one was re-checked against the live world before being left for the next reader.
+  (4) THE RELEASE COUNT, since it is the honest context for row 2: the newest GitHub release is
+  **v1.2.361** while the CDN serves **1.2.364** — the dual-builder audit has therefore still never run
+  on a real release pair for three consecutive versions, and `--skip-reconcile` remains the only path
+  recent publishes took. That is unchanged by this round and by any round; it needs a publish.
+  (5) STILL OPEN: exactly the seven rows of the round-157 table. Six of the seven are outside the loop's
+  authority, and nothing in this round changed that.
+
 Last updated: 2026-09-14 round 157 (a CONVERGENCE round: the technical track has stopped moving, so
 this round wrote the hand-off instead of inventing work — every remaining item now names what it needs
 and who can supply it). Commit: ledger + journal. No code changed.

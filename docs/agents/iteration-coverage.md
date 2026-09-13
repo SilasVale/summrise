@@ -89,7 +89,7 @@ so a later round — or the user — can pick one up without re-deriving why it 
 | # | Item | What it needs | Who | Evidence on record |
 |---|---|---|---|---|
 | 1 | **CHARTER-1** (publish freely vs ask first) | one word from the user | **user** | `docs/CHARTER.md`; every release action below waits on it |
-| 2 | 1.2.362-364 unreconciled (CDN 200 / GitHub release 404) | a release | release action (1) | `docs/agents/release-reconcile.txt`; round 151 measured the live manifest |
+| 2 | 1.2.362-364 unreconciled (CDN 200 / GitHub release 404) | a release | release action (1) | `docs/agents/release-reconcile.txt`; **both halves now measured**: round 151 the CDN manifest, round 158 the GitHub side (newest tag is `v1.2.361`) |
 | 3 | Stale `ValeAgent-Setup.exe` alias (D4b) — still serves the **1.2.361** installer | an installer build for a current version | release action (1) | round 151: alias and `-1.2.361.exe` return the SAME etag `f1dc1c8e…` |
 | 4 | Four capability unlocks (vrelay 5xx/header-timeout; both CF workers' redaction) | a deploy | release action (1) | rounds 129/131/132/133 committed + tested + mutation-proven; NOT live |
 | 5 | D13's build path past the mode gate (pack/stage/commit/deploy) | a publish to drive it | release action (1) | the gate itself is now tested AND reachable (rounds 154/155) |
