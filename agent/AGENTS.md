@@ -526,6 +526,32 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 180 (the wiring step for `routeStats`, DE-RISKED rather than
+started: two measurements turned it from "a contract change" into "one import and one field", and I
+stopped there on purpose because a half-applied edit to an admin route is worse than an unstarted one).
+Commit: journal. No code change.
+  (1) THE INSTRUMENT IS CONFIRMED UNWIRED: `routeStats` has ZERO references outside `registry.ts` — which
+  is exactly what round 179 said it was, recorded because "built" and "reachable" are different states
+  and this log has confused them before (rounds 145/146: a test written and invoked by nothing).
+  (2) AND THE HOME ALREADY EXISTS: `GET /api/plugins/status` (`plugins/mcp.ts:141`, admin-gated, 30 s
+  probe cache) reports agent/tunnel health per device — the gateway's own operational health surface, and
+  therefore the right place for the gateway's own routing health. No new endpoint, no new auth decision,
+  no new cache policy: an ADDITIVE field on a response that already exists.
+  (3) AND THE LAST UNCERTAINTY IS GONE, WHICH IS WHAT THIS ROUND BOUGHT: the plugins-status handler is
+  defined INSIDE `setup(ctx)` and therefore CLOSES OVER `ctx` — so `routeStats(ctx)` is callable from it
+  with no change to `dispatch`'s signature (`handler.apply(null, rest)` passes only the request/env, so
+  the alternative would have been a routing change). The wiring is: one `import { routeStats }` plus
+  `routes: routeStats(ctx)` in the response object.
+  (4) WHY I DID NOT JUST DO IT: I am at the end of this round's context, and the change touches an
+  ADMIN-GATED route in the file every console poll hits. A half-applied edit there — an import added and
+  the field not, or vice versa — would leave the tree inconsistent in a place the suite exercises, and the
+  cost of that is a broken run for the next reader, not a delayed feature. Round 153's rule (a change to a
+  live path gets a full budget) is the reason this is a note and not a diff; the difference from round 153
+  is that the DESIGN risk is now retired, so the next round spends its budget on typing, not deciding.
+  (5) STILL OPEN: that wiring (3 lines, named precisely above); `models-probe.ts` + `model-route.ts`;
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the seven
+  rows of the round-157 table.
+
 Last updated: 2026-09-14 round 179 (the dead-route report is BUILT — round 177's design (a),
 implemented with ZERO registration-site changes — and the round nearly shipped a green suite that had
 silently LOST fifteen tests. The count caught it; the colour did not). Commit: gateway/ + mirror +
