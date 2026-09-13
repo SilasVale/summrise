@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 139 (P6: a comment at the muse-responses decision site named the
+WRONG default exit — and named as the default the one value its own documentation says must not be
+set. The code was right and already pinned twice; only the comment lied). Commit: gateway/ + docs.
+Tests: gateway 848/848 — but only after the MIRROR GUARD caught this round's edit, and my first
+sentence here was written from a misread run: the suite came back 847/848 (code-viewer-mirror:
+`gateway/public/code/files/vale-gate/src` must be byte-identical to `gateway/src`), and
+`bash gateway/scripts/sync-code-viewer.sh` + committing the mirror fixed it. The guard's own message
+names the stakes ("the Source Viewer serves code the worker does not run").
+  (1) THE MISMATCH, VERIFIED BY READING BOTH SIDES. `translate.ts` said "The default exit is the
+  zen-us Cloudflare worker (untimed streams …); MUSE_RESPONSES_EXIT=vercel restores the old relay."
+  `museResponsesExit` (channels.ts) returns `https://oracle.saisi.online/v1/responses` for unset or
+  anything unrecognised; `"vercel"` is a branch of its own, not "the old default"; and its own doc for
+  `"zen-us"` says "the CF egress still hits 403 RegionError live (verified 2026-09-08) —
+  experimental, do not set". So the comment got the default wrong in both directions: it named a
+  non-default, and it named as the default the one value the function documents as DO NOT SET.
+  (2) THE CODE WAS RIGHT, AND ALREADY PINNED TWICE — which is what makes this a documentation defect
+  rather than a routing one: `gateway.test.mjs:200-201` asserts `seen.url ===
+  "https://oracle.saisi.online/v1/responses"` for the default path, and `registry.test.mjs:104` pins
+  all four branches of `museResponsesExit` — so the suite could not and did not catch the comment;
+  what caught it was the MIRROR guard (see the note above).
+  (3) THE FIX STATES ALL FOUR CASES at the decision site and names `museResponsesExit` as their single
+  owner, so the next reader does not have to hold two files in their head to learn what the default is.
+  Nothing about the behaviour changed.
+  (4) THE SHAPE, AGAIN: this is the same defect class as rounds 127 (a policy contradicting its own
+  comment), 135 (a comment promising no fallback above a fallback) and 136/137 (two of my own claims
+  overturned by measurement). The instrument that finds it is reading BOTH sides of a claim, and what
+  made this one cheap is that the tests already agreed with the code — the comment was the only thing
+  out of step.
+  (5) STILL OPEN: D13 (the orchestrator has no executable coverage); P8, P9c in the proxies; X3, X6, X8
+  in the extension; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery.
+
 Last updated: 2026-09-14 round 138 (a VERIFICATION round: every suite this loop has touched across
 27 rounds, run in one sweep — nothing red anywhere, and one `todo` counted as what it is). No code
 changed; commit: this round's journal + ledger only.

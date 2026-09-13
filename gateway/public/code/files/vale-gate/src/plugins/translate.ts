@@ -1226,10 +1226,20 @@ async function handleGatewayImpl(
     // Model is og/muse-spark-*: force the US exit (Meta region policy). The
     // route picked above already rode via() when forceUsProxy was true — but
     // pickRoute's og branch hardcodes /v1/chat/completions as the path, so
-    // rebuild the upstream for the responses path explicitly. The default
-    // exit is the zen-us Cloudflare worker (untimed streams — the Vercel
-    // relay truncated muse generations at ~30 s); MUSE_RESPONSES_EXIT=vercel
-    // restores the old relay. See museResponsesExit in channels.ts.
+    // rebuild the upstream for the responses path explicitly.
+    //
+    // THE DEFAULT IS THE ORACLE RELAY (round 139 — this comment used to say the
+    // default was the zen-us Cloudflare worker and that `=vercel` "restores the old
+    // relay", which named the wrong value AND advertised as the default the one
+    // `museResponsesExit`'s own docs say must not be set: zen-us answers 403
+    // RegionError live, verified 2026-09-08). The four cases, from
+    // `museResponsesExit` in channels.ts — the single owner of this decision:
+    //   unset / anything else -> https://oracle.saisi.online/v1/responses
+    //   "vercel"              -> the old Vercel relay via usProxyBase, the path
+    //                            that truncated muse generations at ~30 s
+    //   "zen-us"              -> the CF worker; experimental, do not set
+    //   an http(s) URL        -> used verbatim
+
     const responsesUpstream = forceUsProxy
       ? museResponsesExit(env)
       : `${OG_ZEN_ANTHROPIC.replace("/v1/messages", "")}/v1/responses`;
