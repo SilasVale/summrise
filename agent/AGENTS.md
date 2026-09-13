@@ -526,6 +526,32 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 190 (**the four-table single source EXISTS** — `store/byok.ts`,
+eight rows, three facets, zero imports — and it carries the one fact a flattened merge would have deleted).
+Commit: gateway/ + mirror + journal. Tests: gateway 856 = 853 + 3, zero red.
+  (1) WHAT WAS BUILT, AND THE TWO PROPERTIES THAT MAKE IT USABLE: `src/store/byok.ts` exports
+  `BYOK_CHANNELS` (eight rows of `{prefix, kind, userKey, envKey|null, shape}`) plus `byPrefix`/`byKind`.
+  It is **PURE DATA WITH ZERO IMPORTS**, deliberately — that is what lets all four consumers derive from it
+  without a cycle, which is the property the whole promotion rests on — and it carries `shape`, the third
+  facet round 189 found by reading the fourth table instead of assuming it from the three that agreed.
+  (2) THE ONE FACT THE FILE EXISTS TO PROTECT, ASSERTED BY NAME: `envKey === null` for exactly `gmi` and
+  `nvidia`, with the other six stated positively (`filter(envKey !== null).length === 6`) so a typo cannot
+  pass as a distinction. Round 188 named this the deletion criterion — a shared source that cannot say
+  "this channel has no env fallback" is a loss of information — and it is now the second test in the file.
+  (3) AND THE THIRD TEST IS THE ONE THAT PROVES THE FILE IS NOT A RENAME: only `gmi` and `amd` use the same
+  word for prefix and kind, so the two vocabularies are genuinely different and `byPrefix`/`byKind` are not
+  two names for one lookup. Plus the collision checks (eight distinct prefixes, eight distinct kinds), which
+  is what makes either lookup unambiguous — the thing `models-probe.ts:133` depends on.
+  (4) STILL NOT WIRED, AND THE JOURNAL SAYS SO PLAINLY RATHER THAN LETTING THE GREEN IMPLY OTHERWISE: nothing
+  imports this module yet. The four consumers still hold their own tables, so the drift class is still
+  live — what changed is that the SOURCE now exists, with the data round 189 typed and an acceptance test
+  waiting. That is the state rounds 179/180 named honestly ("built" ≠ "reachable") and it is recorded here
+  for the same reason: the next round is the rewire, and it will know exactly what to compare against.
+  (5) STILL OPEN: rewire the four consumers to derive from `byok.ts` (the acceptance test: each derived
+  shape equals what its table holds today); `models-probe.ts`'s remaining body (lines 70-198);
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the seven
+  rows of the round-157 table.
+
 Last updated: 2026-09-14 round 189 (the four-table promotion SPECIFIED rather than started: the
 decision was made in 188, and what the change actually needs is the DATA — eight rows carrying two key
 vocabularies plus `envKey: null` — so this round typed the data instead of beginning a four-module edit on
