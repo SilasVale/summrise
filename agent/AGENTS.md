@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 145 (D13, partly closed: the release orchestrator FINALLY has
+coverage that RUNS it — three checks against its refusal path, one of which is a mutation-caught
+message assertion rather than a bare non-zero exit). Commit: scripts/ + docs. Tests: the new
+publish-release suite 3/3; one mutation caught.
+  (1) WHAT WAS MISSING, AND WHY IT MATTERED MORE THAN IT LOOKS. 142's re-verification established the
+  precision: nothing in `scripts/test/` ever EXECUTED `publish-release.sh`; three files mention it, all
+  as SOURCE PINS. A pin proves a file CONTAINS a line — not that the line does anything — so the
+  orchestrator's fail-closed guards (the ledger gate, the `--skip-reconcile` refusal, the "cannot date
+  the exe inputs" refusal) had never been observed to fire. The rules they enforce are the ones that
+  stop a release from publishing something unverifiable.
+  (2) THE SAFE HANDLE IS `--audit-only`: it sources the audit lib and re-runs the dual-builder audit
+  against an ALREADY published release without repacking, committing or deploying. That is the only
+  entry point that can be driven in a test at all, and the case this round pins is its missing-argument
+  arm — no network, no build, no side effect.
+  (3) AND THE ASSERTION HAD TO BE THE MESSAGE, NOT THE EXIT CODE: with the guard removed the script
+  would carry an EMPTY version into the audit and still exit non-zero, so a bare `rc != 0` check would
+  stay green through exactly the mutation it exists to catch. The test greps for the usage line the
+  guard prints; deleting the guard turns it red (mutation caught).
+  (4) TWO BY-EFFECT CHECKS, BECAUSE A GUARD THAT FIRES AFTER ITS FIRST SIDE EFFECT IS NOT A GUARD: the
+  tracked worktree must be unchanged, and no tgz may have been packed. The second check found a flaw in
+  MY OWN TEST first — it counted the test file itself as a side effect, because `git status` lists
+  untracked files; it now asks for tracked modifications only (`--untracked-files=no`), which is the
+  honest form of the claim "the refusal changed nothing that was already there".
+  (5) WHAT THIS ROUND DOES NOT COVER, SAID PLAINLY: everything AFTER the guards packs, commits and
+  deploys, so the build path cannot be driven without publishing — the guard chain is now executed, the
+  release itself still is not. D13 is therefore PARTLY closed, and the ledger says which half.
+  (6) STILL OPEN: D13's build path; P9c (mechanism unestablished); the three unreconciled versions
+  (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery. The extension surface
+  is CLEAR (round 144).
+
 Last updated: 2026-09-14 round 144 (X3 — the last extension item — and its root cause was the
 ENCODING of "already looked at", not the position of a stamp: an attribute on the parent can only mean
 "this element is finished", so every text node a streaming reply appended afterwards was skipped for
