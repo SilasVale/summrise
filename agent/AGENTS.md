@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 144 (X3 — the last extension item — and its root cause was the
+ENCODING of "already looked at", not the position of a stamp: an attribute on the parent can only mean
+"this element is finished", so every text node a streaming reply appended afterwards was skipped for
+the rest of the page's life). Commit: extension/ + docs. Tests: extension 13 (was 12), three mutations
+caught.
+  (1) WHAT THE DEFECT ACTUALLY WAS. `content/studio-links.js` marked a text node as examined by
+  setting `data-vs-processed="1"` on its PARENT when the scan found no path, and `shouldSkip` refused
+  any node with a stamped ANCESTOR. So the first scan of a reply's container condemned the whole
+  subtree: as the reply streamed, each new chunk arrived as a NEW text node inside that element and was
+  skipped. The audit's wording ("kills later content") was right, and the reason is that an attribute
+  is the wrong PLACE to store a per-NODE fact.
+  (2) THE FIX IS THE RIGHT ENCODING, NOT A PATCHED GUARD: text nodes cannot carry attributes, so
+  "examined" is a `WeakSet` now. The attribute stays only on the spans we create, where "inside a
+  linkified span" is exactly its meaning — which is also what keeps our own output from being
+  re-scanned, the original intent of the guard.
+  (3) THE OTHER HALF, CLOSED IN THE SAME CHANGE: the observer was `{childList: true}` only, so a host
+  that rewrites an EXISTING text node in place — which is precisely what React does while a reply
+  streams — produced no mutation it could see, and that node stayed unlinkified forever. It now
+  observes `characterData` and un-marks the rewritten node so the new string is examined.
+  (4) THREE MUTATIONS, ALL CAUGHT, one per act: the parent stamp restored, the per-node check deleted,
+  and `characterData` dropped from the observer. The pins are SOURCE checks (the script talks to
+  `chrome.*` and the DOM, so it cannot be imported) and they match the ACT, not a word.
+  (5) THE HONEST SCOPE OF THIS ROUND: X1 (round 134) put this feature OFF by default, so what is fixed
+  here is the CODE, not a user-visible behaviour — with the setting off, none of this runs. That is
+  worth saying plainly rather than letting a fixed finding read as a fixed experience.
+  (6) NOT RUN IN A BROWSER (standing limit): the streaming case that this fix is about was NOT
+  re-measured here. What is proven is the encoding (a per-node set), the observer's shape, and that
+  each is load-bearing (three mutations). The end-to-end check is one streamed reply with the setting
+  ON, which needs a browser session this loop does not hold.
+  (7) STILL OPEN: D13 (the orchestrator has no executable coverage, re-verified in 142); P9c (mechanism
+  unestablished); the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery. THE EXTENSION SURFACE IS NOW CLEAR (X1 decided, X3/X6/X8 closed).
+
 Last updated: 2026-09-14 round 143 (X6, and it was THREE defects in 25 lines — including a SECOND
 COPY of the security-model claim round 141 fixed, which is the pair-defect committed by me, one round
 after I wrote the lesson down). Commit: extension/ + docs. Tests: extension 12 (was 11), three

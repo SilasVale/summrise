@@ -167,3 +167,35 @@ test("options/options.js: opt-in checkbox, no silent substitution, no phantom pa
     "there is no code-server password: the live server runs --auth none",
   );
 });
+
+/* ---- "examined" is per text node, not per subtree (round 144, X3) ---- */
+
+test("content/studio-links.js: examined means the NODE, and in-place edits are seen", () => {
+  // Source checks (the script talks to chrome.* and the DOM, so it cannot be
+  // imported) matching the ACT, not a word — round 124's lesson.
+  const src = readFileSync(new URL("../content/studio-links.js", import.meta.url), "utf8");
+
+  // 1. The no-path branch must NOT stamp the parent: an attribute there says "this
+  // whole element is finished", which is how later streaming chunks got skipped.
+  assert.doesNotMatch(
+    src,
+    /\.parentElement\??\.setAttribute\("data-vs-processed", "1"\)/,
+    "the processed attribute must not be set on an element to mean 'its text was seen'",
+  );
+
+  // 2. The skip decision must consult the per-node set.
+  assert.match(src, /examined\.has\(node\)/, "shouldSkip must check the examined set");
+  assert.match(src, /const examined = new WeakSet\(\);/, "the set must exist");
+
+  // 3. The observer must be able to see in-place text rewrites, not only childList.
+  assert.match(
+    src,
+    /observe\(document\.body, \{ childList: true, characterData: true, subtree: true \}\)/,
+    "the observer must observe characterData too",
+  );
+  assert.match(
+    src,
+    /if \(mu\.type === "characterData"\)/,
+    "a characterData mutation must be handled, not ignored",
+  );
+});

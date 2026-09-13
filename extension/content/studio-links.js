@@ -73,9 +73,20 @@
     return a;
   }
 
+  // WHAT "ALREADY LOOKED AT" MEANS (round 144, X3). This used to be an attribute on
+  // the text node's PARENT, set when a scan found no path — which encoded "this whole
+  // ELEMENT is finished". A streaming reply keeps appending NEW text nodes into that
+  // same element, and every one of them was skipped for the rest of the page's life,
+  // so content that arrived after the first scan was never linkified. An attribute
+  // cannot say "this text node has been examined" (text nodes carry no attributes), so
+  // the set lives here; the attribute is still set on the spans WE create, where
+  // "inside a linkified span" is exactly what it should mean.
+  const examined = new WeakSet();
+
   function shouldSkip(node) {
     const el = node.parentElement;
     if (!el) return true;
+    if (examined.has(node)) return true;
     if (el.closest("a, script, style, noscript, textarea")) return true;
     if (el.closest('[data-vs-processed="1"]')) return true;
     if (el.closest('[contenteditable="true"]')) return true; // never touch the composer
@@ -98,7 +109,7 @@
       // Shared matcher (SOLID Round-96): match → {raw, bare, lineNo, index}.
       const jobs = extractPathJobs(text);
       if (!jobs.length) {
-        node.parentElement?.setAttribute("data-vs-processed", "1");
+        examined.add(node);
         continue;
       }
 
@@ -145,6 +156,15 @@
     scheduleScan(document.body);
     const mo = new MutationObserver((muts) => {
       for (const mu of muts) {
+        if (mu.type === "characterData") {
+          // The host rewrote an existing text node in place (React does this while a
+          // reply streams). It is a different string now, so it is no longer
+          // "examined" — without this arm the observer only ever saw childList and
+          // such a node stayed unlinkified forever.
+          examined.delete(mu.target);
+          scheduleScan(mu.target.parentElement);
+          continue;
+        }
         if (mu.type !== "childList") continue;
         for (const n of mu.addedNodes) {
           if (n.nodeType === 1 && !n.closest?.('[data-vs-processed="1"]')) scheduleScan(n);
@@ -152,7 +172,7 @@
         }
       }
     });
-    mo.observe(document.body, { childList: true, subtree: true });
+    mo.observe(document.body, { childList: true, characterData: true, subtree: true });
 
     // config changes apply without reload
     chrome.storage.onChanged.addListener((changes, area) => {
