@@ -355,6 +355,11 @@ const I18N = {
     "models.editFacets": "编辑属性",
     "models.editFacetsSave": "保存",
     "models.editFacetsCancel": "取消",
+    "models.openDocument": "打开配置文档",
+    "models.documentHint": "这份文档就是 config/models.ts 的内容——复制过去、提交、部署即生效。",
+    "models.documentLoad": "读取中…",
+    "models.fileOwned": "配置文件",
+    "models.fileOwnedHint": "由 config/models.ts 声明；在这里修改会在下次部署时被覆盖，所以控件是关的。",
   },
   en: {
     "app.sub": "AI relay & devices",
@@ -721,6 +726,11 @@ const I18N = {
     "models.editFacets": "Edit facets",
     "models.editFacetsSave": "Save",
     "models.editFacetsCancel": "Cancel",
+    "models.openDocument": "Open configuration document",
+    "models.documentHint": "This document is what config/models.ts carries — copy it, commit, deploy.",
+    "models.documentLoad": "Loading…",
+    "models.fileOwned": "config file",
+    "models.fileOwnedHint": "Declared in config/models.ts; an edit here is reverted by the next deploy, so the control is off.",
   },
 } as const;
 

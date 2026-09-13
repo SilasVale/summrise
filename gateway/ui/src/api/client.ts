@@ -265,8 +265,22 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ prefix }),
     }),
+  /** THE ESCAPE HATCH: the effective catalogue as the document `config/models.ts` takes.
+   *  The server renders the text, so the console never assembles the shape itself. */
+  getCatalogue: () =>
+    request<{
+      document: { providers: unknown[]; models: unknown[]; overrides: unknown[] };
+      text: string;
+      file: { providers: string[]; models: string[]; overrides: string[] };
+    }>("/api/admin/catalogue"),
   getProviders: () =>
-    request<{ providers: ProviderView[]; /** Wire protocols THIS build serves. */ apis: string[] }>(
+    request<{
+      providers: ProviderView[];
+      /** Wire protocols THIS build serves. */
+      apis: string[];
+      /** Prefixes the FILE declares — their panel controls are disabled. */
+      filePrefixes: string[];
+    }>(
       "/api/admin/providers",
     ),
   addProvider: (spec: ProviderDraft) =>

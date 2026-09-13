@@ -795,3 +795,55 @@ test("OVERRIDE: a built-in's declared reasoning default reaches the router", asy
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(JSON.parse(seen.init.body).reasoning, { effort: "low" });
 });
+
+/* ------------- the configuration document -------------
+ *
+ * The escape hatch: the effective catalogue rendered as the document `config/models.ts`
+ * takes. Its whole purpose is to be PASTED INTO GIT, which makes two properties
+ * non-negotiable — the text must be the real file shape, and it must never carry a
+ * credential.
+ */
+test("DOCUMENT: the escape hatch returns a pasteable document and never a key", async () => {
+  const { call, json } = await harness();
+  await addProvider(call, json, { models: [{ id: "llama-3", name: "Llama 3" }] });
+  await json(
+    await call("POST", "/api/admin/models", {
+      body: { id: "og/new-thing", name: "New Thing", contextWindow: 200000 },
+    }),
+  );
+
+  const res = await json(await call("GET", "/api/admin/catalogue"));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // The text is the FILE, not a description of it: the same module a deploy applies.
+  assert.match(res.body.text, /^export default /);
+  assert.match(res.body.text, /satisfies CatalogueFile/);
+
+  const doc = res.body.document;
+  assert.equal(doc.providers[0].prefix, "my/");
+  assert.equal(doc.models[0].id, "og/new-thing");
+  assert.equal(doc.models[0].contextWindow, 200000);
+
+  // THE ONE THAT MATTERS: this text is going into a git history. A provider's credential
+  // must be represented by the NAME of its secret, never by its value.
+  const everything = JSON.stringify(res.body);
+  assert.ok(
+    !everything.includes("sk-xxxxxxxx"),
+    "the document leaked a credential — it is meant to be committed",
+  );
+  // The provider was added with an INLINE key, so the document must carry NEITHER the
+  // value nor a secret name: an inline credential has no committable form at all, and
+  // inventing one would produce a file that cannot be applied.
+  assert.ok(!("apiKey" in doc.providers[0]), "an inline key reached the committable document");
+});
+
+test("DOCUMENT: it reports which entries the FILE owns, so the panel can mark them", async () => {
+  // The shipped document is empty, so nothing is file-owned — and that has to be an
+  // explicit empty list rather than a missing field, or the panel cannot tell "no file
+  // entries" from "the server did not say".
+  const { call, json } = await harness();
+  const res = await json(await call("GET", "/api/admin/catalogue"));
+  assert.deepEqual(res.body.file, { providers: [], models: [], overrides: [] });
+  const providers = await json(await call("GET", "/api/admin/providers"));
+  assert.deepEqual(providers.body.filePrefixes, []);
+});

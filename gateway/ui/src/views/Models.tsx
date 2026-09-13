@@ -37,7 +37,7 @@ import {
   type ProbeResult,
   type ModelFacets,
 } from "../api/client.ts";
-import { PageHeader, Badge } from "../components/ui.tsx";
+import { PageHeader, Badge, Modal, CopyButton } from "../components/ui.tsx";
 
 /** The lane colour for a channel prefix — the same mapping the Routes page uses,
  *  so a channel looks the same wherever it appears. */
@@ -67,6 +67,13 @@ export default function ModelsView() {
   // What THIS build can speak. Empty until the server says — a hardcoded fallback
   // here is exactly how the form ended up offering a protocol the server rejects.
   const [apis, setApis] = useState<string[]>([]);
+  // Prefixes the FILE declares. Their controls are disabled rather than offering an edit
+  // the next deploy would undo — the same rule as `Edit facets` on a model that cannot be
+  // edited: no control is better than one whose effect is a lie.
+  const [filePrefixes, setFilePrefixes] = useState<string[]>([]);
+  // The configuration document, opened on demand (an escape hatch, not page furniture).
+  const [doc, setDoc] = useState<string | null>(null);
+  const [docBusy, setDocBusy] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -146,6 +153,7 @@ export default function ModelsView() {
         .then((r) => {
           setProviders(r.providers || []);
           setApis(r.apis || []);
+          setFilePrefixes(r.filePrefixes || []);
         })
         .catch(() => {});
       if (health?.channels) setHealth(health.channels);
@@ -213,6 +221,20 @@ export default function ModelsView() {
     },
     [load, t, toast],
   );
+
+  /** Open the configuration document. The SERVER renders it, so the console never
+   *  assembles the shape — the same reason DSH's settings action asks the Host to open
+   *  ITS document without ever learning a path. */
+  const openDocument = useCallback(async () => {
+    setDocBusy(true);
+    try {
+      setDoc((await api.getCatalogue()).text);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("route.fail"), true);
+    } finally {
+      setDocBusy(false);
+    }
+  }, [t, toast]);
 
   /** Open the facet editor on a model, seeded from what it currently declares. */
   const openFacets = useCallback(
@@ -510,7 +532,21 @@ export default function ModelsView() {
       <PageHeader
         title={t("nav.models")}
         description={t("models.lede")}
-        actions={<Badge tone="muted">{loading ? t("loading") : `${total} ${t("models.count")}`}</Badge>}
+        actions={
+          <span className="page-actions">
+            <Badge tone="muted">{loading ? t("loading") : `${total} ${t("models.count")}`}</Badge>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={docBusy}
+                onClick={() => void openDocument()}
+              >
+                {docBusy ? t("models.documentLoad") : t("models.openDocument")}
+              </button>
+            )}
+          </span>
+        }
       />
 
       {failed && (
@@ -551,6 +587,11 @@ export default function ModelsView() {
                   <span className={`prov-lane ${laneClass(prefix)}`} aria-hidden="true" />
                   <span className="prov-name">{r.backend || prefix}</span>
                   {isCustom && <span className="prov-tag">{t("models.customTag")}</span>}
+                  {filePrefixes.includes(prefix.replace(/\/$/, "")) && (
+                    <span className="prov-tag" title={t("models.fileOwnedHint")}>
+                      {t("models.fileOwned")}
+                    </span>
+                  )}
                   <span
                     className={`prov-dot${ready ? " ok" : " missing"}`}
                     role="img"
@@ -587,7 +628,12 @@ export default function ModelsView() {
                     <button
                       type="button"
                       className="btn btn-danger-text btn-sm"
-                      disabled={busy === prefix}
+                      title={
+                        filePrefixes.includes(prefix.replace(/\/$/, ""))
+                          ? t("models.fileOwnedHint")
+                          : undefined
+                      }
+                      disabled={busy === prefix || filePrefixes.includes(prefix.replace(/\/$/, ""))}
                       onClick={() => void removeProvider(prefix)}
                     >
                       {t("models.removeProvider")}
@@ -645,7 +691,9 @@ export default function ModelsView() {
                                 through that provider's record, which has no editor for an
                                 existing model yet — so it gets no control rather than a
                                 control that would write to the wrong store. */}
-                            {isAdmin && (!pv || custom.includes(id)) && (
+                            {isAdmin &&
+                              (!pv || custom.includes(id)) &&
+                              !filePrefixes.includes(prefix.replace(/\/$/, "")) && (
                               <button
                                 type="button"
                                 className="btn btn-ghost btn-mini"
@@ -911,6 +959,18 @@ export default function ModelsView() {
 
       {/* The trailing ADD, as a dashed placeholder rather than a form that owns the
           top of the page: a provider is created once and configured rarely. */}
+      {doc !== null && (
+        <Modal title={t("models.openDocument")} onClose={() => setDoc(null)}>
+          <p className="prov-desc">{t("models.documentHint")}</p>
+          <pre className="config-doc">
+            <code>{doc}</code>
+          </pre>
+          <div className="row mt-12">
+            <CopyButton text={doc} small onCopied={() => toast(t("token.copied"))} />
+          </div>
+        </Modal>
+      )}
+
       {isAdmin && (
         <div className="prov-addrow">
           <button

@@ -48,10 +48,11 @@ import {
   userKeysStatus,
   ADMIN_ID,
 } from "../store.ts";
-import { ROUTE_INFO, type ModelSpec } from "../channels.ts";
+import { RESERVED_PREFIXES, ROUTE_INFO, type ModelSpec } from "../channels.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
 import { requireAdmin } from "../session.ts";
 import { adminProbeModels } from "./models-probe.ts";
+import { fileDeclaredKeys, loadCatalogueFile } from "../store/file-config.ts";
 import type { PluginContext } from "./registry.ts";
 
 const ADMIN_BASE = "/api/admin";
@@ -229,6 +230,61 @@ async function adminEnableModel(request: Request, env: Env, id: string): Promise
 }
 
 /** What the console needs to render the right control per model. */
+/** The document, in the exact shape `config/models.ts` takes, plus the pasteable text.
+ *
+ *  WHY THE SERVER RENDERS THE TEXT. The console must never assemble a path or a filename —
+ *  the same discipline DSH's settings action follows, where the client asks the Host for
+ *  ITS document and never learns where it lives. Here the "document" is the effective
+ *  catalogue, and the text is rendered where the shape is known, so a field added to the
+ *  stores cannot be forgotten by a client-side formatter. */
+async function adminCatalogueDocument(request: Request, env: Env): Promise<Response> {
+  const gate = await requireAdmin(request, env);
+  if (gate instanceof Response) return gate;
+
+  const providers = (await customProviders(env)).map((p) => ({
+    prefix: p.prefix,
+    ...(p.label ? { label: p.label } : {}),
+    baseURL: p.baseURL,
+    api: p.api,
+    // The key is NEVER in the document: `apiKeyEnv` names the secret, and that is the only
+    // form a committed file may carry (see config/README.md).
+    ...(p.apiKeyEnv ? { apiKeyEnv: p.apiKeyEnv } : {}),
+    ...(p.models?.length ? { models: p.models } : {}),
+  }));
+  const models = (await customModels(env)).map((m) => ({
+    id: m.id,
+    ...(m.name ? { name: m.name } : {}),
+    ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
+    ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+    ...(m.reasoningEffort ? { reasoningEffort: m.reasoningEffort } : {}),
+  }));
+  const overrides = (await facetOverrides(env)).map((o) => ({
+    id: o.id,
+    ...(o.name ? { name: o.name } : {}),
+    ...(o.contextWindow ? { contextWindow: o.contextWindow } : {}),
+    ...(o.maxTokens ? { maxTokens: o.maxTokens } : {}),
+    ...(o.reasoningEffort ? { reasoningEffort: o.reasoningEffort } : {}),
+  }));
+
+  const document = { providers, models, overrides };
+  const declared = fileDeclaredKeys(
+    loadCatalogueFile({ knownPrefixes: RESERVED_PREFIXES, parseProvider: parseProviderSpec }),
+  );
+  return jsonOk({
+    document,
+    // Ready to paste: the file is a module, so this is the whole edit.
+    text: `export default ${JSON.stringify(document, null, 2)} satisfies CatalogueFile;\n`,
+    // WHICH ENTRIES THE FILE OWNS. The panel must mark these: an edit to one of them would
+    // be reverted by the next deploy, and letting that happen silently is the failure this
+    // whole layer has to avoid.
+    file: {
+      providers: [...declared.providers],
+      models: [...declared.models],
+      overrides: [...declared.overrides],
+    },
+  });
+}
+
 async function adminModelState(request: Request, env: Env): Promise<Response> {
   const gate = await requireAdmin(request, env);
   if (gate instanceof Response) return gate;
@@ -299,9 +355,15 @@ async function adminListProviders(request: Request, env: Env): Promise<Response>
   // reasonable second option; this build serves `openai-completions` ONLY, so the
   // UI was offering a choice the server rejects. Same rule as the DSH provider card,
   // where the protocol list comes from the adapter's own schema.
+  const declared = fileDeclaredKeys(
+    loadCatalogueFile({ knownPrefixes: RESERVED_PREFIXES, parseProvider: parseProviderSpec }),
+  );
   return jsonOk({
     providers: providers.map((p) => publicProvider(p, env)),
     apis: Object.keys(SUPPORTED_PROVIDER_APIS),
+    // Prefixes the FILE declares: the panel disables their Edit/Delete rather than
+    // offering a control whose effect the next deploy would undo.
+    filePrefixes: [...declared.providers],
   });
 }
 
@@ -495,6 +557,8 @@ export default {
       handler: adminSetUserEnabled,
     });
     add("GET", `${ADMIN_BASE}/models`, adminModelState);
+    // The escape hatch: the effective catalogue as the document a file would carry.
+    add("GET", `${ADMIN_BASE}/catalogue`, adminCatalogueDocument);
     add("POST", `${ADMIN_BASE}/models`, adminAddModel);
     // Dynamic: DELETE /api/admin/models/{id} (delete custom, disable built-in)
     // and PUT .../{id}/enabled (re-enable).

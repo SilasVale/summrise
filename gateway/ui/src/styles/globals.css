@@ -2987,3 +2987,26 @@ body[data-theme="dark"] .note.tip {
   display: flex;
   gap: 8px;
 }
+
+/* The configuration document — an escape hatch, so it reads as a document: monospace,
+   scrollable, and never the tallest thing on the page. */
+.config-doc {
+  max-height: 46vh;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--ds-font-family-code);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  tab-size: 2;
+}
+/* A page-level action group: the count badge is information, the button is a control, and
+   they should not read as one thing. */
+.page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
