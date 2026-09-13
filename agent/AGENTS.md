@@ -526,6 +526,35 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 159 (a CLOSURE-INTEGRITY round: round 142's ledger sweep was 16
+rounds ago and rounds 143-158 changed code in three trees, so this round re-checked that the recorded
+closures still exist — and it caught its OWN check lying, in a new way). Commit: journal. No code change.
+  (1) EIGHT OF NINE CLOSURES VERIFIED PRESENT: the X6 opt-in predicate and invalid-origin refusal, X3's
+  per-node WeakSet and its `characterData` observation, P9c's upstream content-type read (2 sites), P8's
+  whole-request `count_tokens`, and D13's lib function + `--check-modes-only` entry. Nothing was
+  silently reverted — the failure mode this round exists to catch.
+  (2) THE NINTH CHECK WAS WRONG, AND THE WAY IT WAS WRONG IS NEW: `grep -c 'code-server\s*password'`
+  over the surfaces where round 141/149 removed that claim returned **2 files matching**. Reading the
+  matches killed the alarm — all three lines are my own REFUTATIONS ("there is NO code-server password",
+  "an earlier version of this comment said …", plus the test's assertion MESSAGE). **A grep for an absent
+  claim cannot tell a claim from its refutation**, and every honest fix of this kind writes the phrase it
+  is retracting.
+  (3) THAT IS THE FIFTH INSTRUMENT-INDUCED FALSE SIGNAL IN THIS STRETCH (136/137 a code path read as a
+  conversion branch; 143 a pair assumed where there were four copies; 148 a phantom finding from a test
+  that could not express its premise; 152 a 404 from my own wrong host; now this) and the FIRST that
+  fired on a VERIFICATION rather than a finding. The pattern generalises: an instrument that looks for
+  the ABSENCE of a thing must be built so that the thing's own obituary does not satisfy it — here, by
+  asserting the POSITIVE act (`--auth none` where the gate is described) instead of the absence of a
+  phrase.
+  (4) AND IT LEFT A LATENT TRAP IN MY OWN TEST, RECORDED RATHER THAN PATCHED AT THE END OF A BUDGET:
+  `extension/test/shared.test.mjs:167` asserts `options.js` does NOT match `/code-server\s+password/i`.
+  That is correct today, and it would FAIL the day someone adds an explanatory comment to that file
+  saying the password does not exist — the same false alarm that just fired here, one file over. The
+  robust form asserts the positive act. Not changed this round: the suite is green and the assertion is
+  true, and rewriting a passing test at the end of a context budget is how round 145's unwired test
+  happened.
+  (5) STILL OPEN: exactly the seven rows of the round-157 table, unchanged by this round.
+
 Last updated: 2026-09-14 round 158 (round 157's point (4) executed: a DRIFT RE-MEASUREMENT of the
 convergence table's evidence — and it completed the one row that was only half-measured). Commit:
 journal + ledger. No code change.
