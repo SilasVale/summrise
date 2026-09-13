@@ -519,7 +519,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 110 (four silent-failure fixes, and the reason d1 stayed dark
+Last updated: 2026-09-14 round 111 (the tunnel CONFIG write was best-effort and the Gateway
+card answered "connected" — the fifth silent failure in this series). PAUSED at the user's
+request with d1 still unreachable.
+Commit: see this round's fix commit. RELEASED: 1.2.363, 1.2.364 (CDN verified); neither is on d1.
+  (1) `provision_tunnel` (tunnel.rs) ended with `let _ = atomic_write(tunnel.yml)` followed by
+  an UNCONDITIONAL `tunnel_ctl::request_restart()` and `format!("ok ({hostname})")`. A failed
+  write therefore: vanished, bumped the generation anyway (so the supervisor relaunches
+  cloudflared against a tunnel.yml that was never written — a STALE ingress, or a tunnel that
+  does not start), and answered `ok` on the very string the Gateway card returns
+  (`web/mod.rs`: `"tunnel": tunnel_status`, under a top-level `ok: true`). Now the write is
+  checked, the restart is requested ONLY if it landed, and the card's string says FAILED and
+  says the tunnel was left as it was.
+  (2) THE ORDERING IS THE FIX, so it is what the test pins: `install_tunnel_config` was split
+  out for exactly that, and the test asserts the generation MOVES on success and STAYS on
+  failure — with a REAL failure (the target's parent is a file), not a mocked one.
+  Mutation-proven: restoring the best-effort write fails it.
+  (3) A PROCESS MISTAKE WORTH KEEPING, made and repaired twice in one round: I computed an
+  insertion offset from the text BEFORE a replacement and applied it to the text AFTER, which
+  corrupted tunnel.rs; and my first repair repeated it. Both times the symptom was a
+  delimiter error far from the edit. The working rule is the one that finally held: compute
+  the offset from the SAME string you write, and ASSERT the insertion point (here: the tail
+  after it must be exactly the file's final brace) before writing.
+  (4) STATE WHEN PAUSED: five silent-failure fixes are committed; two releases are published
+  and hash-verified; d1 has been unreachable for days (530) and NOTHING in this repository
+  can reach it. One human touch recovers everything:
+  `vale tunnel start` then `npm i -g --prefix (Split-Path (Get-Command vale).Source)
+  https://agent.saisi.online/vale-agent/vale-agent-latest.tgz` then `vale update`.
+  (5) STILL OPEN: the agent restarted every 1-2 hours before this work (irregular, cause
+  unknown) — the run journal (de1ef852) now exists to answer exactly that on the next
+  occurrence. Index F2/F3 from round 99. The console's file layer has no APPLY half yet
+  (export/see only).
+
+Previous round: 2026-09-14 round 110 (four silent-failure fixes, and the reason d1 stayed dark
 for days: the agent's boot task could not revive it, and the tunnel supervisor was probing a
 directory that no longer exists). RELEASED 1.2.363 and 1.2.364 — neither is on d1 yet.
 Commits: 35aaeb38, de1ef852, 7c5edad7, 50643d54, a907506b (1.2.363), eb94d825 (1.2.364).

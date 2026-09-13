@@ -301,9 +301,32 @@ pub(crate) async fn provision_tunnel(cf_token: &str, port: u16) -> String {
     // Supervision audit #5: atomic (the boot-spawned cloudflared may be
     // mid-read) — and #1: DO NOT spawn a second tunnel here; the supervisor
     // task owns the single child and restarts on the generation bump.
-    let _ = crate::bootstrap::atomic_write(&cfg_path, yml.as_bytes());
-    crate::tunnel_ctl::request_restart();
+    // A FAILED WRITE MUST NOT REPORT SUCCESS — AND MUST NOT REQUEST THE RESTART.
+    //
+    // This was `let _ = atomic_write(...)`: the failure vanished, the generation still
+    // bumped, and the Gateway card answered `ok (host)` because that string is what the
+    // caller returns. The supervisor then relaunched cloudflared against a `tunnel.yml`
+    // that was never written — a device that comes up on a STALE ingress, or not at all,
+    // while every surface the operator can see says it is connected.
+    //
+    // Restarting against a config we failed to write is worse than not restarting at all:
+    // the old file may still be the working one, and this way it keeps being used.
+    if let Err(e) = install_tunnel_config(&cfg_path, &yml) {
+        return format!("FAILED: {e} — the tunnel was NOT (re)configured and was left as it was");
+    }
     format!("ok ({hostname})")
+}
+
+/// Write the tunnel config, and bump the restart signal ONLY if it landed.
+///
+/// Split out so the ORDERING CLAIM is testable rather than asserted in a comment: a
+/// best-effort write plus an unconditional restart is exactly how a device ends up
+/// relaunching against a config that does not exist.
+fn install_tunnel_config(path: &std::path::Path, yml: &str) -> Result<(), String> {
+    crate::bootstrap::atomic_write(path, yml.as_bytes())
+        .map_err(|e| format!("could not write {} ({e})", path.display()))?;
+    crate::tunnel_ctl::request_restart();
+    Ok(())
 }
 
 // Tunnel-ID output parsers (round-426: hoisted to module level from
@@ -617,5 +640,41 @@ mod tests {
         assert_eq!(find_tunnel_id_by_name("ID  NAME\n", "NAME"), None);
         // name match with a garbage id column is skipped, not returned
         assert_eq!(find_tunnel_id_by_name("oops  vale-d1\n", "vale-d1"), None);
+    }
+    #[test]
+    fn a_config_write_that_fails_neither_reports_success_nor_asks_for_a_restart() {
+        // The tie between the two halves is the whole point: a best-effort write plus an
+        // unconditional `request_restart()` is how a device relaunches cloudflared against
+        // a tunnel.yml that was never written — a stale ingress, with the Gateway card
+        // saying "connected". The generation is the observable: it must MOVE on success and
+        // STAY on failure.
+        let dir = std::env::temp_dir().join(format!("vale-tcfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // The failure is real, not simulated: the target's parent is a FILE.
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let bad = blocker.join("tunnel.yml");
+
+        let before = crate::tunnel_ctl::generation();
+        let err = install_tunnel_config(&bad, "tunnel: x\n").unwrap_err();
+        assert!(err.contains("could not write"), "{err}");
+        assert_eq!(
+            crate::tunnel_ctl::generation(),
+            before,
+            "a failed write must NOT request a restart"
+        );
+
+        let good = dir.join("tunnel.yml");
+        install_tunnel_config(&good, "tunnel: x\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&good).unwrap(), "tunnel: x\n");
+        assert_ne!(
+            crate::tunnel_ctl::generation(),
+            before,
+            "a written config must restart"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
