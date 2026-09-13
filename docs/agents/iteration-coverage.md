@@ -79,6 +79,20 @@ Seeded 2026-09-14 at round 110.
 | docs (README / ARCHITECTURE / ADRs / this ledger) | partial | — | — |
 | field device d1 | seen | 114 | current on 1.2.364; verified live (boot-task contract, tunnel supervisor, run journal). NOT tested: reviving a dead agent — proposed maintenance window. |
 
+### D14 — `loadCatalogueFile`'s deps precondition is unchecked (round 175, design item)
+
+`store/file-config.ts` caches the parsed catalogue in one shared per-isolate cache, which is
+only correct if every caller passes EQUIVALENT `deps`. Seven callers do (six in `src/`, one
+in the suite), and nothing enforces it. The comment recording this was already stale once
+(it said "both call sites"), which is the argument for removing the precondition rather
+than documenting it: **if `loadCatalogueFile` closed over the real validators itself, no
+caller could get it wrong.**
+
+Blocked by the import cycle the module documents (`parseProviderSpec` lives in
+`providers.ts`, which imports `file-config.ts`), so the fix is a seam decision:
+either resolve the validators behind a lazily-invoked thunk, or accept the injected-deps
+design and add a one-line equality check at the cache site. Needs a full round.
+
 ## Open items (each needs an owner round)
 
 ### Never-examined surfaces (round 165 — the tree, not the history)

@@ -170,10 +170,24 @@ let cached: CatalogueLayers | null = null;
 
 export function loadCatalogueFile(deps: CatalogueFileDeps): CatalogueLayers {
   // CACHED, AND THE CACHE IS SHARED BY EVERY CALLER — so `deps` must be equivalent
-  // wherever it is passed. It is: both call sites pass the REAL `parseProviderSpec`. A
-  // stub here (my first version) would have been a cache-poisoning bug with a nasty
-  // shape — a valid document failing, or worse, an INVALID one passing, depending on
-  // which module happened to import first.
+  // wherever it is passed. It is: all SEVEN callers pass the REAL validators
+  // (`RESERVED_PREFIXES` + `parseProviderSpec`) — six in src/ (`admin.ts` x3,
+  // `models.ts` x2, `providers.ts` x1) and the suite's own deps object. One of the six
+  // wraps the validator (`providers.ts`: `(raw) => parseProviderSpec(raw)`) rather than
+  // passing the bare reference; behaviourally identical, and harmless only because the
+  // cache keys on nothing.
+  //
+  // THE PRECONDITION IS REAL AND UNCHECKED (round-175): "every caller passes equivalent
+  // deps" is what makes one shared cache correct, and NOTHING ENFORCES IT — it is a
+  // convention held by seven call sites. A stub here (my first version) would have been
+  // a cache-poisoning bug with a nasty shape — a valid document failing, or worse, an
+  // INVALID one passing, depending on which module happened to import first. The count
+  // in this comment was already stale once (it said "both"), which is the argument for
+  // removing the precondition rather than documenting it: if this function closed over
+  // the real validators itself, no caller could get it wrong — blocked today only by the
+  // import cycle the module notes above (`parseProviderSpec` lives in providers.ts,
+  // which imports this file). Recorded as a design item in docs/agents/iteration-
+  // coverage.md; until then, a caller passing synthetic deps is a bug.
   cached ??= parseCatalogueFile(raw as unknown, deps);
   return cached;
 }

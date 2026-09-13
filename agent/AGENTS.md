@@ -526,6 +526,35 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 175 (round 174's two items: the stale count CORRECTED, and the
+unchecked invariant written down where it lives instead of staying implicit — a comment that names a
+precondition is the only form of an unenforced rule a reader can act on). Commit: gateway/ + mirror +
+ledger + journal. Tests: gateway 850, zero red.
+  (1) THE COUNT IS NOW TRUE AND THE WRAPPER IS NAMED: the cache comment said "both call sites"; it now
+  says SEVEN (six in `src/` — `admin.ts` x3, `models.ts` x2, `providers.ts` x1 — plus the suite's own
+  deps object), and it records that one of the six passes a WRAPPER (`(raw) => parseProviderSpec(raw)`)
+  rather than the bare reference, harmless only because the cache keys on nothing.
+  (2) AND THE UNCHECKED PRECONDITION IS NOW STATED AT THE SITE, which is the round's real value: "every
+  caller passes equivalent deps" is what makes one shared cache correct, and nothing enforces it — seven
+  call sites hold it as a convention. The comment says so, gives the poisoning shape (a valid document
+  failing, or an INVALID one passing, depending on import order), and draws the lesson from its own
+  history: **the count in that comment was already stale once, which is the argument for REMOVING the
+  precondition rather than documenting it.**
+  (3) THE FIX IS RECORDED AS LEDGER ITEM **D14**, WITH ITS BLOCKER NAMED: closing over the real
+  validators would make the hazard class disappear, and what blocks it today is the import cycle the
+  module already documents (`parseProviderSpec` lives in `providers.ts`, which imports `file-config.ts`).
+  So it is a seam decision — a lazily-invoked thunk, or accept the design plus a one-line equality check
+  — and it needs a full round. I added the ledger row in the SAME commit as the comment that cites it,
+  because a comment pointing at a ledger entry that does not exist is exactly the claim-set drift this
+  loop keeps closing.
+  (4) PURE DOC + LEDGER CHANGE, VERIFIED AS ONE: gateway 850 before and after, and the only red in the
+  run was the code-viewer mirror for the `src/` edit — the third time in eight rounds that the TEST, not
+  my memory, caught that obligation (168, 173, now 175). Recorded because it is now a pattern rather than
+  a coincidence: the mirror check is the instrument, and the lesson is spent.
+  (5) STILL OPEN: D14; the plugins registry trio; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; the rest of round 165's list; plus the seven rows of the round-157
+  table.
+
 Last updated: 2026-09-14 round 174 (round 165's queue, sixth item: `file-config.ts` READ. It is the
 best-designed file this queue has produced — and its one comment that counts things is STALE, which is the
 same class this loop has closed a dozen times, found here in the file that explains its own design best).
