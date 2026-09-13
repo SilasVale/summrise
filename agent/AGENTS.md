@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 132 (P5: the two BYOK vrelay handlers streamed an upstream 5xx
+body straight to the caller, against their own README's contract — and the scope of round 131's P4
+was corrected rather than widened). Commit: this round's proxies/ + docs.
+Tests: vrelay 64 (was 60), three mutations caught.
+  (1) P5, MEASURED. `proxies/README.md:13` says "5xx responses use generic client text (detail stays
+  in the worker/function log)". `zen.js` and `proxy.js` ended with an unconditional
+  `return new Response(r.body, { status: r.status })`, so a 503's body — the provider's own words
+  about a request it rejected — reached the caller verbatim, while two of their siblings genericized
+  theirs. Both now log a bounded detail and answer `{"error":"Upstream unavailable"}` with the
+  upstream status.
+  (2) AND I CORRECTED ROUND 131's CLAIM INSTEAD OF WIDENING IT. The audit listed the missing
+  redaction as one defect across all the proxies; reading the handlers showed the distinction that
+  matters: `zen-go`/`zen-us` forward the WORKER's paid key, so a provider echo DISCLOSES a secret
+  that is not the caller's (fixed in 131), while `zen.js`/`proxy.js` forward the CALLER's own key —
+  an echo returns it to the person who already holds it. So P4's credential scope is closed, and
+  these two needed the CONTRACT fix (5xx generic), not a redactor. The 4xx pass-through is
+  deliberately kept: that text is what a caller needs to fix their request, and it is now pinned by
+  a test that fails if someone genericizes it too (mutation M3).
+  (3) THREE MUTATIONS, ALL CAUGHT: zen.js back to streaming, proxy.js back to streaming, and both
+  4xx paths genericized (the over-tightening the contract does not ask for).
+  (4) STILL OPEN IN THIS SURFACE: `github.ts`/`gform.ts` copy upstream 5xx bodies verbatim too —
+  recorded as P5b. No credential rides there (their request-header allowlists exclude
+  authorization), so it is a contract/consistency item rather than a disclosure, and it is not
+  claimed closed.
+  (5) NOT DEPLOYED, same as rounds 129/131: the relay and the workers are release actions. What is
+  committed is tested and mutating, not live.
+  (6) STILL OPEN overall: D13 (the orchestrator has no executable coverage), P5b, the proxies' P6-P10;
+  the extension's X1 (the last HIGH — needs a design decision), X3, X6, X8; the three unreconciled
+  versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 131 (P4, credential class: a provider that echoes the API key back
 in a 4xx error message handed it to the caller — neither Cloudflare worker had any redaction while
 the gateway redacts and pins it). Commit: this round's proxies/ + docs.

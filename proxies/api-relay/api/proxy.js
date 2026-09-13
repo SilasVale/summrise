@@ -100,6 +100,21 @@ export default async function handler(request) {
     }
     const rh = new Headers(r.headers);
     for (const [k, v] of Object.entries(cors)) rh.set(k, v);
+    // 5xx: GENERIC client text, detail stays in the log (proxies/README.md:13).
+    // This used to stream the upstream error body straight to the caller — the
+    // provider's own words about a request it rejected, verbatim, which is the
+    // one thing the documented contract says must not leave the worker.
+    if (r.status >= 500) {
+      let detail = `upstream ${r.status}`;
+      try {
+        detail = (await r.text()).slice(0, 500);
+      } catch {}
+      console.error(`[vercel-proxy] upstream ${r.status}: ${detail}`);
+      return new Response(JSON.stringify({ error: "Upstream unavailable" }), {
+        status: r.status,
+        headers: { "Content-Type": "application/json", ...cors },
+      });
+    }
     return new Response(r.body, { status: r.status, headers: rh });
   } catch (e) {
     // Never leak internal detail — generic client text, full detail in log.
