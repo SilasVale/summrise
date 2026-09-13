@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 176 (round 165's queue, seventh item: `plugins/registry.ts` READ. It has
+already fixed the "silent degradation" class TWICE on two of its three surfaces — and the third surface
+still degrades silently, which is this round's finding). Commit: journal. No code change.
+  (1) THE FRAMEWORK'S OWN HISTORY, WHICH IS THE ARGUMENT: the header records two incidents in the same
+  family. The `ctx.api.<dep>` raw read "silently degrade[d] to `undefined` when array order drift[ed]
+  (the auth→translate incident)" — fixed by `requireApi`, which THROWS when a declared dep is missing —
+  and a parallel `container.ts` implementation was DELETED for being "never wired in — its dispatch was a
+  placeholder returning null". Both are the same lesson: a thing that looks live and is not.
+  (2) AND IT IS ENFORCED ON TWO SURFACES: `registerPlugins` topologically sorts by declared deps and
+  **throws on a genuine cycle** ("fail loudly instead of silently"), and `provideApi` is documented as
+  "the SINGLE write site for capabilities" with `requireApi` throwing on absence. Those are real checks
+  with real failure modes, not conventions.
+  (3) THE THIRD SURFACE HAS NO EQUIVALENT, AND THAT IS THE FINDING: `route()` (line 82) simply
+  `ctx.routes.push({...})`, and `dispatch` (line 69) walks `for (const r of ctx.routes)` taking the
+  FIRST match — "first-match wins", as the PluginContext doc says. So **a second plugin registering the
+  same method+path is silently dead**: its handler never runs, nothing throws, nothing logs, and the
+  registry's own doc for `routes` advertises the ordering that makes it dead. The deps surface learned to
+  fail loud; the routes surface has not.
+  (4) REACHABILITY: NOT YET ESTABLISHED, AND MY FIRST CHECK WAS AN INSTRUMENT FAILURE — recorded because
+  that is now the eighth in this stretch and the pattern is stable. I grepped `route(ctx, "METHOD", "path"`
+  and got **3 registrations total** for a gateway with dozens of endpoints, then read the number instead of
+  questioning it: an implausible count is a statement about the grep, not the code (round 166's rule, in a
+  new costume). The devices plugin alone contributes three in that exact form, so the other plugins must
+  register routes differently — i.e. the collision surface is shaped differently from what I measured, and
+  the honest state is "the hazard is structural and the reachability check is unfinished".
+  (5) WHAT THE NEXT ROUND SHOULD DO, PRECISELY: enumerate every route registration regardless of form
+  (the `Plugin` interface's route carrier, plus `ctx.routes.push` anywhere), then (a) test for a live
+  method+path collision — if one exists it is a DEAD ROUTE and a real finding; (b) if none exists, the
+  round's deliverable is the same one the other two surfaces got: make `route()` refuse a duplicate (or
+  log it loudly), so the class stops depending on nobody ever colliding. Both are cheap; (b) is small and
+  belongs in a full-budget round because it touches the dispatch path every request walks.
+  (6) STILL OPEN: that reachability check + the duplicate-refusal design; D14; `models-probe.ts` +
+  `model-route.ts` (the rest of the registry trio); `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 175 (round 174's two items: the stale count CORRECTED, and the
 unchecked invariant written down where it lives instead of staying implicit — a comment that names a
 precondition is the only form of an unenforced rule a reader can act on). Commit: gateway/ + mirror +
