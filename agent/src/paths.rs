@@ -887,4 +887,32 @@ mod resolution_tests {
              offenders: {offenders:?}"
         );
     }
+    /// THE BOOT TASK MUST BE ABLE TO REVIVE THE AGENT ON ITS OWN.
+    ///
+    /// The registration string cannot be executed on Linux, so what is pinned here is the
+    /// CONTRACT it has to satisfy: a repetition trigger paired with `IgnoreNew` (start if
+    /// not running, never interrupt a healthy agent) and a failure restart. `-AtStartup`
+    /// alone left d1 unreachable for days while its task sat "Ready", because the only
+    /// thing that could revive it was a pulse inside the ELECTRON SHELL — a user-session
+    /// process. An agent's ability to come back must not depend on another process that can
+    /// die, and this test is what stops that property being edited away.
+    #[test]
+    fn the_boot_task_can_revive_the_agent_without_a_user_session() {
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/winmain.rs"),
+        )
+        .expect("winmain.rs is readable");
+        for needle in [
+            "RepetitionInterval",
+            "MultipleInstances IgnoreNew",
+            "RestartCount",
+            "RestartInterval",
+        ] {
+            assert!(
+                src.contains(needle),
+                "the ValeAgent registration lost `{needle}` — the agent can no longer bring \
+                 itself back without a reboot or a user session"
+            );
+        }
+    }
 }

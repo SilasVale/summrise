@@ -356,12 +356,29 @@ pub(crate) fn self_heal() {
 
     // 3. Boot task at THIS install dir. ExecutionTimeLimit 0 = never kill the
     //    task (the Task Scheduler default of 72h silently stops the server).
+    //
+    //    THE TASK REVIVES THE AGENT BY ITSELF, which it could not before. `-AtStartup`
+    //    alone means a dead agent stays dead until somebody reboots the box or the
+    //    ELECTRON SHELL's 5-minute pulse runs — and that pulse lives in a USER SESSION, so
+    //    it does not exist on a headless device or when nobody is logged in. Observed:
+    //    d1 was unreachable for days while its task sat "Ready".
+    //
+    //      * a REPETITION trigger every 5 minutes, paired with `MultipleInstances
+    //        IgnoreNew`, is "START IF NOT RUNNING" — the task engine ignores the new
+    //        instance while the agent is alive, so a healthy agent is never interrupted.
+    //        (It also makes the shell's `schtasks /run ValeAgent` pulse harmless: it can no
+    //        longer stack a second agent.)
+    //      * `-RestartCount/-RestartInterval` covers the other shape: the task ENDING,
+    //        which the repetition alone would leave down for up to five minutes.
+    //
+    //    This is OS-level and needs no session, which is the point: the agent's ability to
+    //    come back must not depend on another process that can also die.
     let script = format!(
         "Register-ScheduledTask -TaskName 'ValeAgent' \
          -Action (New-ScheduledTaskAction -Execute '{exe_str}' -Argument '\"{cfg_str}\"') \
-         -Trigger (New-ScheduledTaskTrigger -AtStartup) \
+         -Trigger (New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)) \
          -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) \
-         -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0)) -Force"
+         -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)) -Force"
     );
     run_bounded("self-heal: Register-ScheduledTask ValeAgent", {
         let mut c = std::process::Command::new("powershell");
