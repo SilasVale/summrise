@@ -70,6 +70,32 @@ test("byok: translate-vision derives the EIGHT and keeps the NINTH", async () =>
   assert.deepEqual(leaked, [], `translate-vision must not re-type these: ${leaked.join(", ")}`);
 });
 
+test("byok: CHANNEL_KEY_RULES derives — and stays MUTABLE for registerChannelKey", async () => {
+  // The last of the four consumers, and the only one on the per-request path. Two things
+  // must hold at once: the eight rows come from the source (with nv/gmi still saying
+  // envKey null — the distinction round 188 called the deletion criterion), and the object
+  // stays a plain mutable one, because registerChannelKey writes into it and the test suite
+  // registers `zz-test-ocp` through it.
+  const { CHANNEL_KEY_RULES, registerChannelKey } = await import("../src/plugins/model-route.ts");
+  for (const c of BYOK_CHANNELS) {
+    assert.deepEqual(
+      CHANNEL_KEY_RULES[c.prefix],
+      { userKey: c.userKey, envKey: c.envKey },
+      `prefix ${c.prefix} must come from the source`,
+    );
+  }
+  assert.equal(CHANNEL_KEY_RULES.nv.envKey, null, "and the null survives the derivation");
+  assert.equal(CHANNEL_KEY_RULES.gmi.envKey, null);
+  const probe = "zz-byok-probe";
+  registerChannelKey(probe, { userKey: "ZZ_PROBE_KEY", envKey: null });
+  assert.equal(CHANNEL_KEY_RULES[probe].userKey, "ZZ_PROBE_KEY", "still extensible");
+  delete CHANNEL_KEY_RULES[probe];
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/plugins/model-route.ts", import.meta.url), "utf8");
+  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
+  assert.deepEqual(leaked, [], `model-route must not re-type these: ${leaked.join(", ")}`);
+});
+
 test("byok: the two vocabularies genuinely differ (a merge of one name would be a coincidence)", () => {
   const sameName = BYOK_CHANNELS.filter((c) => c.prefix === c.kind).map((c) => c.kind);
   assert.deepEqual(sameName, ["gmi", "amd"], "only two channels use the same word for both");

@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 195 (**THE ARC IS CLOSED — all FOUR consumers now derive from
+`store/byok.ts`, and the last one is the per-request path. The round's first act was to check that
+deriving would not quietly remove an EXTENSION POINT, and it does not**). Commit: gateway/ + mirror +
+journal. Tests: gateway 860 = 859 + 1, zero red.
+  (1) THE EXTENSION POINT WAS THE RISK, AND IT WAS CHECKED BEFORE THE EDIT: `CHANNEL_KEY_RULES` is not
+  merely read — `registerChannelKey` WRITES into it (`CHANNEL_KEY_RULES[prefix] = rule`), and the OCP
+  comment says why ("new channels register here — no edit to isModelUsable"). A derivation that produced
+  a frozen or non-writable object would have deleted an extension point while every test that only READS
+  the table stayed green. Its one caller today is the test registering `zz-test-ocp`
+  (`model-route.test.mjs:126`), which is exactly the kind of consumer a refactor can strand without
+  noticing. `Object.fromEntries` yields an ordinary mutable object, so the point survives — and the new
+  assertion pins BOTH halves: the eight rows come from the source (with `nv`/`gmi` still `envKey: null`,
+  round 188's deletion criterion) AND the object is still extensible (it registers a probe key, checks it,
+  and deletes it).
+  (2) SO THE DRIFT CLASS IS CLOSED, and it is worth stating as one thing: `store/byok.ts` is now the only
+  place the eight channels and their key names exist. `models-probe.ts` (191), `store/users.ts` (193),
+  `translate-vision.ts` (194) and `model-route.ts` (this round) all derive. The four independently-typed
+  copies that round 186 measured are gone, and the two hand-written cross-table assertions that round 193
+  found are no longer load-bearing for consistency — they now test a derivation instead of a coincidence.
+  (3) AND EACH OF THE FOUR FOUND SOMETHING, WHICH IS THE ARGUMENT FOR DOING THEM ONE AT A TIME RATHER THAN
+  AS ONE SWEEP: 191 established the mutation-proof assertion form; 193 corrected round 187's overreach
+  (a pair WAS already compared) and settled the ORDER question before changing it; 194 found the NINTH
+  entry (`custom`) that the shared source cannot hold, with a silent-failure mode; and this round found
+  the writable-object requirement. A single sweeping edit would have hit all four of those at once, in one
+  diff, on the per-request path.
+  (4) AND THE BEST EVIDENCE REMAINS THE PRE-EXISTING TESTS: `model-route.test.mjs:150` ("CHANNEL_KEY_RULES
+  userKeys cover every USER_KEY_NAMES entry") and the OCP registration test both pass against the derived
+  table. Neither was written for this refactor. Together with `key-probe`'s COMPLETENESS and `health`'s
+  coverage span (round 193), that is four independent consumers confirming the derived value is the same
+  value — better evidence than any assertion I could add about my own change.
+  (5) STILL OPEN: the recurring second failure's name under mutation (one grep, two sightings so far);
+  `models-probe.ts`'s remaining body (lines 70-198); `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 194 (the THIRD consumer derives — and the table it derives needed a
 NINTH entry the shared source cannot hold, found by reading the file rather than assuming from the tables
 that agreed. Mutation proven by DELETING that entry). Commit: gateway/ + mirror + journal. Tests:

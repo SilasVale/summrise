@@ -9,6 +9,7 @@
 import { isAdvertised } from "../store/models.ts";
 import { getUserKeys, getUserRoute } from "../store.ts";
 import { isChannelDegraded } from "../reliability.ts";
+import { BYOK_CHANNELS } from "../store/byok.ts";
 
 /** Model usable for routing? In the whitelist, (og) breaker not open, AND
  *  the REQUESTING user's key for that channel is configured — a channel
@@ -26,16 +27,20 @@ export interface ChannelKeyRule {
   envKey: string | null;
 }
 
-export const CHANNEL_KEY_RULES: Record<string, ChannelKeyRule> = {
-  og: { userKey: "OPENCODE_GO_API_KEY", envKey: "OPENCODE_GO_API_KEY" },
-  ds: { userKey: "DEEPSEEK_API_KEY", envKey: "DEEPSEEK_API_KEY" },
-  qw: { userKey: "QWEN_API_KEY", envKey: "QWEN_API_KEY" },
-  or: { userKey: "OPENROUTER_API_KEY", envKey: "OPENROUTER_API_KEY" },
-  nv: { userKey: "NVAPI_KEY", envKey: null },
-  gmi: { userKey: "GMI_API_KEY", envKey: null },
-  cm: { userKey: "CMD_API_KEY", envKey: "CMD_API_KEY" },
-  amd: { userKey: "AMD_API_KEY", envKey: "AMD_API_KEY" },
-};
+/** Per-channel BYOK rules, keyed by routing PREFIX — DERIVED from `store/byok.ts` since
+ *  round 195. This was the last of FOUR independently-typed copies of the same eight channels
+ *  (round 186), and the only one that could say `envKey: null` — "this channel has no
+ *  deployment fallback" for nv and gmi (round 187). `byok.ts` was built to carry exactly that
+ *  distinction (round 188's deletion criterion: a shared source that cannot say it is a loss
+ *  of information), so the derivation is lossless in both directions.
+ *
+ *  STILL A PLAIN MUTABLE OBJECT, deliberately: `registerChannelKey` below writes into it, and
+ *  `Object.fromEntries` produces an ordinary object exactly as the literal did — so the OCP
+ *  extension point survives unchanged (its one caller today is the test that registers
+ *  `zz-test-ocp`). Deriving must not quietly remove an extension point, and it does not. */
+export const CHANNEL_KEY_RULES: Record<string, ChannelKeyRule> = Object.fromEntries(
+  BYOK_CHANNELS.map((c) => [c.prefix, { userKey: c.userKey, envKey: c.envKey }]),
+);
 
 /** OCP extension point: new channels register here — no edit to isModelUsable. */
 export function registerChannelKey(prefix: string, rule: ChannelKeyRule): void {
