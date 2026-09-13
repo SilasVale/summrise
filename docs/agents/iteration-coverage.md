@@ -10,7 +10,9 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 119**; the console/gateway fixes of rounds 116-119 are all DEPLOYED
+- Round log head: **round 120** (the DISCOVERY round: four read-only scouts on surfaces no round
+  had audited — extension, the agent's `design` plugin, proxies/vrelay, the release machinery —
+  ~45 findings, two HIGHs fixed here, one of them LIVE-CONFIRMED and deployed); the console/gateway fixes of rounds 116-119 are all DEPLOYED
   (`vale-gate` version `3187a717-f35d-48e3-a0d3-16eb9624a0b4`, console bundle `index-CR3KX755.js`).
 - **THE STANDING LIST IS CLEAR OF OFFLINE WORK**, so the loop moves to the DISCOVERY track the
   protocol describes: the surfaces below still marked `unseen` (the extension, the agent's `design`
@@ -55,8 +57,8 @@ Seeded 2026-09-14 at round 110.
 | gateway `reliability` / `upstream` / `channels` / `body-scan` / `http` | partial | 64, 89 | — |
 | gateway console SPA (`gateway/ui`) | seen | 61, 91–93, 117–119 | two behavioural harnesses now exist (`smoke:models`, `smoke:overview` — jsdom over the BUILT bundle); other pages still have none |
 | index worker | seen | 99, 115 | — (F2/F3 closed and DEPLOYED round 115) |
-| proxies (zen-go / zen-us / vrelay) | partial | 64 | — |
-| extension (Vale Code Links) | unseen | — | — |
+| proxies (zen-go / zen-us / vrelay) | seen | 64, 120 | P1 (HIGH) protocol-relative path sent the caller's GitHub token to any host — FIXED + DEPLOYED + verified live in round 120; P2 the same shape in github/gform (open proxy); P3 three of five handlers use whole-fetch timeouts while streaming; P4 no credential redaction in any proxy error path; P5 the 5xx-generic-text contract violated in two handlers; P6 a stale routing comment at the decision site; P7 the disproven zen-us US pin still asserted in its own files; P8 `count_tokens` ignores system+tools; P9 zen-us labels every response `text/event-stream`; P10 a comment promises no silent target fallback that the code performs. **CI does not run these 54 tests** — only `node --check` |
+| extension (Vale Code Links) | seen | 120 | X1 (HIGH) rewrites React-owned text nodes → streaming freezes; X2 no folder allowlist: any chat text mints a one-click link into `.ssh`/`.dsh` inside the authenticated IDE; X3 the processed-stamp kills later content; X4 the dot heuristic is wrong both ways; X5 the "configurable base" is hardcoded and the test pins the WRONG path; X6 options shows an origin that is not in effect; X7 prose becomes links (`read/write`); X8 the security model named in comments is wrong (`--auth none`) |
 | agent `plugins/terminal` (26 tools) | partial | 88, SOLID | — |
 | agent `plugins/memory` | seen | 99, 110 | F5 was closed in round 110 in code (the unread `load_failed` flag; `true` after a failed append) with the test forced through a REAL failure seam — the LIVE half stays test-level by choice, since proving it on the device means corrupting the store |
 | agent `plugins/runs` + `runs.rs` | seen | 110 | — |
@@ -70,7 +72,7 @@ Seeded 2026-09-14 at round 110.
 | agent packaging + Electron shell (`vale-desktop-electron`) | partial | 555 | — |
 | agent `deploy/` PowerShell (setup/update/installer/tasks) | partial | 555, 110 | — |
 | agent panel SPA (`resources/panel-react`) | seen | 90–93 | — |
-| ops `scripts/` (publish / installer / audit / cdn-from-ci) | partial | 102–110 | CDN-vs-GitHub reconcile proposal awaits sign-off; `npm publish` awaits `npm login` |
+| ops `scripts/` (publish / installer / audit / cdn-from-ci) | seen | 102–110, 120 | D1 (HIGH) `--skip-reconcile`'s guard is neutralized by `\|\| true`: a missing token = "no release exists" → the P0 audit is skipped and the run reports success; D2 (HIGH) an unexplained tarball difference is a PASS in `release-audit.sh`; D3 (HIGH) the tag/release/audit stage is printed text, not code — nothing can fail because it never happened; D4 a tgz-only publish leaves the Setup.exe alias on the OLD release while `/api/version` advertises the new one and the smoke cannot see it; D5 the "single source of truth" toolchain is hand-copied into five CI sites and the drift is undetectable by design; D6 the shipped-file list lives in four places and all three copies omit README.md; D7 CI installs cargo-xwin unpinned while release pins 0.23.0; D8 three release paths call bare `npx wrangler deploy` (unpinned); D9 the exe-staleness gate silently disables itself when the path list matches no commit; D10 the installer's CDN fallback npm-installs an UNVERIFIED tgz; D11 `prune_installers` is flat-5 while its sibling is per-minor and the test cannot tell; D12 two installer deploy paths disagree about the manifest; D13 the orchestrators have no executable coverage at all |
 | ops CI (`ci.yml`, `release.yml`) | partial | 102–110 | — |
 | docs (README / ARCHITECTURE / ADRs / this ledger) | partial | — | — |
 | field device d1 | seen | 114 | current on 1.2.364; verified live (boot-task contract, tunnel supervisor, run journal). NOT tested: reviving a dead agent — proposed maintenance window. |
@@ -107,6 +109,21 @@ the platform's 500 HTML — through one `proxyFailure` helper carrying the JSON 
 already defined for uploads, with `cache-control: no-store`. Live: 200 + etag `"5fd7cf29…"` +
 `content-length 31374231` + `public, no-cache`; `If-None-Match` → 304/0 bytes; a non-matching
 validator → the full body; tgz, `version.json` and the cloudflared proxy unchanged.
+
+**Closed in round 120 (the discovery round): the `design` plugin's HTTP layer.** A read-only audit
+found that `page_view` returned a non-2xx as the page (a 530 error page read as "the design of the
+download site"), that its token redactor silently REWROTE panel.js (613,677 bytes returned for a
+613,667-byte file) while missing the token in other shapes, that its description advertised a
+"remote host" the gate refuses, that it defaulted to a hardcoded 18080 (reading a stranger's
+service on a custom-port install), that it read the whole body before the 64KB clip, and that it
+followed redirects past its own loopback gate. All fixed, with three new pins and one VACUOUS
+assertion replaced (`is_char_boundary(len)` is true for every &str).
+
+**Closed in round 120: the vrelay host escape (HIGH, live-confirmed).** `GET
+https://v.saisi.online/api/git//example.com/` returned Example Domain's HTML with the caller's
+GitHub `authorization` header attached — a protocol-relative path REPLACES the origin. Two layers
+now (shape + resolved-origin), three copies pinned byte-identical, deployed, and verified live:
+all three escape forms 400, the legit route still 200, the 401 gate intact.
 
 **Closed in round 119: the last item of round 105's list — the first-run hint.** The Overview now
 tells a fresh operator what to do, and stays quiet when the deployment already has credentials of a
@@ -145,9 +162,14 @@ deployed mirror is byte-identical to the tested source.
    cloudflared with it, so the only device goes dark for up to five minutes and needs a human if
    the revival fails. Proposed: a maintenance window — `Stop-Process vale-agent`, then confirm the
    task revives it within 5 minutes and the tunnel returns.
-3. **Agent restarted every 1–2 h before round 110** (cause unknown) — the run journal is armed and
-   answers it at the NEXT boot; its first line, "no previous run on record", is a gap in the
-   instrument, not a clean bill of health.
+3. **Agent restarted every 1–2 h before round 110** (cause unknown) — the run journal answers
+   *how* a run ended at the next boot; round 120 added the *who/what* half by enabling
+   `Microsoft-Windows-TaskScheduler/Operational` on d1 (`wevtutil sl … /e:true`, verified
+   `enabled: true`; it was off, so no history survived). Measured at 2026-09-14 01:37:02:
+   `started=1789317807 last=1789320989 exited=0`, process StartTime 00:43:27 → **53m35s of
+   uninterrupted uptime**, which is INSIDE the old 1–2 h window, so it proves nothing yet. Read
+   the task-scheduler log at the next restart (or after ~2 h of uptime to see whether the old
+   pattern stopped with 1.2.364).
 4. **The panel's provider-model surface** — round 105's leftovers, verified in round 116, and the
    controls fixed in round 117. **Closed:** "provider-model effort is not in the add row" (it was
    there); **b2** the provider-model facet editor (re-posts the provider record with one entry
