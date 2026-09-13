@@ -76,4 +76,22 @@ done
 check "the documented exception is still documented" \
   "$(grep -c 'no exe in this job' .github/workflows/ci.yml)" "1"
 
+# EVERY test file must be WIRED (round 146). This check exists because round 145
+# wrote scripts/test/publish-release.bash and never added it to ci.yml, so the new
+# test would have run for exactly one person, once. The directory listing and the
+# CI step list are two things that must agree with NOTHING comparing them — the
+# same shape this loop has closed in the audit, the smoke and the packaging pins.
+# A test no workflow invokes is a check whose failure cannot fail the run.
+unwired=""
+for f in scripts/test/*; do
+  base=$(basename "$f")
+  case "$base" in
+    *.bash|*.mjs|*.py) ;;
+    *) continue ;;
+  esac
+  grep -q "scripts/test/$base" .github/workflows/ci.yml || unwired="$unwired $base"
+done
+check "every scripts/test file is invoked from ci.yml" "${unwired:-none}" "none"
+
 echo "build-pins: $PASS checks passed"
+

@@ -526,6 +526,31 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 146 (I wired the test I wrote one round earlier — it was in NO
+workflow, so it would have run for exactly one person, once. The fix is not the missing line but the
+missing COMPARISON: the test directory and the CI step list now have a check between them). Commit:
+ci.yml + scripts/ + docs. Tests: build-pins 32 (was 31), one mutation caught.
+  (1) THE DEFECT WAS MINE, ONE ROUND OLD: round 145 created `scripts/test/publish-release.bash` and
+  did not add it to `.github/workflows/ci.yml`. A test no workflow invokes is the same class as a check
+  whose failure cannot fail the run — it exists, reads as protection, and protects nothing. Asking
+  "what runs my new test?" is the cheapest question in this loop and I did not ask it.
+  (2) THE STRUCTURAL FIX, NOT THE LINE: adding one step would leave the next test free to be born
+  unwired. `build-pins.bash` (already wired) now enumerates `scripts/test/*` and asserts every one is
+  invoked from `ci.yml`. The directory listing and the CI step list were two things that must agree
+  with NOTHING comparing them — the same shape rounds 122-128 closed in the audit, the smoke and the
+  packaging pins, and now in the test inventory itself.
+  (3) MY FIRST VERSION OF THAT CHECK WAS WRONG IN TWO WAYS, both caught by running it: it used
+  `pass`/`fail` helpers this suite does not have (it uses `check <desc> <actual> <expected>`), and I
+  appended it AFTER the summary line, so it could not have counted even if the helpers had existed. The
+  mutation run exposed the second failure mode for what it was: "0 FAIL" because the counting never
+  happened, which is exactly the silent-green shape the check exists to prevent.
+  (4) ONE MUTATION, CAUGHT PROPERLY NOW: deleting the new ci.yml step makes `build-pins.bash` fail with
+  "these test files are invoked by NOTHING: publish-release.bash" — naming the file, which is what the
+  next reader needs.
+  (5) STILL OPEN: D13's build path (cannot be driven without publishing); P9c (mechanism
+  unestablished); the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent revival
+  window; the restart mystery. Extension surface CLEAR (144).
+
 Last updated: 2026-09-14 round 145 (D13, partly closed: the release orchestrator FINALLY has
 coverage that RUNS it — three checks against its refusal path, one of which is a mutation-caught
 message assertion rather than a bare non-zero exit). Commit: scripts/ + docs. Tests: the new

@@ -260,6 +260,14 @@ jobs:
       # backstop the toolchain one (it tolerates a differing exe by design).
       - name: build-pin drift checks
         run: bash scripts/test/build-pins.bash
+      # The release orchestrator's refusal path (round 145, ledger D13): three
+      # files MENTIONED publish-release.sh and every one was a source pin, so its
+      # fail-closed guards had never been observed to fire. This drives the real
+      # script's --audit-only entry and asserts the refusal it owns. Wired HERE in
+      # round 146 because round 145 wrote the test and did not add this step — a
+      # test nobody runs is the same defect class as a check that cannot fail.
+      - name: publish-release refusal checks
+        run: bash scripts/test/publish-release.bash
       # The installer's SHA-256 verification (round 124): the CDN fallback used
       # to hand `npm install -g` a tarball it had never hashed. The logic is
       # PowerShell, so it cannot run on this box — but GitHub's ubuntu runners
