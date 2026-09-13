@@ -132,7 +132,12 @@ test("linkify is OFF by default and opts IN explicitly", () => {
   const src = readFileSync(new URL("../content/studio-links.js", import.meta.url), "utf8");
   assert.match(src, /enabled: false/, "the default must be off");
   assert.match(src, /studioLinksEnabled === true/, "the opt-in must be explicit");
-  assert.doesNotMatch(src, /studioLinksEnabled !== false/, "!== false is opt-out, not opt-in");
+  // The third assertion here was `doesNotMatch(src, /studioLinksEnabled !== false/)`.
+  // DELETED in round 162, not converted: the two positive assertions above already
+  // pin the same fact (the default is off, the opt-in is explicit), so the absence
+  // form added no unique coverage — and it carried the round-159 trap, where a grep
+  // for a retired form matches the comment that retires it. Round 161's rule, applied:
+  // when the subject is a FILE, assert the positive ACT; absence is for runtime VALUES.
 });
 
 /* ---- the options page states the state that is in effect (round 143) ---- */

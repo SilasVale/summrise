@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 162 (round 161's list, first entry: the absence assertion at
+`shared.test.mjs:135` turned out to be REDUNDANT rather than convertible — so it was deleted, and the
+deletion is evidence-backed by the coverage NOT moving). Commit: extension/ + journal. Tests: extension
+13 before and after; the false alarm reproduced.
+  (1) THE DECISION PROCEDURE ROUND 161 ASKED FOR, APPLIED: before converting an absence assertion, ask
+  whether a POSITIVE one already pins the same fact. Here it did — `assert.match(src, /enabled: false/)`
+  and `assert.match(src, /studioLinksEnabled === true/)` sit two lines above it — so the absence form
+  added no unique coverage and carried the whole round-159 risk. Deleted, with the reason written where
+  it stood.
+  (2) THE EVIDENCE IS THE UNCHANGED COUNT, and that is the part that makes this a decision rather than a
+  preference: extension is 13 tests BEFORE and AFTER the deletion. A conversion would have kept the
+  count too, but it would have rewritten a passing assertion to say what the line above already said.
+  (3) AND THE FALSE ALARM IS REPRODUCED, not argued: adding a comment to `studio-links.js` that quotes
+  the retired opt-out form leaves the pruned test GREEN (13/13); restoring the absence assertion makes
+  the same tree RED (12/1). Same mutation, same asymmetry as round 160 — which is now twice, so the
+  class's remedy is repeatable rather than a one-off insight.
+  (4) THE REMAINING TWO, WITH WHAT EACH NEEDS: `shared.test.mjs:156` and `:187` still assert the absence
+  of patterns in file text. Each needs its intent read before deciding DELETE vs CONVERT (135 needed
+  delete; 160's password case needed convert, because no positive assertion covered it). The
+  distinction is mechanical once stated: convert when the positive fact is NOT yet asserted, delete when
+  it already is.
+  (5) STILL OPEN: `:156`, `:187`; plus exactly the seven rows of the round-157 table, unchanged.
+
 Last updated: 2026-09-14 round 161 (round 160 fixed ONE instance of the absence-assertion trap; this
 round SCANNED for the class — and the scan drew the boundary the previous two rounds had been assuming).
 Commit: journal. No code change.
