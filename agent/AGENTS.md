@@ -526,10 +526,60 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-14 round 116 (a provider record could not be UPDATED without re-sending its
+Last updated: 2026-09-14 round 117 (the panel's per-model controls now write to the store that
+OWNS the model, or are not rendered at all — the provider-model editor round 105 left out, plus
+three lying controls found in round 116). DEPLOYED. No agent/release change.
+Commit: this round's console fix + mirror. `vale-gate` version `ad12cdbc-c047-4b30-87f6-c9c70d9b4ca6`;
+console bundle `index-498eVwrs.js`; gateway suite 848, console 11 (unchanged key set).
+  (1) THE RULE THIS ROUND APPLIES, in the page's own words: no control is better than one whose
+  effect is a lie. Four controls were measured against it:
+  * (b2, the round-105 gap) A CUSTOM PROVIDER's model had NO editor. It has one now: the save
+    re-posts the PROVIDER record with that ONE entry rebuilt from the draft — the same write shape
+    the add row uses — which round 116's keyless update made possible.
+  * (F6) The DEFAULT row's models rendered an "Edit facets" button whose every save answered 400
+    `unknown channel prefix`, because `parseModelSpec` knows only the registry prefixes and that
+    row's ids carry a segment no channel claims. Gone: a button whose only outcome is an error.
+  * (F7) "Adopt" silently ERASED declared `reasoningEffort`: it mapped the untouched entries by
+    hand (id/name/ctx/max/input) and left the field out, while a provider POST replaces the array
+    wholesale. Every re-post now carries untouched entries through ONE `preserveEntry`.
+  * (F8) Delete/Disable rendered on a provider's model row and called the MODEL route, which owns
+    no such id — a 404 button. Suppressed; removing one model from a provider is an edit of the
+    record, not a delete of a model record.
+  (2) THE TRAP INSIDE THE FIX, caught before it shipped: `openFacets` seeded its draft from
+  `facets[id]`, which holds console-owned records and built-in overrides — NOT a provider model's
+  declaration, which lives in the provider record. Opening the editor on a provider model would
+  have shown EMPTY fields and then saved that emptiness over the record. The row now resolves the
+  facets (`facetsOf`, which already merged both stores) and passes them in.
+  (3) EVIDENCE, AND IT IS BEHAVIOURAL, NOT A GREP: `gateway/ui/models-render-smoke.mjs` (wired as
+  `npm run smoke:models`) mounts the BUILT bundle in jsdom with stubbed admin APIs, opens the
+  provider row, clicks Edit, asserts the draft is seeded from the record, edits a field, clicks
+  Save, and inspects the captured request: it goes to `/api/admin/providers` and NOT to
+  `/api/admin/models`, the edited facet travels, the UNTOUCHED entry keeps its `effort` and `input`,
+  and no key is invented. Plus the negative controls: the DEFAULT row offers no edit, a provider's
+  model offers no delete. 14 checks.
+  (4) SIX MUTATIONS, ALL CAUGHT — after one initially was NOT. Removing the new gate, seeding from
+  `facets[id]`, saving to the model route, dropping the carried fields, re-admitting the DEFAULT
+  row, and re-admitting delete each fail the harness. The one that first passed was M6 (delete):
+  `open` is a SINGLE state, so asserting "no delete control" after opening another row ran against
+  a COLLAPSED row and passed on an empty DOM — the same false-pass shape as the harness's own first
+  run, where an unopened row made every provider assertion vacuous. Both are now fixed by asserting
+  while the right row is the open one, and the harness prints the page text when no row renders.
+  (5) DEPLOYED AND VERIFIED: `api.saisi.online/assets/index-498eVwrs.js` is BYTE-IDENTICAL to the
+  local build (`cmp`, 329,369 bytes) and `index.html` serves that hash — i.e. the bytes the harness
+  exercised are the bytes the console loads. `/api/admin/providers` still answers 401 without a
+  session. NOT verified live: a human clicking in a real browser — the console is behind Cloudflare
+  Access and this loop holds no browser session for it; jsdom is the behavioural evidence.
+  (6) ONE PRE-EXISTING LINT WARNING LEFT ALONE: `submitProvider`'s useCallback omits `apis` from its
+  deps (`Models.tsx:406`). Untouched this round, warnings do not fail the gate, and fixing it would
+  have widened the diff past the deliverable.
+  (7) STILL OPEN: F9 (the file layer is marked per PREFIX only — a file-declared `models:` entry
+  stays editable and the next deploy silently reverts it) and F10 (no onboarding/needs-setup hint);
+  CHARTER-1 (so still no release); the dead-agent revival window; the restart mystery.
+
+Previous round: 2026-09-14 round 116 (a provider record could not be UPDATED without re-sending its
 key — so the console's own documented edit path, "re-post the prefix", was a 400 for every provider
 the console creates). CREATE still demands a key; UPDATE now keeps the stored one. DEPLOYED.
-Commit: this round's fix commit + mirror. `vale-gate` version `2484d970-af69-4bd2-add8-b729fae54393`;
+Commit: ccf6e2ea. `vale-gate` version `2484d970-af69-4bd2-add8-b729fae54393`;
 gateway suite 848.
   (1) THE DEFECT, AND WHY NOTHING SAW IT. `parseProviderSpec` required exactly one of
   `apiKey`/`apiKeyEnv` on EVERY post, while `publicProvider` returns only `keyMasked`/`keyReady`

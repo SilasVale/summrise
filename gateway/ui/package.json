@@ -11,7 +11,8 @@
     "test": "node --test",
     "smoke": "node render-smoke.mjs ../public/assets/$(grep -o 'index-[^\"]*\\.js' ../public/index.html | head -1)",
     "smoke:devices": "node devices-render-smoke.mjs ../public/assets/$(grep -o 'index-[^\"]*\\.js' ../public/index.html | head -1)",
-    "screenshot": "node scripts/screenshot.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "smoke:models": "node models-render-smoke.mjs ../public/assets/$(grep -o 'index-[^\"]*\\.js' ../public/index.html | head -1)"
   },
   "dependencies": {
     "react": "^19.2.8",

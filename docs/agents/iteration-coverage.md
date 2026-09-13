@@ -10,8 +10,9 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 116**; HEAD `9777a1df` + this round's gateway fix (DEPLOYED,
-  `vale-gate` version `2484d970-af69-4bd2-add8-b729fae54393`).
+- Round log head: **round 117**; HEAD `9777a1df` + the round-116 gateway fix + this round's console
+  fix (all DEPLOYED; `vale-gate` version `ad12cdbc-c047-4b30-87f6-c9c70d9b4ca6`, console bundle
+  `index-498eVwrs.js`).
 - **A "STILL OPEN" LINE IS A CLAIM, NOT A FACT — two rounds running now.** Round 115 found memory
   F5 already closed since round 110; round 116 read round 105's three leftovers and found two of
   them touched by four later commits (`99b42928`, `5030ab60`, `9249e790`, `1d8b8468`) that were
@@ -43,7 +44,7 @@ Seeded 2026-09-14 at round 110.
 | gateway `device-fetch` + `plugins/devices` | seen | 89, 90, 95 | F5 host allowlist is a family match — hardening only |
 | gateway `store/` (KV cache, grants) | seen | 94 | grant single-use needs the device-side backstop (shipped) |
 | gateway `auth` / `session` / `access` | seen | 61, 89 | — |
-| gateway `plugins/admin` + `store/providers` (custom providers) | seen | 116 | F6 a dead "Edit facets" button on the DEFAULT row; F7 "Adopt" erases declared effort; F8 Delete 404s on provider models; F9 the file layer is marked per prefix only; the provider-model editor itself |
+| gateway `plugins/admin` + `store/providers` (custom providers) | seen | 116, 117 | F6/F7/F8 fixed in 117; F9 (file layer marked per prefix only) open |
 | gateway `plugins/models.ts` + `models-probe` + `model-route` (the catalogue) | seen | 105, 116 | F6 above; a provider write propagates in ≤60 s but `models:*` takes up to 24 h (`store/cache.ts`), so a built-in facet edit can read back stale |
 | gateway `plugins/translate` (+vision) | seen | SOLID R117–R121 | — |
 | gateway `mcp.ts` / `mcp-tools.ts` / `mcp-browser.ts` | seen | 78, 89 | — |
@@ -103,6 +104,13 @@ already defined for uploads, with `cache-control: no-store`. Live: 200 + etag `"
 `content-length 31374231` + `public, no-cache`; `If-None-Match` → 304/0 bytes; a non-matching
 validator → the full body; tgz, `version.json` and the cloudflared proxy unchanged.
 
+**Closed in round 117: four per-model controls now match the store that owns the model.**
+A provider's model has a facet editor (a re-post with one entry rebuilt); the DEFAULT row's edit
+button is gone (every save was a 400); "Adopt" carries untouched entries verbatim instead of
+erasing their `reasoningEffort`; and Delete no longer renders where it can only 404. Proven by
+`gateway/ui/models-render-smoke.mjs` — jsdom, the built bundle, a real click, and the captured
+request — with six mutations caught.
+
 **Closed in round 116: the provider record could not be updated without its key.** `POST
 /api/admin/providers` demanded exactly one of `apiKey`/`apiKeyEnv` on EVERY post while the admin
 view returns only a mask — so the console's documented edit path ("re-post the prefix", in
@@ -126,21 +134,12 @@ deployed mirror is byte-identical to the tested source.
 3. **Agent restarted every 1–2 h before round 110** (cause unknown) — the run journal is armed and
    answers it at the NEXT boot; its first line, "no previous run on record", is a gap in the
    instrument, not a clean bill of health.
-4. **The panel's provider-model surface — round 105's leftovers, VERIFIED in round 116** (two
-   read-only scouts; the claims had been carried across four commits that touched that very page).
-   - **CLOSED: "provider-model effort is not in the add row"** — it lives in the row's Advanced
-     block (`Models.tsx:884-933`) and the server has always accepted it.
-   - **OPEN (b2): a model inside a CUSTOM provider has NO editor.** The intent is written at
-     `Models.tsx:687-693` and the gate `(!pv || custom.includes(id))` makes it unreachable. The
-     server half is now in place (round 116), so the fix is a sibling of `addModelToProvider` that
-     replaces ONE entry in the re-posted record, plus widening that gate.
-   - **OPEN (F6): the DEFAULT row's models render an "Edit facets" button whose every save is a
-     400** — `unknown channel prefix deepseek/`, because `parseModelSpec` knows only the registry
-     prefixes. A control that cannot work is worse than no control.
-   - **OPEN (F7): "Adopt" silently erases declared `reasoningEffort`** — `adoptModel` re-posts the
-     existing models without the field, and the server replaces the array wholesale.
-   - **OPEN (F8): the Delete/Disable button renders on provider-model rows and 404s**
-     (`No custom model my/llama-3`).
+4. **The panel's provider-model surface** — round 105's leftovers, verified in round 116, and the
+   controls fixed in round 117. **Closed:** "provider-model effort is not in the add row" (it was
+   there); **b2** the provider-model facet editor (re-posts the provider record with one entry
+   rebuilt); **F6** the DEFAULT row's dead "Edit facets" button (every save was a 400); **F7**
+   "Adopt" erasing declared `reasoningEffort`; **F8** the Delete button that 404'd on a provider's
+   model. Evidence: `npm run smoke:models` (14 checks, 6 mutations caught).
    - **OPEN (F9): the file layer is marked per PREFIX only**, so a file-declared `models:` /
      `overrides:` entry stays editable in the panel and the next deploy silently reverts it — the
      panel already receives `file.{providers,models,overrides}` and reads only `.text`.
@@ -156,7 +155,8 @@ deployed mirror is byte-identical to the tested source.
 skips the suffix allowlist at dial time (fixed round 95) · `panel F1` loopback
 branch trusts a client Host header · `panel F2` `?grant=` not single-use over
 eventual consistency, no device-side audit · `panel F3` grant route shape check
-looser than the gateway's · `panel F5` host allowlist family match · `memory F5`
+looser than the gateway's · `panel F5` host allowlist family match · `panel F6/F7/F8` a 400-ing edit button on the DEFAULT row,
+"Adopt" erasing effort, a 404-ing delete (fixed round 117) · `memory F5`
 a failed append reported as a saved record, an unreadable store read as EMPTY
 (fixed round 110) · `index F2/F3` no validator on the executed bundle, failures
 outside the file's protocol (fixed and deployed round 115) · `tunnel F1`

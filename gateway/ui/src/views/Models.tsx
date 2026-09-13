@@ -34,6 +34,7 @@ import {
   type RouteInfo,
   type HealthChannel,
   type ProviderView,
+  type ProviderModelDraft,
   type ProbeResult,
   type ModelFacets,
 } from "../api/client.ts";
@@ -53,6 +54,43 @@ function laneClass(prefix: string): string {
   if (p === "amd") return "lane-amd";
   return "lane-def";
 }
+
+/** ONE model entry in a provider re-post, rebuilt from a FORM.
+ *
+ *  The form owns name / contextWindow / maxTokens / reasoningEffort and nothing else, so an
+ *  entry is built from the draft — which is what makes an EMPTIED field mean "unset" rather
+ *  than "keep the old value". The one thing carried over is what the form cannot express:
+ *  `input`, which is how a provider model declares vision. Rebuilding an entry without it
+ *  would un-vision a model on an unrelated facet edit — the same shape as ADOPT losing
+ *  `reasoningEffort` (fixed below). */
+const providerEntry = (
+  id: string,
+  form: { name: string; contextWindow: string; maxTokens: string; reasoningEffort: string },
+  carry?: ProviderModelDraft,
+) => ({
+  id,
+  ...(form.name.trim() ? { name: form.name.trim() } : {}),
+  ...(form.contextWindow.trim() ? { contextWindow: Number(form.contextWindow) } : {}),
+  ...(form.maxTokens.trim() ? { maxTokens: Number(form.maxTokens) } : {}),
+  ...(form.reasoningEffort ? { reasoningEffort: form.reasoningEffort } : {}),
+  ...(carry?.input ? { input: carry.input } : {}),
+});
+
+/** An entry nobody touched, carried through a re-post VERBATIM.
+ *
+ *  A provider POST replaces the whole `models` array, so every entry a caller rebuilds by
+ *  hand is a chance to drop a field it forgot. `adoptModel` did exactly that — it mapped
+ *  id/name/contextWindow/maxTokens/input and left out `reasoningEffort`, so adopting ONE
+ *  model silently cleared the effort default on every OTHER model of that provider. One
+ *  function, used by every re-post, is the fix. */
+const preserveEntry = (m: ProviderModelDraft) => ({
+  id: m.id,
+  ...(m.name ? { name: m.name } : {}),
+  ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
+  ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+  ...(m.reasoningEffort ? { reasoningEffort: m.reasoningEffort } : {}),
+  ...(m.input ? { input: m.input } : {}),
+});
 
 export default function ModelsView() {
   const { t } = useTranslation();
@@ -236,38 +274,62 @@ export default function ModelsView() {
     }
   }, [t, toast]);
 
-  /** Open the facet editor on a model, seeded from what it currently declares. */
-  const openFacets = useCallback(
-    (id: string) => {
-      const f = facets[id] ?? {};
-      setFacetDraft({
-        name: f.name ?? "",
-        contextWindow: f.contextWindow ? String(f.contextWindow) : "",
-        maxTokens: f.maxTokens ? String(f.maxTokens) : "",
-        reasoningEffort: (f.reasoningEffort as typeof facetDraft.reasoningEffort) ?? "",
-      });
-      setEditFacets(id);
-    },
-    [facets, facetDraft.reasoningEffort],
-  );
+  /** Open the facet editor on a model, seeded from what it currently declares.
+   *
+   *  THE FACETS COME FROM THE CALLER because a model's declaration does not live in one
+   *  place: a console-owned record and a built-in override are in `facets[id]`, while a
+   *  CUSTOM PROVIDER's model declares inside the provider record (`facetsOf` merges the two
+   *  for the row). Seeding this editor from `facets[id]` alone would open it EMPTY on a
+   *  provider model and then save that emptiness over the record — an edit control that
+   *  silently erases what it was opened to change. */
+  const openFacets = useCallback((id: string, f: ModelFacets | null) => {
+    setFacetDraft({
+      name: f?.name ?? "",
+      contextWindow: f?.contextWindow ? String(f.contextWindow) : "",
+      maxTokens: f?.maxTokens ? String(f.maxTokens) : "",
+      reasoningEffort: (f?.reasoningEffort as typeof facetDraft.reasoningEffort) ?? "",
+    });
+    setEditFacets(id);
+  }, []);
 
   /** Save them. The add route UPSERTS by id, so editing a record and creating one are
    *  the same call — there is no second write path to keep in step. An EMPTIED field is
-   *  omitted rather than sent as zero/empty, which is how the server spells "unset". */
+   *  omitted rather than sent as zero/empty, which is how the server spells "unset".
+   *
+   *  A model inside a CUSTOM PROVIDER is NOT in that store: its record owns the list, so the
+   *  save re-posts the provider with that ONE entry rebuilt from the draft (the shape the add
+   *  row already uses). Round 105 left this control off the row rather than write to the wrong
+   *  store; round 116 made the re-post possible without resending the key; this is the half
+   *  that closes it. */
   const saveFacets = useCallback(async () => {
     if (!editFacets) return;
-    const n = (v: string) => (v.trim() ? Number(v) : undefined);
     setAdding(true);
     try {
-      await api.addModel({
-        id: editFacets,
-        ...(facetDraft.name.trim() ? { name: facetDraft.name.trim() } : {}),
-        ...(n(facetDraft.contextWindow) !== undefined
-          ? { contextWindow: n(facetDraft.contextWindow) }
-          : {}),
-        ...(n(facetDraft.maxTokens) !== undefined ? { maxTokens: n(facetDraft.maxTokens) } : {}),
-        ...(facetDraft.reasoningEffort ? { reasoningEffort: facetDraft.reasoningEffort } : {}),
-      });
+      const owned = providers.find((p) => editFacets.startsWith(p.prefix));
+      if (owned) {
+        const bare = editFacets.slice(owned.prefix.length);
+        await api.addProvider({
+          prefix: owned.prefix,
+          label: owned.label,
+          baseURL: owned.baseURL,
+          api: owned.api,
+          ...(owned.keyEnv ? { apiKeyEnv: owned.keyEnv } : {}),
+          models: owned.models.map((m) =>
+            m.id === bare ? providerEntry(m.id, facetDraft, m) : preserveEntry(m),
+          ),
+        });
+      } else {
+        const n = (v: string) => (v.trim() ? Number(v) : undefined);
+        await api.addModel({
+          id: editFacets,
+          ...(facetDraft.name.trim() ? { name: facetDraft.name.trim() } : {}),
+          ...(n(facetDraft.contextWindow) !== undefined
+            ? { contextWindow: n(facetDraft.contextWindow) }
+            : {}),
+          ...(n(facetDraft.maxTokens) !== undefined ? { maxTokens: n(facetDraft.maxTokens) } : {}),
+          ...(facetDraft.reasoningEffort ? { reasoningEffort: facetDraft.reasoningEffort } : {}),
+        });
+      }
       toast(t("models.added"));
       setEditFacets(null);
       await load();
@@ -276,7 +338,7 @@ export default function ModelsView() {
     } finally {
       setAdding(false);
     }
-  }, [editFacets, facetDraft, load, t, toast]);
+  }, [editFacets, facetDraft, providers, load, t, toast]);
 
   /** Add a model to ONE provider. The prefix is the row's, not a dropdown: the
    *  context is the provider you opened, so an id can no longer be filed under a
@@ -366,24 +428,10 @@ export default function ModelsView() {
           api: p.api,
           ...(p.keyEnv ? { apiKeyEnv: p.keyEnv } : {}),
           models: [
-            ...p.models.map((m) => ({
-              id: m.id,
-              name: m.name,
-              contextWindow: m.contextWindow,
-              maxTokens: m.maxTokens,
-              reasoningEffort: m.reasoningEffort,
-              input: m.input,
-            })),
-            // The same folded facets the built-in path declares. A provider's model is
-            // re-posted through the record that owns it, so this stays the ONE write
-            // shape for that store.
-            {
-              id,
-              ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
-              ...(draft.contextWindow.trim() ? { contextWindow: Number(draft.contextWindow) } : {}),
-              ...(draft.maxTokens.trim() ? { maxTokens: Number(draft.maxTokens) } : {}),
-              ...(draft.reasoningEffort ? { reasoningEffort: draft.reasoningEffort } : {}),
-            },
+            ...p.models.map(preserveEntry),
+            // The same form-built entry the editor writes, so the add row and the facet
+            // editor cannot drift into two shapes for the store that owns both.
+            providerEntry(id, draft),
           ],
         });
         setNewModel("");
@@ -483,16 +531,11 @@ export default function ModelsView() {
             baseURL: pv.baseURL,
             api: pv.api,
             ...(pv.keyEnv ? { apiKeyEnv: pv.keyEnv } : {}),
-            models: [
-              ...pv.models.map((m) => ({
-                id: m.id,
-                name: m.name,
-                contextWindow: m.contextWindow,
-                maxTokens: m.maxTokens,
-                input: m.input,
-              })),
-              { id: bare },
-            ],
+            // VERBATIM: a re-post replaces the whole array, so any entry rebuilt by hand here
+            // is a field waiting to be dropped — this mapping used to leave out
+            // `reasoningEffort`, so adopting ONE model silently cleared the effort default on
+            // every other model of that provider.
+            models: [...pv.models.map(preserveEntry), { id: bare }],
           });
         } else {
           await api.addModel({ id: qid });
@@ -684,27 +727,39 @@ export default function ModelsView() {
                             >
                               {t("models.setCurrent")}
                             </button>
-                            {/* Editing appears where editing is real. A built-in's
-                                ROUTING facets stay pinned, but its display ones are an
-                                override the console owns; a custom record is editable
-                                outright. A model belonging to a CUSTOM PROVIDER is edited
-                                through that provider's record, which has no editor for an
-                                existing model yet — so it gets no control rather than a
-                                control that would write to the wrong store. */}
+                            {/* Editing appears where editing is REAL — this page's own rule.
+                                A console-owned record is editable outright; a built-in's
+                                display facets are an override the console owns. A model inside a
+                                CUSTOM PROVIDER is edited through that provider's record (the
+                                save re-posts it with one entry rebuilt), which is why the
+                                control round 105 left off can render now.
+
+                                The DEFAULT row gets NO control: its prefix is the literal
+                                "none" and its ids carry a segment no channel claims, so every
+                                save answered 400 "unknown channel prefix" — a button whose only
+                                possible outcome is an error is worse than no button. */}
                             {isAdmin &&
-                              (!pv || custom.includes(id)) &&
-                              !filePrefixes.includes(prefix.replace(/\/$/, "")) && (
+                              !filePrefixes.includes(prefix.replace(/\/$/, "")) &&
+                              (isCustom || (prefix !== "none" && custom.includes(id))) && (
                               <button
                                 type="button"
                                 className="btn btn-ghost btn-mini"
                                 disabled={adding}
                                 aria-expanded={editFacets === id}
-                                onClick={() => (editFacets === id ? setEditFacets(null) : openFacets(id))}
+                                onClick={() =>
+                                  editFacets === id
+                                    ? setEditFacets(null)
+                                    : openFacets(id, facetsOf(id, pv))
+                                }
                               >
                                 {t("models.editFacets")}
                               </button>
                             )}
-                            {isAdmin && (
+                            {/* NO DELETE on a provider's model: this button calls the MODEL
+                                route, which owns neither the id nor the list — it answers
+                                `404 No custom model <id>`. Removing one model from a provider is
+                                an edit of the provider record, not a delete of a model record. */}
+                            {isAdmin && !isCustom && (
                               <button
                                 type="button"
                                 className="btn btn-danger btn-mini"
