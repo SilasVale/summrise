@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 177 (round 176's reachability step, done properly: the enumeration
+answered the shape question AND killed the obvious fix — which is a better result than a collision would
+have been, because it moves the finding from "maybe a dead route" to "the check cannot live where it
+looks like it should"). Commit: journal. No code change.
+  (1) THE SHAPE, MEASURED THIS TIME RATHER THAN ASSUMED: route registration has TWO forms and the helper
+  is the RARE one. `ctx.routes.push({...})` is dominant — `admin.ts` x5, `devices.ts` x7+, `mcp.ts` x2 —
+  and `route(ctx, "POST", path, handler)` accounts for exactly THREE registrations, with
+  `registry.ts:158` as the helper's ONLY push site. Round 176 measured the helper form, saw 3, and read
+  the number as the whole surface; the enumeration shows it was 3 of ~20.
+  (2) AND THAT KILLS THE OBVIOUS FIX, WHICH IS THE ROUND'S REAL OUTPUT: adding a duplicate check to
+  `route()` — the natural place, and the place the other two surfaces' medicine would go — would cover
+  **3 of ~20 registrations**, because every other caller pushes into `ctx.routes` directly and bypasses
+  the helper entirely. A check there would be worse than none: it would read as protection while the
+  dominant path stayed unguarded, which is the "a test no workflow invokes" shape (round 146) applied to
+  a runtime guard.
+  (3) AND THE MATCH PREDICATES MAKE THE CHECK HARDER THAN A DUPLICATE SCAN ANYWAY: routes are
+  `{ match: (method, path) => boolean, handler }`, so two routes can overlap PARTIALLY (one exact path,
+  one prefix or pattern) and no static string comparison finds it. The honest options are therefore
+  (a) a RUNTIME dead-route report — instrument dispatch to count matches per route and surface the ones
+  that never fired (operator-visible, and it catches overlap no static check can), or (b) a
+  registration-time overlap WARNING by sampling, which is heuristic and would need its false-positive
+  story written down before it ships. (a) is the one that matches this framework's own lesson — it
+  already chose "fail loud" twice (cycle throws, requireApi throws) — and it is the one that reports
+  reality instead of a model of it.
+  (4) NO LIVE COLLISION WAS FOUND — and I am NOT claiming there is none: with `match` predicates, a
+  collision is not a string equality, so "no duplicate path strings" (which is what my enumeration can
+  establish) is not "no shadowed route". The honest state after two rounds on this item is: the hazard is
+  structural, the naive fix does not reach it, and the correct instrument is dispatch-side counting. That
+  is a better-aimed problem than round 176 had.
+  (5) STILL OPEN: the dead-route report (design above, needs a full round and touches dispatch); D14;
+  `models-probe.ts` + `model-route.ts`; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 176 (round 165's queue, seventh item: `plugins/registry.ts` READ. It has
 already fixed the "silent degradation" class TWICE on two of its three surfaces — and the third surface
 still degrades silently, which is this round's finding). Commit: journal. No code change.
