@@ -194,6 +194,18 @@ export default async function handler(request: Request): Promise<Response> {
       }
       const target = redirectTarget(response, upstream);
       if (!target || response.status < 300 || response.status >= 400) {
+        // 5xx: GENERIC client text, detail stays in the log (proxies/README.md:13).
+        // This branch used to hand the upstream body straight back, so a GitHub
+        // 5xx page reached the caller verbatim — the same contract violation the
+        // two .js handlers had (round 132) and the same fix.
+        if (response.status >= 500) {
+          let detail = `upstream ${response.status}`;
+          try {
+            detail = (await response.text()).slice(0, 500);
+          } catch {}
+          console.error(`[vercel-github] upstream ${response.status}: ${detail}`);
+          return bad("GitHub upstream unavailable", response.status);
+        }
         const responseHeaders = copyResponseHeaders(response);
         responseHeaders.set("access-control-allow-origin", "*");
         return new Response(response.body, { status: response.status, headers: responseHeaders });

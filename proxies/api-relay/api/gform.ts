@@ -315,6 +315,18 @@ export default async function handler(request: Request): Promise<Response> {
         for (const cookie of setCookieValues(response.headers)) out.append("set-cookie", cookie);
       }
       if (response.status === 304) return new Response(null, { status: 304, headers: out });
+      // 5xx: GENERIC client text, detail stays in the log (proxies/README.md:13).
+      // Everything below passes the upstream body through (or rewrites it), which
+      // for a 5xx handed the caller Google's own error page verbatim. Round 132
+      // fixed the same shape in zen.js/proxy.js; this closes the pair.
+      if (response.status >= 500) {
+        let detail = `upstream ${response.status}`;
+        try {
+          detail = (await response.text()).slice(0, 500);
+        } catch {}
+        console.error(`[vercel-gform] upstream ${response.status}: ${detail}`);
+        return bad("Google upstream unavailable", response.status);
+      }
       const contentType = response.headers.get("content-type");
       if (rewritable(contentType)) {
         // Oversized bodies skip the rewrite (see MAX_REWRITE_BYTES): stream

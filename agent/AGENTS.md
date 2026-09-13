@@ -526,6 +526,32 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 133 (P5b: the 5xx contract is now uniform across ALL FIVE relay
+handlers — github.ts and gform.ts were the last two passing an upstream error body through).
+Commit: this round's proxies/ + docs. Tests: vrelay 68 (was 64), three mutations caught.
+  (1) THE PAIR IS CLOSED, NOT HALF-CLOSED. Round 132 fixed zen.js and proxy.js and recorded that
+  `github.ts`/`gform.ts` still handed the upstream 5xx body back verbatim. Both now log a bounded
+  detail and answer generic text with the upstream status, so `proxies/README.md:13` holds for every
+  handler in the bundle. The 4xx pass-through is untouched in both, and pinned by tests that fail if
+  someone genericizes it (mutation M3) — the contract asks for generic 5xx, not silence.
+  (2) SEVERITY STATED HONESTLY: this was NOT a disclosure. Neither handler forwards credentials (the
+  request-header allowlists exclude `authorization`), which is why it was recorded as a consistency
+  item rather than in the credential class with rounds 131/132. The round's value is that the
+  documented contract now has no exceptions, so the next reader does not have to know which handler
+  they are looking at.
+  (3) THREE MUTATIONS, ALL CAUGHT: github.ts back to passing through, gform.ts back to passing
+  through, and both 4xx paths genericized.
+  (4) THE WHOLE P4/P5 SURFACE IS NOW CLOSED, and the three rounds it took are worth summarising in
+  one place: round 131 fixed the two CF workers (worker-paid key echoed back = a real disclosure),
+  round 132 fixed the two BYOK .js handlers (their 5xx body streamed out; no disclosure because the
+  key is the caller's own), round 133 fixed the last two .ts handlers (contract only). Four
+  credential/contract defects across four files, three rounds, because the audit reported them as
+  one bullet and each file turned out to need a different judgement.
+  (5) NOT DEPLOYED, consistently with 129/131/132: the relay is a release action.
+  (6) STILL OPEN: D13 (the orchestrator has no executable coverage); the proxies' P6-P10; the
+  extension's X1 (the last HIGH — needs a design decision), X3, X6, X8; the three unreconciled
+  versions (1.2.362-364); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 132 (P5: the two BYOK vrelay handlers streamed an upstream 5xx
 body straight to the caller, against their own README's contract — and the scope of round 131's P4
 was corrected rather than widened). Commit: this round's proxies/ + docs.
