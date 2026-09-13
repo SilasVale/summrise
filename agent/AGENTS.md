@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 181 (round 180's de-risking CORRECTED one level deeper: `ctx` IS in
+scope in the handler, but the response is built one function further down, so the wiring is a three-part
+change — and I stopped again rather than start a diff I could not finish and verify). Commit: journal.
+No code change.
+  (1) WHAT THE READ CONFIRMED: `setup(ctx)` at `mcp.ts:130` — the handler really does close over `ctx`,
+  so round 180's key question ("can `routeStats(ctx)` be called from here without touching `dispatch`?")
+  is YES, verified by line.
+  (2) AND WHAT IT CORRECTED: the handler does not build the response. Its last three statements are
+  `if (!user) return jsonError(401, …)` / `if (user.role !== "admin") return jsonError(403, …)` /
+  `return pluginStatus(request, env);` — so the JSON body is built by `pluginStatus`, which takes
+  `(request, env)` and has NO `ctx`. Round 180's "one import and one field" was therefore one level too
+  optimistic: the change is (a) add a third parameter at the call, (b) accept it in `pluginStatus`,
+  (c) call `routeStats(ctx)` in whatever object that function returns — and the last of those is the one
+  whose exact anchor I have NOT yet read (line 124's `jsonOk({ devices: out })` is in a helper at
+  `mcp.ts:124`, BEFORE `setup`, so it may or may not be the same construction site).
+  (3) THE PATTERN WORTH NAMING, because it is the third time in this log: DE-RISKING BY READING ONE LEVEL
+  IS NOT DE-RISKING. Round 177 killed a naive fix by enumerating a second level (the ~20 push sites);
+  round 174 found a stale count by reading the callers; this round found that "the handler has `ctx`" and
+  "the handler builds the response" are different claims, and only the first was true. Each time, the
+  cheap extra read was the whole difference between a correct plan and a wrong one — and each time the
+  wrong plan would have LOOKED fine at the call site.
+  (4) SO THE NEXT ROUND'S FIRST ACTION IS ONE READ, NOT A PATCH: open `pluginStatus`'s definition and
+  confirm whether it is the `jsonOk({ devices: out })` at line 124. If it is, the whole wiring is three
+  small edits with all anchors known; if it is not, the response site is still unlocated and the diff
+  must wait. Stating that as a precondition is cheaper than discovering it mid-patch — which is exactly
+  the failure round 180's caution exists to prevent, and it applies to round 180's own conclusion.
+  (5) STILL OPEN: that wiring (now a three-part change with two anchors known and one pending);
+  `models-probe.ts` + `model-route.ts`; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 180 (the wiring step for `routeStats`, DE-RISKED rather than
 started: two measurements turned it from "a contract change" into "one import and one field", and I
 stopped there on purpose because a half-applied edit to an admin route is worse than an unstarted one).
