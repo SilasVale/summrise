@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 165 (**15 of 121 source files have never been mentioned by any
+round** — the loop's own discovery mode 1, run for the first time in this stretch, and it found real
+unexamined work that does NOT need the user). Commit: journal + ledger. No code change.
+  (1) THE SCAN AND ITS RULE: every `.ts/.js/.rs` file under `gateway/src`, `index/src`, `agent/src`,
+  `agent/vale-command-core/src`, the three proxy trees and `extension/` (tests excluded), checked
+  against BOTH the coverage ledger and this journal. 121 files, 15 never named. That is not a claim
+  about their QUALITY — it is a claim about the loop's ATTENTION, which is the thing a coverage ledger
+  is supposed to track and did not.
+  (2) THE LIST, RANKED BY WHAT A DEFECT THERE WOULD COST (this is the next rounds' queue):
+    * `gateway/src/http.ts` — a FOUNDATION module (`jsonOk`/`jsonError`/CORS): every response the
+      worker emits goes through it, and its own header comment is referenced all over the repo while
+      the file itself was never examined.
+    * `gateway/src/body-scan.ts` — a body scanner; scanning logic is where a bypass lives.
+    * `agent/src/tools/terminal/approval.rs` — an APPROVAL path in the terminal plugin, i.e. a
+      security-shaped seam the loop has never opened.
+    * `gateway/src/lib/ratelimit.ts` — a per-IP limiter (the AGENTS.md foundation list names it).
+    * `gateway/src/plugins/registry.ts` + `plugins/models-probe.ts` + `plugins/model-route.ts` — the
+      registry framework and two route plugins.
+    * `gateway/src/store/{regkeys,settings,file-config}.ts` — three store surfaces.
+    * `agent/src/plugins/playwright/helper.js` — shipped helper code.
+    * `agent/vale-command-core/src/{events,error,config}.rs` — the core contract files (EventBus,
+      DeviceError, Config), which every plugin depends on.
+  (3) WHAT THIS CORRECTS ABOUT THE LEDGER ITSELF: its surface table was built from the FINDINGS (what
+  audits and rounds happened to touch) rather than from the TREE, so "surfaces covered" meant "surfaces
+  someone looked at", not "surfaces that exist". Round 161 drew that distinction for assertions
+  (source text vs runtime values); this round draws it for coverage: **a surface table derived from
+  history cannot tell you what history missed.** The list is now in the ledger so the next round starts
+  from the tree.
+  (4) WHY THIS IS WORTH A ROUND WHEN EVERYTHING ELSE IS GATED: it needs no release, no device and no
+  user decision — it is exactly the work a converged loop can still do, and unlike the last five
+  rounds it produced NEW queue items rather than a boundary around old ones.
+  (5) STILL OPEN: the 15 unexamined files above (new); plus exactly the seven rows of the round-157
+  table, unchanged.
+
 Last updated: 2026-09-14 round 164 (a VERIFICATION sweep closing the instrument stretch — and its
 result is that NOTHING MOVED, which is the evidence the stretch was about assertion QUALITY rather than
 coverage volume). No code changed; commit: journal.

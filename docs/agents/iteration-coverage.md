@@ -81,6 +81,27 @@ Seeded 2026-09-14 at round 110.
 
 ## Open items (each needs an owner round)
 
+### Never-examined surfaces (round 165 — the tree, not the history)
+
+Every source file checked against this ledger and the journal: **121 files, 15 never
+named by any round.** Ranked by what a defect there would cost:
+
+| # | File | Why it ranks there |
+|---|---|---|
+| 1 | `gateway/src/http.ts` | FOUNDATION (`jsonOk`/`jsonError`/CORS) — every response goes through it |
+| 2 | `gateway/src/body-scan.ts` | a body scanner; scanning logic is where a bypass lives |
+| 3 | `agent/src/tools/terminal/approval.rs` | an APPROVAL path — a security seam never opened |
+| 4 | `gateway/src/lib/ratelimit.ts` | per-IP limiter named in the foundation list |
+| 5 | `gateway/src/plugins/registry.ts` | plugin registry framework |
+| 6 | `gateway/src/plugins/model-route.ts`, `models-probe.ts` | two route plugins |
+| 7 | `gateway/src/store/{regkeys,settings,file-config}.ts` | three store surfaces |
+| 8 | `agent/src/plugins/playwright/helper.js` | shipped helper code |
+| 9 | `agent/vale-command-core/src/{events,error,config}.rs` | core contract files every plugin depends on |
+
+The lesson recorded with it: **a surface table derived from history cannot tell you what
+history missed.** The ledger's "surfaces covered" meant "surfaces someone looked at".
+
+
 ### What remains, and what each item needs (round 157 — the convergence table)
 
 Every remaining item is gated on something the LOOP cannot supply. Written as a table
