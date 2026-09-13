@@ -1,9 +1,11 @@
 // Electron binary proxy pins (SOLID Round-74 — the release-1.2.308 route
 // serving Electron from the worker so installers avoid npmjs/GitHub
 // directly). No env bindings involved (pure fetch-through), so plain env.
-// Upstream traffic stubbed — zero network. Not pinned: network-throw path
-// (no try/catch around the fetch — propagates as an unhandled rejection;
-// flagged to the stage-n owner, deliberately not cemented here).
+// Upstream traffic stubbed — zero network.
+// The network-throw path this header used to flag as "no try/catch around the
+// fetch … deliberately not cemented here" IS cemented now, in
+// test/proxy-routes.test.mjs: a rejected fetch answers the 502 JSON envelope
+// instead of becoming the platform's 500 HTML page (round 100, finding F3).
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";

@@ -2,6 +2,7 @@
 // mock supporting get/put/delete with the same value shape the worker
 // relies on (body + httpMetadata + customMetadata).
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 const enc = new TextEncoder();
 
@@ -46,8 +47,16 @@ export function makeR2() {
     async get(key) {
       const e = store.get(key);
       if (!e) return null;
+      // Mirror the REAL read shape the worker relies on. `size` is authoritative (the
+      // Content-Length the playwright route now sends) and `httpEtag` is the content
+      // digest, QUOTED, as a bucket returns it — a validator must look like a validator.
+      // Content-derived on purpose: a mock with a constant etag would make the route's
+      // staleness test pass for the wrong reason.
+      const digest = createHash("md5").update(e.bytes).digest("hex");
       return {
         body: new Blob([e.bytes]),
+        size: e.bytes.length,
+        httpEtag: `"${digest}"`,
         httpMetadata: { ...e.httpMetadata },
         customMetadata: { ...e.customMetadata },
       };

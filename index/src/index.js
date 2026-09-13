@@ -185,6 +185,25 @@ async function safeEq(a, b) {
 // constant exists to prevent.
 const CLOUDFLARED_VERSION = "2026.8.3";
 
+// A proxy that cannot deliver answers with THIS FILE'S protocol: 502 and the JSON
+// envelope the upload handler established ("must answer as JSON, never as the catch-all
+// 500"), and it must never be cached — a cached failure outlives the outage.
+//
+// Round-99 F3 found all three binary proxies returning bare text, and a REJECTED fetch
+// (DNS, TLS, a GitHub 5xx storm) propagating as an unhandled rejection — i.e. the
+// platform's 500 HTML page, which no device-side reader parses. electron-route.test.mjs
+// had recorded that gap in its own header ("flagged to the stage-n owner, deliberately
+// not cemented here"); it is cemented now.
+function proxyFailure(what, detail) {
+  return new Response(JSON.stringify({ error: `${what}: ${detail}` }), {
+    status: 502,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -486,12 +505,14 @@ export default {
       // for the direct download. This mirrors it, so the proxy and the pin agree BY
       // CONSTRUCTION.
       const upstream = `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe`;
-      const resp = await fetch(upstream, { redirect: "follow" });
+      let resp;
+      try {
+        resp = await fetch(upstream, { redirect: "follow" });
+      } catch (err) {
+        return proxyFailure("cloudflared upstream fetch failed", String(err));
+      }
       if (!resp.ok) {
-        return new Response(
-          "cloudflared upstream fetch failed: " + resp.status,
-          { status: 502 },
-        );
+        return proxyFailure("cloudflared upstream fetch failed", resp.status);
       }
       // Stream the body through (no buffering — 54MB fits the response path).
       return new Response(resp.body, {
@@ -513,11 +534,14 @@ export default {
     if (pathname === "/vale-agent/electron-win32-x64.zip") {
       const upstream =
         "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip";
-      const resp = await fetch(upstream, { redirect: "follow" });
+      let resp;
+      try {
+        resp = await fetch(upstream, { redirect: "follow" });
+      } catch (err) {
+        return proxyFailure("electron upstream fetch failed", String(err));
+      }
       if (!resp.ok) {
-        return new Response("electron upstream fetch failed: " + resp.status, {
-          status: 502,
-        });
+        return proxyFailure("electron upstream fetch failed", resp.status);
       }
       return new Response(resp.body, {
         status: 200,
@@ -536,16 +560,36 @@ export default {
     // best-effort so `vale setup` stages components\playwright and the browser_*
     // tools come up on fresh installs (npmjs is unreachable from many boxes).
     if (pathname === "/vale-agent/vale-playwright.zip") {
-      const obj = await env.TEMP_FILES.get("vale-playwright.zip");
+      // IT IS AN EXECUTED ARTIFACT AT A MUTABLE KEY (round-99 F2). This served
+      // `public, max-age=86400` with NO validator, so a device could spend a day being
+      // handed a stale archive after the bundle was replaced — and `vale setup` stages
+      // it into components\playwright without hashing it (the same chain round 96 found
+      // for cloudflared, where the fix was a versioned immutable upstream).
+      //
+      // R2 gives this object's digest for free, and `no-cache` means REVALIDATE, not
+      // "do not store": a matching If-None-Match costs a 304, never a second 30MB body.
+      // A re-upload changes the digest, which is exactly the staleness this pins.
+      let obj;
+      try {
+        obj = await env.TEMP_FILES.get("vale-playwright.zip");
+      } catch (err) {
+        return proxyFailure("playwright bundle read failed", String(err));
+      }
       if (!obj) {
-        return new Response("playwright bundle unavailable", { status: 502 });
+        return proxyFailure("playwright bundle unavailable", "not in R2");
+      }
+      const etag = obj.httpEtag;
+      const validators = { etag, "cache-control": "public, no-cache" };
+      if (etag && request.headers.get("if-none-match") === etag) {
+        return new Response(null, { status: 304, headers: validators });
       }
       return new Response(obj.body, {
         status: 200,
         headers: {
           "content-type": "application/zip",
           "content-disposition": 'attachment; filename="vale-playwright.zip"',
-          "cache-control": "public, max-age=86400",
+          "content-length": String(obj.size),
+          ...validators,
         },
       });
     }
