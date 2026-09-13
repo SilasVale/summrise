@@ -176,6 +176,11 @@
       "group": "vale-gate"
     },
     {
+      "name": "src/store/file-config.ts",
+      "path": "files/vale-gate/src/store/file-config.ts",
+      "group": "vale-gate"
+    },
+    {
       "name": "src/store/grants.ts",
       "path": "files/vale-gate/src/store/grants.ts",
       "group": "vale-gate"

@@ -28,12 +28,14 @@
  * defaults to the conservative value.
  */
 import { cget, cset, cdel, type Env } from "./cache.ts";
-import { MODEL_REGISTRY, ROUTE_INFO, type ModelSpec } from "../channels.ts";
+import { MODEL_REGISTRY, RESERVED_PREFIXES, ROUTE_INFO, type ModelSpec } from "../channels.ts";
+import { loadCatalogueFile, mergeLayers } from "./file-config.ts";
 import {
   SUPPORTED_PROVIDER_APIS,
   advertisedProviderModels,
   barePrefix,
   customProviders,
+  parseProviderSpec,
   providerForPrefix,
 } from "./providers.ts";
 
@@ -75,7 +77,12 @@ export async function disabledModels(env: Env): Promise<Set<string>> {
 
 /** Models added from the console. */
 export async function customModels(env: Env): Promise<ModelSpec[]> {
-  return readList<ModelSpec>(env, CUSTOM_KEY);
+  const kv = await readList<ModelSpec>(env, CUSTOM_KEY);
+  const file = loadCatalogueFile({
+    knownPrefixes: RESERVED_PREFIXES,
+    parseProvider: parseProviderSpec,
+  }).models;
+  return mergeLayers(file, kv, (m) => m.id);
 }
 
 /** Every id the gateway currently advertises — built-ins minus disabled, plus
@@ -155,7 +162,12 @@ export interface FacetOverride {
 }
 
 export async function facetOverrides(env: Env): Promise<FacetOverride[]> {
-  return readList<FacetOverride>(env, OVERRIDE_KEY);
+  const kv = await readList<FacetOverride>(env, OVERRIDE_KEY);
+  const file = loadCatalogueFile({
+    knownPrefixes: RESERVED_PREFIXES,
+    parseProvider: parseProviderSpec,
+  }).overrides;
+  return mergeLayers(file, kv, (o) => o.id);
 }
 
 /** Add or replace one built-in's override, dropping fields the caller emptied. */

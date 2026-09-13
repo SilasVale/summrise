@@ -67,6 +67,7 @@
  */
 import { cget, cset, cdel, withKeyLock, type Env } from "./cache.ts";
 import { RESERVED_PREFIXES } from "../channels.ts";
+import { loadCatalogueFile, mergeLayers } from "./file-config.ts";
 import { deviceHostError } from "../device-fetch.ts";
 import { maskKey } from "./users.ts";
 
@@ -205,7 +206,15 @@ async function writeList(env: Env, value: unknown[]): Promise<void> {
 
 /** Every custom provider record. */
 export async function customProviders(env: Env): Promise<ProviderSpec[]> {
-  return readList(env);
+  const kv = await readList(env);
+  // THE FILE LAYER, merged here because this is the ONE read every consumer goes through
+  // (resolveRoute, the catalogue, the admin API). The merge is a pure function so the
+  // precedence — file wins — is tested with both sides supplied.
+  const file = loadCatalogueFile({
+    knownPrefixes: RESERVED_PREFIXES,
+    parseProvider: (raw) => parseProviderSpec(raw),
+  }).providers;
+  return mergeLayers(file, kv, (p) => String(p.prefix ?? "").replace(/\/$/, ""));
 }
 
 /** The record for a routing prefix (bare or slashed), or null. */
