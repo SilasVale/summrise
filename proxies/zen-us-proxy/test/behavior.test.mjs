@@ -255,15 +255,12 @@ test("a key shorter than 8 chars is NOT redacted blindly (it would mangle text)"
 
 /* ---- the pass-through label (round 136) ---- */
 
-// STILL OPEN, AND MEASURED RATHER THAN HIDDEN (round 136): with the pass-through
-// fixed, this case still fails — a `stream:false` answer does not take the
-// pass-through at all, it goes through a conversion branch that labels SSE. The
-// audit's P9 is therefore PARTLY closed: the pass-through copies the upstream's
-// content-type (pinned by the two tests below), and the conversion branch is
-// recorded in the ledger with this test as its reproduction. It is `todo` so the
-// suite stays green while the gap stays visible; a todo that starts PASSING is
-// node:test's signal that the gap closed.
-test("a stream:false JSON answer is labelled JSON, not SSE", { todo: "zen-us's conversion branch still forces SSE — ledger P9b, reproduction is this test" }, async () => {
+// CLOSED IN ROUND 137, and the way it closed is the lesson: round 136 fixed ONE of
+// TWO identical pass-through sites in this file and recorded the remaining failure as
+// "a conversion branch" — a reading, not a measurement. The `todo` test written then
+// is what proved otherwise: the failing case took the OTHER pass-through, and fixing
+// that one made this test pass. The todo is gone because the gap is gone.
+test("a stream:false JSON answer is labelled JSON, not SSE", async () => {
   // The relay hardcoded `text/event-stream` on every pass-through, so a
   // non-streaming answer arrived labelled as a stream — while zen-go, the
   // sibling worker, discriminates. The upstream's own content-type wins now.
@@ -297,9 +294,22 @@ test("a real SSE answer keeps its SSE label (and an unlabelled one still default
     assert.equal(r.status, 200);
     assert.match(r.headers.get("content-type") || "", /text\/event-stream/, "SSE preserved");
 
-    // ...and an upstream that declares nothing keeps the historical default.
-    globalThis.fetch = async () => new Response("data: {}\n\n", { status: 200 });
-    r = await worker.fetch(
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+// MEASURED, NOT ASSUMED (round 137), and it CORRECTS the claim round 136 made in
+// its own comment: on this path an upstream that declares NO content-type does not
+// get the historical SSE label back — the answer arrives unlabelled. Two of the
+// three sites were fixed (rounds 136/137); this is the third behaviour, recorded as
+// P9c in the ledger and reproduced here. `todo` keeps the suite green while the gap
+// stays visible, and the runner says so when it closes.
+test("an upstream that declares no content-type keeps the SSE label", { todo: "zen-us: an unlabelled upstream answer comes back unlabelled — ledger P9c" }, async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response("data: {}\n\n", { status: 200 });
+  try {
+    const r = await worker.fetch(
       req("POST", "/v1/responses", { bearer: "sk-zen-us-caller-0123456789", body: { model: "x", stream: true } }),
       { CLIENT_KEY: "ck-secret", OPENCODE_GO_API_KEY: "sk-zen-us-test-key-0123456789" },
     );

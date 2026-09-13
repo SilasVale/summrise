@@ -247,10 +247,15 @@ export default {
         if (!upstream.ok) {
           return relayUpstreamError(upstream, cors, [env.OPENCODE_GO_API_KEY, request.headers.get("x-api-key")]);
         }
+        // THE SAME FIX AS THE OTHER PASS-THROUGH (round 137 — round 136 applied it
+        // to one of TWO identical sites, which is the "fixed in one of a pair"
+        // defect this loop keeps hunting; the `todo` test written then is what
+        // caught it). Ask the upstream, which knows what it sent.
         return new Response(upstream.body, {
           status: upstream.status,
           headers: {
-            "Content-Type": "text/event-stream; charset=utf-8",
+            "Content-Type":
+              upstream.headers.get("content-type") || "text/event-stream; charset=utf-8",
             "Cache-Control": "no-cache",
             ...cors,
           },

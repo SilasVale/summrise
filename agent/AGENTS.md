@@ -526,6 +526,30 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 137 (P9b closed — and it closed by proving that MY round-136 reading was
+wrong: the failing case took the second of two identical pass-through sites, so the fix had been applied
+to one of a pair. The `todo` test I left behind is what caught it, and one round-136 claim is corrected).
+Commit: this round's proxies/ + docs. Tests: zen-us 13 (12 pass, 1 todo for the newly measured P9c).
+  (1) WHAT ROUND 136 GOT WRONG, IN ITS OWN WORDS: it fixed one pass-through and RECORDED the remaining
+  failure as "a conversion branch that still forces SSE" — a reading of the code, not a measurement.
+  The `todo` test written then said otherwise when it was finally made to run: the case takes the
+  OTHER pass-through, identical in shape, eight lines of context apart. Fixing that one made the todo
+  pass. This is the "fixed in one of a pair" defect this loop has been hunting since round 120, and
+  this time the author was me; what caught it was leaving a REPRODUCTION behind rather than a note.
+  (2) THE INSTRUMENT DID ITS JOB, AND THAT IS THE ROUND'S REAL CONTENT: a `todo` test is green while
+  the gap is open and the runner reports when it closes — so the closure was DEMONSTRATED, not
+  announced. The flag is removed because the gap is gone.
+  (3) AND THE SAME RUN CORRECTED A SECOND ROUND-136 CLAIM. That round's comment said "an upstream
+  that declares nothing keeps the historical label" (the SSE fallback). Measured here: on this path an
+  unlabelled upstream answer comes back UNLABELLED. The claim was true of the site it was written for
+  and false of the file; it is now a `todo` test and ledger item **P9c** rather than a sentence in a
+  comment. Two rounds, two claims of mine that measurement overturned — both in the same 12-line
+  region, both caught by tests rather than by re-reading.
+  (4) NOT DEPLOYED, consistently with 129/131/132/133/135/136.
+  (5) STILL OPEN: D13 (the orchestrator has no executable coverage); P6, P8, P9c in the proxies; X3,
+  X6, X8 in the extension; the three unreconciled versions (1.2.362-364); CHARTER-1; the dead-agent
+  revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 136 (P9, PARTLY closed: the pass-through now labels a body with the
 upstream's own content-type instead of hardcoded SSE — and the half I could not fix is MEASURED by a
 todo test rather than hidden). Commit: this round's proxies/ + docs.
