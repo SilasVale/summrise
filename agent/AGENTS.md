@@ -519,7 +519,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-13 round 101 (the page-design pass: the pages NOBODY had rendered,
+Last updated: 2026-09-13 round 102 (RELEASED 1.2.362 — the redesigned panel and the page
+fixes, verified inside the exe before it was published; the page-design pass is complete).
+Commit: 433271ad (release). CDN + /api/version verified. d1 NOT updated (tunnel 530).
+  (1) THE EXE WAS VERIFIED BY CONTENT BEFORE PUBLISHING, not by "the build exited 0": its
+  mtime is newer than the last panel-input commit (the fail-closed check publish-release.sh
+  enforces), and `strings` finds the NEW panel's own markers inside the binary —
+  `vitals-dial`, `instrument-identity`, `browser-placeholder-mark`, `glass-tint`. This is
+  round 93's lesson applied forward: pick markers that actually survive into the binary.
+  (2) WHAT DEVICES SEE WAS CHECKED, NOT ASSUMED: /api/version answers
+  {"version":"1.2.362", download, sha256:30a9b8b4...} AND the bytes fetched from the CDN hash
+  to EXACTLY that sha256. That pair is the whole contract a device update relies on.
+  (3) THE GITHUB CHANNEL IS 41 RELEASES BEHIND AND THAT IS THE DE-FACTO FLOW: tags stop at
+  v1.2.320 while the CDN is at 1.2.362, and every recent release commit is
+  "chore(stage-n): release 1.2.N — CDN publish". So this release used the CDN-only path with
+  --skip-reconcile, which is refused if a GitHub asset for the version already exists — it
+  cannot silently skip a real audit. Cutting the tag stays available and optional (the
+  command is printed by the script); it was NOT done here because resuming a dormant CI
+  flow is a spending decision, not a correctness one.
+  (4) STILL BLOCKED, AND IT IS EXTERNAL: d1 has not received 1.2.362 because its tunnel
+  answers 530 (it has all session). The release is complete and verifiable on the CDN side;
+  `vale update` on the device will fetch the verified tgz as soon as it is reachable. Nothing
+  in this repository can restore that tunnel from here — the device is on another network.
+  (5) THE PAGE-DESIGN PASS IS DONE: all THIRTEEN pages (panel 7 x 2 densities, console 6)
+  reviewed, and the four that were broken or unstyled fixed — archive/activity (the two the
+  harness never captured), the panel browser placeholder (a tofu emoji), and the console's
+  Keys / Access / Users controls. round 99's memory F5 and index F2/F3 remain open.
+
+Previous round: 2026-09-13 round 101 (the page-design pass: the pages NOBODY had rendered,
 and three duplicated controls removed; the console redesign is DEPLOYED and verified live).
 Commits: 7557fe65, a75f7fa2. CI green. Console live (version 0a4e6af9). NOT released on d1.
   (1) "NEVER RENDERED" IS THE SAME AS "NEVER REVIEWED". The screenshot harness shot FIVE of
