@@ -526,6 +526,37 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 156 (a VERIFICATION round after 148-155: every suite re-run in one
+sweep, nothing red, and for the FIRST TIME the whole tree reports `todo 0` — no known-gap markers left
+in any suite). No code changed; commit: journal + ledger.
+Measured just now:
+  gateway 848 | index 89 | extension 13 | zen-go 15 | **zen-us 13 (todo 0, was 12 + 1)** | vrelay 69
+  scripts: release-lib 45, release-audit 25, smoke-index 12, build-pins 32,
+           **publish-release 7 (was 3)**
+  (1) THE TWO DELTAS ARE THE STRETCH'S TWO HALVES: `publish-release` 3 -> 7 is the mode gate becoming
+  tested, reachable and mutation-caught (rounds 153/154/155); `zen-us` 12+1 -> 13 is P9c closed as a
+  PHANTOM (round 148) — a finding that existed only because a test could not express its own premise.
+  One delta is coverage added, the other is coverage corrected, and they are worth separating: a green
+  count can rise either by testing more or by discovering you were testing nothing.
+  (2) `todo 0` ACROSS THE TREE IS A REAL STATE, NOT A SLOGAN: node:test reports a todo as `fail 0`,
+  which is why every sweep in this log spelled the number out (rounds 138/147). At round 138 the tree
+  carried one; at 147 it carried one; now it carries none, because the last one was a phantom rather
+  than a gap. The next todo to appear will be a real known-gap by construction, since a todo is now
+  something this loop only creates deliberately (round 136's instrument) rather than inherits.
+  (3) WHAT THE SWEEP STILL DOES NOT COVER — the same three limits, unchanged: the agent's Windows
+  behaviour (no device in this loop), the extension's behaviour in a browser (loaded unpacked, no
+  browser session), and everything that needs a DEPLOY. Rounds 129/131/132/133/135/136/137 are
+  committed, tested and mutating — NOT live — and rounds 151/152 measured exactly what that costs.
+  (4) AND THE POSITION, stated once more because the numbers have stopped moving: 156 rounds in, the
+  repository agrees with itself (all suites green, docs aligned, findings closed) and PRODUCTION IS
+  EXACTLY WHERE IT WAS at round 151's measurement — 1.2.364 advertised, the alias still serving
+  1.2.361, three versions unreconciled, four capability unlocks unshipped. Nothing in this round
+  changed that, and nothing further in this loop will; the next externally observable metric is behind
+  CHARTER-1.
+  (5) STILL OPEN: the build path past the mode gate (cannot be driven without publishing); the three
+  unreconciled versions (1.2.362-364); the stale installer alias (D4b); CHARTER-1; the dead-agent
+  revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 155 (round 153's step (b): the mode gate is now REACHABLE from the
 script's own entry point — `--check-modes-only` — so the state "tested but unreachable" is closed).
 Commit: scripts/ + docs. Tests: publish-release 7 checks (was 6); one mutation caught.
