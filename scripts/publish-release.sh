@@ -277,18 +277,13 @@ echo "pack inputs committed-clean OK"
 # file's sha256 matches, the 17.5 MB vale-agent.exe included. Blaming "the
 # unreproducible-build long tail" for that was wrong, and this is where it is
 # actually decided.
-MODE_BAD=""
-while IFS= read -r f; do
-  [ -f "$f" ] || continue
-  idx=$(git ls-files -s -- "$f" | awk '{print $1}')
-  [ -n "$idx" ] || continue
-  want=644; [ "$idx" = "100755" ] && want=755
-  have=$(stat -c '%a' "$f" 2>/dev/null || echo '?')
-  [ "$have" = "$want" ] || MODE_BAD="${MODE_BAD}  $f (worktree $have, this checkout should be $want)\n"
-done < <(git ls-files -- "$NPM_DIR/bin" "$NPM_DIR/src" "$NPM_DIR/test" "$NPM_DIR/README.md" "$NPM_DIR/vale-desktop-electron" "agent/vale-desktop-electron")
-if [ -n "$MODE_BAD" ]; then
+# The gate itself lives in scripts/lib/release-lib.sh (round 154) so it has
+# behavioural tests; publish-release.sh has no harness of its own, which is why
+# this check had none for as long as it existed. Same wording, same refusal, same
+# exit.
+if ! MODE_BAD=$(pack_input_mode_verdict "$PWD" "$NPM_DIR"); then
   echo "::error::pack inputs have WORKTREE PERMISSIONS that differ from a fresh checkout — npm pack preserves them, so this tgz would differ from CI's by its tar headers alone:" >&2
-  printf '%b' "$MODE_BAD" >&2
+  printf '%s' "$MODE_BAD" >&2
   echo "  Fix: chmod each file to the mode git records (e.g. \`chmod 644 <file>\`)." >&2
   exit 1
 fi

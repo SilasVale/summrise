@@ -526,6 +526,34 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 154 (round 153's design EXECUTED: the pack-input mode gate now
+lives in the tested lib and has behavioural cases — the gate whose absence caused twenty consecutive
+"packaging metadata" WARNs finally runs under a test). Commit: scripts/ + docs. Tests:
+publish-release 6 checks (was 3); one mutation caught.
+  (1) WHAT MOVED: `pack_input_mode_verdict <repo_root> <npm_dir>` is now in
+  `scripts/lib/release-lib.sh` — same logic, same verdict, printing the offending file per line — and
+  `publish-release.sh`'s inline block became one `if !` call keeping the SAME refusal wording, the same
+  `exit 1` and the same position (before `npm pack`). The orchestrator's own comment now says why: it
+  has no harness of its own, which is how a fail-closed gate ends up with no test for as long as it
+  exists.
+  (2) THE TESTS ARE THE POINT, and they are behavioural rather than source pins: this checkout's pack
+  inputs pass; a fixture whose recorded mode is 0644 but whose worktree mode is 0600 is REFUSED AND
+  NAMED (a verdict without the filename tells the operator nothing); the same fixture passes once the
+  mode is corrected. Mutation: a verdict that always returns ok turns the middle case red.
+  (3) AND THE FIRST RUN TAUGHT ME SOMETHING ABOUT MY OWN SUITE: one check failed — round 145's "the
+  refusal left the worktree clean" — because it saw MY UNCOMMITTED EDITS as the script's side effect.
+  That is the same self-inflicted noise round 145 hit with an untracked file, one layer deeper: the
+  check is correct, and it can only be satisfied by committing. Recorded because a test that fails for
+  a reason the next reader cannot see from the message is half a test; the message named the three
+  files, which is what made it diagnosable in one run.
+  (4) WHAT THIS DOES **NOT** CLOSE: `--check-modes-only` (round 153's step b) is NOT added. The
+  orchestrator's call site is still mid-chain, so the gate is now TESTED but still not REACHABLE from
+  the script's own entry points; what changed is that its logic has coverage, which is the part that
+  could rot silently.
+  (5) STILL OPEN: `--check-modes-only` + the rest of the build path (pack/stage/commit/deploy, which
+  cannot be driven without publishing); the three unreconciled versions (1.2.362-364); the stale
+  installer alias (D4b); CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 153 (D13's remaining half diagnosed precisely, DESIGNED, and
 deliberately NOT rushed: the mode gate is unreachable for a structural reason, and the fix has a
 working precedent in this same file). Commit: journal + ledger. No code changed.

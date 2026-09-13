@@ -149,3 +149,30 @@ installer_manifest_verdict() {
   if [ "$got" = "$want" ]; then echo "ok"; return 0; fi
   echo "mismatch:$got"
 }
+
+# pack_input_mode_verdict <repo_root> <npm_dir>
+# Prints one line per pack input whose WORKTREE mode differs from the mode git
+# records, and returns 0 when none do. Extracted from publish-release.sh (round
+# 154) so the gate has BEHAVIOURAL tests: `npm pack` preserves worktree modes, so
+# a 0600 file packs a tarball that differs from a fresh checkout's by its tar
+# HEADER alone — the measured cause of twenty consecutive "packaging metadata"
+# WARNs and of the 3-byte drift on the 1.2.348 pair (README.md's mode field plus
+# the header checksum, with every file's sha256 matching, the exe included).
+# The gate sat mid-chain in the orchestrator, behind the reconcile gate, the
+# version check and the exe check, so no test could reach it; this is that logic,
+# reachable.
+pack_input_mode_verdict() {
+  local root="${1:?repo root}" npm_dir="${2:?npm dir}"
+  local bad="" f idx want have
+  while IFS= read -r f; do
+    [ -f "$root/$f" ] || continue
+    idx=$(git -C "$root" ls-files -s -- "$f" | awk '{print $1}')
+    [ -n "$idx" ] || continue
+    want=644; [ "$idx" = "100755" ] && want=755
+    have=$(stat -c '%a' "$root/$f" 2>/dev/null || echo '?')
+    [ "$have" = "$want" ] || bad="${bad}$f (worktree $have, this checkout should be $want)"$'\n'
+  done < <(git -C "$root" ls-files -- "$npm_dir/bin" "$npm_dir/src" "$npm_dir/test" \
+             "$npm_dir/README.md" "$npm_dir/vale-desktop-electron" "agent/vale-desktop-electron")
+  if [ -n "$bad" ]; then printf '%s' "$bad"; return 1; fi
+  return 0
+}

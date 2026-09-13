@@ -37,3 +37,44 @@ stray=$(find index/public/vale-agent -name 'vale-agent-*.tgz' -newermt '-2 minut
 
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
+
+# ---------------------------------------------------------------------------
+# THE PACK-INPUT MODE GATE (round 154). It lived mid-chain in the orchestrator,
+# behind the reconcile gate, the version check and the exe check, so no test
+# could reach it — which is why a gate whose absence caused twenty consecutive
+# "packaging metadata" WARNs had none. Extracted into release-lib.sh, it has
+# behavioural cases now.
+source scripts/lib/release-lib.sh
+
+if pack_input_mode_verdict "$PWD" "agent/vale-agent-npm" >/tmp/mode.out 2>&1; then
+  ok "this checkout's pack inputs match a fresh checkout"
+else
+  bad "this checkout's pack inputs DO NOT match: $(cat /tmp/mode.out)"
+fi
+
+# A fixture whose recorded mode is 0644 but whose worktree mode is 0600 must be
+# REFUSED, and the refusal must NAME the file — a verdict without the filename
+# tells the operator nothing.
+FIX_TMP=$(mktemp -d)
+git -C "$FIX_TMP" init -q
+mkdir -p "$FIX_TMP/agent/vale-agent-npm/bin"
+printf 'x\n' > "$FIX_TMP/agent/vale-agent-npm/README.md"
+git -C "$FIX_TMP" add -A
+git -C "$FIX_TMP" -c user.email=t@t -c user.name=t commit -qm fixture
+chmod 600 "$FIX_TMP/agent/vale-agent-npm/README.md"
+FIX_OUT=$(pack_input_mode_verdict "$FIX_TMP" "agent/vale-agent-npm" 2>&1); FIX_RC=$?
+if [ "$FIX_RC" -ne 0 ] && grep -q 'README.md' <<<"$FIX_OUT"; then
+  ok "a 0600 pack input is refused BY NAME"
+else
+  bad "mode drift not refused: rc=$FIX_RC out=$(head -c 200 <<<"$FIX_OUT")"
+fi
+chmod 644 "$FIX_TMP/agent/vale-agent-npm/README.md"
+if pack_input_mode_verdict "$FIX_TMP" "agent/vale-agent-npm" >/dev/null 2>&1; then
+  ok "the same fixture passes once its mode is corrected"
+else
+  bad "corrected mode still refused"
+fi
+rm -rf "$FIX_TMP"
+
+printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]
