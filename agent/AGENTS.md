@@ -519,7 +519,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
-Last updated: 2026-09-13 round 100 (the UI round: the aurora direction retired, the mark
+Last updated: 2026-09-13 round 101 (the page-design pass: the pages NOBODY had rendered,
+and three duplicated controls removed; the console redesign is DEPLOYED and verified live).
+Commits: 7557fe65, a75f7fa2. CI green. Console live (version 0a4e6af9). NOT released on d1.
+  (1) "NEVER RENDERED" IS THE SAME AS "NEVER REVIEWED". The screenshot harness shot FIVE of
+  seven panel pages, and those two — archive and activity — were also the LAST surfaces still
+  painting an opaque --surface over the paper ground with pre-material --line headings. They
+  looked like a different product because nothing had ever looked at them. Both now sit on the
+  ground; the archive's failed-read block is a pane, and its left stripe stays because that
+  stripe is the SHAPE channel archivePage.test.ts pins.
+  (2) THE PANEL BROWSER PAGE SHIPPED A TOFU BOX AS ITS ICON. The plain-web placeholder used
+  `<span style={{fontSize:40}}>🖥</span>` — an emoji from the PLATFORM font, which paints as an
+  empty box wherever that font has no colour glyph. Two house rules broken at once (ui/Icon.tsx
+  owns every glyph; inline styles are not how this sheet sizes anything). It is the app's own
+  globe in a tile now.
+  (3) THREE CONTROLS THAT SAID THE SAME THING TWICE, removed: unconfigured key cards printed
+  "Not configured" in the badge AND in a box styled as an input (eight empty boxes were the
+  heaviest thing on the page); every key card led with a solid primary "Edit" so the page had
+  eight primaries and no hierarchy (an unconfigured card now leads with "Set key"); and the
+  invite card's body repeated its own header button's label inside a <p>, reading as a link
+  that does nothing. The Keys page also gained the count its Overview tile already knew
+  ("0 of 8 configured"), and the US-exit button now names its action instead of "Toggle".
+  (4) PROCESS, TWICE IN TWO ROUNDS: a verification screenshot showed a fix that was not there,
+  because the source was edited and the SCREENSHOTS re-run without the BUILD (the harness renders
+  the built bundle), and the round before it was a mock agent left running with stale code.
+  Source → build → shoot, in that order.
+  (5) VERIFIED LIVE, not merely deployed: `api.saisi.online/assets/index-BU3qx5zs.css` is BYTE-
+  IDENTICAL to the local build (cmp), contains the new tokens, and has ZERO --aura- references.
+  The console host is behind Cloudflare Access, so the public api host is what makes this
+  checkable anonymously.
+  (6) STILL OPEN: the panel has NOT been released to d1 (needs the cargo-xwin exe + CDN publish,
+  and the device tunnel is 530 so on-device verification is not possible right now). round 99's
+  memory F5 and index F2/F3 remain open.
+
+Previous round: 2026-09-13 round 100 (the UI round: the aurora direction retired, the mark
 reverted to the sunrise, and BOTH frontends rebuilt on one material and one type scale).
 Commits: 74a22576 (ui), e450d1ae (deploy gates). CI green. NOT released.
   (1) AURORA WAS AN INTERPRETATION, NOT A REQUEST. Commit d29e3138's own words are "Asked
