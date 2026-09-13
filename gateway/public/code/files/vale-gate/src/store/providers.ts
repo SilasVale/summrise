@@ -212,7 +212,11 @@ export async function customProviders(env: Env): Promise<ProviderSpec[]> {
   // precedence — file wins — is tested with both sides supplied.
   const file = loadCatalogueFile({
     knownPrefixes: RESERVED_PREFIXES,
-    parseProvider: (raw) => parseProviderSpec(raw),
+    // BARE reference, not `(raw) => parseProviderSpec(raw)`: `loadCatalogueFile`'s
+    // shared cache now VERIFIES that every caller passes the same validators, and a
+    // fresh wrapper has a fresh identity — so the wrapper was the one shape that could
+    // not be checked (round-178, D14).
+    parseProvider: parseProviderSpec,
   }).providers;
   return mergeLayers(file, kv, (p) => String(p.prefix ?? "").replace(/\/$/, ""));
 }

@@ -167,8 +167,26 @@ export function fileDeclaredKeys(layers: CatalogueLayers): {
  * it) to keep this module free of a channel-table import cycle.
  */
 let cached: CatalogueLayers | null = null;
+let cachedDeps: CatalogueFileDeps | null = null;
 
 export function loadCatalogueFile(deps: CatalogueFileDeps): CatalogueLayers {
+  // D14 (round-178): the precondition this cache rests on is now CHECKED, not
+  // documented. The cache is shared by every caller, so callers passing different
+  // validators would make the parsed result depend on import order — the
+  // poisoning shape the comment below describes. Comparing the two FIELDS (not the
+  // object) is what makes this workable: every caller builds a fresh `{...}` literal,
+  // so object identity is never equal, while the validator references are module
+  // constants. `providers.ts` used to pass a fresh arrow wrapper, which is exactly the
+  // shape this check exists to catch, and it now passes the bare function.
+  if (cached !== null && cachedDeps !== null) {
+    if (cachedDeps.parseProvider !== deps.parseProvider || cachedDeps.knownPrefixes !== deps.knownPrefixes) {
+      throw new Error(
+        "loadCatalogueFile: called with DIFFERENT validators than the first call — " +
+          "the parsed catalogue is cached per isolate, so mixed callers would make the " +
+          "result depend on import order. Pass the store-owned validators.",
+      );
+    }
+  }
   // CACHED, AND THE CACHE IS SHARED BY EVERY CALLER — so `deps` must be equivalent
   // wherever it is passed. It is: all SEVEN callers pass the REAL validators
   // (`RESERVED_PREFIXES` + `parseProviderSpec`) — six in src/ (`admin.ts` x3,
@@ -188,6 +206,9 @@ export function loadCatalogueFile(deps: CatalogueFileDeps): CatalogueLayers {
   // import cycle the module notes above (`parseProviderSpec` lives in providers.ts,
   // which imports this file). Recorded as a design item in docs/agents/iteration-
   // coverage.md; until then, a caller passing synthetic deps is a bug.
-  cached ??= parseCatalogueFile(raw as unknown, deps);
+  if (cached === null) {
+    cached = parseCatalogueFile(raw as unknown, deps);
+    cachedDeps = deps;
+  }
   return cached;
 }

@@ -526,6 +526,37 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 178 (**D14 CLOSED — and it corrected my own earlier proposal on the
+way**: the "one-line equality check" rounds 174/175 proposed could not have worked as stated, because one
+call site passed a fresh wrapper whose identity is never equal). Commit: gateway/ + mirror + ledger +
+journal. Tests: gateway 850, zero red, and the check never fires.
+  (1) WHY THE OBVIOUS FORM OF THE CHECK WAS IMPOSSIBLE: every caller builds a FRESH `{knownPrefixes,
+    parseProvider}` object literal, so comparing the OBJECT by identity would throw on the second caller.
+    Only the two FIELDS are stable — `RESERVED_PREFIXES` and `parseProviderSpec` are module constants —
+    so the check must compare fields. And `providers.ts:213` passed `(raw) => parseProviderSpec(raw)`, a
+    fresh arrow per call: **the one call site whose field identity is never equal, i.e. the exact shape
+    the check exists to catch, was also the shape that would have made the check impossible.** Fixing the
+    wrapper (bare reference) is what makes the check buildable, and it had to come first.
+  (2) SO THE ORDER WAS: change `providers.ts` to pass `parseProviderSpec` itself, THEN add the check.
+    `loadCatalogueFile` now remembers the deps it cached with and THROWS when a later caller passes
+    different validators, naming the reason ("mixed callers would make the result depend on import
+    order"). The cache is per isolate and shared, so that is the poisoning shape the old comment could
+    only describe — and the framework's own lesson (round 176: `requireApi` throws, cycle throws) is that
+    the loud form is the right one.
+  (3) THE EVIDENCE IS THE SILENCE: 850 tests, zero failures, and the throw never fired on any of the seven
+    production callers or the suite. That is not a weak result — it CONFIRMS round 174's enumeration
+    ("every caller passes the real validators") by execution rather than by reading, which is the
+    upgrade a check buys: a convention becomes a fact the code re-establishes on every run.
+  (4) AND IT RETIRES THE "DESIGN ITEM NEEDS A FULL ROUND" NOTE FROM ROUND 175, which was too cautious in
+    one direction and too generous in the other: too cautious because the change is ~15 lines and needs no
+    seam rework, too generous because the check I first proposed would not have compiled the guarantee it
+    claimed. The lazily-invoked-thunk alternative is now unnecessary — the injected-deps design is kept
+    AND verified, which is the smaller change.
+  (5) STILL OPEN: the dead-route report (round 177's design (a): instrument dispatch to count matches per
+    route and surface the ones that never fired — needs a full round, touches the request path);
+    `models-probe.ts` + `model-route.ts`; `agent/src/plugins/playwright/helper.js`; the three
+    `vale-command-core` contract files; plus the seven rows of the round-157 table.
+
 Last updated: 2026-09-14 round 177 (round 176's reachability step, done properly: the enumeration
 answered the shape question AND killed the obvious fix — which is a better result than a collision would
 have been, because it moves the finding from "maybe a dead route" to "the check cannot live where it

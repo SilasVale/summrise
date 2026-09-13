@@ -79,7 +79,14 @@ Seeded 2026-09-14 at round 110.
 | docs (README / ARCHITECTURE / ADRs / this ledger) | partial | — | — |
 | field device d1 | seen | 114 | current on 1.2.364; verified live (boot-task contract, tunnel supervisor, run journal). NOT tested: reviving a dead agent — proposed maintenance window. |
 
-### D14 — `loadCatalogueFile`'s deps precondition is unchecked (round 175, design item)
+### D14 — CLOSED round 178 (`loadCatalogueFile`'s deps precondition is now enforced)
+
+> The precondition is CHECKED, not documented: the cache remembers its deps and throws when a
+> later caller passes different validators. `providers.ts` had to stop passing a fresh arrow
+> wrapper first — that was the one shape whose field identity is never equal, i.e. both the
+> hazard and the obstacle to checking it. Gateway 850, zero red, throw never fires.
+
+**Original entry (round 175), kept for the record:**
 
 `store/file-config.ts` caches the parsed catalogue in one shared per-isolate cache, which is
 only correct if every caller passes EQUIVALENT `deps`. Seven callers do (six in `src/`, one
