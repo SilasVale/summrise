@@ -247,3 +247,20 @@ test("GET upstream call carries no body", async () => {
   assert.equal(seen.init.method, "GET");
   assert.ok(seen.init.body == null, "no body on upstream GET");
 });
+
+test("an ABSENT target defaults to og — and that default is explicit, not a fallback", async () => {
+  // The comment above the allowlist used to promise "no silent fallback to og"
+  // while the code defaulted to og for an absent parameter. Both halves are real
+  // and now both are pinned: absent = og (the primary upstream), unlisted = 400
+  // (the test above). Compared against an explicit ?target=og so the assertion
+  // does not hardcode a host the test would have to chase.
+  const dialed = [];
+  const capture = async (url) => {
+    dialed.push(String(url));
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+  await withStubFetch(capture, () => handler(post("https://r.example/api/zen", KEY)));
+  await withStubFetch(capture, () => handler(post("https://r.example/api/zen?target=og", KEY)));
+  assert.equal(dialed.length, 2, "both requests reached an upstream");
+  assert.equal(dialed[0], dialed[1], "an absent target must dial exactly what ?target=og dials");
+});

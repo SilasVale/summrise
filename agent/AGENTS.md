@@ -526,6 +526,29 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 135 (P10: one comment promised "no silent fallback to og" directly
+above a line that defaults to og — an audit finding that cost a reading to untangle, closed by
+stating both halves and pinning the one that had no test). Commit: this round's proxies/ + docs.
+Tests: vrelay 69 (was 68); the zen-gate suite 12 (was 11); one mutation caught.
+  (1) THE DEFECT WAS A COMMENT THAT CONTRADICTED THE NEXT LINE. `zen.js` said "unknown targets are
+  rejected (no silent fallback to og; an unlisted target must never ride zen's key)" and then
+  `get("target") || "og"`. The parenthetical is TRUE about unlisted targets — the `hasOwn` check on
+  the following line rejects them with 400 — but it reads as a promise that nothing ever falls back
+  to og, while an ABSENT parameter does exactly that. Two different questions, one sentence.
+  (2) THE FIX STATES BOTH HALVES, because both are deliberate: an absent target is og, the primary
+  upstream (a documented default); an unlisted target is 400, because the caller's key would
+  otherwise ride an upstream nobody vetted. Nothing about the behaviour changed — the contract is now
+  legible, which is what the next reader needs.
+  (3) AND THE HALF THAT HAD NO TEST NOW HAS ONE: the existing pin covered only the rejection
+  (`?target=evil` → 400); nothing pinned the default. The new test dials twice — once with no target,
+  once with `?target=og` — and asserts the two dialled URLs are IDENTICAL, so it needs no hardcoded
+  host and cannot drift when the target table changes. Mutation caught: removing the default.
+  (4) NOT DEPLOYED, consistently with 129/131/132/133.
+  (5) STILL OPEN: D13 (the orchestrator has no executable coverage); the proxies' P6, P8, P9 (zen-us
+  labels every response `text/event-stream`, including `stream:false`; `count_tokens` ignores
+  system+tools); X3, X6, X8 in the extension; the three unreconciled versions (1.2.362-364);
+  CHARTER-1; the dead-agent revival window; the restart mystery.
+
 Last updated: 2026-09-14 round 134 (X1 — the ledger's last HIGH — got the DECISION it had been
 waiting for: path linkification is off by default, because it rewrites nodes the host reconciles in
 place. ADR 0010 records the tradeoff, the rejected options and the deletion criterion).

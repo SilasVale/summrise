@@ -126,8 +126,13 @@ export default async function handler(request) {
       return new Response(JSON.stringify({ error: "caller key required (x-api-key or Authorization)" }), { status: 401, headers: { "Content-Type": "application/json", ...cors } });
     }
     const url = new URL(request.url);
-    // Explicit target allowlist — unknown targets are rejected (no silent
-    // fallback to og; an unlisted target must never ride zen's key).
+    // THE TARGET CONTRACT, BOTH HALVES STATED (round 135 — the comment here used
+    // to say only "no silent fallback to og" directly above a line that defaults
+    // to og, which reads as a contradiction and cost an audit finding to untangle):
+    //   * an ABSENT target is og, the primary upstream — a documented default, not
+    //     a fallback for something the caller asked for;
+    //   * an UNLISTED target is rejected with 400, because the caller's key would
+    //     otherwise ride an upstream nobody vetted (allowlist below).
     const target = url.searchParams.get("target") || "og";
     if (!Object.hasOwn(TARGETS, target)) {
       return new Response(JSON.stringify({ error: `unknown target: ${target}` }), { status: 400, headers: { "Content-Type": "application/json", ...cors } });
