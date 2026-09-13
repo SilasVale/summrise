@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 153 (D13's remaining half diagnosed precisely, DESIGNED, and
+deliberately NOT rushed: the mode gate is unreachable for a structural reason, and the fix has a
+working precedent in this same file). Commit: journal + ledger. No code changed.
+  (1) WHY THE BUILD PATH IS UNCOVERED — the real reason, read off the script rather than assumed:
+  publish-release.sh's guards are SEQUENTIAL, so guard N is only reachable after fixtures for guards
+  1..N-1. The pack-input permission gate (`stat -c %a` vs `git ls-files -s`, line ~279-295 — the gate
+  whose absence produced TWENTY consecutive "packaging metadata" WARNs and the 3-byte tarball drift)
+  sits after the reconcile gate, the version check and the exe-timestamp check. That is why no test
+  reaches it, and it is not fixable by writing a better test.
+  (2) THE FIX IS DESIGNED, AND IT HAS A PRECEDENT IN THE SAME FILE: `--audit-only` is reachable in
+  tests precisely because it was DESIGNED as an entry point rather than left mid-chain. The same move
+  works here, and the repo already has the shape for it in two places:
+    (a) extract the gate's logic into `scripts/lib/release-lib.sh` as a pure function taking the repo
+        root and returning a verdict — exactly what round 130 did for `installer_manifest_verdict`
+        (behavioural tests ok/absent/empty/mismatch/garbage, driven by `scripts/test/release-lib.bash`
+        which is already CI-wired); the call site in publish-release.sh then becomes three lines and
+        the ORDER (before `npm pack`) is pinned by a source check, as round 124/130 did;
+    (b) add a `--check-modes-only` entry mirroring `--audit-only`, so `scripts/test/publish-release.bash`
+        can drive the REAL gate end to end — including the refusal MESSAGE, which is the assertion that
+        survives the guard's removal (round 145's lesson).
+  (3) AND WHY I DID NOT DO IT THIS ROUND, stated plainly because it is a judgement rather than an
+  omission: this touches the release orchestrator, and I am at the end of my context budget. The two
+  changes above are small but they move a fail-closed gate whose whole job is to stop a release, and
+  the honest comparison is with rounds 145/146 — where a rushed wiring mistake (a test that was never
+  invoked) took a whole extra round to find. A full-budget round is the right place for this, and the
+  design above is what that round should execute.
+  (4) WHAT THE LEDGER NOW SAYS, precisely: D13's guard CHAIN has executable coverage (round 145) and is
+  wired into CI (round 146); the pack-input mode gate has none, for the structural reason above; the
+  rest of the build path (pack, stage, commit, deploy) cannot be driven without publishing. Three
+  distinct statements, where the ledger previously had one sentence.
+  (5) STILL OPEN: D13's mode gate + build path (designed above); the three unreconciled versions
+  (1.2.362-364); the stale installer alias (D4b); CHARTER-1; the dead-agent revival window; the restart
+  mystery.
+
 Last updated: 2026-09-14 round 152 (a second live measurement round — this time of the RELAY, and
 it produced one real fact, one measured LIMIT, and one instrument illusion I caught myself). Commit:
 journal + ledger. No code changed.
