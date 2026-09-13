@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 185 (round 165's queue, ninth item: `models-probe.ts` READ — and it
+NAMES this loop's favourite defect in its own comment while relying on nothing to prevent it). Commit:
+journal. No code change.
+  (1) THE FILE'S OWN WARNING, QUOTED: `BYOK_KEY_FOR_KIND` is documented as "Keyed by the ROUTE KIND the
+  router reports, which is the same vocabulary `translate.ts`'s missing-key table uses — **a second naming
+  of channels is how two tables drift apart**." So the author knew the risk precisely, wrote it down, and
+  the mitigation is that both tables were written carefully. That is the shape this log has closed a dozen
+  times: two things that must agree, with the agreement asserted in prose.
+  (2) AND THE MEASUREMENT THAT MATTERS: `BYOK_KEY_FOR_KIND` has **exactly two references in the whole
+  repository** — its definition (`models-probe.ts:49`) and its one use (`:133`). No test, no second
+  consumer, and therefore nothing comparing it to the table the comment names. Whether the two tables
+  agree today is unknown to the suite; it is known only to whoever typed them.
+  (3) WHAT I DID **NOT** ESTABLISH, STATED AS SUCH: my grep for the missing-key table used three spellings
+  (`missing-key` / `MISSING_KEY` / `missingKey`) and `translate.ts` matched NONE of them, so I could not
+  locate the table the comment names. That is a statement about my vocabulary, not about the code — the
+  table may exist under another name, or the comment may name a table that no longer exists. The cheap
+  next step is named and does not depend on guessing the name: **grep for the table's VALUES**
+  (`OPENROUTER_API_KEY`, `CMD_API_KEY`, …) across the repo, which finds any table built the same way
+  whatever it is called. That is the same "measure the relationship, not the syntax" correction round 184
+  needed, applied pre-emptively.
+  (4) THE REST OF THE FILE READS CLEAN ON THE PARTS CHECKED, and two of its rules are the loop's own
+  lessons already in place: the SSRF guard runs **at dial time on the URL about to be fetched**, using the
+  SAME `deviceHostError` function the registration path uses ("a guard is only real at the point of use",
+  round 95); redirects are NOT followed (`redirect: "manual"`) because a 3xx is a different host and the
+  request carries a credential (round 90); and the model-list endpoint is DERIVED from the resolved
+  upstream (`…/chat/completions` → `…/models`) rather than guessed, with the Anthropic-shaped dialect
+  answering "cannot check" instead of inventing a URL — "a wrong endpoint would produce a confident, wrong
+  catalogue diff". That last sentence is the same judgement round 177 made about duplicate-route checks:
+  report reality, or say you cannot, never a model of it.
+  (5) STILL OPEN: the BYOK-table comparison (step (3)'s named grep, then either a shared source or a test
+  pinning the two — the round-146 pattern); `models-probe.ts`'s remaining body (lines 70-198);
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files; plus the seven
+  rows of the round-157 table.
+
 Last updated: 2026-09-14 round 184 (round 165's queue, eighth item: the rest of the registry trio.
 `models-probe.ts` is a private collaborator that the DIRECTORY CONTRACT did not list — so the contract's
 completeness claim could not be checked against the enumeration meant to support it. Fixed, plus my own
