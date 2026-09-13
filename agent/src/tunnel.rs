@@ -288,7 +288,15 @@ pub(crate) async fn provision_tunnel(cf_token: &str, port: u16) -> String {
     //     prefers the remote config when one exists, and a stale remote (old
     //     127.0.0.2 ingress) would override the local tunnel.yml. Point the
     //     remote ingress at 127.0.0.1 so both agree.
-    update_remote_config(cf_token, &id, &hostname, port).await;
+    let remote = update_remote_config(cf_token, &id, &hostname, port).await;
+    match &remote {
+        RemoteConfig::Failed(reason) => {
+            tracing::warn!("[vale-agent] provision_tunnel: remote config NOT updated: {reason}")
+        }
+        RemoteConfig::Updated => {
+            tracing::info!("[vale-agent] provision_tunnel: remote config update ok=true")
+        }
+    }
     // 4. write tunnel.yml (single location, agent spawns it on boot)
     let cred = std::env::var("USERPROFILE")
         .map(|u| format!(r"{u}\.cloudflared\{id}.json"))
@@ -311,10 +319,11 @@ pub(crate) async fn provision_tunnel(cf_token: &str, port: u16) -> String {
     //
     // Restarting against a config we failed to write is worse than not restarting at all:
     // the old file may still be the working one, and this way it keeps being used.
-    if let Err(e) = install_tunnel_config(&cfg_path, &yml) {
-        return format!("FAILED: {e} — the tunnel was NOT (re)configured and was left as it was");
-    }
-    format!("ok ({hostname})")
+    // THE OPERATOR'S VERDICT IS DECIDED BY A PURE FUNCTION (tunnel_outcome), not assembled
+    // here. Assembling it here is exactly what left the FAILED branch with no coverage:
+    // round 112 measured that mutating this tail back to a bare `format!("ok ({hostname})")`
+    // kept the WHOLE suite green, because nothing could call into the decision.
+    tunnel_outcome(install_tunnel_config(&cfg_path, &yml), remote, &hostname)
 }
 
 /// Write the tunnel config, and bump the restart signal ONLY if it landed.
@@ -429,17 +438,60 @@ fn ingress_service(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+/// The verdict of the REMOTE config PUT — deliberately NOT the same thing as the local
+/// `tunnel.yml` write. cloudflared prefers a remote configuration whenever one exists, so a
+/// PUT that did not land can override a local file that was written perfectly.
+#[derive(Debug)]
+enum RemoteConfig {
+    /// The PUT landed: the remote ingress points where the local file points.
+    Updated,
+    /// The PUT did not land, WITH the reason. Whether this tunnel HAS a remote
+    /// configuration cannot be known from here — and if it does, it wins over the local file.
+    Failed(String),
+}
+
+/// The ONE line the Gateway card shows, decided from BOTH verdicts.
+///
+/// Pure on purpose. This is the branch the operator actually reads, and while it lived inline
+/// in `provision_tunnel` it had no coverage at all (round 112: mutating it back to a bare `ok`
+/// kept the suite green). As a value-taking function, every case is testable.
+fn tunnel_outcome(local: Result<(), String>, remote: RemoteConfig, hostname: &str) -> String {
+    if let Err(e) = local {
+        // A failed local write is never dressed up as a partial success: the OLD tunnel.yml
+        // is still the file cloudflared will read.
+        return format!("FAILED: {e} — the tunnel was NOT (re)configured and was left as it was");
+    }
+    match remote {
+        RemoteConfig::Updated => format!("ok ({hostname})"),
+        // NO SILENT SUCCESS: the local file is right, but cloudflared prefers a remote
+        // configuration when one exists. The operator gets the consequence AND the cause —
+        // "it failed" without a reason is not actionable.
+        RemoteConfig::Failed(reason) => format!(
+            "PARTIAL ({hostname}): local config written, remote config NOT updated ({reason}) — \
+             a remote configuration OVERRIDES the local file, so verify this tunnel before trusting it"
+        ),
+    }
+}
+
 /// Update a tunnel's REMOTE config (Cloudflare API) so its ingress points at
 /// the agent's configured port. cloudflared prefers the remote config over the local file
 /// when one exists; a stale remote (e.g. an old 127.0.0.2 ingress) would keep
 /// proxying to a dead address (502) no matter what tunnel.yml says.
-async fn update_remote_config(cf_token: &str, tunnel_id: &str, hostname: &str, port: u16) {
+///
+/// It RETURNS its verdict. It used to return `()` through eight bare `return`s, which made a
+/// failed remote update invisible everywhere while the local file claimed 127.0.0.1.
+async fn update_remote_config(
+    cf_token: &str,
+    tunnel_id: &str,
+    hostname: &str,
+    port: u16,
+) -> RemoteConfig {
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
     {
         Ok(c) => c,
-        Err(_) => return,
+        Err(e) => return RemoteConfig::Failed(format!("no HTTP client ({e})")),
     };
     // 1. Resolve the account id from the token.
     let acc = match client
@@ -450,9 +502,15 @@ async fn update_remote_config(cf_token: &str, tunnel_id: &str, hostname: &str, p
     {
         Ok(r) => match r.json::<serde_json::Value>().await {
             Ok(j) => j,
-            Err(_) => return,
+            Err(e) => {
+                return RemoteConfig::Failed(format!("the accounts response was not JSON ({e})"))
+            }
         },
-        Err(_) => return,
+        Err(e) => {
+            return RemoteConfig::Failed(format!(
+                "the Cloudflare API is unreachable (accounts: {e})"
+            ))
+        }
     };
     let account_id = match acc["result"]
         .as_array()
@@ -460,7 +518,7 @@ async fn update_remote_config(cf_token: &str, tunnel_id: &str, hostname: &str, p
         .and_then(|x| x["id"].as_str())
     {
         Some(v) => v.to_string(),
-        None => return,
+        None => return RemoteConfig::Failed("the token returned no account id".to_string()),
     };
     // 2. PUT the ingress config.
     let body = serde_json::json!({
@@ -483,12 +541,16 @@ async fn update_remote_config(cf_token: &str, tunnel_id: &str, hostname: &str, p
         .await
     {
         Ok(r) => {
-            let ok = r.status().is_success();
-            tracing::info!("[vale-agent] provision_tunnel: remote config update ok={ok}");
+            let status = r.status();
+            if status.is_success() {
+                RemoteConfig::Updated
+            } else {
+                RemoteConfig::Failed(format!("Cloudflare answered HTTP {status}"))
+            }
         }
-        Err(_) => {
-            tracing::warn!("[vale-agent] provision_tunnel: remote config update failed (network)")
-        }
+        Err(e) => RemoteConfig::Failed(format!(
+            "the Cloudflare API is unreachable (configurations: {e})"
+        )),
     }
 }
 
@@ -676,5 +738,82 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_gateway_card_says_which_of_the_two_tunnel_configs_landed() {
+        // The LOCAL write failed: today's exact words, and never dressed up as a success —
+        // the old tunnel.yml is still the file cloudflared reads.
+        assert_eq!(
+            tunnel_outcome(
+                Err("could not write D:\\Vale\\etc\\tunnel.yml (access denied)".into()),
+                RemoteConfig::Updated,
+                "d1.agent.saisi.online",
+            ),
+            "FAILED: could not write D:\\Vale\\etc\\tunnel.yml (access denied) — the tunnel was NOT (re)configured and was left as it was"
+        );
+
+        // Both landed — the only case allowed to be a plain success.
+        assert_eq!(
+            tunnel_outcome(Ok(()), RemoteConfig::Updated, "d1.agent.saisi.online"),
+            "ok (d1.agent.saisi.online)"
+        );
+
+        // THE CASE THIS EXISTS FOR: the local file is correct and the REMOTE config is not,
+        // and a remote configuration OVERRIDES the local file. The operator gets the
+        // consequence AND the cause; "it failed" without a reason is not actionable.
+        let partial = tunnel_outcome(
+            Ok(()),
+            RemoteConfig::Failed("Cloudflare answered HTTP 403".into()),
+            "d1.agent.saisi.online",
+        );
+        assert!(partial.starts_with("PARTIAL"), "{partial}");
+        assert!(partial.contains("d1.agent.saisi.online"), "{partial}");
+        assert!(
+            partial.contains("Cloudflare answered HTTP 403"),
+            "the cause must survive into the card: {partial}"
+        );
+        assert!(
+            partial.contains("OVERRIDES"),
+            "the consequence must be stated, not implied: {partial}"
+        );
+
+        // The two verdicts are independent and the WORSE one wins.
+        let both = tunnel_outcome(
+            Err("nope".into()),
+            RemoteConfig::Failed("also nope".into()),
+            "h",
+        );
+        assert!(both.starts_with("FAILED: "), "{both}");
+        assert!(!both.contains("PARTIAL"), "{both}");
+    }
+
+    #[test]
+    fn the_remote_verdict_is_passed_through_not_invented_at_the_call_site() {
+        // `tunnel_outcome` is pure and tested, but a pure function only helps if the REAL
+        // verdict reaches it. Passing a literal there is the round-111 defect (a discarded
+        // verdict) wearing new clothes, and no behavioural test can see it: the caller does
+        // network I/O, so the wiring is pinned at the source — the way this repo already pins
+        // the boot-task contract and the pre-v2 path rule.
+        let src = include_str!("tunnel.rs");
+        let body = src
+            .split("pub(crate) async fn provision_tunnel")
+            .nth(1)
+            .expect("provision_tunnel must still exist")
+            .split("async fn update_remote_config")
+            .next()
+            .unwrap();
+        let call = body
+            .split("tunnel_outcome(install_tunnel_config")
+            .nth(1)
+            .expect("provision_tunnel must decide the outcome from install_tunnel_config's result")
+            .split(';')
+            .next()
+            .unwrap();
+        assert!(
+            call.contains("remote"),
+            "the verdict the API returned must REACH the card — passing a literal here is the \
+             discarded-verdict defect again: tunnel_outcome(install_tunnel_config{call}"
+        );
     }
 }
