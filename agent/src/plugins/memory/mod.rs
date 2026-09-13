@@ -64,6 +64,7 @@ pub fn default_memory_dir() -> std::path::PathBuf {
 mod tests {
     use super::store::test_support::InsertOk;
     use super::*;
+    use crate::plugins::memory::store::UpdateOutcome;
     use store::MemoryLimits;
 
     /// THE TOOL MUST DECLARE THE PARAMETER IT IS EXPECTED TO HONOUR.
@@ -253,7 +254,10 @@ mod tests {
         };
         // `insert` takes ownership and mints the id, so keep it separately.
         let id = store.insert_ok(rec);
-        assert!(store.update(&id, Some("t2".into()), None, None, None, None));
+        assert_eq!(
+            store.update(&id, Some("t2".into()), None, None, None, None),
+            UpdateOutcome::Durable
+        );
         assert_eq!(
             store.get(&id, false).expect("record").source,
             "claude-code",
@@ -293,7 +297,10 @@ mod tests {
         // two records in this test need distinct ids — a shared key would make
         // the second insert silently replace the first.
         let id = store.insert_ok(stamped.clone());
-        assert!(store.update(&id, None, Some("revised".into()), None, None, None));
+        assert_eq!(
+            store.update(&id, None, Some("revised".into()), None, None, None),
+            UpdateOutcome::Durable
+        );
         assert_eq!(
             store.get(&id, false).expect("record").run_id.as_deref(),
             Some("run-1000-abc123"),
@@ -303,7 +310,10 @@ mod tests {
         stamped.id = "m-plain".into();
         stamped.run_id = None;
         let plain = store.insert_ok(stamped);
-        assert!(store.update(&plain, None, Some("revised again".into()), None, None, None));
+        assert_eq!(
+            store.update(&plain, None, Some("revised again".into()), None, None, None),
+            UpdateOutcome::Durable
+        );
         assert_eq!(
             store.get(&plain, false).expect("record").run_id,
             None,

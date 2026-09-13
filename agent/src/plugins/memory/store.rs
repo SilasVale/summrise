@@ -160,6 +160,17 @@ fn tombstone(rec: &mut MemoryRecord, persist: &mut Vec<String>) {
     }
 }
 
+/// What an edit actually achieved. See `MemoryStore::update` for why this is not a bool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateOutcome {
+    /// No record with that id.
+    Unknown,
+    /// Applied and on disk.
+    Durable,
+    /// Applied to the in-memory index ONLY — a restart loses it.
+    MemoryOnly,
+}
+
 pub struct MemoryStore {
     dir: PathBuf,
     /// Live capacity limits — RwLock (not part of the inner Mutex) so the
@@ -554,7 +565,15 @@ impl MemoryStore {
 
     /// Update an existing record's fields (title/content/tags/namespace).
     /// `deleted` may be set to false to restore a soft-deleted record.
-    /// Returns false when the id is unknown.
+    ///
+    /// THREE OUTCOMES, BECAUSE TWO WERE A LIE. This used to return "the id was known",
+    /// while a failed append was only LOGGED — so `memory_update` answered `{"ok":true}`
+    /// for an edit that existed in memory alone and would vanish at the next restart.
+    /// `save` had already been taught to propagate durability; `update` had not, and the
+    /// asymmetry was invisible because both reported the same shape of success.
+    ///
+    /// An enum rather than a bool so the caller cannot forget the third case: the compiler
+    /// will not let a match omit it.
     ///
     /// `source` and `run_id` are NOT parameters and never change here: the
     /// record is cloned and only the listed fields are written, so the writing
@@ -568,7 +587,7 @@ impl MemoryStore {
         tags: Option<Vec<String>>,
         namespace: Option<String>,
         deleted: Option<bool>,
-    ) -> bool {
+    ) -> UpdateOutcome {
         let now = crate::unix_now();
         // Clone the current record out, mutate the clone, then write back —
         // avoids holding a mutable borrow across tag-index mutation.
@@ -576,7 +595,7 @@ impl MemoryStore {
             let guard = recover_guard(&self.inner);
             match guard.by_id.get(id) {
                 Some(r) => r.clone(),
-                None => return false,
+                None => return UpdateOutcome::Unknown,
             }
         };
         if let Some(t) = title {
@@ -614,9 +633,11 @@ impl MemoryStore {
             guard.dirty = true;
         }
         // Append the updated line. The index is already updated either way, but a failed
-        // append means the edit is memory-only — say so rather than implying durability.
+        // append means the edit is memory-only — and the CALLER is now told, not just the
+        // log, because the caller is what answers the AI.
         let line = serde_json::to_string(&rec).unwrap_or_default();
-        if !self.append_line(&line) {
+        let durable = self.append_line(&line);
+        if !durable {
             tracing::error!("memory: update of {id} is NOT persisted -- it exists in memory only");
         }
         self.enforce_limits();
@@ -624,11 +645,17 @@ impl MemoryStore {
         // deletes would otherwise accumulate in memory + JSONL forever
         // (only startup compaction cleaned them).
         self.compact_if_tombstone_heavy();
-        true
+        if durable {
+            UpdateOutcome::Durable
+        } else {
+            UpdateOutcome::MemoryOnly
+        }
     }
 
-    /// Soft-delete a record; returns false when unknown.
-    pub fn delete(&self, id: &str) -> bool {
+    /// Soft-delete a record. Same three outcomes as `update`, for the same reason: a
+    /// delete the AI is told succeeded, but which never reached disk, comes BACK at the
+    /// next restart — the record the operator thought was gone.
+    pub fn delete(&self, id: &str) -> UpdateOutcome {
         self.update(id, None, None, None, None, Some(true))
     }
 
@@ -1673,10 +1700,13 @@ mod tests {
     fn soft_delete_and_restore() {
         let (s, dir) = tmp_store("soft_delete_and_restore");
         let id = s.insert_ok(rec("doomed", "x"));
-        assert!(s.delete(&id));
+        assert_eq!(s.delete(&id), UpdateOutcome::Durable);
         assert!(s.get(&id, false).is_none());
         assert!(s.get(&id, true).is_some());
-        assert!(s.update(&id, None, None, None, None, Some(false)));
+        assert_eq!(
+            s.update(&id, None, None, None, None, Some(false)),
+            UpdateOutcome::Durable
+        );
         assert!(s.get(&id, false).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1693,7 +1723,7 @@ mod tests {
             ids.push(s.insert_ok(rec(&format!("r{i}"), &format!("content{i}"))));
         }
         for id in &ids[1..] {
-            assert!(s.delete(id));
+            assert_eq!(s.delete(id), UpdateOutcome::Durable);
         }
         // Explicit compact is idempotent; whether the eager reclaim already
         // cleared the tombstones or this call does, the invariant is: no
@@ -2159,7 +2189,11 @@ mod trailing_tests {
         // WITHOUT writing — which is why the first two versions of this test passed under
         // mutation and asserted nothing.
         store.insert_ok(mk("goner"));
-        assert!(store.delete("goner"), "the soft delete must land");
+        assert_eq!(
+            store.delete("goner"),
+            UpdateOutcome::Durable,
+            "the soft delete must land"
+        );
         store.mark_load_failed_for_test();
         let before = std::fs::read(dir.join("memory.jsonl")).unwrap();
 

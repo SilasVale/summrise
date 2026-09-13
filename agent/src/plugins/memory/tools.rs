@@ -18,7 +18,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 
-use super::store::SearchQuery;
+use super::store::{SearchQuery, UpdateOutcome};
 use serde_json::{json, Value};
 use vale_agent_core::ToolDef;
 
@@ -86,6 +86,21 @@ pub fn build(store: Arc<MemoryStore>) -> Vec<ToolDef> {
 /// Failure envelope shared by memory_update / memory_delete — the same
 /// wording lets AI clients pattern-match one recovery path ("unknown
 /// id" → re-search before retrying).
+/// THE STORE COULD NOT BE READ, SO NOTHING MAY BE REPORTED AS ABSENT.
+///
+/// `load()` sets `load_failed` when the file exists but could not be opened — and until
+/// now NOTHING read the flag, so `memory_search` answered `{"results":[]}` for a store it
+/// had never managed to load. To an AI that is indistinguishable from "the operator has
+/// saved nothing", which is how a knowledge base gets declared empty and re-filled with
+/// duplicates. An unreadable store is a FAULT, and a fault must not masquerade as a fact.
+fn degraded_error() -> Value {
+    tool_error(
+        "the memory store could NOT be read at startup -- this is NOT an empty store. Its \
+         records are still on disk; they were simply not indexed. Check the agent log and \
+         fix the file before trusting any result, and do not re-save what may already be there.",
+    )
+}
+
 fn unknown_id_error(id: &str) -> Value {
     tool_error(format!("unknown id: {id}"))
 }
@@ -205,6 +220,9 @@ fn tool_search(store: Arc<MemoryStore>) -> ToolDef {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20)
                     .min(50) as usize;
+                if store.is_load_failed() {
+                    return Ok(degraded_error());
+                }
                 let hits = store.search(SearchQuery {
                     text: &query,
                     namespace,
@@ -245,6 +263,9 @@ fn tool_list(store: Arc<MemoryStore>) -> ToolDef {
                     .min(MAX_LIST_LIMIT) as usize;
                 let include_deleted = params.get("include_deleted").and_then(|v| v.as_bool()).unwrap_or(false);
                 let rows = store.list(namespace, tag, limit, include_deleted);
+                if store.is_load_failed() {
+                    return Ok(degraded_error());
+                }
                 Ok(json!({"ok": true, "results": rows}))
             }
         },
@@ -293,11 +314,16 @@ fn tool_update(store: Arc<MemoryStore>) -> ToolDef {
                 // here would let a later run silently overwrite the provenance
                 // on the line a reader ends up seeing, which is the one thing
                 // the append-only, last-wins JSONL cannot undo.
-                let ok = store.update(&id, title, content, tags, namespace, deleted);
-                if ok {
-                    Ok(json!({"ok": true, "id": id}))
-                } else {
-                    Ok(unknown_id_error(&id))
+                match store.update(&id, title, content, tags, namespace, deleted) {
+                    UpdateOutcome::Unknown => Ok(unknown_id_error(&id)),
+                    UpdateOutcome::Durable => Ok(json!({"ok": true, "id": id})),
+                    // The edit IS live in this process; it is simply not on disk. Saying
+                    // `ok` here is what let an AI report an edit that a restart erases.
+                    UpdateOutcome::MemoryOnly => Ok(tool_error(
+                        "the edit could not be written to disk -- it is in memory ONLY and \
+                         will be lost when the agent restarts. Check the agent log for the \
+                         write error before telling the user it was saved.",
+                    )),
                 }
             }
         },
@@ -322,10 +348,17 @@ fn tool_delete(store: Arc<MemoryStore>) -> ToolDef {
                 if id.is_empty() {
                     return Ok(tool_error("id is required"));
                 }
-                if store.delete(&id) {
-                    Ok(json!({"ok": true, "id": id, "deleted": true}))
-                } else {
-                    Ok(unknown_id_error(&id))
+                match store.delete(&id) {
+                    UpdateOutcome::Unknown => Ok(unknown_id_error(&id)),
+                    UpdateOutcome::Durable => Ok(json!({"ok": true, "id": id, "deleted": true})),
+                    // A delete the AI is told succeeded, but which never reached disk,
+                    // comes back at the next restart — the record the operator believed
+                    // was gone.
+                    UpdateOutcome::MemoryOnly => Ok(tool_error(
+                        "the delete could not be written to disk -- the record is hidden in \
+                         memory ONLY and will REAPPEAR when the agent restarts. Report this \
+                         rather than telling the user it was removed.",
+                    )),
                 }
             }
         },
@@ -347,6 +380,9 @@ fn tool_export(store: Arc<MemoryStore>) -> ToolDef {
             async move {
                 let namespace = params.get("namespace").and_then(|v| v.as_str());
                 let text = store.export(namespace);
+                if store.is_load_failed() {
+                    return Ok(degraded_error());
+                }
                 Ok(json!({"ok": true, "export": text, "lines": text.lines().count()}))
             }
         },
@@ -367,6 +403,7 @@ mod dispatch_tests {
     //! two. Temp-dir store per test; handlers run through the real registry
     //! builders exactly as production dispatches them.
     use super::*;
+    use crate::plugins::memory::store::test_support::Degrade;
 
     fn test_store(tag: &str) -> (Arc<MemoryStore>, std::path::PathBuf) {
         let dir =
@@ -659,5 +696,39 @@ mod dispatch_tests {
             assert_eq!(out, tool_error("unknown id: m-nope"), "{name} envelope");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[tokio::test]
+    async fn a_degraded_store_refuses_to_answer_instead_of_reporting_nothing() {
+        // THE LIE THIS PREVENTS. `load()` sets `load_failed` when the file exists but could
+        // not be read — and NOTHING read that flag, so `memory_search` answered
+        // `{"results":[]}` for a store it had never managed to load. To an AI that is
+        // indistinguishable from "the operator has saved nothing", which is how a knowledge
+        // base gets declared empty and re-filled with duplicates.
+        //
+        // The seam is the same one the compaction guard uses, and it is FORCED rather than
+        // simulated through a real read failure: the guard is a separate claim from
+        // "`load` notices a failure", and a test that conflates them can pass with the
+        // guard removed (the store's own comment records two earlier versions doing exactly
+        // that).
+        let (store, _dir) = test_store("degraded");
+        let tools = build(store.clone());
+        store.mark_load_failed_for_test();
+
+        for (name, params) in [
+            ("memory_search", json!({"query": "anything"})),
+            ("memory_list", json!({})),
+            ("memory_export", json!({})),
+        ] {
+            let out = tool(&tools, name).handler.call(params).await.unwrap();
+            assert_ne!(
+                out["ok"], true,
+                "{name} answered from a degraded store: {out}"
+            );
+            let text = out.to_string();
+            assert!(
+                text.contains("NOT an empty store"),
+                "{name} must say WHY it cannot answer: {text}"
+            );
+        }
     }
 }
