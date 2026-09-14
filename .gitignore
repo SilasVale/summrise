@@ -10,14 +10,10 @@ agent/vale-agent-npm/*.exe
 agent/vale-agent-npm/*.tgz
 agent/target-staging.exe
 
-# vale-studio
-studio/node_modules/
-studio/test/artifacts/
 .vale-tmp-*
 .dsh-tmp-*
-studio/vendor/
 
-# fallback: any nested node_modules (explicit per-dir rules above stay authoritative)
+# any nested node_modules — the single rule now; the per-dir ones went with vale-studio
 **/node_modules/
 
 # build artifacts — never commit
