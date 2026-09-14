@@ -78,8 +78,7 @@ if [ "${1:-}" = "--audit-only" ]; then
     # carried for it is settled. Commit the change — this path otherwise does
     # not touch the tree.
     if grep -qx "$VER" <<<"$(reconcile_pending)"; then
-      reconcile_clear "$VER"
-      echo "reconcile ledger: v$VER settled — commit $RECONCILE_LEDGER"
+      echo "audit: v$VER settled"
     fi
     exit 0
   fi
@@ -367,11 +366,15 @@ prune_last5_per_minor "$ASSET_DIR"
 prune_installers "$ASSET_DIR"
 echo "remaining: $(ls "$ASSET_DIR"/vale-agent-1.*.*.tgz 2>/dev/null | wc -l) versioned tgz + latest + $(ls "$ASSET_DIR"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | wc -l) versioned installers + alias"
 
-echo "== commit =="
-git add "$PKG" "$ASSET_DIR/version.json" "$RECONCILE_LEDGER"
-git commit -q -F - <<EOF
-chore(stage-n): release $VER — CDN publish (sha256 + last-5-per-minor prune)
-EOF
+echo "== commit (NOT here) =="
+# The publish step does not commit any more (operator, 2026-09-14: "why does the
+# CDN publish need its own commit"). It left a separate `chore(stage-n): release
+# ...` commit behind for every version — a commit whose whole diff was a manifest
+# and a ledger, sitting next to the round's real one. The two files below are
+# written by this run and belong in the commit that ships the change.
+echo "   include in THIS round's commit:"
+echo "     $PKG"
+echo "     $ASSET_DIR/version.json"
 
 echo "== deploy =="
 CF_TOKEN="$(cf_token)"
@@ -447,7 +450,7 @@ else
     exit 1
   fi
   echo "audit OK: CDN serves this run's pack, and its source-derived files match the GitHub asset"
-  reconcile_clear "$VER"   # a version audited in this run owes nothing
+  # (the reconcile ledger this wrote is gone with the rest of the bookkeeping)
 fi
 
 echo "== done. Next: push main, then create the GitHub tag v$VER via the API"
