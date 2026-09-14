@@ -83,7 +83,31 @@ const EXCLUDED = [
   ["agent/resources/panel", "BUILD OUTPUT (panel.js is embedded at compile time)"],
   ["brand", "images/assets only — no source extensions in scope"],
 ];
+// `.tsx` IS DELIBERATELY NOT HERE, and it is the one boundary in this file that is stated
+// rather than enforced. Round 257 repaired the silent half (see `excludedDir`): the panel
+// SPA's `.ts` files are now counted as `ROOTS` always claimed. Its React components are
+// `.tsx`, so they are NOT — which means "the panel SPA is in scope" is true of its scripts
+// and its hooks and false of its components. Adding `.tsx` is a SCOPE DECISION, not a bug
+// fix, and it is recorded as one: it would move the headline 349/363 -> 435/449 and the
+// never-named queue 87 -> 155, i.e. most of two React SPAs that no round has ever named.
 const EXTS = [".ts", ".mjs", ".js", ".rs", ".ps1", ".nsi", ".bash", ".py"];
+
+/**
+ * Is this repo-relative path inside a deliberately excluded DIRECTORY?
+ *
+ * SEPARATOR-AWARE, and that is the whole point (round 257). The rule used to be
+ * `rel.startsWith(dir)`, a bare string prefix — and `agent/resources/panel` (BUILD OUTPUT,
+ * excluded) is a prefix of `agent/resources/panel-react` (the panel SPA's SOURCE, listed in
+ * ROOTS since round 236). So the panel SPA was silently excluded from a scope that claimed to
+ * contain it: `ROOTS` printed `agent/resources/panel-react/src` on every run while not one of
+ * its ~60 TypeScript files was counted, which is precisely the "a directory claiming both"
+ * failure round 236 fixed one function over — an exclusion that answers a question nobody
+ * asked it.
+ *
+ * The denominator already appended `"/"`; the WALK did not, so the two halves of one rule
+ * disagreed and only the permissive one was ever visible in the output.
+ */
+const excludedDir = (rel) => EXCLUDED.some(([d]) => rel === d || rel.startsWith(d + "/"));
 const SKIP = ["node_modules", "target", "dist", ".wrangler"];
 
 /**
@@ -125,7 +149,7 @@ function walk(dir, out = []) {
   // this check inside the `catch` below, where it ran only on a READ ERROR — so
   // `agent/deploy/retired/*` was counted as never-named while the same output
   // declared that directory deliberately out of scope. A directory claiming both.
-  if (EXCLUDED.some(([d]) => relative(ROOT, dir).startsWith(d))) return out;
+  if (excludedDir(relative(ROOT, dir))) return out;
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -192,7 +216,7 @@ function repositoryTotals() {
 
 const everything = repositoryTotals()
   .filter(inRepo)
-  .filter((f) => !EXCLUDED.some(([dir]) => relative(ROOT, f).startsWith(dir + "/")));
+  .filter((f) => !excludedDir(relative(ROOT, f)));
 const inScope = new Set(files);
 const outside = everything.filter((f) => !inScope.has(f));
 const outsideByTop = {};

@@ -531,6 +531,71 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 257 (**PRODUCT CHANGE — the device now keeps a RESTART HISTORY and the panel shows the pattern:
+`logs/boot-history.jsonl`, `GET /api/boots`, a **Restarts** card in Settings, and the strip's crash chip says how many there have
+been — the question d1's founding incident could never answer, "has this been happening or was that once?", now has an answer
+on the device**).
+Commits: cecc00b3 (the flaky panel fixture that aborted this round's release build), 82892e24 (the product), + the instrument
+repair and this record. Release **1.2.368** published (CDN `/api/version` smoke: versioned + latest sha verified) and UPDATED
+ON d1, where the whole surface was read back out of the device's own browser.
+  (1) WHY A HISTORY, MEASURED RATHER THAN ASSUMED: every surface in the panel answered a question about the PRESENT (uptime,
+  vitals, the boot chip's "how did the run before this one end"), and the verdict behind that chip is OVERWRITTEN at every
+  boot. **On 2026-09-13 the agent on d1 "restarted every one to two hours" and the pattern could not even be COUNTED while it
+  was happening** — the incident the run journal itself was written for. A single verdict is an event; a pattern needs a record.
+  (2) `logs/boot-history.jsonl` IS THE FIFTH MEMBER OF THE APPEND-ONLY JSONL FAMILY, and `jsonl.rs`'s header now names it —
+  that header exists to stop exactly this ("a sentence that describes a rule the code has not finished applying"), so a new
+  member is a change to the LIST, not just a new call site. `begin()` appends at the only moment the previous run still exists
+  to be described; the file gets the family's header-on-fresh-file + torn-tail repair, and the prune is an ATOMIC REWRITE that
+  also REPAIRS: a history that accumulates fragments converges back to exactly the newest 200 records (pinned by a test that
+  seeds 205 records and a torn tail, then asserts 200 survive and the fragment is gone).
+  (3) THE RECORD CARRIES WHAT MAKES A RESTART READABLE, and nothing that has to be re-derived: the boot's stamp (unix ms — the
+  unit the timeline and every panel clock use), the verdict KIND as data, the device's own sentence, how long the previous run
+  LIVED (`uptime_secs`), how long the device was WITHOUT an agent (`gap_secs`), and the release this boot came up on. The
+  fields are ABSENT, not zero, for a first start: "ran 0s" would be a claim about a run that never existed.
+  (4) `GET /api/boots` — newest-first records plus a `summary` that counts the last 24 h IN ONE PLACE (device-side), so no
+  client re-derives the window; auth-gated like every other `/api` route and named in the route inventory that pins that. The
+  summary counts the boot you are IN: a device that came up this morning reports "1 restart today", not 0.
+  (5) THE PANEL SURFACE: a **Restarts** card in Settings (the count as words, then each boot as a row — kind, how long the run
+  before it lived, how long the device was down, the release — with the device's full sentence on the hover), and the strip's
+  crash chip now names a REPEATED crash in its hover ("4 crashes in the last 24 hours"). The count is polled ONCE by the shell
+  that renders both, the card takes it as a prop (so it is a pure component a test can render with any history), and a device
+  that has not booted a history-recording build draws ONE sentence saying so — never an empty list that reads as a broken
+  feature, and never the same sentence as "the device did not answer".
+  (6) VERIFIED LIVE ON d1, READ OUT OF THE DEVICE'S OWN BROWSER. Before: the file did not exist. After `vale update` to
+  1.2.368: `{"detail":"… REPLACED by a restart …","gap_secs":23,"kind":"replaced","release":"1.2.368","ts_ms":…,
+  "uptime_secs":3422}` — the update swap itself, named with the release it came up on. `/api/boots` then returned
+  `boots=2 summary={"boots":2,"crashes":1,"window_secs":86400}` — the second record is a `vale restart` whose revival took
+  95 s, i.e. longer than the classifier's minute, so the device called it **"CRASHED or was killed"** — and the card rendered
+  exactly that, with the count, in the real panel: **"2 restarts in the last 24h — 1 of them a crash."**, rows
+  `16:06 previous run crashed ran 1m 1s down 1m 35s 1.2.368` and `16:03 replaced by a restart ran 57m 2s down 23s 1.2.368`.
+  (7) THE RELEASE BUILD WAS ABORTED BY A FLAKY PANEL TEST, WHICH IS HOW A TEST FLAKE STOPS BEING COSMETIC: `build.sh agent`
+  runs the panel suite before the cross-compile, so `ApprovalGate`'s deadline test failing took the whole build with it.
+  **Measured before the fix: 3 of 3 full-suite runs failed under parallel load, 29 of 29 passed when the file ran alone** —
+  `vi.useFakeTimers({ shouldAdvanceTime: true })` advances the fake clock with REAL time, and the fixture put the deadline
+  exactly on `fmtLeft`'s `Math.ceil` boundary, so a few hundred ms of scheduler drift printed 13m and the assertion that
+  exists to catch a DOUBLE-COUNTED display failed instead. The fixture now sits 30 s inside the band; a double-count is wrong
+  by a whole minute, so the claim is unchanged and the machine's scheduler is no longer what the assertion measures.
+  (8) AND THE COVERAGE GATE EXPOSED A SCOPE THAT HAD BEEN LYING ABOUT ITSELF SINCE ROUND 236 — a bare string prefix:
+  `EXCLUDED` names `agent/resources/panel` (BUILD OUTPUT) and the walk tested it with `startsWith`, so
+  `agent/resources/panel-react` — the panel SPA's SOURCE, listed in `ROOTS` since 236 — matched it and **all ~63 of its `.ts`
+  files were silently excluded from a scope whose own output printed that root on every run**. The denominator already
+  appended `"/"`; the walk did not, so two halves of one rule disagreed and only the permissive one was visible. The repair is
+  the shared `excludedDir()` predicate (round 236 had fixed this shape one function over): **the scope went 286/363 ->
+  349/363 (96%) and the never-named queue 38 -> 87, because 63 files nobody could ever have named came into view at once.**
+  The `.tsx` boundary is now STATED (the SPAs' components are counted OUT while their hooks and libs are counted IN; adding it
+  would move the headline to 435/449 and the queue to 155 — a scope decision, recorded, not a bug fix).
+  (9) ONE UNEXPLAINED CONSOLE-SIDE ARTIFACT, recorded as an observation and NOT as a device finding: two PTY sessions opened
+  through the console MCP right after an agent restart rendered as one-character-wide prompts. Measured afterwards both ways:
+  a session opened with no size reports `W=80 H=24` ON THE DEVICE (the agent's documented default, `pty.rs:85`) and renders
+  cleanly, and the garbled pair rendered cleanly when re-opened with `cols=200`. **The PTY size was never the cause; whatever
+  the console's screen model did with those two sessions is unexplained and is left named rather than guessed.**
+  STILL OPEN — the one that matters most for this round's honesty: **a DELIBERATE stop that takes longer than the classifier's
+  minute reads as "CRASHED or was killed"** — `vale restart` on d1 produced exactly that record, because the watchdog's
+  revival took 95 s and no marker distinguishes "I was asked to stop" from "I died". `runstate::mark_exited` exists and has NO
+  production caller, so the fix is a small one (a device route the CLI calls before it stops the task, plus the CLI call,
+  dual-accepting an older agent). Also open: the `.tsx` scope decision; 1.2.362-1.2.364 in `release-reconcile.txt`; the
+  installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue (87).
+
 Last updated: 2026-09-14 round 256 (**PRODUCT CHANGE — the boot verdict rounds 254/255 computed now REACHES the operator:
 `/api/status` carries it as DATA, the panel shows it, the console fleet marks it, and the classifier learned to keep a routine
 reboot out of the alarm**).
