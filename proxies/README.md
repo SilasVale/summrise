@@ -56,8 +56,11 @@ Auth model: the zen proxies gate on `CLIENT_KEY` (constant-time compare, default
 
 `proxies/api-relay/api/*` are standard web-API edge handlers (`Request ->
 Response`); they run VERBATIM under Node 24 on the Oracle box via
-`server/entry.mjs` — a tiny http adapter that replicates vercel.json's
-rewrites in-process (`/api/git/…` → `?path=…`), shims undici's `duplex:"half"`
+`server/entry.mjs` — a tiny http adapter that replays, in process, the rewrites
+the **DELETED** `vercel.json` used to declare (`/api/git/…` → `?path=…`; that
+file is gone with the Vercel project — see line 44 — so `server/routing.mjs` and
+`server/test/routing.test.mjs` are the semantics, and there is nothing else to
+consult), shims undici's `duplex:"half"`
 for stream bodies, and preserves the Vercel sources byte-identical (they remain
 deployable to Vercel if the team is ever resumed).
 

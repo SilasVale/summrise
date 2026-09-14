@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 233 (**ROUND 232'S FIX WAS SCOPED TO THE DIRECTORY WHERE IT FOUND THE DEFECT — the
+same stale sentence was one level up in `proxies/README.md`, the runbook an operator reads**). Commit:
+proxies/README.md + the assertion's scope + journal. api-relay 70 tests, 70 pass.
+  (1) THE LEAD WAS ROUND 232'S OWN GREP OUTPUT, WHICH LISTED MORE FILES THAN THAT ROUND ACTED ON: it searched the
+  repo for `vercel` and fixed `server/*.mjs`, leaving `api/*` and `proxies/README.md` unexamined. **Measured, the
+  three groups are genuinely different and only one is a defect:** the `api/*` mentions are **log prefixes**
+  (`[vercel-proxy]`, `[vercel-zen]`, `[vercel-gform]`, `[vercel-github]`, `[vercel-git]`) — identifiers, not
+  authority claims; `README.md:21`'s `MUSE_RESPONSES_EXIT=vercel` is a CONDITIONAL ("if the team is ever
+  resumed"), which is accurate; `README.md:121`'s `vercel env add` is an enumeration of places a secret could
+  live, and its point is that neither applies. **And `README.md:59` carries the exact sentence round 232 fixed
+  in the code: "a tiny http adapter that replicates vercel.json's rewrites in-process".**
+  (2) SO THE DEFECT IS THAT THE CHECK COVERED LESS THAN THE CLAIM, WHICH IS THIS STRETCH'S OLDEST SHAPE: round 232
+  wrote a correct assertion and pointed it at `server/*.mjs` — the directory `find` had taken it to —
+  while the same claim sat in the runbook, where an operator looking up how vrelay routes would read it and be
+  sent to a file that does not exist. **A rule stated for one directory is not a rule about the repository**,
+  and this is the same "the instrument's scope is narrower than the sentence it enforces" pattern rounds 226,
+  229 and 230 each found from a different angle.
+  (3) THE FIX IS TWO PARTS AND BOTH ARE PROVEN: `README.md:59` now says the file was DELETED with the Vercel
+  project, points at `server/routing.mjs` and `server/test/routing.test.mjs` as the semantics, and cites line 44
+  where the README already says not to go looking for the project. **And the assertion now scans
+  `proxies/README.md` alongside `server/*.mjs`** — with the `api/*` log prefixes out of scope BY CONSTRUCTION
+  rather than by an exemption list, because the test keys on `vercel.json` and those files never name it. That
+  distinction is written into the test, so the next reader does not have to re-derive why the handler files are
+  absent from it.
+  (4) THE MUTATION NAMES THE FILE, WHICH TOOK A SECOND PASS AND IS THE SMALLER HALF OF THE ROUND: restoring
+  `README.md:59`'s old wording turns it red, but the first version labelled the offender `../../README.md`
+  because the path was made relative to `server/`. **An instrument whose output is hard to read is a weaker
+  instrument**, so the label is now relative to `api-relay/` and the message reads
+  `../README.md:59: \`server/entry.mjs\` — a tiny http adapter that replicates vercel.json's` — the
+  file, the line, and the sentence. **This is round 232's own lesson about parsers applied to its output rather
+  than its logic.**
+  (5) THE STATE IS OTHERWISE UNCHANGED AND NOTHING WAITS ON THE LOOP: **70 tests, 70 pass, and round 231's CI
+  step means they are enforced rather than merely available.** The remaining `api-relay` files no round has named
+  are nine gate tests whose content the run already exercises. STILL OPEN: the installer's signing decision (the
+  user's call); convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 232 (**THE VRELAY SERVER'S TWO UN-NAMED FILES CITE `vercel.json` AS THE AUTHORITY
 FOR THE ROUTING SEMANTICS — four times, across both files — AND `vercel.json` DOES NOT EXIST**). Commit:
 proxies/api-relay/server/ + journal. api-relay 70 tests, 70 pass, and CI now runs them (round 231).

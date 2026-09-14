@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join, dirname } from "node:path";
+import { join, dirname, relative } from "node:path";
 import { readdirSync } from "node:fs";
 
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,14 +30,25 @@ const GONE = /\b(del|remov|retir|no longer|used to|gone|absent|was |were )/i;
 
 test("no server comment cites vercel.json as the authority while the file is missing", () => {
   if (existsSync(VERCEL_JSON)) return; // present: citing it is fine, and this test is moot
-  const files = readdirSync(SERVER).filter((f) => f.endsWith(".mjs"));
+  // Round 232 covered `server/*.mjs` only, and the SAME stale sentence was sitting in
+  // `proxies/README.md` — the runbook an operator reads. So the scan covers the README
+  // too. The `api/*` handlers mention "vercel" as LOG PREFIXES (`[vercel-zen]`), which
+  // is an identifier rather than an authority claim, so they are out of scope by
+  // construction: this test keys on `vercel.json`, which they never name.
+  const files = [
+    ...readdirSync(SERVER)
+      .filter((f) => f.endsWith(".mjs"))
+      .map((f) => join(SERVER, f)),
+    join(SERVER, "..", "..", "README.md"),
+  ];
   const offenders = [];
   for (const f of files) {
-    readFileSync(join(SERVER, f), "utf8")
+    readFileSync(f, "utf8")
       .split("\n")
       .forEach((line, i) => {
         if (/vercel\.json/i.test(line) && !GONE.test(line)) {
-          offenders.push(`${f}:${i + 1}: ${line.trim()}`);
+          const label = relative(join(SERVER, ".."), f);
+          offenders.push(`${label}:${i + 1}: ${line.trim()}`);
         }
       });
   }
