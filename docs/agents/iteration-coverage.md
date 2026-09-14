@@ -10,13 +10,13 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 220**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 221**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
   one was not, so "the ledger is current" was a claim no test could refuse. Repairing the values below
   is the small half; making the two heads comparable is the durable half and is NOT done yet.
-- Round 213 (THIS round — the ledger repaired and the drift recorded); round 212 (`studio/`: 182 MB of
+- Round 221 (this round — the round-157 convergence table re-measured: rows 3 and 5 had already moved in round 210 and the table still described the state that release ended; row 4 re-verified still stuck); round 213 (that round — the ledger repaired and the drift recorded); round 212 (`studio/`: 182 MB of
   untracked residue from ADR 0006's retirement, hidden from `git status` for ~100 rounds by FOUR orphan
   `.gitignore` rules — removed with the rules, because the rules were the mechanism of the hiding);
   round 211 (the manifest blind spot closed, mutation = the historical defect itself); rounds 207-210
@@ -160,11 +160,21 @@ so a later round — or the user — can pick one up without re-deriving why it 
 |---|---|---|---|---|
 | 1 | **CHARTER-1** (publish freely vs ask first) | **ANSWERED round 196: 授权循环自主发布** | **CLOSED** | `docs/CHARTER.md`; the loop runs build → CDN → device regression → report on its own, at the CHARTER thresholds. **Still proposed, not assumed:** irreversible external commitments (full rollout, closing deprecation windows, billing/compliance/third-party). Nothing below waits on this any more — rows 2, 3, 5 and the D3/D4 artifact debt are now EXECUTABLE. |
 | 2 | 1.2.362-364 unreconciled (CDN 200 / GitHub release 404) | **RESOLVED round 198: do NOT retro-tag — release 1.2.365 forward** | **CLOSED (by decision, not by action)** | `docs/agents/release-reconcile.txt`; both halves were measured (round 151 the CDN manifest, round 158 the GitHub side, round 197 the trigger). **The decision, with its reason:** `release.yml` fires on `on: push: tags: ["v*"]` and its guard is "package.json version must equal the tag". So (a) `v1.2.362`/`v1.2.363` **cannot** be created by the tag route — the pipeline refuses them by design, because the repository moved on; (b) they are **not** fabricated via `gh release create` against the CDN tarballs, because a release whose asset was not built from its tag is a **provenance lie**, and `publish-cdn-from-ci.sh` exists precisely to make provenance structural instead of asserted; (c) `v1.2.364` is **also not retro-tagged** — current HEAD carries 860 gateway tests and the runStats/BYOK work, while the CDN 1.2.364 predates all of it, so the tag would point at a commit that did not build the served artifact. **So the row's real substance — "the audit has never run on a real release" — is answered forward, not backward: 1.2.365 ships through `publish-cdn-from-ci.sh`, which stages the CI artifact onto the CDN so "CDN == GitHub release" holds BY CONSTRUCTION rather than by audit.** |
-| 3 | Stale `ValeAgent-Setup.exe` alias (D4b) — still serves the **1.2.361** installer | an installer build for a current version | release action (1) | round 151: alias and `-1.2.361.exe` return the SAME etag `f1dc1c8e…` |
-| 4 | Four capability unlocks (vrelay 5xx/header-timeout; both CF workers' redaction) | a deploy | release action (1) | rounds 129/131/132/133 committed + tested + mutation-proven; NOT live |
-| 5 | D13's build path past the mode gate (pack/stage/commit/deploy) | a publish to drive it | release action (1) | the gate itself is now tested AND reachable (rounds 154/155) |
+| 3 | ~~Stale `ValeAgent-Setup.exe` alias (D4b)~~ | — | **CLOSED round 210 (re-verified round 221)** | round 151 measured the alias and `-1.2.361.exe` sharing etag `f1dc1c8e…`. **Round 210 rebuilt the installer for 1.2.365 and round 221 re-measured the live CDN: the alias AND `ValeAgent-Setup-1.2.365.exe` now both return `bf3b997dfe766e707f0d3cea3eb93d00`, and `/api/version` advertises `ValeAgent-Setup-1.2.365.exe`.** The alias serves the current version. **This row's evidence column was a LIVE measurement, which is exactly why it went stale without anything failing** — see the note under the table. |
+| 4 | Four capability unlocks (vrelay 5xx/header-timeout; both CF workers' redaction) | a deploy | release action (1) | rounds 129/131/132/133 committed + tested + mutation-proven; **NOT live — re-verified round 221**: the code is present (`redactSecrets` in `proxies/zen-go-proxy/src/index.js`), and round 210's release deployed the AGENT and the index worker, **not the proxies or vrelay**, so this row is still accurate. |
+| 5 | D13's build path past the mode gate (pack/stage/commit/deploy) | **DRIVEN round 210, twice** | **CLOSED** | the gate itself was tested AND reachable (rounds 154/155). **Round 210 then drove the real path end to end twice: `publish-release.sh 1.2.365` refused on an unreconciled-debt guard, then on the D9 exe-age guard, then completed pack → stage → alias → manifest → last-5 prune → commit → deploy — and the P0 audit reported `CDN == GitHub asset byte-for-byte`.** The first run to cross that path was a real release, not a rehearsal. |
 | 6 | Dead-agent revival window | an agent death to observe | device / time | instruments armed: the run journal + the newly enabled TaskScheduler operational log |
 | 7 | The restart mystery (round 17: the CLI never executed on d1) | a boot with the armed instruments | device / time | three explanations eliminated, not guessed away; belongs at the MCP tool-call transport |
+
+**AND THIS TABLE DRIFTED THE SAME WAY THE ROUND LOG HEAD DID** (recorded round 221): rows 3 and 5 were written
+before round 210 shipped 1.2.365 and were still describing the state that release ended — row 3's item was DONE and
+row 5's trigger had been pulled twice — while row 4 read correctly and row 5's `Who` column still said a release
+action was needed. **Nothing compared this table to reality, and its `Evidence on record` column is what made that
+easy to miss: those cells cite LIVE measurements (`the alias and -1.2.361.exe return the SAME etag f1dc1c8e…`),
+and a live measurement in a table is a claim with an expiry date that nothing re-checks.** That is the same defect
+round 213 found in the round-log head and rounds 199/211 found in the code-viewer — two artifacts, one obligation,
+no assertion — and here the assertion is harder: it would have to dial the CDN. What IS cheap is the habit this
+round used: re-measure an evidence cell before trusting the row.
 
 Read the table as the loop's honest boundary: **items 2-5 are one decision away** (item 1),
 item 6-7 are one boot away, and nothing else is open — the extension surface, the proxies'

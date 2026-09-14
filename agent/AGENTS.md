@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 221 (**THE ROUND-157 CONVERGENCE TABLE HAD DRIFTED THE SAME WAY THE ROUND-LOG
+HEAD DID — two of its seven rows were already DONE and still read as open, and its `Evidence on record` column
+is what made that easy to miss: those cells cite LIVE measurements**). Commit: ledger + journal. No code change.
+  (1) WHAT WAS MEASURED, ROW BY ROW, RATHER THAN INHERITED — which is the whole point, because this table is
+  the ledger's own "what is stuck" list: **row 3** said the `ValeAgent-Setup.exe` alias "still serves the
+  1.2.361 installer" with etag `f1dc1c8e…`; the live CDN now returns **`bf3b997dfe766e707f0d3cea3eb93d00`
+  for the alias AND for `ValeAgent-Setup-1.2.365.exe`**, and `/api/version` advertises the versioned name —
+  **the row was DONE.** **Row 5** said D13's build path "needs a publish to drive it"; round 210 drove it
+  end to end **twice**, past the unreconciled-debt guard and the D9 exe-age guard, through
+  pack → stage → alias → manifest → prune → commit → deploy, with the P0 audit reporting
+  `CDN == GitHub asset byte-for-byte`. **Row 4 was re-verified and is STILL ACCURATE**: the redaction code is
+  present in `proxies/zen-go-proxy/src/index.js`, and round 210's release deployed the agent and the index
+  worker, **not the proxies or vrelay** — so its "a deploy" requirement stands. Rows 1 and 2 were already
+  closed; 6 and 7 still wait on a device event.
+  (2) THE MECHANISM, WHICH IS THE SAME ONE THREE TIMES NOW: rows 3 and 5 were written before round 210 and
+  still described the state that release ended. **Nothing compared this table to reality** — the same
+  "two artifacts, one obligation, no assertion" shape as round 199 (mirror vs manifest), round 213 (ledger
+  head vs journal head), and rounds 214-218's four cross-file contracts. **This is the fifth instance, and
+  the first one where the drift was in the ledger's own status table rather than in code or in a head line.**
+  (3) AND THE SHARP PART IS WHY IT WAS EASY TO MISS: the `Evidence on record` column does not hold prose, it
+  holds **LIVE MEASUREMENTS** — "the alias and `-1.2.361.exe` return the SAME etag `f1dc1c8e…`". **A live
+  measurement quoted in a table is a claim with an expiry date that nothing re-checks**, and it reads as
+  evidence precisely because it once WAS evidence. So the fix for row 3 was not to reason about it: it was to
+  dial the CDN and compare the etag, which took one command.
+  (4) WHAT THE DURABLE FIX WOULD COST, STATED SO THE GAP IS NOT OVERREAD: unlike rounds 211/213/214/215/216/217
+  a test here would have to reach the network — the claim is about what the CDN serves — so it cannot be a
+  unit assertion, and D4b's `smoke_index_release` is already the release-time instrument that reads the alias
+  (12 checks over the real body, four mutations caught, closed in round 126). **What this round adds is
+  therefore not an assertion but a HABIT, recorded where the rows are: re-measure an evidence cell before
+  trusting the row it sits in.** The note is now written under the table itself.
+  (5) STILL OPEN, AND THE LIST IS NOW SHORT ENOUGH TO STATE PLAINLY: **the installer's signing decision (the
+  user's call — the live installer is unsigned and advertised; a fail-closed guard there would reverse
+  `build-installer.sh`'"'"'s documented "the build stays shippable")**; convergence row 4 (four capability
+  unlocks awaiting a proxies/vrelay deploy — a release action, executable by the loop since CHARTER-1); and
+  rows 6-7, which wait on a device event rather than on work. Everything else this journal has carried is
+  closed: the round-165 sweep (round 218), the 27-round mutation anomaly (219), the ledger head (213), the
+  mirror manifest blind spot (211), `studio/` (212), and the four cross-file contracts (214-218).
+
 Last updated: 2026-09-14 round 220 (**A SUSPECTED BUG WAS A FALSE ALARM, REFUTED BY A TEST — and the chase
 left a REAL unpinned invariant: one boolean, `defaultRoute.stripPrefix`, is the only thing keeping six
 `slice(prefix.length + 1)` sites from silently emptying every bare model name**). Commit: gateway/test/ +
