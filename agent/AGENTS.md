@@ -526,6 +526,43 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 228 (**THE ONE SOURCE FILE NO ROUND HAD EVER NAMED IS A FOUNDATION MODULE —
+`gateway/src/mcp-errors.ts`, "the tool-failure code family" — and my claim about its gaps was WRONG in the same
+way round 227's was: a grep too narrow to see the evidence**). Commit: gateway/test/ + journal.
+  (1) THE LEAD CAME FROM RE-MEASURING ROUND 165'S OWN CLAIM, which is the check the ledger never had: that
+  table said "121 files, 15 never named by any round". **Measured now: 118 source files, and exactly ONE never
+  named in the journal OR the ledger — `gateway/src/mcp-errors.ts`.** The file-count difference (121 vs 118) may
+  be my root definition rather than the tree shrinking, so it is flagged as unverified; **the single never-named
+  file is robust either way, because it sits under `gateway/src`.** And it is not an obscure leaf: the root
+  `AGENTS.md`'s foundation list names it — "`mcp-errors.ts` (tool-failure code family)" — so **this is round
+  165's shape recurring: a foundation module whose name is in the guide and in no round's records.**
+  (2) THE DESIGN HELD UP, AND THAT IS THE FIRST RESULT: `mcp-errors.ts` is 16 lines defining five codes and
+  `ToolErr`. **`mcp.ts` imports all five and maps to the CONSTANTS, not to re-typed literals** — so a RENAME
+  cannot drift silently, because TypeScript fails on an unknown identifier — and it re-exports them "so the
+  historical import path keeps working for the 5 test files that import from `../mcp.ts`". The wiring is right.
+  (3) AND THEN I OVERCLAIMED, EXACTLY AS IN ROUND 227: I measured that changing a VALUE compiles cleanly
+  (`tsc --noEmit` PASSES with `SESSION_NOT_FOUND = "SESSION_NOT_FOUND_V2"`), found that only
+  `DEVICE_UNREACHABLE` and `SESSION_BUSY` had obvious literal comparisons in `mcp-browser.test.mjs`, and
+  reported **"three of the five are pinned nowhere — covered 2 of 5 by coincidence."** **The mutation refuted
+  it: changing `SESSION_NOT_FOUND`'s value turned an EXISTING test red** — `stale session with zero live
+  sessions points at terminal_open`. My grep was `=== "SESSION_`, which cannot see `assert.equal(x, "CODE")`.
+  **Re-measured properly, every one of the five has literals in `test/` — 6 for `DEVICE_UNREACHABLE`, 4 each for
+  `TIMEOUT`/`SESSION_NOT_FOUND`/`SESSION_BUSY`, 3 for `TOOL_ERROR`. Nothing was unpinned.**
+  (4) SO WHAT THE NEW TEST ACTUALLY IS, STATED SMALLER THAN I FIRST CLAIMED:
+  `gateway/test/mcp-errors.test.mjs` pins all five values **in ONE place, each with the reason it is
+  load-bearing** (DEVICE_UNREACHABLE is what sends a client on a device-recovery detour; TOOL_ERROR is the
+  round-64 class that must NOT; SESSION_NOT_FOUND is what lets the gateway retarget to a live PTY), plus
+  `ToolErr`'s wiring. **That is consolidation and documentation, not closing a gap — and the difference matters
+  because a round that reports closing a gap it did not close is round 226 all over again.** The mutation is
+  still informative in one respect worth keeping: **the compiler does not guard these values, only tests do** —
+  which is why the reasons belong next to the assertions rather than in a header.
+  (5) THE STRETCH'S OWN PATTERN, NOW FIVE STRONG AND ALL MINE: rounds 226 and 227 were a finding retracted for
+  quoting a document instead of the file, and this round is a finding narrowed for a grep that could not see
+  the evidence. **Both share one shape — a claim made from a capture that was never checked for its ability to
+  capture — which is the rule rounds 214-219 earned and that I have now broken twice in three rounds.**
+  STILL OPEN, AND NOTHING WAITS ON THE LOOP: the installer's signing decision (the user's call); convergence
+  rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 227 (**ROUND 226'S FINDING IS RETRACTED — CI *does* run the proxies' tests, and
 the job is literally named for it. I quoted the ledger's stale clause as if it were a measurement, without
 opening the file it was about: ADR 0011's own thesis, committed by its author two rounds after writing it**).
