@@ -539,6 +539,53 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 261 (**PRODUCT CHANGE — the DEVICE now watches reachability: watched host:port targets probed over
+TCP every 15 s into a bounded series, a Reachability card with a latency chart whose failed probes are GAPS, and a strip chip
+naming a target that is down and for how long. The operator's own tool for this was a hand-rolled `Test-NetConnection` loop in
+a terminal session — which dies with the session, says nothing while nobody reads it, and cannot be shown to anyone
+afterwards**).
+Commits: 89b9fe80 (monitor.rs + routes + card + chip), 8f1f419b (the test fixtures the panel's own tsc caught), 69e2bbd6 (the
+down-row wording). Releases **1.2.374** and **1.2.375** published and UPDATED ON d1, where the probes, the persistence, the
+card and the chip were all read back off the device.
+  (1) WHY THE DEVICE KEEPS THE WATCH, and the module header says it in the operator's own terms: a loop in a session dies with
+  the session, says nothing while it is not being read, and cannot be shown to anyone afterwards. A watch that belongs to the
+  DEVICE survives all three — and it is the same argument `/api/vitals/history` and the restart history made for their own
+  subjects, one round at a time.
+  (2) IT DOES NOT PING, DELIBERATELY: a TCP connect to a port is what an operator actually asks ("is SSH answering?"), needs
+  no raw sockets or privileges, and tells the truth about a host whose ICMP is filtered while its service is fine. A REFUSED
+  connection counts as DOWN for the same reason — the probe answers one question, and the panel's wording carries the rest.
+  (3) `monitor.rs`: a bounded target list (8), PERSISTED past an agent restart and written atomically through the same
+  temp+rename helper the JSONL family uses; one probe every 15 s (the interval the operator's own loop used) into 240 samples
+  per target = one hour; and summaries with the number an operator reads first — **when the current state BEGAN**. Removal is
+  idempotent and reports whether anything was removed.
+  (4) THE PANEL: a **Reachability** card (state + duration, a latency chart, the share and the range in words beside it, and
+  per-target `check now` / `remove`) and a **strip chip** naming the target and the duration — the operator who asked for a
+  watch is by definition not staring at the Settings page. `lib/…`-style rules live in the hook: one poller per shell feeds
+  both surfaces, and `downTargets` is the single rule they share.
+  (5) HONEST EMPTIES, PINNED IN BOTH DIRECTIONS: a failed probe carries NO latency (a measurement for a connection that never
+  happened is fabricated); "no probes yet" is `null` up-share and NEVER 0%; a target that never answered draws NO chart; and a
+  device that did not answer says so rather than showing an empty list.
+  (6) VERIFIED LIVE ON d1. Added **`192.168.1.1:22`** (the ONU the operator debugs) and **`192.168.1.1:9999`** (a closed
+  port), then read the device's own series: `192.168.1.1:22 up_now=True probes=6 up_pct=100 avg=11 series=UUUUUU` and
+  `192.168.1.1:9999 up_now=False up_pct=0 avg=(none) series=DDDDDD`. **PERSISTENCE PROVEN BY THE UPDATE ITSELF**: after
+  1.2.375's restart the list was still there and re-probing — `probes=8 series=UUUUUUUU / DDDDDDDD`. The card rendered
+  `100% up avg 6 ms max 16 ms` beside a real latency line for the ONU, and `down 2m | never answered | 0% up | 9 failed
+  probes` with NO chart for the closed port; the strip showed `192.168.1.1:9999 down 2m`. Screenshot pulled and read.
+  (7) TWO PROCESS FAILURES, BOTH CAUGHT BY GATES I DID NOT RUN MYSELF: (a) the panel's `tsc --noEmit` refused my monitors test
+  fixtures (vitest runs without typechecking, so the tests passed while the release build aborted — `build.sh agent` runs the
+  panel build BEFORE the cross-compile, which is why the round has that fix in it); (b) `tests/module_map.rs` refused
+  `monitor.rs` until BOTH guides named it, which is the rule that keeps the module map from rotting.
+  (8) AND ONE WORDING FIX THAT IS REALLY AN HONESTY FIX: a down row printed `no readings` beside `9 failed probes` — both true
+  and about different things (no LATENCY was measured; nine probes were taken and all failed), but on one row they read as a
+  contradiction, and that row is what an operator looks at when something is down. The sparkline's empty text is now the
+  caller's fact: "no readings yet" versus "never answered".
+  STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still reads
+  as "CRASHED or was killed"; `runstate::mark_exited` still has no production caller); **the monitors are panel-only — no MCP
+  tool exposes them, so an AI driving this device cannot add, read or remove a watch** (the console-MCP visibility decision the
+  guides name, deliberately not taken this round); a monitor is host:port only (no HTTP status, no latency threshold alarm);
+  1.2.374/1.2.375 need their tags + audits; the `.tsx` scope decision; 1.2.370 in `release-reconcile.txt`; 1.2.362-1.2.364 in the
+  same ledger; the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue (91).
+
 Last updated: 2026-09-14 round 260 (**PRODUCT CHANGE — the panel's terminal now has CONSOLE KEYS: ^C, Enter, ^D, ^Z, Tab, Esc and,
 on a serial line, a real BREAK. The browser owns Ctrl+C, so the one keystroke a console needs most could not be sent from the
 panel at all; and a BREAK is not a keystroke but a condition on the wire — the signal that interrupts a bootloader's autoboot
