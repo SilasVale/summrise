@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 227 (**ROUND 226'S FINDING IS RETRACTED — CI *does* run the proxies' tests, and
+the job is literally named for it. I quoted the ledger's stale clause as if it were a measurement, without
+opening the file it was about: ADR 0011's own thesis, committed by its author two rounds after writing it**).
+Commit: ledger + journal. No code change — the correction IS the deliverable.
+  (1) WHAT ROUND 226 SAID AND WHY IT WAS WRONG: it reported "CI runs `node --check` for the proxies, not
+  `node --test` — so those tests (28 by measurement) have no automatic runner ... a gate that exists and is
+  never pulled." **Measured in `.github/workflows/ci.yml`: the job is `proxies (node --test + wrangler
+  dry-run)`, and its first two steps are `run: node --test` with `working-directory: proxies/zen-go-proxy` and
+  `proxies/zen-us-proxy`.** And confirmed BY EXECUTION rather than by reading the workflow: the newest CI
+  run's `proxies` job reports **`Test zen-go: success` / `Test zen-us: success`**. **There was never a missing
+  runner.**
+  (2) THE MECHANISM IS THE IMPORTANT PART, AND IT IS ADR 0011's OWN THESIS WITH ME AS THE INSTANCE: round 226
+  found a sentence in the ledger — "CI does not run these 54 tests — only `node --check`" — believed
+  it because it was written down, and reported it as a finding **without opening `ci.yml`**. That is precisely
+  "a statement about another file cannot fail": the ledger's claim about the workflow had no way to be wrong,
+  so it stayed wrong, and I quoted it. **ADR 0011 was written in round 225. This is its author producing its
+  worked example in round 226.**
+  (3) SO THE LEDGER CLAUSE IS CORRECTED IN PLACE, with the measurement that corrects it and the note that round
+  226 had quoted it unverified. **The clause's real substance lives in `api-relay`, which IS only
+  `node --check`ed** — so the original sentence was not baseless, it was about the wrong subject by the time
+  it was read: the CF workers gained tests, `api-relay` did not, and the sentence never changed.
+  (4) AND THE "54" IS NOW BETTER PLACED THAN IT WAS: round 226 recorded it as unexplained (measured 28) and
+  said so rather than inventing a source. **This round can add that it sat inside a sentence already
+  demonstrably out of date**, which makes "the number is probably from an older state of the same sentence" the
+  natural reading — **still not established, and still not claimed.**
+  (5) WHAT SURVIVES FROM ROUND 226, STATED SO THE RETRACTION IS NOT OVERREAD: the suites it ran really had not
+  been run by this loop in rounds 220-225, and they really do pass — **`index` 89/89, `extension` 13/13,
+  `zen-go-proxy` 15/15, `zen-us-proxy` 13/13, and six bash suites worth 130 checks.** The value was in running
+  them, not in the conclusion drawn about one line of CI. **That is the honest split: the measurement stands,
+  the finding does not.** STILL OPEN, AND NOTHING WAITS ON THE LOOP: the installer's signing decision (the
+  user's call); convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 226 (**"THE TREE IS GREEN" NOW HAS COVERAGE BEHIND IT THAT IT DID NOT HAVE AN HOUR
 AGO — the suites this stretch had never run all pass, 130 node tests and 130 bash checks** — and the ledger's
 own count for one of them does not match what they report). No tracked code change; every suite below was run.
