@@ -6,7 +6,10 @@ import { RestartHistoryCard } from "./RestartHistoryCard";
 import { DeviceHealthCard } from "./DeviceHealthCard";
 import { UpdateCard, useUpdateStatus } from "./UpdateCard";
 import { MonitorsCard } from "./MonitorsCard";
+import { NotificationsCard } from "./NotificationsCard";
 import type { Monitors } from "../hooks/useMonitors";
+import type { AttentionItem } from "../lib/attention";
+import type { NotifyPermission } from "../lib/notify";
 import { EMPTY_MONITORS } from "../hooks/useMonitors";
 import type { VitalsSeries } from "../hooks/useVitalsSeries";
 import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
@@ -44,6 +47,10 @@ export function SettingsPage({
   onMonitorAdd,
   onMonitorRemove,
   onMonitorProbe,
+  notifyPermission,
+  onRequestNotify,
+  onTestNotify,
+  attention,
 }: {
   onOpenMemory?: () => void;
   /** The device's restart history, polled ONCE by the shell that renders this page —
@@ -62,6 +69,11 @@ export function SettingsPage({
   onMonitorAdd?: (host: string, port: number) => Promise<{ ok: boolean; error?: string }>;
   onMonitorRemove?: (id: string) => void;
   onMonitorProbe?: (id: string) => void;
+  /** Getting-your-attention (round 264): the browser's answer, the way to ask, and the test send. */
+  notifyPermission?: NotifyPermission;
+  onRequestNotify?: () => Promise<NotifyPermission>;
+  onTestNotify?: () => void;
+  attention?: AttentionItem[];
   /** The release the shell sees the device RUNNING (`/api/status`). The update card watches
    *  it change to recognise a swap that happened while the operator was looking. */
   runningRelease?: string;
@@ -239,6 +251,13 @@ export function SettingsPage({
       <DeviceHealthCard series={vitals ?? EMPTY_SERIES} failed={vitalsFailed} />
 
       <UpdateSection runningRelease={runningRelease} />
+
+      <NotificationsCard
+        permission={notifyPermission ?? "unsupported"}
+        onRequest={onRequestNotify ?? (async () => "unsupported" as const)}
+        onTest={onTestNotify ?? (() => {})}
+        attention={attention ?? []}
+      />
 
       <MonitorsCard
         monitors={monitors ?? EMPTY_MONITORS}

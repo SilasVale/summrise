@@ -1222,6 +1222,24 @@
 .monitor-chip.is-flapping { color: var(--state-warn); }
 .monitor-mark.is-flapping { background: transparent; border: 1.5px solid var(--state-warn); }
 
+/* ── Getting your attention (Settings) ───────────────────────────────────────
+   The switch, the browser's actual answer, and what still works when the answer
+   is no. The permission STATE is a word (`granted`/`denied`/`default`/
+   `unsupported`) rather than only a colour, because the difference between
+   "never asked" and "refused permanently" is the whole point of the row. */
+.notify-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.notify-state {
+  font: 400 11px var(--font-mono);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--chrome-ink-dim);
+}
+.notify-state.is-granted { color: var(--state-ok); border-color: var(--state-ok); }
+.notify-state.is-denied { color: var(--danger-on-soft); border-color: var(--danger-on-soft); }
+.notify-hint { margin: 4px 0 2px; }
+.notify-now { margin: 2px 0 0; }
+
 /* ── The device SPEAKING: a watched target changed state ─────────────────────
    Above the page, never over it, and it leaves on its own. `is-up` and `is-down`
    differ by BOTH the mark's silhouette (filled diamond vs. a ring) and the ink,

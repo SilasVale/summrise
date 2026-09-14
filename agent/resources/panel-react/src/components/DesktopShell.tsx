@@ -15,6 +15,12 @@ import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
+import {
+  useAttention,
+  useAttentionNotifications,
+  useAttentionTitle,
+  useNotifyPermission,
+} from "../hooks/useAttention";
 import { MonitorAlerts } from "./MonitorAlerts";
 import { VitalsDial } from "./VitalsDial";
 import { IconRail, PAGE_ICONS } from "./IconRail";
@@ -157,6 +163,30 @@ export function DesktopShell({
   // The device SPEAKS about a watched target changing state — the one monitor fact that is only
   // useful now (see MonitorAlerts).
   const monitorAlerts = useMonitorAlerts();
+  // ── GETTING YOUR ATTENTION (round 264): the title, the badge, and — if the operator allows it —
+  //    a desktop notification. The first two need no permission and always work; the third is the
+  //    one channel that leaves the browser.
+  // The WAITING question, not the armed gate: `pendingApprovalCount` is the panel's one rule for
+  // "an AI is blocked on a human", and it is what the strip's waiting chip already reads.
+  const attention = useAttention(monitors, pendingApprovalCount(sessions));
+  useAttentionTitle(attention);
+  const [notifyPermission, requestNotifyPermission] = useNotifyPermission();
+  useAttentionNotifications(attention, notifyPermission, notifyPermission === "granted");
+  /** The card's "Send a test": the user gesture the browser requires, then one notification that
+   *  says what the channel is for. Sent even with nothing wrong, because the point is to find out
+   *  whether the OS will actually show it (Do Not Disturb is invisible from here). */
+  const testNotification = async () => {
+    const state = notifyPermission === "granted" ? notifyPermission : await requestNotifyPermission();
+    if (state !== "granted" || typeof Notification === "undefined") return;
+    try {
+      new Notification("Vale", {
+        body: "This is how a watched host going down will reach you.",
+        tag: "vale-test",
+      });
+    } catch {
+      /* the browser refused at the last moment — the card shows the permission state it reported */
+    }
+  };
   // stage-n: native menu page navigation — the electron menu sends
   // vale-menu commands for pages too (open-memory / open-settings /
   // open-plugins); route them to the page state.
@@ -430,6 +460,10 @@ export function DesktopShell({
                 onMonitorAdd={monitors.add}
                 onMonitorRemove={monitors.remove}
                 onMonitorProbe={monitors.probe}
+                notifyPermission={notifyPermission}
+                onRequestNotify={requestNotifyPermission}
+                onTestNotify={testNotification}
+                attention={attention}
                 runningRelease={vitals.release}
               />
             )}
