@@ -526,6 +526,43 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 243 (**THE LAST UNVERIFIED LINK IS CLOSED: THE DEVICE'S RUNNING BINARY IS THE
+PUBLISHED ONE, BYTE FOR BYTE — and every round that has said "device on 1.2.365" was quoting a MARKER this
+journal itself records as able to lie**). Device read only; no tracked code changed.
+  (1) THE QUESTION NOBODY HAD ASKED, IN A FORM THIS STRETCH HAD ALREADY BUILT THE INSTRUMENT FOR: rounds 199/211,
+  223 and 240 each settled a deployment by BYTE EQUALITY rather than by a return code or a version string, and
+  the chain they covered was `repo → tgz → CDN`. **The last hop — `CDN → device` — had never
+  been checked.** `vale status` reports a VERSION, and the journal has quoted "device on 1.2.365" for dozens of
+  rounds on that basis. **But the version comes from `etc\.vale-release`, a marker file, and this same journal
+  records that the marker can lie: the `vale rollback` entry documents that it "used to depend on that exit code
+  and wrote its version marker unconditionally … claiming a version the device was not running". So a marker
+  the loop has itself caught lying was the sole evidence for the device's identity.**
+  (2) MEASURED, BOTH SIDES, AND THEY AGREE: the device reports
+  **`sha256 7d033f9f7539e360f92de898770b288925a2038e4bfa8c21d6b801bb25c791d3`, 17,707,008 bytes**, release marker
+  `1.2.365`, and **no staged `*.new.exe`** (so no half-finished update is sitting beside it). The same URL the
+  device installed from — `https://agent.saisi.online/vale-agent/vale-agent-1.2.365.tgz` — answers
+  **HTTP 200 at 6,744,895 bytes with `sha256 7fd33e8ab748e1e4b355807cdbc3b045…`**, which MATCHES the sha this
+  journal recorded for the `v1.2.365` release asset, and the `vale-agent.exe` INSIDE it is
+  **`7d033f9f…791d3` at 17,707,008 bytes — identical to the device's.** **So the chain is verified end to
+  end, each hop by bytes: the repository builds it, the CDN serves those bytes, and the device runs them.**
+  (3) THE METHOD IS ROUND 200's RULE APPLIED A FOURTH TIME AND TO A NEW KIND OF HOP: the vrelay scp (223), the
+  code-viewer mirror (199/211) and the CDN publish (240) were all "two artifacts that must agree", and this one
+  is the same shape one level out — **a running process and a published artifact**. Nothing about the check
+  was new; what was new is that nobody had pointed it at the device, because `vale status` was answering a
+  DIFFERENT question convincingly enough that the harder one stopped being asked. **That is the failure mode
+  this whole stretch keeps finding: a proxy that is good enough to stop the direct measurement.**
+  (4) AND IT WAS NON-DESTRUCTIVE BY CHOICE, WHICH IS WHY IT COULD BE DONE AT ALL: hashing the device's exe with
+  `Get-FileHash` and downloading the public tgz touches nothing that runs. **Round 238 made the same call for the
+  same reason (it tested `fix-tunnel.ps1`'s path premises instead of running a repair that rewrites
+  `tunnel.yml`), and the two rounds together suggest a working rule: when the direct verification is destructive,
+  find the part of it that is a measurement.** The device was read, not changed — no file written, no service
+  touched, no update triggered.
+  (5) SO THE DEVICE'S IDENTITY IS NOW EVIDENCE RATHER THAN A QUOTED MARKER, and that changes what future rounds
+  may assert: "device on X" can cite a hash, and when the next release is installed the same two commands answer
+  it again. **The journal's remaining open items are unchanged — the installer's signing decision (the user's
+  call), the never-named to-read queue (bounded and measured in round 242), and convergence rows 6-7, which wait
+  on a device event.** Nothing in this round waits on anything.
+
 Last updated: 2026-09-14 round 242 (**TWO MECHANICAL PROBES OVER THE 43 NEVER-NAMED FILES, AND BOTH ARE NEGATIVE
 — which bounds what "never named" means: it says no round has READ a file, not that the file is suspect**).
 Commit: journal only; nothing changed.
