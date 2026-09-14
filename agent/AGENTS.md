@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 198 (**the release decision round 197 deferred is MADE, and it is
+"don't retro-tag — release 1.2.365 forward"**). Commit: journal + ledger. No code change — the decision
+and its reason, deliberately before the publish it governs.
+  (1) THE DECISION, AND THE PROVENANCE ARGUMENT THAT SETTLES IT: `release.yml` fires on
+  `on: push: tags: ["v*"]` with the guard "package.json version must equal the tag" (round 197's
+  measurement). So `v1.2.362`/`v1.2.363` cannot be created by the tag route at all — the pipeline refuses
+  them by design. The tempting workaround, `gh release create` against the CDN tarballs, is REJECTED:
+  **a release whose attached asset was not built from its tag is a provenance lie**, and this repository
+  already built the honest alternative — `publish-cdn-from-ci.sh` exists so that "CDN == GitHub release"
+  holds BY CONSTRUCTION rather than by an audit that can only notice after the fact.
+  (2) AND `v1.2.364` IS NOT RETRO-TAGGED EITHER, which is the sharper half because it LOOKS safe (round
+  197 confirmed the package version already equals it, so the guard would pass). It would still be false:
+  **current HEAD carries the 860-test gateway tree and the whole `routeStats`/BYOK arc, while the CDN's
+  1.2.364 predates all of it** — so the tag would point at a commit that did not build the artifact it
+  claims to release. That the guard passes is exactly what makes this the dangerous case: a mechanical
+  check would have waved it through.
+  (3) SO THE ROW IS CLOSED BY DECISION RATHER THAN BY ACTION, and its REAL substance is answered forward:
+  the convergence entry's complaint was never the missing tags as such but that **"the audit has never run
+  on a real release"** (round 122's measurement: `--skip-reconcile` is the only path any recent release
+  took). Retro-tagging three old versions would not have fixed that; shipping 1.2.365 through
+  `publish-cdn-from-ci.sh` does, because the next audit will have something true to compare.
+  (4) WHAT THIS BUYS THE PUBLISH ITSELF, stated as the plan the next round executes: bump
+  `agent/vale-agent-npm/package.json` to 1.2.365, commit, tag v1.2.365 via the GitHub API (a direct tag
+  push times out on this network, per the build guide), let CI build, then `./scripts/publish-cdn-from-ci.sh
+  1.2.365` to stage THAT artifact onto the CDN, then rebuild the installer so the alias stops serving
+  1.2.361, then **device regression BEFORE the release** (the CHARTER's hard gate), then report. The
+  installer debt is now known to be three versions deep (362/363/364 never had one built), so the alias is
+  not merely stale, it is the only installer that exists.
+  (5) STILL OPEN: the publish itself (planned above, not started — the decision had to precede it and this
+  round is the decision); `studio/` (newly noticed round 197, still not investigated); the recurring second
+  failure's name under mutation; `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`;
+  the three `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 197 (**round 196's release plan was WRONG in its first step, and one read
 proved it.** Tagging is not bookkeeping: `release.yml` triggers on `on: push: tags: ["v*"]` and runs the
 full pipeline, with a fail-fast guard that `package.json` must equal the tag). Commit: journal. No code
