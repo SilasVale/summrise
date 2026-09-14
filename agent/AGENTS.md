@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 236 (**TESTS JOIN THE COVERAGE SCOPE — and they were the bulk of what round 235 found
+missing. `agent/tests/` holds this loop's OWN instruments, so until now the instrument had never counted the
+instruments**). Commit: scripts/ + docs/adr/0012 + ledger + journal.
+  (1) THE DECISION WAS THE OPEN ITEM ROUND 235 NAMED, AND CLASSIFYING THE 261 FILES ANSWERED IT: **~158 are test
+  files** — `gateway/test/` 64, `agent/tests/` 44, `index/test/` 14, the proxies' 2, plus 29 under the panel
+  SPA's `__tests__`. The rest split into `gateway/public/code/` 41 (the GENERATED code-viewer mirror), 12
+  VENDORED, 3 RETIRED and 3 build output. **So the omission was overwhelmingly the one category round 231 had
+  already proved matters**: that round was worth itself because 69 passing `api-relay` tests had no runner.
+  (2) AND THE SHARPEST FORM OF IT: **`agent/tests/` contains `ledger_head.rs`, `adr_allocation.rs`,
+  `gateway_code_contract.rs` and `module_map.rs` — four instruments THIS LOOP BUILT — and
+  `gateway/test/` contains the 872 tests the journal quotes every round.** None of them had ever been in scope,
+  so the tool that answers "which surfaces has no round examined" had never examined its own. **Round 165's
+  population item was closed in round 229 on a scope that could not have seen them.**
+  (3) SO ADR 0012 IS WRITTEN, because "what counts as a surface" is the ledger's foundational definition and not
+  a scripting detail: **tests join the scope; generated, vendored, retired and build-output trees are excluded
+  WITH THEIR REASONS PRINTED IN EVERY RUN.** The rejected options each carry the evidence that refutes them —
+  keeping the scope source-only is refuted by round 231's finding, including the generated mirror is refuted by
+  round 211's mirror test being a STRONGER obligation than naming, and excluding the panel SPA as "just UI" is
+  refuted by its 63 TypeScript files and the panel-render audit's own lesson. Deletion criterion: an `EXCLUDED`
+  entry goes when its reason stops holding (a mirror that stops being generated becomes an authored surface).
+  (4) THE ROUND ALSO FOUND THREE DEFECTS IN THE INSTRUMENT IT WAS EDITING, WHICH IS WHY IT TOOK SEVERAL PASSES
+  AND WHY EACH IS RECORDED: the `EXCLUDED` check first sat inside `catch`, so it ran only on a READ ERROR and
+  `agent/deploy/retired/*` was counted as never-named while the same output declared that directory out of
+  scope — **a directory claiming both**; overlapping `ROOTS` (`.../api` beside `.../api/test`) made `walk`
+  reach 12 files twice and inflated the numerator past the denominator; and **the self-check added for the
+  second bug is what caught it, on its first execution** — `a + b MUST equal c`, printed every run.
+  (5) FINAL MEASUREMENT, WITH BOTH IDENTITIES HOLDING: **`files in scope: 282 of 358 in the repository (79%)`
+  and `NOT in scope: 76 of 358 — 282 + 76 = 358`**, with the 76 broken down by top-level directory and the
+  five exclusions listed beneath. **The never-named count is 52**, up from 8 because the scope now covers what
+  the question is about; the Fatal path still exits 2. STILL OPEN, AND NOTHING WAITS ON THE LOOP: the
+  installer's signing decision (the user's call); **52 files no round has named, dominated by the panel SPA's
+  `hooks/`, `lib/` and `styles/` and by `agent/deploy/`** — a set that is now visible and bounded rather than
+  guessed at; convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 235 (**THE COVERAGE TOOL NOW REPORTS WHAT IT DOES *NOT* COVER — it looked at 154 of
 the repository's 415 source files, and no run had ever said so; round 234's fix was the wrong SHAPE, because a
 list cannot notice what it omits**). Commit: scripts/ + journal.

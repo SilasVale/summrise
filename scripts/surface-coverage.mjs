@@ -46,11 +46,51 @@ const ROOTS = [
   // 12 -> 10, which is the point: a scope is a claim, and this one was narrower than
   // what a reader of "every source file in scope is named" would infer.
   "scripts",
+  // ── round 236: TESTS JOIN THE SCOPE ────────────────────────────────────────────
+  // Round 235 measured 261 files outside it and round 236 classified them: 124 are
+  // plain test files plus ~34 more under the panel SPA's `__tests__`, i.e. the bulk of
+  // the omission was the one category round 231 proved matters most. `agent/tests/`
+  // holds THIS LOOP'S OWN INSTRUMENTS (`ledger_head.rs`, `adr_allocation.rs`,
+  // `gateway_code_contract.rs`, `module_map.rs`) and `gateway/test/` holds the 872
+  // tests the journal quotes every round — and neither had ever been in scope.
+  "gateway/test",
+  "agent/tests",
+  "index/test",
+  "extension/test",
+  "proxies/zen-go-proxy/test",
+  "proxies/zen-us-proxy/test",
+  "proxies/api-relay/api/test",
+  "proxies/api-relay/server/test",
+  "agent/resources/panel-react/src",
+  "agent/vale-agent-npm",
+  "gateway/ui",
+  "agent/vale-desktop-electron",
+  "agent/deploy",
+  "agent/scripts",
+];
+
+/**
+ * DIRECTORIES THAT ARE DELIBERATELY OUT, EACH WITH A REASON — so the next reader does
+ * not have to re-derive the boundary, and so "not in scope" is a DECISION rather than
+ * an accident. Round 235's lesson was that a list cannot notice what it omits; this is
+ * the other half — an omission stated is no longer an omission.
+ */
+const EXCLUDED = [
+  ["gateway/public/code", "GENERATED — the code-viewer mirror; its obligation is round 211's mirror test, not 'has a round named it'"],
+  ["agent/vendor-portable-pty", "VENDORED third-party source"],
+  ["agent/deploy/retired", "RETIRED installer scripts (deploy/retired/)"],
+  ["agent/resources/panel", "BUILD OUTPUT (panel.js is embedded at compile time)"],
+  ["brand", "images/assets only — no source extensions in scope"],
 ];
 const EXTS = [".ts", ".mjs", ".js", ".rs", ".ps1", ".nsi", ".bash", ".py"];
 const SKIP = ["node_modules", "target", "dist", ".wrangler"];
 
 function walk(dir, out = []) {
+  // EXCLUDED applies to the WALK, not only to the denominator. Round 236 first put
+  // this check inside the `catch` below, where it ran only on a READ ERROR — so
+  // `agent/deploy/retired/*` was counted as never-named while the same output
+  // declared that directory deliberately out of scope. A directory claiming both.
+  if (EXCLUDED.some(([d]) => relative(ROOT, dir).startsWith(d))) return out;
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -75,7 +115,11 @@ function walk(dir, out = []) {
   return out;
 }
 
-const files = ROOTS.flatMap((r) => walk(join(ROOT, r))).sort();
+// DEDUPE: round 236 added `proxies/api-relay/api/test` alongside `.../api`, and
+// `.../server/test` alongside `.../server`, so the walk reached those files twice and
+// `files.length` counted them twice — inflating the numerator past the denominator.
+// The run's own self-check (`a + b MUST equal c`) caught it on its first execution.
+const files = [...new Set(ROOTS.flatMap((r) => walk(join(ROOT, r))))].sort();
 
 /**
  * WHAT THIS SCOPE DOES **NOT** COVER, COMPUTED RATHER THAN IMPLIED.
@@ -109,7 +153,9 @@ function repositoryTotals() {
   return all;
 }
 
-const everything = repositoryTotals();
+const everything = repositoryTotals().filter(
+  (f) => !EXCLUDED.some(([dir]) => relative(ROOT, f).startsWith(dir + "/")),
+);
 const inScope = new Set(files);
 const outside = everything.filter((f) => !inScope.has(f));
 const outsideByTop = {};
@@ -132,6 +178,7 @@ if (process.argv.includes("--json")) {
         files: files.length,
         repositoryFiles: everything.length,
         notInScope: outsideByTop,
+        excluded: Object.fromEntries(EXCLUDED),
         neverNamed: never.length,
         neverNamedList: never.map((f) => relative(ROOT, f)),
       },
@@ -144,10 +191,16 @@ if (process.argv.includes("--json")) {
   for (const r of ROOTS) console.log(`  ${r}  (${EXTS.join(" ")})`);
   console.log(`\nfiles in scope: ${files.length} of ${everything.length} in the repository ` +
     `(${((files.length / everything.length) * 100).toFixed(0)}%)`);
-  console.log("NOT in scope, by top-level directory:");
+  console.log(
+    `NOT in scope: ${outside.length} of ${everything.length} \u2014 ` +
+      `${files.length} + ${outside.length} = ${files.length + outside.length} MUST equal ${everything.length}`,
+  );
+  console.log("  by top-level directory:");
   for (const [k, v] of Object.entries(outsideByTop).sort((a, b) => b[1] - a[1])) {
     console.log(`  ${k}  (${v})`);
   }
+  console.log("\nDELIBERATELY out of scope (stated, not omitted):");
+  for (const [dir, why] of EXCLUDED) console.log(`  ${dir} \u2014 ${why}`);
   console.log(`\nnever named: ${never.length}`);
   for (const f of never) console.log(`  ${relative(ROOT, f)}`);
   if (!never.length) console.log("  (every source file in scope is named by some round)");
