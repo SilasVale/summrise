@@ -526,6 +526,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 225 (**ADR 0011 WRITTEN — the pattern this stretch found SEVEN times is
+finally a decision rather than a habit, with its rejected options, its mutation-proven instances and its
+deletion criterion**). Commit: docs/adr/ + ledger + journal. No code change.
+  (1) THE GAP THE GOAL NAMED AND THIS LOOP KEPT WALKING PAST: the objective requires that a design decision
+  "be written as an ADR, with rejected options, deletion criteria, measurable metrics and failure criteria".
+  **This stretch made the SAME design decision in rounds 199, 211, 213, 214, 215, 216, 217, 218, 220, 221 and
+  224 — eleven rounds, seven distinct artifact pairs — and never once wrote it down as one.** Each round
+  recorded its own instance in the journal and moved on, which is how a pattern stays a habit. The ADR is the
+  thing that makes the next instance a RECOGNITION rather than a discovery.
+  (2) WHAT ADR 0011 SAYS, AND ITS CENTRAL MEASUREMENT IS THE TABLE: **a single fact carried by two artifacts,
+  nothing comparing them, and one of them drifts** — with how far each had drifted when finally found. The
+  code-viewer manifest lagged its mirror **nine rounds** (199); the ledger's head lagged the journal's **91
+  rounds** (213); the convergence table's evidence cells described a state round 210 had already ended (221);
+  the ADR index hid two files behind one number each (224). **And the observation that makes it a decision
+  rather than a complaint: every one of those was, on the day it was found, DOCUMENTED ON AT LEAST ONE SIDE.**
+  The `ratelimit.ts` header names its call sites correctly; the ADR index lists every number correctly; the
+  browser helper's header describes a real generation step. **Documentation was never the missing thing — a
+  comparison was, and a statement about another file cannot fail.**
+  (3) THE REJECTED OPTIONS ARE THE FOUR CHEAPER-LOOKING ANSWERS, each with the instance that refutes it:
+  document the agreement on each side (that IS what was being done, seven times, each correct when written and
+  wrong when read); restate the value on both sides and assert each against its own copy (round 214's original
+  test — both sides pass while they diverge); a CI textual diff (most pairs are not textually comparable: a
+  Rust `&[&str]` against TS `data?.code === "…"`, a number against a filename, a boolean against six `slice`
+  sites); and trust review (199 and 213 were found after nine and ninety-one rounds of drift, in artifacts a
+  reviewer had looked at).
+  (4) THE FAILURE AND DELETION CRITERIA ARE BOTH STATED, because an ADR without them is a description: the
+  **failure criterion** is an assertion that passes while the two artifacts disagree — round 214's original is
+  the worked example, passing for as long as nobody changed the gateway and continuing to pass after a
+  gateway-side change; the **deletion criterion** is that an instance goes when the two artifacts stop being
+  two (a build-generated manifest has no second copy), and the deletion should SAY so rather than leave a test
+  asserting nothing. And the honest cost is recorded: one test file plus a parser per side, **and that parser
+  is where every harness bug of rounds 214-219 occurred — five of them — which is acceptable only because it
+  fails loudly on the first run rather than silently on the day the artifacts diverge.**
+  (5) SO THE GOAL'S OWN RECORDING REQUIREMENTS ARE NOW MET, and the state is worth stating whole: **three-place
+  recording has an instrument** (`agent/tests/ledger_head.rs`, round 213); **the ADR set has an instrument**
+  (`agent/tests/adr_allocation.rs`, round 224); **the ADR index is file-level** where numbers collide; and
+  **`0011` is the first new ADR this stretch**, indexed in `docs/adr/README.md`, in the ledger's index, and
+  here. STILL OPEN, AND NOTHING WAITS ON THE LOOP: the installer's signing decision (the user's call);
+  convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 224 (**THE ADR INDEX ENUMERATED BY NUMBER WHILE TWO NUMBERS EACH NAME TWO
 FILES — so it silently represented four documents as two, and the repo's own rule forbids the obvious fix**).
 Commit: agent/tests/ + ledger + journal. agent 675 = 673 + 2, four steps green.

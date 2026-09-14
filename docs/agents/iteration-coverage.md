@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 224**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 225**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -315,7 +315,8 @@ pending) · 0008 install layout v2 · **0009 names TWO files**
 (`0009-self-contained-installer`, `0009-unreconciled-publish-is-a-debt`) ·
 **0010 names TWO files** (`0010-linkify-is-off-by-default`,
 `0010-two-products-one-repository`) · Proposals: control-path, game-design,
-interactive-browser (`proposal-scoped-relay-token` is SUPERSEDED by 0007 and says
+0011 two artifacts, one obligation (round 224) · interactive-browser
+(`proposal-scoped-relay-token` is SUPERSEDED by 0007 and says
 so in its own header, so it is history rather than an open proposal).
 0002 is intentionally unused — and `docs/adr/README.md:28` forbids renumbering
 existing records to close a gap, which is why the two collisions above are RECORDED

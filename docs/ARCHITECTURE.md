@@ -113,6 +113,8 @@ auth: admin token + scoped relay credential (role "relay", ADR 0007) — relay p
 | Relay dual-accept window is open by design (ADR 0007) | admin tokens still pass relay paths until step 2 (clients on relay token) + step 3 (flip RELAY_ADMIN_CUTOVER); announce the window before flipping — it is a flag-day 401 for stragglers |
 | ~~Studio WS/e2e tests are live-only~~ | retired with the code (ADR 0006) — was: real PTY + browser deps; CI ran the HTTP contract tier |
 | Electron main.ts not split further | no testability gain — electron is unimportable under plain node |
+| **Every cross-artifact agreement costs a test file and a parser per side** (ADR 0011) | the alternative — documenting the agreement on one or both sides — was what the repo did SEVEN times before this ADR, and each of those documents was correct when written and wrong when read (rounds 199/213/214/215/216/217/218/220/221/224). **The parser is the fragile half and that is the accepted cost**: it accounted for every harness bug of rounds 214-219 (five of them), and it is tolerable only because it fails LOUDLY on the first run rather than silently on the day the artifacts diverge |
+
 | code-server replaces studio (2026-09-06, ADR 0006) | Monaco ceiling + whole-home workspace need; live on vscode.saisi.online → 127.0.0.1:7739 with Access as the ONLY gate — the server runs `--auth none`, so there is no password to double it with (rounds 141/143/149 corrected this claim in the extension, the options page and here; it had FOUR copies) (the tunnel is DASHBOARD-managed; its remote config evolved: socket → 7739 HTTP by the operator) |
 
 ## Test gates (per subproject)
