@@ -531,6 +531,53 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 258 (**PRODUCT CHANGE — the device now keeps a VITALS SERIES and the panel draws the trend: every
+instrument in the panel was instantaneous, and "has it been like this, or did I catch a moment?" now has an answer — a Device
+health card with real sparklines, and a sustained-load CHIP on the strip that speaks only when a load has PERSISTED**).
+Commit: 39209bb0 (metrics + `/api/vitals/history` + `lib/spark.ts` + the card and the chip). Release **1.2.369** published (CDN
+`/api/version` smoke: versioned + latest sha verified) and UPDATED ON d1, where the whole surface was verified under a REAL
+load, read out of the device's own browser.
+  (1) THE GAP IT CLOSES, STATED AS A QUESTION AN OPERATOR ASKS: every surface this device had reported the PRESENT — a dial,
+  two percentages, an uptime, a boot verdict. None could answer "has it been like this, or did I catch a moment?", which is the
+  question that matters when a box feels slow. **A reading is a number; a TREND is a fact somebody can act on.**
+  (2) `metrics.rs` NOW OWNS THE CLOCK, and that is a correctness change rather than plumbing: CPU% is a DELTA, so the INTERVAL
+  between readings is part of the value. A background sampler takes one reading every 30 s into a bounded ring (240 readings —
+  two hours) and `/api/status` serves the NEWEST sample instead of taking its own. **Before this, two consumers polling at
+  different rates shortened each other's delta window** — the sampler and the status poll would each reset the baseline, so the
+  number a strip printed and the series behind it could disagree about the same machine at the same moment. One clock, one
+  series, one answer.
+  (3) `GET /api/vitals/history` — the series, OLDEST FIRST (the order a chart draws in), carrying `interval_secs` and
+  `span_secs` because the series' SPACING is part of its meaning: a panel that assumed a cadence would draw the same shape for
+  30 s and 5 min samples, and a rate is exactly what an operator reads off a chart. Auth-gated like every other `/api` route
+  and named in the route inventory that pins that. A host that reports no vitals answers with an EMPTY series, never a series
+  of blanks — `record()` refuses a reading with nothing in it, so a non-Windows host has an empty history rather than a
+  history that looks like data.
+  (4) `lib/spark.ts` OWNS THE TWO RULES, both pure and both pinned: `sparkSegments` returns ONE PATH PER RUN of known readings,
+  so **a gap BREAKS the line instead of bridging values nobody measured** (the same lie as printing "0%" for "unknown"), and an
+  empty series returns NO path at all so a caller must render an honest empty state rather than a flat line that reads as a
+  quiet device. `loadNotice` fires only on a SUSTAINED load: ten readings of evidence, at least two thirds of them at or above
+  the dial's own crit band (90%), inside fifteen minutes. **A spike is not a condition** — and that threshold is the whole
+  reason the chip can be trusted.
+  (5) THE TWO SURFACES: a **Device health** card in Settings (verdict sentence first, then both series with min/avg/max printed
+  beside them, then the window stated) and a **load chip on the strip** — so "it has been pegged for twelve minutes" reaches an
+  operator who never opens Settings, and is silent otherwise. The card distinguishes three empty states rather than one:
+  "the device did not answer", "this host reports no vitals", and "one series has no readings yet, the other does".
+  (6) VERIFIED LIVE ON d1, AND THE LOAD IS REAL — a synthetic 12-core burn, not a mocked series. After `vale update` to
+  1.2.369 the route answered `samples=3 interval=30 span=60` with `{"cpu_pct":null,"mem_pct":58.9,…}` FIRST — the honest-empty
+  first reading, drawn on the card as a line that starts 44 px in, which is the gap rule visible in a real SVG path. Then the
+  burn: the series read `cpu=1.2,1.3,85.2,100,100,…`, and both surfaces spoke — the strip rendered
+  `… | CPU 100% MEM 71% | UP 11m 5s | VER 1.2.369 | 2 sessions | CPU pegged 11m` with `class="load-chip crit"` and the hover
+  naming the evidence ("at or above 90% in 16 of the last 21 readings (11 minutes)"), and the card's verdict line said the same
+  in a sentence, above `CPU avg 81% low 1% high 100%` — **screenshots of both pulled off the device and read.**
+  (7) ONE THING THIS ROUND DID NOT DO, recorded because the same shape keeps being the interesting one: the strip's dial and
+  the card's chart can now disagree for up to 30 s, because the dial reads the newest SAMPLE and the sampler is the only thing
+  that takes readings. That is deliberate (one clock — see (2)), and it is why `/api/status` no longer samples on demand.
+  STILL OPEN: **the deliberate-stop marker — a `vale restart`/`vale stop` whose revival outlives the classifier's minute still
+  reads as "CRASHED or was killed"** (measured again this round: the 1.2.369 update itself was fast and read `replaced`, but a
+  `vale restart` earlier in the day read `crashed` after a 95 s revival), and `runstate::mark_exited` still has no production
+  caller; the `.tsx` scope decision (see the coverage ledger); 1.2.362-1.2.364 in `release-reconcile.txt`; the installer's
+  signing decision (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue (89).
+
 Last updated: 2026-09-14 round 257 (**PRODUCT CHANGE — the device now keeps a RESTART HISTORY and the panel shows the pattern:
 `logs/boot-history.jsonl`, `GET /api/boots`, a **Restarts** card in Settings, and the strip's crash chip says how many there have
 been — the question d1's founding incident could never answer, "has this been happening or was that once?", now has an answer
