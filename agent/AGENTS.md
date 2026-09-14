@@ -531,6 +531,65 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 259 (**TWO DELIVERIES, THE SECOND ONE OUT OF THE OPERATOR'S OWN REPORT: the device can now be
+UPDATED FROM ITS OWN PANEL (1.2.370), and d1's "COM4 拒绝访问" was traced to a leaked serial handle inside the agent, fixed
+and verified (1.2.371/372)**).
+Commits: 27924b9e (the panel update card, 1.2.370), 0645de48 (the serial leak, 1.2.371), 67e6e0e7 (the honest error message
++ test isolation, 1.2.372), 95e0b273 (the lint fix CI caught). Three releases published to the CDN this round (1.2.370,
+1.2.371, 1.2.372) and d1 is ON 1.2.372.
+  (1) THE OPERATOR ASKED "COM4拒绝访问是什么情况" AND THE ANSWER WAS MEASURED, NOT GUESSED: `Win32_SerialPort` listed only
+  COM1 (a red herring — the class is unreliable); `Get-PnpDevice -Class Ports` showed BOTH FTDI adapters present and OK
+  (COM3 = A9K6C218A, COM4 = A9FR3SHMA); opening each name in turn gave the control that makes the diagnosis: **COM1 OK,
+  COM2 "Could not find file", COM3 OK, COM4 "Access to the path 'COM4' is denied", COM5 "Could not find file"** — so COM4
+  existed and was HELD, which "not found" can never mean.
+  (2) THE HOLDER WAS THE AGENT ITSELF, AND THE SESSION THAT OPENED IT HAD ALREADY CLOSED: `sessions/term-db2f8c-0.jsonl`
+  (kind `serial`, label `serial:COM4`) ends with `{"seq":870,…, "status":"closed"}`, and the port stayed locked until the
+  agent process was restarted — proven by the decisive experiment: before the restart COM4 was denied, after it
+  `COM4 OPEN OK` with a NEW agent pid.
+  (3) THE ROOT CAUSE IS A STALE ID, AND IT IS EXACTLY THE SHAPE THIS LOOP KEEPS FINDING: **`SerialPool::open` mints a NEW
+  entry id on every open, INCLUDING the reopen an auto-reconnect performs, and `SerialBackend` kept the id it was BORN
+  with** — so after a reconnect, close called `release_port(stale_id)`, a no-op, and the live entry (with its open OS
+  handle) stayed in the pool for the life of the process. A port locked by a session that no longer exists, for every
+  program on the device.
+  (4) THE FIX IS A GUARD THAT FOLLOWS THE SESSION: `PoolEntry` (pool + current id) is shared with the reader thread, a
+  reconnect REPOINTS it (releasing the old entry, holding the new), and `close` RELEASES it immediately rather than waiting
+  for every `Arc<dyn TermBackend>` clone in flight to drop; released is idempotent, so close, the reader's exit and `Drop`
+  all run in any order.
+  (5) AND THE ERROR NOW TELLS THE TRUTH, WHICH TOOK TWO ATTEMPTS BECAUSE THE FIRST WAS WRONG: classifying by
+  `serialport::ErrorKind` CANNOT work — its Windows layer folds ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND and
+  ERROR_ACCESS_DENIED into ONE kind (`windows/error.rs`), and the text is localised (`拒绝访问`). The device still answered
+  "Serial port not found: COM4: 拒绝访问" for a port Windows was listing. **The discriminator is PRESENCE**: a port the OS
+  still lists but will not open is busy; one it does not list is missing (`classify_open_failure`, pure, unit-pinned in both
+  directions). **VERIFIED LIVE with a real holder** (`Start-Job` holding COM4): `COM4 is in use by another program or an
+  open Vale session (拒绝访问。) — close that program or session and retry`, and after the holder exited,
+  `COM4 FREE after the agent's open+close on 1.2.372 — the fix holds`.
+  (6) TESTS, RUN AGAINST A REAL PTY through the file's documented harness (they skip without one, so CI is unaffected):
+  closing a session releases its pool entry; the guard FOLLOWS a reconnect to the new entry (the leak itself); and the
+  pre-existing TX-to-the-wire proof still passes. Honest limit, recorded: the reconnect path could not be FORCED on d1 —
+  `Disable-PnpDevice` refuses while the port is in use and the adapter cannot be unplugged remotely — so the device proof
+  covers the close path and the pty tests cover the reconnect.
+  (7) THE ROUND'S FIRST HALF, SHIPPED BEFORE THE REPORT CAME IN: the device can be updated from its own panel. `GET
+  /api/update` reports current/latest/pinned/busy with THE UPDATE PLUGIN'S OWN RULES (the local-release rule is now one
+  function shared with `agent_update`, so a panel cannot offer an update the tool would refuse), and the card's button is
+  NOT a second installer — it POSTs `/api/tools/agent_update`, the same tool an AI calls, with its sha256 gate, host pin,
+  rollback pin and busy marker already in the path (`force` only for a REINSTALL). The card states the three states that
+  change the answer rather than the one that is convenient: no channel configured (a supported local install), the release
+  server did not answer (UNKNOWN, never "up to date"), pinned by `vale rollback` (an update may exist that the device
+  refuses). **Verified live on d1: `running 1.2.372 | latest is 1.2.372`, no warnings, `Reinstall 1.2.372` with the repair
+  note** — the button itself was NOT clicked, deliberately: it restarts the agent, and the operator was mid-debugging the
+  ONU through a console session at the time; the action path is the tool three CLI updates exercised on this device today.
+  (8) TWO PROCESS FAILURES WORTH THE LINES: (a) my first local gate after the serial fix ran `cargo test` but NOT clippy, so
+  CI caught `await_holding_lock` — a std `MutexGuard` held across `.await` in the three data-dir tests I had just written;
+  the lock is now a const tokio mutex. **(b) Those three tests plant files in the LIVE data dir (`paths::data_dir()` has no
+  test override), and under three concurrent `cargo test` binaries three of them failed while every one passed alone** —
+  the shape round 257 lost a release build to. They now serialise inside a binary; the honest limit is stated in the code:
+  two test BINARIES over one data dir still interleave, and that configuration is not supported.
+  STILL OPEN: **the deliberate-stop marker — `vale restart`/`vale stop` whose revival outlives the classifier's minute still
+  reads as "CRASHED or was killed"**, and `runstate::mark_exited` still has no production caller; **1.2.370 and 1.2.371 were
+  published minutes before 1.2.372 and need tags (1.2.372 is tagged at the CI-green commit)**; the `.tsx` scope decision
+  (see the coverage ledger); 1.2.362-1.2.364 in `release-reconcile.txt`; the installer's signing decision (the user's);
+  ADR 0007 step 2's assessment (the user's); the never-named queue.
+
 Last updated: 2026-09-14 round 258 (**PRODUCT CHANGE — the device now keeps a VITALS SERIES and the panel draws the trend: every
 instrument in the panel was instantaneous, and "has it been like this, or did I catch a moment?" now has an answer — a Device
 health card with real sparklines, and a sustained-load CHIP on the strip that speaks only when a load has PERSISTED**).
