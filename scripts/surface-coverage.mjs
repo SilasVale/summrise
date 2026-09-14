@@ -38,8 +38,16 @@ const ROOTS = [
   "proxies/api-relay/api",
   "proxies/api-relay/server",
   "extension",
+  // Round 234: `scripts/` holds the release/publish tooling AND every check script CI
+  // runs (`model-drift-check`, `contrast-probe-check`, `panel-audit-skip-check`,
+  // `e2e-only-check`, `token-contract-check`, `scan-dups-check.py`, the six bash
+  // suites), and it was never in this scope at all — so "never named" said nothing
+  // about 19 files. Adding it moves the count 135 -> 154 and the never-named list
+  // 12 -> 10, which is the point: a scope is a claim, and this one was narrower than
+  // what a reader of "every source file in scope is named" would infer.
+  "scripts",
 ];
-const EXTS = [".ts", ".mjs", ".js", ".rs", ".ps1", ".nsi"];
+const EXTS = [".ts", ".mjs", ".js", ".rs", ".ps1", ".nsi", ".bash", ".py"];
 const SKIP = ["node_modules", "target", "dist", ".wrangler"];
 
 function walk(dir, out = []) {

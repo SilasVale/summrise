@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 233**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 234**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -131,7 +131,7 @@ reconcile the difference, because there was nothing to reconcile against. **A co
 unstated is a recollection, not a measurement.** The tool states its scope (eight source roots,
 six extensions, three skipped directory names) and prints both numbers.
 
-**MEASURED ROUND 230, WHICH CORRECTS ROUND 229: 135 files in scope, and 12 never named.** Round 229 reported 118 and zero — and its scope listed `proxies/api-relay/src`, **a directory that does not exist**, which `walk()` skipped silently, so the whole `api-relay` subsystem (17 files, kept in `api/` and `server/`) went uncounted. **The zero was a verdict about a scope that was not the one stated, and the tool now exits 2 when a root cannot be read, because typo'ing a root used to take the file count from 118 to 77 while still reporting `never named: 0` — a plausible, lower number with a clean verdict.** All 12 sit under `api-relay`, the subsystem CI only `node --check`s. (Round 229's original sentence follows, superseded: **118 files in scope, and ZERO never named** — the table's own population-level
+**MEASURED ROUND 234: 154 files in scope, and 10 never named** — round 234 added `scripts/`, which had never been in the scope at all, so every earlier verdict here was silent about the 19 files holding every check CI runs. `.bash` and `.py` joined the extension list for the same reason. (Round 230's measurement, kept for the record: **135 files in scope, and 12 never named.** Round 229 reported 118 and zero — and its scope listed `proxies/api-relay/src`, **a directory that does not exist**, which `walk()` skipped silently, so the whole `api-relay` subsystem (17 files, kept in `api/` and `server/`) went uncounted. **The zero was a verdict about a scope that was not the one stated, and the tool now exits 2 when a root cannot be read, because typo'ing a root used to take the file count from 118 to 77 while still reporting `never named: 0` — a plausible, lower number with a clean verdict.** All 12 sit under `api-relay`, the subsystem CI only `node --check`s. (Round 229's original sentence follows, superseded: **118 files in scope, and ZERO never named** — the table's own population-level
 open item is closed, because round 228 found and named the last one (`gateway/src/mcp-errors.ts`).
 **And the instrument's limit is stated with it: it measures "named", not "examined"** — which is
 this table's own founding lesson, that "the ledger's 'surfaces covered' meant 'surfaces someone

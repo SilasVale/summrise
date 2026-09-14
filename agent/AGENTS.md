@@ -526,6 +526,36 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 234 (**`scripts/` WAS NEVER IN THE COVERAGE INSTRUMENT'S SCOPE — so "every source
+file in scope is named" said nothing about the 19 files that hold every check CI runs; and CI turned out to run
+MORE than round 226 credited it with**). Commit: scripts/ + ledger + journal.
+  (1) THE LEAD WAS ROUND 233's LESSON TURNED ON CI ITSELF — "a rule stated for one directory is not a rule
+  about the repository" — and the FIRST RESULT CORRECTS MY OWN SUSPICION RATHER THAN CONFIRMING IT: I expected
+  CI to run one of the six `scripts/test/*.bash` suites, and it runs **all six** (lines 241, 249, 255, 262, 270,
+  339). Reading `.github/workflows/ci.yml` rather than assuming is round 226/227's habit, and it paid here by
+  refuting the hypothesis instead of feeding it.
+  (2) AND THE SAME FILE SHOWED SIX CHECKS THAT ROUND 226 NEVER RAN, all green: `model-drift-check.mjs` (6
+  checks), `contrast-probe-check.mjs` (11), `panel-audit-skip-check.mjs` (**3 tests**), `e2e-only-check.mjs`
+  (**5 tests**), `token-contract-check.mjs`, and `scan-dups-check.py` (10 checks). **Round 226 measured "130
+  node tests and 130 bash checks" and reported the tree green — which was true of what it ran and not of
+  the set it implied.** The counts came out only on a second pass here, because two of them print node:test
+  output without the summary line my first `tail -2` caught.
+  (3) THE FINDING IS THAT `scripts/` WAS NEVER IN `surface-coverage.mjs`'s `ROOTS` AT ALL. Round 229 said
+  **"every source file in scope is named by some round"**, round 230 made a root that cannot be read a FATAL
+  error, and round 233 found an assertion scoped to one directory — **and through all of that the 19 files
+  under `scripts/` were outside the scope, so the instrument's verdict had never been about them.** That is the
+  fourth instance of one shape: **a scope narrower than what a reader of the sentence would infer.**
+  (4) ADDING IT MOVES BOTH NUMBERS, WHICH IS THE POINT: **135 → 154 files and 12 → 10 never named**
+  (files added to the scope that were already named outnumber the newly-visible un-named ones). The ten are
+  eight `api-relay` gate tests plus **`scripts/test/scan-dups-check.py` and `scripts/test/smoke-helpers.bash`**
+  — so the tool now names two files in the very directory whose checks it had been silent about. `.bash` and
+  `.py` join `EXTS` for the same reason: without them `scripts/` would have been added but half-empty.
+  (5) AND THE FAILURE PATH WAS RE-VERIFIED RATHER THAN ASSUMED: typo'ing the new root still exits 2 with
+  `FATAL: root in scope does not exist or is unreadable`. **Round 230 built that guard and round 234 is the
+  first round to change `ROOTS` since — so testing it again is the cheap way to keep the guard from being a
+  claim. STILL OPEN, AND NOTHING WAITS ON THE LOOP: the installer's signing decision (the user's call);
+  convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 233 (**ROUND 232'S FIX WAS SCOPED TO THE DIRECTORY WHERE IT FOUND THE DEFECT — the
 same stale sentence was one level up in `proxies/README.md`, the runbook an operator reads**). Commit:
 proxies/README.md + the assertion's scope + journal. api-relay 70 tests, 70 pass.
