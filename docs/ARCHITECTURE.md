@@ -35,7 +35,7 @@ auth: admin token + scoped relay credential (role "relay", ADR 0007) — relay p
 | `gateway/src/store.ts` | pure re-export shim over `store/` — every existing `from "../store.ts"` import keeps working; implementation lives in the domain modules | store.ts header |
 | `gateway/src/store/` | KV domains (users/admin/settings/devices/regkeys/plugins/grants) behind the shim; `cache.ts` is the SINGLE process-global cache; no inter-domain cycles | bc64b8fb |
 | `gateway/src/lib/` | cross-plugin policy factories (ratelimit) | 931f42d6 |
-| `agent/src/web/` | mod.rs auth+dispatch+handlers; panel.rs (static+grant redemption); sse.rs (streams) | 02193d37 |
+| `agent/src/web/` | mod.rs auth+dispatch+handlers; panel.rs (static+grant redemption); **parse.rs (the ONE owner of what a JSON settings body MEANS — SOLID R104; 198 lines, used by mod.rs)**; sse.rs (streams). **Corrected round 250: this row named three of the directory's four `.rs` files and omitted `parse.rs`, a module whose own docstring calls it "ONE owner" for a rule — the same shape as round 249's `plugins/` row.** | 02193d37; corrected R250 |
 | `agent/src/evidence.rs` | the pwout AI-evidence feed contract (actions.jsonl append/newest-first read, shot listing, basename guard, `browser-actions-changed` push) — ONE owner for both producers + the web reader (SOLID R98) | evidence.rs header |
 | `agent/src/plugins/terminal/tools/` | ctx.rs (shared state) ← per-domain builders (exec/sessions/files/output/secrets/connections); mod.rs owns registration order | f869d432 |
 | `agent/src/tools/` | TRANSPORTS (ssh=russh, serial=SerialPool) UNDER the terminal backends; the two ssh.rs are layers, not duplicates | da6a6137 |

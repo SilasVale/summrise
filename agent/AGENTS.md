@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 250 (**ONE `Directory contracts` ROW HELD UP AND ONE WAS INCOMPLETE — and the one that
+held up did so for a reason my first instrument could not see, which is the round's more useful half**).
+Commit: ARCHITECTURE.md + journal.
+  (1) THE LEAD WAS ROUND 249's OWN NEXT STEP: that round fixed the `gateway/src/plugins/` contract row and
+  instrumented it, so this one took the eleven rows beside it. **Two are enumerable, and the first was supposed to
+  be the easy catch: `gateway/src/store/` says "KV domains (users/admin/settings/devices/regkeys/plugins/grants)
+  behind the shim; `cache.ts` is the SINGLE process-global cache", while `store/` holds TWELVE `.ts` files — so
+  five (byok, cache, file-config, models, providers) looked unlisted.**
+  (2) AND THE ROW IS CORRECT, WHICH MY INSTRUMENT COULD NOT TELL ME: **`store.ts` re-exports EXACTLY EIGHT domains
+  — cache, users, admin, settings, devices, regkeys, plugins, grants — which is the row's seven plus the
+  separately-named `cache.ts`, to the file.** The other four are NOT re-exported and are reached directly inside
+  `store/`, so the row enumerates *the domains behind the shim* and not *the directory's contents*. **That is
+  round 217's lesson repeating: my count asked "does the list match the directory?" when the row's claim was
+  narrower than that, and the same wrong question produced the same false positive there (`ctx.api` reads that
+  were all in comments).** The row now records the distinction so the next reader does not re-run my mistake.
+  (3) THE SECOND ROW IS GENUINELY INCOMPLETE: **`agent/src/web/` named three of the directory's four `.rs` files
+  and omitted `parse.rs` — 198 lines whose own docstring calls it "ONE owner for the rules that decide what a
+  JSON body means (SOLID R104)", imported by `mod.rs`.** So it is not a helper the row could reasonably leave
+  out; it is a named single-owner concern missing from the list of owners. **Round 249's shape, one table over,
+  and the second instance in two rounds — which is what makes the pattern worth naming rather than the row worth
+  fixing.**
+  (4) SO THE DISTINCTION THAT MATTERS IS NOW STATED, BECAUSE ROUNDS 249 AND 250 DISAGREE ABOUT WHAT A ROW CLAIMS:
+  **the `plugins/` row enumerates a DIRECTORY and must name every file in it (round 249's assertion enforces
+  that); the `store/` row enumerates what a SHIM EXPOSES and must name exactly the re-exported set (correct, and
+  no assertion).** A blanket "every file in the directory appears in its row" check would fail `store/` today and
+  would be wrong — **which is why the assertion added in round 249 is scoped to `plugins/` rather than
+  generalised, and why `agent/src/web/`'s row is fixed here WITHOUT an assertion: its claim (three files'
+  roles) is not yet phrased as an enumeration, so asserting it would assert my reading rather than the row's
+  claim.**
+  (5) THE HONEST STATE, AND IT IS THE SAME ONE ROUND 247 REPORTED: **two rounds of sweeping this table have found
+  two incomplete rows and one row that only looked wrong.** The table has eleven more rows, several of which name
+  no files at all and cannot be checked this way. **Nothing was changed except the one incomplete row, because the
+  alternative — inventing a fourth angle — is what round 247 already declined to do.** STILL OPEN: the installer's
+  signing decision (the user's call); ADR 0007 step 2's assessment (the user's); the never-named to-read queue
+  (38).
+
 Last updated: 2026-09-14 round 249 (**`ARCHITECTURE.md`'s `plugins/` CONTRACT ROW CARRIED THE SAME OMISSION ROUND 184
 FOUND IN `registry.ts` — the same defect, in the second of the two places that enumerate that directory**).
 Commit: ARCHITECTURE.md + gateway/test/ + mirror + journal. gateway 873 = 872 + 1, four steps green.
