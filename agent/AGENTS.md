@@ -541,6 +541,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 264 (**PRODUCT CHANGE — ATTENTION THAT FOLLOWS YOU OUT OF THE TAB: a live count in the tab title, a
+badge on the panel's icon, and — if the operator allows it — a desktop notification when a host they asked us to watch goes down
+or an AI is blocked on a question. The panel's whole vocabulary assumed somebody was looking at it; these are the two facts that
+are only useful NOW**).
+Commits: 8fef06b8 (the three channels), d06bdec2 (the double-notification fix the DEVICE found). Releases **1.2.378** and
+**1.2.379** published and UPDATED ON d1, where both permission states, the count, the badge and the notification were exercised.
+  (1) THREE CHANNELS, ORDERED CHEAPEST-FIRST, and the ordering is the design: **the tab TITLE** (`(2) ⚠ Vale Agent` — the count
+  comes first because a tab truncates from the right; no permission, no API, and it is the one piece of the page a browser shows
+  when the page is not on screen); **the FAVICON** (the same information as a shape for a pinned tab, built from the icon the
+  panel already loads with a badge disc — plain past nine, because a two-digit number at 16 px is not a number); and **a desktop
+  NOTIFICATION**, the only channel that leaves the browser and the only one that can be REFUSED.
+  (2) WHAT NEEDS A PERSON, from facts the device already produces: a **waiting question** (the panel's own
+  `pendingApprovalCount` — an AI is BLOCKED, which outranks a host that is down because a fact keeps and a person's work does
+  not) and a **watched target that is down**. One function derives the items, one derives the title, one derives the badge, so
+  the three channels cannot disagree about how much needs attention.
+  (3) PERMISSION IS FOUR STATES, NOT A BOOLEAN: `unsupported` / `default` / `granted` / `denied`. The request is made from the
+  toggle (browsers require a gesture), the card renders the browser's ACTUAL answer with a hint that says what to do next, and a
+  refusal is NEVER drawn as "on" — it names the channel that still works instead of leaving the operator stuck. Verified on d1 in
+  BOTH states: with the permission granted the notifications went out; in the ordinary attached browser (denied) the card read
+  `Notifications unavailable` / `denied` / "…or rely on the tab title, which always works", with `2 things need you: …` beside it.
+  (4) THE NOTIFICATION RULES ARE THE FEATURE, not `new Notification(...)`: dedupe by key so a host that stays down notifies once,
+  keys retired when the condition clears so a link that goes down, recovers and goes down AGAIN notifies twice, `tag` so the OS
+  replaces rather than stacks, and a rate limit (5 s apart, 3 a minute) so a flapping link cannot become a cannon — with the
+  suppressed count kept rather than silently dropped.
+  (5) **AND THE DEVICE FOUND A REAL BUG IN IT, which is the round's most useful fact.** The first version sent TWO notifications
+  for one outage: the push (with the outage duration) and the next poll. The cause was my own design — the push "cleared" the
+  poll's key to retire it, which RE-ARMED it. **No unit test could see it: each source was correct alone and the bug lived in
+  their interaction.** The rule is now **one key per STATE, not per source** (`state:<id>:<since>`, where the poll's `sinceMs`
+  and the push's `at_ms` are the same moment by construction); re-verified on d1 with a 42-second window that outlasts a full
+  poll cycle — **exactly one notification** for the new transition, with the tag proving the shared key.
+  (6) ALSO ON d1: the title went `(1) Vale Agent` → `(2) Vale Agent` as the second watched host went down, the badge gained the
+  count, and the card's live line read `2 things need you: … is down; … is down`. Cleanup: all four test targets and their
+  listeners were removed, leaving the operator's own watch (`192.168.1.1:22 up_now=True`).
+  STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still reads as
+  "CRASHED or was killed"); a monitor is host:port only (no HTTP status check, no latency threshold), so "down" still cannot
+  distinguish a refused connection from a web UI that answers 500; notifications are panel-only (an operator with NO window open
+  is still not reached — the next step is the OS, not the page); 1.2.378/1.2.379 need their tags + audits; the `.tsx` scope
+  decision; 1.2.370 and 1.2.374 in `release-reconcile.txt`; 1.2.362-1.2.364 in the same ledger; the installer's signing decision
+  (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue (93).
+
 Last updated: 2026-09-14 round 263 (**PRODUCT CHANGE — the monitor gets a VOICE: the device now ANNOUNCES a watched target changing
 state (a banner in an open panel, pushed over the SSE stream it already had), keeps an OUTAGE LOG with wall-clock times and
 durations (`20:52:26 went down`, `20:53:15 back up — previous state lasted 49s`), and hands the same log to the AI. Everything
