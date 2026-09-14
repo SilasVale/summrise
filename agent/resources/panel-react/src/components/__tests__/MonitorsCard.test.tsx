@@ -57,6 +57,7 @@ const target = (
     host,
     port: Number(portStr) || 22,
     path: null,
+    expect: null,
     series: series(oks),
     // TRANSITIONS derived the way the device derives them (a flip, with the duration of the
     // state it ended), so the fixture cannot describe a log the device could not produce.
@@ -80,6 +81,7 @@ const target = (
       sinceMs: oks.length ? now - 30_000 : null,
       latency: up ? { min: 3, avg: 5, max: 9 } : null,
       lastStatus: null,
+      lastExpectOk: null,
       // DROPS: the falls in the fixture, which is the same rule the device counts.
       drops: oks.length ? oks.slice(1).filter((ok, i) => oks[i] && !ok).length : null,
     },
@@ -191,7 +193,7 @@ describe("MonitorsCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "watch" }));
     // The optional PATH rides along as an empty string when the operator does not fill it in —
     // an empty path means the plain TCP connect this instrument started as.
-    await waitFor(() => expect(onAdd).toHaveBeenCalledWith("192.168.1.1", 22, ""));
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith("192.168.1.1", 22, "", ""));
     await waitFor(() =>
       expect(container.querySelector(".monitor-error")!.textContent).toContain("a port is required"),
     );
@@ -206,7 +208,7 @@ describe("MonitorsCard", () => {
     fireEvent.change(screen.getByLabelText("port"), { target: { value: "80" } });
     fireEvent.change(screen.getByLabelText("path"), { target: { value: "/status" } });
     fireEvent.click(screen.getByRole("button", { name: "watch" }));
-    expect(onAdd).toHaveBeenCalledWith("192.168.1.1", 80, "/status");
+    expect(onAdd).toHaveBeenCalledWith("192.168.1.1", 80, "/status", "");
 
     // A row watched with a path shows the URL and the CODE — including when it is up, because
     // "404 up" and "200 up" are different facts about the same service.
@@ -218,6 +220,37 @@ describe("MonitorsCard", () => {
     expect(container.querySelector(".monitor-name")!.textContent).toBe("192.168.1.1:22/status");
     expect(container.querySelector(".monitor-status")!.textContent).toBe("HTTP 503");
     expect(container.querySelector(".monitor-status")!.className).toContain("is-bad");
+  });
+
+  it("accepts a content check and reports a 200 that does not contain the text", () => {
+    const onAdd = vi.fn(async () => ({ ok: true }));
+    const { container, rerender } = render(
+      <MonitorsCard monitors={monitors([])} onAdd={onAdd} onRemove={noop} onProbe={noop} nowMs={now} />,
+    );
+    fireEvent.change(screen.getByLabelText("host"), { target: { value: "192.168.1.1" } });
+    fireEvent.change(screen.getByLabelText("port"), { target: { value: "80" } });
+    fireEvent.change(screen.getByLabelText("path"), { target: { value: "/" } });
+    fireEvent.change(screen.getByLabelText("expect"), { target: { value: "OpenWrt" } });
+    fireEvent.click(screen.getByRole("button", { name: "watch" }));
+    expect(onAdd).toHaveBeenCalledWith("192.168.1.1", 80, "/", "OpenWrt");
+
+    // The row says WHICH way it failed: the page answered 200 and did not contain the text.
+    const checked = { ...target({ oks: [true, false] }), path: "/", expect: "OpenWrt" };
+    checked.summary = { ...checked.summary, lastStatus: 200, lastExpectOk: false };
+    rerender(
+      <MonitorsCard monitors={monitors([checked])} onAdd={onAdd} onRemove={noop} onProbe={noop} nowMs={now} />,
+    );
+    const row = container.querySelector(".monitor-row")!;
+    expect(row.textContent).toContain("HTTP 200");
+    expect(row.textContent).toContain("no match");
+    expect(row.querySelector(".monitor-status.is-bad")).not.toBeNull();
+
+    // …and when it matches, the word says so and nothing is flagged bad.
+    const ok = { ...checked, summary: { ...checked.summary, upNow: true, lastExpectOk: true } };
+    rerender(
+      <MonitorsCard monitors={monitors([ok])} onAdd={onAdd} onRemove={noop} onProbe={noop} nowMs={now} />,
+    );
+    expect(container.querySelector(".monitor-row")!.textContent).toContain("matches");
   });
 
   it("clears the host field after a successful add, and keeps it after a failure", async () => {

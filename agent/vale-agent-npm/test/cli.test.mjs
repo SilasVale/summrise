@@ -1481,3 +1481,22 @@ test("reportText: a version drift is named, and an empty watch list says how to 
   assert.match(text, /CLI 1\.2\.383 \(DRIFT\)/);
   assert.match(text, /watching nothing \(vale monitor add <host:port>\)/);
 });
+
+
+test("targetLine: a content check that failed says so, next to the code that looked fine", () => {
+  const now = 1_789_000_000_000;
+  const line = targetLine(
+    { id: "h:80/", summary: { up_now: false, since_ms: now - 1000, last_status: 200, last_expect_ok: false } },
+    now,
+  );
+  assert.match(line, /HTTP 200/);
+  assert.match(line, /no match/); // 200 AND wrong: the status alone would have called this healthy
+  const ok = targetLine(
+    { id: "h:80/", summary: { up_now: true, since_ms: now - 1000, last_status: 200, last_expect_ok: true } },
+    now,
+  );
+  assert.match(ok, /matches/);
+  // No content check: neither word appears.
+  const plain = targetLine({ id: "h:80/", summary: { up_now: true, since_ms: now - 1000, last_status: 200, last_expect_ok: null } }, now);
+  assert.doesNotMatch(plain, /match/);
+});

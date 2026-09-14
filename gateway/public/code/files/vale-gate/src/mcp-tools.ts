@@ -725,7 +725,7 @@ const MONITOR_TOOLS: McpTool[] = [
   {
     name: "monitor_add",
     description:
-      "Start watching a host:port on this device and leave the watch in place — the list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards. Add one when something you are about to touch must be seen coming back. Without a path the probe is a TCP connect (a REFUSED connection counts as down); with `path` it is a real HTTP GET and the status code is recorded, where `ok` means a response arrived with a status below 500 — so a UI answering 500 is DOWN while one answering 401 is UP. HTTP only. Adding the same host:port (and path) twice is idempotent. Name the SERVICE (22 for SSH, 80 for a web UI) — guessing a port would probe the wrong thing and report it as fact.",
+      "Start watching a host:port on this device and leave the watch in place — the list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards. Add one when something you are about to touch must be seen coming back. Without a path the probe is a TCP connect (a REFUSED connection counts as down); with `path` it is a real HTTP GET and the status code is recorded, where `ok` means a response arrived with a status below 500 AND, when `expect` is given, that the body contains it — so a UI answering 500 is DOWN, and so is one answering 200 with a login page. HTTP only. Adding the same host:port (and path) twice is idempotent. Name the SERVICE (22 for SSH, 80 for a web UI) — guessing a port would probe the wrong thing and report it as fact.",
     inputSchema: {
       type: "object",
       properties: {
@@ -736,6 +736,11 @@ const MONITOR_TOOLS: McpTool[] = [
           type: "string",
           description:
             'Optional HTTP path to GET, e.g. "/" or "/api/health". Omit for a plain TCP connect check.',
+        },
+        expect: {
+          type: "string",
+          description:
+            "Optional text the response body MUST contain (needs a path). A page that answers 200 without it counts as down — the difference between a working UI and a login page or a starting-up stub.",
         },
       },
       required: ["host", "port"],

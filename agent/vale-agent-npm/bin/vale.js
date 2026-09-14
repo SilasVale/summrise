@@ -520,10 +520,13 @@ function targetLine(t, nowMs, width = 30) {
     const id = String(t.id || "");
     const since = s.since_ms ? ` ${fmtDuration(nowMs - s.since_ms)}` : "";
     const status = s.last_status === null || s.last_status === undefined ? "" : `  HTTP ${s.last_status}`;
+    // A content check that did not find its text is the case a status code cannot express, so it
+    // is printed as its own word next to the code.
+    const match = s.last_expect_ok === false ? "  no match" : s.last_expect_ok === true ? "  matches" : "";
     const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
     const pct = s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
     const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
-    return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${lat}${pct}${drops}`;
+    return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}`;
 }
 // The transitions a target has been through, newest first — the outage log an
 // operator pastes into a report.
@@ -1574,14 +1577,23 @@ const commands = {
     // is, needs no browser, and `vale watch` keeps it live on screen.
     monitor(args) {
         const sub = String(args[0] || "list").toLowerCase();
+        // `--expect <text>`: the page must CONTAIN this text, or the watch counts it as down — the
+        // difference between a working UI and a login page that answers 200.
+        const expectAt = args.indexOf("--expect");
+        const expect = expectAt >= 0 ? String(args[expectAt + 1] || "") : "";
+        const positional = args.filter((a, i) => i > 0 && a !== "--expect" && i !== expectAt + 1);
+        if (expectAt >= 0 && !expect) {
+            console.error("usage: vale monitor add <host:port[/path]> --expect \"<text>\"");
+            process.exit(1);
+        }
         if (sub === "add" || sub === "rm" || sub === "remove") {
-            const t = parseTargetArg(args[1]);
+            const t = parseTargetArg(positional[0]);
             if (!t) {
                 console.error("usage: vale monitor add <host:port[/path]>   (e.g. 192.168.1.1:80/ or 192.168.1.1:22)");
                 process.exit(1);
             }
             if (sub === "add") {
-                const r = deviceApi("POST", "/api/monitors/add", { host: t.host, port: t.port, path: t.path });
+                const r = deviceApi("POST", "/api/monitors/add", { host: t.host, port: t.port, path: t.path, expect });
                 if (!r.ok) {
                     console.error(`monitor add: ${r.error}`);
                     process.exit(1);
@@ -1593,7 +1605,8 @@ const commands = {
                 // Probe once so the operator sees a reading instead of "no readings yet"
                 // for one 15 s cycle — the same courtesy the panel gives.
                 deviceApi("POST", "/api/monitors/probe", { id: t.id });
-                console.log(`watching ${t.id}${t.path ? " (HTTP GET, status code recorded)" : " (TCP connect)"}`);
+                console.log(`watching ${t.id}${t.path ? " (HTTP GET, status code recorded)" : " (TCP connect)"}` +
+                    (expect ? ` requiring the body to contain "${expect}"` : ""));
                 return;
             }
             const r = deviceApi("POST", "/api/monitors/remove", { id: t.id });

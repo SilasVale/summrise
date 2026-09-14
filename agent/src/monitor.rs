@@ -58,6 +58,14 @@ pub struct Target {
     /// that is ANSWERING 500, and that difference was the whole reason somebody was staring at it.
     /// The path is stored as given (starting with `/`); `None` means the original TCP probe.
     pub path: Option<String>,
+    /// WHEN SET, THE RESPONSE BODY MUST CONTAIN THIS TEXT for the probe to count as up.
+    ///
+    /// WHY IT EXISTS, in the operator's words: a UI answering `200` with a login page, a captive
+    /// portal or a "the service is starting" stub is not the thing they asked about. The status
+    /// code cannot tell those apart from a working page, and a substring can: it is the cheapest
+    /// assertion that fails when the CONTENT changes and passes when the server merely reformats
+    /// its headers. Case-sensitive on purpose — the operator writes what they expect to see.
+    pub expect: Option<String>,
 }
 
 /// One probe: WHEN, whether it answered, and how long it took when it did.
@@ -71,6 +79,10 @@ pub struct Probe {
     /// THE HTTP STATUS, when this probe was an HTTP one and a response arrived. `None` for a TCP
     /// probe and for a transport failure — and the two are told apart by `path`, not by guessing.
     pub status: Option<u16>,
+    /// Whether the EXPECTED TEXT was found, when the target has an expectation. `None` when there
+    /// was nothing to match (no expectation, or no response to read) — "no answer" and "the answer
+    /// did not say it" are different facts and must not collapse into one `false`.
+    pub expect_ok: Option<bool>,
 }
 
 struct Watch {
@@ -150,11 +162,19 @@ pub fn parse_targets(text: &str) -> Vec<Target> {
                 .map(str::trim)
                 .filter(|p| !p.is_empty())
                 .map(str::to_string);
+            // The expected text rides with the path: absent on a target that only checks a status.
+            let expect = r
+                .get("expect")
+                .and_then(|p| p.as_str())
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_string);
             Some(Target {
                 id,
                 host,
                 port,
                 path,
+                expect,
             })
         })
         .take(TARGETS_MAX)
@@ -226,6 +246,18 @@ pub fn validate_path(path: &str) -> Result<Option<String>, String> {
     }))
 }
 
+/// An expectation the probe can look for, or `None`. Refused WITH A REASON: it is a form field.
+pub fn validate_expect(expect: &str) -> Result<Option<String>, String> {
+    let e = expect.trim();
+    if e.is_empty() {
+        return Ok(None);
+    }
+    if e.len() > 200 {
+        return Err("the expected text is too long (200 characters is the limit)".into());
+    }
+    Ok(Some(e.to_string()))
+}
+
 pub fn validate_target(host: &str, port: u16) -> Result<(String, u16), String> {
     let host = host.trim().to_string();
     if host.is_empty() {
@@ -272,17 +304,46 @@ pub fn add_target_with_path(
     port: u16,
     path: &str,
 ) -> Result<Target, String> {
+    add_target_full(data_dir, host, port, path, "")
+}
+
+/// Add a target with a path AND an expected substring (see [`Target::expect`]).
+pub fn add_target_full(
+    data_dir: &Path,
+    host: &str,
+    port: u16,
+    path: &str,
+    expect: &str,
+) -> Result<Target, String> {
     let (host, port) = validate_target(host, port)?;
     let path = validate_path(path)?;
+    let expect = validate_expect(expect)?;
+    // An expectation with no path has nothing to read: the TCP probe has no body. Refused rather
+    // than silently ignored — a watch that promises something it does not do is worse than one
+    // that says no.
+    if expect.is_some() && path.is_none() {
+        return Err("an expected text needs an HTTP path to read — add one (e.g. \"/\")".into());
+    }
     let id = target_id(&host, port, path.as_deref());
     let target = Target {
         id,
         host,
         port,
         path,
+        expect,
     };
     let stored = state_with(|st| {
-        if let Some(existing) = st.watches.iter().find(|w| w.target.id == target.id) {
+        if let Some(existing) = st.watches.iter_mut().find(|w| w.target.id == target.id) {
+            // THE SAME WATCH, A NEW CRITERION. Adding a URL that is already watched used to return
+            // the existing row and ignore the new `expect` — so "I want this URL to require
+            // 'login' now" silently did nothing, which is the worst kind of no-op for an
+            // instrument. The IDENTITY is the URL; the expectation is an attribute of it, and
+            // re-adding updates the attribute while KEEPING the series (same watch, new rule).
+            let updated = existing.target.expect != target.expect;
+            existing.target = target.clone();
+            if updated {
+                return target;
+            }
             return existing.target.clone();
         }
         if st.watches.len() >= TARGETS_MAX {
@@ -291,6 +352,7 @@ pub fn add_target_with_path(
                 host: String::new(),
                 port: 0,
                 path: None,
+                expect: None,
             };
         }
         st.watches.push(Watch {
@@ -390,6 +452,7 @@ fn record(id: &str, probe: Probe) {
             // answering 500" are different sentences and the second is the one that helps.
             "status": probe.status,
             "path": target.path,
+            "expect_ok": probe.expect_ok,
         }));
     }
 }
@@ -446,6 +509,7 @@ async fn probe_tcp(target: &Target) -> Probe {
             None
         },
         status: None,
+        expect_ok: None,
     }
 }
 
@@ -477,17 +541,33 @@ async fn probe_http(target: &Target, path: &str) -> Probe {
                 ok: false,
                 ms: None,
                 status: None,
+                expect_ok: None,
             }
         }
     };
     match client.get(&url).send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
+            // THE EXPECTATION IS CHECKED ON A BOUNDED PREFIX of the body: enough for any real
+            // page's marker, and bounded so a target streaming gigabytes cannot make the prober
+            // the problem. `None` when there is nothing to match.
+            let expect_ok = match target.expect.as_deref() {
+                None => None,
+                Some(needle) => {
+                    const BODY_CAP: usize = 256 * 1024;
+                    let bytes = resp.bytes().await.unwrap_or_default();
+                    let head = &bytes[..bytes.len().min(BODY_CAP)];
+                    Some(String::from_utf8_lossy(head).contains(needle))
+                }
+            };
             Probe {
                 ts_ms: now_ms(),
-                ok: status < 500,
+                // BOTH must hold: a 5xx is not serving anybody, and a 200 whose body does not
+                // carry the expected text is not the page the operator asked about.
+                ok: status < 500 && expect_ok.unwrap_or(true),
                 ms: Some(now_ms().saturating_sub(started)),
                 status: Some(status),
+                expect_ok,
             }
         }
         // No response at all: the same answer a TCP probe would give, and the one case where a
@@ -497,6 +577,7 @@ async fn probe_http(target: &Target, path: &str) -> Probe {
             ok: false,
             ms: None,
             status: None,
+            expect_ok: None,
         },
     }
 }
@@ -610,6 +691,7 @@ pub fn summary(id: &str) -> Value {
             // as "measured, stable".
             "drops": Value::Null,
             "last_status": Value::Null,
+            "last_expect_ok": Value::Null,
         });
     }
     let up = probes.iter().filter(|p| p.ok).count();
@@ -648,6 +730,10 @@ pub fn summary(id: &str) -> Value {
         // THE NUMBER AN OPERATOR ASKS FOR BY NAME when the target is a web UI: what did it answer?
         // `null` for a TCP target and for a probe that got no response at all.
         "last_status": probes[probes.len() - 1].status,
+        // …and whether the body said what the operator expected. `null` when there was nothing to
+        // match, `false` when the page answered and did NOT contain it — which is the case a
+        // status code cannot express.
+        "last_expect_ok": probes[probes.len() - 1].expect_ok,
     })
 }
 
@@ -863,6 +949,87 @@ mod tests {
         }
     }
 
+    /// CONTENT, NOT JUST A STATUS CODE — the case a 200 cannot express.
+    ///
+    /// A server that answers `200 OK` with a page that does NOT contain the expected text is DOWN
+    /// for this instrument: a login page, a captive portal or a "starting up" stub all answer 200,
+    /// and an operator who asked "is my UI serving?" is not answered by the number alone. Pinned in
+    /// both directions against a REAL server, including the honest three-way record: status 200,
+    /// the expectation FALSE, and `ok: false` saying so.
+    #[tokio::test]
+    async fn an_expectation_makes_a_200_that_lacks_the_text_count_as_down() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 512];
+                    let _ = sock.read(&mut buf).await;
+                    let body = "<html><title>OpenWrt</title>ready</html>";
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.flush().await;
+                });
+            }
+        });
+
+        let d = dir("expect");
+        let hit = add_target_full(&d, "127.0.0.1", port, "/", "OpenWrt").expect("added");
+        assert_eq!(hit.expect.as_deref(), Some("OpenWrt"));
+
+        // 1. The body carries the text: up, with the status AND the match recorded.
+        let p = probe_once(&hit.id).await.expect("probed");
+        assert!(p.ok, "{p:?}");
+        assert_eq!(p.status, Some(200));
+        assert_eq!(p.expect_ok, Some(true), "the body carries the text: {p:?}");
+
+        // 2. The SAME URL, a different criterion — re-adding updates the attribute and keeps the
+        //    watch (and its series). This is what an operator means by "require 'login' now".
+        let replaced = add_target_full(&d, "127.0.0.1", port, "/", "login").expect("added");
+        assert_eq!(
+            replaced.id, hit.id,
+            "the expectation is an attribute, not part of the identity"
+        );
+        assert_eq!(replaced.expect.as_deref(), Some("login"));
+        let p = probe_once(&replaced.id).await.expect("probed");
+        assert!(!p.ok, "200 with the WRONG body is down: {p:?}");
+        assert_eq!(
+            p.status,
+            Some(200),
+            "…and the status is still recorded, so the card can show it"
+        );
+        assert_eq!(p.expect_ok, Some(false), "{p:?}");
+        assert!(p.ms.is_some(), "the request did complete: {p:?}");
+
+        // 3. Dropping the expectation restores the old behaviour: the status decides, and
+        //    "nothing to match" is NOT a failure.
+        let plain = add_target_full(&d, "127.0.0.1", port, "/", "").expect("added");
+        assert_eq!(plain.expect, None);
+        let p = probe_once(&plain.id).await.expect("probed");
+        assert!(p.ok, "{p:?}");
+        assert_eq!(
+            p.expect_ok, None,
+            "nothing to match is not a failure: {p:?}"
+        );
+
+        // 4. An expectation without a path is REFUSED, with a reason a form can show.
+        let err = add_target_full(&d, "127.0.0.1", port, "", "OpenWrt").unwrap_err();
+        assert!(err.contains("path"), "{err}");
+        assert!(validate_expect(&"x".repeat(201)).is_err());
+        assert_eq!(validate_expect("  "), Ok(None));
+
+        remove_target(&d, &hit.id);
+    }
+
     /// THE DROP RULE. It counts FALLS (up → down), not outages: a target that is down now still
     /// contributes the drop that started its outage — `up_now` is what says whether it is
     /// current — and a series that begins down has nothing to fall from.
@@ -873,6 +1040,7 @@ mod tests {
             ok,
             ms: if ok { Some(1) } else { None },
             status: None,
+            expect_ok: None,
         };
         // Steady: nothing fell.
         assert_eq!(count_drops(&[p(true, 0), p(true, 1), p(true, 2)]), 0);
@@ -900,6 +1068,7 @@ mod tests {
             ok,
             ms: if ok { Some(1) } else { None },
             status: None,
+            expect_ok: None,
         };
         // 60 s up, then down for 30 s, then up: two transitions with the durations an operator
         // writes down — the uptime that ended, then the OUTAGE.
@@ -970,6 +1139,7 @@ mod tests {
                     host: "bounded".into(),
                     port: 22,
                     path: None,
+                    expect: None,
                 },
                 series: VecDeque::new(),
             });
@@ -982,6 +1152,7 @@ mod tests {
                     ok: i % 5 != 0,
                     ms: if i % 5 != 0 { Some(3) } else { None },
                     status: None,
+                    expect_ok: None,
                 },
             );
         }
@@ -1019,6 +1190,7 @@ mod tests {
                     host: "empty".into(),
                     port: 22,
                     path: None,
+                    expect: None,
                 },
                 series: VecDeque::new(),
             });

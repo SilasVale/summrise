@@ -28,7 +28,7 @@ fn tool_list() -> ToolDef {
     ToolDef::new(
         "monitor_list",
         "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. \
-         The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it), and `last_status` (the HTTP status code, for a target watched with a path). \
+         The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it), `last_status` (the HTTP status code, for a target watched with a path) and `last_expect_ok` (whether the body contained the expected text, when one was given). \
          The series is oldest-first; a probe with `ok: false` carries NO latency (nothing was measured) and a GAP in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE), which is the form a person writes into a report. \
          The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
         json!({"type": "object", "properties": {}}),
@@ -69,7 +69,8 @@ fn tool_add() -> ToolDef {
             "properties": {
                 "host": {"type": "string", "description": "IP address or name, e.g. \"192.168.1.1\"."},
                 "port": {"type": "integer", "description": "TCP port to connect to, 1-65535."},
-                "path": {"type": "string", "description": "Optional HTTP path to GET, e.g. \"/\" or \"/api/health\". Omit for a plain TCP connect check."}
+                "path": {"type": "string", "description": "Optional HTTP path to GET, e.g. \"/\" or \"/api/health\". Omit for a plain TCP connect check."},
+                "expect": {"type": "string", "description": "Optional text the response body MUST contain (needs a path). A page that answers 200 without it counts as down — the difference between a working UI and a login page or an error stub."}
             },
             "required": ["host", "port"]
         }),
@@ -88,7 +89,8 @@ fn tool_add() -> ToolDef {
                     });
                 }
                 let path = params.get("path").and_then(|p| p.as_str()).unwrap_or("");
-                match crate::monitor::add_target_with_path(&crate::paths::data_dir(), &host, port as u16, path) {
+                let expect = params.get("expect").and_then(|p| p.as_str()).unwrap_or("");
+                match crate::monitor::add_target_full(&crate::paths::data_dir(), &host, port as u16, path, expect) {
                     Ok(t) => Ok(json!({
                         "ok": true,
                         "target": t,

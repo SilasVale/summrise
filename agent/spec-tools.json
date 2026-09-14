@@ -139,6 +139,7 @@
   {
     "name": "monitor_add",
     "params": [
+      "expect",
       "host",
       "path",
       "port"

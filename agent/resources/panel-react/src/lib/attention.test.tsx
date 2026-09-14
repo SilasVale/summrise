@@ -34,6 +34,7 @@ const target = (id: string, upNow: boolean | null) => ({
   host: id.split(":")[0],
   port: Number(id.split(":")[1]) || 22,
   path: null,
+  expect: null,
   series: [],
   transitions: [],
   summary: {
@@ -46,6 +47,7 @@ const target = (id: string, upNow: boolean | null) => ({
     latency: null,
     drops: 0,
     lastStatus: null,
+    lastExpectOk: null,
   },
 });
 const monitors = (targets: ReturnType<typeof target>[]): Monitors => ({

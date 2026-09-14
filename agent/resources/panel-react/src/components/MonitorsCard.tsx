@@ -42,9 +42,11 @@ function TargetRow({
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
 }) {
-  const { summary, series, transitions, path: httpPath } = target;
+  const { summary, series, transitions, path: httpPath, expect: wantText } = target;
   // The URL an HTTP check is actually asking, which is the thing an operator copies into a browser
   // when the device says it is down.
+  // The subject is the URL; the expectation is shown beside it, because two watches can differ
+  // by nothing but the text they require.
   const subject = `${target.host}:${target.port}${httpPath ?? ""}`;
   const down = summary.upNow === false;
   const up = summary.upNow === true;
@@ -69,8 +71,18 @@ function TargetRow({
         {summary.lastStatus !== null && (
           // The status is shown EVEN WHEN UP, because `404 up` and `200 up` are different facts
           // about the same service, and hiding the number would make the verdict unfalsifiable.
-          <span className={`monitor-status ${summary.lastStatus >= 500 ? "is-bad" : ""}`}>
+          <span className={`monitor-status ${summary.lastStatus >= 500 || summary.lastExpectOk === false ? "is-bad" : ""}`}>
             HTTP {summary.lastStatus}
+          </span>
+        )}
+        {/* A WORD, not just a colour: `no match` says the page answered and did not contain the
+            text, which is the whole reason a content check exists. */}
+        {wantText !== null && (
+          <span
+            className={`monitor-status ${summary.lastExpectOk === false ? "is-bad" : ""}`}
+            title={`the body must contain \"${wantText}\"`}
+          >
+            {summary.lastExpectOk === false ? "no match" : summary.lastExpectOk === true ? "matches" : "not read"}
           </span>
         )}
         <span className={`monitor-state ${state}`}>
@@ -160,7 +172,7 @@ export function MonitorsCard({
 }: {
   monitors: Monitors;
   failed?: boolean;
-  onAdd: (host: string, port: number, path?: string) => Promise<{ ok: boolean; error?: string }>;
+  onAdd: (host: string, port: number, path?: string, expect?: string) => Promise<{ ok: boolean; error?: string }>;
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
   nowMs?: number;
@@ -168,6 +180,7 @@ export function MonitorsCard({
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
   const [path, setPath] = useState("");
+  const [expect, setExpect] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -175,7 +188,7 @@ export function MonitorsCard({
     setBusy(true);
     setError("");
     const n = Number(port);
-    const res = await onAdd(host, Number.isFinite(n) ? n : 0, path);
+    const res = await onAdd(host, Number.isFinite(n) ? n : 0, path, expect);
     setBusy(false);
     // The device's reason is shown VERBATIM: it is written for this form ("a host is required",
     // "a port is required…"), and paraphrasing it here would be a second, worse copy.
@@ -249,6 +262,17 @@ export function MonitorsCard({
               title="Optional: GET this path and record the status code instead of only connecting to the port"
               value={path}
               onChange={(e) => setPath(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void submit()}
+            />
+            {/* OPTIONAL CONTENT CHECK: a page that answers 200 without this text counts as down,
+                which is how a login page or a "starting up" stub is told from a working UI. */}
+            <input
+              aria-label="expect"
+              className="monitor-expect"
+              placeholder="text the page must contain"
+              title="Optional: the response body must contain this text (needs a path)"
+              value={expect}
+              onChange={(e) => setExpect(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
             />
             <button type="button" className="btn" disabled={busy} onClick={() => void submit()}>
