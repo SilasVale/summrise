@@ -1916,12 +1916,14 @@ mod tests {
     /// passed alone**, which is exactly how a real regression gets dismissed as a flake
     /// (round 257 lost a release build to that reasoning). The lock costs nothing: these tests
     /// do file I/O, not timing.
-    static DATA_DIR_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// A TOKIO mutex, not a std one: these tests `.await` while holding it (they call the
+    /// request handler), and clippy's `await_holding_lock` refuses a std guard across an await
+    /// — CI caught exactly that on the first version of this lock, which is the gate working.
+    static DATA_DIR_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    /// Hold [`DATA_DIR_TEST_LOCK`] for the rest of the test, poison-tolerantly (a panicking
-    /// sibling must not turn every later test into a spurious failure).
-    fn lock_data_dir() -> std::sync::MutexGuard<'static, ()> {
-        DATA_DIR_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    /// Hold the live-data-dir lock for the rest of the test.
+    async fn lock_data_dir() -> tokio::sync::MutexGuard<'static, ()> {
+        DATA_DIR_TEST_LOCK.lock().await
     }
 
     use super::panel::{apply_bundle_hash, panel_bundle_hash};
@@ -2815,7 +2817,7 @@ mod tests {
     /// kind rides beside it — and this asserts the pair on the SAME response.
     #[tokio::test]
     async fn status_carries_the_previous_boot_verdict() {
-        let _live_dir = lock_data_dir();
+        let _live_dir = lock_data_dir().await;
         use crate::runstate::{save_verdict, BootKind};
         let path = crate::runstate::verdict_path(&crate::paths::data_dir());
         let saved = std::fs::read_to_string(&path).ok();
@@ -2935,7 +2937,7 @@ mod tests {
     /// zeroes rather than a 404 or a missing field.
     #[tokio::test]
     async fn boots_route_serves_the_restart_history_and_its_summary() {
-        let _live_dir = lock_data_dir();
+        let _live_dir = lock_data_dir().await;
         use crate::runstate::{history_path, record_boot, BootKind, RunState};
         let path = history_path(&crate::paths::data_dir());
         let saved = std::fs::read_to_string(&path).ok();
@@ -5036,7 +5038,7 @@ mod tests {
     /// first half would pass against a handler that read both.
     #[tokio::test]
     async fn api_logs_reads_the_dir_the_writers_use() {
-        let _live_dir = lock_data_dir();
+        let _live_dir = lock_data_dir().await;
         let logs = crate::paths::logs_dir();
         std::fs::create_dir_all(&logs).unwrap();
         let real = logs.join("agent.log");
