@@ -531,6 +531,47 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 260 (**PRODUCT CHANGE — the panel's terminal now has CONSOLE KEYS: ^C, Enter, ^D, ^Z, Tab, Esc and,
+on a serial line, a real BREAK. The browser owns Ctrl+C, so the one keystroke a console needs most could not be sent from the
+panel at all; and a BREAK is not a keystroke but a condition on the wire — the signal that interrupts a bootloader's autoboot
+— which the device could do all along and its own UI could not ask for**).
+Commit: 399d6448 (trait + tool + gateway schema + panel bar). Release **1.2.373** published and UPDATED ON d1, where every
+branch was exercised against the real device and the real port.
+  (1) WHY: the operator's own workflow is a serial console (an ONU) plus ssh, driven from the panel — the same surface where
+  Ctrl+C is COPY and where nothing could assert a break. A console that has wedged, or a bootloader waiting to be interrupted,
+  are exactly the moments those two signals are wanted.
+  (2) `TermBackend::send_break()` — a trait default that REFUSES BY NAME ("break is a serial-line signal — this session has no
+  serial line"), overridden by the serial backend, which now keeps ONE clone of the live port slot so a break reaches whatever
+  port the session is attached to NOW (the same reason round 259's entry guard exists). Asserted for 250 ms and ALWAYS cleared:
+  a line left in the break state is a console that looks dead to everything else on it. The stub manager mirrors the method —
+  the feature-gating rule, caught by the compiler the moment the tool called it.
+  (3) ONE FIELD, ONE SIGNAL: `terminal_write` gains `break_ms` (1..=5000, serial only), and it WINS over both data forms, so no
+  caller has to know a precedence. The gateway's console-MCP schema had to advertise it too, and **its contract test failed
+  until it did** ("the device accepts parameters the console MCP schema does not advertise") — that gate working, and the AI
+  driving this device can now send a break as well.
+  (4) THE PANEL: a console key bar in the terminal pane, at FULL opacity rather than hover-revealed (these are reached for
+  mid-session, often on a console that is not answering), with the serial-only BRK separated by a rule and in the warn colour so
+  it is not hit while reaching for ^C. `lib/consoleKeys.ts` is the vocabulary: **a key IS its exact bytes** (`data_base64`) or
+  its break — never a shell escape or a name a device might not have — and a failed send announces itself through the pane's
+  existing `vale-write-failed` event, because a break that silently did nothing would leave an operator waiting for a
+  bootloader that never stops.
+  (5) VERIFIED ON d1, EACH BRANCH BY ITS OWN WIRE: **^C actually interrupts** — `Start-Sleep 300` was typed into a victim
+  session at 18:44:54, `^C` sent at 18:44:57, and `echo INTERRUPTED-OK` had RUN by 18:45:01 (`INTERRUPTED-OK` in the buffer),
+  i.e. four seconds after the sleep started rather than five minutes later; **the break is refused by name on a PTY**
+  (`{"code":"internal","error":"… break is a serial-line signal — this session has no serial line"}`); **the break is ASSERTED
+  on the real COM4** (`break_ms: 250` → `{"ok":true,"result":"OK"}`, the serial backend's set/clear succeeding against the FTDI
+  port), with the range guard refusing 0 and 99999; and the BAR renders in the panel — six keys on a PTY session and seven
+  (with BRK) on the serial one, read out of the device's own browser, screenshot pulled and read.
+  (6) ONE SELF-INFLICTED DETOUR WORTH A LINE: the first ^C test typed `Start-Sleep 300` into the very session that was running
+  the verification, so the ^C interrupted MY OWN script and the output simply stopped. The test was then rebuilt with a
+  separate victim session. **A test whose subject is also its driver measures nothing** — the same shape as round 246's
+  "mutation that hit an unreachable branch".
+  STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still
+  reads as "CRASHED or was killed"; `runstate::mark_exited` still has no production caller); 1.2.373 needs its tag + audit;
+  the `.tsx` scope decision; 1.2.370 in `release-reconcile.txt` (recorded, superseded within round 259);
+  1.2.362-1.2.364 in the same ledger; the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's);
+  the never-named queue (91).
+
 Last updated: 2026-09-14 round 259 (**TWO DELIVERIES, THE SECOND ONE OUT OF THE OPERATOR'S OWN REPORT: the device can now be
 UPDATED FROM ITS OWN PANEL (1.2.370), and d1's "COM4 拒绝访问" was traced to a leaked serial handle inside the agent, fixed
 and verified (1.2.371/372)**).
