@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 209 (**THE SAME FINDING AS ROUND 206, ON THE RUST SIDE — so it is a
+PATTERN, not a slip: the agent job fails ONLY at `cargo fmt --check`, and the loop has never run it**).
+Commit: journal, still deliberately LOCAL.
+  (1) WHAT THE JOB'S OWN STEP LIST SHOWS, which is more useful than the job's red/green: `agent (cargo test
+  + clippy + fmt)` runs **Tests → success**, **Clippy (zero warnings) → success**, and **Format check →
+  failure**. So `cargo test` and `cargo clippy --all-targets -- -D warnings` both PASS on `2325c3db`, and
+  the ONLY red step is `cargo fmt --check`. That matters for a specific reason: `2325c3db` touches
+  `gateway/src`, the gateway mirror and this journal — **no Rust file at all** — so the failure is not
+  something this round introduced. **It is a pre-existing red gate that nothing in the loop's habits
+  checks.**
+  (2) AND THE BUILD GUIDE'S OWN VERIFICATION LIST OMITS IT, which is the sharper half: the root
+  `AGENTS.md` prescribes "`cargo test` → `cargo clippy --all-targets -- -D warnings` → `cargo xwin check`"
+  — three steps — while CI's agent job runs **Tests → Clippy → Format**. **So the loop has been quoting a
+  documented subset of a gate that has a fourth thing in it**, and the omission is in the INSTRUCTIONS, not
+  only in the loop's adherence to them. Round 206 found the same shape on the gateway side (where the
+  Build Guide DOES name `format:check` and the loop still skipped it); this is the variant where the
+  instructions themselves are incomplete.
+  (3) SO ROUND 206's FINDING ESCALATES FROM A SLIP TO A PATTERN, and stating it that way is the point:
+  **two gates, two languages, the same class — the loop runs an unrepresentative subset and reports the
+  subset's colour as the gate's.** The gateway one hid for ~38 rounds behind `npm test`; the agent one has
+  been hiding behind `cargo test` + `clippy`, which both genuinely pass. **Neither is a lie and neither is
+  the whole truth, and the difference only shows up when something else runs the missing step — which is
+  what CI is for, and why the release gate's refusal was right both times.**
+  (4) THE FIX IS NAMED AND NOT TAKEN YET, deliberately: `cargo fmt` on the agent workspace, then a commit;
+  but this round's budget is spent on the diagnosis, and formatting the agent tree is a change to a
+  workspace this loop has NEVER verified with its own full gate (the same trap in a new place). The next
+  round should: run `cargo fmt --check` locally to see the scope, apply `cargo fmt`, then run ALL of
+  Tests + Clippy + Format + `cargo xwin check` — and only then commit and push.
+  (5) THE STATE, UNCHANGED IN SHAPE FROM ROUND 208 BUT WITH A SECOND RED: `2325c3db` is NOT releasable —
+  one job red (agent format), one still `in_progress` (xwin check), eight green. **The tag move is therefore
+  STILL not available**, which is the correct outcome: the gate exists precisely to stop a commit like this
+  from being tagged, and it has now stopped two in a row for two different real reasons. Two local journal
+  commits remain unpushed (`ahead=2`). STILL OPEN: the agent `cargo fmt` fix; then the push and the tag
+  placement; the installer (three versions behind, and the alias is the only one that exists); the mirror
+  test's manifest blind spot (round 199); `studio/` (round 197); the recurring second failure's name under
+  mutation; `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 208 (**THE FORMAT FIX HAS ITS RED-THEN-GREEN, AND THE ROUND STILL DID NOT
 PUSH.** `bc2d3d8e` had a failing gateway job; `2325c3db` — the same tree plus the prettier fix — has ZERO
 failures). Commit: journal, deliberately LOCAL.
