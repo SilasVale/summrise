@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 242 (**TWO MECHANICAL PROBES OVER THE 43 NEVER-NAMED FILES, AND BOTH ARE NEGATIVE
+— which bounds what "never named" means: it says no round has READ a file, not that the file is suspect**).
+Commit: journal only; nothing changed.
+  (1) THE LEAD WAS ROUND 241's OWN OPEN ITEM ("44 of the never-named are tests, which ADR 0012 brought into scope
+  but no round has opened"), AND THE FIRST PROBE TESTED ADR 0011's FAILURE CRITERION IN ITS BLUNTEST FORM:
+  **is any of these tests incapable of failing?** Measured across all 43 never-named files — counting
+  `#\[test\]`/`#\[tokio::test\]` against `assert` in Rust and `test(` against `assert` elsewhere — **ZERO
+  files contain no assertion at all**, and the thinnest is `agent/tests/dep_surface.rs` at 2 asserts over 2 tests.
+  **So the hypothesis is refuted, and the refutation is the result: there is no dead test hiding in this set.**
+  (2) THE SECOND PROBE WAS SHARPER AND AIMED AT ROUND 214's ACTUAL DEFECT, WHICH WAS NEVER "no assertions": that
+  test's message claimed "`gateway/src/mcp.ts` matches exactly these three" **while the test never opened
+  `mcp.ts`.** So the probe asked: **which tests name another artifact but read no file?** It answered **36 of
+  43** — and that number is an ARTEFACT OF MY INSTRUMENT, which is why the output was read before it was
+  believed. **The named artifacts are `../src/auth.ts`, `../src/index.js`, `../src/plugins/devices.ts` and so on,
+  and every one of them is an IMPORT.** In JS/TS and in Rust an import IS the read; my probe equated "reads a
+  file" with `readFileSync`/`include_str!`/`read_to_string` and so counted the most ordinary correct thing a test
+  can do — use the module it tests — as a defect signal.
+  (3) AND THE RESIDUE AFTER REMOVING THE IMPORT PATHS IS ORDINARY TOO: the names that are not module paths are
+  fixture strings — `panel.js` and `/app.js` inside `device-proxy-rewrite.test.mjs`'s request fixtures,
+  `scripts/smoke-index.sh` cited by `tarball.test.mjs`, `gstatic.com/x.js` inside `gform-gate.test.mjs`'s URL
+  fixtures. **Nothing in the set asserts against its own literal while claiming to check a file.**
+  (4) SO THE ROUND'S DELIVERABLE IS A BOUND ON WHAT THE NEVER-NAMED LIST MEANS, AND IT IS WORTH STATING PLAINLY
+  BECAUSE ROUND 236 RAISED THE COUNT FROM 8 TO 52: **"never named" is a statement about THIS JOURNAL's coverage,
+  not about the files.** A file can be thoroughly tested, imported, and green while no round has ever read it —
+  which is exactly what these 43 are, and it is why round 165's table ranked them by cost rather than treating
+  the number as a defect count. **The list is a to-read queue, not a defect list, and this round is the first
+  evidence that those are different things.**
+  (5) AND MY INSTRUMENT SLIPPED FOR THE SIXTH TIME IN THIS STRETCH, WITH THE SAME SHAPE AS THE OTHER FIVE:
+  `readFileSync` is not what reading means in a language where the read is an `import`. **The difference this
+  time is that the implausible number (36 of 43) was inspected instead of reported** — round 166's law, "an
+  implausible count is a statement about the instrument", applied before the count became a finding. STILL OPEN:
+  the installer's signing decision (the user's call); the remaining never-named files (a to-read queue, and this
+  round is the first measurement of what that queue is worth); convergence rows 6-7, which wait on a device event
+  rather than on work.
+
 Last updated: 2026-09-14 round 241 (**NOTHING BUILT `gateway/ui/` — the SPA that builds INTO the directory
 wrangler publishes as assets, so a UI edit followed by a deploy shipped the previous build silently; and the same
 script DOES build the agent's SPA for the identical reason**). Commit: scripts/build.sh + journal.
