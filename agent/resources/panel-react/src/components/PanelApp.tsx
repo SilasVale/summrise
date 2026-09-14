@@ -11,6 +11,7 @@ import { StatusBar } from "./StatusBar";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
+import { useMonitors } from "../hooks/useMonitors";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { ArchivePage } from "./ArchivePage";
 import { ActivityPage } from "./ActivityPage";
@@ -77,6 +78,9 @@ export function PanelApp(props: Props) {
   // The vitals SERIES, polled once here (see useVitalsSeries): the strip's sustained-load
   // chip and the Settings card's charts read the same array.
   const vitalsSeries = useVitalsSeries();
+  // The reachability monitors, polled once per shell: the strip's down chip and the Settings
+  // card read the same list, and the card's actions are the hook's own.
+  const monitors = useMonitors();
   const [page, setPage] = useState<Page>("terminal");
   const connected = props.sseState === "connected";
 
@@ -108,6 +112,7 @@ export function PanelApp(props: Props) {
           <StatusBar
             recentCrashes={restarts.summary.crashes}
             vitalsSeries={vitalsSeries}
+            monitors={monitors}
             sessions={props.sessions}
             status={props.status}
             sseState={props.sseState as "connected" | "down" | "connecting"}
@@ -159,6 +164,11 @@ export function PanelApp(props: Props) {
                 restartsFailed={restarts.failed}
                 vitals={vitalsSeries}
                 vitalsFailed={vitalsSeries.failed}
+                monitors={monitors}
+                monitorsFailed={monitors.failed}
+                onMonitorAdd={monitors.add}
+                onMonitorRemove={monitors.remove}
+                onMonitorProbe={monitors.probe}
                 runningRelease={vitals.release}
               />
             )}

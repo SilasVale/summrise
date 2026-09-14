@@ -325,6 +325,14 @@ src/
                    in main.rs's loop stays untested-thin (boundary review
                    2026-09-06).
   metrics.rs       device vitals for /api/status (CPU delta + memory, kernel32)
+                   AND the sampler that owns their clock: one reading every 30 s
+                   into a bounded ring, served to /api/vitals/history and drawn as
+                   the panel's Device health charts.
+  monitor.rs       REACHABILITY monitoring: watched host:port targets (persisted,
+                   bounded list), a TCP-connect probe every 15 s into a bounded
+                   per-target series, and the summaries /api/monitors serves. The
+                   DEVICE keeps the watch so it outlives the session, the terminal
+                   and the panel — see the module header for why it does not ping.
   tunnel.rs        cloudflared tunnel PROVISIONING for the Gateway card
                    (rewrites tunnel.yml + signals restart via crate::tunnel_ctl).
                    The RUNNING child is owned by main.rs's supervisor, not here.

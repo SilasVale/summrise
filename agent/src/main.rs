@@ -573,6 +573,15 @@ pub(crate) async fn run_server(config_path: PathBuf) {
         // interval between readings is part of the value, and a second poller taking its
         // own readings would shorten the window the first one is measuring over.
         vale_agent::metrics::spawn_sampler();
+        // ── REACHABILITY PROBER ─────────────────────────────────────────────────
+        // The targets an operator asked this device to watch survive a restart (they are
+        // persisted); the samples do not, and one probe cycle re-derives them. Loaded before
+        // the prober starts so the first cycle covers the list the file remembers.
+        {
+            let monitors_dir = vale_agent::paths::data_dir();
+            vale_agent::monitor::load_targets(&monitors_dir);
+            vale_agent::monitor::spawn_prober();
+        }
         tokio::spawn(async move {
             // Supervision audit #2: the old loop SNAPSHOT-READ the config
             // once and — violating the documented saisi decouple — fell back

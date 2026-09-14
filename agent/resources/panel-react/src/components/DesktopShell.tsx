@@ -14,6 +14,7 @@ import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
+import { useMonitors } from "../hooks/useMonitors";
 import { VitalsDial } from "./VitalsDial";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
@@ -31,6 +32,7 @@ import { ViewSwitch } from "./ViewSwitch";
 import { WaitingChip } from "./WaitingChip";
 import { BootChip } from "./BootChip";
 import { LoadChip } from "./LoadChip";
+import { MonitorChip } from "./MonitorChip";
 import type { usePlugins } from "../hooks/usePlugins";
 
 interface Props {
@@ -148,6 +150,9 @@ export function DesktopShell({
   // the same history.
   const restarts = useBootHistory();
   const vitalsSeries = useVitalsSeries();
+  // The reachability monitors, polled once per shell: the strip's down chip and the Settings
+  // card read the same list, and the card's actions are the hook's own.
+  const monitors = useMonitors();
   // stage-n: native menu page navigation — the electron menu sends
   // vale-menu commands for pages too (open-memory / open-settings /
   // open-plugins); route them to the page state.
@@ -413,6 +418,11 @@ export function DesktopShell({
                 restartsFailed={restarts.failed}
                 vitals={vitalsSeries}
                 vitalsFailed={vitalsSeries.failed}
+                monitors={monitors}
+                monitorsFailed={monitors.failed}
+                onMonitorAdd={monitors.add}
+                onMonitorRemove={monitors.remove}
+                onMonitorProbe={monitors.probe}
                 runningRelease={vitals.release}
               />
             )}
@@ -435,6 +445,7 @@ export function DesktopShell({
                 recentCrashes={restarts.summary.crashes}
               />
               <LoadChip series={vitalsSeries} />
+              <MonitorChip monitors={monitors} />
               <WaitingChip sessions={sessions} />
             </div>
           )}
@@ -457,6 +468,7 @@ export function DesktopShell({
                 recentCrashes={restarts.summary.crashes}
               />
               <LoadChip series={vitalsSeries} />
+              <MonitorChip monitors={monitors} />
               <WaitingChip sessions={sessions} />
             </div>
           )}

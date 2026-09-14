@@ -5,6 +5,8 @@ import { VitalsDial } from "./VitalsDial";
 import { WaitingChip } from "./WaitingChip";
 import { BootChip } from "./BootChip";
 import { LoadChip } from "./LoadChip";
+import { MonitorChip } from "./MonitorChip";
+import type { Monitors } from "../hooks/useMonitors";
 import type { VitalsSeries } from "../hooks/useVitalsSeries";
 
 /** A reading, or an em dash while the agent has not reported one. Never 0 for
@@ -12,7 +14,7 @@ import type { VitalsSeries } from "../hooks/useVitalsSeries";
  *  delta), and printing 0% there would be a lie the operator cannot see through. */
 const reading = (v: number | null): string => (v === null ? "—" : `${Math.round(v)}%`);
 
-export function StatusBar({ sessions, status, sseState, vitals, identity, recentCrashes, vitalsSeries }: {
+export function StatusBar({ sessions, status, sseState, vitals, identity, recentCrashes, vitalsSeries, monitors }: {
   sessions: Session[];
   status: string;
   sseState: "connected" | "down" | "connecting";
@@ -30,6 +32,9 @@ export function StatusBar({ sessions, status, sseState, vitals, identity, recent
   /** The vitals SERIES, for the sustained-load chip. Optional: without it that chip is
    *  simply absent, which is the same thing it renders when the load is fine. */
   vitalsSeries?: VitalsSeries | null;
+  /** The reachability monitors, when the shell polls them. Optional: without it the chip is
+   *  simply absent, which is what it renders when nothing is down anyway. */
+  monitors?: Monitors | null;
 }) {
   const live = sessions.filter((s) => !s.closed).length;
   return (
@@ -89,6 +94,9 @@ export function StatusBar({ sessions, status, sseState, vitals, identity, recent
       {/* "It has been like this for a while" — the one fact the dial's two instantaneous
           numbers cannot carry. Renders nothing unless the rule in lib/spark.ts says so. */}
       <LoadChip series={vitalsSeries} />
+      {/* "A host you asked us to watch is down" — the answer reaches the operator wherever
+          they are, not only on the Settings page that asked the question. */}
+      <MonitorChip monitors={monitors} />
       {/* The device-level answer to "is anything waiting for me?" — see
           WaitingChip. Renders nothing at zero. */}
       <WaitingChip sessions={sessions} />

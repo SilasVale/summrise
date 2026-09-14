@@ -809,6 +809,13 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
             // goes through the existing tool route (`POST /api/tools/agent_update`), so this
             // adds a view and NOT a second way to install anything.
             ("GET", "/api/update") => api_update(state).await,
+            // REACHABILITY — the watched targets, each with its probe series and summary.
+            ("GET", "/api/monitors") => crate::monitor::snapshot(),
+            ("POST", "/api/monitors/add") => api_monitor_add(body_str),
+            ("POST", "/api/monitors/remove") => api_monitor_remove(body_str),
+            // One probe, now — the panel's "check now" (a target that was just added, or an
+            // operator who does not want to wait 15 s for the first reading).
+            ("POST", "/api/monitors/probe") => api_monitor_probe(body_str).await,
             // Control handoff (design §D5). MUST be matched before any broader
             // /api/sessions POST arm; the `.ends_with` also keeps it from
             // swallowing a future sibling action on the same collection.
@@ -1375,6 +1382,72 @@ fn api_vitals_history() -> serde_json::Value {
 async fn api_update(state: &AppState) -> serde_json::Value {
     let channel = state.config_snapshot().platform.download_url.clone();
     crate::plugins::update::update_status(channel).await
+}
+
+/// The monitor form's body: `{"host": "...", "port": 22}`. A missing or non-numeric port is a
+/// form error, not a silent default — the operator is naming a SERVICE, and guessing which one
+/// would probe the wrong thing and report it as fact.
+fn monitor_form(body: &str) -> Result<(String, u16), serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .map_err(|e| serde_json::json!({"ok": false, "error": format!("invalid JSON body: {e}"), "code": "invalid_params"}))?;
+    let host = v
+        .get("host")
+        .and_then(|h| h.as_str())
+        .unwrap_or("")
+        .to_string();
+    let Some(port) = v.get("port").and_then(|p| p.as_u64()) else {
+        return Err(
+            serde_json::json!({"ok": false, "error": "a port is required", "code": "invalid_params"}),
+        );
+    };
+    if port == 0 || port > 65535 {
+        return Err(
+            serde_json::json!({"ok": false, "error": format!("{port} is not a port"), "code": "invalid_params"}),
+        );
+    }
+    Ok((host, port as u16))
+}
+
+fn api_monitor_add(body: &str) -> serde_json::Value {
+    match monitor_form(body) {
+        Err(e) => e,
+        Ok((host, port)) => {
+            match crate::monitor::add_target(&crate::paths::data_dir(), &host, port) {
+                Ok(t) => serde_json::json!({"ok": true, "target": t}),
+                // The reason goes to the operator verbatim: it is written for a form.
+                Err(reason) => {
+                    serde_json::json!({"ok": false, "error": reason, "code": "invalid_params"})
+                }
+            }
+        }
+    }
+}
+
+fn api_monitor_remove(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let Some(id) = v.get("id").and_then(|i| i.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "an id is required", "code": "invalid_params"});
+    };
+    // HONEST ABOUT WHAT HAPPENED: removing something that was not watched is reported as such
+    // rather than as a success (the panel then refreshes to the truth either way).
+    serde_json::json!({"ok": true, "removed": crate::monitor::remove_target(&crate::paths::data_dir(), id)})
+}
+
+async fn api_monitor_probe(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let Some(id) = v.get("id").and_then(|i| i.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "an id is required", "code": "invalid_params"});
+    };
+    match crate::monitor::probe_once(id).await {
+        Some(p) => {
+            serde_json::json!({"ok": true, "probe": p, "summary": crate::monitor::summary(id)})
+        }
+        None => {
+            serde_json::json!({"ok": false, "error": format!("not watching {id}"), "code": "invalid_params"})
+        }
+    }
 }
 
 fn api_logs() -> serde_json::Value {
@@ -1978,6 +2051,18 @@ mod tests {
             .uri(path)
             .header("Authorization", format!("Bearer {token}"))
             .body(Body::empty())
+            .unwrap()
+    }
+
+    /// An AUTHENTICATED request with a JSON body — the shape every form-driven route takes
+    /// (monitors, gateway connect, settings). The token is the same one `req` uses.
+    fn req_with_body(method: &str, path: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
             .unwrap()
     }
 
@@ -2911,6 +2996,70 @@ mod tests {
     /// and an empty one very differently, and "this host reports no vitals" must arrive as
     /// the second (the emptiness itself is pinned in `metrics`' own tests, where the ring can
     /// be reasoned about without the process-wide series this test shares).
+    /// THE MONITOR FORM AND THE SNAPSHOT, end to end through the routes the panel calls.
+    ///
+    /// Three properties the UI depends on: a form error comes back as a REASON (it is rendered
+    /// verbatim), adding the same host:port twice yields ONE target (two rows would be two
+    /// probers on one host), and the snapshot always carries a series array per target — the
+    /// card draws an empty chart only when it truly has nothing.
+    #[tokio::test]
+    async fn monitors_add_remove_and_snapshot() {
+        // A host that cannot resolve or connect: this test is about the WIRE, and the prober is
+        // never invoked (the panel's "check now" is the only caller that probes).
+        async fn post(path: &str, body: &str) -> serde_json::Value {
+            json_body(handle_request(req_with_body("POST", path, body), state()).await).await
+        }
+        let v = post("/api/monitors/add", r#"{"host":"192.0.2.77","port":22}"#).await;
+        assert_eq!(v["ok"], true, "{v}");
+        let id = v["target"]["id"].as_str().expect("an id").to_string();
+        assert_eq!(id, "192.0.2.77:22", "{v}");
+
+        // Idempotent: the same target again is the same row, not a second one.
+        let again = post("/api/monitors/add", r#"{"host":"192.0.2.77","port":22}"#).await;
+        assert_eq!(again["target"]["id"].as_str(), Some(id.as_str()));
+        let snap = json_body(handle_request(req("GET", "/api/monitors"), state()).await).await;
+        let rows = snap["targets"].as_array().expect("targets");
+        assert_eq!(
+            rows.iter()
+                .filter(|r| r["id"].as_str() == Some(id.as_str()))
+                .count(),
+            1,
+            "one target, one row: {snap}"
+        );
+        assert!(rows.iter().any(|r| r["id"] == id), "{snap}");
+        assert!(snap["interval_secs"].as_u64().unwrap_or(0) > 0, "{snap}");
+        // The row carries a summary and a series from the FIRST response — a card that had to
+        // wait for a second poll to draw would read as broken.
+        let row = rows.iter().find(|r| r["id"] == id).expect("row");
+        assert!(row["series"].is_array(), "{row}");
+        assert_eq!(
+            row["summary"]["probes"], 0,
+            "no probes yet is not an error: {row}"
+        );
+
+        // A form error is a REASON, not a code.
+        let bad = post("/api/monitors/add", r#"{"host":"","port":22}"#).await;
+        assert_eq!(bad["ok"], false, "{bad}");
+        assert!(
+            bad["error"].as_str().unwrap_or("").contains("host"),
+            "{bad}"
+        );
+        let bad = post("/api/monitors/add", r#"{"host":"192.0.2.77"}"#).await;
+        assert!(
+            bad["error"].as_str().unwrap_or("").contains("port"),
+            "{bad}"
+        );
+
+        // And removal says whether anything was removed.
+        let gone = post("/api/monitors/remove", &format!(r#"{{"id":"{id}"}}"#)).await;
+        assert_eq!(gone["removed"], true, "{gone}");
+        let gone_again = post("/api/monitors/remove", &format!(r#"{{"id":"{id}"}}"#)).await;
+        assert_eq!(
+            gone_again["removed"], false,
+            "the second removal is a no-op: {gone_again}"
+        );
+    }
+
     #[tokio::test]
     async fn vitals_history_always_answers_with_a_series_and_a_span() {
         let v = json_body(handle_request(req("GET", "/api/vitals/history"), state()).await).await;
@@ -3297,6 +3446,10 @@ mod tests {
             ("GET", "/api/boots"),
             ("GET", "/api/vitals/history"),
             ("GET", "/api/update"),
+            ("GET", "/api/monitors"),
+            ("POST", "/api/monitors/add"),
+            ("POST", "/api/monitors/remove"),
+            ("POST", "/api/monitors/probe"),
             ("GET", "/api/events/poll"),
             ("GET", "/api/settings"),
             ("PUT", "/api/settings"),

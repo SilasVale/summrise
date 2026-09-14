@@ -194,6 +194,9 @@ pub mod filelog;
 pub(crate) mod jsonl;
 pub mod mcp;
 pub mod metrics;
+/// Reachability monitoring: watched host:port targets, their probe series, and the background
+/// prober (see the module header for why the DEVICE keeps this watch rather than a session).
+pub mod monitor;
 /// The device's merged operation timeline (terminal audit + browser actions).
 pub(crate) mod operation;
 pub mod paths;

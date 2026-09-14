@@ -5,6 +5,9 @@ import { DeviceLogsCard } from "./DeviceLogsCard";
 import { RestartHistoryCard } from "./RestartHistoryCard";
 import { DeviceHealthCard } from "./DeviceHealthCard";
 import { UpdateCard, useUpdateStatus } from "./UpdateCard";
+import { MonitorsCard } from "./MonitorsCard";
+import type { Monitors } from "../hooks/useMonitors";
+import { EMPTY_MONITORS } from "../hooks/useMonitors";
 import type { VitalsSeries } from "../hooks/useVitalsSeries";
 import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
 import { EMPTY_SERIES } from "../hooks/useVitalsSeries";
@@ -36,6 +39,11 @@ export function SettingsPage({
   vitals,
   vitalsFailed,
   runningRelease,
+  monitors,
+  monitorsFailed,
+  onMonitorAdd,
+  onMonitorRemove,
+  onMonitorProbe,
 }: {
   onOpenMemory?: () => void;
   /** The device's restart history, polled ONCE by the shell that renders this page —
@@ -47,6 +55,13 @@ export function SettingsPage({
    *  every existing caller keeps compiling. */
   vitals?: VitalsSeries;
   vitalsFailed?: boolean;
+  /** The reachability monitors, polled once by the shell (see `useMonitors`) — optional so
+   *  every existing caller keeps compiling. The card itself is pure. */
+  monitors?: Monitors;
+  monitorsFailed?: boolean;
+  onMonitorAdd?: (host: string, port: number) => Promise<{ ok: boolean; error?: string }>;
+  onMonitorRemove?: (id: string) => void;
+  onMonitorProbe?: (id: string) => void;
   /** The release the shell sees the device RUNNING (`/api/status`). The update card watches
    *  it change to recognise a swap that happened while the operator was looking. */
   runningRelease?: string;
@@ -224,6 +239,14 @@ export function SettingsPage({
       <DeviceHealthCard series={vitals ?? EMPTY_SERIES} failed={vitalsFailed} />
 
       <UpdateSection runningRelease={runningRelease} />
+
+      <MonitorsCard
+        monitors={monitors ?? EMPTY_MONITORS}
+        failed={monitorsFailed}
+        onAdd={onMonitorAdd ?? (async () => ({ ok: false, error: "not wired" }))}
+        onRemove={onMonitorRemove ?? (() => {})}
+        onProbe={onMonitorProbe ?? (() => {})}
+      />
 
       <DeviceLogsCard />
 

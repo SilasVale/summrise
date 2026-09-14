@@ -1153,6 +1153,70 @@
 .update-state.is-error { color: var(--danger-on-soft); }
 .update-state.is-ok { color: var(--state-ok); }
 
+/* ── Reachability (Settings) + its strip chip ───────────────────────────────
+   A watched host, its state, and the latency series with GAPS for failed probes.
+   The state is a SHAPE (a dot with its own silhouette per state) as well as a
+   colour, and the words beside it carry the duration — never colour alone. */
+.monitor-lede { margin: 4px 0 10px; }
+.monitor-list { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }
+.monitor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--surface-chip);
+  border-left: 2px solid var(--surface-chip);
+  border-radius: 6px;
+}
+.monitor-row[data-state="up"] { border-left-color: var(--state-ok); }
+.monitor-row[data-state="down"] { border-left-color: var(--state-warn); }
+.monitor-head { display: flex; align-items: center; gap: 8px; }
+.monitor-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--chrome-ink-dim); }
+.monitor-dot.up { background: var(--state-ok); }
+.monitor-dot.down { background: var(--state-warn); border-radius: 1px; transform: rotate(45deg); }
+.monitor-name { font: 400 12px var(--font-mono); color: var(--chrome-ink); }
+.monitor-state { font: 400 12px var(--font); color: var(--chrome-ink-dim); }
+.monitor-state.up { color: var(--state-ok); }
+.monitor-state.down { color: var(--danger-on-soft); }
+.monitor-btn { margin-left: auto; }
+.monitor-btn + .monitor-btn { margin-left: 0; }
+.monitor-body { display: flex; align-items: center; gap: 10px; }
+.monitor-facts { display: flex; gap: 8px; font: 400 11px var(--font-mono); color: var(--chrome-ink-dim); }
+.monitor-fact-down { color: var(--danger-on-soft); }
+.monitor-add { display: flex; gap: 6px; align-items: center; }
+.monitor-add input {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--chrome-bg-2);
+  color: var(--chrome-ink);
+  font: 400 12px var(--font-mono);
+}
+.monitor-port { width: 64px; }
+.monitor-error { margin: 6px 0 0; font: 400 12px var(--font); color: var(--danger-on-soft); }
+/* The strip chip: a diamond mark, its own silhouette beside the waiting chip's square
+   and the boot chip's triangle. */
+.monitor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-chip);
+  color: var(--danger-on-soft);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.monitor-mark {
+  flex: none;
+  width: 7px; height: 7px;
+  background: var(--state-warn);
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
 /* ---------- terminal ---------- */
 #term-container {
   flex: 1;
