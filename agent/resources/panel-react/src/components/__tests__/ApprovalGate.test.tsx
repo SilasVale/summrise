@@ -330,6 +330,20 @@ describe("ApprovalGate — the deadline is absolute (the double-speed regression
     // ~15-minute TTL the operator would be told the question had minutes left
     // when it had half an hour's worth.
     const TTL = 15 * 60_000;
+    // THE FIXTURE SITS 30 s INSIDE THE MINUTE BAND, NOT ON ITS EDGE.
+    //
+    // MEASURED (round 257): with the deadline exactly `TTL` from the start, this test
+    // failed 3 of 3 runs under parallel load and passed when run alone. The cause is
+    // `vi.useFakeTimers({ shouldAdvanceTime: true })` — the fake clock ALSO advances with
+    // real time, so the component's `now` runs a few hundred ms behind the instant the
+    // fixture was built, `left` lands a hair under 840 s, and `fmtLeft` (`Math.ceil`)
+    // prints 13m. The PANEL was right; the fixture was standing on the rounding boundary,
+    // so the assertion was measuring the test machine's scheduler rather than the
+    // double-count it exists for.
+    //
+    // 30 s of slack absorbs any plausible drift while keeping the claim exact: a
+    // double-counting display is wrong by a whole MINUTE, which still lands on 13m.
+    const BOUNDARY_SLACK_MS = 30_000;
     const view = (elapsed: number) => (
       <ApprovalGate
         {...gateProps({
@@ -339,7 +353,7 @@ describe("ApprovalGate — the deadline is absolute (the double-speed regression
             pending_approval: {
               id: "ap-ttl",
               command: "reload",
-              expires_in_ms: TTL - elapsed,
+              expires_in_ms: TTL - elapsed - BOUNDARY_SLACK_MS,
             },
           }),
         })}
@@ -356,8 +370,9 @@ describe("ApprovalGate — the deadline is absolute (the double-speed regression
       rerender(view(elapsed));
     }
 
-    // 14 minutes left. A double-counting display shows 13m: it subtracts its own
-    // accumulated 60 s from the fresh 840 s budget.
+    // 13.5 minutes left, drawn as 14m. A double-counting display shows 13m: it subtracts
+    // its own accumulated 60 s from the fresh budget — a whole minute, which the 30 s of
+    // fixture slack cannot mask.
     expect(screen.getByText("14m")).toBeTruthy();
     expect(screen.queryByText("13m")).toBeNull();
   });
