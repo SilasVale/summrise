@@ -1364,16 +1364,20 @@ test("targetLine: one drop is 'drop', several are 'drops'", () => {
 
 // ── vale report: the block an operator pastes ────────────────────────────────
 test("reportText: assembles status, sessions, restarts and watched targets", () => {
-  // LOCAL, not Date.UTC: `vale report` stamps local time on purpose (the reader is
-  // standing next to the device), so a UTC fixture made this test timezone-dependent.
+  // LOCAL time on purpose (the reader stands next to the device). Dates are built locally
+  // here too: a Date.UTC fixture made this test timezone-dependent.
   const now = new Date(2026, 8, 14, 23, 20, 5).getTime();
   const lines = reportText({
+    // The REAL /api/status shape: `version` is the crate (1.0.x) and `release` the npm
+    // release. A fixture with only `version` is how the report shipped claiming a drift of
+    // a hundred versions on a device that was current.
     status: {
       ok: true,
-      version: "1.2.383",
+      version: "1.0.145",
+      release: "1.2.384",
       uptime_secs: 11_520,
-      last_boot: "clean exit",
-      last_boot_kind: "clean-exit",
+      last_boot: "run journal: previous run DID NOT EXIT CLEANLY — REPLACED by a restart (an update swap or a task restart killed it mid-flight); started 2062s ago, last heartbeat 21s before this start, survived 2041s",
+      last_boot_kind: "replaced",
       cpu_pct: 12,
       mem_pct: 61,
       live_sessions: 2,
@@ -1390,27 +1394,40 @@ test("reportText: assembles status, sessions, restarts and watched targets", () 
         },
       ],
     },
-    sessions: { sessions: [{ kind: "pty" }, { kind: "ssh" }] },
-    boots: { summary: { total: 3, crashed: 1 } },
+    // The audit trail's rows, with `state.status` as the LIVE marker — plus a closed row and a
+    // legacy row without identity, which is what the device returns by the hundred (749 rows
+    // for one live session, before the fix).
+    sessions: {
+      sessions: [
+        { id: "term-1", state: { status: "opened" }, kind: "pty" },
+        { id: "term-2", state: { status: "opened" }, kind: "ssh" },
+        { id: "term-3", state: { status: "closed" }, kind: "serial" },
+        { id: "term-4", state: { status: "closed" } },
+      ],
+    },
+    boots: { summary: { window_secs: 86_400, boots: 3, crashes: 1 } },
     nowMs: now,
-    cliVersion: "1.2.383",
+    cliVersion: "1.2.384",
     hostLabel: "d1",
   });
   const text = lines.join("\n");
   assert.match(text, /Vale report — d1 — 2026-09-14/);
-  assert.match(text, /release 1\.2\.383, CLI 1\.2\.383, agent up 3h 12m/);
+  assert.match(text, /release 1\.2\.384, CLI 1\.2\.384, agent up 3h 12m/);
   assert.doesNotMatch(text, /DRIFT/); // same version: no drift claimed
-  assert.match(text, /previous boot: clean-exit — clean exit/);
+  // The previous boot is the KIND plus the first clause — not the whole run-journal sentence.
+  assert.match(text, /previous boot: replaced — previous run DID NOT EXIT CLEANLY/);
+  assert.doesNotMatch(text, /survived 2041s/);
   assert.match(text, /CPU 12%, mem 61%, 2 session\(s\), 1 awaiting approval/);
+  // LIVE only: the closed rows and the legacy row are history, not sessions.
   assert.match(text, /sessions: 1 pty, 1 ssh/);
-  assert.match(text, /restarts in the last day: 3 \(1 crash-like\)/);
+  assert.doesNotMatch(text, /serial|kind unknown/);
+  assert.match(text, /restarts in the last 24h: 3 \(1 crash-like\)/);
   assert.match(text, /watching 2 target\(s\), probed every 15s — 1 down:/);
   assert.match(text, /DOWN 192\.168\.1\.1:80\/\s+down 6m\s+HTTP 500/);
   // The DOWN target brings its outage log; the UP one does not (noise).
   assert.match(text, /went down\s+\(previous state lasted 17s\)/);
   assert.equal((text.match(/previous state lasted/g) || []).length, 1);
 });
-
 test("reportText: a route that did not answer reads as NOT READ, never as a value", () => {
   const text = reportText({
     status: { __error: "device unreachable on 127.0.0.1:18080" },
@@ -1425,11 +1442,19 @@ test("reportText: a route that did not answer reads as NOT READ, never as a valu
   assert.match(text, /watched targets: NOT READ/);
   // No invented numbers for what was not read.
   assert.doesNotMatch(text, /release 1\.|CPU|mem /);
+  // A device that reported no npm release says so, and does not dress the crate version up as one.
+  const noRelease = reportText({
+    status: { ok: true, version: "1.0.145", uptime_secs: 60 },
+    monitors: null, sessions: null, boots: null,
+    nowMs: new Date(2026, 8, 14, 23, 20, 5).getTime(), cliVersion: "1.2.384", hostLabel: "d1",
+  }).join("\n");
+  assert.match(noRelease, /release NOT REPORTED \(crate 1\.0\.145\)/);
+  assert.doesNotMatch(noRelease, /DRIFT/);
 });
 
 test("reportText: a version drift is named, and an empty watch list says how to start one", () => {
   const text = reportText({
-    status: { ok: true, version: "1.2.400", uptime_secs: 60 },
+    status: { ok: true, version: "1.0.145", release: "1.2.400", uptime_secs: 60 },
     monitors: { interval_secs: 15, targets: [] },
     sessions: null,
     boots: null,

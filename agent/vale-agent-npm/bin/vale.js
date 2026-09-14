@@ -408,17 +408,27 @@ function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, host
     }
     else {
         const parts = [];
-        parts.push(`release ${status.version || "?"}`);
-        if (cliVersion)
-            parts.push(`CLI ${cliVersion}${status.version && cliVersion !== status.version ? " (DRIFT)" : ""}`);
+        // `version` is the CARGO version (1.0.x, the crate), `release` is the npm release this
+        // device runs (1.2.x) — reporting the first as "the release" claimed a drift of a
+        // hundred versions on a device that was current. Found on d1 by running it.
+        const release = status.release || null;
+        parts.push(release ? `release ${release}` : `release NOT REPORTED (crate ${status.version || "?"})`);
+        if (cliVersion && release)
+            parts.push(`CLI ${cliVersion}${cliVersion !== release ? " (DRIFT)" : ""}`);
         if (typeof status.uptime_secs === "number")
             parts.push(`agent up ${fmtDuration(status.uptime_secs * 1000)}`);
         out.push(`  ${parts.join(", ")}`);
         // The previous boot is the one fact nobody can reconstruct after the fact, so it
         // is named with its KIND (clean exit / crashed / machine restart) and never as a
         // bare sentence.
-        if (status.last_boot || status.last_boot_kind)
-            out.push(`  previous boot: ${status.last_boot_kind || "no verdict"}${status.last_boot ? ` — ${status.last_boot}` : ""}`);
+        if (status.last_boot || status.last_boot_kind) {
+            // The detail is a full sentence written for `startup.log`; a report line wants the
+            // verdict and the REASON, so it takes the first clause and bounds it.
+            const detail = String(status.last_boot || "").replace(/^run journal:\s*/, "");
+            const firstClause = detail.split(/;|\s+—\s+/)[0].trim();
+            const short = firstClause.length > 110 ? firstClause.slice(0, 107) + "..." : firstClause;
+            out.push(`  previous boot: ${status.last_boot_kind || "no verdict"}${short ? ` — ${short}` : ""}`);
+        }
         const facts = [];
         if (typeof status.cpu_pct === "number")
             facts.push(`CPU ${status.cpu_pct}%`);
@@ -431,15 +441,25 @@ function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, host
         if (facts.length)
             out.push(`  ${facts.join(", ")}`);
     }
-    if (sessions && Array.isArray(sessions.sessions) && sessions.sessions.length) {
+    // `/api/sessions` is the AUDIT TRAIL — every session this device has ever had (749 rows on
+    // d1, most from before identity was recorded). Counting all of them reported "101 pty, 621 ?,
+    // 9 serial, 18 ssh" for a device with ONE live session. A row is live when its own state says
+    // `opened`; anything else is history.
+    const live = sessions && Array.isArray(sessions.sessions)
+        ? sessions.sessions.filter((s) => s && s.state && s.state.status === "opened")
+        : [];
+    if (live.length) {
         const byKind = {};
-        for (const s of sessions.sessions)
-            byKind[s.kind || "?"] = (byKind[s.kind || "?"] || 0) + 1;
+        for (const s of live)
+            byKind[s.kind || "kind unknown"] = (byKind[s.kind || "kind unknown"] || 0) + 1;
         out.push(`  sessions: ${Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ")}`);
     }
     if (boots && boots.summary) {
+        // The keys are `boots`/`crashes`/`window_secs` (runstate::summary). Asking for
+        // `total`/`crashed` printed "? (0 crash-like)" — a guess wearing a number's clothes.
         const s = boots.summary;
-        out.push(`  restarts in the last day: ${s.total ?? "?"} (${s.crashed ?? 0} crash-like)`);
+        const hours = typeof s.window_secs === "number" ? Math.round(s.window_secs / 3600) : null;
+        out.push(`  restarts in the last ${hours ? hours + "h" : "window"}: ${typeof s.boots === "number" ? s.boots : "NOT READ"} (${typeof s.crashes === "number" ? s.crashes : "?"} crash-like)`);
     }
     const targets = (monitors && monitors.targets) || [];
     if (!monitors) {
