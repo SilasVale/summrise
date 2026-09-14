@@ -349,6 +349,22 @@ mod tools_tests {
             "helper must be ASCII-only"
         );
         assert_eq!(BROWSER_HELPER_NAME, "vale-browser-helper.js");
+        // The header must NAME the file that is actually generated. The original text
+        // said "do not edit, it is overwritten" about "this file" — no filename, and
+        // false about the source a developer opens, which nothing generates and which
+        // is the only place a change can be made. A copy reader needs the name; a repo
+        // reader needs to know the copy is the other one.
+        assert!(
+            BROWSER_HELPER_JS.contains(BROWSER_HELPER_NAME),
+            "the helper header must name the generated copy ({BROWSER_HELPER_NAME}) rather than \
+             referring to `this file` — the source and the copy share one text, so a header \
+             that does not distinguish them is wrong for whichever one the reader has open"
+        );
+        assert!(
+            !BROWSER_HELPER_JS.contains("do not edit, it is overwritten"),
+            "the helper header must not tell a developer not to edit the SOURCE: nothing \
+             generates src/plugins/playwright/helper.js, and editing it is how a change ships"
+        );
     }
 
     #[test]
