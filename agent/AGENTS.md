@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 222 (**THE CLOUDFLARE HALF OF CONVERGENCE ROW 4 IS LIVE — both proxy workers
+deployed and smoked — and the vrelay half was DELIBERATELY NOT TAKEN, with its prerequisites measured and the
+reason stated**). Deploy only; no tracked file changed. Worktree clean.
+  (1) WHAT WAS DEPLOYED, WITH THE EVIDENCE THAT MAKES IT CHECKABLE RATHER THAN CLAIMED:
+  `./scripts/build.sh proxies` uploaded **`opencode-go-proxy` version `0d2a6d83-ecc5-4492-9c9e-7fe6d30027c4`**
+  and **`zen-us-proxy` version `f288a945-bf8c-4a15-b5c6-cbd748c6cd5b`**, and the script's own post-deploy smoke
+  passed for each — `ok: zen-go smoke 401-gate intact` / `ok: zen-us smoke 401-gate intact`. **Re-measured
+  afterwards from outside: both `https://opencode.saisi.online/v1/models` and
+  `https://zen-us.saisi.online/v1/models` answer 401, which is the auth gate the smoke asserts.** The
+  deployed source is the worktree's, and `redactSecrets` was re-counted in BOTH workers (4 sites each) before
+  deploying rather than after — the P4 work committed and mutation-proven in rounds 129/131/132/133.
+  (2) WHY THE SCRIPT WAS USED RATHER THAN A BARE `wrangler deploy`: `deploy_proxy` does the deploy AND the
+  smoke as one act, so "deployed" and "still gated" are the same command's output. **A bare wrangler call
+  would have left the second half to be remembered**, which is the shape rounds 199-221 spent themselves
+  closing.
+  (3) AND THE OTHER HALF WAS NOT TAKEN, WHICH IS THE ROUND'S SECOND DELIVERABLE: `deploy_api_relay` ends in
+  `sudo systemctl restart vrelay` on the Oracle box, and **that box serves THIS repository's git mirror —
+  `https://v.saisi.online/api/git/SilasVale/vale.git`, the channel this loop pushes through.** Its
+  prerequisites were measured rather than assumed: **`~/.ssh/vrelay.key` EXISTS**, the P5 work is in the
+  built bundle (`proxies/api-relay/dist/{zen,proxy,gform,github}.mjs`), and the live service answers
+  `POST /api/proxy` → **401** with the **git mirror → 200**. **So it is executable — and it was still not
+  executed here, on round 153's rule: do not start what you cannot finish. Restarting the channel that
+  carries your own pushes in the tail of a round is a one-way door that deserves a full budget and a
+  rollback line already written.**
+  (4) SO ROW 4 SPLITS RATHER THAN CLOSES, and the split is the honest record: **4a (both CF workers'
+  redaction) is LIVE as of this round; 4b (vrelay's 5xx genericization + header-timeout) is a round of its
+  own with every prerequisite measured and written down.** The table carries both, so the next round does not
+  re-derive the SSH key's existence or the bundle's contents.
+  (5) STILL OPEN, AND THE LIST IS NOW ONE LINE PER OWNER: **the installer's signing decision (the user's
+  call — the live installer is unsigned and advertised)**; **convergence 4b (the vrelay restart — a round of
+  its own, prerequisites measured)**; rows 6-7, which wait on a device event rather than on work. Everything
+  else this journal has carried is closed: the round-165 sweep (218), the 27-round mutation anomaly (219),
+  the ledger head (213), the mirror manifest blind spot (211), `studio/` (212), the four cross-file contracts
+  (214-218), and convergence rows 3 and 5 (221).
+
 Last updated: 2026-09-14 round 221 (**THE ROUND-157 CONVERGENCE TABLE HAD DRIFTED THE SAME WAY THE ROUND-LOG
 HEAD DID — two of its seven rows were already DONE and still read as open, and its `Evidence on record` column
 is what made that easy to miss: those cells cite LIVE measurements**). Commit: ledger + journal. No code change.
