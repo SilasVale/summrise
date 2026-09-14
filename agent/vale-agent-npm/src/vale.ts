@@ -354,7 +354,7 @@ function pick(r) {
         return { __error: r.error };
     return r.body;
 }
-export function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, hostLabel }) {
+export function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, hostLabel, consoleNear }) {
     const now = new Date(nowMs);
     const p = (n) => String(n).padStart(2, "0");
     const stamp = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
@@ -440,6 +440,14 @@ export function reportText({ status, monitors, sessions, boots, nowMs, cliVersio
             if (t.summary && t.summary.up_now === false) {
                 for (const l of transitionLines(t, 3))
                     out.push("  " + l.trim());
+                // THE JOIN: what the console printed just before it dropped. Absent when nothing was
+                // printed in the window, or when the trail could not be read — never invented.
+                const near = consoleNear && consoleNear[t.id];
+                if (near && near.line) {
+                    const at = new Date(near.tsMs);
+                    const hhmmss = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}:${String(at.getSeconds()).padStart(2, "0")}`;
+                    out.push(`         console ${hhmmss} (${near.sid}): ${near.line}`);
+                }
             }
         }
     }
@@ -486,6 +494,53 @@ export function targetLine(t, nowMs, width = 30) {
     const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}`;
 }
+// ── WHAT THE CONSOLE SAID WHEN IT HAPPENED ──────────────────────────────────
+// The device keeps two timelines that have never been put side by side: the probes (a host went
+// down at 22:51:05) and the session audit (the console printed something at 22:51:04). For an
+// operator debugging a box over serial, "what was on the console when it dropped" is the fact
+// that explains the drop — and it was always one join away.
+//
+// The join is done HERE, in the CLI, from the audit files the device already writes: no new route,
+// no new storage, and the answer is only as good as what was recorded (a silent console says so).
+
+/** ANSI escapes and control bytes out: the audit keeps them for replay, a report must not. */
+export function stripAnsi(text) {
+    return String(text || "")
+        .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "") // OSC (window titles)
+        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI (colour, cursor)
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+}
+
+/** The last non-empty line of a chunk, clipped — a report line, not a transcript. */
+export function lastLine(text, cap = 120) {
+    const lines = stripAnsi(text)
+        .split(/\r?\n/)
+        .map((l) => l.replace(/\s+$/, ""))
+        .filter((l) => l.trim().length > 0);
+    if (lines.length === 0)
+        return "";
+    const line = lines[lines.length - 1].trim();
+    return line.length > cap ? line.slice(0, cap - 3) + "..." : line;
+}
+
+/** The newest OUTPUT record at or before `atMs`, from records already parsed. Pure: the file
+ *  reading lives in the command, so the choice is testable without a filesystem. */
+export function lastOutputBefore(records, atMs) {
+    let best = null;
+    for (const r of records) {
+        if (!r || r.kind !== "output" || typeof r.ts_ms !== "number" || !r.text)
+            continue;
+        if (r.ts_ms > atMs)
+            continue;
+        // `best.tsMs`, not `best.ts_ms`: the object is camelCase, and reading the wrong name made
+        // the comparison `> undefined` — always false, so this returned the FIRST match instead of
+        // the newest one (the test asserted "newest", which is the whole point of the join).
+        if (!best || r.ts_ms > best.tsMs)
+            best = { tsMs: r.ts_ms, text: r.text };
+    }
+    return best;
+}
+
 // ONE PROBE'S ANSWER, as a line — the terminal's version of what the device's `monitor_probe`
 // returns. Pure, because the wording is the feature: a DOWN probe says WHICH way it failed
 // (no connection / status 500 / 200 without the expected text), not merely that it failed.
@@ -1970,6 +2025,56 @@ const commands = {
           /* best effort: the report is still useful without it */
       }
       const os = require("os");
+      // For every DOWN target: the newest console output just before its latest transition. Read
+      // from the audit files directly (the CLI runs ON the device), bounded to the most recently
+      // touched files and to the tail of each — a report must not walk a gigabyte of history.
+      const consoleNear = {};
+      try {
+          const dir = path.join(DATA_DIR, "sessions");
+          const files = fs
+              .readdirSync(dir)
+              .filter((f) => f.endsWith(".jsonl"))
+              .map((f) => ({ f, p: path.join(dir, f), m: fs.statSync(path.join(dir, f)).mtimeMs }))
+              .sort((a, b) => b.m - a.m)
+              .slice(0, 12);
+          for (const t of (monitors && monitors.targets) || []) {
+              if (!t.summary || t.summary.up_now !== false)
+                  continue;
+              const last = (t.transitions || [])[t.transitions.length - 1];
+              if (!last)
+                  continue;
+              let found = null;
+              for (const file of files) {
+                  const size = fs.statSync(file.p).size;
+                  const from = Math.max(0, size - 128 * 1024);
+                  const fd = fs.openSync(file.p, "r");
+                  const buf = Buffer.alloc(size - from);
+                  fs.readSync(fd, buf, 0, buf.length, from);
+                  fs.closeSync(fd);
+                  const records = String(buf)
+                      .split("\n")
+                      .map((l) => {
+                          try {
+                              return JSON.parse(l);
+                          }
+                          catch {
+                              return null;
+                          }
+                      })
+                      .filter(Boolean);
+                  const hit = lastOutputBefore(records, last.at_ms);
+                  // The window matters: a line printed an hour before the drop explains nothing.
+                  if (hit && last.at_ms - hit.tsMs <= 120_000 && (!found || hit.tsMs > found.tsMs)) {
+                      found = { sid: file.f.replace(/\.jsonl$/, ""), tsMs: hit.tsMs, line: lastLine(hit.text) };
+                  }
+              }
+              if (found && found.line)
+                  consoleNear[t.id] = found;
+          }
+      }
+      catch {
+          /* an unreadable trail is an absent join, never a failed report */
+      }
       for (const line of reportText({
           status,
           monitors,
@@ -1978,6 +2083,7 @@ const commands = {
           nowMs: Date.now(),
           cliVersion,
           hostLabel: args.includes("--no-host") ? "" : os.hostname(),
+          consoleNear,
       }))
           console.log(line);
   },

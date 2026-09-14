@@ -19,6 +19,9 @@ const {
   parseTargetArg,
   parseWatchArgs,
   probeLine,
+  stripAnsi,
+  lastLine,
+  lastOutputBefore,
   reportText,
   targetLine,
   transitionLines,
@@ -1532,4 +1535,79 @@ test("probeLine: a DOWN probe says WHICH way it failed", () => {
   );
   // No answer at all: no status, no latency, and the line says so.
   assert.equal(probeLine({ id: "h:9" }, { ok: false, status: null, ms: null, expect_ok: null }, now), "DOWN h:9  no answer");
+});
+
+
+// ── what the console said when it happened (the join) ───────────────────────
+test("stripAnsi/lastLine: a report line, not a transcript", () => {
+  // OSC (the window-title escape npm emits) and CSI colour both go; the text stays.
+  assert.equal(stripAnsi("\u001b]0;npm i something\u0007done"), "done");
+  assert.equal(stripAnsi("\u001b[31mred\u001b[0m"), "red");
+  assert.equal(lastLine("one\ntwo\r\n\n   \nlast line here\n"), "last line here");
+  // A trailing blank line is not "the last line": an operator wants the content.
+  assert.equal(lastLine("content\n\n\n"), "content");
+  assert.equal(lastLine(""), "");
+  assert.equal(lastLine("\u001b[2J\u001b[H"), "");
+  // Long lines are clipped, because this lands inside a report line.
+  const long = lastLine("x".repeat(300));
+  assert.equal(long.length, 120);
+  assert.match(long, /\.\.\.$/);
+});
+
+test("lastOutputBefore: the newest output AT OR BEFORE the moment, never after", () => {
+  const recs = [
+    { kind: "command/start", ts_ms: 1000, command: "x" },
+    { kind: "output", ts_ms: 1500, text: "first" },
+    { kind: "output", ts_ms: 2500, text: "second" },
+    { kind: "output", ts_ms: 9000, text: "AFTER the moment" },
+    { kind: "output", ts_ms: 500, text: "" }, // no text: cannot be a console line
+    { kind: "output" }, // no stamp: dropped rather than placed by guess
+  ];
+  assert.equal(lastOutputBefore(recs, 3000).text, "second");
+  assert.equal(lastOutputBefore(recs, 1500).text, "first");
+  assert.equal(lastOutputBefore(recs, 10), null, "nothing before the moment is null, not the first");
+  assert.equal(lastOutputBefore([], 1000), null);
+});
+
+test("reportText: a DOWN target carries the console line from just before it dropped", () => {
+  const now = new Date(2026, 8, 14, 23, 20, 5).getTime();
+  const downAt = now - 60_000;
+  const text = reportText({
+    status: { ok: true, release: "1.2.389", uptime_secs: 60 },
+    monitors: {
+      interval_secs: 15,
+      targets: [
+        {
+          id: "127.0.0.1:45993",
+          summary: { up_now: false, since_ms: downAt, drops: 1, up_pct: 50, latency: null, last_status: null },
+          transitions: [{ at_ms: downAt, up: false, lasted_ms: 39_000 }],
+        },
+      ],
+    },
+    sessions: null,
+    boots: null,
+    nowMs: now,
+    cliVersion: "1.2.389",
+    hostLabel: "d1",
+    consoleNear: { "127.0.0.1:45993": { sid: "term-98cf04-0", tsMs: downAt - 1500, line: "ifconfig br-lan down" } },
+  }).join("\n");
+  assert.match(text, /went down\s+\(previous state lasted 39s\)/);
+  assert.match(text, /console \d\d:\d\d:\d\d \(term-98cf04-0\): ifconfig br-lan down/);
+
+  // No join found: the report says nothing about the console rather than guessing at it.
+  const bare = reportText({
+    status: { ok: true, release: "1.2.389", uptime_secs: 60 },
+    monitors: {
+      interval_secs: 15,
+      targets: [
+        {
+          id: "127.0.0.1:45993",
+          summary: { up_now: false, since_ms: downAt, drops: 1, up_pct: 50, latency: null, last_status: null },
+          transitions: [{ at_ms: downAt, up: false, lasted_ms: 39_000 }],
+        },
+      ],
+    },
+    sessions: null, boots: null, nowMs: now, cliVersion: "1.2.389", hostLabel: "d1",
+  }).join("\n");
+  assert.doesNotMatch(bare, /console /);
 });
