@@ -45,15 +45,45 @@ export interface ByokChannel {
 }
 
 export const BYOK_CHANNELS: ByokChannel[] = [
-  { prefix: "og", kind: "opencode", userKey: "OPENCODE_GO_API_KEY", envKey: "OPENCODE_GO_API_KEY", shape: "openai" },
-  { prefix: "ds", kind: "deepseek", userKey: "DEEPSEEK_API_KEY", envKey: "DEEPSEEK_API_KEY", shape: "anthropic" },
-  { prefix: "qw", kind: "qwen", userKey: "QWEN_API_KEY", envKey: "QWEN_API_KEY", shape: "anthropic" },
-  { prefix: "or", kind: "openrouter", userKey: "OPENROUTER_API_KEY", envKey: "OPENROUTER_API_KEY", shape: "anthropic" },
+  {
+    prefix: "og",
+    kind: "opencode",
+    userKey: "OPENCODE_GO_API_KEY",
+    envKey: "OPENCODE_GO_API_KEY",
+    shape: "openai",
+  },
+  {
+    prefix: "ds",
+    kind: "deepseek",
+    userKey: "DEEPSEEK_API_KEY",
+    envKey: "DEEPSEEK_API_KEY",
+    shape: "anthropic",
+  },
+  {
+    prefix: "qw",
+    kind: "qwen",
+    userKey: "QWEN_API_KEY",
+    envKey: "QWEN_API_KEY",
+    shape: "anthropic",
+  },
+  {
+    prefix: "or",
+    kind: "openrouter",
+    userKey: "OPENROUTER_API_KEY",
+    envKey: "OPENROUTER_API_KEY",
+    shape: "anthropic",
+  },
   // nv and gmi have NO deployment-level fallback: envKey null is the fact the other three
   // tables could not express, and the reason a naive flatten would lose information.
   { prefix: "nv", kind: "nvidia", userKey: "NVAPI_KEY", envKey: null, shape: "openai" },
   { prefix: "gmi", kind: "gmi", userKey: "GMI_API_KEY", envKey: null, shape: "openai" },
-  { prefix: "cm", kind: "commandgoat", userKey: "CMD_API_KEY", envKey: "CMD_API_KEY", shape: "openai" },
+  {
+    prefix: "cm",
+    kind: "commandgoat",
+    userKey: "CMD_API_KEY",
+    envKey: "CMD_API_KEY",
+    shape: "openai",
+  },
   { prefix: "amd", kind: "amd", userKey: "AMD_API_KEY", envKey: "AMD_API_KEY", shape: "anthropic" },
 ];
 

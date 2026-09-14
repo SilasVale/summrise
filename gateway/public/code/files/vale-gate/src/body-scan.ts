@@ -49,7 +49,8 @@ export function rawWithModel(
 export function rawWithTopLevelField(raw: string, field: string, value: unknown): string {
   const scan = scanTopLevelField(raw, field);
   const encoded = JSON.stringify(value);
-  if (scan.found) return raw.slice(0, scan.found.valueStart) + encoded + raw.slice(scan.found.valueEnd);
+  if (scan.found)
+    return raw.slice(0, scan.found.valueStart) + encoded + raw.slice(scan.found.valueEnd);
   // B1 (round 168): appending is only safe when the scan actually FINISHED.
   // Past the ceiling we cannot prove the field is absent, and appending would
   // put a SECOND `provider`/`reasoning` key on the body — a different defect

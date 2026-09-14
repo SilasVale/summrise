@@ -179,7 +179,10 @@ export function loadCatalogueFile(deps: CatalogueFileDeps): CatalogueLayers {
   // constants. `providers.ts` used to pass a fresh arrow wrapper, which is exactly the
   // shape this check exists to catch, and it now passes the bare function.
   if (cached !== null && cachedDeps !== null) {
-    if (cachedDeps.parseProvider !== deps.parseProvider || cachedDeps.knownPrefixes !== deps.knownPrefixes) {
+    if (
+      cachedDeps.parseProvider !== deps.parseProvider ||
+      cachedDeps.knownPrefixes !== deps.knownPrefixes
+    ) {
       throw new Error(
         "loadCatalogueFile: called with DIFFERENT validators than the first call — " +
           "the parsed catalogue is cached per isolate, so mixed callers would make the " +
