@@ -33,6 +33,16 @@ pub struct RunState {
     pub exited: bool,
 }
 
+/// How recently the previous run must have beaten for its death to be read as a REPLACEMENT
+/// rather than a crash.
+///
+/// MEASURED, not chosen: on d1 (round 244) the 1.2.364 -> 1.2.365 update killed the agent tree
+/// and the new process began **6 s** after the old one's last heartbeat — the swap kills the
+/// process and restarts the task, so `since` lands at a few seconds. A crash is different in
+/// kind: nothing takes over until the 60 s watchdog notices, so `since` is at least a minute and
+/// usually much more. One minute sits between the two by a wide margin on both sides.
+const REPLACED_WITHIN_SECS: u64 = 60;
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -93,9 +103,20 @@ pub fn describe_previous(previous: Option<&RunState>, now: u64) -> String {
         // a panic, a kill, a power loss, or the update swap replacing it mid-flight. The
         // uptime is what separates "died immediately at boot" from "ran for hours", and it
         // is exactly what nobody could measure before this module existed.
+        // THE LINE USED TO HAND THE OPERATOR THREE NUMBERS AND NO READING OF THEM. Round 244
+        // read this on d1 and had to work out by hand that "DID NOT EXIT CLEANLY ... last
+        // heartbeat 6s before this start" is a NORMAL update swap, not a fault — the journal
+        // for that round records the reasoning ("the line reads alarming and is not"). The
+        // discriminator is `since`, so the function now applies it: a fresh heartbeat means
+        // something replaced the process; a stale one means it died and nothing took over.
+        let verdict = if since <= REPLACED_WITHIN_SECS {
+            "REPLACED by a restart (an update swap or a task restart killed it mid-flight)"
+        } else {
+            "CRASHED or was killed (it stopped heartbeating and nothing took over)"
+        };
         format!(
-            "run journal: previous run DID NOT EXIT CLEANLY — started {since_start}s ago, \
-             last heartbeat {since}s before this start, survived {uptime}s",
+            "run journal: previous run DID NOT EXIT CLEANLY — {verdict}; started {since_start}s \
+             ago, last heartbeat {since}s before this start, survived {uptime}s",
             since_start = now.saturating_sub(prev.started),
         )
     }
@@ -236,6 +257,35 @@ mod tests {
             line.contains("last heartbeat 7939s before this start"),
             "{line}"
         );
+    }
+
+    #[test]
+    fn a_swap_is_called_a_replacement_and_a_gap_is_called_a_crash() {
+        // THE REAL NUMBERS FROM d1, round 244: the 1.2.364 -> 1.2.365 update left
+        // "started 31991s ago, last heartbeat 6s before this start, survived 31985s", and the
+        // journal for that round records the operator's problem with it — the line "reads
+        // alarming and is not". These two cases are the ones the old text could not tell apart.
+        let swapped = RunState {
+            started: 100_000,
+            last: 131_985, // heartbeating until 6 s before the new process began
+            exited: false,
+        };
+        let line = describe_previous(Some(&swapped), 131_991);
+        assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
+        assert!(line.contains("REPLACED by a restart"), "{line}");
+        assert!(!line.contains("CRASHED"), "{line}");
+
+        // Same shape, but nothing took over for an hour: a crash, and the uptime is what says
+        // so — the case the module was written for.
+        let crashed = RunState {
+            started: 100_000,
+            last: 131_985,
+            exited: false,
+        };
+        let line = describe_previous(Some(&crashed), 135_585);
+        assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
+        assert!(line.contains("CRASHED or was killed"), "{line}");
+        assert!(!line.contains("REPLACED"), "{line}");
     }
 
     #[test]

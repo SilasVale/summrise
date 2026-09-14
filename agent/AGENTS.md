@@ -526,6 +526,81 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 254 (**PRODUCT CHANGE: `describe_previous` now says WHAT HAPPENED instead of handing
+the operator three numbers — the distinction round 244 had to work out by hand on d1 is now computed**).
+Commit: agent/src/runstate.rs + journal. agent 680 = 679 + 1, four steps green.
+  (1) THE USER CALLED THIS LOOP OUT AND WAS RIGHT, MEASURED: over rounds 226-253 (60 commits) **2 touched
+  product source — `scripts/build.sh`'s build step and `ci.yml`'s test step — 17 added or changed only tests,
+  and 41 changed only docs and ledgers.** Neither of the two is a product feature. **The mechanism is not
+  mysterious: verification is an UNBOUNDED question ("what else disagrees?") with a BINARY verdict, so every round
+  can answer it and prove it produced something. Product work is neither unbounded nor binary, which is exactly
+  why it loses by default.** Round 252's own design review had already recorded the pattern
+  ("apparatus-heavy and product-light") and the next round added a 42nd document change anyway — so
+  `docs/agents/iteration-loop.md`'s round-record gained a fourth item: **a round ships a product change, or says
+  in writing why it did not.**
+  (2) AND THE PRODUCT CHANGE CAME FROM THIS LOOP'S OWN DEVICE MEASUREMENT RATHER THAN FROM A NEW IDEA: round 244
+  read `runstate.rs`'s `describe_previous` on d1 and got **"run journal: previous run DID NOT EXIT CLEANLY —
+  started 31991s ago, last heartbeat 6s before this start, survived 31985s"**, then had to establish BY HAND that
+  this was a normal update swap and not a fault — the entry for that round says the line "reads alarming and is
+  not." **The function already knew the four causes in its own comment ("a panic, a kill, a power loss, or the
+  update swap replacing it mid-flight") and printed the discriminator without applying it.**
+  (3) SO `describe_previous` NOW CLASSIFIES THE CASE, AND THE THRESHOLD IS MEASURED RATHER THAN CHOSEN:
+  `REPLACED_WITHIN_SECS = 60`, documented against round 244's d1 numbers — a swap leaves `since` at a few
+  seconds (6 s measured) because it kills the tree and restarts the task, while a crash leaves nothing beating
+  until the 60 s watchdog notices. **One minute sits between the two by a wide margin on both sides.** The
+  mechanical fact is preserved (the line still says `DID NOT EXIT CLEANLY`, so no existing reader loses its
+  marker) and the verdict is appended: **"REPLACED by a restart (an update swap or a task restart killed it
+  mid-flight)"** or **"CRASHED or was killed (it stopped heartbeating and nothing took over)"**.
+  (4) THE TEST USES d1's REAL NUMBERS, NOT INVENTED ONES: `a_swap_is_called_a_replacement_and_a_gap_is_called_a_crash`
+  builds the exact `RunState` round 244 measured (started 100000, last 131985, now 131991 → 6 s) and asserts
+  REPLACED; the same record read an hour later (now 135585) asserts CRASHED. **It also pins the negative in both
+  directions (`!line.contains("CRASHED")` / `!line.contains("REPLACED")`), so a future edit that collapses the two
+  cases fails rather than passing on one substring.** runstate 10 tests, agent 680, fmt + clippy green.
+  (5) WHAT THIS DOES NOT CLAIM: **the change is compiled and unit-tested on Linux, NOT run on a device** — the
+  line is produced at the next boot, so verifying it in place needs a real restart, and `startup.log` on d1 is the
+  artifact that would show it. **That is the same honest split round 237 drew, and it is named here rather than
+  glossed.** STILL OPEN: the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's);
+  **`describe_previous`'s new line is UNVERIFIED ON A DEVICE until the next agent restart writes it to
+  `startup.log`**; the never-named to-read queue (36).
+
+Last updated: 2026-09-14 round 253 (**THE CONTRACT LIST'S FIRST ROW HAD NO INSTRUMENT — it promises "devices in the
+field" that CLI verbs will not be renamed or removed, and the CLI's 36 tests cover helpers and PowerShell
+generators rather than the verb dispatch**). Commit: vale-agent-npm/test/ + journal.
+  (1) THE LEAD WAS ROUND 252's OWN SECOND FINDING: that round READ `docs/agents/iteration-loop.md` (its 1/1
+  reference being round 251's line) and found TWO obligations the loop had never worked from — the design-review
+  cadence, which round 252 fixed and instrumented, **and a four-row CONTRACT LIST headed "check before touching a
+  promise".** Measured: `Contract list` appears **0 times** in the journal and **0 times** in the ledger, and
+  nothing outside `iteration-loop.md` references it — **the second unworked obligation, one round after the
+  first.**
+  (2) TWO OF ITS FOUR ROWS ALREADY HAVE INSTRUMENTS AND TWO DO NOT, WHICH IS WHY THE CHECK IS WORTH MAKING RATHER
+  THAN THE LIST: **row 2 (AI clients' `/mcp` tool names) is covered by round 214's `gateway_code_contract.rs` plus
+  the `spec-tools.json` inventory and `mcp-tools.ts`; row 4 (relay-token scope) by ADR 0007's flag, which round
+  247 verified in four places.** **Row 1 — "published tgz + devices in the field: CLI verbs/args, install layout,
+  boot-task arguments; how it breaks: rename or remove a verb/arg" — had nothing.** Measured: the CLI's
+  `cli.test.mjs` has **36 tests and ZERO of them touch the verb dispatch**; they cover `busyIsFresh`,
+  `writeReleaseMarker`, `uninstallVersionPs`, `autostartArgv`, `rollbackVersionOk`, `psq`, `parseAgentPort` and
+  other helpers and PowerShell generators. **So a verb could be renamed tomorrow and every gate would stay
+  green.**
+  (3) AND THE ROUND FOUND THE SAFE FORM OF THE CHECK, WHICH ROUND 246's FAILURE IS WHAT MADE NECESSARY: **every
+  documented verb MUTATES the machine — `setup` installs, `update` swaps, `uninstall` deletes — so an assertion
+  that "verified" a verb by invoking it would do those things.** Running `vale` with **NO ARGUMENTS** prints the
+  verb list and exits 0 (measured: 11 verbs — setup, status, start, stop, restart, autostart, update, rollback,
+  uninstall, run, tunnel), and that is the entire instrument. **When the direct verification is destructive, find
+  the part of it that is a measurement** — the rule rounds 238/244 stated, round 246 violated, and this round
+  applied.
+  (4) THE ASSERTION READS THE ROOT GUIDE'S PROMISED VERBS AS DATA AND COMPARES THEM WITH WHAT THE CLI PRINTS, and
+  its mutation is the contract list's own described break: **appending `vale bogusverb` to `AGENTS.md` turns it
+  red naming `bogusverb`**, and removing it turns it green. **The guide promises SEVEN (autostart, rollback,
+  setup, tunnel, uninstall, update, status) and the CLI prints ELEVEN — so the guide advertises a strict subset,
+  which is the safe direction and is now the pinned one.** The test file goes 36 → 37.
+  (5) AND MY APPEND BROKE THE FILE FIRST, IN A WAY WORTH ONE LINE: I re-imported `test` and `assert` into a module
+  that already had them, and the runner reported **`SyntaxError: Identifier 'test' has already been declared`
+  with "tests 1, pass 0, fail 1"** — a broken file reads as a SINGLE failing test, not as 36 missing ones, which
+  is why the count itself was the clue. **Deleting the two duplicate lines restored 37.** STILL OPEN: the
+  installer's signing decision (the user's call); ADR 0007 step 2's assessment (the user's); the never-named
+  to-read queue (36); **the contract list's row 3 (console/panel/extension/Electron route semantics and path leaf
+  names) — the last of its four rows without an instrument, named here rather than left implicit.**
+
 Last updated: 2026-09-14 round 252 (**CHARTER's "every 10 rounds" DESIGN REVIEW HAD BEEN MET TWICE IN 252 ROUNDS
 — at intervals of 46 and 55 — so this round wrote the overdue one and gave the cadence an instrument**).
 Commit: agent/tests/ + journal + ledger. The review itself is the section above this entry.
