@@ -12,12 +12,22 @@ import { MonitorChip } from "../MonitorChip";
 import { downTargets, fmtSince, parseMonitors, type Monitors } from "../../hooks/useMonitors";
 
 const now = 1_789_000_000_000;
+/** The PARSED shape the hook hands to components (`tsMs`, not the wire's `ts_ms`) — the first
+ *  version of this helper built the wire shape, which vitest ran happily and `tsc --noEmit`
+ *  refused, i.e. the panel's own build gate caught what the test run could not. */
 const probe = (i: number, ok: boolean, ms: number | null = ok ? 5 : null) => ({
-  ts_ms: now - (9 - i) * 15_000,
+  tsMs: now - (9 - i) * 15_000,
   ok,
   ms,
 });
 const series = (oks: boolean[]) => oks.map((ok, i) => probe(i, ok));
+/** The WIRE shape (`ts_ms`), for the parser tests — the two are deliberately not the same
+ *  object, and a helper that conflated them would let a parser bug through. */
+const wire = (i: number, ok: boolean, ms: number | null = ok ? 5 : null) => ({
+  ts_ms: now - (9 - i) * 15_000,
+  ok,
+  ms,
+});
 
 const target = (over: Partial<{ id: string; upNow: boolean | null; oks: boolean[] }> = {}) => {
   const oks = over.oks ?? [true, true, true];
@@ -64,7 +74,7 @@ describe("parseMonitors", () => {
           host: "a",
           port: 22,
           summary: { probes: 2, up: 1, down: 1, up_pct: 50, up_now: false, since_ms: now - 15_000, latency: { min: 3, avg: 4, max: 5 } },
-          series: [probe(0, true, 4), probe(1, false)],
+          series: [wire(0, true, 4), wire(1, false)],
         },
       ],
     });
@@ -74,7 +84,7 @@ describe("parseMonitors", () => {
     // The failed probe keeps its stamp and carries NO latency.
     expect(m.targets[0].series[1].ok).toBe(false);
     expect(m.targets[0].series[1].ms).toBeNull();
-    expect(m.targets[0].series[1].tsMs).toBe(probe(1, false).ts_ms);
+    expect(m.targets[0].series[1].tsMs).toBe(probe(1, false).tsMs);
     // An unusable body is an EMPTY list, not a throw, and a probe with no stamp is dropped.
     expect(parseMonitors(null).targets).toEqual([]);
     expect(parseMonitors({ targets: [{ id: "x", series: [{ ok: true }] }] }).targets[0].series).toEqual([]);
