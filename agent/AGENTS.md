@@ -534,9 +534,14 @@ release (not the Cargo version).
 Last updated: 2026-09-14 round 256 (**PRODUCT CHANGE — the boot verdict rounds 254/255 computed now REACHES the operator:
 `/api/status` carries it as DATA, the panel shows it, the console fleet marks it, and the classifier learned to keep a routine
 reboot out of the alarm**).
-Commit: 9d7c1cf0 (runstate + `/api/status` + panel + gateway probe + console card + ledger + guides). Release **1.2.367**
-published to the CDN (`/api/version` smoke: versioned + latest binary sha verified); gateway + console deployed with live
-parity (44 files, 0 drifted). Gates: agent 564 lib + 14 runstate, clippy `-D warnings` + fmt clean; panel 66 files / 555
+Commits: 9d7c1cf0 (product: runstate + `/api/status` + panel + gateway probe + console card), 2b593a8b (round record),
+40b606db (the CI-red instrument fix in (7)). Release **1.2.367** published to the CDN (`/api/version` smoke: versioned +
+latest binary sha verified); gateway + console deployed with live parity (44 files, 0 drifted); **GitHub release v1.2.367
+built by CI and the P0 dual-builder audit run against it: `release audit OK: CDN == GitHub asset byte-for-byte`**, which
+also CLEARED 1.2.367 from `release-reconcile.txt`. **CI on `main` is GREEN again (run 34817618425, `40b606db`) after
+failing on every push since the coverage gate started counting the working directory — and the release workflow's own
+`Gate on tag-commit CI status` had refused v1.2.367 on the first tag, so the tag was MOVED to the green commit, which is
+the bypass that gate names.** Gates: agent 564 lib + 14 runstate, clippy `-D warnings` + fmt clean; panel 66 files / 555
 tests; gateway **874** tests, prettier + tsc clean; devices render smoke 15/15 (its signal-row count went 4 -> 5).
   (1) THE DEFECT WAS MEASURED ON d1 BEFORE ANYTHING WAS WRITTEN, and it was the exact shape round 255 left behind: the verdict
   FILE existed (`kind` absent, prose `REPLACED by a restart … last heartbeat 33s before this start`) while `/api/status`
@@ -589,10 +594,10 @@ tests; gateway **874** tests, prettier + tsc clean; devices render smoke 15/15 (
   when there is no checkout; re-measured 286 of 361 both here and inside `git archive HEAD`, identical. The four-file
   difference is NAMED in the ledger rather than rounded away, and the headline's stale clause about the scope's growth
   now separates numerator from denominator because only one of them was ever the scope.
-  STILL OPEN: the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); **1.2.362-1.2.364 +
-  1.2.367 sit in `docs/agents/release-reconcile.txt` — the publish used `--acknowledge-unreconciled` because the gate found
-  three versions on the CDN with no GitHub release to audit against; clearing them needs their tags/releases to exist**; the
-  never-named to-read queue (38).
+  STILL OPEN: the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); **1.2.362-1.2.364 are
+  still in `docs/agents/release-reconcile.txt` — three releases from before round 207-210 that have no GitHub release to
+  audit against (1.2.367 is settled: its release exists and the audit passed byte-for-byte, so the publish's
+  `--acknowledge-unreconciled` debt is paid)**; the never-named to-read queue (38).
 
 Last updated: 2026-09-14 round 255 — **live check of the model catalogue: NO confirmable drift, so no fix.**
 No commit (product check only).
