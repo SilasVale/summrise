@@ -526,6 +526,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 206 (**THE RELEASE GATE WAS RIGHT, AND THE REASON IS THE LOOP'S OWN
+INSTRUMENT: the gateway gate this journal has been quoting is ONE OF FOUR of CI's steps, and
+`format:check` had been red for ~38 rounds.** All four now pass). Commit: gateway/ + mirror + journal.
+  (1) THE CASCADE THAT LED HERE, STATED PLAINLY BECAUSE HALF OF IT IS MINE: `release` #138 came back
+  `completed/failure` and `releases/tags/v1.2.365` is still 404. Round 205's CI re-run was ALSO cancelled
+  — by round 205's OWN journal push (`e866f19b`), the same `concurrency: cancel-in-progress` that cancelled
+  #1198 in round 201. So the loop has now made the same mistake twice, and rounds 201 and 205 are both
+  recorded as having made it. **The rule the next round must follow: never push while a CI run for the
+  commit under test is in flight.**
+  (2) AND THE CHECK-RUN MIX TOLD THE REAL STORY: of the twelve on `bc2d3d8e`, five were `success`, four
+  `cancelled` (the re-run's collateral), one `skipped`, and **exactly two were `failure`** — the release job
+  itself, and **`gateway (test + typecheck + lint + format)`**. So there is a GENUINE red job on the tagged
+  commit, and the gate's refusal was correct in substance, not merely in form. **That distinction matters:
+  round 204 read the gate as refusing a commit with NO evidence; the fuller truth is that the commit had
+  evidence and the evidence was red.**
+  (3) THE FINDING, WHICH IS ABOUT THIS LOOP RATHER THAN ABOUT THE RELEASE: `gateway/package.json`'s `test`
+  script is **`node --test` — the tests only**, while CI's gateway job runs **four** steps: Typecheck
+  (`tsc --noEmit`) → Tests (`npm test`) → Lint (`eslint src/`) → Format (`prettier --check src/`). Every
+  "gateway NNN, zero red" in this journal has been a claim about ONE of those four. Measured: `typecheck`
+  PASSES, `lint` PASSES, and **`format:check` FAILS on three files** — `src/body-scan.ts` (round 168),
+  `src/store/file-config.ts` (rounds 174-178), `src/store/byok.ts` (round 190). **Two of the three predate
+  the BYOK arc entirely, so the format gate has been red for roughly 38 rounds.**
+  (4) THE FIX, AND THE SECOND FINDING IT SURFACED: `npm run format` (prettier --write) fixed the three
+  files and `format:check` now passes. Formatting then broke the test suite, and the break was CORRECT and
+  informative — the code-viewer mirror test reported `differing=body-scan.ts,store/byok.ts,
+  store/file-config.ts`, because prettier rewrote `src/` and the tracked mirror had to follow. **That is
+  round 199's lesson arriving from a new direction: the mirror obligation is real, and the TEST is what
+  enforces it** (rounds 168, 173, 175, 182, 184 and 199 all record the same instrument working). `bash
+  gateway/scripts/sync-code-viewer.sh` fixed it, and both `files/` and `manifest.json` were staged.
+  (5) THE STATE, AND THE LESSON IN ONE LINE: all four of CI's steps now pass locally — typecheck PASS, test
+  PASS (860/860), lint PASS, format:check PASS — and the fix is committed. **The lesson is not "prettier was
+  unhappy"; it is that a green number a loop reports to itself is only as good as the command behind it,
+  and this loop had been quoting a quarter of its own gate as if it were the whole gate.** STILL OPEN: the
+  tagged commit `bc2d3d8e` is still red (the fix is on `main`, not on that commit), so the release needs
+  either a re-tag or a deliberate decision to move it; and the "never push while CI is in flight" rule now
+  has two violations behind it. Plus: the installer (three versions behind); the mirror test's manifest
+  blind spot (round 199); `studio/` (round 197); the recurring second failure's name under mutation;
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 205 (**THE FIX'S FIRST HALF IS EXECUTED AND ITS EFFECT IS VERIFIED BY
 MEASUREMENT: `bc2d3d8e` went from 1 check-run to 12.** The gate now has the evidence it was refusing to
 release without). Commit: journal.
