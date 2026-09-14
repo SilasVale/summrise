@@ -794,6 +794,11 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
                 }
             }
             ("GET", "/api/logs") => api_logs(),
+            // The device's own restart history — how often this agent has started, and how
+            // each run before those starts ended. Separate from `/api/status` on purpose: the
+            // status poll runs every 15 s and must stay small, while this list is read when a
+            // human asks (the Settings card) or once a minute (the strip's count).
+            ("GET", "/api/boots") => api_boots(),
             // Control handoff (design §D5). MUST be matched before any broader
             // /api/sessions POST arm; the `.ends_with` also keeps it from
             // swallowing a future sibling action on the same collection.
@@ -1300,6 +1305,34 @@ async fn api_session_control(
 /// and `agent.log` is size-rotating so it is bounded but not small. `tail` cuts
 /// on a char boundary with a hard byte budget (the naive `&s[len - n..]` panics
 /// mid-character, which this crate has paid for three times).
+/// How many boots `/api/boots` will return. The file keeps more (see
+/// `runstate::BOOT_HISTORY_MAX`); this is what one reply carries, bounded for the same reason
+/// every other list route here is.
+const BOOTS_IN_REPLY: usize = 50;
+
+/// The window the summary counts over. A DAY is the unit an operator reasons in ("has this
+/// thing been stable today?"), and it is long enough that a normal update restart does not
+/// read as flapping while a device restarting hourly is unmistakable.
+const BOOT_SUMMARY_WINDOW_SECS: u64 = 24 * 60 * 60;
+
+/// `GET /api/boots` — the device's restart history, newest first.
+///
+/// `boots` is EMPTY, never absent, for an install that has not booted a build that records
+/// history: the panel's card then says it has nothing to show rather than rendering a list it
+/// cannot explain. Each record is the device's own shape (see `runstate::record_boot`) and is
+/// passed through unchanged — this route is a reader, not a second opinion about the format.
+fn api_boots() -> serde_json::Value {
+    let boots = crate::runstate::recent_boots(&crate::paths::data_dir(), BOOTS_IN_REPLY);
+    serde_json::json!({
+        "ok": true,
+        "boots": boots,
+        // The counts the panel's card and its strip key on, computed HERE so "how many restarts,
+        // how many of them crashes, in the last day" is ONE rule rather than one per client —
+        // and computed against the same clock that wrote the stamps.
+        "summary": crate::runstate::summary(&boots, BOOT_SUMMARY_WINDOW_SECS),
+    })
+}
+
 fn api_logs() -> serde_json::Value {
     let dir = crate::paths::logs_dir();
     // The update log is the one this route was invented for; the others are the
@@ -2772,6 +2805,83 @@ mod tests {
         assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
     }
 
+    /// `/api/boots` is the DEVICE'S RESTART HISTORY — the pattern, not the last event.
+    ///
+    /// The verdict file is overwritten at every boot, so this route is the only way any surface
+    /// can answer "how often does this agent restart, and how many of those were crashes" — the
+    /// question d1's 2026-09-13 incident left nobody able to answer. The test pins the three
+    /// things a consumer depends on: the list is NEWEST FIRST, the summary counts the window
+    /// the route advertises, and an install with no history answers with an empty list and
+    /// zeroes rather than a 404 or a missing field.
+    #[tokio::test]
+    async fn boots_route_serves_the_restart_history_and_its_summary() {
+        use crate::runstate::{history_path, record_boot, BootKind, RunState};
+        let path = history_path(&crate::paths::data_dir());
+        let saved = std::fs::read_to_string(&path).ok();
+        if let Some(p) = path.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
+        // Seed through the WRITER, not by hand: the route must serve what a boot records.
+        let _ = std::fs::remove_file(&path);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let prev = RunState {
+            started: now - 500,
+            last: now - 100,
+            exited: false,
+        };
+        record_boot(
+            &crate::paths::data_dir(),
+            BootKind::Replaced,
+            "run journal: previous run DID NOT EXIT CLEANLY \u{2014} REPLACED (test)",
+            Some(&prev),
+            now - 200,
+        );
+        record_boot(
+            &crate::paths::data_dir(),
+            BootKind::Crashed,
+            "run journal: previous run DID NOT EXIT CLEANLY \u{2014} CRASHED (test)",
+            Some(&prev),
+            now,
+        );
+
+        let v = json_body(handle_request(req("GET", "/api/boots"), state()).await).await;
+        let boots = v["boots"].as_array().expect("a boots array");
+        assert_eq!(boots.len(), 2, "{v}");
+        assert_eq!(
+            boots[0]["kind"].as_str(),
+            Some("crashed"),
+            "newest first: {v}"
+        );
+        assert_eq!(boots[1]["kind"].as_str(), Some("replaced"), "{v}");
+        assert_eq!(boots[0]["uptime_secs"].as_u64(), Some(400), "{v}");
+        assert_eq!(
+            v["summary"]["boots"], 2,
+            "the summary covers the same records it ships: {v}"
+        );
+        assert_eq!(v["summary"]["crashes"], 1, "{v}");
+        assert_eq!(v["summary"]["window_secs"], 86400, "{v}");
+
+        // And an install that has never booted a recording build: an EMPTY list plus zeroes —
+        // the panel's card then says there is nothing to show rather than drawing a blank list
+        // whose emptiness it cannot explain.
+        let _ = std::fs::remove_file(&path);
+        let v = json_body(handle_request(req("GET", "/api/boots"), state()).await).await;
+        assert_eq!(v["boots"].as_array().map(|a| a.len()), Some(0), "{v}");
+        assert_eq!(v["summary"]["boots"], 0, "{v}");
+
+        match saved {
+            Some(s) => {
+                let _ = std::fs::write(&path, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
     /// `/api/status` reports a WAITING DECISION, because the push cannot reach
     /// every surface that asks.
     ///
@@ -3061,6 +3171,7 @@ mod tests {
             ("GET", "/api/sessions"),
             ("GET", "/api/sessions/some-session-id"),
             ("GET", "/api/logs"),
+            ("GET", "/api/boots"),
             ("GET", "/api/events/poll"),
             ("GET", "/api/settings"),
             ("PUT", "/api/settings"),

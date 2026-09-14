@@ -2,13 +2,26 @@ import { useEffect, useState } from "react";
 import { callApi } from "../lib/api";
 import { ConnectCard } from "./ConnectCard";
 import { DeviceLogsCard } from "./DeviceLogsCard";
+import { RestartHistoryCard } from "./RestartHistoryCard";
+import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
 
 // SettingsPage — device settings as a first-class page (both densities).
 // Cards: Connect an AI client (onboarding — first, because nothing else on this
 // page matters until a client is pointed here), Session buffer, Gateway
 // (optional cloud config — register the device with a gateway console +
 // optional free cloudflared tunnel), Memory, Terminal, Transport.
-export function SettingsPage({ onOpenMemory }: { onOpenMemory?: () => void }) {
+export function SettingsPage({
+  onOpenMemory,
+  restarts,
+  restartsFailed,
+}: {
+  onOpenMemory?: () => void;
+  /** The device's restart history, polled ONCE by the shell that renders this page —
+   *  optional so every existing caller keeps compiling, and a caller without it gets a
+   *  card that says it has nothing to show rather than a second poller. */
+  restarts?: BootHistory;
+  restartsFailed?: boolean;
+}) {
   const [bufferMb, setBufferMb] = useState("8");
   const [status, setStatus] = useState("");
 
@@ -180,6 +193,8 @@ export function SettingsPage({ onOpenMemory }: { onOpenMemory?: () => void }) {
       <ConnectCard />
 
       <DeviceLogsCard />
+
+      <RestartHistoryCard history={restarts ?? EMPTY_BOOT_HISTORY} failed={restartsFailed} />
 
       <div className="settings-section">
         <h3>Gateway</h3>

@@ -9,6 +9,7 @@ import { Shell, type Page } from "./Shell";
 import { ContextRail } from "./ContextRail";
 import { StatusBar } from "./StatusBar";
 import { useAgentVitals } from "../hooks/useAgentVitals";
+import { useBootHistory } from "../hooks/useBootHistory";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { ArchivePage } from "./ArchivePage";
 import { ActivityPage } from "./ActivityPage";
@@ -69,6 +70,9 @@ interface Props {
 export function PanelApp(props: Props) {
   // Device vitals for the instrument line: ONE owner for the poll (see the hook).
   const vitals = useAgentVitals();
+  // The restart history, polled ONCE here and handed to both consumers: the strip's crash
+  // chip (which says how many there have been) and the Settings card (which lists them).
+  const restarts = useBootHistory();
   const [page, setPage] = useState<Page>("terminal");
   const connected = props.sseState === "connected";
 
@@ -98,6 +102,7 @@ export function PanelApp(props: Props) {
         }
         statusBar={
           <StatusBar
+            recentCrashes={restarts.summary.crashes}
             sessions={props.sessions}
             status={props.status}
             sseState={props.sseState as "connected" | "down" | "connecting"}
@@ -143,7 +148,11 @@ export function PanelApp(props: Props) {
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={props.plugins} />}
             {page === "settings" && (
-              <SettingsPage onOpenMemory={() => setPage("memory")} />
+              <SettingsPage
+                onOpenMemory={() => setPage("memory")}
+                restarts={restarts}
+                restartsFailed={restarts.failed}
+              />
             )}
           </div>
         }

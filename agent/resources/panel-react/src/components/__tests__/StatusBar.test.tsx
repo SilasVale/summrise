@@ -75,4 +75,18 @@ describe("StatusBar instrument line", () => {
     const clean = strip({ vitals: { ...V, lastBoot: null } });
     expect(clean.container.querySelector(".boot-chip")).toBeNull();
   });
+
+  it("passes the 24h crash count to the chip's hover, without inventing one", () => {
+    const crashed = { ...V, lastBoot: { kind: "crashed" as const, detail: "CRASHED or was killed" } };
+    // With the count: the hover says how often.
+    const counted = strip({ vitals: crashed, recentCrashes: 3 });
+    expect(counted.container.querySelector(".boot-chip")!.getAttribute("title")).toContain(
+      "3 crashes in the last 24 hours",
+    );
+    // Without it (the shell has not polled /api/boots): the same chip, no count claimed.
+    const bare = strip({ vitals: crashed });
+    const title = bare.container.querySelector(".boot-chip")!.getAttribute("title")!;
+    expect(title).toContain("CRASHED or was killed");
+    expect(title).not.toContain("24 hours");
+  });
 });

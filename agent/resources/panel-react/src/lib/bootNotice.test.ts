@@ -33,6 +33,27 @@ describe("bootNotice", () => {
     expect(n?.title).toContain("CRASHED or was killed");
   });
 
+  it("names a REPEATED crash in the hover, and never changes whether the chip appears", () => {
+    // "It crashed once" and "it keeps crashing" are different situations, and the operator
+    // looking at the chip is exactly who needs to know which. The count is the device's own
+    // 24 h number from /api/boots — the chip's verdict, tone and visibility are the same
+    // either way, so the two can never disagree about what happened.
+    const once = bootNotice(CRASH, 60, 1);
+    expect(once?.text).toBe(bootNotice(CRASH, 60)?.text);
+    expect(once?.tone).toBe("warn");
+    expect(once?.title).not.toContain("crashes in the last 24 hours");
+
+    const many = bootNotice(CRASH, 60, 4);
+    expect(many?.text).toBe("last run crashed");
+    expect(many?.tone).toBe("warn");
+    expect(many?.title).toContain("4 crashes in the last 24 hours");
+    expect(many?.title).toContain("CRASHED or was killed");
+
+    // A device whose history could not be read (null/absent) draws the same chip as before:
+    // an unread count must not suppress a warning the verdict itself justifies.
+    expect(bootNotice(CRASH, 60, null)?.tone).toBe("warn");
+  });
+
   it("keeps the crash chip for the WHOLE run, however long it has been up", () => {
     // The verdict describes the run BEFORE this one, so "it crashed" stays true until
     // the next clean boot clears it. Expiring it would hide a fault because time passed.

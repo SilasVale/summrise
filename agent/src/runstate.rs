@@ -19,6 +19,7 @@
 //! which is the part that has to be RIGHT when somebody is debugging at 3am — and the
 //! machine-readable verdict are tested directly, and tested against EACH OTHER.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -341,6 +342,174 @@ pub fn last_boot(data_dir: &Path) -> Option<LastBoot> {
     parse_verdict(&std::fs::read_to_string(verdict_path(data_dir)).ok()?)
 }
 
+/// THE DEVICE'S OWN RESTART HISTORY — one line per boot, newest last on disk.
+///
+/// WHY IT EXISTS. The verdict file answers "how did the run before this one end"; it is
+/// OVERWRITTEN at every boot, so the device could never answer the question its founding
+/// incident actually asked: **on 2026-09-13 the agent on d1 "restarted every one to two
+/// hours" and nobody could even count the restarts**, because each one erased the trace of
+/// the last. A single verdict is an event; the pattern is what tells an operator whether a
+/// device is stable, and a pattern needs a record.
+///
+/// A FIFTH MEMBER OF THE APPEND-ONLY JSONL FAMILY (`crate::jsonl`): header on a fresh file,
+/// torn tail repaired before the next append, atomic rewrite for the prune. The file is
+/// bounded because it is read by every panel poll and written once per boot — a device that
+/// restarts hourly for a year must not grow an unbounded log.
+pub fn history_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("logs").join("boot-history.jsonl")
+}
+
+/// How many boots the history keeps. 200 is months of normal life (a device that restarts
+/// daily keeps two thirds of a year) and still only a few tens of KB to read.
+const BOOT_HISTORY_MAX: usize = 200;
+
+/// The header of a fresh history file — the family's "this is not a truncated file" marker.
+fn history_header() -> serde_json::Value {
+    serde_json::json!({"type": "boot-history", "version": 1})
+}
+
+/// Append THIS boot to the history, best-effort.
+///
+/// The record describes the boot that is STARTING (its stamp) and the run it found behind it
+/// (the kind, and the two numbers the verdict sentence is built from). Written at `begin()`,
+/// which is the only moment both facts are available: after the journal is overwritten the
+/// previous run is gone.
+pub fn record_boot(
+    data_dir: &Path,
+    kind: BootKind,
+    detail: &str,
+    previous: Option<&RunState>,
+    now: u64,
+) {
+    let path = history_path(data_dir);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut rec = serde_json::json!({
+        "ts_ms": now.saturating_mul(1000),
+        "kind": kind.as_str(),
+        "detail": detail,
+    });
+    if let Some(prev) = previous {
+        // How long the run before this one lived, and how long the device was without an
+        // agent before this boot — the two numbers that turn a list of times into a story.
+        rec["uptime_secs"] = serde_json::json!(prev.last.saturating_sub(prev.started));
+        rec["gap_secs"] = serde_json::json!(now.saturating_sub(prev.last));
+    }
+    // The release this boot came UP on. The swap writes the marker before the task restarts,
+    // so an update's first boot reports the new version — which is what makes the history
+    // readable after a release ("14:02 replaced by an update → 1.2.368").
+    if let Ok(rel) = std::fs::read_to_string(crate::paths::release_marker_file()) {
+        let rel = rel.trim();
+        if !rel.is_empty() {
+            rec["release"] = serde_json::json!(rel);
+        }
+    }
+    let written = (|| -> std::io::Result<()> {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        crate::jsonl::prepare_append(&mut f, &path, &history_header())?;
+        writeln!(f, "{rec}")
+    })();
+    // A history that cannot be written must not take the agent down with it — the same rule
+    // the run journal follows. (The error is dropped rather than logged here because this
+    // module owns no logger; `begin`'s caller already logs the verdict line.)
+    if written.is_ok() {
+        prune_history(&path);
+    }
+}
+
+/// What counts as a record, in ONE place for both the pruner and the reader: a line that parses
+/// as JSON **and carries a numeric `ts_ms`**. The header line fails the second test, and so does
+/// a torn fragment — which is the point: the family's rule for the append path (never fuse onto
+/// a fragment) has a read-side twin (never place a record the writer did not finish).
+fn parse_record(line: &str) -> Option<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    v.get("ts_ms").and_then(|t| t.as_u64())?;
+    Some(v)
+}
+
+/// Keep the newest [`BOOT_HISTORY_MAX`] records, dropping older ones — and any junk — atomically.
+///
+/// This is also the file's REPAIR pass: a rewrite keeps the records that parse and discards the
+/// rest, so a history that has accumulated torn fragments converges back to exactly the newest
+/// `MAX` records instead of slowly filling with lines no reader can use.
+///
+/// Callers MUST NOT hold an append handle across this — `jsonl::rewrite_atomically` installs a
+/// new file at the path, and a writer holding the old handle would append into an orphan. The
+/// append above is scoped and finished before this runs, and a boot has exactly one writer.
+fn prune_history(path: &Path) {
+    let Some(text) = crate::jsonl::read_lossy(path) else {
+        return;
+    };
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    // Header + at most MAX records, all of them sound: nothing to do, and no rewrite. This is
+    // the common case, and it is why the prune costs nothing on a healthy device.
+    if lines.len() <= BOOT_HISTORY_MAX + 1 && lines.iter().all(|l| parse_record(l).is_some()) {
+        return;
+    }
+    let mut keep: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| parse_record(l).is_some())
+        .collect();
+    if keep.len() > BOOT_HISTORY_MAX {
+        keep.drain(..keep.len() - BOOT_HISTORY_MAX);
+    }
+    let mut body = format!("{}\n", history_header());
+    for l in keep {
+        body.push_str(l);
+        body.push('\n');
+    }
+    let _ = crate::jsonl::rewrite_atomically(path, &body);
+}
+
+/// Counts over a recent window, for the panel's summary line and its strip.
+///
+/// `boots` is what [`recent_boots`] returned (newest first, already bounded). The window is
+/// measured against the AGENT'S OWN CLOCK, which is the clock the stamps were written with —
+/// so a device whose clock moved does not silently report an empty day.
+///
+/// **The current boot COUNTS.** It is a restart event like the others, and a device that has
+/// been up for three days reporting "1 restart today" because it booted this morning is the
+/// honest reading; "0" would describe a device that never restarted at all.
+pub fn summary(boots: &[serde_json::Value], window_secs: u64) -> serde_json::Value {
+    let floor_ms = now_secs().saturating_sub(window_secs).saturating_mul(1000);
+    let recent = boots
+        .iter()
+        .filter(|b| b.get("ts_ms").and_then(|t| t.as_u64()).unwrap_or(0) >= floor_ms);
+    let mut count = 0usize;
+    let mut crashes = 0usize;
+    for b in recent {
+        count += 1;
+        if b.get("kind").and_then(|k| k.as_str()) == Some(BootKind::Crashed.as_str()) {
+            crashes += 1;
+        }
+    }
+    serde_json::json!({
+        "window_secs": window_secs,
+        "boots": count,
+        "crashes": crashes,
+    })
+}
+
+/// The recorded boots, NEWEST FIRST, at most `limit`.
+///
+/// Never fails: a missing or unreadable file is an empty list, and a record whose stamp is not
+/// a number is DROPPED rather than placed by guess — the timeline rule `crate::operation`
+/// states for its own axis. The header line carries no `ts_ms` and is dropped by the same rule.
+pub fn recent_boots(data_dir: &Path, limit: usize) -> Vec<serde_json::Value> {
+    let Some(text) = crate::jsonl::read_lossy(&history_path(data_dir)) else {
+        return Vec::new();
+    };
+    let mut out: Vec<serde_json::Value> = text.lines().filter_map(parse_record).collect();
+    out.reverse();
+    out.truncate(limit);
+    out
+}
+
 /// Begin a run: describe what the last one did, then claim the journal for this one.
 ///
 /// The order matters: the previous state must be READ before it is overwritten, and the
@@ -359,6 +528,10 @@ pub fn begin(data_dir: &Path) -> (Option<RunState>, String) {
     // Also persist it for the HTTP surface — see `verdict_path`. The KIND rides along, computed
     // here rather than re-derived by whoever reads the file.
     save_verdict(data_dir, kind, &line);
+    // AND APPEND IT TO THE DEVICE'S HISTORY. This is the only moment the previous run still
+    // exists to be described (the `save` below overwrites the journal), so a boot that is not
+    // recorded here is a restart the device will never be able to count.
+    record_boot(data_dir, kind, &line, previous.as_ref(), now);
     save(
         data_dir,
         &RunState {
@@ -734,5 +907,148 @@ mod tests {
         let s = load(&d).expect("journal");
         assert_eq!(s.started, started);
         assert!(!s.exited);
+    }
+
+    #[test]
+    fn every_boot_is_recorded_and_the_history_reads_newest_first() {
+        // THE CAPABILITY: the verdict file is overwritten at each boot, so before this the
+        // device could not say how OFTEN it restarts — the question its founding incident
+        // (2026-09-13, "restarted every one to two hours") could never answer.
+        let d = dir("history");
+        assert!(
+            recent_boots(&d, 10).is_empty(),
+            "an install that has never booted this build has no history, not a fabricated one"
+        );
+
+        let (_, first) = begin(&d);
+        // A second boot in the same instant: the first run never beat (`begin` does not beat),
+        // so it lived 0 s and the gap before the next boot is 0-1 s.
+        let (_, second) = begin(&d);
+
+        let boots = recent_boots(&d, 10);
+        assert_eq!(boots.len(), 2, "two boots, two records: {boots:?}");
+        // NEWEST FIRST — the reader's order, so a UI can render top-down without reversing.
+        assert_eq!(boots[0]["detail"].as_str(), Some(second.as_str()));
+        assert_eq!(boots[1]["detail"].as_str(), Some(first.as_str()));
+        assert_eq!(boots[0]["kind"].as_str(), Some("replaced"), "{boots:?}");
+        assert_eq!(boots[1]["kind"].as_str(), Some("first-run"), "{boots:?}");
+        // The first record describes a first start: there is no previous run to measure, and
+        // the fields are ABSENT rather than zero — "ran 0s" would be a claim about a run that
+        // never existed.
+        assert!(boots[1].get("uptime_secs").is_none(), "{boots:?}");
+        assert!(boots[1].get("gap_secs").is_none(), "{boots:?}");
+        // The second record measures the run it found.
+        assert_eq!(boots[0]["uptime_secs"].as_u64(), Some(0), "{boots:?}");
+        assert!(
+            boots[0]["gap_secs"].as_u64().is_some_and(|g| g <= 1),
+            "a boot in the same second as the last heartbeat: {boots:?}"
+        );
+        // Every record is stamped in MILLISECONDS, the unit the timeline and the panel read.
+        let ts = boots[0]["ts_ms"].as_u64().expect("a stamp");
+        assert!(
+            ts > 1_600_000_000_000,
+            "unix milliseconds, not seconds: {ts}"
+        );
+    }
+
+    #[test]
+    fn the_history_keeps_the_newest_and_survives_a_torn_line() {
+        let d = dir("history-prune");
+        // 205 records (the cap is 200) plus a torn final line, which is what a kill mid-write
+        // leaves and what the family's append rule exists to survive.
+        let mut body = format!("{}\n", history_header());
+        for i in 0..205u64 {
+            body.push_str(&format!(
+                "{{\"ts_ms\":{},\"kind\":\"replaced\",\"detail\":\"run {i}\"}}\n",
+                1_700_000_000_000u64 + i
+            ));
+        }
+        body.push_str("{\"ts_ms\":1700000009999,\"kind\":\"crash");
+        std::fs::create_dir_all(d.join("logs")).expect("temp logs dir");
+        std::fs::write(history_path(&d), body).expect("seed");
+
+        // A new boot appends; the torn tail is repaired first so the two cannot fuse.
+        record_boot(
+            &d,
+            BootKind::Crashed,
+            "run journal: CRASHED",
+            None,
+            1_700_000_999,
+        );
+
+        let boots = recent_boots(&d, 1000);
+        assert_eq!(
+            boots.len(),
+            BOOT_HISTORY_MAX,
+            "the prune keeps the newest 200"
+        );
+        assert_eq!(
+            boots[0]["kind"].as_str(),
+            Some("crashed"),
+            "the newest is this boot"
+        );
+        assert_eq!(boots[0]["detail"].as_str(), Some("run journal: CRASHED"));
+        // The oldest survivors are the newest of the old set — record 6 onward (records 0-5
+        // were dropped), not the first five.
+        assert_eq!(
+            boots.last().and_then(|b| b["detail"].as_str()),
+            Some("run 6"),
+            "{:?}",
+            boots.last()
+        );
+        // The torn line is GONE rather than fused onto the record that followed it.
+        assert!(
+            boots
+                .iter()
+                .all(|b| !b["detail"].as_str().unwrap_or("").contains("1700000009999")),
+            "a torn fragment must not become a record"
+        );
+    }
+
+    #[test]
+    fn the_summary_counts_a_day_and_counts_the_boot_you_are_in() {
+        let now = now_secs();
+        let boots = vec![
+            serde_json::json!({"ts_ms": now * 1000, "kind": "crashed"}),
+            serde_json::json!({"ts_ms": (now - 3600) * 1000, "kind": "crashed"}),
+            serde_json::json!({"ts_ms": (now - 7200) * 1000, "kind": "replaced"}),
+            // Just outside the window: the boundary is the window, not a rounding.
+            serde_json::json!({"ts_ms": (now - 24 * 60 * 60 - 1) * 1000, "kind": "crashed"}),
+            // A record with no usable stamp is not counted rather than assumed recent.
+            serde_json::json!({"kind": "crashed"}),
+        ];
+        let s = summary(&boots, 24 * 60 * 60);
+        assert_eq!(s["boots"], 3, "{s}");
+        assert_eq!(s["crashes"], 2, "{s}");
+        assert_eq!(s["window_secs"], 86400, "{s}");
+
+        // An install with no history summarises as zero — not as an error and not as absence.
+        let empty = summary(&[], 24 * 60 * 60);
+        assert_eq!(empty["boots"], 0, "{empty}");
+        assert_eq!(empty["crashes"], 0, "{empty}");
+    }
+
+    #[test]
+    fn a_history_record_carries_the_release_the_boot_came_up_on() {
+        // The release marker is what makes the history readable after a rollout: the swap
+        // writes it before the restart, so the first boot of a new build names it.
+        let d = dir("history-release");
+        let marker = crate::paths::release_marker_file();
+        let saved = std::fs::read_to_string(&marker).ok();
+        if let Some(p) = marker.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
+        std::fs::write(&marker, "1.2.368\n").expect("write the marker");
+        begin(&d);
+        let boots = recent_boots(&d, 1);
+        assert_eq!(boots[0]["release"].as_str(), Some("1.2.368"), "{boots:?}");
+        match saved {
+            Some(s) => {
+                let _ = std::fs::write(&marker, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&marker);
+            }
+        }
     }
 }

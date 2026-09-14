@@ -10,7 +10,7 @@ import { BootChip } from "./BootChip";
  *  delta), and printing 0% there would be a lie the operator cannot see through. */
 const reading = (v: number | null): string => (v === null ? "—" : `${Math.round(v)}%`);
 
-export function StatusBar({ sessions, status, sseState, vitals, identity }: {
+export function StatusBar({ sessions, status, sseState, vitals, identity, recentCrashes }: {
   sessions: Session[];
   status: string;
   sseState: "connected" | "down" | "connecting";
@@ -22,6 +22,9 @@ export function StatusBar({ sessions, status, sseState, vitals, identity }: {
   /** Optional, so the strip still renders for callers with no vitals yet: the
    *  instrument is an addition to this line, not a precondition for it. */
   vitals?: AgentVitals;
+  /** The device's 24 h crash count, when the shell has polled the restart history.
+   *  Optional for the same reason: the chip renders without it. */
+  recentCrashes?: number | null;
 }) {
   const live = sessions.filter((s) => !s.closed).length;
   return (
@@ -73,7 +76,11 @@ export function StatusBar({ sessions, status, sseState, vitals, identity }: {
           the restart the operator just triggered. Renders nothing for a first run, a
           clean exit, or a restart old enough that the uptime reading beside it already
           says the same thing. See lib/bootNotice.ts. */}
-      <BootChip lastBoot={vitals?.lastBoot} uptimeSecs={vitals?.uptimeSecs} />
+      <BootChip
+        lastBoot={vitals?.lastBoot}
+        uptimeSecs={vitals?.uptimeSecs}
+        recentCrashes={recentCrashes}
+      />
       {/* The device-level answer to "is anything waiting for me?" — see
           WaitingChip. Renders nothing at zero. */}
       <WaitingChip sessions={sessions} />

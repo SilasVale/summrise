@@ -27,7 +27,31 @@
 // verdict exists apart from `crashed` is that it must NOT raise this chip: a warning
 // that fires after every routine reboot is one nobody reads by the time a real crash
 // arrives.
-import type { LastBoot } from "../hooks/useAgentVitals";
+import type { BootKind, LastBoot } from "../hooks/useAgentVitals";
+
+/** The kinds, in words. ONE vocabulary for every surface that names a verdict — the chip's
+ *  hover, the history card's rows — so a kind cannot be described two ways in one panel.
+ *  `null` (an unrecognised kind) says so rather than borrowing another kind's wording. */
+export function bootKindLabel(kind: BootKind | null): string {
+  switch (kind) {
+    case "first-run":
+      return "first start";
+    case "clean-exit":
+      return "previous run exited cleanly";
+    case "replaced":
+      return "replaced by a restart";
+    case "machine-restart":
+      return "the machine restarted";
+    case "crashed":
+      return "previous run crashed";
+    default:
+      return "unrecorded";
+  }
+}
+
+/** True for the one kind that means the agent died on its own. Used by the history card to
+ *  weigh a row and by the summary line to count; the chip has its own rule below. */
+export const isCrash = (kind: BootKind | null): boolean => kind === "crashed";
 
 /** How long a normal restart keeps its chip. Five minutes is measured rather than
  *  chosen: the update flow's own swap+restart is seconds, the panel polls `/api/status`
@@ -50,19 +74,27 @@ export interface BootNotice {
  *  `uptimeSecs` is required for the `replaced` case and may be null: without a
  *  trustworthy "how long ago", a normal restart cannot be told from a stale one, and
  *  the rule then says nothing rather than guessing.
+ *
+ *  `recentCrashes` is the device's own 24 h count from `/api/boots`. It never changes
+ *  WHETHER the chip appears — it is the same verdict either way — and it only ever adds a
+ *  sentence to the hover: "this happened once" and "this keeps happening" are different
+ *  situations, and an operator staring at the chip is exactly who needs to know which.
  */
 export function bootNotice(
   lastBoot: LastBoot | null | undefined,
   uptimeSecs: number | null | undefined,
+  recentCrashes?: number | null,
 ): BootNotice | null {
   if (!lastBoot) return null;
   switch (lastBoot.kind) {
-    case "crashed":
-      return {
-        tone: "warn",
-        text: "last run crashed",
-        title: `${lastBoot.detail}\n\nThe agent is running now — this is how the run before it ended.`,
-      };
+    case "crashed": {
+      const base = `${lastBoot.detail}\n\nThe agent is running now — this is how the run before it ended.`;
+      const repeated =
+        typeof recentCrashes === "number" && recentCrashes > 1
+          ? `\n\n${recentCrashes} crashes in the last 24 hours — the Restarts card in Settings lists them.`
+          : "";
+      return { tone: "warn", text: "last run crashed", title: base + repeated };
+    }
     case "replaced":
       if (typeof uptimeSecs !== "number" || uptimeSecs >= REPLACED_NOTICE_SECS) {
         return null;

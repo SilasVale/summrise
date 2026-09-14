@@ -10,11 +10,15 @@ import type { LastBoot } from "../hooks/useAgentVitals";
 export function BootChip({
   lastBoot,
   uptimeSecs,
+  recentCrashes,
 }: {
   lastBoot?: LastBoot | null;
   uptimeSecs?: number | null;
+  /** The device's 24 h crash count (`/api/boots`), when the caller has it. It never changes
+   *  WHETHER this chip appears — only how much the hover explains. */
+  recentCrashes?: number | null;
 }) {
-  const notice = bootNotice(lastBoot, uptimeSecs);
+  const notice = bootNotice(lastBoot, uptimeSecs, recentCrashes);
   if (!notice) return null;
   return (
     <span className={`boot-chip ${notice.tone}`} title={notice.title}>

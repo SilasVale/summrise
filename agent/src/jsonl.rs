@@ -1,14 +1,17 @@
 //! Append-only JSONL hygiene — the crash-safety rules every append-only,
 //! line-oriented file in this crate shares (SOLID R111).
 //!
-//! FOUR files are written this way: the per-session audit trail
+//! FIVE files are written this way: the per-session audit trail
 //! (`<sid>.jsonl`, `session_log.rs`), the device memory store
 //! (`memory.jsonl`, `plugins/memory/store.rs`), the AI-evidence feed
-//! (`actions.jsonl`, `evidence.rs`) and the run-identity log
-//! (`runs.jsonl`, `runs.rs`). This header used to name only the first two
-//! while claiming "every … file in this crate", which is the shape this repo
-//! keeps finding: a sentence that describes a rule the code has not finished
-//! applying. It is accurate now because the family is.
+//! (`actions.jsonl`, `evidence.rs`), the run-identity log
+//! (`runs.jsonl`, `runs.rs`) and the device's restart history
+//! (`boot-history.jsonl`, `runstate.rs` — the fifth, added round 257).
+//! This header used to name only the first two while claiming "every … file in
+//! this crate", which is the shape this repo keeps finding: a sentence that
+//! describes a rule the code has not finished applying. **A new member is a
+//! change to this list, not just a new call site** — that is the rule the
+//! sentence is here to keep.
 //!
 //! Both are opened
 //! `create + append` and hold one JSON object per line. Both had grown their

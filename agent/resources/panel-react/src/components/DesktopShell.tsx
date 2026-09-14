@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useAgentVitals } from "../hooks/useAgentVitals";
+import { useBootHistory } from "../hooks/useBootHistory";
 import { VitalsDial } from "./VitalsDial";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
@@ -141,6 +142,9 @@ export function DesktopShell({
   // would be two places for the `release` rule to drift — the single defect
   // lib/agentVersion.ts exists to prevent.
   const vitals = useAgentVitals();
+  // One poller per density (see PanelApp): the strip's chip and the Settings card read
+  // the same history.
+  const restarts = useBootHistory();
   // stage-n: native menu page navigation — the electron menu sends
   // vale-menu commands for pages too (open-memory / open-settings /
   // open-plugins); route them to the page state.
@@ -400,7 +404,11 @@ export function DesktopShell({
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={plugins} />}
             {page === "settings" && (
-              <SettingsPage onOpenMemory={() => setPage("memory")} />
+              <SettingsPage
+                onOpenMemory={() => setPage("memory")}
+                restarts={restarts}
+                restartsFailed={restarts.failed}
+              />
             )}
           </main>
 
@@ -415,7 +423,11 @@ export function DesktopShell({
               </span>
               {/* This density has no StatusBar, so the device-level waiting
                   count lives here instead (same shared chip). */}
-              <BootChip lastBoot={vitals.lastBoot} uptimeSecs={vitals.uptimeSecs} />
+              <BootChip
+                lastBoot={vitals.lastBoot}
+                uptimeSecs={vitals.uptimeSecs}
+                recentCrashes={restarts.summary.crashes}
+              />
               <WaitingChip sessions={sessions} />
             </div>
           )}
@@ -432,7 +444,11 @@ export function DesktopShell({
                   ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
                   : "connecting…"}
               </span>
-              <BootChip lastBoot={vitals.lastBoot} uptimeSecs={vitals.uptimeSecs} />
+              <BootChip
+                lastBoot={vitals.lastBoot}
+                uptimeSecs={vitals.uptimeSecs}
+                recentCrashes={restarts.summary.crashes}
+              />
               <WaitingChip sessions={sessions} />
             </div>
           )}
