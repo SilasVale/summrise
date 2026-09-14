@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 220 (**A SUSPECTED BUG WAS A FALSE ALARM, REFUTED BY A TEST — and the chase
+left a REAL unpinned invariant: one boolean, `defaultRoute.stripPrefix`, is the only thing keeping six
+`slice(prefix.length + 1)` sites from silently emptying every bare model name**). Commit: gateway/test/ +
+journal. gateway 870 = 867 + 3, four steps green.
+  (1) THE REASONING THAT WAS WRONG, STATED IN FULL BECAUSE THE ERROR IS THE INSTRUCTIVE PART: `translate.ts`
+  and `translate-vision.ts` derive a prefix as `model.split("/")[0]` and strip it as
+  `model.slice(prefix.length + 1)`. For a bare model name the "prefix" is the WHOLE name, so the slice runs
+  one past the end and yields `""`. **My premise was that the default route is one of the `stripPrefix: true`
+  routes** — I had read two of them in `upstream.ts` and assumed `defaultRoute` was among them, and I never
+  measured it. **Measured: `defaultRoute` is `stripPrefix: false`**, so the `: model` arm is taken and a bare
+  name reaches the upstream unchanged. No bug. This is the SIXTH false alarm of the stretch, and the pattern
+  holds exactly: **the measurement ran before the conclusion, and the conclusion lost.**
+  (2) AND WHAT THE CHASE ACTUALLY FOUND IS BETTER THAN THE SUSPECTED BUG: nothing at any of those six slice
+  sites guards the bare-name case — `providers.ts:519`, `translate.ts:846`, `translate-vision.ts:201`,
+  `tooling.ts:165` and `:203`, plus `models-probe.ts:194`. **What makes them all safe is a single boolean two
+  files away.** Flip it and every bare-model request asks its upstream for the empty model name, silently, at
+  every layer.
+  (3) THE INVARIANT IS DOCUMENTED — BUT NOT FOR THE REASON THAT MATTERS. `defaultRoute`'s own comment says
+  "The model name passes through VERBATIM (stripPrefix false)" and gives the ROUTING rationale (Command Code's
+  catalog covers the unprefixed spellings, so an unprefixed name has a real chance of resolving there). **It
+  never says that six distant `slice` calls depend on the flag, and nothing pinned it** — so the next person
+  changing it for a routing reason would have no signal that they were also disarming six string operations.
+  (4) THE FIX IS `gateway/test/default-route-strip-prefix.test.mjs`, three assertions that read the router
+  rather than restating it: the default route must not strip, a bare name must survive the exact expression
+  unchanged, and a PREFIXED name must still be stripped (so the bare-name exception cannot be "fixed" by
+  deleting the strip). **Mutation-proven in the dangerous direction — flipping `defaultRoute.stripPrefix` to
+  `true` turns 2 of the 3 red, and the second message is the failure mode itself, printed:
+  `a bare model name must reach the upstream unchanged, but "minimax-m3" became ""`.**
+  (5) STILL OPEN: the installer's signing decision (the user's call); the round-157 convergence table's seven
+  rows. **And the round-220 lesson is a restatement of the stretch's rule, now with a sixth instance: an
+  unverified premise inside a chain of otherwise-sound reasoning is indistinguishable from a bug until
+  something measures it — which is why the test was written before the bug was claimed.**
+
 Last updated: 2026-09-14 round 219 (**THE 27-ROUND ANOMALY IS NAMED: round 192's unidentified SECOND failure
 under mutation was the CODE-VIEWER MIRROR test, not the format check the journal guessed — and that makes it a
 second, independent detector of every `src/` edit rather than noise**). Commit: journal. gateway 867/867, four
