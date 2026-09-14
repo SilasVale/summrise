@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 208 (**THE FORMAT FIX HAS ITS RED-THEN-GREEN, AND THE ROUND STILL DID NOT
+PUSH.** `bc2d3d8e` had a failing gateway job; `2325c3db` — the same tree plus the prettier fix — has ZERO
+failures). Commit: journal, deliberately LOCAL.
+  (1) THE EVIDENCE, AS THE COMPARISON THE EVIDENCE BAR ASKS FOR rather than as a single green reading:
+  `bc2d3d8e`'s twelve check-runs included **`gateway (test + typecheck + lint + format)` = `failure`** (and
+  the release job's own failure, which was the gate reacting to it). `2325c3db`'s eleven are **8 `success`,
+  2 `in_progress`, 1 `skipped`, and ZERO `failure`/`cancelled`/`timed_out`** — including the SAME gateway
+  job, now green. **That is the fix demonstrated by the difference it made, not by its own passing**, which
+  is the form this loop's evidence rule asks for and the form round 206 could not yet show.
+  (2) AND THE TWO REMAINING JOBS ARE THE SLOW ONES, WHICH IS WHY THE ROUND STILL DID NOT PUSH: pending are
+  `agent (xwin check windows-msvc)` and `agent (cargo test + clippy + fmt)` — the two long Rust jobs — and
+  the gate's own verdict on that state is **"would WAIT"** (`BAD` empty, `PENDING` non-empty, so the
+  condition is not yet met and must not be forced). Round 206's rule — never push while CI is in flight —
+  therefore still binds, and this round obeyed it a second time. **Two rounds of keeping the rule is the
+  only thing that distinguishes it from the two violations (201, 205) that created it.**
+  (3) SO THE PLAN IS UNCHANGED AND STILL EXACTLY ROUND 207's: wait for `2325c3db` to reach
+  `completed/success`; push the two local journal commits; place `v1.2.365` on **`2325c3db`** (NOT on the
+  journal commit that the push creates — that commit's CI will not be green yet, and this is precisely the
+  mistake round 201 made by pinning a commit whose CI was about to be cancelled); then the tag fires
+  `release` again and its gate finds green check-runs for the first time; then round 203's corrected
+  publish order.
+  (4) WHAT THE LOOP HAS LEARNED ACROSS 201→208, AS ONE SENTENCE, BECAUSE IT IS THE SAME LESSON FOUR TIMES:
+  every failure in this stretch came from acting on a state that was measured one moment earlier and
+  changed by the time the action landed — a tag placed on a commit whose CI the next push cancelled (201),
+  a re-run cancelled by the next push (205), a gate read as silent when the evidence was red (204→206), and
+  a green number quoted from one of CI's four steps (206). **The corrective is not more care; it is
+  checking the state AT THE MOMENT OF ACTING, which is why every step above names the measurement that
+  gates it.**
+  (5) STILL OPEN: the push and the tag placement (3); the installer (three versions behind, and the alias is
+  the only one that exists); the mirror test's manifest blind spot (round 199); `studio/` (round 197); the
+  recurring second failure's name under mutation; `models-probe.ts`'s remaining body;
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 207 (**THE TAG'S TARGET IS DECIDED, AND THIS ROUND OBEYED ITS OWN RULE BY
 NOT PUSHING.** `v1.2.365` must move to the fix commit; the three facts that make that safe are measured;
 and the journal commit is deliberately LOCAL because `2325c3db`'s CI is still in flight).
