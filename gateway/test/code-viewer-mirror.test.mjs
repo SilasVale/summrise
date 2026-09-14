@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SRC = join(ROOT, "src");
 const MIRROR = join(ROOT, "public", "code", "files", "vale-gate", "src");
+const MANIFEST = join(ROOT, "public", "code", "manifest.json");
 
 /** Every file under `dir`, relative to it, sorted. */
 function walk(dir, base = dir, out = []) {
@@ -96,5 +97,29 @@ test("code viewer: the tracked mirror matches what src/ would publish", () => {
       "facts the device has since disproved. Re-sync with " +
       "`bash gateway/scripts/sync-code-viewer.sh` and commit the mirror. " +
       `missing=${missing.join(",")} extra=${extra.join(",")} differing=${differing.join(",")}`,
+  );
+});
+
+test("code viewer: the manifest indexes every mirrored file", () => {
+  // The test above compares the FILES and never read this one, so a manifest that
+  // lagged its own mirror was invisible to it. Round 199 found exactly that: the
+  // manifest entry for `src/store/byok.ts` sat uncommitted for nine rounds while
+  // the file it indexes was committed — two artifacts carrying one obligation, and
+  // only one of them was checked. `sync-code-viewer.sh` writes BOTH; this closes
+  // the half that had no assertion.
+  const indexed = new Set(
+    JSON.parse(readFileSync(MANIFEST, "utf8")).files.map((f) => f.path),
+  );
+  const unindexed = walk(MIRROR)
+    .map((f) => `files/vale-gate/src/${f}`)
+    .filter((p) => !indexed.has(p));
+  assert.deepEqual(
+    unindexed,
+    [],
+    "gateway/public/code/manifest.json does not index every mirrored file, so the " +
+      "Source Viewer's INDEX disagrees with the files it serves. Re-sync with " +
+      "`bash gateway/scripts/sync-code-viewer.sh` and commit the manifest too — the " +
+      "files-only test above cannot see this. " +
+      `unindexed=${unindexed.join(",")}`,
   );
 });
