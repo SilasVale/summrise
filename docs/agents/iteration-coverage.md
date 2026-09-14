@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 223**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 224**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -311,6 +311,16 @@ outside the file's protocol (fixed and deployed round 115) · `tunnel F1`
 
 Adopted: 0001 plugin core · 0003 repo topology · 0004 panel grants · 0005
 write-through config · 0006 retire studio · 0007 scoped relay token (step 3
-pending) · 0008 install layout v2 · 0009 self-contained installer · 0010 two
-products, one repo. Proposals: control-path, game-design, interactive-browser.
-0002 is intentionally unused.
+pending) · 0008 install layout v2 · **0009 names TWO files**
+(`0009-self-contained-installer`, `0009-unreconciled-publish-is-a-debt`) ·
+**0010 names TWO files** (`0010-linkify-is-off-by-default`,
+`0010-two-products-one-repository`) · Proposals: control-path, game-design,
+interactive-browser (`proposal-scoped-relay-token` is SUPERSEDED by 0007 and says
+so in its own header, so it is history rather than an open proposal).
+0002 is intentionally unused — and `docs/adr/README.md:28` forbids renumbering
+existing records to close a gap, which is why the two collisions above are RECORDED
+rather than renumbered. **The numbers are listed by FILE for 0009 and 0010 because
+this index used to enumerate by NUMBER, and a number shared by two files was
+therefore one entry to it — a reader following "0009" found two documents with no
+way to tell which was meant (round 224).** `agent/tests/adr_allocation.rs` now
+refuses a THIRD collision while naming these two as dated exceptions.

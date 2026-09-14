@@ -526,6 +526,43 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 224 (**THE ADR INDEX ENUMERATED BY NUMBER WHILE TWO NUMBERS EACH NAME TWO
+FILES — so it silently represented four documents as two, and the repo's own rule forbids the obvious fix**).
+Commit: agent/tests/ + ledger + journal. agent 675 = 673 + 2, four steps green.
+  (1) WHAT WAS MEASURED, AND MY FIRST READING OF IT WAS WRONG IN A WAY WORTH RECORDING: `docs/adr/` holds
+  ELEVEN numbered files across NINE numbers, because **`0009` names two decisions
+  (`0009-self-contained-installer`, `0009-unreconciled-publish-is-a-debt`) and `0010` names two
+  (`0010-linkify-is-off-by-default`, `0010-two-products-one-repository`)**. I first read the ledger's index
+  as "not mentioning" the second file of each pair; **measured, it mentions every NUMBER (including
+  `0002`), which is precisely the defect: an index that enumerates by number gives `0009` ONE entry while
+  the directory gives it TWO, so a reader following "0009" finds two documents with no way to tell which
+  was meant, and a citation "per ADR 0009" is ambiguous.** Two other things I checked rather than assumed:
+  `proposal-scoped-relay-token.md` says in its own header that it is **superseded by 0007** (history, not
+  a stale proposal, and the index's proposal list correctly omits it), and `0002` is **intentionally
+  unused** per the index and the ADR README.
+  (2) AND THE OBVIOUS FIX IS FORBIDDEN BY THE REPO'S OWN RULE, which is what makes this a finding rather
+  than a chore: `docs/adr/README.md:3` says "Numbered files are adopted decisions" — so the NUMBER is the
+  adoption marker, not decoration — and **`:28` says "Do not renumber existing records to close the gap."**
+  Renumbering one file of each pair would be cheap BY CITATION COUNT (each colliding file is cited by full
+  name only once or twice) and still wrong: it would rewrite an existing record's identity to tidy a
+  number. **So the round closes the collision the way this repo already closes an unreconciled publish —
+  as a debt made explicit, not a gap quietly filled.**
+  (3) THE FIX IS `agent/tests/adr_allocation.rs`, two assertions that read the DIRECTORY rather than an
+  index: no number may be shared beyond the two recorded collisions, and each recorded collision must still
+  name exactly the files it names. **The second assertion is the one that keeps the first honest — a stale
+  exception is how an exception becomes a licence**, which is round 212's lesson about a comment describing
+  rules that no longer exist, applied to an allow-list.
+  (4) THE MUTATION IS A THIRD COLLISION, and it is the case the assertion exists for: creating
+  `docs/adr/0001-mutation-probe.md` turns it red with `A NEW ADR number collision appeared: 0001 ->
+  0001-mutation-probe, 0001-plugin-core-single-dispatch`, and deleting the file turns it green again
+  (2 passed). **The mutation was asserted to have landed before the run** — round 213/214's habit — and the
+  probe file was confirmed absent afterwards.
+  (5) AND THE INDEX ITSELF IS FIXED IN THE SAME COMMIT, in the only way available to it: **for `0009` and
+  `0010` it now lists FILES rather than numbers**, so the two documents are distinguishable at the place a
+  reader looks, and the entry records why the numbers are listed that way. STILL OPEN, and nothing here
+  waits on the loop: the installer's signing decision (the user's call); convergence rows 6-7, which wait
+  on a device event rather than on work.
+
 Last updated: 2026-09-14 round 223 (**CONVERGENCE ROW 4 IS FULLY CLOSED — vrelay deployed with a ROLLBACK LINE
 WRITTEN FIRST and "deployed" verified by BYTE EQUALITY rather than by a return code**). Deploy only; no tracked
 code changed. And one self-inflicted inconsistency, caught by round 213's own test.
