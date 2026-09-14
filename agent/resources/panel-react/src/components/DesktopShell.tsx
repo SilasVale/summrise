@@ -413,6 +413,7 @@ export function DesktopShell({
                 restartsFailed={restarts.failed}
                 vitals={vitalsSeries}
                 vitalsFailed={vitalsSeries.failed}
+                runningRelease={vitals.release}
               />
             )}
           </main>

@@ -4,6 +4,7 @@ import { ConnectCard } from "./ConnectCard";
 import { DeviceLogsCard } from "./DeviceLogsCard";
 import { RestartHistoryCard } from "./RestartHistoryCard";
 import { DeviceHealthCard } from "./DeviceHealthCard";
+import { UpdateCard, useUpdateStatus } from "./UpdateCard";
 import type { VitalsSeries } from "../hooks/useVitalsSeries";
 import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
 import { EMPTY_SERIES } from "../hooks/useVitalsSeries";
@@ -13,12 +14,28 @@ import { EMPTY_SERIES } from "../hooks/useVitalsSeries";
 // page matters until a client is pointed here), Session buffer, Gateway
 // (optional cloud config — register the device with a gateway console +
 // optional free cloudflared tunnel), Memory, Terminal, Transport.
+/** The update card owns its own poll (60 s, cached device-side): it is the only consumer of
+ *  `/api/update`, and it must keep reading while a swap is in flight — exactly when the rest
+ *  of the panel's connections are dropping. */
+function UpdateSection({ runningRelease }: { runningRelease?: string }) {
+  const update = useUpdateStatus();
+  return (
+    <UpdateCard
+      status={update}
+      failed={update.failed}
+      refresh={update.refresh}
+      runningRelease={runningRelease}
+    />
+  );
+}
+
 export function SettingsPage({
   onOpenMemory,
   restarts,
   restartsFailed,
   vitals,
   vitalsFailed,
+  runningRelease,
 }: {
   onOpenMemory?: () => void;
   /** The device's restart history, polled ONCE by the shell that renders this page —
@@ -30,6 +47,9 @@ export function SettingsPage({
    *  every existing caller keeps compiling. */
   vitals?: VitalsSeries;
   vitalsFailed?: boolean;
+  /** The release the shell sees the device RUNNING (`/api/status`). The update card watches
+   *  it change to recognise a swap that happened while the operator was looking. */
+  runningRelease?: string;
 }) {
   const [bufferMb, setBufferMb] = useState("8");
   const [status, setStatus] = useState("");
@@ -202,6 +222,8 @@ export function SettingsPage({
       <ConnectCard />
 
       <DeviceHealthCard series={vitals ?? EMPTY_SERIES} failed={vitalsFailed} />
+
+      <UpdateSection runningRelease={runningRelease} />
 
       <DeviceLogsCard />
 

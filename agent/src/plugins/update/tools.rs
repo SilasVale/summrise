@@ -112,6 +112,159 @@ fn install_dir() -> PathBuf {
     crate::paths::install_dir()
 }
 
+/// The version this install is RUNNING: the npm release written beside the install dir at
+/// swap time (`.vale-release`), falling back to the Cargo version for a fresh install or a
+/// non-Windows test host. ONE rule, used by the tool that acts on it and by the status view
+/// a panel reads — round-298's lesson was that comparing the Cargo version against the
+/// release server made every check see a newer version, and a second copy of this rule is
+/// how that comes back.
+pub fn local_release() -> String {
+    std::fs::read_to_string(crate::paths::release_marker_file())
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
+}
+
+/// The `vale rollback` pin, or "" when the device is not pinned. Read by the tool (which
+/// must not drift a pinned device) and by the status view (which must SAY it is pinned
+/// rather than showing an update the device will refuse).
+pub fn rollback_pin() -> String {
+    std::fs::read_to_string(crate::paths::etc_dir().join(".rollback-pin"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Is an update already in flight? The tool's own guard (an atomic marker that also
+/// serialises the AI path against this one); the status view reports it so a panel cannot
+/// offer a second update that would be rejected.
+pub fn update_busy() -> bool {
+    busy_marker_path().exists()
+}
+
+/// HOW LONG A CHANNEL ANSWER IS REUSED. The panel polls this while its card is open, and a
+/// device may have several clients (panel, console, the AI); one CDN request per 30 s per
+/// device is polite, and a release published seconds ago is not something an operator needs
+/// to see before the next poll.
+const STATUS_CACHE_SECS: u64 = 30;
+
+#[derive(Clone)]
+struct ChannelAnswer {
+    at: u64,
+    remote: String,
+    /// Empty when the channel answered. Non-empty is REPORTED, never swallowed: "nobody
+    /// answered" must not reach a panel as "you are up to date".
+    error: String,
+}
+
+static STATUS_CACHE: std::sync::Mutex<Option<ChannelAnswer>> = std::sync::Mutex::new(None);
+
+fn cached_channel_answer(answer: ChannelAnswer) -> ChannelAnswer {
+    let mut c = STATUS_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    *c = Some(answer.clone());
+    answer
+}
+
+/// Ask the configured release channel what it has. Cached for [`STATUS_CACHE_SECS`]; every
+/// failure is reported as TEXT rather than as an empty answer, because "the release server
+/// did not answer" and "you are up to date" are different facts and a panel that conflates
+/// them tells an operator their device is current when nobody checked.
+async fn channel_answer(site: &str) -> ChannelAnswer {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Some(hit) = STATUS_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+    {
+        if now.saturating_sub(hit.at) < STATUS_CACHE_SECS {
+            return hit;
+        }
+    }
+    let url = version_url(site);
+    let fetched = async {
+        let resp = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("client build failed: {e}"))?
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("release server unreachable: {e}"))?;
+        let j: Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("bad release response: {e}"))?;
+        let get = |k: &str| j.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        // Only what this view reports. The tool's own download path reads the rest of the
+        // manifest itself, with its sha256 gate — this is a reader, not a second installer.
+        Ok::<String, String>(get("version"))
+    }
+    .await;
+    match fetched {
+        Ok(remote) if !remote.is_empty() => cached_channel_answer(ChannelAnswer {
+            at: now,
+            remote,
+            error: String::new(),
+        }),
+        Ok(_) => cached_channel_answer(ChannelAnswer {
+            at: now,
+            remote: String::new(),
+            error: "release server returned no version".to_string(),
+        }),
+        Err(e) => cached_channel_answer(ChannelAnswer {
+            at: now,
+            remote: String::new(),
+            error: e,
+        }),
+    }
+}
+
+/// THE DEVICE'S UPDATE STATE, as one object — what a human-facing surface needs to answer
+/// "is this device current, and can I act on it?".
+///
+/// The RULES ARE THE TOOL'S: `local_release`, `newer`, `pin_blocks` and the busy marker are
+/// the same functions `agent_update` executes with, so a panel cannot offer an update the
+/// tool would refuse, or promise one that does not exist. `update_available` is only true
+/// when the channel answered AND the release is newer AND no rollback pin holds the device.
+pub async fn update_status(download_url: Option<String>) -> Value {
+    let current = local_release();
+    let pin = rollback_pin();
+    let busy = update_busy();
+    let Some(site) = download_url.clone().filter(|u| !u.trim().is_empty()) else {
+        return json!({
+            "ok": true,
+            "current": current,
+            // NO CHANNEL is a fact about the INSTALL, not a failure: a purely local device
+            // says so and the panel draws no action.
+            "channel": Value::Null,
+            "latest": Value::Null,
+            "update_available": false,
+            "pinned_to": if pin.is_empty() { Value::Null } else { json!(pin) },
+            "busy": busy,
+        });
+    };
+    let answer = channel_answer(&site).await;
+    let reachable = answer.error.is_empty();
+    json!({
+        "ok": true,
+        "current": current,
+        "channel": site,
+        "latest": if reachable { json!(answer.remote) } else { Value::Null },
+        // NOT AVAILABLE WHEN NOBODY ANSWERED: an unreachable channel must never read as
+        // "up to date" (the panel shows the error text instead).
+        "update_available": reachable
+            && newer(&answer.remote, &current)
+            && !pin_blocks(&pin, &answer.remote, false),
+        "pinned_to": if pin.is_empty() { Value::Null } else { json!(pin) },
+        "busy": busy,
+        "error": if reachable { Value::Null } else { json!(answer.error) },
+        "checked_at": answer.at * 1000,
+    })
+}
+
 /// Pure rollback-pin decision (unit-tested): a non-empty pin blocks any
 /// remote that differs from it, unless force overrides. pin == remote is
 /// allowed (the release channel caught up to the pin — installing it does
@@ -540,11 +693,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 // swap time (.vale-release); read it as the local version when
                 // present, falling back to the Cargo version (fresh installs /
                 // non-Windows test environments).
-                let local = std::fs::read_to_string(crate::paths::release_marker_file())
-                    .ok()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+                let local = local_release();
 
                 // saisi decouple: no download_url configured → explicit error
                 // instead of a hardcoded host.
@@ -1230,5 +1379,33 @@ mod tests {
             site
         )
         .is_ok());
+    }
+
+    /// `update_status` — the view a PANEL reads, and the three facts it must never blur:
+    /// "no channel configured" (a local install), "the channel did not answer" (unknown), and
+    /// "pinned" (an update exists but this device refuses it).
+    ///
+    /// The channel is not contacted here: a device with NO channel is the arm that must be
+    /// provable without a network, and it is the arm a purely-local install depends on.
+    #[tokio::test]
+    async fn update_status_reports_a_local_install_as_having_no_channel() {
+        let v = update_status(None).await;
+        assert_eq!(v["ok"], true);
+        assert!(v["channel"].is_null(), "{v}");
+        assert!(v["latest"].is_null(), "{v}");
+        assert_eq!(v["update_available"], false, "{v}");
+        // The version it reports is the RELEASE marker rule, not the Cargo version.
+        assert_eq!(v["current"], local_release(), "{v}");
+        // And it never invents an error for a device that simply has no channel.
+        assert!(v.get("error").is_none(), "{v}");
+    }
+
+    /// An empty channel string is the same fact as an absent one — a config that carries
+    /// `download_url: ""` must not send the status view looking for a host called "".
+    #[tokio::test]
+    async fn update_status_treats_a_blank_channel_as_none() {
+        let v = update_status(Some("   ".to_string())).await;
+        assert!(v["channel"].is_null(), "{v}");
+        assert_eq!(v["update_available"], false, "{v}");
     }
 }

@@ -1588,6 +1588,49 @@ code {
 .health-stat-total { margin-left: auto; }
 .health-window { margin: 10px 0 0; font-size: var(--fs-sm); }
 
+/* ── Agent update (Settings) ────────────────────────────────────────────────
+   The one card here that CHANGES the device, so its states are the point: which
+   build is running, whether a newer one exists (or whether that is merely
+   unknown), whether a pin or an in-flight update will refuse the action — and
+   only then a button. */
+.update-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin: 4px 0 8px;
+  font: 400 12px var(--font-mono);
+  color: var(--chrome-ink);
+}
+.update-latest[data-available="yes"] { color: var(--danger-on-soft); }
+.update-latest[data-available="no"] { color: var(--chrome-ink-dim); }
+.update-warn {
+  margin: 6px 0;
+  font: 400 12px var(--font);
+  color: var(--chrome-ink);
+}
+/* A pin and a busy marker are not faults; an unreachable channel is not a fault
+   either. All three are CONDITIONS, and each gets a left bar rather than a hue
+   alone so the distinction survives a greyscale reading. */
+.update-warn[data-kind] { padding-left: 8px; border-left: 2px solid var(--line); }
+.update-warn[data-kind="pinned"] { border-left-color: var(--state-warn); }
+.update-warn[data-kind="unreachable"] { border-left-color: var(--state-warn); }
+.update-warn[data-kind="busy"] { border-left-color: var(--chrome-ink-dim); }
+.update-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0 0;
+}
+.update-note { font-size: var(--fs-sm); }
+.update-state {
+  margin: 8px 0 0;
+  font: 400 12px var(--font-mono);
+  color: var(--chrome-ink-dim);
+}
+.update-state.is-error { color: var(--danger-on-soft); }
+.update-state.is-ok { color: var(--state-ok); }
+
 /* ---------- terminal ---------- */
 #term-container {
   flex: 1;

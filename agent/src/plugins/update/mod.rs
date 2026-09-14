@@ -16,6 +16,10 @@ mod tools;
 // crate (`winmain.rs`), and the binary cannot see anything the lib keeps
 // crate-private. Same reason `paths`, `state` and `register` are public.
 pub use tools::staged_leftovers;
+// The update STATUS view a human-facing route serves (`GET /api/update`). Exported for the
+// same reason as the sweep list: the web layer is a different crate target and cannot see a
+// private module — and the RULES stay here, beside the tool that executes them.
+pub use tools::update_status;
 
 use vale_agent_core::ToolDef;
 

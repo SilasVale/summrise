@@ -804,6 +804,11 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
             // poll runs every 15 s and must stay small, while a series is read when a human
             // asks for it.
             ("GET", "/api/vitals/history") => api_vitals_history(),
+            // The device's UPDATE STATE — current, what the channel has, whether a rollback
+            // pin holds it, whether one is already in flight. Read-only: applying an update
+            // goes through the existing tool route (`POST /api/tools/agent_update`), so this
+            // adds a view and NOT a second way to install anything.
+            ("GET", "/api/update") => api_update(state).await,
             // Control handoff (design §D5). MUST be matched before any broader
             // /api/sessions POST arm; the `.ends_with` also keeps it from
             // swallowing a future sibling action on the same collection.
@@ -1360,6 +1365,16 @@ fn api_vitals_history() -> serde_json::Value {
         "span_secs": span_secs,
         "samples": samples,
     })
+}
+
+/// `GET /api/update` — the update state a panel needs, with the update plugin's own rules.
+///
+/// The route is a THIN READER on purpose: `newer`, the rollback pin and the busy marker are
+/// decided inside `plugins::update` (see `update_status`), so the answer here and the tool's
+/// behaviour cannot drift apart.
+async fn api_update(state: &AppState) -> serde_json::Value {
+    let channel = state.config_snapshot().platform.download_url.clone();
+    crate::plugins::update::update_status(channel).await
 }
 
 fn api_logs() -> serde_json::Value {
@@ -3258,6 +3273,7 @@ mod tests {
             ("GET", "/api/logs"),
             ("GET", "/api/boots"),
             ("GET", "/api/vitals/history"),
+            ("GET", "/api/update"),
             ("GET", "/api/events/poll"),
             ("GET", "/api/settings"),
             ("PUT", "/api/settings"),

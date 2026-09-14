@@ -159,6 +159,7 @@ export function PanelApp(props: Props) {
                 restartsFailed={restarts.failed}
                 vitals={vitalsSeries}
                 vitalsFailed={vitalsSeries.failed}
+                runningRelease={vitals.release}
               />
             )}
           </div>
