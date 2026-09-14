@@ -526,6 +526,43 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 239 (**THE CDN'S `fix-tunnel.ps1` IS A HAND-SYNCED DUPLICATE WITH NOTHING COMPARING
+IT — and it was STALE, so the copy a device would fetch still carried the bug round 237 fixed. Round 199/211's
+shape, recurring for the CDN's script assets**). Commit: index/public + index/test/ + journal.
+  (1) ROUND 238's OPEN QUESTION IS ANSWERED, AND BY READING THE CODE RATHER THAN THE COMMENT: `vale.js`'s list is
+  a **MIGRATION** list, not an installation list — the function is named `migrateLayoutPs` and its entries are
+  `[oldRel, newAbs]` pairs, so `["fix-tunnel.ps1", ...]` means "if it exists at the OLD location, move it",
+  which is why a device that never had one in the old layout does not have one now. **The complement fell out of
+  the same check and is what made the round: `fix-tunnel.ps1` IS NOT IN THE NPM PACKAGE AT ALL** — not in
+  `package.json`'s `files` array (`README.md`, `bin/`, `vale-agent.exe`, three electron sources, two icons) and
+  not among the **9 files `npm pack --dry-run` reports**. So it reaches a device through the CDN, not through npm.
+  (2) AND THE CDN COPY IS STALE, WHICH IS THE FINDING: `index/public/vale-agent/fix-tunnel.ps1` **differs from
+  `agent/deploy/fix-tunnel.ps1`**, and the difference is exactly the defect round 237 repaired — the published
+  one still derives its path from `$MyInvocation.MyCommand.Path` plus `tools\cloudflared.exe`, the derivation
+  round 238 then verified is wrong ON d1 (`<InstallDir>\scripts\tools\cloudflared.exe` does not exist;
+  `<InstallDir>\components\cloudflared.exe` does). Its header is older too: it describes rewriting "user +
+  systemprofile copies" where the source had already collapsed to one location. **So a device fetching this
+  script would get a repair tool that exits 1 on every run — and round 238's finding that it is not installed
+  is the only reason that is not live.**
+  (3) THE STRUCTURE IS ROUND 199/211's, AND THE MECHANISM IS THE SAME: `index/public/vale-agent/fix-tunnel.ps1`
+  is **git-tracked**, and **no script writes it there** — a grep of `scripts/*.sh` for `fix-tunnel` returns
+  nothing, and the four scripts that do touch `public/vale-agent` are named in the ledger. Two tracked copies,
+  one obligation, **nothing comparing them**, which is the fifth artifact pair of this exact kind the loop has
+  found (the code-viewer mirror 199/211, the ledger head 213, the ADR index 224, the vercel.json comments
+  232/233) and the first one on the CDN path.
+  (4) THE FIX IS THE SYNC PLUS THE ASSERTION THAT WOULD HAVE CAUGHT IT: the source is copied over the published
+  copy, and `index/test/mirrored-scripts.test.mjs` reads BOTH files and asserts byte equality for every script
+  published on the CDN that is also authored in `agent/deploy/`. **Mutation-proven: appending one comment line to
+  the SOURCE alone turns it red**, restored it passes. **And ADR 0011's deletion criterion is encoded in the test
+  itself** — it asserts that at least one such shared script exists, so the day the two directories stop
+  overlapping the assertion fails loudly and says to delete it, rather than sitting there with no subject.
+  (5) SO THE CDN'S SCRIPT ASSETS NOW HAVE A MIRROR INSTRUMENT, and the state is worth stating: `index` goes from
+  89 tests to 90; round 238's two device observations (the 56-version-stale tarball and `vale-agent.yaml.bad`)
+  remain observations with an owner; and this round changed THE PUBLISHED COPY, which means **the CDN will serve
+  the fixed script only after the next index deploy** — not done here, and named. STILL OPEN: the installer's
+  signing decision (the user's call); an index deploy to publish the corrected `fix-tunnel.ps1` (a release
+  action the loop may take); convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 238 (**ROUND 237's FIX WAS CHECKED ON THE LIVE DEVICE — both path premises hold —
 and the check found that the script it fixed IS NOT INSTALLED ON THAT DEVICE AT ALL**). Commit: journal only;
 the device was read, not changed.

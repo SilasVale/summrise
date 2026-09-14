@@ -1,9 +1,9 @@
 # fix-tunnel.ps1 — repair the cloudflared tunnel config after a Vale Agent
 # migration. The old install used a tunnel named vale-command-dN with the
 # *.command.saisi.online hostname; the new install created vale-agent-dN with
-# *.agent.saisi.online. If the running cloudflared config still references the
-# old tunnel or hostname, rewrite both (user + systemprofile copies) to the
-# new tunnel + hostname and restart the cloudflared service.
+# *.agent.saisi.online. If the agent-owned tunnel.yml still references the
+# old tunnel or hostname, rewrite it (single location — no user/systemprofile
+# copies) and restart cloudflared.
 #
 # Idempotent: a config already on the new tunnel/hostname is untouched.
 $ErrorActionPreference = "Stop"
@@ -26,8 +26,28 @@ if (Test-Path $hostFile) { $hostname = (Get-Content $hostFile -Raw).Trim() }
 if (-not $hostname) { $hostname = "d1.agent.saisi.online" }
 $tunnelName = "vale-agent-" + ($hostname -split '\.')[0]
 
-$cloudflared = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
-if (-not $cloudflared) { Write-Host "!! cloudflared not found"; exit 1 }
+# cloudflared is BOXED — the agent spawns exactly one copy with --config tunnel.yml.
+# WHERE it is boxed changed, and this script was looking in the old place: round 237
+# found it deriving `$installDir` from the SCRIPT's own path and then appending
+# `tools\`, so it searched `<InstallDir>\scripts\tools\cloudflared.exe` and exited 1
+# unconditionally. `agent/vale-agent-npm/bin/vale.js:387` installs this script into
+# `<InstallDir>\scripts\`, and `agent/src/paths.rs:228` (`cloudflared_bin()`) resolves the
+# binary as `<InstallDir>\components\cloudflared.exe` — the flat `tools\` dir is the
+# pre-layout-v2 location that ADR 0008 replaced, and `vale.js` migrates out of it.
+#
+# Both locations are tried, NEW FIRST, so the script works on a migrated install and on
+# one that has not been migrated yet. NOT VERIFIED ON A DEVICE — this is a static fix
+# against the two sources above; the loop has not run it on d1.
+$installDir = Split-Path -Parent $PSScriptRoot   # <InstallDir>\scripts\ -> <InstallDir>
+$cloudflared = Join-Path $installDir "components\cloudflared.exe"
+if (-not (Test-Path $cloudflared)) {
+    $legacy = Join-Path $installDir "tools\cloudflared.exe"
+    if (Test-Path $legacy) { $cloudflared = $legacy }
+}
+if (-not (Test-Path $cloudflared)) {
+    Write-Host "!! cloudflared not found at $installDir\components\cloudflared.exe nor $installDir\tools\cloudflared.exe"
+    exit 1
+}
 # Find the agent tunnel by NAME, not by the first UUID in `tunnel list` — the
 # legacy vale-command-dN tunnels still exist and Get-TunnelId's regex could
 # match one of them, writing the OLD tunnel into the config.
@@ -47,9 +67,11 @@ if (-not $newTunnel) {
     exit 1
 }
 
+# Single location: the agent-owned tunnel.yml (main.rs spawns cloudflared
+# with --config tunnel.yml). The hostname file is the only other thing that
+# needs the same rewrite.
 $files = @(
-    (Join-Path $env:USERPROFILE ".cloudflared\config.yml"),
-    (Join-Path $env:SystemRoot "System32\config\systemprofile\.cloudflared\config.yml"),
+    (Join-Path $installDir "tunnel.yml"),
     $hostFile
 )
 $anyChanged = $false
