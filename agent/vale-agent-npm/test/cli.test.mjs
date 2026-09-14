@@ -18,6 +18,7 @@ const {
   parseDeviceToken,
   parseTargetArg,
   parseWatchArgs,
+  probeLine,
   reportText,
   targetLine,
   transitionLines,
@@ -1499,4 +1500,36 @@ test("targetLine: a content check that failed says so, next to the code that loo
   // No content check: neither word appears.
   const plain = targetLine({ id: "h:80/", summary: { up_now: true, since_ms: now - 1000, last_status: 200, last_expect_ok: null } }, now);
   assert.doesNotMatch(plain, /match/);
+});
+
+
+test("probeLine: a DOWN probe says WHICH way it failed", () => {
+  const now = 1_789_000_000_000;
+  // Up, plain TCP: state and latency, no invented status.
+  assert.equal(
+    probeLine({ id: "h:22" }, { ok: true, status: null, ms: 9, expect_ok: null }, now),
+    "UP   h:22  9ms",
+  );
+  // Up with a status: the number an operator asked for.
+  assert.match(probeLine({ id: "h:80/" }, { ok: true, status: 200, ms: 11, expect_ok: null }, now), /HTTP 200/);
+  // 500: down, with the code — the case a TCP connect cannot see.
+  const bad = probeLine({ id: "h:80/" }, { ok: false, status: 500, ms: 12, expect_ok: null }, now);
+  assert.match(bad, /^DOWN/);
+  assert.match(bad, /HTTP 500/);
+  // 200 with the wrong body: down, and the line names the text it wanted.
+  const miss = probeLine(
+    { id: "h:80/", expect: "OpenWrt" },
+    { ok: false, status: 200, ms: 11, expect_ok: false },
+    now,
+  );
+  assert.match(miss, /^DOWN/);
+  assert.match(miss, /HTTP 200/);
+  assert.match(miss, /no match for "OpenWrt"/);
+  // A match is stated too, so a healthy content check is visible rather than merely absent.
+  assert.match(
+    probeLine({ id: "h:80/", expect: "OpenWrt" }, { ok: true, status: 200, ms: 5, expect_ok: true }, now),
+    /matches "OpenWrt"/,
+  );
+  // No answer at all: no status, no latency, and the line says so.
+  assert.equal(probeLine({ id: "h:9" }, { ok: false, status: null, ms: null, expect_ok: null }, now), "DOWN h:9  no answer");
 });

@@ -144,11 +144,21 @@ fn tool_probe() -> ToolDef {
             async move {
                 let id = require_str(&params, "id")?;
                 match crate::monitor::probe_once(&id).await {
-                    Some(probe) => Ok(json!({
-                        "ok": true,
-                        "probe": probe,
-                        "summary": crate::monitor::summary(&id),
-                    })),
+                    // The answer carries the CRITERION it was judged against: `expect_ok: false`
+                    // is unreadable without the text the probe wanted, so the target's own
+                    // expectation travels with the result.
+                    Some(probe) => {
+                        let expect = crate::monitor::targets()
+                            .into_iter()
+                            .find(|t| t.id == id)
+                            .and_then(|t| t.expect);
+                        Ok(json!({
+                            "ok": true,
+                            "probe": probe,
+                            "expect": expect,
+                            "summary": crate::monitor::summary(&id),
+                        }))
+                    }
                     None => Err(DeviceError::InvalidParams {
                         message: format!("not watching {id} — monitor_list shows what is"),
                     }),

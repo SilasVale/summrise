@@ -486,6 +486,32 @@ export function targetLine(t, nowMs, width = 30) {
     const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}`;
 }
+// ONE PROBE'S ANSWER, as a line — the terminal's version of what the device's `monitor_probe`
+// returns. Pure, because the wording is the feature: a DOWN probe says WHICH way it failed
+// (no connection / status 500 / 200 without the expected text), not merely that it failed.
+export function probeLine(target, probe, nowMs) {
+    const id = String((target && target.id) || "");
+    const ok = probe && probe.ok === true;
+    const state = ok ? "UP  " : "DOWN";
+    const bits = [];
+    if (probe && probe.status !== null && probe.status !== undefined)
+        bits.push(`HTTP ${probe.status}`);
+    // A content check is the one failure a status code cannot express, so it is named.
+    if (target && target.expect) {
+        if (probe && probe.expect_ok === false)
+            bits.push(`no match for "${target.expect}"`);
+        else if (probe && probe.expect_ok === true)
+            bits.push(`matches "${target.expect}"`);
+        else
+            bits.push(`could not read the body to look for "${target.expect}"`);
+    }
+    if (probe && typeof probe.ms === "number")
+        bits.push(`${probe.ms}ms`);
+    if (!ok && bits.length === 0)
+        bits.push("no answer");
+    return `${state} ${id}${bits.length ? "  " + bits.join("  ") : ""}`;
+}
+
 // The transitions a target has been through, newest first — the outage log an
 // operator pastes into a report.
 export function transitionLines(t, limit = 4) {
@@ -1831,8 +1857,38 @@ const commands = {
           console.log(r.body && r.body.removed ? `stopped watching ${t.id}` : `monitor rm: ${t.id} was not being watched`);
           return;
       }
+      if (sub === "probe") {
+          // CHECK NOW. The device probes every 15 s on its own timer; this is for the moment after
+          // a reboot or a config change, when waiting one cycle is the difference between "it is
+          // back" and "I am still guessing". The AI has had this ability since it existed; the
+          // operator's own terminal did not.
+          const t = parseTargetArg(positional[0]);
+          if (!t) {
+              console.error("usage: vale monitor probe <host:port[/path]>");
+              process.exit(1);
+          }
+          const r = deviceApi("POST", "/api/tools/monitor_probe", { id: t.id });
+          const payload = r.ok ? r.body : null;
+          if (!r.ok) {
+              console.error(`monitor probe: ${r.error}`);
+              process.exit(1);
+          }
+          if (!payload || payload.ok !== true) {
+              // The device refuses to probe what it is not watching (one rule, one place). The
+              // CLI passes that on WITH the way out, instead of quietly adding a watch.
+              const why = (payload && payload.error) || "the device refused the probe";
+              console.error(`monitor probe: ${why}`);
+              console.error(`  to watch it: vale monitor add ${t.id}`);
+              process.exit(1);
+          }
+          const probe = payload.result && payload.result.probe;
+          // The device sends the CRITERION with the answer (`expect`), so "no match" can name the
+          // text it looked for — an unreadable verdict is a verdict nobody can act on.
+          console.log(probeLine({ id: t.id, expect: (payload.result && payload.result.expect) || null }, probe, Date.now()));
+          return;
+      }
       if (sub !== "list") {
-          console.error("usage: vale monitor [list | add <host:port[/path]> | rm <host:port[/path]>]");
+          console.error("usage: vale monitor [list | add <host:port[/path]> | probe <host:port[/path]> | rm <host:port[/path]>]");
           process.exit(1);
       }
       const r = deviceApi("GET", "/api/monitors");
