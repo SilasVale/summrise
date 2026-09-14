@@ -476,6 +476,17 @@ jobs:
       - name: Dry-run zen-us
         run: wrangler deploy --dry-run
         working-directory: proxies/zen-us-proxy
+      # 69 tests, and until round 231 NOTHING ran them: this job only syntax-checked
+      # the five handlers, so the suite that covers the vrelay relay — the process that
+      # serves THIS repository's git mirror — passed only when a human ran it. The
+      # ledger's "CI does not run these 54 tests" was read as a finding in round 226
+      # WITHOUT opening this file, retracted in 227, and is now true-by-accident about a
+      # different subject: `api-relay` is the one subsystem here with no test step.
+      # 54 vs the measured 69 is consistent with the suite having grown since that
+      # sentence was written — a hypothesis, not a claim.
+      - name: Test api-relay
+        run: node --test
+        working-directory: proxies/api-relay
       - name: Syntax-check api-relay handlers
         run: |
           node --check api/proxy.js

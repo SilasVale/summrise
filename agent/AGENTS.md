@@ -526,6 +526,43 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 231 (**`api-relay` HAD 69 PASSING TESTS AND CI RAN NONE OF THEM — verified inside
+`ci.yml` rather than read from the ledger, which is the one difference between this finding and the one round 226
+had to retract**). Commit: `.github/workflows/ci.yml` + journal.
+  (1) THE DISPOSITION CAME FIRST, AND IT WAS ROUND 226/227's LESSON APPLIED: the ledger's clause said CI does not
+  run `api-relay`'s tests, and **the first thing done here was to open `.github/workflows/ci.yml` and read the
+  job** — not to quote the clause. What is there is a single step, `Syntax-check api-relay handlers`, running
+  `node --check` on five files (`proxy.js`, `zen.js`, `git.ts`, `github.ts`, `gform.ts`). **A grep of both
+  workflow files for `api/test`, `server/test` and `routing` returns ZERO hits, and `proxies/api-relay` has no
+  `package.json`, so not even an `npm test` entry exists to be called.**
+  (2) AND THE TESTS IT NEVER RAN ARE REAL AND GREEN: **`node --test` in `proxies/api-relay` reports 69 tests,
+  69 pass, 0 fail** — nine gate suites under `api/test/` (gform, git, github, zen, proxy, host-escape,
+  stream-timeout, upstream-5xx, upstream-error) plus `server/test/routing.test.mjs` covering `buildUrl`,
+  `resolveHost`, `forwardHeaders` and `collectResponseHeaders`. **So this is not a suite that was failing
+  unnoticed; it is a suite nothing was asking.**
+  (3) THE STAKE IS NOT ABSTRACT, AND IT IS THE SAME BOX THE LAST TWO ROUNDS TOUCHED: `api-relay` IS vrelay —
+  **the process that serves this repository's git mirror, which is the channel this loop pushes through**, and
+  which round 223 deployed. Its 69 tests were passing only because a human ran them; **a regression would have
+  been discovered by the mirror breaking, not by CI.** That is round 206's shape (a gate that exists and is not
+  pulled) in the one place where the consequence is this loop's own write channel.
+  (4) THE "54" FROM ROUNDS 226-227 FINALLY HAS A MAGNITUDE-CONSISTENT READING, offered as a hypothesis and not
+  as a claim: round 227 established that the ledger sentence's real subject is `api-relay`, whose measured count
+  today is **69**. **54 < 69 is consistent with the same sentence describing an earlier state of these very
+  tests**, which is the first reading that fits the number rather than merely failing to explain it. **It is not
+  established, and rounds 226 and 228 both record this loop being punished for inventing a source for a number
+  it could not reproduce.**
+  (5) THE FIX IS ONE STEP AND BOTH HALVES ARE PROVEN: `- name: Test api-relay / run: node --test /
+  working-directory: proxies/api-relay` is now the step immediately before the syntax check. **Run as CI will
+  run it: 69 tests, 69 pass. Then mutated — a deliberately false `assert.equal(1, 2, "MUTANT")` inserted
+  ahead of the first assertion in `host-escape.test.mjs` — and it goes 68 pass / 1 FAIL, so the gate
+  catches a breakage rather than merely passing.** Restored, 69/69 again. **So the round is also the return of
+  round 226's finding with the verification round 226 lacked: the clause was quoted without opening the file in
+  226, retracted in 227 when the CF proxies turned out to be covered, and is now true about a DIFFERENT subject
+  that nobody had checked.** STILL OPEN, AND NOTHING ELSE WAITS ON THE LOOP: the installer's signing decision
+  (the user's call); `server/entry.mjs` and `server/routing.mjs` remain un-named by any round — **the router
+  is now at least TESTED by CI, which is the part that mattered**; convergence rows 6-7, which wait on a device
+  event rather than on work.
+
 Last updated: 2026-09-14 round 230 (**I AUDITED THE INSTRUMENT I WROTE ONE ROUND EARLIER AND IT WAS WRONG — its
 scope listed a directory that does not exist, `walk()` skipped it silently, and round 229's `never named: 0` was
 therefore a verdict about 118 files when the real scope holds 135**). Commit: scripts/ + ledger + journal.
