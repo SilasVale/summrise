@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 200 (**STEP 0 IS DONE — the loop pushed for the first time.** 101
+commits, pure fast-forward, verified IDENTICAL afterwards; the tag precondition for the release is now
+met). Commit: journal. The publish itself is next.
+  (1) THE RECONCILIATION, MEASURED BEFORE IT WAS PERFORMED (round 199's own instruction): `git fetch`
+  succeeded and — a detail worth recording — **brought back a tag the local repo did not have**
+  (`v1.2.361`), so round 197's "newest tag is v1.2.361" had been an API fact rather than a local one until
+  now. Remote HEAD was `86d84e5b` ("the Gateway card said connected after a tunnel config write that never
+  landed"); **ahead 101 / behind 0**, and `merge-base --is-ancestor origin/main HEAD` confirmed a PURE
+  FAST-FORWARD. `behind: 0` is the fact that made the push safe rather than merely convenient: there was
+  nothing on the remote to overwrite.
+  (2) AND THE PUSH, WITH ITS VERIFICATION AS PART OF THE SAME ACT: `86d84e5b..4659a5c9 HEAD -> main`,
+  after which ahead and behind are both 0 and `git rev-parse HEAD` equals `git rev-parse origin/main`
+  exactly. **That equality is the deliverable** — not "the push returned 0", which says only that a
+  transport accepted bytes. It is the same distinction round 17 taught about `vale update`: a
+  success-shaped return is not the effect, and the effect here is that GitHub's `main` IS this tree.
+  (3) WHAT THE REMOTE'S TAG LIST INDEPENDENTLY CONFIRMS: it holds **exactly one tag, `v1.2.361`**. Round
+  197 learned that from the GitHub API and round 198 decided the 362/363/364 question on the strength of
+  it; this is the same fact from the repository itself, which matters because the API reading and the
+  local reading had never been compared. They agree, so the provenance argument behind "do not retro-tag"
+  rests on a measurement taken twice by different means.
+  (4) SO THE RELEASE'S PRECONDITION IS MET, AND IT IS WORTH NAMING WHY THAT MATTERED: a tag for a commit
+  GitHub has never seen builds the wrong tree or fails — and until this round that was the state of the
+  repository for 101 commits. The loop had been writing a release-quality history that its own release
+  machinery could not reach. That is now false, and the next step is the version bump this journal has
+  specified since round 198: bump `agent/vale-agent-npm/package.json` to 1.2.365, commit, push, tag
+  v1.2.365 via the API, let CI build, `publish-cdn-from-ci.sh 1.2.365`, rebuild the installer, device
+  regression BEFORE the release.
+  (5) STILL OPEN: the version bump and everything after it (planned, precondition now met); the mirror
+  test's manifest blind spot (round 199); `studio/` (noticed round 197, still not investigated); the
+  recurring second failure's name under mutation; `models-probe.ts`'s remaining body;
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 199 (the release PRE-FLIGHT ran and found two blockers that nothing
 else would have: **the code-viewer manifest had been 9 rounds behind its own mirror** — a case the mirror
 TEST cannot see — and **99 commits are unpushed**, which a tag-based release requires). Commit: gateway/
