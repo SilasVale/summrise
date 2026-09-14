@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 203 (**the release is still running, and reading ONE LEVEL into the next
+step found that step 4's tool CANNOT do what round 198's plan asked of it**: `publish-cdn-from-ci.sh` is a
+CONVERGENCE tool, not a publish tool). Commit: journal.
+  (1) THE CI STATE, RECORDED SO IT IS NEVER GUESSED: `release` #138 is still `in_progress` (one job, "agent
+  (xwin build → npm tgz → release asset)"). A cargo-xwin build takes tens of minutes, so a round cannot
+  wait it out — and "waiting for CI" is not a deliverable. Next round's check is unchanged and recorded:
+  `GET /repos/SilasVale/vale/actions/runs/34793259942` → `conclusion`.
+  (2) SO THE ROUND SPENT ITS BUDGET ON THE NEXT STEP'S PRECONDITIONS INSTEAD, which is round 181's law
+  ("de-risking by reading one level is not de-risking") applied BEFORE the run rather than after. Read:
+  `scripts/publish-cdn-from-ci.sh`'s header and its guard list. It fails closed on two things — (a) the
+  GitHub release must exist and carry `vale-agent-<ver>.tgz`, and (b) **"`release-audit.sh` must first
+  prove the CI artifact packages the same SOURCE as the CDN's current (locally built) tgz — if any
+  source-derived file drifted, this refuses to touch the CDN."**
+  (3) AND GUARD (b) IS UNSATISFIABLE FOR A NEW VERSION, which is the finding: its implementation is
+  `audit_release_asset "$VER" "$CDN_BASE"` — it compares the release asset FOR THAT VERSION against the
+  CDN. For 1.2.365 the CDN carries **nothing** (it still serves 1.2.364's manifest and tarball), so there
+  is no same-source pair to audit and the script refuses by design. **`publish-cdn-from-ci.sh` is a
+  CONVERGENCE tool, not a publish tool: it cannot ship a new version, it can only converge an
+  already-shipped one onto CI's artifact.**
+  (4) WHICH CORRECTS ROUND 198's PLAN, and the correction is structural rather than cosmetic: the plan said
+  "ship 1.2.365 through `publish-cdn-from-ci.sh`", and that tool was never able to do the shipping. The
+  honest sequence for a NEW version is two steps, in this order — **first `publish-release.sh 1.2.365`**
+  (the local pack path: pack → stage → alias → manifest → last-5 prune → commit → deploy), which is what
+  actually makes the CDN serve 1.2.365; **then `publish-cdn-from-ci.sh 1.2.365`**, which can now pass its
+  audit because the CDN's current artifact and CI's artifact come from the same source. The convergence is
+  the SECOND half of a publish, not the first — and the script has a `--dry-run` flag, which is the safe
+  way to confirm that reading before anything is touched.
+  (5) STILL OPEN: #138's conclusion; then `publish-release.sh 1.2.365` → `publish-cdn-from-ci.sh 1.2.365`
+  (corrected order, `--dry-run` first); then the installer (three versions behind, and the alias is the
+  only one that exists); then device regression BEFORE the release (CHARTER hard gate); then the mirror
+  test's manifest blind spot (round 199); `studio/` (noticed round 197, still not investigated); the
+  recurring second failure's name under mutation; `models-probe.ts`'s remaining body;
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 202 (**STEP 2 DONE — `v1.2.365` IS TAGGED AND THE RELEASE PIPELINE IS
 RUNNING.** The tag was created via the GitHub API (HTTP 201) and `release` run **#138** is `in_progress`
 on `v1.2.365` @ `bc2d3d8e`. The state is KNOWN, which is the condition round 201 set before firing).
