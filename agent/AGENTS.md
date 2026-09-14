@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 237 (**`agent/deploy/` HELD TWO OF THE HIGHEST-COST NEVER-NAMED FILES AND BOTH WERE
+BROKEN: one built a binary that no longer exists, and the other — a REPAIR script the live CLI installs — derived
+its own path wrongly and exited 1 unconditionally**). Commit: agent/deploy/ + journal.
+  (1) THE LEAD WAS ROUND 236's OPEN ITEM (the never-named set it had just made visible), AND ITS FIRST RESULT
+  CORRECTS ROUND 236's OWN SENTENCE: that entry said the 52 were "dominated by the panel SPA's `hooks/`, `lib/`
+  and `styles/` and by `agent/deploy/`". **Measured now, the panel SPA is not in the list at all** — because
+  round 236's entry NAMED those paths, and the tool matches names. **The sentence described the composition
+  before its own text changed it**, which is the self-reference the tool's own docstring warns about, now
+  observed a third time (229 \u2192 230 reported 12 \u2192 9 the same way).
+  (2) SO THE ROUND WENT TO `agent/deploy/` BY ROUND 165's OWN RANKING (cost of a defect there), AND THE FIRST
+  FILE IS A CLEAN RETIREMENT: `build-windows.ps1` built `--bin vale-command`, and that binary does not exist —
+  `cargo build --features terminal --bin vale-command` answers **`error: no bin target named \`vale-command\``**
+  with `vale-agent` as the only target. **Its sibling `vale-command-setup.bat` was retired long ago; this one
+  was not.** It is now in `deploy/retired/` with the evidence in its header.
+  (3) AND A SECOND DEFECT IN THE SAME 23 LINES, RECORDED BECAUSE IT IS THIS REPOSITORY'S OWN DOCUMENTED TRAP:
+  **the build exit code was never checked.** The final branch was a `Test-Path`, so a FAILED cargo printed
+  "Build finished but <out> not found" in yellow and **the script exited 0** — the same shape as `vale update`
+  returning 0 on the WMI HANDOFF rather than on the swap, which the journal devotes a full section to. **A build
+  script whose failure mode is a yellow line and a zero exit is worse than no build script.**
+  (4) THE SECOND FILE IS THE ROUND'S REAL FINDING, AND IT IS A *REPAIR* SCRIPT THAT CANNOT RUN:
+  `fix-tunnel.ps1` set `$installDir = Split-Path -Parent $MyInvocation.MyCommand.Path` — **the SCRIPT's own
+  directory** — and then appended `tools\cloudflared.exe`. `vale.js:387` installs it into `<InstallDir>\scripts\`,
+  so it searched **`<InstallDir>\scripts\tools\cloudflared.exe`**; `paths.rs:228` resolves the binary as
+  **`<InstallDir>\components\cloudflared.exe`**, and `paths.rs:178` says `components\` "Replaces the flat
+  `tools\` dir" with a test pinning that migration. **Every run reached the `Test-Path` guard and exited 1**
+  — a repair path that is itself in need of repair, referenced by the shipped npm CLI.
+  (5) THE FIX TRIES BOTH LOCATIONS, NEW FIRST, so it works on a migrated install and on one that has not been
+  migrated yet; `$installDir` is now the parent of `$PSScriptRoot`, which is correct for a script in `scripts\`.
+  **AND THE VERIFICATION LEVEL IS WRITTEN INTO THE FILE RATHER THAN LEFT TO BE ASSUMED: "NOT VERIFIED ON A DEVICE
+  — this is a static fix against the two sources above; the loop has not run it on d1."** There is no `pwsh`
+  on this box, so even a parse check was unavailable, and saying so is the difference between a fix and a claim.
+  The scope tool now reads **281 of 357 (79%) with 51 never named**, one fewer of each because the retired script
+  left the scope. STILL OPEN, AND NOTHING WAITS ON THE LOOP: the installer's signing decision (the user's call);
+  **`fix-tunnel.ps1` needs a device run to become verified rather than static** — named as an owner: the loop,
+  when a device round is taken; convergence rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 236 (**TESTS JOIN THE COVERAGE SCOPE — and they were the bulk of what round 235 found
 missing. `agent/tests/` holds this loop's OWN instruments, so until now the instrument had never counted the
 instruments**). Commit: scripts/ + docs/adr/0012 + ledger + journal.
