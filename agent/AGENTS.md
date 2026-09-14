@@ -526,6 +526,37 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 235 (**THE COVERAGE TOOL NOW REPORTS WHAT IT DOES *NOT* COVER — it looked at 154 of
+the repository's 415 source files, and no run had ever said so; round 234's fix was the wrong SHAPE, because a
+list cannot notice what it omits**). Commit: scripts/ + journal.
+  (1) THE LEAD WAS ROUND 234's OWN LOGIC APPLIED ONE STEP FURTHER: that round closed `scripts/` by ADDING it
+  to `ROOTS`, so the next question is whether the scope is now complete. **Measured: it covers 154 of the
+  repository's 415 source files — 37%.** The 261 outside it break down as `gateway` 122 (its `test/`,
+  `public/` and `scripts/`), `agent` 116 (`tests/`, `resources/panel-react/`, `vale-agent-npm/`, `deploy/`),
+  `index` 15, repository root 4, `proxies` 2 and `docs` 2.
+  (2) AND THAT IS NOT AUTOMATICALLY A DEFECT, WHICH IS WHY THE FIX IS NOT "ADD THEM": the scope covers SOURCE
+  and excludes TESTS, deployment scripts and the panel SPA, which is a defensible boundary. **The defect is
+  that nothing stated it.** Every run printed "never named: N" under a sentence about "every source file in
+  scope", and a reader supplies "in the repository" for "in scope" — which is exactly how rounds 229, 230,
+  233 and 234 each found the same shape from a different angle.
+  (3) SO ROUND 234'S FIX WAS THE WRONG KIND: adding `scripts/` closed one instance of a class, and the next
+  omitted directory would have been found the same way — by someone happening to look. **A scope expressed as
+  a LIST cannot notice what it omits; only a comparison can.** This round makes the omission a measurement, so
+  the tool's own output now contains the fact that would otherwise be inferred wrongly.
+  (4) THE CHANGE IS THE SHAPE THIS STRETCH KEPT ARRIVING AT: state the scope, state the limit, and make the
+  boundary VISIBLE in every run. `node scripts/surface-coverage.mjs` now prints
+  **`files in scope: 154 of 415 in the repository (37%)`** followed by **`NOT in scope, by top-level directory:`
+  and the six directories with their counts**, before the never-named list. `--json` carries the same facts as
+  `repositoryFiles` and `notInScope`, so a consumer cannot get the numerator without the denominator.
+  (5) AND THE MUTATION IS THE ROUND-234 DEFECT ITSELF, REVERSED: removing `scripts/` from `ROOTS` no longer
+  hides it — the run reports **`136 of 415 in the repository (33%)`** and **`scripts (18)` appears in the
+  NOT-in-scope list**, which is the tool indicting its own scope. Restored, 154 of 415 (37%) again. **That is
+  the property round 229's version lacked and round 230 patched only for the FATAL case: a root that vanishes
+  is now visible whether or not it can be read.** STILL OPEN, AND NOTHING WAITS ON THE LOOP: the installer's
+  signing decision (the user's call); whether the 261 out-of-scope files SHOULD be in scope is a separate
+  decision with its own cost, now stated rather than implied; convergence rows 6-7, which wait on a device
+  event rather than on work.
+
 Last updated: 2026-09-14 round 234 (**`scripts/` WAS NEVER IN THE COVERAGE INSTRUMENT'S SCOPE — so "every source
 file in scope is named" said nothing about the 19 files that hold every check CI runs; and CI turned out to run
 MORE than round 226 credited it with**). Commit: scripts/ + ledger + journal.

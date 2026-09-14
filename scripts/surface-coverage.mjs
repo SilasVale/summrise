@@ -76,6 +76,48 @@ function walk(dir, out = []) {
 }
 
 const files = ROOTS.flatMap((r) => walk(join(ROOT, r))).sort();
+
+/**
+ * WHAT THIS SCOPE DOES **NOT** COVER, COMPUTED RATHER THAN IMPLIED.
+ *
+ * Through rounds 229-234 the verdict below ("every source file in scope is named") was
+ * read as a statement about the repository, and it never was: the scope covered 154 of
+ * the repository's 415 source files. Round 234 closed `scripts/` by adding it, and that
+ * is the wrong shape of fix — a LIST cannot notice what it omits, so the next directory
+ * would have been found the same way. This measures the omission instead: the run now
+ * prints how much of the repository it looked at, and names the top-level directories it
+ * did not, so "in scope" can never again be read as "in the repository".
+ */
+function repositoryTotals() {
+  const all = [];
+  const stack = [ROOT];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (SKIP.includes(e.name)) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (EXTS.some((x) => e.name.endsWith(x))) all.push(p);
+    }
+  }
+  return all;
+}
+
+const everything = repositoryTotals();
+const inScope = new Set(files);
+const outside = everything.filter((f) => !inScope.has(f));
+const outsideByTop = {};
+for (const f of outside) {
+  const rel = relative(ROOT, f);
+  const top = rel.includes("/") ? rel.split("/")[0] : "(repo root)";
+  outsideByTop[top] = (outsideByTop[top] || 0) + 1;
+}
 const records =
   readFileSync(join(ROOT, "agent", "AGENTS.md"), "utf8") +
   readFileSync(join(ROOT, "docs", "agents", "iteration-coverage.md"), "utf8");
@@ -88,6 +130,8 @@ if (process.argv.includes("--json")) {
       {
         scope: { roots: ROOTS, extensions: EXTS, skipped: SKIP },
         files: files.length,
+        repositoryFiles: everything.length,
+        notInScope: outsideByTop,
         neverNamed: never.length,
         neverNamedList: never.map((f) => relative(ROOT, f)),
       },
@@ -98,8 +142,13 @@ if (process.argv.includes("--json")) {
 } else {
   console.log("scope:");
   for (const r of ROOTS) console.log(`  ${r}  (${EXTS.join(" ")})`);
-  console.log(`\nfiles:       ${files.length}`);
-  console.log(`never named: ${never.length}`);
+  console.log(`\nfiles in scope: ${files.length} of ${everything.length} in the repository ` +
+    `(${((files.length / everything.length) * 100).toFixed(0)}%)`);
+  console.log("NOT in scope, by top-level directory:");
+  for (const [k, v] of Object.entries(outsideByTop).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${k}  (${v})`);
+  }
+  console.log(`\nnever named: ${never.length}`);
   for (const f of never) console.log(`  ${relative(ROOT, f)}`);
   if (!never.length) console.log("  (every source file in scope is named by some round)");
 }
