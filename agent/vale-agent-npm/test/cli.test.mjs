@@ -18,6 +18,7 @@ const {
   parseDeviceToken,
   parseTargetArg,
   parseWatchArgs,
+  reportText,
   targetLine,
   transitionLines,
   fmtDuration,
@@ -1358,4 +1359,84 @@ test("targetLine: one drop is 'drop', several are 'drops'", () => {
   assert.match(at(1), /1 drop(?!s)/);
   assert.match(at(2), /2 drops/);
   assert.doesNotMatch(at(0), /drop/);
+});
+
+
+// ── vale report: the block an operator pastes ────────────────────────────────
+test("reportText: assembles status, sessions, restarts and watched targets", () => {
+  // LOCAL, not Date.UTC: `vale report` stamps local time on purpose (the reader is
+  // standing next to the device), so a UTC fixture made this test timezone-dependent.
+  const now = new Date(2026, 8, 14, 23, 20, 5).getTime();
+  const lines = reportText({
+    status: {
+      ok: true,
+      version: "1.2.383",
+      uptime_secs: 11_520,
+      last_boot: "clean exit",
+      last_boot_kind: "clean-exit",
+      cpu_pct: 12,
+      mem_pct: 61,
+      live_sessions: 2,
+      pending_approvals: 1,
+    },
+    monitors: {
+      interval_secs: 15,
+      targets: [
+        { id: "192.168.1.1:22", summary: { up_now: true, since_ms: now - 60_000, latency: { avg: 9 }, up_pct: 100, drops: 0 } },
+        {
+          id: "192.168.1.1:80/",
+          summary: { up_now: false, since_ms: now - 360_000, latency: null, up_pct: 50, drops: 2, last_status: 500 },
+          transitions: [{ at_ms: now - 360_000, up: false, lasted_ms: 17_000 }],
+        },
+      ],
+    },
+    sessions: { sessions: [{ kind: "pty" }, { kind: "ssh" }] },
+    boots: { summary: { total: 3, crashed: 1 } },
+    nowMs: now,
+    cliVersion: "1.2.383",
+    hostLabel: "d1",
+  });
+  const text = lines.join("\n");
+  assert.match(text, /Vale report — d1 — 2026-09-14/);
+  assert.match(text, /release 1\.2\.383, CLI 1\.2\.383, agent up 3h 12m/);
+  assert.doesNotMatch(text, /DRIFT/); // same version: no drift claimed
+  assert.match(text, /previous boot: clean-exit — clean exit/);
+  assert.match(text, /CPU 12%, mem 61%, 2 session\(s\), 1 awaiting approval/);
+  assert.match(text, /sessions: 1 pty, 1 ssh/);
+  assert.match(text, /restarts in the last day: 3 \(1 crash-like\)/);
+  assert.match(text, /watching 2 target\(s\), probed every 15s — 1 down:/);
+  assert.match(text, /DOWN 192\.168\.1\.1:80\/\s+down 6m\s+HTTP 500/);
+  // The DOWN target brings its outage log; the UP one does not (noise).
+  assert.match(text, /went down\s+\(previous state lasted 17s\)/);
+  assert.equal((text.match(/previous state lasted/g) || []).length, 1);
+});
+
+test("reportText: a route that did not answer reads as NOT READ, never as a value", () => {
+  const text = reportText({
+    status: { __error: "device unreachable on 127.0.0.1:18080" },
+    monitors: null,
+    sessions: null,
+    boots: null,
+    nowMs: new Date(2026, 8, 14, 23, 20, 5).getTime(),
+    cliVersion: "1.2.383",
+    hostLabel: "d1",
+  }).join("\n");
+  assert.match(text, /agent status: NOT READ/);
+  assert.match(text, /watched targets: NOT READ/);
+  // No invented numbers for what was not read.
+  assert.doesNotMatch(text, /release 1\.|CPU|mem /);
+});
+
+test("reportText: a version drift is named, and an empty watch list says how to start one", () => {
+  const text = reportText({
+    status: { ok: true, version: "1.2.400", uptime_secs: 60 },
+    monitors: { interval_secs: 15, targets: [] },
+    sessions: null,
+    boots: null,
+    nowMs: new Date(2026, 8, 14, 23, 20, 5).getTime(),
+    cliVersion: "1.2.383",
+    hostLabel: "d1",
+  }).join("\n");
+  assert.match(text, /CLI 1\.2\.383 \(DRIFT\)/);
+  assert.match(text, /watching nothing \(vale monitor add <host:port>\)/);
 });

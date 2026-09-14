@@ -333,6 +333,93 @@ export function deviceApi(method, pathname, body?) {
     }
 }
 // `4m`, `1h 04m`, `2d 4h` — the shapes the rest of the panel uses.
+// `vale report` — ONE block an operator can paste into a ticket, a chat or a
+// handover note, assembled from data the device already serves.
+//
+// WHY IT IS A COMMAND AND NOT A SENTENCE IN THE DOCS. Everything here exists on the
+// device: the release it runs, how long the agent has been up, what the previous boot
+// looked like, CPU/memory, the sessions open, and every watched target with its
+// outages. What was missing is a shape a person can hand to somebody else — the
+// numbers are the same, the ASSEMBLY is the feature.
+//
+// THE RENDER IS PURE (`reportText`) and the fetching is three lines of `deviceApi`, so
+// the format is testable without a device. Two rules it keeps: a server that did not
+// answer is printed as NOT READ, never as an invented value; and a target that is down
+// brings its outage log with it, because "it is down" without "since when, and how
+// often" is the half of the answer that starts an argument.
+// `deviceApi` returns `{ok, body}` or `{ok:false, error}`; the report wants the PAYLOAD
+// with the failure attached, so a missing route reads as NOT READ rather than as empty.
+function pick(r) {
+    if (!r.ok)
+        return { __error: r.error };
+    return r.body;
+}
+export function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, hostLabel }) {
+    const now = new Date(nowMs);
+    const p = (n) => String(n).padStart(2, "0");
+    const stamp = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
+    const out = [];
+    out.push(`Vale report — ${hostLabel || "this device"} — ${stamp}`);
+    if (!status || status.ok !== true) {
+        out.push(`  agent status: NOT READ (${(status && status.__error) || "no answer"})`);
+    }
+    else {
+        const parts = [];
+        parts.push(`release ${status.version || "?"}`);
+        if (cliVersion)
+            parts.push(`CLI ${cliVersion}${status.version && cliVersion !== status.version ? " (DRIFT)" : ""}`);
+        if (typeof status.uptime_secs === "number")
+            parts.push(`agent up ${fmtDuration(status.uptime_secs * 1000)}`);
+        out.push(`  ${parts.join(", ")}`);
+        // The previous boot is the one fact nobody can reconstruct after the fact, so it
+        // is named with its KIND (clean exit / crashed / machine restart) and never as a
+        // bare sentence.
+        if (status.last_boot || status.last_boot_kind)
+            out.push(`  previous boot: ${status.last_boot_kind || "no verdict"}${status.last_boot ? ` — ${status.last_boot}` : ""}`);
+        const facts = [];
+        if (typeof status.cpu_pct === "number")
+            facts.push(`CPU ${status.cpu_pct}%`);
+        if (typeof status.mem_pct === "number")
+            facts.push(`mem ${status.mem_pct}%`);
+        if (typeof status.live_sessions === "number")
+            facts.push(`${status.live_sessions} session(s)`);
+        if (typeof status.pending_approvals === "number" && status.pending_approvals > 0)
+            facts.push(`${status.pending_approvals} awaiting approval`);
+        if (facts.length)
+            out.push(`  ${facts.join(", ")}`);
+    }
+    if (sessions && Array.isArray(sessions.sessions) && sessions.sessions.length) {
+        const byKind = {};
+        for (const s of sessions.sessions)
+            byKind[s.kind || "?"] = (byKind[s.kind || "?"] || 0) + 1;
+        out.push(`  sessions: ${Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ")}`);
+    }
+    if (boots && boots.summary) {
+        const s = boots.summary;
+        out.push(`  restarts in the last day: ${s.total ?? "?"} (${s.crashed ?? 0} crash-like)`);
+    }
+    const targets = (monitors && monitors.targets) || [];
+    if (!monitors) {
+        out.push(`  watched targets: NOT READ`);
+    }
+    else if (targets.length === 0) {
+        out.push(`  watching nothing (vale monitor add <host:port>)`);
+    }
+    else {
+        const down = targets.filter((t) => t.summary && t.summary.up_now === false).length;
+        out.push(`  watching ${targets.length} target(s), probed every ${monitors.interval_secs || 15}s — ${down} down:`);
+        for (const t of targets) {
+            out.push("  " + targetLine(t, nowMs));
+            // A DOWN target's log is the part that gets used; an UP one's is noise here.
+            if (t.summary && t.summary.up_now === false) {
+                for (const l of transitionLines(t, 3))
+                    out.push("  " + l.trim());
+            }
+        }
+    }
+    return out;
+}
+
 // `vale watch [<host:port[/path]>] [--once]` -> what to do, decided in ONE place so the
 // flag cannot be read differently by the loop and by a test.
 export function parseWatchArgs(args) {
@@ -1766,6 +1853,32 @@ const commands = {
           await new Promise((res) => setTimeout(res, every));
       }
   },
+  // `vale report` — the paste-able block (see reportText). Reads three routes and
+  // assembles them; a route that does not answer is printed as NOT READ.
+  async report(args) {
+      const status = pick(deviceApi("GET", "/api/status"));
+      const monitors = pick(deviceApi("GET", "/api/monitors"));
+      const sessions = pick(deviceApi("GET", "/api/sessions"));
+      const boots = pick(deviceApi("GET", "/api/boots"));
+      let cliVersion = "";
+      try {
+          cliVersion = String(require("../package.json").version || "");
+      }
+      catch {
+          /* best effort: the report is still useful without it */
+      }
+      const os = require("os");
+      for (const line of reportText({
+          status,
+          monitors,
+          sessions,
+          boots,
+          nowMs: Date.now(),
+          cliVersion,
+          hostLabel: args.includes("--no-host") ? "" : os.hostname(),
+      }))
+          console.log(line);
+  },
   status() {
     // NOT via shell: `shell: true` concatenates argv into one cmd.exe string,
     // so the unquoted filter "IMAGENAME eq …" was split at its spaces, tasklist
@@ -2828,7 +2941,7 @@ if (require.main === module) {
   const [cmd, ...rest] = process.argv.slice(2);
   if (!cmd || !commands[cmd]) {
     console.log(
-      "vale <setup|status|watch|monitor|start|stop|restart|autostart|update|rollback|uninstall|run|tunnel> -- Vale Agent control",
+      "vale <setup|status|report|watch|monitor|start|stop|restart|autostart|update|rollback|uninstall|run|tunnel> -- Vale Agent control",
     );
     Object.keys(commands).forEach((k) => console.log(" ", k));
     process.exit(cmd ? 1 : 0);
