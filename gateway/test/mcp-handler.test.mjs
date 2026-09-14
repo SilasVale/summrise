@@ -504,14 +504,17 @@ test("contract: device-direct partition matches the bridge-vs-device dispatch", 
     const n = t.name;
     if (isDeviceDirectTool(n)) {
       // Device-direct: the terminal_/secret_/system_ families, the run_* run
-      // boundaries, plus the two bundled-runner tools. callTool routes on THIS
-      // predicate now (it used to re-implement it inline, which is how a
-      // registered tool could still fall through to the bridge and die there).
+      // boundaries, the monitor_* reachability watches, plus the two
+      // bundled-runner tools. callTool routes on THIS predicate now (it used to
+      // re-implement it inline, which is how a registered tool could still fall
+      // through to the bridge and die there) — and this list is a MIRROR of it,
+      // which is why adding a family to the predicate means adding it here too.
       assert.ok(
         n.startsWith("terminal_") ||
           n.startsWith("secret_") ||
           n.startsWith("system_") ||
           n.startsWith("run_") ||
+          n.startsWith("monitor_") ||
           n === "browser_pw_info" ||
           n === "browser_run_script",
         `device-direct misclassification: ${n}`,

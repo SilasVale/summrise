@@ -2883,8 +2883,11 @@ mod tests {
         // terminal + update + mcp-client + design + playwright + memory + system
         // + runs (the AI-execution identity surface, added with the run feature:
         // a plugin registered but not listed here would keep its tools out of
-        // /api/spec, i.e. invisible to every client that discovers through it).
-        assert_eq!(v["plugins"].as_array().unwrap().len(), 8);
+        // /api/spec, i.e. invisible to every client that discovers through it)
+        // + monitor (the reachability watches, round 262 — same rule, one family
+        // over: registered but unlisted means invisible to every client that
+        // discovers through /api/spec).
+        assert_eq!(v["plugins"].as_array().unwrap().len(), 9);
     }
 
     /// The previous boot's verdict must reach the WIRE, not just the function — and it must say

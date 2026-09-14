@@ -96,6 +96,13 @@ function TargetRow({
               {summary.down} failed {summary.down === 1 ? "probe" : "probes"}
             </span>
           )}
+          {/* How many times it FELL, which is the number that separates "down" from
+              "unstable" — a link that is up every time the operator looks still has a count. */}
+          {(summary.drops ?? 0) > 0 && (
+            <span className="monitor-fact" title="times it fell from up to down in this window">
+              {summary.drops} {summary.drops === 1 ? "drop" : "drops"}
+            </span>
+          )}
         </span>
       </div>
     </li>

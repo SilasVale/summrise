@@ -5,6 +5,7 @@ use crate::plugins::design::DesignPlugin;
 use crate::plugins::mcp_client::McpClientPlugin;
 use crate::plugins::memory::store::{MemoryLimits, MemoryStore};
 use crate::plugins::memory::MemoryPlugin;
+use crate::plugins::monitor::MonitorPlugin;
 use crate::plugins::playwright::manager::PlaywrightManager;
 use crate::plugins::playwright::PlaywrightPlugin;
 use crate::plugins::runs::RunsPlugin;
@@ -96,6 +97,7 @@ fn build_registry(deps: &RegistryDeps) -> PluginRegistry {
     registry.register(Box::new(MemoryPlugin::new(deps.memory.clone())));
     registry.register(Box::new(SystemPlugin));
     registry.register(Box::new(RunsPlugin));
+    registry.register(Box::new(MonitorPlugin));
     registry
 }
 

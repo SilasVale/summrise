@@ -5,6 +5,7 @@
 pub mod design;
 pub mod mcp_client;
 pub mod memory;
+pub mod monitor;
 pub mod playwright;
 pub mod runs;
 pub mod system;

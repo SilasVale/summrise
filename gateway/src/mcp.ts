@@ -214,6 +214,12 @@ export function isDeviceDirectTool(name: string): boolean {
     // registry is the contract — a `run_*` name the device does not serve fails
     // at the device, which is the honest place for it to fail.
     name.startsWith("run_") ||
+    // REACHABILITY MONITORING (`agent/src/monitor.rs`): registered in mcp-tools.ts
+    // AND routed here — the two are separate gates, and a name in only the first
+    // is registered-but-uncallable ("No route for registered tool …"). Safe as a
+    // prefix because the DEVICE's registry is the contract: a `monitor_*` name the
+    // device does not serve fails at the device, which is where it belongs.
+    name.startsWith("monitor_") ||
     name === "browser_pw_info" ||
     name === "browser_run_script"
   );

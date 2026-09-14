@@ -137,6 +137,44 @@
     ]
   },
   {
+    "name": "monitor_add",
+    "params": [
+      "host",
+      "port"
+    ],
+    "plugin": "monitor",
+    "required": [
+      "host",
+      "port"
+    ]
+  },
+  {
+    "name": "monitor_list",
+    "params": [],
+    "plugin": "monitor",
+    "required": []
+  },
+  {
+    "name": "monitor_probe",
+    "params": [
+      "id"
+    ],
+    "plugin": "monitor",
+    "required": [
+      "id"
+    ]
+  },
+  {
+    "name": "monitor_remove",
+    "params": [
+      "id"
+    ],
+    "plugin": "monitor",
+    "required": [
+      "id"
+    ]
+  },
+  {
     "name": "page_view",
     "params": [
       "page",

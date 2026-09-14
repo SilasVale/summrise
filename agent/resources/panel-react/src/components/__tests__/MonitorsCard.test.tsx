@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MonitorsCard } from "../MonitorsCard";
 import { MonitorChip } from "../MonitorChip";
-import { downTargets, fmtSince, parseMonitors, type Monitors } from "../../hooks/useMonitors";
+import { downTargets, fmtSince, parseMonitors, unstableTargets, type Monitors } from "../../hooks/useMonitors";
 
 const now = 1_789_000_000_000;
 /** The PARSED shape the hook hands to components (`tsMs`, not the wire's `ts_ms`) — the first
@@ -52,6 +52,8 @@ const target = (over: Partial<{ id: string; upNow: boolean | null; oks: boolean[
       upNow,
       sinceMs: oks.length ? now - 30_000 : null,
       latency: up ? { min: 3, avg: 5, max: 9 } : null,
+      // DROPS: the falls in the fixture, which is the same rule the device counts.
+      drops: oks.length ? oks.slice(1).filter((ok, i) => oks[i] && !ok).length : null,
     },
   };
 };
@@ -191,6 +193,49 @@ describe("MonitorsCard", () => {
     expect(onRemove).toHaveBeenCalledWith("192.168.1.1:22");
   });
 });
+
+describe("the flapping rule (and its chip)", () => {
+  it("calls a link unstable only when it FELL more than once, and only while it is up", () => {
+    // Up every time the operator looks, but it fell twice: the pattern the state cannot show.
+    const flapping = monitors([target({ oks: [true, false, true, false, true] })]);
+    expect(unstableTargets(flapping).map((t) => t.id)).toEqual(["192.168.1.1:22"]);
+
+    // ONE drop is not unstable: it is often the operator's own reboot.
+    expect(unstableTargets(monitors([target({ oks: [true, false, true] })])), []);
+
+    // A target that is DOWN is named by downTargets, not here — two chips about one host is
+    // worse than one.
+    expect(unstableTargets(monitors([target({ oks: [true, false, false] })])), []);
+
+    // Steady, or nothing probed: silence.
+    expect(unstableTargets(monitors([target({ oks: [true, true, true] })])), []);
+    expect(unstableTargets(monitors([target({ oks: [], upNow: null })])), []);
+  });
+
+  it("shows the pattern when nothing is down, and the outage when something is", () => {
+    const flapping = monitors([target({ oks: [true, false, true, false, true] })]);
+    const chip = render(<MonitorChip monitors={flapping} nowMs={now} />).container.querySelector(".monitor-chip")!;
+    expect(chip.textContent).toContain("192.168.1.1:22 flapping (2 drops)");
+    expect(chip.getAttribute("title")).toContain("up now");
+    // A hollow mark: the silhouette separates "unstable" from "down".
+    expect(container_mark(chip, "is-flapping")).toBe(true);
+
+    // A DOWN target outranks the pattern: the chip names the outage (and the uptime story).
+    const both = monitors([
+      target({ id: "a:22", oks: [true, false, false] }),
+      target({ id: "b:22", oks: [true, false, true, false, true] }),
+    ]);
+    const chip2 = render(<MonitorChip monitors={both} nowMs={now} />).container.querySelector(".monitor-chip")!;
+    expect(chip2.textContent).toContain("a:22 down");
+    expect(chip2.textContent).not.toContain("flapping");
+  });
+});
+
+/** The mark's class list, as a boolean — the shape channel this chip relies on. */
+function container_mark(chip: Element, cls: string): boolean {
+  const mark = chip.querySelector(".monitor-mark");
+  return !!mark && mark.className.includes(cls);
+}
 
 describe("MonitorChip", () => {
   it("is silent when every target is up or unknown", () => {

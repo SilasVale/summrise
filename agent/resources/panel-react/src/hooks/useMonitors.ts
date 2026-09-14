@@ -25,6 +25,10 @@ export interface MonitorSummary {
   upNow: boolean | null;
   /** When the CURRENT state began (the oldest probe of the current run of identical states). */
   sinceMs: number | null;
+  /** How many times it FELL from up to down inside the window (null with no probes yet). A
+   *  target that is down now contributes the drop that started its outage — `upNow` says
+   *  whether that state is current. */
+  drops: number | null;
   latency: { min: number; avg: number; max: number } | null;
 }
 
@@ -77,6 +81,7 @@ export function parseMonitors(j: unknown): Monitors {
           upPct: num(s.up_pct),
           upNow: typeof s.up_now === "boolean" ? s.up_now : null,
           sinceMs: num(s.since_ms),
+          drops: num(s.drops),
           latency: lat
             ? { min: num(lat.min) ?? 0, avg: num(lat.avg) ?? 0, max: num(lat.max) ?? 0 }
             : null,
@@ -193,6 +198,21 @@ export function fmtSince(ms: number): string {
   const h = Math.floor(s / 3600);
   return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
+
+/** A link that has fallen more than once in the window is UNSTABLE — the pattern, as opposed to
+ *  the state. Two, not one, because a single drop is often the operator's own reboot; and the
+ *  rule only speaks about targets that are currently UP, because one that is down is already
+ *  named by `downTargets` and two chips saying different things about the same host would be
+ *  worse than one. */
+export function unstableTargets(monitors: Monitors): MonitorTarget[] {
+  return monitors.targets.filter(
+    (t) => t.summary.upNow === true && (t.summary.drops ?? 0) >= UNSTABLE_DROPS,
+  );
+}
+
+/** The number of drops that makes a link unstable — mirrors `monitor::UNSTABLE_DROPS` on the
+ *  device, which is where the count comes from; this constant only decides when to SPEAK. */
+export const UNSTABLE_DROPS = 2;
 
 /** The targets that are DOWN right now, with how long they have been down. The strip's chip
  *  and the card's headline both read this — one rule, so they cannot disagree. */

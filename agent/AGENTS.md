@@ -412,7 +412,9 @@ src/
                    whitelist + token injection + one-time ?grant= redemption
                    at the gateway) as the WebPanel fallback service; sse.rs
                    holds the SSE streams (bounded conns, heartbeat, epoch).
-  plugins/         PluginRegistry (tools cached once at register); terminal/
+  plugins/         PluginRegistry (tools cached once at register); monitor/ (the
+                   reachability watch surface — monitor_list/add/remove/probe over
+                   crate::monitor); terminal/
                    mod.rs (plugin struct + shared helpers) + tools/ (ctx.rs =
                    ToolCtx, the shared runtime state builders take, plus the
                    jobs map; per-domain builders exec/sessions/files/

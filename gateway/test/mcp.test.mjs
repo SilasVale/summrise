@@ -30,7 +30,12 @@ test("mcp tools: all tools take a device param", () => {
   // 35 = 28 device tools + 7 gateway-synthesized browser_* bridge tools. Was 33
   // before round 78 exposed terminal_jobs and terminal_forget_saved, which the
   // NOT_EXPOSED map claimed the panel called — it never did.
-  assert.equal(tools.length, 35);
+  //
+  // 35 -> 39 when the four `monitor_*` reachability tools were registered
+  // (round 262): the device had watched host:port targets since round 261 with
+  // the AI unable to see any of it, which is the same "unlisted = uncalled"
+  // shape one family over.
+  assert.equal(tools.length, 39);
   for (const t of tools) {
     assert.equal(t.inputSchema.type, "object");
     assert.ok(t.inputSchema.properties.device, `${t.name} must take device`);

@@ -8,12 +8,31 @@
 // SILENT BY DEFAULT, like every other chip here: no targets, no probes yet, or everything up
 // renders nothing at all. Several down targets collapse to one chip with the first name and a
 // count — a strip is a line, not a list, and the card is one click away.
-import { downTargets, fmtSince, type Monitors } from "../hooks/useMonitors";
+import { downTargets, fmtSince, unstableTargets, type Monitors } from "../hooks/useMonitors";
 
 export function MonitorChip({ monitors, nowMs = Date.now() }: { monitors?: Monitors | null; nowMs?: number }) {
   if (!monitors || monitors.targets.length === 0) return null;
   const down = downTargets(monitors, nowMs);
-  if (down.length === 0) return null;
+  if (down.length === 0) {
+    // NOTHING IS DOWN — but a link that keeps falling and coming back is the thing an operator
+    // misses by looking at a state: it is up every time they look. The pattern gets the chip.
+    const unstable = unstableTargets(monitors);
+    if (unstable.length === 0) return null;
+    const [t] = unstable;
+    const more = unstable.length - 1;
+    const text =
+      `${t.host}:${t.port} flapping (${t.summary.drops} drops)` + (more > 0 ? ` (+${more})` : "");
+    const title =
+      unstable
+        .map((u) => `${u.host}:${u.port} — ${u.summary.drops} drops in this window, up now`)
+        .join("\n") + "\n\nThe Reachability card in Settings shows the probe history.";
+    return (
+      <span className="monitor-chip is-flapping" title={title} data-drops={t.summary.drops ?? 0}>
+        <span className="monitor-mark is-flapping" aria-hidden="true" />
+        {text}
+      </span>
+    );
+  }
   const [first] = down;
   const more = down.length - 1;
   const text =

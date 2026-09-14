@@ -704,6 +704,66 @@ const BROWSER_TOOLS: McpTool[] = [
  * `agent/src/runs.rs`. The console advertises these so a model can group its own
  * work; the gateway stores nothing.
  */
+/**
+ * REACHABILITY MONITORING — the device watches host:port targets over TCP
+ * (`agent/src/monitor.rs`) and these four tools are how a model reads and
+ * extends that watch. Registering them here is HALF the job: the names must also
+ * match `isDeviceDirectTool()` in mcp.ts, which is a SEPARATE gate — a name in
+ * only the first is registered-but-uncallable and fails at call time.
+ *
+ * The value to a model is ground truth about the network it is working on: it can
+ * reboot a device and then SAY whether it came back, from the device's own
+ * minute-by-minute record rather than from a guess between two commands.
+ */
+const MONITOR_TOOLS: McpTool[] = [
+  {
+    name: "monitor_list",
+    description:
+      "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries `up_now`, `since_ms` (when the CURRENT state began), `up_pct`, the latency range and `drops` (how many times it fell from up to down in this window). The series is oldest-first; a probe with `ok: false` carries NO latency, and a gap in time is a probe that failed. The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
+    inputSchema: { type: "object", properties: { ...DEVICE_PARAM }, required: [] },
+  },
+  {
+    name: "monitor_add",
+    description:
+      "Start watching a host:port on this device and leave the watch in place — the list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards. Add one when something you are about to touch must be seen coming back. The probe is a TCP connect: a REFUSED connection counts as down. Adding the same host:port twice is idempotent. Name the SERVICE (22 for SSH, 80 for a web UI) — guessing a port would probe the wrong thing and report it as fact.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...DEVICE_PARAM,
+        host: { type: "string", description: 'IP address or name, e.g. "192.168.1.1".' },
+        port: { type: "integer", description: "TCP port to connect to, 1-65535." },
+      },
+      required: ["host", "port"],
+    },
+  },
+  {
+    name: "monitor_remove",
+    description:
+      "Stop watching a target. `removed` says whether anything was being watched under that id — removing one that is not there is reported as a no-op, never as a success. Removing a watch DISCARDS its series: the record is gone, not hidden.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...DEVICE_PARAM,
+        id: { type: "string", description: 'The target id from monitor_list ("host:port").' },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "monitor_probe",
+    description:
+      "Probe one watched target RIGHT NOW and return the result plus the refreshed summary — the synchronous half of the instrument, against the 15 s timer that runs on its own. Use it as a BEFORE and AFTER around anything that could take a host down or bring it back: probe, act, probe. The probe is recorded in the series like any other.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...DEVICE_PARAM,
+        id: { type: "string", description: 'The target id from monitor_list ("host:port").' },
+      },
+      required: ["id"],
+    },
+  },
+];
+
 const RUNS_TOOLS: McpTool[] = [
   {
     name: "run_begin",
@@ -748,5 +808,5 @@ const RUNS_TOOLS: McpTool[] = [
 ];
 
 export function allMcpTools(): McpTool[] {
-  return [...TERMINAL_TOOLS, ...SYSTEM_TOOLS, ...BROWSER_TOOLS, ...RUNS_TOOLS];
+  return [...TERMINAL_TOOLS, ...SYSTEM_TOOLS, ...BROWSER_TOOLS, ...RUNS_TOOLS, ...MONITOR_TOOLS];
 }

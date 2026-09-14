@@ -1216,6 +1216,11 @@
   border-radius: 1px;
   transform: rotate(45deg);
 }
+/* FLAPPING is a shape of its own: a hollow diamond, so "unstable" and "down" are told apart
+   without resolving a hue (this repo has an incident where two states differed by colour
+   alone). The ink stays the warn colour; the silhouette carries the difference. */
+.monitor-chip.is-flapping { color: var(--state-warn); }
+.monitor-mark.is-flapping { background: transparent; border: 1.5px solid var(--state-warn); }
 
 /* ---------- terminal ---------- */
 #term-container {

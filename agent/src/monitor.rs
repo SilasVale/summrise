@@ -307,6 +307,35 @@ pub fn spawn_prober() {
     });
 }
 
+/// How many DROPS in one window make a link worth calling unstable rather than merely down.
+///
+/// TWO, not one: a single drop is often the operator's own doing (a reboot they issued, an
+/// update that restarted the agent), while a link that drops, recovers and drops again inside
+/// one window is a PATTERN — the same distinction the load chip draws between a spike and a
+/// sustained load.
+///
+/// The count is DROPS, not "flaps that recovered", and the name says so: a target that is down
+/// NOW contributes the drop that started its outage, and the operator reading a count of one
+/// beside `up_now: false` is reading the truth ("it dropped once and has not come back"),
+/// whereas a count filtered to recovered outages would silently say zero about a link that is
+/// down. Whether the state is current is `up_now`'s job, not this number's.
+pub const UNSTABLE_DROPS: u64 = 2;
+
+/// Count the up→down transitions in a series, OLDEST FIRST.
+///
+/// A transition is a probe that failed where the previous one answered. The FIRST probe cannot
+/// be one (there is nothing before it to fall from), so a target watched since it was already
+/// down reports zero drops — correctly: nothing was seen to fall.
+pub fn count_drops(probes: &[Probe]) -> u64 {
+    let mut drops = 0u64;
+    for w in probes.windows(2) {
+        if w[0].ok && !w[1].ok {
+            drops += 1;
+        }
+    }
+    drops
+}
+
 /// One target's summary over the samples it has: how many probes, how many answered, the share
 /// that did, the latency range, and WHEN the state last changed (the number an operator reads
 /// first — "down since 18:41" is the whole story).
@@ -321,6 +350,9 @@ pub fn summary(id: &str) -> Value {
             "up_now": Value::Null,
             "since_ms": Value::Null,
             "latency": Value::Null,
+            // No probes, no transitions to count — and NOT a fabricated zero that would read
+            // as "measured, stable".
+            "drops": Value::Null,
         });
     }
     let up = probes.iter().filter(|p| p.ok).count();
@@ -355,6 +387,7 @@ pub fn summary(id: &str) -> Value {
         "up_now": current,
         "since_ms": since,
         "latency": latency,
+        "drops": count_drops(&probes),
     })
 }
 
@@ -435,6 +468,33 @@ mod tests {
         // Garbage is an EMPTY list, never an error: a monitor list must not stop the agent.
         assert!(parse_targets("not json").is_empty());
         assert!(parse_targets("{}").is_empty());
+    }
+
+    /// THE DROP RULE. It counts FALLS (up → down), not outages: a target that is down now still
+    /// contributes the drop that started its outage — `up_now` is what says whether it is
+    /// current — and a series that begins down has nothing to fall from.
+    #[test]
+    fn drops_count_falls_not_outages() {
+        let p = |ok: bool, i: u64| Probe {
+            ts_ms: 1_700_000_000_000 + i * 15_000,
+            ok,
+            ms: if ok { Some(1) } else { None },
+        };
+        // Steady: nothing fell.
+        assert_eq!(count_drops(&[p(true, 0), p(true, 1), p(true, 2)]), 0);
+        // ONE ongoing outage counts as ONE drop: it fell, and `up_now` says it has not come
+        // back. Reporting zero here would be the silent kind of wrong.
+        assert_eq!(count_drops(&[p(true, 0), p(false, 1), p(false, 2)]), 1);
+        // Up → down → up → down → up: TWO drops — the pattern worth naming unstable.
+        assert_eq!(
+            count_drops(&[p(true, 0), p(false, 1), p(true, 2), p(false, 3), p(true, 4)]),
+            2
+        );
+        // A series that BEGINS down has nothing to fall from; the next fall counts.
+        assert_eq!(count_drops(&[p(false, 0), p(true, 1), p(false, 2)]), 1);
+        // Degenerate inputs are zero, never a panic.
+        assert_eq!(count_drops(&[]), 0);
+        assert_eq!(count_drops(&[p(true, 0)]), 0);
     }
 
     #[test]
