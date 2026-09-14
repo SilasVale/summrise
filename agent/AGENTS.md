@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 199 (the release PRE-FLIGHT ran and found two blockers that nothing
+else would have: **the code-viewer manifest had been 9 rounds behind its own mirror** — a case the mirror
+TEST cannot see — and **99 commits are unpushed**, which a tag-based release requires). Commit: gateway/
++ journal. Tree now clean; the publish itself still not started.
+  (1) THE MANIFEST GAP, FIXED, AND WHY IT IS A FINDING RATHER THAN CHORES: `sync-code-viewer.sh` updates
+  TWO things — the `files/` mirror AND `manifest.json` — and every round since 190 staged only the mirror
+  by name. So the manifest entry for `src/store/byok.ts` sat uncommitted for nine rounds while the file it
+  indexes was committed. **The mirror test cannot see this**: `"code viewer: the tracked mirror matches
+  what src/ would publish"` compares the FILES, which is exactly why rounds 168, 173, 175, 182 and 184
+  could rely on it as the instrument for this obligation — and it does not read the manifest at all. So a
+  manifest lagging its own mirror is invisible, and it took a release pre-flight to notice. Recorded as a
+  gap in the instrument; the fix touches the test and belongs in a full budget, not in a pre-flight.
+  (2) AND 99 COMMITS ARE UNPUSHED (`origin/main..HEAD`, round 112's commit through this one, all dated
+  2026-09-14). This is release-blocking in a way that is easy to miss: the flow is bump → commit → push →
+  **tag via the GitHub API** → CI builds FROM GITHUB. A tag for a commit GitHub has never seen builds the
+  wrong tree or fails, and either way the release would not be the artifact this loop has been testing.
+  Named rather than acted on, because pushing 99 commits is a one-way door that deserves its own round
+  with its own verification — and because the loop has never pushed, so the remote's state is not
+  something this journal can currently claim to know.
+  (3) WHAT THE PRE-FLIGHT GOT RIGHT, AND IT IS THE POINT OF HAVING ONE: neither blocker is a code defect,
+  and neither would have surfaced from the test suite, the ledger, or a code read. They are properties of
+  the TREE and the REMOTE — visible only when something asks "is this repository in a releasable state?"
+  That question had never been asked in 99 rounds, and the loop's own habits (stage files by name, commit
+  locally, trust the mirror test) were each individually reasonable and jointly hid both.
+  (4) SO THE RELEASE PLAN GAINS A STEP 0, and it is the honest ordering: (0) reconcile the remote — decide
+  what to push, push it, and verify the remote's HEAD and tag list against the local ones; (1) bump
+  `agent/vale-agent-npm/package.json` to 1.2.365 and commit; (2) tag v1.2.365 via the GitHub API; (3) let
+  CI build; (4) `./scripts/publish-cdn-from-ci.sh 1.2.365` to stage THAT artifact; (5) rebuild the
+  installer so the alias stops serving 1.2.361; (6) device regression BEFORE the release; (7) report.
+  **Step 0 did not exist in round 198's plan, and the pre-flight is what put it there** — which is the
+  argument for pre-flights stated as evidence rather than as principle.
+  (5) STILL OPEN: step 0 (the push decision); the mirror test's manifest blind spot; `studio/` (noticed
+  round 197, still not investigated); the recurring second failure's name under mutation;
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 198 (**the release decision round 197 deferred is MADE, and it is
 "don't retro-tag — release 1.2.365 forward"**). Commit: journal + ledger. No code change — the decision
 and its reason, deliberately before the publish it governs.
