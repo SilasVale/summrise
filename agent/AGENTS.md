@@ -526,6 +526,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 244 (**THE DEAD-AGENT REVIVAL WINDOW IS BOUNDED AT SIX SECONDS, MEASURED ON THE
+DEVICE BY `runstate`'s OWN LINE — and that same line says "DID NOT EXIT CLEANLY", which at an update is the
+DESIGNED outcome rather than a defect**). Device read only; no tracked file changed.
+  (1) THE LEDGER SAID THIS ROW "WAITS ON A DEVICE EVENT", AND THE FIRST THING FOUND IS THAT THE SENTENCE AROUND
+  IT IS STALE: the standing-list prose reads "The three items that remain open all wait on someone outside the
+  loop: **the user (CHARTER-1)**, a maintenance window (the dead-agent revival), the next boot (the restart
+  mystery)" — and **CHARTER-1 was ANSWERED in round 196** (the user chose autonomous release). So one of the
+  three closed 48 rounds ago and the sentence still lists it, which is round 221's finding (a status sentence
+  describing a state that has since moved) recurring in prose rather than in a table.
+  (2) AND THE DEVICE HAD THE EVIDENCE FOR THE OTHER TWO, WHICH NO ROUND HAD EVER COLLECTED. `C:\ProgramData\Vale`
+  holds `logs\startup.log` (the process run journal), `runs\runs.jsonl` (the AI-run log) and
+  `sessions\sessions-pre-restart.json` (the pre-restart PTY snapshot) — and **`startup.log`'s newest entry is
+  `runstate.rs`'s `describe_previous` line, the one the module is documented as owning: "run journal: previous
+  run DID NOT EXIT CLEANLY — started 31991s ago, last heartbeat 6s before this start, survived 31985s".**
+  Read against the process itself — `vale-agent` **Id 1696, StartTime `2026/9/14 9:36:38`, up 216 minutes** —
+  **that dates the previous run's death to six seconds before the new one began, and 31,991 − 31,985 = 6 is
+  self-consistent.** So the revival window is **≤6 s**, and this is the first measurement of it rather than a
+  bound inferred from the watchdog's 60 s schedule.
+  (3) THE SECOND HALF IS THE PART THAT WOULD HAVE MISLED A LESS CAREFUL READING, AND `runstate` ALREADY ANSWERS
+  IT: the previous run reported as NOT cleanly exited, **but `vale-update.log` shows why — `[09:36:34] update
+  requested 1.2.364 -> 1.2.365`, `[09:36:35] update start`, `[09:36:37] copy ok=True`, `[09:36:37] task
+  restarted`, and the new process starts at `09:36:38`.** An update KILLS the agent tree by design, so the old
+  process never writes its clean-exit mark and "DID NOT EXIT CLEANLY" is the CORRECT report for a successful
+  swap. **The discriminator is not the flag but the GAP: 6 s means a deliberate restart; a long gap between last
+  heartbeat and next start would mean a crash. `describe_previous` prints both numbers, which is exactly what
+  makes it usable — and that is worth recording because the line reads alarming and is not.**
+  (4) THE RESTART MYSTERY (round 17) CANNOT BE ANSWERED FROM THIS DEVICE, AND THE REASON IS RETENTION RATHER THAN
+  ABSENCE: **`startup.log`'s CreationTime is `2026/9/10 11:14:45`**, so the journal begins days after round 17 and
+  the evidence has rotated away. **That is a statement about how long the artifact lives, not about the event** —
+  and it is the honest closure available: the row is not "waiting on the next boot", it is waiting on a boot whose
+  record no longer exists. `vale-update.log` likewise contains exactly ONE update (the 1.2.364 -> 1.2.365 above)
+  and **no trace of the round-17 attempt**, which independently re-confirms round 17's own conclusion that the
+  CLI never executed on that device.
+  (5) SO ONE ROW MOVES AND ONE ROW IS RE-CHARACTERISED, AND BOTH BY READING RATHER THAN WAITING: the revival
+  window is measured at ≤6 s with its discriminator documented; the restart mystery is bounded by the artifact's
+  lifetime instead of by the next boot. **The device was read, not changed — no file written, no service touched
+  — which is the same non-destructive choice rounds 238 and 243 made, and the third time in seven rounds that a
+  "wait for an event" turned out to be answerable from what the device had already recorded.** STILL OPEN: the
+  installer's signing decision (the user's call); the never-named to-read queue (bounded in round 242).
+
 Last updated: 2026-09-14 round 243 (**THE LAST UNVERIFIED LINK IS CLOSED: THE DEVICE'S RUNNING BINARY IS THE
 PUBLISHED ONE, BYTE FOR BYTE — and every round that has said "device on 1.2.365" was quoting a MARKER this
 journal itself records as able to lie**). Device read only; no tracked code changed.

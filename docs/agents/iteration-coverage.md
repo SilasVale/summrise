@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 243**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 244**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -32,9 +32,13 @@ Seeded 2026-09-14 at round 110.
   (`vale-gate` version `3187a717-f35d-48e3-a0d3-16eb9624a0b4`, console bundle `index-CR3KX755.js`).
 - **THE STANDING LIST IS CLEAR OF OFFLINE WORK**, so the loop moves to the DISCOVERY track the
   protocol describes: the surfaces below still marked `unseen` (the extension, the agent's `design`
-  plugin, brand) and `partial` (proxies, the deploy PowerShell, CI) are the fuel now. The three
-  items that remain open all wait on someone outside the loop: the user (CHARTER-1), a maintenance
-  window (the dead-agent revival), the next boot (the restart mystery).
+  plugin, brand) and `partial` (proxies, the deploy PowerShell, CI) are the fuel now. **CORRECTED round 244 — two of the three items this sentence used to list were already answered:**
+  CHARTER-1 was ANSWERED in round 196 (the user chose autonomous release), and the dead-agent revival
+  window was MEASURED at ≤6 s on the device in round 244 (`startup.log`: "last heartbeat 6s before this
+  start", against a process that began 6 s later) — so neither was waiting on anyone. **The restart
+  mystery (round 17) is bounded by RETENTION instead: that log's CreationTime is 2026-09-10, so the record
+  rotated away and the row waits on an artifact that no longer exists, not on a boot yet to happen.**
+  A "still open" line is a claim, not a fact — the lesson this section already carries twice.
 - **A "STILL OPEN" LINE IS A CLAIM, NOT A FACT — two rounds running now.** Round 115 found memory
   F5 already closed since round 110; round 116 read round 105's three leftovers and found two of
   them touched by four later commits (`99b42928`, `5030ab60`, `9249e790`, `1d8b8468`) that were
