@@ -148,6 +148,33 @@ deploy_worker() {
   # round-324: the gateway's public /code/ viewer mirrors gateway/src —
   # build-installer.sh used to sync it (round-320 deleted that script).
   # Sync before deploy so the served sources never drift from live.
+  #
+  # round-241: and the SAME reasoning covers the gateway's SPA. gateway/ui/ builds
+  # INTO gateway/public/, which is what wrangler publishes as assets, so a deploy that
+  # skips the build ships whatever index.html + assets/ were last generated — silently.
+  # `build.sh gateway` only called `deploy_worker`, and NOTHING built gateway/ui at all:
+  # a grep for `gateway/ui` in this script returned nothing, while the script DOES build
+  # agent/resources/panel-react for the identical reason (panel.js is include_str!-embedded
+  # at compile time; here the equivalent is that wrangler uploads the built assets).
+  #
+  # Measured before writing this (round 241): the built assets were NOT stale — no file
+  # under gateway/ui/src was newer than gateway/public/index.html, and a rebuild produced
+  # byte-identical output (git status clean, prune-stale-assets removed 0) — so this is a
+  # LATENT gap, not a live defect. That is the kind a guard closes and a comment does not.
+  #
+  # The contract is copied from the panel-react block above, including its rationale: a
+  # missing node_modules fails LOUDLY with the install command, because silently skipping
+  # would recreate the stale-UI bug this exists to prevent. `gui/` may legitimately be
+  # absent (a checkout without the SPA), and then there is nothing to build.
+  if [[ "$dir" == "gateway" && -d "$ROOT/gateway/ui" ]]; then
+    if [[ ! -d "$ROOT/gateway/ui/node_modules" ]]; then
+      echo "  !! gateway/ui/node_modules missing — install first:" >&2
+      echo "     (cd gateway/ui && npm ci --include=optional)" >&2
+      return 1
+    fi
+    echo "  .. building gateway/ui -> gateway/public (wrangler publishes that as assets)"
+    ( cd "$ROOT/gateway/ui" && npm run build ) || return 1
+  fi
   if [[ "$dir" == "gateway" ]]; then
     # Gateway deploy preflight (fail-closed): DO_AUTH / SESSION_SECRET /
     # ADMIN_PASSWORD 任一缺失即 abort，不带病上线 (secrets live in the

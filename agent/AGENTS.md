@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 241 (**NOTHING BUILT `gateway/ui/` — the SPA that builds INTO the directory
+wrangler publishes as assets, so a UI edit followed by a deploy shipped the previous build silently; and the same
+script DOES build the agent's SPA for the identical reason**). Commit: scripts/build.sh + journal.
+  (1) THE LEAD WAS ROUND 236's never-named set, OPENED BY ITS OWN RANKING (cost of a defect there), and the first
+  target HOLDS UP: **`agent/vale-desktop-electron/src/preload.ts`’s 70 lines expose three namespaces through
+  `contextBridge.exposeInMainWorld` with `ipcRenderer.invoke` and typed signatures — no `nodeIntegration`, no raw
+  `ipcRenderer` handed to the SPA, and the round-246/247/256 history is documented at each method.** Nothing to
+  fix; recorded because a preload is the boundary such a review exists for.
+  (2) THE FINDING IS `gateway/ui/`, which holds SIX of the seven never-named non-test files: `src/lib/format.ts`,
+  `particles.ts`, `theme.ts`, `vite.config.ts`, `overview-render-smoke.mjs` and `scripts/screenshot.mjs`.
+  **Measured, it is live and load-bearing:** its `build` script ends in `vite build` whose output goes to
+  `../public/`, its own smoke scripts read `../public/assets/index-*.js`, and `gateway/public/` is what wrangler
+  uploads as the worker's assets. **And `build.sh gateway` is `deploy_worker gateway "Vale Gate"` — it deploys
+  and builds nothing.** `grep gateway/ui scripts/build.sh` returned NOTHING, while the same script builds
+  `agent/resources/panel-react` with a block whose own comment gives this identical reason ("building the exe
+  without rebuilding the SPA bakes a STALE UI into the binary"). **So a UI edit followed by a deploy ships the
+  previous build, and nothing says so.**
+  (3) BUT IT IS A LATENT GAP AND NOT A LIVE DEFECT, AND THAT WAS MEASURED RATHER THAN ASSUMED — which is the
+  difference between this round and a false alarm: **no file under `gateway/ui/src` was newer than
+  `gateway/public/index.html`, and running the build produced BYTE-IDENTICAL output** — `prune-stale-assets`
+  reported "kept index-CR3KX755.js, index-CVwK_M9z.css; removed 0" and `git status gateway/public/` stayed
+  clean. **So the assets were current; what was missing was any reason they had to be.**
+  (4) THE FIX COPIES THE PANEL-REACT CONTRACT RATHER THAN INVENTING ONE, because the repository already solved
+  this exact problem next door: the gateway branch of `deploy_worker` now builds `gateway/ui` before deploying,
+  **aborts LOUDLY with the install command when `node_modules` is missing (panel-react's stated rationale:
+  "silently skipping would recreate the stale-UI bug"), and treats an absent `gateway/ui/` as nothing to build.**
+  Mutation-proven without a pipe: with `node_modules` moved aside, **`deploy_worker` returns rc=1** and prints
+  `!! gateway/ui/node_modules missing — install first:`. `bash -n` passes.
+  (5) TWO OF MY OWN INSTRUMENTS SLIPPED IN THIS ROUND AND BOTH ARE RECORDED, because the ledger is where this
+  loop keeps them: the edit's ANCHOR was non-unique (`if [[ "$dir" == "gateway" ]]; then` occurs twice, at 151
+  and 208), **and the assertion refused to write anything — so the first attempt changed no file at all**; and
+  my first exit-code check read `head`'s status through a pipe rather than `deploy_worker`'s, reporting rc=0 for
+  a guard whose entire purpose is to abort. **The second is the standard pipe-exit trap and it is worth naming:
+  a check that cannot observe the thing it is checking is the instrument defect rounds 214-219 catalogued, and
+  this one was caught by disbelieving a zero.** STILL OPEN: the installer's signing decision (the user's call);
+  44 of the 50 never-named files are tests, which ADR 0012 brought into scope but no round has opened; convergence
+  rows 6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 240 (**ROUND 239's FIX IS LIVE, AND THE DEPLOY WAS VERIFIED BY BYTE EQUALITY RATHER
 THAN BY ITS OWN SMOKE — which is round 200's rule applied to the CDN, and the BEFORE state was captured first so
 the change is a measurement rather than a claim**). Release action only; no tracked file changed.
