@@ -1394,15 +1394,14 @@ test("reportText: assembles status, sessions, restarts and watched targets", () 
         },
       ],
     },
-    // The audit trail's rows, with `state.status` as the LIVE marker — plus a closed row and a
-    // legacy row without identity, which is what the device returns by the hundred (749 rows
-    // for one live session, before the fix).
+    // The LIVE list (terminal_list), which is the only surface that knows what is running —
+    // and `live_sessions` from /api/status, which must agree with it. The audit trail was the
+    // wrong source: it keeps sessions killed by an agent restart marked `opened` (38 of them on
+    // d1 for a device with one), which the first fix counted.
     sessions: {
       sessions: [
-        { id: "term-1", state: { status: "opened" }, kind: "pty" },
-        { id: "term-2", state: { status: "opened" }, kind: "ssh" },
-        { id: "term-3", state: { status: "closed" }, kind: "serial" },
-        { id: "term-4", state: { status: "closed" } },
+        { id: "term-1", kind: "pty" },
+        { id: "term-2", kind: "ssh" },
       ],
     },
     boots: { summary: { window_secs: 86_400, boots: 3, crashes: 1 } },
@@ -1418,9 +1417,26 @@ test("reportText: assembles status, sessions, restarts and watched targets", () 
   assert.match(text, /previous boot: replaced — previous run DID NOT EXIT CLEANLY/);
   assert.doesNotMatch(text, /survived 2041s/);
   assert.match(text, /CPU 12%, mem 61%, 2 session\(s\), 1 awaiting approval/);
-  // LIVE only: the closed rows and the legacy row are history, not sessions.
   assert.match(text, /sessions: 1 pty, 1 ssh/);
-  assert.doesNotMatch(text, /serial|kind unknown/);
+  assert.doesNotMatch(text, /kind unknown/);
+  // A LIVE LIST that disagrees with /api/status says so instead of picking a winner.
+  const disagreeing = reportText({
+    status: { ok: true, release: "1.2.385", uptime_secs: 60, live_sessions: 3 },
+    monitors: null,
+    sessions: { sessions: [{ id: "a", kind: "pty" }] },
+    boots: null,
+    nowMs: now,
+    cliVersion: "1.2.385",
+    hostLabel: "d1",
+  }).join("\n");
+  assert.match(disagreeing, /sessions: 1 pty \(status says 3\)/);
+  // …and with no live list at all, the count it does have, with no invented breakdown.
+  const countOnly = reportText({
+    status: { ok: true, release: "1.2.385", uptime_secs: 60, live_sessions: 2 },
+    monitors: null, sessions: null, boots: null,
+    nowMs: now, cliVersion: "1.2.385", hostLabel: "d1",
+  }).join("\n");
+  assert.match(countOnly, /sessions: 2 \(kinds not read\)/);
   assert.match(text, /restarts in the last 24h: 3 \(1 crash-like\)/);
   assert.match(text, /watching 2 target\(s\), probed every 15s — 1 down:/);
   assert.match(text, /DOWN 192\.168\.1\.1:80\/\s+down 6m\s+HTTP 500/);

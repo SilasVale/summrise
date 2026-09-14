@@ -441,18 +441,24 @@ function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, host
         if (facts.length)
             out.push(`  ${facts.join(", ")}`);
     }
-    // `/api/sessions` is the AUDIT TRAIL — every session this device has ever had (749 rows on
-    // d1, most from before identity was recorded). Counting all of them reported "101 pty, 621 ?,
-    // 9 serial, 18 ssh" for a device with ONE live session. A row is live when its own state says
-    // `opened`; anything else is history.
-    const live = sessions && Array.isArray(sessions.sessions)
-        ? sessions.sessions.filter((s) => s && s.state && s.state.status === "opened")
-        : [];
-    if (live.length) {
+    // LIVE SESSIONS COME FROM THE LIVE LIST, NOT THE AUDIT TRAIL. `/api/sessions` is the audit
+    // trail: its last event for a session killed by an agent restart is still `opened` (no close
+    // event is ever written), so filtering it on `state.status === "opened"` counted 38 dead
+    // sessions on d1 for a device with one. `terminal_list` answers the actual question; when it
+    // cannot be read, the report prints the count it DOES have and no breakdown, rather than a
+    // breakdown it made up.
+    const liveRows = sessions && Array.isArray(sessions.sessions) ? sessions.sessions : [];
+    const liveCount = status && typeof status.live_sessions === "number" ? status.live_sessions : null;
+    if (liveRows.length) {
         const byKind = {};
-        for (const s of live)
+        for (const s of liveRows)
             byKind[s.kind || "kind unknown"] = (byKind[s.kind || "kind unknown"] || 0) + 1;
-        out.push(`  sessions: ${Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ")}`);
+        const sum = Object.values(byKind).reduce((a, b) => a + b, 0);
+        const disagree = liveCount !== null && liveCount !== sum ? ` (status says ${liveCount})` : "";
+        out.push(`  sessions: ${Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ")}${disagree}`);
+    }
+    else if (liveCount !== null && liveCount > 0) {
+        out.push(`  sessions: ${liveCount} (kinds not read)`);
     }
     if (boots && boots.summary) {
         // The keys are `boots`/`crashes`/`window_secs` (runstate::summary). Asking for
@@ -1664,7 +1670,14 @@ const commands = {
     async report(args) {
         const status = pick(deviceApi("GET", "/api/status"));
         const monitors = pick(deviceApi("GET", "/api/monitors"));
-        const sessions = pick(deviceApi("GET", "/api/sessions"));
+        // The LIVE sessions: `terminal_list` is the only surface that knows what is running now
+        // (the audit trail keeps dead sessions marked `opened`).
+        const listed = pick(deviceApi("POST", "/api/tools/terminal_list", {}));
+        const sessions = listed && listed.result && Array.isArray(listed.result)
+            ? { sessions: listed.result }
+            : listed && listed.result && Array.isArray(listed.result.sessions)
+                ? { sessions: listed.result.sessions }
+                : null;
         const boots = pick(deviceApi("GET", "/api/boots"));
         let cliVersion = "";
         try {
