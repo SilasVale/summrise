@@ -61,3 +61,41 @@ test("30s cache: repeat probe makes no second fetch; fresh=1 bypasses", async ()
     assertFetchCalls(2, "fresh bypasses the read (console check-now)");
   });
 });
+
+// The boot verdict, forwarded as a FLEET EXCEPTION (round 256). The device can report four
+// verdicts; only the fault is carried, and these cases are the whole rule: a crashed device
+// must be markable in the console, and a normally-restarted one must not decorate its row.
+// Getting it backwards is silent in both directions — a fleet that never marks anything, or
+// one where every row shouts and none is read.
+test("a crashed last run is carried; a replaced one is dropped", async () => {
+  const crashLine =
+    "run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s";
+  const crashed = await withFetch(
+    async () => statusJson({ release: "1.2.367", last_boot: crashLine, last_boot_kind: "crashed" }),
+    () => cachedDeviceProbe({}, dev("r256-crash")),
+  );
+  assert.equal(crashed.lastBootKind, "crashed");
+  assert.equal(crashed.lastBoot, crashLine, "the device's own sentence rides along for the hover");
+
+  for (const kind of ["replaced", "clean-exit", "first-run", "machine-restart"]) {
+    const p = await withFetch(
+      async () => statusJson({ last_boot: "run journal: something", last_boot_kind: kind }),
+      () => cachedDeviceProbe({}, dev(`r256-${kind}`)),
+    );
+    assert.equal(p.lastBootKind, undefined, `${kind} must not decorate a fleet row`);
+    assert.equal(p.lastBoot, undefined);
+  }
+
+  // A crash with no sentence: no kind either. The console keys its mark on the kind and
+  // hangs the sentence on it, so a kind alone would render a mark nobody can interrogate.
+  const mute = await withFetch(async () => statusJson({ last_boot_kind: "crashed" }), () =>
+    cachedDeviceProbe({}, dev("r256-mute")),
+  );
+  assert.equal(mute.lastBootKind, undefined, "no sentence → nothing to show");
+
+  // And a device too old to send either field: absent, never fabricated.
+  const legacy = await withFetch(async () => statusJson({ release: "1.2.366" }), () =>
+    cachedDeviceProbe({}, dev("r256-legacy")),
+  );
+  assert.equal(legacy.lastBootKind, undefined);
+});

@@ -1697,22 +1697,40 @@ async fn api_status(state: &AppState) -> serde_json::Value {
     // agent that never sends this". Exactly the trap round 13 recorded for
     // `runs::clean`, caught here by this change's own test. The `release` field
     // below already used the insert-after shape for the same reason.
-    if pending_approvals > 0 {
-        // THE PREVIOUS BOOT'S VERDICT, for every surface that already polls this endpoint.
-        //
-        // Round 254 made `describe_previous` say whether the last run was REPLACED by an update or
-        // CRASHED rather than leaving the operator to infer it from three numbers. But the only place
-        // that line existed was `logs/startup.log` ON THE DEVICE — a field engineer's audience, not
-        // the panel's, and not the console fleet card's. The tray polls THIS endpoint on a 30 s health
-        // tick and the console's fleet card reads it too, so one field turns every existing consumer
-        // into a surface that can say "the agent crashed last time" with no new route and no change
-        // to any other endpoint — the same argument round 14 used for `pending_approvals` above.
-        //
-        // ABSENT, NOT NULL, when the install has never booted a build that wrote one: a consumer must
-        // be able to tell "no verdict on record" from "a verdict that says nothing".
-        if let Some(v) = crate::runstate::last_verdict(&crate::paths::data_dir()) {
-            out["last_boot"] = serde_json::json!(v);
+    // THE PREVIOUS BOOT'S VERDICT, for every surface that already polls this endpoint.
+    //
+    // NOT INSIDE THE `pending_approvals` GUARD BELOW — that is where it was first written, and the
+    // field was therefore unreachable in the steady state (zero pending approvals), which is the
+    // only state a healthy device is ever in. The unit tests covered `last_verdict` in isolation
+    // and the endpoint test covered `pending_approvals`; nothing asserted this field ON THE
+    // RESPONSE, so every gate stayed green while the feature did nothing. DELIVERED is a claim
+    // about the wire, not about the function.
+    //
+    // Round 254 made `describe_previous` say whether the last run was REPLACED by an update or
+    // CRASHED rather than leaving the operator to infer it from three numbers. But the only place
+    // that line existed was `logs/startup.log` ON THE DEVICE — a field engineer's audience, not
+    // the panel's, and not the console fleet card's. The tray polls THIS endpoint on a 30 s health
+    // tick and the console's fleet card reads it too, so one field turns every existing consumer
+    // into a surface that can say "the agent crashed last time" with no new route and no change
+    // to any other endpoint — the same argument round 14 used for `pending_approvals` above.
+    //
+    // TWO FIELDS, TWO AUDIENCES, ONE RULE (round 256): `last_boot` is the sentence a human reads
+    // (`startup.log`'s own line), and `last_boot_kind` is the same verdict as data —
+    // `first-run` / `clean-exit` / `replaced` / `machine-restart` / `crashed` — so the panel and
+    // the console can decide whether to SHOUT without matching English. Both come out of
+    // `runstate::classify`, so they cannot disagree; `runstate`'s agreement test pins that.
+    //
+    // ABSENT, NOT NULL, when the install has never booted a build that wrote one: a consumer must
+    // be able to tell "no verdict on record" from "a verdict that says nothing". `last_boot_kind`
+    // is ABSENT on its own when the file was written by a build that recorded no kind (1.2.366) —
+    // then the prose is there and the machine answer honestly is not.
+    if let Some(boot) = crate::runstate::last_boot(&crate::paths::data_dir()) {
+        out["last_boot"] = serde_json::json!(boot.detail);
+        if let Some(kind) = boot.kind {
+            out["last_boot_kind"] = serde_json::json!(kind.as_str());
         }
+    }
+    if pending_approvals > 0 {
         out["pending_approvals"] = serde_json::json!(pending_approvals);
     }
     // round-304: report the npm RELEASE version (written by the swap
@@ -2678,6 +2696,72 @@ mod tests {
         // a plugin registered but not listed here would keep its tools out of
         // /api/spec, i.e. invisible to every client that discovers through it).
         assert_eq!(v["plugins"].as_array().unwrap().len(), 8);
+    }
+
+    /// The previous boot's verdict must reach the WIRE, not just the function — and it must say
+    /// WHICH verdict, as data.
+    ///
+    /// **THIS IS THE TEST THE FEATURE DID NOT HAVE, AND ITS ABSENCE IS WHY EVERY GATE STAYED GREEN
+    /// WHILE `/api/status` NEVER CARRIED THE FIELD.** The unit tests covered the verdict in
+    /// isolation (round trip, empty file, missing file) and the status tests covered
+    /// `pending_approvals` — and nothing asserted `last_boot` ON THE RESPONSE. So the block, written
+    /// inside the `if pending_approvals > 0` guard, was unreachable in the steady state, which is the
+    /// ONLY state a healthy device is ever in. It took a live device and a `curl` to see it.
+    /// **DELIVERED is a claim about the wire, not about the function.**
+    ///
+    /// The second half is round 256's: the sentence alone forces the panel to match English, so the
+    /// kind rides beside it — and this asserts the pair on the SAME response.
+    #[tokio::test]
+    async fn status_carries_the_previous_boot_verdict() {
+        use crate::runstate::{save_verdict, BootKind};
+        let path = crate::runstate::verdict_path(&crate::paths::data_dir());
+        let saved = std::fs::read_to_string(&path).ok();
+        if let Some(p) = path.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
+        let line =
+            "run journal: previous run DID NOT EXIT CLEANLY \u{2014} CRASHED or was killed (test)";
+        save_verdict(&crate::paths::data_dir(), BootKind::Crashed, line);
+
+        let v = json_body(handle_request(req("GET", "/api/status"), state()).await).await;
+        assert_eq!(
+            v["last_boot"].as_str(),
+            Some(line),
+            "the boot verdict must be ON THE RESPONSE, not merely readable by the function: {v}",
+        );
+        assert_eq!(
+            v["last_boot_kind"].as_str(),
+            Some("crashed"),
+            "the machine-readable half must ride the same response: {v}",
+        );
+        // THE REGRESSION ITSELF: this device has nothing waiting for an answer, which is the state
+        // the field was invisible in. A future edit that moves the block back under a conditional
+        // fails here rather than on a device.
+        assert!(
+            v.get("pending_approvals").is_none(),
+            "this test is only meaningful with zero pending approvals: {v}",
+        );
+        // And it is a field of the SAME response that already carries the unconditional ones, so a
+        // consumer polling for connectivity sees both.
+        assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+
+        match saved {
+            Some(s) => {
+                let _ = std::fs::write(&path, s);
+            }
+            None => {
+                // THE OTHER HALF, IN THE SAME TEST ON PURPOSE: both cases own the same file, so
+                // two `#[tokio::test]`s over it would race under cargo's default parallelism and
+                // fail intermittently — the kind of flake that gets a test deleted instead of
+                // fixed. A device that has never booted a build that writes a verdict must not
+                // grow the fields either: "no verdict on record" and "a verdict that says nothing"
+                // are different facts, which is why they are inserted conditionally.
+                let _ = std::fs::remove_file(&path);
+                let v = json_body(handle_request(req("GET", "/api/status"), state()).await).await;
+                assert!(v.get("last_boot").is_none(), "{v}");
+                assert!(v.get("last_boot_kind").is_none(), "{v}");
+            }
+        }
     }
 
     #[tokio::test]

@@ -3,6 +3,7 @@ import type { Session } from "../hooks/useSessions";
 import type { AgentVitals } from "../hooks/useAgentVitals";
 import { VitalsDial } from "./VitalsDial";
 import { WaitingChip } from "./WaitingChip";
+import { BootChip } from "./BootChip";
 
 /** A reading, or an em dash while the agent has not reported one. Never 0 for
  *  "unknown": cpu_pct is absent on the FIRST sample by design (it is a server-side
@@ -68,6 +69,11 @@ export function StatusBar({ sessions, status, sseState, vitals, identity }: {
       )}
       <span id="status" className={status.startsWith("error") || status.startsWith("open failed") ? "error" : ""}>{status}</span>
       <span id="session-count" className={live ? "" : "hidden"}>{live} session{live === 1 ? "" : "s"}</span>
+      {/* HOW THE PREVIOUS RUN ENDED — a fault that outlives its boot, or the news of
+          the restart the operator just triggered. Renders nothing for a first run, a
+          clean exit, or a restart old enough that the uptime reading beside it already
+          says the same thing. See lib/bootNotice.ts. */}
+      <BootChip lastBoot={vitals?.lastBoot} uptimeSecs={vitals?.uptimeSecs} />
       {/* The device-level answer to "is anything waiting for me?" — see
           WaitingChip. Renders nothing at zero. */}
       <WaitingChip sessions={sessions} />

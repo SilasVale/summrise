@@ -183,6 +183,12 @@ export interface DeviceStatus {
   agent_up?: boolean;
   tunnel_up?: boolean;
   version?: string;
+  /** Set only when the device's last run CRASHED (`/api/plugins/status`, round 256).
+   *  The gateway drops the normal verdicts on purpose — the fleet marks exceptions,
+   *  not every restart. Absent means "nothing to report", never "fine". */
+  last_boot_kind?: string;
+  /** The device's own sentence about that crash, for the row's tooltip. */
+  last_boot?: string;
   checked_at?: number;
 }
 

@@ -21,7 +21,12 @@ const routes = {
   },
   "/api/plugins/status": {
     devices: {
-      d1: { online: false, agent_up: true, tunnel_up: true, version: "1.0.106", checked_at: now },
+      // d1's LAST RUN CRASHED — the one verdict the fleet marks (round 256). Only
+      // `crashed` ever reaches this page: the gateway drops "replaced" (a normal update
+      // restart) and "clean-exit" before they get here, so this mock carries exactly the
+      // shape the page receives in production.
+      d1: { online: false, agent_up: true, tunnel_up: true, version: "1.0.106", checked_at: now,
+            last_boot_kind: "crashed", last_boot: "run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s" },
       d2: { online: false, agent_up: false, tunnel_up: false, checked_at: now },
     },
   },
@@ -67,7 +72,16 @@ const checks = [
   ["stats strip renders", doc.querySelector(".dev-stats") !== null && text.includes("台设备") && text.includes("在线")],
   ["stat numbers (2 devices, 1 online, 1 tunnel, 1 key)", doc.querySelectorAll(".dev-stat").length === 4],
   ["card grid with 2 cards", doc.querySelectorAll(".dev-card").length === 2],
-  ["signal rows per card (2 × 2)", doc.querySelectorAll(".dev-sig").length === 4],
+  ["signal rows per card (2 + 1 crash + 2)", doc.querySelectorAll(".dev-sig").length === 5],
+  // The crash mark is a FLEET EXCEPTION, and this pins both halves of that claim: the
+  // device that reported it carries the row, and the healthy one does not grow one. The
+  // full sentence rides the row's tooltip — the mark has to survive a glance, the detail
+  // is there for the click.
+  ["crashed last run marked, on the reporting device only",
+    [...doc.querySelectorAll(".dev-sig")].filter((n) => (n.textContent || "").includes("上次运行")).length === 1
+      && text.includes("异常退出")
+      && [...doc.querySelectorAll(".dev-sig")].some((n) => (n.getAttribute("title") || "").includes("CRASHED or was killed"))
+      && [...doc.querySelectorAll(".dev-card")][1].textContent.indexOf("上次运行") === -1],
   ["d1 online LED + d2 offline LED", doc.querySelector(".dev-led.on") !== null && doc.querySelector(".dev-led.off") !== null],
   ["tunnel down state text", text.includes("隧道断开")],
   ["outdated badge on d2 (1.0.100 → 1.0.106)", text.includes("可更新到 1.0.106")],

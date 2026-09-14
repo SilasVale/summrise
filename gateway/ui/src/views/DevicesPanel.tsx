@@ -340,6 +340,15 @@ export default function DevicesPanel() {
               const signals = [
                 { label: t("devices.statusAgent"), ok: agentUp, err: !agentUp, state: agentUp ? t("devices.online") : t("devices.offline") },
                 { label: t("devices.statusTunnel"), ok: tunnelUp, err: !tunnelUp, state: tunnelUp ? t("devices.tunnelUp") : t("devices.tunnelDown") },
+                // ONLY A CRASH GETS A ROW (round 256). The device also reports "replaced"
+                // (its normal update restart) and "clean-exit"; the gateway drops those
+                // before they ever reach this page — a fleet view is for exceptions, and a
+                // third row on every healthy device is how the rows stop being read. The
+                // device's own sentence rides the row's tooltip rather than the row text:
+                // the mark has to survive a glance, the detail is there for the click.
+                ...(st?.last_boot_kind === "crashed"
+                  ? [{ label: t("devices.statusLastRun"), ok: false, err: true, state: t("devices.lastRunCrashed"), title: st.last_boot }]
+                  : []),
               ];
 
               return (
@@ -357,7 +366,7 @@ export default function DevicesPanel() {
                   </div>
                   <div className="dev-signals">
                     {signals.map((s) => (
-                      <div className="dev-sig" key={s.label}>
+                      <div className="dev-sig" key={s.label} title={"title" in s ? s.title : undefined}>
                         <span className={`sig-dot ${s.ok ? "ok" : s.err ? "err" : "off"}`} />
                         <span className="dev-sig-label">{s.label}</span>
                         <span className={`dev-sig-state ${s.ok ? "ok" : s.err ? "err" : "off"}`}>{s.state}</span>

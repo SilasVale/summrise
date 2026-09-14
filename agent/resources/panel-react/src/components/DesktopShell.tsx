@@ -27,6 +27,7 @@ import { Icon } from "../ui/Icon";
 import type { SessionView } from "./TabBar";
 import { ViewSwitch } from "./ViewSwitch";
 import { WaitingChip } from "./WaitingChip";
+import { BootChip } from "./BootChip";
 import type { usePlugins } from "../hooks/usePlugins";
 
 interface Props {
@@ -414,6 +415,7 @@ export function DesktopShell({
               </span>
               {/* This density has no StatusBar, so the device-level waiting
                   count lives here instead (same shared chip). */}
+              <BootChip lastBoot={vitals.lastBoot} uptimeSecs={vitals.uptimeSecs} />
               <WaitingChip sessions={sessions} />
             </div>
           )}
@@ -430,6 +432,7 @@ export function DesktopShell({
                   ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
                   : "connecting…"}
               </span>
+              <BootChip lastBoot={vitals.lastBoot} uptimeSecs={vitals.uptimeSecs} />
               <WaitingChip sessions={sessions} />
             </div>
           )}

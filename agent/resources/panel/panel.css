@@ -1450,6 +1450,38 @@ code {
   border-radius: 1px;
   transform: rotate(45deg);
 }
+/* The boot notice (StatusBar + the desktop footer): how the PREVIOUS run ended.
+   Rendered only when the rule in lib/bootNotice.ts says so, and the two tones differ
+   by SHAPE as well as colour — a triangle for the fault, a dot for the news — because
+   this repo has a recorded incident where two states differed by colour/animation
+   alone. Text weight is --chrome-ink-dim for the same contrast reason as the waiting
+   chip (--muted measured under AA on --surface-chip). */
+.boot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-chip);
+  color: var(--chrome-ink-dim);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.boot-mark {
+  flex: none;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid var(--state-warn);
+}
+.boot-mark.info {
+  width: 6px; height: 6px;
+  border: none;
+  border-radius: 50%;
+  background: var(--chrome-ink-dim);
+}
 
 /* ---------- terminal ---------- */
 #term-container {
@@ -4678,8 +4710,12 @@ button.dtab-close:hover { opacity: 1; }
 .desktop-status.idle { color: var(--chrome-ink-dim); }
 .desktop-status-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* This density has no StatusBar, so the shared waiting chip rides the footer —
-   pinned right, where the session/vitals line already ends. */
+   pinned right, where the session/vitals line already ends. The boot notice sits
+   with it: whichever of the two comes FIRST takes the auto margin, so the pair stays
+   grouped at the right edge instead of being spread apart across the footer. */
 .desktop-status .waiting-chip { margin-left: auto; }
+.desktop-status .boot-chip { margin-left: auto; }
+.desktop-status .boot-chip ~ .waiting-chip { margin-left: 8px; }
 /* stage-l: native-menu "Show Status" flashes the strip to draw the eye. */
 .desktop-status.flash { animation: desktop-status-flash 1.2s ease-out; }
 @keyframes desktop-status-flash {

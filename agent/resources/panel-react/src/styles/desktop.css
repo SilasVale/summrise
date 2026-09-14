@@ -311,8 +311,12 @@
 .desktop-status.idle { color: var(--chrome-ink-dim); }
 .desktop-status-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* This density has no StatusBar, so the shared waiting chip rides the footer —
-   pinned right, where the session/vitals line already ends. */
+   pinned right, where the session/vitals line already ends. The boot notice sits
+   with it: whichever of the two comes FIRST takes the auto margin, so the pair stays
+   grouped at the right edge instead of being spread apart across the footer. */
 .desktop-status .waiting-chip { margin-left: auto; }
+.desktop-status .boot-chip { margin-left: auto; }
+.desktop-status .boot-chip ~ .waiting-chip { margin-left: 8px; }
 /* stage-l: native-menu "Show Status" flashes the strip to draw the eye. */
 .desktop-status.flash { animation: desktop-status-flash 1.2s ease-out; }
 @keyframes desktop-status-flash {

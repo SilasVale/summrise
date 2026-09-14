@@ -35,6 +35,19 @@ interface DeviceProbeState {
   /// 1.0.145 and useless for update checks). Falls back to version for
   /// pre-1.2.276 agents that lack release.
   version?: string;
+  /// How the device's PREVIOUS run ended, straight from its /api/status
+  /// (round 256). Two fields for one fact, and the split is deliberate: the
+  /// fleet card has to DECIDE something (mark the row, or leave it alone), and
+  /// a decision made by matching English in `lastBoot` breaks the next time the
+  /// device rephrases its sentence. `lastBoot` is that sentence, for the hover.
+  ///
+  /// ONLY THE FAULT IS CARRIED. "replaced" (the normal consequence of an
+  /// update) and "clean-exit" are dropped here on purpose: a fleet view is for
+  /// EXCEPTIONS, and forwarding every verdict is how the console grows rows
+  /// that all shout and therefore none is read. Absent on agents older than the
+  /// field, which reads as "no verdict on record" — never as a crash.
+  lastBootKind?: string;
+  lastBoot?: string;
   checkedAt: number;
 }
 
@@ -84,6 +97,14 @@ export async function cachedDeviceProbe(
       // the outdated badge never cleared). Pre-release agents fall back.
       if (j && typeof j.release === "string" && j.release) state.version = j.release;
       else if (j && typeof j.version === "string") state.version = j.version;
+      // THE ONE VERDICT THE FLEET SHOWS (round 256): a device whose last run
+      // crashed is a device somebody should look at. The device sends both
+      // halves; only the fault and its sentence are forwarded — see the field
+      // comments on DeviceProbeState for why "replaced" is dropped here.
+      if (j && j.last_boot_kind === "crashed" && typeof j.last_boot === "string" && j.last_boot) {
+        state.lastBootKind = "crashed";
+        state.lastBoot = j.last_boot;
+      }
     }
   }
   if (DEVICE_PROBE_CACHE.size >= 64) DEVICE_PROBE_CACHE.clear();
@@ -106,7 +127,14 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
   const devices = await listDevices(env);
   const out: Record<
     string,
-    { agent_up: boolean; tunnel_up: boolean; version?: string; checked_at: number }
+    {
+      agent_up: boolean;
+      tunnel_up: boolean;
+      version?: string;
+      last_boot_kind?: string;
+      last_boot?: string;
+      checked_at: number;
+    }
   > = {};
   for (const d of devices) {
     // Agent + tunnel health: probe the device's own /api/status through its
@@ -121,6 +149,13 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
       agent_up: probe.agent,
       tunnel_up: probe.tunnel,
       ...(probe.version ? { version: probe.version } : {}),
+      // Both halves or neither: the console shows a mark keyed on the KIND and
+      // the sentence as its hover, and a kind with no sentence would be a mark
+      // an operator cannot interrogate. `cachedDeviceProbe` only ever sets them
+      // together, so this guard is the assertion, not the rule.
+      ...(probe.lastBootKind && probe.lastBoot
+        ? { last_boot_kind: probe.lastBootKind, last_boot: probe.lastBoot }
+        : {}),
       checked_at: probe.checkedAt,
     };
   }

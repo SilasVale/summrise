@@ -13,10 +13,11 @@
 //! without it, "started at 22:55" says nothing about whether the process lived one second
 //! or nine hours.
 //!
-//! THE PURE HALF IS SEPARATED ON PURPOSE. `describe_previous` turns the stored state into
-//! the one line an operator reads, and it is a function of `(previous, now)` with no file
-//! and no clock of its own, so the wording — which is the part that has to be RIGHT when
-//! somebody is debugging at 3am — is tested directly.
+//! THE PURE HALF IS SEPARATED ON PURPOSE. `classify` decides WHAT HAPPENED and `describe_previous`
+//! turns that decision into the one line an operator reads; both are functions of
+//! `(previous, now, host boot time)` with no file and no clock of their own, so the wording —
+//! which is the part that has to be RIGHT when somebody is debugging at 3am — and the
+//! machine-readable verdict are tested directly, and tested against EACH OTHER.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -48,6 +49,30 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Unix seconds when the HOST booted, or `None` when this build cannot ask.
+///
+/// WHY THE VERDICT NEEDS IT. Without it, "the run stopped heartbeating and nothing took over
+/// within a minute" has two causes that look identical and mean opposite things: the AGENT died
+/// (a fault) or the MACHINE went down with it (a reboot or a power cut — routine, and the run
+/// had no chance to say goodbye). Every device that reboots would otherwise report a crash on
+/// every start, and a warning that fires on routine events is one an operator learns to ignore —
+/// which would cost the surface the only case it exists for.
+///
+/// `None` is not "no reboot": it is "cannot tell", and the classifier stays with the conservative
+/// answer (a crash) rather than inventing a benign explanation. Windows has `GetTickCount64`
+/// (boot-relative milliseconds, no privileges); every other host returns `None` — the shipped
+/// agent is the Windows one, and a host that cannot answer must not guess.
+#[cfg(windows)]
+fn machine_boot_secs() -> Option<u64> {
+    let uptime_ms = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    Some(now_secs().saturating_sub(uptime_ms / 1000))
+}
+
+#[cfg(not(windows))]
+fn machine_boot_secs() -> Option<u64> {
+    None
 }
 
 /// Parse the stored state. Anything unreadable is `None` rather than an error: a corrupt
@@ -82,44 +107,136 @@ pub fn render(state: &RunState) -> String {
     )
 }
 
+/// WHICH of the five things happened to the previous run — the machine-readable half of the line
+/// [`describe_previous`] writes.
+///
+/// WHY IT IS A TYPE AND NOT A SUBSTRING. The prose line exists for a human at 3am; the panel and
+/// the console have to DECIDE something with it (shout, or stay quiet), and a consumer that
+/// decides by matching English is a consumer that breaks the next time the wording is improved.
+/// Round 254 taught `describe_previous` to tell a REPLACEMENT from a CRASH; round 256 makes that
+/// answer travel as data, so no reader has to re-derive it — and the two can never disagree,
+/// because both come out of [`classify`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootKind {
+    /// No previous run on record.
+    FirstRun,
+    /// The previous run wrote its clean-exit marker.
+    CleanExit,
+    /// It died without a marker, but something took over at once — an update swap, or a task
+    /// restart. Normal, and the reason this distinction exists at all.
+    Replaced,
+    /// It died without a marker because THE HOST went down with it: the machine's own boot time
+    /// is later than the run's last heartbeat, so a reboot (or a power cut) ended it, not a fault.
+    MachineRestart,
+    /// It died without a marker and nothing took over until the watchdog noticed.
+    Crashed,
+}
+
+impl BootKind {
+    /// The wire spelling: `/api/status` carries it as `last_boot_kind` and the panel and the
+    /// console branch on it, so this is a contract rather than a debug string — lowercase and
+    /// hyphenated like every other enum this API spells out.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BootKind::FirstRun => "first-run",
+            BootKind::CleanExit => "clean-exit",
+            BootKind::Replaced => "replaced",
+            BootKind::MachineRestart => "machine-restart",
+            BootKind::Crashed => "crashed",
+        }
+    }
+
+    /// The inverse of [`as_str`](Self::as_str) — `None` for anything this build does not know,
+    /// which a reader must treat as "no machine answer on record" rather than as a crash.
+    pub fn parse(s: &str) -> Option<BootKind> {
+        match s.trim() {
+            "first-run" => Some(BootKind::FirstRun),
+            "clean-exit" => Some(BootKind::CleanExit),
+            "replaced" => Some(BootKind::Replaced),
+            "machine-restart" => Some(BootKind::MachineRestart),
+            "crashed" => Some(BootKind::Crashed),
+            _ => None,
+        }
+    }
+}
+
+/// WHICH of the five happened — the ONE place the discriminator is applied. `describe_previous`
+/// phrases this answer; `/api/status` ships it as data; nothing re-derives it.
+///
+/// `boot_secs` is the host's boot time ([`machine_boot_secs`]); the ORDER of the middle two
+/// checks is the point, not an accident. A reboot that took less than a minute looks exactly
+/// like an update swap by heartbeat freshness alone, so the host's own boot time is asked FIRST:
+/// it is positive evidence about what happened, where `since` is only an inference from what did
+/// not happen.
+pub fn classify(previous: Option<&RunState>, now: u64, boot_secs: Option<u64>) -> BootKind {
+    match previous {
+        None => BootKind::FirstRun,
+        Some(prev) if prev.exited => BootKind::CleanExit,
+        Some(prev) => {
+            let since = now.saturating_sub(prev.last);
+            if boot_secs.is_some_and(|boot| boot > prev.last) {
+                BootKind::MachineRestart
+            } else if since <= REPLACED_WITHIN_SECS {
+                // A fresh heartbeat means something replaced the process; a stale one means it
+                // died and nothing took over. See REPLACED_WITHIN_SECS for why a minute sits
+                // between the two.
+                BootKind::Replaced
+            } else {
+                BootKind::Crashed
+            }
+        }
+    }
+}
+
 /// THE LINE AN OPERATOR READS. `None` means there is no previous run (a first start, or a
 /// journal that was cleared) — which is a fact worth stating too, because "no previous run"
 /// and "a previous run that left no trace" are different situations and the second one is
 /// the one that used to be invisible.
-pub fn describe_previous(previous: Option<&RunState>, now: u64) -> String {
+///
+/// The wording is branched on [`classify`]'s answer, so the sentence and the kind can never
+/// disagree; `boot_secs` is the host's boot time, for the reboot case.
+pub fn describe_previous(previous: Option<&RunState>, now: u64, boot_secs: Option<u64>) -> String {
+    let kind = classify(previous, now, boot_secs);
     let Some(prev) = previous else {
         return "run journal: no previous run on record (first start, or the journal was cleared)"
             .into();
     };
     let uptime = prev.last.saturating_sub(prev.started);
     let since = now.saturating_sub(prev.last);
-    if prev.exited {
-        format!(
+    if kind == BootKind::CleanExit {
+        return format!(
             "run journal: previous run started {since_start}s ago, ran {uptime}s, exited cleanly",
             since_start = now.saturating_sub(prev.started),
-        )
-    } else {
-        // NO CLEAN-EXIT MARKER: the process died without getting a chance to say goodbye —
-        // a panic, a kill, a power loss, or the update swap replacing it mid-flight. The
-        // uptime is what separates "died immediately at boot" from "ran for hours", and it
-        // is exactly what nobody could measure before this module existed.
-        // THE LINE USED TO HAND THE OPERATOR THREE NUMBERS AND NO READING OF THEM. Round 244
-        // read this on d1 and had to work out by hand that "DID NOT EXIT CLEANLY ... last
-        // heartbeat 6s before this start" is a NORMAL update swap, not a fault — the journal
-        // for that round records the reasoning ("the line reads alarming and is not"). The
-        // discriminator is `since`, so the function now applies it: a fresh heartbeat means
-        // something replaced the process; a stale one means it died and nothing took over.
-        let verdict = if since <= REPLACED_WITHIN_SECS {
-            "REPLACED by a restart (an update swap or a task restart killed it mid-flight)"
-        } else {
-            "CRASHED or was killed (it stopped heartbeating and nothing took over)"
-        };
-        format!(
-            "run journal: previous run DID NOT EXIT CLEANLY — {verdict}; started {since_start}s \
-             ago, last heartbeat {since}s before this start, survived {uptime}s",
-            since_start = now.saturating_sub(prev.started),
-        )
+        );
     }
+    // NO CLEAN-EXIT MARKER: the process died without getting a chance to say goodbye —
+    // a panic, a kill, a power loss, or the update swap replacing it mid-flight. The
+    // uptime is what separates "died immediately at boot" from "ran for hours", and it
+    // is exactly what nobody could measure before this module existed.
+    // THE LINE USED TO HAND THE OPERATOR THREE NUMBERS AND NO READING OF THEM. Round 244
+    // read this on d1 and had to work out by hand that "DID NOT EXIT CLEANLY ... last
+    // heartbeat 6s before this start" is a NORMAL update swap, not a fault — the journal
+    // for that round records the reasoning ("the line reads alarming and is not"). The
+    // discriminator is `since`, so the function applies it; round 256 added the third case,
+    // because "nothing took over for a minute" is also what a REBOOT looks like and calling
+    // that a crash would teach an operator to ignore the one line that matters. The
+    // "DID NOT EXIT CLEANLY" marker is preserved in every branch — a reader that keys on it
+    // (a log grep, a test, a person) keeps working.
+    let verdict = match kind {
+        BootKind::Replaced => {
+            "REPLACED by a restart (an update swap or a task restart killed it mid-flight)"
+        }
+        BootKind::MachineRestart => {
+            "the MACHINE RESTARTED under it (the host went down before it could beat again — a \
+             reboot or a power cut, not an agent fault)"
+        }
+        _ => "CRASHED or was killed (it stopped heartbeating and nothing took over)",
+    };
+    format!(
+        "run journal: previous run DID NOT EXIT CLEANLY — {verdict}; started {since_start}s \
+         ago, last heartbeat {since}s before this start, survived {uptime}s",
+        since_start = now.saturating_sub(prev.started),
+    )
 }
 
 /// Where the journal lives (under DataDir, beside the logs).
@@ -155,26 +272,73 @@ pub fn verdict_path(data_dir: &Path) -> PathBuf {
     data_dir.join("logs").join("last-boot.txt")
 }
 
+/// The persisted verdict: the prose line, plus the [`BootKind`] when the build that wrote the file
+/// recorded one.
+///
+/// `kind` is an `Option` for one measured reason: 1.2.366 shipped prose and no kind, so a device
+/// that has not rebooted since carries a file this reader must still be able to use — and the
+/// honest answer for that file is "the line is here, the machine answer is not", never a guess
+/// made by matching English in a UI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastBoot {
+    pub kind: Option<BootKind>,
+    pub detail: String,
+}
+
+/// Render the verdict file. The kind is a `kind=` line FIRST so the prose stays readable on its own
+/// (a human who opens the file sees the same sentence as before, one line down) and so a reader
+/// never has to parse a sentence to find it.
+pub fn render_verdict(kind: BootKind, line: &str) -> String {
+    format!("kind={}\n{}\n", kind.as_str(), line.trim())
+}
+
+/// Read a verdict file. `None` for a missing, empty or whitespace-only file — a reader must never
+/// render a blank warning. An UNKNOWN `kind=` value (a newer build's spelling) degrades to the
+/// whole text as detail with no kind, rather than to a wrong answer.
+pub fn parse_verdict(text: &str) -> Option<LastBoot> {
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    let first = t.lines().next().unwrap_or("").trim();
+    if let Some(raw) = first.strip_prefix("kind=") {
+        // The prose is everything under the first line — absent when the file is ONLY a kind,
+        // which is not a verdict (there is nothing to show a reader) and reads as no verdict.
+        let rest = t.split_once('\n').map(|(_, r)| r.trim()).unwrap_or("");
+        return match BootKind::parse(raw) {
+            Some(kind) if !rest.is_empty() => Some(LastBoot {
+                kind: Some(kind),
+                detail: rest.to_string(),
+            }),
+            Some(_) => None,
+            // A spelling this build does not know (a newer one): hand back the prose exactly as
+            // written and claim no kind, rather than guessing what the word meant.
+            None => Some(LastBoot {
+                kind: None,
+                detail: t.to_string(),
+            }),
+        };
+    }
+    Some(LastBoot {
+        kind: None,
+        detail: t.to_string(),
+    })
+}
+
 /// Persist the boot verdict, best-effort — a journal that cannot be written must not take the
 /// agent down with it, the same rule `save` follows.
-pub fn save_verdict(data_dir: &Path, line: &str) {
+pub fn save_verdict(data_dir: &Path, kind: BootKind, line: &str) {
     let path = verdict_path(data_dir);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(path, line);
+    let _ = std::fs::write(path, render_verdict(kind, line));
 }
 
 /// The last boot's verdict, or `None` when this install has never booted a build that wrote one.
 /// Never fails: a missing or unreadable file is `None`, never an error and never an empty string.
-pub fn last_verdict(data_dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(verdict_path(data_dir)).ok()?;
-    let t = text.trim();
-    if t.is_empty() {
-        None
-    } else {
-        Some(t.to_string())
-    }
+pub fn last_boot(data_dir: &Path) -> Option<LastBoot> {
+    parse_verdict(&std::fs::read_to_string(verdict_path(data_dir)).ok()?)
 }
 
 /// Begin a run: describe what the last one did, then claim the journal for this one.
@@ -185,9 +349,16 @@ pub fn last_verdict(data_dir: &Path) -> Option<String> {
 pub fn begin(data_dir: &Path) -> (Option<RunState>, String) {
     let previous = load(data_dir);
     let now = now_secs();
-    let line = describe_previous(previous.as_ref(), now);
-    // Also persist it for the HTTP surface — see `verdict_path`.
-    save_verdict(data_dir, &line);
+    // The host's boot time is read HERE, once, and handed to both halves of the verdict — the
+    // sentence logged to `startup.log` and the kind persisted for `/api/status`. Reading it in
+    // two places is how the reboot case would come to be classified one way and described
+    // another.
+    let boot = machine_boot_secs();
+    let kind = classify(previous.as_ref(), now, boot);
+    let line = describe_previous(previous.as_ref(), now, boot);
+    // Also persist it for the HTTP surface — see `verdict_path`. The KIND rides along, computed
+    // here rather than re-derived by whoever reads the file.
+    save_verdict(data_dir, kind, &line);
     save(
         data_dir,
         &RunState {
@@ -262,7 +433,7 @@ mod tests {
     #[test]
     fn no_previous_run_says_so() {
         // "Nothing on record" and "a run that left no trace" are different situations.
-        assert!(describe_previous(None, 1_000).contains("no previous run"));
+        assert!(describe_previous(None, 1_000, None).contains("no previous run"));
     }
 
     #[test]
@@ -272,7 +443,7 @@ mod tests {
             last: 400,
             exited: true,
         };
-        let line = describe_previous(Some(&prev), 500);
+        let line = describe_previous(Some(&prev), 500, None);
         assert!(line.contains("exited cleanly"), "{line}");
         assert!(line.contains("ran 300s"), "{line}");
     }
@@ -286,7 +457,7 @@ mod tests {
             last: 1_061,
             exited: false,
         };
-        let line = describe_previous(Some(&prev), 9_000);
+        let line = describe_previous(Some(&prev), 9_000, None);
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
         assert!(line.contains("survived 61s"), "{line}");
         assert!(
@@ -306,7 +477,7 @@ mod tests {
             last: 131_985, // heartbeating until 6 s before the new process began
             exited: false,
         };
-        let line = describe_previous(Some(&swapped), 131_991);
+        let line = describe_previous(Some(&swapped), 131_991, None);
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
         assert!(line.contains("REPLACED by a restart"), "{line}");
         assert!(!line.contains("CRASHED"), "{line}");
@@ -318,30 +489,216 @@ mod tests {
             last: 131_985,
             exited: false,
         };
-        let line = describe_previous(Some(&crashed), 135_585);
+        let line = describe_previous(Some(&crashed), 135_585, None);
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
         assert!(line.contains("CRASHED or was killed"), "{line}");
         assert!(!line.contains("REPLACED"), "{line}");
     }
 
     #[test]
+    fn the_prose_and_the_kind_come_from_the_same_rule() {
+        // THE AGREEMENT TEST. The two halves of a verdict — the sentence a human reads and the
+        // enum a UI branches on — are produced by `describe_previous` and `classify` separately,
+        // so nothing but this test stops them from disagreeing. Each case pins BOTH: the kind, and
+        // the phrase that kind's sentence must contain. A future edit that reclassifies a case
+        // without rephrasing it (or the reverse) fails here instead of shipping a UI that says
+        // "crashed" over a line that says "replaced".
+        let swapped = RunState {
+            started: 100_000,
+            last: 131_985, // 6 s before the new process began — d1's real update numbers
+            exited: false,
+        };
+        let crashed = RunState {
+            started: 100_000,
+            last: 131_985,
+            exited: false,
+        };
+        let clean = RunState {
+            started: 100,
+            last: 400,
+            exited: true,
+        };
+        // A run that ended WITH the host: the machine booted after its last heartbeat.
+        let rebooted = RunState {
+            started: 100_000,
+            last: 131_985,
+            exited: false,
+        };
+        // A named case rather than a five-field tuple array: the tuple type was the only thing
+        // clippy had to say about this test, and the case IS the concept being tested.
+        struct Case<'a> {
+            prev: Option<&'a RunState>,
+            now: u64,
+            boot: Option<u64>,
+            kind: BootKind,
+            phrase: &'a str,
+        }
+        let cases = [
+            Case {
+                prev: None,
+                now: 1_000,
+                boot: None,
+                kind: BootKind::FirstRun,
+                phrase: "no previous run",
+            },
+            Case {
+                prev: Some(&clean),
+                now: 500,
+                boot: None,
+                kind: BootKind::CleanExit,
+                phrase: "exited cleanly",
+            },
+            Case {
+                prev: Some(&swapped),
+                now: 131_991,
+                boot: Some(90_000),
+                kind: BootKind::Replaced,
+                phrase: "REPLACED",
+            },
+            Case {
+                prev: Some(&rebooted),
+                now: 135_585,
+                boot: Some(135_000),
+                kind: BootKind::MachineRestart,
+                phrase: "MACHINE RESTARTED",
+            },
+            Case {
+                prev: Some(&crashed),
+                now: 135_585,
+                boot: Some(90_000),
+                kind: BootKind::Crashed,
+                phrase: "CRASHED",
+            },
+        ];
+        for Case {
+            prev,
+            now,
+            boot,
+            kind,
+            phrase,
+        } in cases
+        {
+            assert_eq!(
+                classify(prev, now, boot),
+                kind,
+                "classify({prev:?}, {now}, {boot:?})"
+            );
+            let line = describe_previous(prev, now, boot);
+            assert!(
+                line.contains(phrase),
+                "the {kind:?} sentence must contain {phrase:?}: {line}",
+            );
+            // Every "did not exit cleanly" verdict keeps round 254's marker, so a reader that
+            // greps for it (a log search, a field engineer, another test) keeps its handle. The
+            // clean exit is the one case that never had it.
+            if !matches!(kind, BootKind::CleanExit | BootKind::FirstRun) {
+                assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_reboot_is_not_reported_as_a_crash() {
+        // THE FALSE ALARM THIS CASE EXISTS TO PREVENT. Every device reboots eventually, and a
+        // reboot looks EXACTLY like a crash to a heartbeat check: the run stopped beating and
+        // nothing took over for minutes. What separates them is positive evidence about the host —
+        // the machine's own boot time is later than the run's last heartbeat, so the run ended
+        // WITH the host. Without it, every routine restart would raise the panel's crash chip, and
+        // a warning that fires on routine events is how an operator learns to ignore the one that
+        // matters.
+        let prev = RunState {
+            started: 100_000,
+            last: 131_985, // the last beat before the machine went down
+            exited: false,
+        };
+        let now = 135_585; // the agent came back 3600 s later, at boot
+        assert_eq!(
+            classify(Some(&prev), now, Some(135_000)),
+            BootKind::MachineRestart,
+        );
+        let line = describe_previous(Some(&prev), now, Some(135_000));
+        assert!(line.contains("MACHINE RESTARTED"), "{line}");
+        assert!(!line.contains("CRASHED"), "{line}");
+
+        // THE SAME NUMBERS WITH THE HOST UP THE WHOLE TIME: the run died on its own, which is the
+        // crash this module was written for. The pair is what makes the reboot case a
+        // discrimination rather than an excuse.
+        assert_eq!(classify(Some(&prev), now, Some(90_000)), BootKind::Crashed);
+
+        // AND WHEN THE HOST CANNOT BE ASKED (`None` — a non-Windows build), the answer stays the
+        // conservative one: "I cannot tell" must never manufacture a benign explanation.
+        assert_eq!(classify(Some(&prev), now, None), BootKind::Crashed);
+
+        // Positive evidence OUTRANKS the freshness heuristic: a machine that rebooted and came
+        // back in six seconds reads as a reboot, not as the update swap those numbers otherwise
+        // look exactly like.
+        assert_eq!(
+            classify(Some(&prev), 131_991, Some(131_990)),
+            BootKind::MachineRestart,
+        );
+    }
+
+    #[test]
+    fn a_verdict_file_carries_its_kind_and_older_files_still_read() {
+        // The wire spelling is a contract, so it is pinned rather than assumed.
+        assert_eq!(BootKind::Crashed.as_str(), "crashed");
+        assert_eq!(BootKind::parse("replaced"), Some(BootKind::Replaced));
+        assert_eq!(BootKind::parse("melted"), None);
+
+        let text = render_verdict(BootKind::Crashed, "run journal: CRASHED or was killed");
+        let back = parse_verdict(&text).expect("parsed");
+        assert_eq!(back.kind, Some(BootKind::Crashed));
+        assert_eq!(back.detail, "run journal: CRASHED or was killed");
+
+        // THE FILE 1.2.366 ALREADY WROTE ON A DEVICE: prose only, no kind line. It must still be
+        // readable — with an honest `None` rather than a guess made by matching English.
+        let legacy = "run journal: previous run DID NOT EXIT CLEANLY — REPLACED by a restart\n";
+        let back = parse_verdict(legacy).expect("legacy file parses");
+        assert_eq!(back.kind, None, "a file with no kind must not invent one");
+        assert!(back.detail.contains("REPLACED by a restart"), "{back:?}");
+
+        // An unknown kind from a NEWER build degrades to prose, never to a wrong answer.
+        let future = "kind=melted\nrun journal: something new\n";
+        let back = parse_verdict(future).expect("parsed");
+        assert_eq!(back.kind, None);
+        assert!(back.detail.contains("something new"), "{back:?}");
+
+        // Blank is absence, not a verdict.
+        assert_eq!(parse_verdict("   \n  "), None);
+        assert_eq!(parse_verdict("kind=crashed\n\n"), None);
+    }
+
+    #[test]
     fn the_boot_verdict_survives_for_the_http_surface_to_read_back() {
         // The product half of round 254's change: the line was computed and logged, and the only
-        // way to see it was to read logs/startup.log on the device. It is now readable too.
+        // way to see it was to read logs/startup.log on the device. It is now readable too — and
+        // since round 256 it carries the KIND, so the surfaces that act on it need no prose.
         let dir = std::env::temp_dir().join(format!("vale-verdict-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(last_verdict(&dir), None, "no verdict before any boot");
+        assert_eq!(last_boot(&dir), None, "no verdict before any boot");
 
         let (_, line) = begin(&dir);
+        let boot = last_boot(&dir).expect("a verdict after the first boot");
         assert_eq!(
-            last_verdict(&dir).as_deref(),
-            Some(line.as_str()),
-            "the verdict begin() returns is the one a reader gets back",
+            boot.kind,
+            Some(BootKind::FirstRun),
+            "a fresh install's first boot"
+        );
+        assert_eq!(
+            boot.detail, line,
+            "the verdict begin() returns is the one a reader gets back"
         );
 
+        // A second boot inside the journal's own lifetime: still nothing exited cleanly, and the
+        // new run started seconds later — the update-swap case, which is `replaced`.
+        let (_, line) = begin(&dir);
+        let boot = last_boot(&dir).expect("a verdict");
+        assert_eq!(boot.kind, Some(BootKind::Replaced));
+        assert_eq!(boot.detail, line);
+
         // An empty file is `None`, not `Some("")` — a reader must not render a blank warning.
-        save_verdict(&dir, "   \n  ");
-        assert_eq!(last_verdict(&dir), None);
+        save_verdict(&dir, BootKind::Crashed, "   \n  ");
+        assert_eq!(last_boot(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

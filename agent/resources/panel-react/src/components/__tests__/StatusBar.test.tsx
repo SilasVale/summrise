@@ -56,4 +56,23 @@ describe("StatusBar instrument line", () => {
     const { container } = strip({ vitals: V });
     expect(container.querySelector(".instrument-identity")).toBeNull();
   });
+
+  it("carries the previous run's verdict on the strip, beside the other chips", () => {
+    // The strip is where the operator already looks for "what does this device want
+    // from me?" — the waiting count and the boot verdict are the two answers, and this
+    // asserts the verdict reaches THAT line rather than a page nobody has open.
+    const crashed = strip({
+      vitals: {
+        ...V,
+        lastBoot: { kind: "crashed", detail: "run journal: CRASHED or was killed" },
+      },
+    });
+    expect(crashed.container.querySelector(".boot-chip.warn")!.textContent).toContain(
+      "last run crashed",
+    );
+
+    // And a strip whose device has no verdict renders exactly as it did before.
+    const clean = strip({ vitals: { ...V, lastBoot: null } });
+    expect(clean.container.querySelector(".boot-chip")).toBeNull();
+  });
 });
