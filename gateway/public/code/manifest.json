@@ -166,6 +166,11 @@
       "group": "vale-gate"
     },
     {
+      "name": "src/store/byok.ts",
+      "path": "files/vale-gate/src/store/byok.ts",
+      "group": "vale-gate"
+    },
+    {
       "name": "src/store/cache.ts",
       "path": "files/vale-gate/src/store/cache.ts",
       "group": "vale-gate"
