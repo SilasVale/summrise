@@ -526,6 +526,43 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 238 (**ROUND 237's FIX WAS CHECKED ON THE LIVE DEVICE — both path premises hold —
+and the check found that the script it fixed IS NOT INSTALLED ON THAT DEVICE AT ALL**). Commit: journal only;
+the device was read, not changed.
+  (1) THE NAMED OPEN ITEM WAS "`fix-tunnel.ps1` needs a device run to become verified rather than static", AND
+  THE FIRST DECISION WAS WHAT *KIND* OF RUN: the script rewrites `tunnel.yml` and restarts cloudflared, and
+  that tunnel is live on a device whose console access depends on it. **So the repair was NOT run — round 153's
+  rule, do not start what you cannot finish — and the PATH PREMISES were tested instead, which is what round
+  237's fix actually rests on and is non-destructive.** Reading the device rather than repairing it is the
+  whole of this round.
+  (2) MEASURED ON d1 (`InstallDir = D:\Vale`, from `HKLM\SOFTWARE\Vale\Agent`), ALL THREE FACTS CONFIRM THE
+  FIX: **`D:\Vale\components\cloudflared.exe` EXISTS — the path the fixed script tries FIRST;
+  `D:\Vale\scripts\tools\cloudflared.exe` does NOT exist, which is what the OLD derivation computed from
+  `$MyInvocation.MyCommand.Path`; and `D:\Vale\tools\cloudflared.exe` does NOT exist either, so the legacy
+  flat layout really is gone.** The old script reached its `Test-Path` guard and exited 1 on every run on this
+  device, exactly as rounds 237 and 233's `paths.rs:178` ("Replaces the flat `tools\` dir") predicted.
+  (3) AND THE CHECK FOUND SOMETHING ROUND 237 COULD NOT HAVE: **`fix-tunnel.ps1` IS NOT IN `D:\Vale\scripts\`
+  OR ANYWHERE UNDER THE INSTALL DIR.** That directory exists and holds eight entries — `shell-integration`,
+  `desktop-pulse.vbs`, `ensure-desktop.ps1`, `playwright-probe.ps1`, `run-hidden.vbs`, `start-desktop.ps1`,
+  `vale-online-setup.ps1` and a tarball — **and seven of those eight are in the same `vale.js` list as
+  `fix-tunnel.ps1` (line 387), which IS how the others got there.** So the question round 237 raised as "fix the
+  path" has a prior one now recorded rather than guessed: **that inventory may be a MIGRATION list (what to move
+  from an old install) rather than an INSTALL list (what `vale setup` lays down), and nothing states which —
+  the same "a list whose role is unstated" shape as rounds 233/234/235.** Not resolved here; named.
+  (4) THE VERIFICATION LEVEL MOVES, AND IT MOVES PRECISELY: round 237 wrote "NOT VERIFIED ON A DEVICE — this
+  is a static fix against the two sources above". **This round upgrades that to "the PATH PREMISES are
+  device-verified; the SCRIPT ITSELF has still not been run on a device"** — which is a stronger claim than
+  static and a weaker one than tested, and saying which is the point. Nothing was written to the device.
+  (5) TWO ARTIFACTS WERE OBSERVED AND ARE RECORDED WITHOUT A CAUSE, because inventing one is what rounds 226
+  and 228 record this loop being punished for: **`D:\Vale\scripts\vale-agent-1.2.309.tgz` sits in the install
+  while the device runs 1.2.365 — 56 versions stale, in the directory `vale rollback` does NOT read (it HEADs
+  the CDN), so it is almost certainly dead weight rather than a rollback target, but "almost certainly" is the
+  strongest thing the evidence supports; and `D:\Vale\vale-agent.yaml.bad` exists beside the exe, which is
+  this agent's own naming for a config it refused to load.** Both are named as observations with an owner (a
+  device-hygiene round), not as defects. STILL OPEN: the installer's signing decision (the user's call); whether
+  `vale.js`'s file list is installation or migration (new, above); convergence rows 6-7, which wait on a device
+  event rather than on work.
+
 Last updated: 2026-09-14 round 237 (**`agent/deploy/` HELD TWO OF THE HIGHEST-COST NEVER-NAMED FILES AND BOTH WERE
 BROKEN: one built a binary that no longer exists, and the other — a REPAIR script the live CLI installs — derived
 its own path wrongly and exited 1 unconditionally**). Commit: agent/deploy/ + journal.
