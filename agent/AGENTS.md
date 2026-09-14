@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 196 (**CHARTER-1 IS ANSWERED — 授权循环自主发布.** The user authorized the
+loop to run build → CDN → device regression → report on its own, at the CHARTER's thresholds; irreversible
+external commitments (full rollout, closing deprecation windows, billing/compliance/third-party) are still
+proposed rather than assumed. Seven convergence-table rows were waiting on this one word). Commit:
+journal + ledger. No code change.
+  (1) WHAT CHANGED, IN ONE SENTENCE: the loop's ceiling was never its own capability — it was a
+  permission, and the permission now exists. Rows 2 (1.2.362-364 unreconciled), 3 (the stale installer
+  alias), 4 (four capability unlocks needing a deploy), 5 (D13's build path past the mode gate) and the
+  D3/D4 artifact debt are EXECUTABLE rather than waiting. The ledger row is CLOSED with the scope written
+  INTO it, so the next reader sees what was authorized and what still is not.
+  (2) AND THIS ROUND DELIBERATELY DID NOT START THE RELEASE, which is round 153's rule applied to the
+  largest change this loop has ever been cleared to make: the authorization arrived with ~zero budget
+  left, and a release touches the artifact, the CDN, the manifest and the device. Starting it here would
+  have meant discovering the anchors mid-execution on the one path where a half-applied state ships to a
+  real device. **The correct answer to "you may now do the big thing" is "not in the last five minutes of
+  a round"** — and saying so is cheaper than the failure it prevents.
+  (3) THE PLAN IS FULLY SPECIFIED, SO THE NEXT ROUND TYPES RATHER THAN DECIDES (the shape rounds
+  189→190 and 181→182 already proved): (a) reconcile the three missing GitHub tags via the API —
+  `v1.2.362`/`v1.2.363`/`v1.2.364` are already ON the CDN and served to devices while their releases are
+  404, so this is bookkeeping for artifacts that exist, not a new publish; (b) rebuild the INSTALLER for a
+  current version, because the `ValeAgent-Setup.exe` alias still serves the 1.2.361 build (etag
+  `f1dc1c8e86ab125f9f8d078b23ed400c`) — `scripts/build-installer.sh <ver>`, then the manifest carries BOTH
+  `installer` and `installer_sha256` (the landing page only offers one when both are present, D4's fix);
+  (c) run `scripts/lib/release-audit.sh` and require it to report byte-equality rather than list an exe
+  difference; (d) device regression BEFORE release, which the CHARTER makes a HARD GATE, never a
+  post-release check.
+  (4) WHAT THIS ALSO SETTLES, AND IT IS THE REVIEW'S OWN QUESTION RETURNED: round 196's design review
+  concluded that the loop had produced no externally observable metric in 45 rounds because every one was
+  gated on CHARTER-1, the device, or a reboot. **The gate is now open for the first of those three** — so
+  from the next round the loop's metrics can be external again, and the review's recommendation (ii)
+  ("prefer work whose observable is external even without a release") becomes moot for the release path
+  while remaining right for everything else.
+  (5) STILL OPEN: the release itself (planned above, deliberately not started); the recurring second
+  failure's name under mutation (one grep, two sightings); `models-probe.ts`'s remaining body (lines
+  70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
+
 ## Design review — round 196 (CHARTER.md:53). INTERVAL: rounds 151-195. LAST REVIEW: round 150.
 
 > Overdue by 45 rounds. Written now because the BYOK arc (185-195) closed and a review with real

@@ -130,7 +130,7 @@ so a later round — or the user — can pick one up without re-deriving why it 
 
 | # | Item | What it needs | Who | Evidence on record |
 |---|---|---|---|---|
-| 1 | **CHARTER-1** (publish freely vs ask first) | one word from the user | **user** | `docs/CHARTER.md`; every release action below waits on it |
+| 1 | **CHARTER-1** (publish freely vs ask first) | **ANSWERED round 196: 授权循环自主发布** | **CLOSED** | `docs/CHARTER.md`; the loop runs build → CDN → device regression → report on its own, at the CHARTER thresholds. **Still proposed, not assumed:** irreversible external commitments (full rollout, closing deprecation windows, billing/compliance/third-party). Nothing below waits on this any more — rows 2, 3, 5 and the D3/D4 artifact debt are now EXECUTABLE. |
 | 2 | 1.2.362-364 unreconciled (CDN 200 / GitHub release 404) | a release | release action (1) | `docs/agents/release-reconcile.txt`; **both halves now measured**: round 151 the CDN manifest, round 158 the GitHub side (newest tag is `v1.2.361`) |
 | 3 | Stale `ValeAgent-Setup.exe` alias (D4b) — still serves the **1.2.361** installer | an installer build for a current version | release action (1) | round 151: alias and `-1.2.361.exe` return the SAME etag `f1dc1c8e…` |
 | 4 | Four capability unlocks (vrelay 5xx/header-timeout; both CF workers' redaction) | a deploy | release action (1) | rounds 129/131/132/133 committed + tested + mutation-proven; NOT live |
@@ -214,7 +214,7 @@ view returns only a mask — so the console's documented edit path ("re-post the
 stored record; a create still demands one and a supplied key still replaces it. Deployed, and the
 deployed mirror is byte-identical to the tested source.
 
-1. **CHARTER-1 — a conflict inside our own constitution (proposal, waits for the user).** The
+1. ~~**CHARTER-1 — a conflict inside our own constitution (proposal, waits for the user).**~~ **ANSWERED (round 196): the loop may publish autonomously.** The
    CHARTER's blast-radius row puts "published releases" in the propose column, while the goal
    objective says release cadence is the loop's and reserves sign-off for full rollout and
    deprecation windows. Read strictly, the CHARTER forbids what the objective grants. Proposed
