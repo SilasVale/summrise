@@ -17,10 +17,12 @@ import { fmtSince, type MonitorAlert } from "../hooks/useMonitors";
 import { shouldNotify } from "../lib/attention";
 
 export function MonitorAlerts({ alerts }: { alerts: MonitorAlert[] }) {
-  // THE VISIBLE-TAB CHANNEL (see `shouldNotify`): while the tab is hidden the desktop
-  // notification carries the same event, and this renders nothing — nobody is here to read it, and
-  // the chip still holds the state for when they come back.
-  if (typeof document !== "undefined" && !shouldNotify(document.visibilityState)) return null;
+  // THE VISIBLE-TAB CHANNEL (see `shouldNotify`): it speaks exactly when the OS channel does not.
+  // `shouldNotify` true means "the tab is hidden" — nobody is here to read a banner, the
+  // notification has that job, and the chip still holds the state for when they come back.
+  // (Written the other way round first: the guard hid the banner when the tab WAS visible, which
+  // the component's own test caught.)
+  if (typeof document !== "undefined" && shouldNotify(document.visibilityState)) return null;
   if (alerts.length === 0) return null;
   return (
     <div className="monitor-alerts" role="status" aria-live="polite">

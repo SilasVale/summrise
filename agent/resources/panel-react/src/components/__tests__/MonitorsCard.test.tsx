@@ -396,7 +396,33 @@ describe("the outage log and the device speaking", () => {
     expect(parseMonitorChange(null)).toBeNull();
   });
 
+  /** jsdom reports `visibilityState: "prerender"`, which the banner (the VISIBLE-tab channel)
+   *  correctly treats as "nobody is looking". These two tests are about what the banner SAYS, so
+   *  they put the tab in the state where it speaks — and the third pins the hidden case. */
+  const asVisible = <T,>(fn: () => T): T => {
+    const original = Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState");
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    try {
+      return fn();
+    } finally {
+      if (original) Object.defineProperty(Document.prototype, "visibilityState", original);
+      else delete (document as any).visibilityState;
+    }
+  };
+
+  it("says nothing while the tab is hidden — the desktop notification has that job", () => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    const { container } = render(
+      <MonitorAlerts
+        alerts={[{ key: "k1", id: "a:22", host: "a", port: 22, up: false, lastedMs: 3_600_000, atMs: now, status: null }]}
+      />,
+    );
+    expect(container.firstChild).toBeNull();
+    delete (document as any).visibilityState;
+  });
+
   it("names the outage on the way back and the uptime on the way down", () => {
+    asVisible(() => {
     const { container } = render(
       <MonitorAlerts
         alerts={[
@@ -412,6 +438,7 @@ describe("the outage log and the device speaking", () => {
     expect(rows[0].className).toContain("is-down");
     expect(rows[1].className).toContain("is-up");
     expect(rows[1].querySelector(".monitor-mark")!.className).toContain("is-up");
+    });
   });
 
   it("renders nothing when the device has said nothing", () => {
