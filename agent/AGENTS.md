@@ -528,32 +528,37 @@ release (not the Cargo version).
 
 Last updated: 2026-09-14 round 223 (**CONVERGENCE ROW 4 IS FULLY CLOSED — vrelay deployed with a ROLLBACK LINE
 WRITTEN FIRST and "deployed" verified by BYTE EQUALITY rather than by a return code**). Deploy only; no tracked
-file changed. Worktree clean.
+code changed. And one self-inflicted inconsistency, caught by round 213's own test.
   (1) THE ROLLBACK LINE CAME FIRST, because that is the condition round 222 set for taking this round at all:
   `sudo tar -czf /tmp/vrelay-backup-<ts>.tar.gz -C /opt/vrelay .` captured the live bundle — **13,749 bytes,
-  seven files (`entry/gform/git/github/proxy/routing/zen.mjs`), `systemctl is-active` → active, `NRestarts`
-  → 0** — and it is STILL on the box. So the restore command existed before the thing it would restore:
+  seven files (`entry/gform/git/github/proxy/routing/zen.mjs`), `systemctl is-active` -> active, `NRestarts`
+  -> 0** — and it is STILL on the box. So the restore command existed before the thing it would restore:
   `sudo tar -xzf /tmp/vrelay-backup-20260914T043500Z.tar.gz -C /opt/vrelay && sudo systemctl restart vrelay`.
-  (2) THEN THE DEPLOY: `./scripts/build.sh api-relay` built the bundle, scp'd it, and reported
-  `ok: vrelay deployed + 401-gate smoke passed`. **And the script's report was checked rather than trusted** —
-  independently: `systemctl is-active vrelay` → **active**; `NRestarts` → **0** (so no crash loop);
-  `POST https://v.saisi.online/api/proxy` → **401** (its auth gate); and **the git mirror → 200**.
-  (3) AND THE CHECK THAT ACTUALLY SETTLES IT IS BYTE EQUALITY, WHICH IS WHY THIS ROUND RANKS AS A RELEASE
-  RATHER THAN A COMMAND: `sha256` of `zen.mjs` and `proxy.mjs` MATCH between the local
-  `proxies/api-relay/dist/` and the box's `/opt/vrelay/` — **`f52ced82b19e86d9` and `887cdba0dcd47713` on BOTH
-  sides.** "Deployed" therefore means the bytes on the box are the bytes that were built, which is round 200's
-  rule ("the equality is the deliverable, not the return code") applied to an scp instead of a push.
-  (4) THE ROUND'S REAL RISK WAS NAMED BEFORE IT WAS TAKEN, AND IT WAS REAL BUT SURVIVABLE: **that box serves
-  `https://v.saisi.online/api/git/SilasVale/vale.git` — the mirror this loop pushes through — so a failed
-  restart would have taken the loop's own write channel down.** That is why the git mirror's HTTP 200 is listed
-  as a verification rather than an afterthought, and why the backup was taken in a separate call before the
-  deploy rather than inside it: a backup that happens in the same command as the change is a backup whose
-  existence has not been observed.
-  (5) SO ROW 4 SPLITS NO LONGER: **4a (both CF workers' redaction) went live in round 222, 4b (vrelay's 5xx
-  genericization + header-timeout) in this one, and round 222's own note that "the vrelay restart is a round of
-  its own" is now discharged with its prerequisites having been measured a round earlier rather than
-  re-derived.** STILL OPEN, AND NOTHING IN THIS JOURNAL NOW WAITS ON THE LOOP: **the installer's signing
-  decision (the user's call)**; convergence rows 6-7, which wait on a device event rather than on work.
+  **A backup taken inside the same command as the change is a backup whose existence has not been observed**,
+  which is why it was a separate call.
+  (2) THEN THE DEPLOY, AND THE SCRIPT WAS CHECKED RATHER THAN TRUSTED: `./scripts/build.sh api-relay` reported
+  `ok: vrelay deployed + 401-gate smoke passed`, and independently — `systemctl is-active vrelay` -> **active**;
+  `NRestarts` -> **0** (no crash loop); `POST https://v.saisi.online/api/proxy` -> **401** (its auth gate); and
+  **the git mirror -> 200**.
+  (3) AND THE CHECK THAT ACTUALLY SETTLES IT IS BYTE EQUALITY, which is why this ranks as a release rather than
+  a command: `sha256` of `zen.mjs` and `proxy.mjs` MATCH between the local `proxies/api-relay/dist/` and the
+  box's `/opt/vrelay/` — **`f52ced82b19e86d9` and `887cdba0dcd47713` on BOTH sides.** "Deployed" therefore means
+  the bytes on the box are the bytes that were built: round 200's rule ("the equality is the deliverable, not
+  the return code") applied to an scp instead of a push.
+  (4) THE REAL RISK WAS NAMED BEFORE IT WAS TAKEN, AND IT WAS SURVIVABLE BY CONSTRUCTION: **that box serves
+  this repository's git mirror — the channel this loop pushes through — so a failed restart would have taken
+  the loop's own write channel down.** Hence the git mirror's 200 is a listed verification rather than an
+  afterthought, and hence the backup preceded the deploy by a full round-trip.
+  (5) AND ROUND 213'S TEST CAUGHT ME IN THIS VERY ROUND, which belongs in the record because it is the
+  instrument working: the ledger's head was set to 223 while the journal's stayed at 222 — **because the
+  script that was to write this entry died on a Python quoting error AFTER the ledger edit and BEFORE the
+  journal one, and the commit and push went out anyway.** `cargo test --test ledger_head` reported
+  `FAILED. 0 passed; 1 failed` with the message naming both numbers and the same-commit rule. **The fix was to
+  write the entry the failed script was supposed to write — and the durable half of the lesson is that a
+  two-file edit performed by one script must either commit both or neither; here the script died between them
+  and nothing in the COMMIT stopped it. The test is what stopped the DRIFT, one step later.** STILL OPEN, and
+  nothing in this journal now waits on the loop: the installer's signing decision (the user's call);
+  convergence rows 6-7, which wait on a device event rather than on work.
 
 Last updated: 2026-09-14 round 222 (**THE CLOUDFLARE HALF OF CONVERGENCE ROW 4 IS LIVE — both proxy workers
 deployed and smoked — and the vrelay half was DELIBERATELY NOT TAKEN, with its prerequisites measured and the
