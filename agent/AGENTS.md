@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 252 (**CHARTER's "every 10 rounds" DESIGN REVIEW HAD BEEN MET TWICE IN 252 ROUNDS
+— at intervals of 46 and 55 — so this round wrote the overdue one and gave the cadence an instrument**).
+Commit: agent/tests/ + journal + ledger. The review itself is the section above this entry.
+  (1) THE LEAD WAS ROUND 251's METHOD APPLIED TO THE REST OF THE OBJECTIVE'S NAMED BASIS, and the first check came
+  back CLEAN: all five documents the objective names are referenced by the loop's records (`CHARTER.md` 3/2,
+  `iteration-loop.md` 1/1, `iteration-coverage.md` 4/0, `ideas.md` 3/2 after round 251, `ARCHITECTURE.md` 18/1,
+  `adr/` 15/2). **So `ideas.md` was the exception, not the rule.**
+  (2) BUT THAT 1/1 FOR `iteration-loop.md` WAS A SINGLE LINE — **round 251's own entry, quoting where idea #1
+  landed** — so the file was read rather than counted, and it carries two OBLIGATIONS the loop had never worked
+  from: a four-row **contract list** ("check before touching a promise": CLI verbs, `/mcp` tool names, route
+  semantics, relay-token scope) and a **round-record** section whose item 3 reads **"Every 10 rounds: the design
+  review from `docs/CHARTER.md`."**
+  (3) MEASURED, THE CADENCE IS 46 AND 55, NOT 10: the journal holds reviews at **round 150** ("THE
+  EVERY-10-ROUND DESIGN REVIEW") and **round 196** ("INTERVAL: rounds 151-195. LAST REVIEW: round 150"), and the
+  decade rounds since — 200, 210, 220, 230, 240, 250 — carry ordinary verdicts (a deploy verification, an
+  instrument audit, a contract row). **The obligation was real, was met twice in 252 rounds, and nothing could
+  fail when it was skipped** — round 251's shape, one document over, found the same way.
+  (4) SO `agent/tests/review_cadence.rs` ASSERTS THE CADENCE, AND IT WAS RED BEFORE THE REVIEW EXISTED: it reads
+  the journal's review headers and the ledger's head and refuses a gap over CHARTER.md:53's ten rounds. **Its
+  first run failed with "the last one in the journal is round 196 and the ledger's head is round 251 — 55 rounds
+  ago", and it went green once the review above was written.** The review answers CHARTER.md:53-56's four
+  questions, and the fourth is where it bites: **"is any metric one the loop could have raised by itself?" —
+  YES, the never-named count, which falls whenever an entry MENTIONS a file rather than examines it** (round 242
+  measured this and the tool disclaims it in its own output). **The verdict the review records: the interval was
+  apparatus-heavy and product-light — no release, two code files changed (`scripts/build.sh` 241,
+  `plugin-collaborators.test.mjs` 249), four instruments added, and the metric the loop can raise alone named
+  and disclaimed.**
+  (5) AND THE REVIEW IS NOW PART OF THE RECORD RATHER THAN A NOTE IN A PROTOCOL FILE: it sits directly above round
+  196's in `agent/AGENTS.md`, so the next review reads the previous one's verdict, and the interval it must cover
+  starts from a round number the journal states. STILL OPEN: the installer's signing decision (the user's call);
+  ADR 0007 step 2's assessment (the user's); the never-named to-read queue (37, count deliberately unasserted);
+  the ideas inbox (one `standing` entry, no action).
+
 Last updated: 2026-09-14 round 251 (**THE LOOP HAS NEVER ONCE NAMED `docs/agents/ideas.md` — the file the objective
 makes its TOP-PRIORITY input and its own header calls "the anchor against drift", in 251 rounds**). Commit:
 agent/tests/ + ledger + journal. agent 678 = 677 + 1.
@@ -2526,6 +2559,52 @@ journal + ledger. No code change.
   (5) STILL OPEN: the release itself (planned above, deliberately not started); the recurring second
   failure's name under mutation (one grep, two sightings); `models-probe.ts`'s remaining body (lines
   70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
+
+## Design review — round 252 (CHARTER.md:53). INTERVAL: rounds 197-252 (55 rounds). LAST REVIEW: round 196.
+
+**WHY THIS EXISTS AND WHY IT IS LATE:** CHARTER.md:53 requires a review "every 10 rounds". The
+journal holds two: **round 150** ("THE EVERY-10-ROUND DESIGN REVIEW") and **round 196**, whose entry
+records "INTERVAL: rounds 151-195. LAST REVIEW: round 150." **So the stated interval is 10 and the
+actual ones are 46 and 55** — the obligation is real, has been met twice in 252 rounds, and had
+nothing that could fail when it was skipped. `agent/tests/review_cadence.rs` now asserts it, and it
+was RED before this section existed.
+
+**(1) DID ANY METRIC MOVE?** Yes, and every move is in the bookkeeping rather than in the product:
+the coverage scope **282/358 → 285/361** (three times, each because a round added a test file),
+the never-named count **52 → 37**, and `ARCHITECTURE.md`'s test-gate counts **gateway 755 → 872,
+agent 484 → 677, api-relay 69 → 70, index 73 → 90** — all six rows stale, re-measured in 248.
+**No product metric moved: no release shipped in this interval, the device stayed on 1.2.365, and
+the CDN's bytes did not change except for the one script round 240 published.**
+
+**(2) WAS ANY ADR REVERSED?** No. **Two were ADOPTED — `0011` (two artifacts, one obligation) and
+`0012` (tests are surfaces)** — and neither supersedes anything; 0011 names a pattern the loop had
+already applied seven times, and 0012 fills a scope ADR 0008 never covered. **The ADR set went from
+9 numbered files to 12, and the one structural change was forced by the repo's own rule: 0009/0010
+each name two files, and `docs/adr/README.md:28` forbids renumbering, so the allocation is now
+pinned with both collisions recorded as exceptions rather than repaired.**
+
+**(3) WAS THE SAME PLACE CHANGED TWICE?** Repeatedly, and **the places are again the bookkeeping,
+not the code**: `docs/ARCHITECTURE.md` in rounds **248, 249 and 250**; the ledger's coverage headline
+in **245, 246 and 251**; and `agent/AGENTS.md` every round by design. **The two code changes in the
+interval were `scripts/build.sh` (241) and `gateway/test/plugin-collaborators.test.mjs` (249), each
+once.** So the "changed twice" signal is currently a statement about this loop's own instruments —
+which is worth naming plainly, because it means **the loop's recent effort has gone into the
+apparatus that judges its work rather than into the work.**
+
+**(4) IS ANY METRIC ONE THE LOOP COULD HAVE RAISED BY ITSELF?** **YES, AND IT IS THE ONE THIS REVIEW
+EXISTS TO CATCH: the never-named count falls whenever a round's entry MENTIONS a file, whether or not
+the round examined it.** Round 242 measured exactly this and the tool states it in its own output
+("it measures 'named', not 'examined'"). **So 52 → 37 is not 15 files examined; it is 15 files named,
+and the loop could drive that number to zero with a list and no reading at all.** The honest
+counterweight is the one round 242 also supplied: the 43 files probed then were healthy, so the
+metric's *movement* has not been bought with false claims — **but the number cannot be allowed to
+stand as evidence of coverage, which is why it is deliberately unasserted and the ledger says so.**
+
+**VERDICT:** the interval's work was **apparatus-heavy and product-light**, which is the correct
+reading of a stretch that shipped no release and changed two code files while adding four
+instruments (213's `ledger_head`, 224's `adr_allocation`, 245's `coverage_numbers`, 251's
+`ideas_inbox`) and fixing the stale claims those instruments then found. **The one metric the loop
+can raise by itself has been identified and is disclaimed in the artifact that carries it.**
 
 ## Design review — round 196 (CHARTER.md:53). INTERVAL: rounds 151-195. LAST REVIEW: round 150.
 
