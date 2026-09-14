@@ -1,9 +1,7 @@
 # Vale Agent Build Guide
 
 > Mirrors agent/AGENTS.md (build/verify/architecture semantics must stay
-> identical; the stage-n living log lives ONLY in agent/AGENTS.md — this
-> file never mirrors it). agent/AGENTS.md additionally
-> carries the stage-n iteration log maintained by the DSH loop.
+> identical).
 
 ## Cross-compilation to Windows (MSVC)
 
