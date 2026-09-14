@@ -75,11 +75,7 @@ pub fn is_simple_command(cmd: &str) -> bool {
     // (`git log --format=%H`, `curl -d a=b`) cannot change which program runs, and
     // banning it there would make ordinary commands ask every time for no safety
     // gained. The narrow check encodes the property instead of approximating it.
-    !t
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .contains('=')
+    !t.split_whitespace().next().unwrap_or("").contains('=')
 }
 
 /// The grant a command would create: its first whitespace-separated word.
