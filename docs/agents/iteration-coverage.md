@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 255**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 256** (PRODUCT: the boot verdict reaches the wire, the panel and the fleet — `classify` answers first-run / clean-exit / replaced / machine-restart / crashed, `/api/status` carries `last_boot` + `last_boot_kind` unconditionally, the panel shows a crash chip and a five-minute "just restarted" one, and the console fleet marks the one exception it can act on; release 1.2.367 published and verified on d1, chip read out of the device's own browser). **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -93,8 +93,8 @@ Seeded 2026-09-14 at round 110.
 | agent `plugins/update` | seen | 553–555, SOLID | layout-v2 migration + rollback still need a device run |
 | agent `plugins/system` / `mcp_client` / `playwright` | partial | 89, SOLID R98 | — |
 | agent `plugins/design` | unseen | — | — |
-| agent `web/` (auth, panel grant, SSE, api) | seen | 88, 92 | grant single-use / audit record |
-| agent `winmain.rs` boot path + `tunnel.rs` + `runstate.rs` | partial | 110, 112, 113 | the 5-minute repetition trigger and the supervisor fix are pins only — RUNTIME needs a device; tunnel F1/F2 are closed (113), leaving the runtime half |
+| agent `web/` (auth, panel grant, SSE, api) | seen | 88, 92, 256 | grant single-use / audit record; `/api/status` now carries the boot verdict (`last_boot` + `last_boot_kind`) UNCONDITIONALLY — 256 found the field written inside the `pending_approvals > 0` guard, i.e. unreachable in the only state a healthy device is ever in, and the endpoint test now asserts the pair on a response with zero pending approvals |
+| agent `winmain.rs` boot path + `tunnel.rs` + `runstate.rs` | partial | 110, 112, 113, 254, 256 | tunnel F1/F2 closed (113). **The runtime half moved in 256: the boot task's own revival was OBSERVED on d1** — `vale stop` took the agent down, the watchdog brought it back ~2 min later, and the next boot classified it `crashed` from the real numbers (last heartbeat 125 s before the new start, survived 121 s), which `/api/status` then served and the panel rendered. 254 taught `describe_previous` to discriminate; 256 added `machine-restart` (host boot time beats the freshness heuristic) so a routine reboot cannot raise the crash chip. What is still pin-only: the 5-minute repetition trigger's own timing under a longer outage, and the supervisor half |
 | agent `paths.rs` + layout v2 | seen | 555 | — |
 | agent CLI (`vale-agent-npm/bin/vale.js`) | seen | 78 | — |
 | agent packaging + Electron shell (`vale-desktop-electron`) | partial | 555 | — |

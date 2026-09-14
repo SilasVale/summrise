@@ -372,8 +372,13 @@ src/
                    started / last heartbeat / exited-cleanly for the process
                    itself, written at boot and beaten on a timer, so a run that
                    died without a word is distinguishable from one that exited
-                   on purpose. `describe_previous` (pure, tested) owns the one
-                   line the operator reads at the next boot.
+                   on purpose. `classify` (pure, tested) owns the verdict —
+                   first-run / clean-exit / replaced / machine-restart /
+                   crashed, with the host's boot time telling a reboot from a
+                   crash — and `describe_previous` phrases that same answer for
+                   `startup.log` while `begin` persists `kind=<x>` above it for
+                   `/api/status` (`last_boot` + `last_boot_kind`). One rule, a
+                   sentence and a datum, and an agreement test binding them.
   state.rs         AppState { serial_pool, terminal_mgr, event_bus,
                    plugin_registry, config } — managers are Arc<Manager>,
                    managers own their locks internally (inside AppState only
@@ -525,6 +530,57 @@ release (not the Cargo version).
 > Living log for the agentic iteration loop. Any agent resuming work MUST
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
+
+Last updated: 2026-09-14 round 256 (**PRODUCT CHANGE — the boot verdict rounds 254/255 computed now REACHES the operator:
+`/api/status` carries it as DATA, the panel shows it, the console fleet marks it, and the classifier learned to keep a routine
+reboot out of the alarm**).
+Commit: 9d7c1cf0 (runstate + `/api/status` + panel + gateway probe + console card + ledger + guides). Release **1.2.367**
+published to the CDN (`/api/version` smoke: versioned + latest binary sha verified); gateway + console deployed with live
+parity (44 files, 0 drifted). Gates: agent 564 lib + 14 runstate, clippy `-D warnings` + fmt clean; panel 66 files / 555
+tests; gateway **874** tests, prettier + tsc clean; devices render smoke 15/15 (its signal-row count went 4 -> 5).
+  (1) THE DEFECT WAS MEASURED ON d1 BEFORE ANYTHING WAS WRITTEN, and it was the exact shape round 255 left behind: the verdict
+  FILE existed (`kind` absent, prose `REPLACED by a restart … last heartbeat 33s before this start`) while `/api/status`
+  returned `last_boot=[] last_boot_kind=[]` — because round 254's field had been written INSIDE the `if pending_approvals > 0`
+  guard, and a healthy device has zero pending approvals. **The unit tests covered the accessor and the endpoint test covered
+  the guard, so every gate was green while the feature was unreachable in the only state a healthy device is ever in.** That is
+  the same class round 255's own rule 4 was written for: DELIVERED is a claim about the WIRE, not about the function.
+  (2) ONE RULE, TWO AUDIENCES. `runstate::classify` is now the single place the discriminator is applied and answers
+  `first-run` / `clean-exit` / `replaced` / `machine-restart` / `crashed`; `describe_previous` phrases THAT answer (so the
+  sentence and the kind cannot disagree) and `begin()` persists `kind=<x>` above the same sentence it always wrote — the
+  prose a field engineer greps for is unchanged, one line down. `/api/status` carries BOTH: `last_boot` (the sentence) and
+  `last_boot_kind` (the machine answer), absent-not-null, with the 1.2.366 prose-only file still readable as `kind: None`
+  rather than guessed at by matching English. **The agreement test pins both halves per case, and the endpoint test asserts
+  the pair on the response that has ZERO pending approvals — the regression itself, not the function.**
+  (3) THE NEW VERDICT IS `machine-restart`, AND IT EXISTS TO KEEP THE ALARM HONEST. A reboot is indistinguishable from a crash
+  by heartbeat freshness alone (both are "stopped beating, nothing took over for minutes"), so without it EVERY routine reboot
+  would raise the crash chip and train the operator to ignore the one case the surface exists for. The discriminator is
+  positive evidence rather than inference: `GetTickCount64` gives the host's boot time, and if the HOST booted after the run's
+  last heartbeat the run ended WITH the host. It is asked BEFORE the freshness heuristic for exactly that reason (a six-second
+  reboot reads as an update swap otherwise), it is `None` on a host that cannot answer — and `None` stays CONSERVATIVE
+  (a crash), never a benign guess.
+  (4) THE PANEL SHOWS IT, IN BOTH DENSITIES, THROUGH ONE RULE. `lib/bootNotice.ts` decides, `BootChip` renders: a **warn** chip
+  ("last run crashed") for a fault — durable for the whole life of the current run, because "it crashed" stays true until the
+  next boot supersedes it — and a quiet **info** chip ("just restarted") for a replacement, only while it is NEWS (5 min, so
+  an operator who just ran `vale update` sees the swap confirmed and everyone else sees nothing). The two tones differ by SHAPE
+  (triangle vs dot) as well as colour, since this repo has an incident where two states differed by colour alone. A machine
+  restart says NOTHING, which is the whole point of (3).
+  (5) THE CONSOLE FLEET MARKS THE ONE EXCEPTION IT CAN ACT ON: the gateway probe forwards **only `crashed`** and drops
+  `replaced`/`clean-exit`/`machine-restart` before they reach the page (a fleet view is for exceptions; a third row on every
+  healthy device is how rows stop being read — the `WaitingChip` zero-state lesson, inverted). The devices card grows a
+  "上次运行 / 异常退出" signal row carrying the device's own sentence on the hover, and `devices-render-smoke.mjs` pins BOTH
+  halves: the reporting device carries the row, the healthy one does not.
+  (6) VERIFIED LIVE, ON THE CANARY, WITH THE WIRE AS THE ARTIFACT. Before: 1.2.366, `last_boot=[] last_boot_kind=[]` with the
+  verdict file present. After `npm i -g --prefix D:\Vale\components\npm-global …latest.tgz` + `vale update`: `release=1.2.367`,
+  `last_boot_kind=[replaced]`, `last_boot=[run journal: previous run DID NOT EXIT CLEANLY — REPLACED by a restart … last
+  heartbeat 4s before this start …]`, still with ZERO pending approvals. The panel — read out of the REAL embedded browser on
+  d1, not a harness — then showed the chip: `class="boot-chip info"`, text `just restarted`, `title` = the device's own
+  sentence, in a strip reading `… | UP | 1m 23s | VER | 1.2.367 | 1 session | just restarted`. **The crash branch was then
+  produced the same way rather than argued: `vale stop` on the canary (the sanctioned verb), the boot task's own watchdog
+  revived the agent, and the next boot reported what the field could never say before.**
+  STILL OPEN: the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); **1.2.362-1.2.364 +
+  1.2.367 sit in `docs/agents/release-reconcile.txt` — the publish used `--acknowledge-unreconciled` because the gate found
+  three versions on the CDN with no GitHub release to audit against; clearing them needs their tags/releases to exist**; the
+  never-named to-read queue (38).
 
 Last updated: 2026-09-14 round 255 — **live check of the model catalogue: NO confirmable drift, so no fix.**
 No commit (product check only).

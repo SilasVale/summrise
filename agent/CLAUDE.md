@@ -265,8 +265,13 @@ src/
                    started / last heartbeat / exited-cleanly for the process
                    itself, written at boot and beaten on a timer, so a run that
                    died without a word is distinguishable from one that exited
-                   on purpose. `describe_previous` (pure, tested) owns the one
-                   line the operator reads at the next boot.
+                   on purpose. `classify` (pure, tested) owns the verdict —
+                   first-run / clean-exit / replaced / machine-restart /
+                   crashed, with the host's boot time telling a reboot from a
+                   crash — and `describe_previous` phrases that same answer for
+                   `startup.log` while `begin` persists `kind=<x>` above it for
+                   `/api/status` (`last_boot` + `last_boot_kind`). One rule, a
+                   sentence and a datum, and an agreement test binding them.
   state.rs         AppState { serial_pool, terminal_mgr, event_bus,
                    plugin_registry, config } — managers are Arc<Manager>,
                    managers own their locks internally (inside AppState only
