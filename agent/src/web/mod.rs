@@ -1698,6 +1698,21 @@ async fn api_status(state: &AppState) -> serde_json::Value {
     // `runs::clean`, caught here by this change's own test. The `release` field
     // below already used the insert-after shape for the same reason.
     if pending_approvals > 0 {
+        // THE PREVIOUS BOOT'S VERDICT, for every surface that already polls this endpoint.
+        //
+        // Round 254 made `describe_previous` say whether the last run was REPLACED by an update or
+        // CRASHED rather than leaving the operator to infer it from three numbers. But the only place
+        // that line existed was `logs/startup.log` ON THE DEVICE — a field engineer's audience, not
+        // the panel's, and not the console fleet card's. The tray polls THIS endpoint on a 30 s health
+        // tick and the console's fleet card reads it too, so one field turns every existing consumer
+        // into a surface that can say "the agent crashed last time" with no new route and no change
+        // to any other endpoint — the same argument round 14 used for `pending_approvals` above.
+        //
+        // ABSENT, NOT NULL, when the install has never booted a build that wrote one: a consumer must
+        // be able to tell "no verdict on record" from "a verdict that says nothing".
+        if let Some(v) = crate::runstate::last_verdict(&crate::paths::data_dir()) {
+            out["last_boot"] = serde_json::json!(v);
+        }
         out["pending_approvals"] = serde_json::json!(pending_approvals);
     }
     // round-304: report the npm RELEASE version (written by the swap

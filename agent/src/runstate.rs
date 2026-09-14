@@ -143,6 +143,40 @@ pub fn save(data_dir: &Path, state: &RunState) {
     let _ = std::fs::write(path, render(state));
 }
 
+/// Where the last boot's verdict is kept so the HTTP surface can report it.
+///
+/// `begin` computes the one line an operator reads at the next boot and hands it to the binary's
+/// logger — which is where round 244 found it on d1, in `logs\startup.log`, on the device. **A
+/// field engineer reading a log is not the same audience as the panel or any API client**, so the
+/// same line is persisted here and served by `/api/status`. Kept BESIDE the run journal rather
+/// than inside it: `run-state.txt`'s three fields are a contract with every installed build, and
+/// this needs no part of it.
+pub fn verdict_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("logs").join("last-boot.txt")
+}
+
+/// Persist the boot verdict, best-effort — a journal that cannot be written must not take the
+/// agent down with it, the same rule `save` follows.
+pub fn save_verdict(data_dir: &Path, line: &str) {
+    let path = verdict_path(data_dir);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, line);
+}
+
+/// The last boot's verdict, or `None` when this install has never booted a build that wrote one.
+/// Never fails: a missing or unreadable file is `None`, never an error and never an empty string.
+pub fn last_verdict(data_dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(verdict_path(data_dir)).ok()?;
+    let t = text.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
+
 /// Begin a run: describe what the last one did, then claim the journal for this one.
 ///
 /// The order matters: the previous state must be READ before it is overwritten, and the
@@ -152,6 +186,8 @@ pub fn begin(data_dir: &Path) -> (Option<RunState>, String) {
     let previous = load(data_dir);
     let now = now_secs();
     let line = describe_previous(previous.as_ref(), now);
+    // Also persist it for the HTTP surface — see `verdict_path`.
+    save_verdict(data_dir, &line);
     save(
         data_dir,
         &RunState {
@@ -286,6 +322,27 @@ mod tests {
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
         assert!(line.contains("CRASHED or was killed"), "{line}");
         assert!(!line.contains("REPLACED"), "{line}");
+    }
+
+    #[test]
+    fn the_boot_verdict_survives_for_the_http_surface_to_read_back() {
+        // The product half of round 254's change: the line was computed and logged, and the only
+        // way to see it was to read logs/startup.log on the device. It is now readable too.
+        let dir = std::env::temp_dir().join(format!("vale-verdict-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(last_verdict(&dir), None, "no verdict before any boot");
+
+        let (_, line) = begin(&dir);
+        assert_eq!(
+            last_verdict(&dir).as_deref(),
+            Some(line.as_str()),
+            "the verdict begin() returns is the one a reader gets back",
+        );
+
+        // An empty file is `None`, not `Some("")` — a reader must not render a blank warning.
+        save_verdict(&dir, "   \n  ");
+        assert_eq!(last_verdict(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
