@@ -41,6 +41,7 @@ fn tool_list() -> ToolDef {
                             "id": t.id,
                             "host": t.host,
                             "port": t.port,
+                            "path": t.path,
                             "summary": crate::monitor::summary(&t.id),
                             "series": crate::monitor::series(&t.id, SERIES_TAIL),
                         })

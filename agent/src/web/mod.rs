@@ -3051,6 +3051,35 @@ mod tests {
             row["summary"]["probes"], 0,
             "no probes yet is not an error: {row}"
         );
+        // `path` is PRESENT AND NULL for a TCP target: the panel builds a row's name from host,
+        // port and path, and a snapshot that omitted the field made three different HTTP checks
+        // render as three identical names on d1. A component test cannot see a missing
+        // server-side field; this can.
+        assert!(
+            row.get("path").is_some(),
+            "the snapshot must carry the path field: {row}"
+        );
+        assert!(row["path"].is_null(), "{row}");
+
+        // …and a target WITH a path reports it, which is what makes two checks on one port two
+        // different rows.
+        let with_path = post(
+            "/api/monitors/add",
+            r#"{"host":"192.0.2.77","port":80,"path":"/health"}"#,
+        )
+        .await;
+        assert_eq!(with_path["target"]["path"], "/health", "{with_path}");
+        let snap = json_body(handle_request(req("GET", "/api/monitors"), state()).await).await;
+        let row = snap["targets"]
+            .as_array()
+            .expect("targets")
+            .iter()
+            .find(|r| r["id"] == "192.0.2.77:80/health")
+            .expect("the path-bearing row");
+        assert_eq!(row["path"], "/health", "{row}");
+        assert_ne!(row["id"], "192.0.2.77:80", "a path is part of the identity");
+        let _ = post("/api/monitors/remove", r#"{"id":"192.0.2.77:80/health"}"#).await;
+        let _ = post("/api/monitors/remove", r#"{"id":"192.0.2.77:80"}"#).await;
 
         // A form error is a REASON, not a code.
         let bad = post("/api/monitors/add", r#"{"host":"","port":22}"#).await;

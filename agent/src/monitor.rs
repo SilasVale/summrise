@@ -661,6 +661,10 @@ pub fn snapshot() -> Value {
                 "id": t.id,
                 "host": t.host,
                 "port": t.port,
+                // The PATH is part of what makes two targets different, so a row that omitted it
+                // would show three identical names for three different checks (the panel caught
+                // exactly that on d1: `127.0.0.1:18080` three times over).
+                "path": t.path,
                 "summary": summary(&t.id),
                 // The story, not just the shape: each entry is a state change with how long
                 // the state it ended had lasted (an outage, for an "up" entry).
