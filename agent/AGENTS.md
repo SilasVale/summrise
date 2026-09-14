@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 207 (**THE TAG'S TARGET IS DECIDED, AND THIS ROUND OBEYED ITS OWN RULE BY
+NOT PUSHING.** `v1.2.365` must move to the fix commit; the three facts that make that safe are measured;
+and the journal commit is deliberately LOCAL because `2325c3db`'s CI is still in flight).
+  (1) THE RULE FROM ROUND 206, APPLIED TO THIS ROUND RATHER THAN ONLY WRITTEN DOWN: "never push while a CI
+  run for the commit under test is in flight" — and `2325c3db`'s CI IS in flight (11 check-runs:
+  **4 success, 6 in_progress, 1 skipped, ZERO failure**). So this round's commit is NOT pushed. That is the
+  difference between a lesson recorded and a lesson kept, and rounds 201 and 205 are the two violations
+  that make it worth saying.
+  (2) THE THREE MEASURED FACTS THAT MAKE MOVING THE TAG SAFE, each checked rather than assumed: the fix
+  commit's `package.json` still reads **`1.2.365`** (read out of that commit, so `release.yml`'s version
+  guard would pass at the new position); the tag currently points at **`bc2d3d8e`**, which is genuinely red;
+  and **`releases/tags/v1.2.365` is still HTTP 404 — no release was ever created, so NOTHING external
+  depends on the tag's current position.** Moving a published tag is normally a rewrite; moving one that no
+  release was ever cut from is correcting a mistake, and the 404 is the fact that separates the two.
+  (3) SO ROUND 201'S RATIONALE IS NOW KNOWN TO HAVE BEEN INCOMPLETE IN A SPECIFIC WAY: it pinned
+  `bc2d3d8e` "because the tag does not have to be HEAD", which is true of `release.yml`'s version guard and
+  FALSE of its CI gate — the tag must point at a commit that is both version-correct AND green. Round 204
+  found the ci-gate half; this round finds that the fix must be applied to the TAG POSITION rather than to
+  the commit, because `bc2d3d8e` cannot be made green retroactively (its CI is what it is).
+  (4) THE EXACT NEXT ACTIONS, IN ORDER, SO THE NEXT ROUND DOES NOT RE-DERIVE THEM: (i) confirm `2325c3db`'s
+  CI is `completed/success` (all 11 check-runs green); (ii) push this journal commit — which also means its
+  own CI starts, and per the rule, nothing else may be pushed until that settles; (iii) `DELETE
+  /git/refs/tags/v1.2.365` then `POST /git/refs` with the same name and `sha=<the chosen commit>` — note
+  that step (ii) moves `main` forward, so the tag should be placed on a commit whose CI is green at the time
+  of placing, not necessarily `2325c3db` itself; (iv) the tag fires `release` again, and its gate will now
+  find green check-runs; (v) then round 203's corrected publish order (`publish-release.sh` first, then
+  `publish-cdn-from-ci.sh`) and the installer and device regression.
+  (5) STILL OPEN: all of (4); the installer (three versions behind, and the alias is the only one that
+  exists); the mirror test's manifest blind spot (round 199); `studio/` (round 197); the recurring second
+  failure's name under mutation; `models-probe.ts`'s remaining body;
+  `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 206 (**THE RELEASE GATE WAS RIGHT, AND THE REASON IS THE LOOP'S OWN
 INSTRUMENT: the gateway gate this journal has been quoting is ONE OF FOUR of CI's steps, and
 `format:check` had been red for ~38 rounds.** All four now pass). Commit: gateway/ + mirror + journal.
