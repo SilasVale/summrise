@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 249 (**`ARCHITECTURE.md`'s `plugins/` CONTRACT ROW CARRIED THE SAME OMISSION ROUND 184
+FOUND IN `registry.ts` — the same defect, in the second of the two places that enumerate that directory**).
+Commit: ARCHITECTURE.md + gateway/test/ + mirror + journal. gateway 873 = 872 + 1, four steps green.
+  (1) THE LEAD WAS ROUND 248's OWN NEXT STEP: that round swept the ONE mechanical table in `ARCHITECTURE.md`
+  (Test gates), so this one took the next — `Directory contracts (the placement rules)`, 12 rows of "this path
+  is the ONE owner of this concern". **The `gateway/src/plugins/` row is the checkable one, and round 217 had
+  already built half the instrument for it.**
+  (2) AND IT WAS WRONG IN TWO WAYS AT ONCE: the row said **"9 route plugins (admin/auth/device-proxy/devices/mcp/
+  model-route/registry/translate/translate-vision)"**. Measured, `plugins/` holds **TEN `.ts` files** —
+  **`models-probe.ts` is not in the list**, which is **exactly the omission round 184 found in `registry.ts`'s
+  header** and which round 217's `plugin-collaborators.test.mjs` now derives there; and the list calls
+  `device-proxy` and `model-route` **"route plugins"** when `index.ts` imports only six modules
+  (admin/auth/devices/mcp/registry/translate) and round 217 established those two as COLLABORATORS.
+  **Round 217's test covers the header; nothing read the row.** The row now reads "5 route plugins
+  (admin/auth/devices/mcp/translate) + the registry framework + 4 EXCLUSIVE collaborators (device-proxy→devices;
+  model-route/translate-vision→translate; models-probe→admin)".
+  (3) THE INSTRUMENT IS A THIRD ASSERTION IN `plugin-collaborators.test.mjs`, AND **IT FAILED THREE TIMES BEFORE IT
+  COULD FAIL ON ITS SUBJECT — which is this round's most valuable content.** v1: `collaboratorFiles()` returns a
+  **Set**, so `.concat()` produced `[Set(6), …]`, and its mention-regex required `/` or `)` after a name, so it
+  missed every `→` entry. v2: rewritten as "does the row mention X?", it **COULD NOT FAIL — deleting
+  `models-probe` from the list left the word present in the row's own correction note ABOUT that defect**, which is
+  round 215's exact defect ("a landed-check grepping a string still present in a comment") reproduced on the first
+  attempt, and **the mutation is what revealed it: the check stayed green while the contract lost a file.** v3:
+  reading only the parenthesised lists then missed `registry`, which the row names legitimately OUTSIDE them as
+  "the registry framework". **The final form strips the note and checks the whole contract cell, which is safe only
+  because the strip is verified — and the mutation is the defect itself: remove `models-probe→admin` from the
+  row and it goes red naming it.**
+  (4) SO THE PAIR IS NOW FULLY INSTRUMENTED: `registry.ts`'s header (round 217) and `ARCHITECTURE.md`'s row (this
+  round) are the two artifacts that enumerate `plugins/`, and both are read as data and compared against the
+  derived import graph. **That is round 184's lesson finally applied to both halves — "the claim, not the code,
+  was the thing out of date" — and it takes the count from one instrument to two.**
+  (5) AND THE ROUND-248 DRIFT PATTERN DID NOT REPEAT HERE: the scope tool still reads **284 of 360 (79%)** because
+  this round ADDED no file under an in-scope root (it edited two existing ones), which is the distinction round
+  248's headline records. STILL OPEN: the installer's signing decision (the user's call); ADR 0007 step 2's
+  assessment (the user's); the never-named to-read queue (38).
+
 Last updated: 2026-09-14 round 248 (**ALL SIX ROWS OF `ARCHITECTURE.md`'s TEST-GATE COUNTS WERE STALE — every
 one, after 222 rounds, in a table whose own text already documented an earlier unrepaired drift**). Commit:
 docs/ARCHITECTURE.md + journal.
