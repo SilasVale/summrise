@@ -321,8 +321,11 @@ export function parseTargetArg(arg) {
  * Escaping every non-ASCII character as \uXXXX makes the body pure ASCII, which no code page can
  * mangle, and `JSON.parse` on the device restores the original text exactly.
  */
-export function asciiJson(value) {
-    return JSON.stringify(value).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+export function asciiJson(value, indent?) {
+    return JSON.stringify(value, null, indent).replace(
+        /[\u007f-\uffff]/g,
+        (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
+    );
 }
 
 // The device's own API on loopback, with the token from etc\config.yaml.

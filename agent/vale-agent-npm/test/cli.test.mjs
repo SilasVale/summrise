@@ -1751,4 +1751,12 @@ test("asciiJson: text that goes through a command line must survive it", () => {
   assert.deepEqual(JSON.parse(asciiJson({ t: "中文 / 日本語 / émoji 🚀" })), { t: "中文 / 日本語 / émoji 🚀" });
   // 4. An empty body stays empty (no stray braces).
   assert.equal(asciiJson({}), "{}");
+  // 5. The same rule serves the OUTPUT side: a pipe is an encoding boundary too (PowerShell decodes
+  //    a child's stdout with the console code page, which turned piped `--json` into mojibake on d1
+  //    while the same text printed directly read fine).
+  const out = asciiJson({ device: "d1", targets: [{ note: { text: "我重启的 — ok 🚀" } }] }, 2);
+  // eslint-disable-next-line no-control-regex
+  assert.doesNotMatch(out, /[\u0080-\uffff]/);
+  assert.equal(JSON.parse(out).targets[0].note.text, "我重启的 — ok 🚀");
+  assert.match(out, /\n  "device"/, "the indent is kept, so a human can still read it");
 });
