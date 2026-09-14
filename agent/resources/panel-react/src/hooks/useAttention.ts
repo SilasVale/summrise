@@ -11,7 +11,15 @@
 // origin by the browser and the toggle in Settings is what asks; this hook only READS it, so a page
 // that has never asked shows the title/badge channels and nothing else.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { attentionFrom, badgeIcon, stateKey, titleFor, BASE_TITLE, type AttentionItem } from "../lib/attention";
+import {
+  attentionFrom,
+  badgeIcon,
+  shouldNotify,
+  stateKey,
+  titleFor,
+  BASE_TITLE,
+  type AttentionItem,
+} from "../lib/attention";
 import {
   DeviceNotifier,
   readPermission,
@@ -118,8 +126,10 @@ export function useAttentionNotifications(
   }, [items]);
 
   // The poll's view of the world (a host that is down, an AI waiting).
+  // One event, one channel: while the tab is VISIBLE the banner says it (see `shouldNotify`), so
+  // an OS notification here would interrupt somebody who is already looking at the answer.
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !shouldNotify(document.visibilityState)) return;
     for (const item of items) {
       notifier.current?.notify(
         {
@@ -136,6 +146,8 @@ export function useAttentionNotifications(
   useEffect(() => {
     if (!enabled) return;
     const onFrame = (e: Event) => {
+      // The device's push obeys the same rule as the poll: hidden tab, or nothing.
+      if (!shouldNotify(document.visibilityState)) return;
       const change = parseMonitorChange((e as CustomEvent).detail);
       if (!change) return;
       const body = change.up

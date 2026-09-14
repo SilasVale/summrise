@@ -27,6 +27,30 @@ export function stateKey(id: string, sinceMs: number | null | undefined): string
   return `state:${id}:${sinceMs ?? 0}`;
 }
 
+/**
+ * WHICH CHANNEL SPEAKS — the rule that keeps one event from arriving four times.
+ *
+ * This panel ended up with four ways to say the same thing: an in-page banner, the strip's chip,
+ * a count in the tab title, and a desktop notification. A watched host going down set off all
+ * four at once, which is how a signal becomes noise.
+ *
+ * The rule: **the page speaks when you are looking at it, the OS speaks when you are not.**
+ *
+ *   * tab VISIBLE  → the banner (and the chip, and the title): everything is on screen, so an OS
+ *     notification would interrupt somebody who is already reading the answer.
+ *   * tab HIDDEN   → the desktop notification, plus the title/badge for the moment you come back.
+ *     The banner is not even rendered: nobody is there to see it.
+ *
+ * The chip and the title are NOT part of the choice — they are state, not interruption, and they
+ * cost nothing. Only the two INTERRUPTING channels are mutually exclusive.
+ */
+export function shouldNotify(visibility: string | undefined | null): boolean {
+    // No visibility API (a test environment, an old browser) counts as HIDDEN: a notification that
+    // fires when it need not is a smaller failure than one that never fires when it must.
+    if (!visibility) return true;
+    return visibility !== "visible";
+}
+
 export interface AttentionItem {
   /** Stable across renders: what makes one item the same item. */
   key: string;

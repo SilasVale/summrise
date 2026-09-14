@@ -10,10 +10,13 @@
 //     distrust the whole panel.
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
+import { useAttentionNotifications } from "../hooks/useAttention";
 import {
   attentionFrom,
   attentionSummary,
   badgeIcon,
+  shouldNotify,
   stateKey,
   titleFor,
   BASE_TITLE,
@@ -73,6 +76,21 @@ describe("what needs a person", () => {
     expect(attentionFrom(monitors([]), 1)[0].text).toBe("An AI is waiting for your approval");
     expect(attentionFrom(monitors([]), 3)[0].text).toBe("3 AIs are waiting for your approval");
     expect(attentionFrom(monitors([]), 2)[0].key).toBe("approval:2");
+  });
+});
+
+describe("one event, one channel", () => {
+  it("the page speaks while you look at it, the OS speaks when you do not", () => {
+    // Visible: the banner says it; an OS notification would interrupt somebody already reading it.
+    expect(shouldNotify("visible")).toBe(false);
+    // Hidden: the notification is the only channel that can reach them.
+    expect(shouldNotify("hidden")).toBe(true);
+    expect(shouldNotify("prerender")).toBe(true);
+    // No visibility API at all counts as hidden: a notification that fires when it need not is a
+    // smaller failure than one that never fires when it must.
+    expect(shouldNotify(undefined)).toBe(true);
+    expect(shouldNotify(null)).toBe(true);
+    expect(shouldNotify("")).toBe(true);
   });
 });
 
@@ -263,5 +281,45 @@ describe("humanMs", () => {
     expect(humanMs(60_000)).toBe("1m");
     expect(humanMs(135_000)).toBe("2m 15s");
     expect(humanMs(3_900_000)).toBe("1h 05m");
+  });
+});
+
+
+describe("useAttentionNotifications and the tab's visibility", () => {
+  const notifierCtor = () => {
+    const sent: { title: string; body?: string }[] = [];
+    const C = function (this: unknown, title: string, opts?: { body?: string }) {
+      sent.push({ title, ...opts });
+      return { close() {} };
+    } as unknown as new (t: string, o?: { body?: string }) => NotificationLike;
+    return { sent, C };
+  };
+
+  it("does not notify while the tab is visible, and does when it is hidden", async () => {
+    const { sent, C } = notifierCtor();
+    const original = Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState");
+    const setVisibility = (v: string) =>
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v });
+    const items = [{ key: "down:a:22", kind: "down" as const, text: "a:22 is down" }];
+
+    // A REAL notifier instance, driven through the hook's own path: install the spy ctor so
+    // `DeviceNotifier` picks it up.
+    const RealNotification = (globalThis as any).Notification;
+    (globalThis as any).Notification = C;
+    try {
+      setVisibility("visible");
+      const { unmount } = renderHook(() => useAttentionNotifications(items, "granted", true));
+      expect(sent, "nothing interrupts a tab you are looking at").toHaveLength(0);
+      unmount();
+
+      setVisibility("hidden");
+      renderHook(() => useAttentionNotifications(items, "granted", true));
+      await waitFor(() => expect(sent.length).toBe(1));
+      expect(sent[0].body).toBe("a:22 is down");
+    } finally {
+      (globalThis as any).Notification = RealNotification;
+      if (original) Object.defineProperty(Document.prototype, "visibilityState", original);
+      else delete (document as any).visibilityState;
+    }
   });
 });

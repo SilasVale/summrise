@@ -14,8 +14,13 @@
 // and it sits above the workspace instead of over it — a console session underneath keeps its
 // keystrokes.
 import { fmtSince, type MonitorAlert } from "../hooks/useMonitors";
+import { shouldNotify } from "../lib/attention";
 
 export function MonitorAlerts({ alerts }: { alerts: MonitorAlert[] }) {
+  // THE VISIBLE-TAB CHANNEL (see `shouldNotify`): while the tab is hidden the desktop
+  // notification carries the same event, and this renders nothing — nobody is here to read it, and
+  // the chip still holds the state for when they come back.
+  if (typeof document !== "undefined" && !shouldNotify(document.visibilityState)) return null;
   if (alerts.length === 0) return null;
   return (
     <div className="monitor-alerts" role="status" aria-live="polite">
