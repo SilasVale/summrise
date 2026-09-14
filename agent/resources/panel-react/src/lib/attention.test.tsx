@@ -38,6 +38,7 @@ const target = (id: string, upNow: boolean | null) => ({
   port: Number(id.split(":")[1]) || 22,
   path: null,
   expect: null,
+  note: null,
   series: [],
   transitions: [],
   summary: {

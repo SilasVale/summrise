@@ -21,7 +21,13 @@ use vale_agent_core::{DeviceError, ToolDef};
 const SERIES_TAIL: usize = 60;
 
 pub fn build() -> Vec<ToolDef> {
-    vec![tool_list(), tool_add(), tool_remove(), tool_probe()]
+    vec![
+        tool_list(),
+        tool_add(),
+        tool_remove(),
+        tool_probe(),
+        tool_note(),
+    ]
 }
 
 fn tool_list() -> ToolDef {
@@ -162,6 +168,33 @@ fn tool_probe() -> ToolDef {
                     None => Err(DeviceError::InvalidParams {
                         message: format!("not watching {id} — monitor_list shows what is"),
                     }),
+                }
+            }
+        },
+    )
+}
+
+fn tool_note() -> ToolDef {
+    ToolDef::new(
+        "monitor_note",
+        "Attach the operator's own explanation to a watched target's CURRENT state — \"I rebooted it\", \"maintenance window\", \"the uplink was cut\" — or clear it by passing an empty `text`. \
+         WHY: the device records what it SAW (a transition, a status, a duration) and cannot record WHY, so an intentional reboot and a fault look identical in the log. A note writes the human's reason next to the machine's observation, and it appears wherever the target does: this list, the panel row, and `vale report`. \
+         The note explains a MOMENT, not a configuration: it is not written to the persisted target list, so an agent restart cannot resurrect a note that has stopped being true. A new note replaces the old one. Annotating something this device is not watching is refused by name.",
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "The target id from monitor_list (\"host:port\")."},
+                "text": {"type": "string", "description": "One line explaining the current state (max 200 chars). Empty clears the note."}
+            },
+            "required": ["id", "text"]
+        }),
+        move |params: Value| {
+            async move {
+                let id = require_str(&params, "id")?;
+                let text = params.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                match crate::monitor::set_note(&id, text) {
+                    Ok(note) => Ok(json!({"ok": true, "note": note})),
+                    Err(reason) => Err(DeviceError::InvalidParams { message: reason }),
                 }
             }
         },

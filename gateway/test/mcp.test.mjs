@@ -35,7 +35,9 @@ test("mcp tools: all tools take a device param", () => {
   // (round 262): the device had watched host:port targets since round 261 with
   // the AI unable to see any of it, which is the same "unlisted = uncalled"
   // shape one family over.
-  assert.equal(tools.length, 39);
+  // 39 -> 40 when `monitor_note` was registered (the operator's own words next to the
+  // device's observation — an intentional reboot stops looking like a fault).
+  assert.equal(tools.length, 40);
   for (const t of tools) {
     assert.equal(t.inputSchema.type, "object");
     assert.ok(t.inputSchema.properties.device, `${t.name} must take device`);

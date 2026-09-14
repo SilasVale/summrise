@@ -490,6 +490,8 @@ function reportText({ status, monitors, sessions, boots, nowMs, cliVersion, host
                     out.push("  " + l.trim());
                 // THE JOIN: what the console printed just before it dropped. Absent when nothing was
                 // printed in the window, or when the trail could not be read — never invented.
+                if (t.note && t.note.text)
+                    out.push(`         note: ${t.note.text}`);
                 const near = consoleNear && consoleNear[t.id];
                 if (near && near.line) {
                     const at = new Date(near.tsMs);
@@ -539,7 +541,9 @@ function targetLine(t, nowMs, width = 30) {
     const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
     const pct = s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
     const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
-    return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}`;
+    // The operator's own words belong on the line they explain, not in a separate view.
+    const note = t.note && t.note.text ? `  — ${t.note.text}` : "";
+    return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
 }
 // ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
 // `vale monitor list --json` and `vale watch --once --json` print the DEVICE'S OWN ANSWER,
@@ -573,6 +577,8 @@ function monitorsJson({ device, askedAtMs, payload, only }) {
         last_status: t.summary && t.summary.last_status !== undefined ? t.summary.last_status : null,
         last_expect_ok: t.summary && t.summary.last_expect_ok !== undefined ? t.summary.last_expect_ok : null,
         probes: t.summary && t.summary.probes !== undefined ? t.summary.probes : null,
+        // The operator's explanation, if one is attached to the current state.
+        note: t.note ? { text: t.note.text, at_ms: t.note.at_ms } : null,
         transitions: (t.transitions || []).map((x) => ({ at_ms: x.at_ms, up: x.up, lasted_ms: x.lasted_ms })),
     }));
     return {
@@ -1739,6 +1745,28 @@ const commands = {
             console.log(r.body && r.body.removed ? `stopped watching ${t.id}` : `monitor rm: ${t.id} was not being watched`);
             return;
         }
+        if (sub === "note") {
+            // The operator's own words about the current state. The device records what it SAW; only
+            // a person can record WHY, and without it an intentional reboot reads as a fault.
+            const t = parseTargetArg(positional[0]);
+            const text = positional.slice(1).join(" ").trim();
+            if (!t) {
+                console.error('usage: vale monitor note <host:port[/path]> "<what happened>"   (empty text clears it)');
+                process.exit(1);
+            }
+            const r = deviceApi("POST", "/api/monitors/note", { id: t.id, text });
+            if (!r.ok) {
+                console.error(`monitor note: ${r.error}`);
+                process.exit(1);
+            }
+            if (r.body && r.body.ok === false) {
+                console.error(`monitor note: ${r.body.error}`);
+                process.exit(1);
+            }
+            const note = r.body && r.body.note;
+            console.log(note ? `noted on ${t.id}: ${note.text}` : `note cleared on ${t.id}`);
+            return;
+        }
         if (sub === "probe") {
             // CHECK NOW. The device probes every 15 s on its own timer; this is for the moment after
             // a reboot or a config change, when waiting one cycle is the difference between "it is
@@ -1770,7 +1798,7 @@ const commands = {
             return;
         }
         if (sub !== "list") {
-            console.error("usage: vale monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | rm <host:port[/path]>]");
+            console.error("usage: vale monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | note <host:port[/path]> \"text\" | rm <host:port[/path]>]");
             process.exit(1);
         }
         const r = deviceApi("GET", "/api/monitors");

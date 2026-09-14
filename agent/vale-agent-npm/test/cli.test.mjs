@@ -1661,6 +1661,7 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
     last_status: null,
     last_expect_ok: null,
     probes: 12,
+    note: null, // no note attached: null, never a missing key
     transitions: [{ at_ms: 100, up: true, lasted_ms: 39_000 }],
   });
   assert.equal(all.targets[1].last_expect_ok, false);
@@ -1681,4 +1682,54 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
   assert.equal(unknown.targets[0].transitions.length, 0);
   // A payload with no targets at all is an empty list, not a crash.
   assert.deepEqual(monitorsJson({ device: "d1", askedAtMs: 1, payload: null }).targets, []);
+});
+
+
+test("the operator's note rides on the line it explains", () => {
+  const now = 1_789_000_000_000;
+  // A DOWN line with the human's reason: without it an intentional reboot reads as a fault.
+  const line = targetLine(
+    { id: "h:22", note: { text: "I rebooted it", at_ms: now - 5000 }, summary: { up_now: false, since_ms: now - 4000, drops: 1 } },
+    now,
+  );
+  assert.match(line, /^DOWN/);
+  assert.match(line, /— I rebooted it$/);
+  // No note: nothing appended (not an em dash with nothing after it).
+  const bare = targetLine({ id: "h:22", summary: { up_now: true, since_ms: now - 1000 } }, now);
+  assert.doesNotMatch(bare, /—/);
+  // And the JSON carries it as data, with its stamp.
+  const j = monitorsJson({
+    device: "d1",
+    askedAtMs: now,
+    payload: { targets: [{ id: "h:22", host: "h", port: 22, note: { text: "I rebooted it", at_ms: now - 5000 }, summary: { up_now: false } }] },
+    only: null,
+  });
+  assert.deepEqual(j.targets[0].note, { text: "I rebooted it", at_ms: now - 5000 });
+  assert.equal(
+    monitorsJson({ device: "d1", askedAtMs: now, payload: { targets: [{ id: "h:22", host: "h", port: 22, summary: {} }] }, only: null })
+      .targets[0].note,
+    null,
+    "no note is null, never a missing key",
+  );
+});
+
+test("reportText: a DOWN target shows the note above the console line", () => {
+  const now = new Date(2026, 8, 15, 1, 40, 0).getTime();
+  const text = reportText({
+    status: { ok: true, release: "1.2.392", uptime_secs: 60 },
+    monitors: {
+      interval_secs: 15,
+      targets: [
+        {
+          id: "h:22",
+          note: { text: "I rebooted it", at_ms: now - 90_000 },
+          summary: { up_now: false, since_ms: now - 60_000, drops: 1, up_pct: 50, latency: null, last_status: null },
+          transitions: [{ at_ms: now - 60_000, up: false, lasted_ms: 39_000 }],
+        },
+      ],
+    },
+    sessions: null, boots: null, nowMs: now, cliVersion: "1.2.392", hostLabel: "d1",
+  }).join("\n");
+  assert.match(text, /went down\s+\(previous state lasted 39s\)/);
+  assert.match(text, /note: I rebooted it/);
 });

@@ -157,6 +157,18 @@
     "required": []
   },
   {
+    "name": "monitor_note",
+    "params": [
+      "id",
+      "text"
+    ],
+    "plugin": "monitor",
+    "required": [
+      "id",
+      "text"
+    ]
+  },
+  {
     "name": "monitor_probe",
     "params": [
       "id"

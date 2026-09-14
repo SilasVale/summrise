@@ -816,6 +816,8 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
             // One probe, now — the panel's "check now" (a target that was just added, or an
             // operator who does not want to wait 15 s for the first reading).
             ("POST", "/api/monitors/probe") => api_monitor_probe(body_str).await,
+            // The operator's own words about the current state (see monitor::set_note).
+            ("POST", "/api/monitors/note") => api_monitor_note(body_str),
             // Control handoff (design §D5). MUST be matched before any broader
             // /api/sessions POST arm; the `.ends_with` also keeps it from
             // swallowing a future sibling action on the same collection.
@@ -1451,6 +1453,20 @@ fn api_monitor_remove(body: &str) -> serde_json::Value {
     // HONEST ABOUT WHAT HAPPENED: removing something that was not watched is reported as such
     // rather than as a success (the panel then refreshes to the truth either way).
     serde_json::json!({"ok": true, "removed": crate::monitor::remove_target(&crate::paths::data_dir(), id)})
+}
+
+fn api_monitor_note(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let Some(id) = v.get("id").and_then(|i| i.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "an id is required", "code": "invalid_params"});
+    };
+    let text = v.get("text").and_then(|t| t.as_str()).unwrap_or("");
+    match crate::monitor::set_note(id, text) {
+        Ok(note) => serde_json::json!({"ok": true, "note": note}),
+        // The reason is written for a person and is passed through.
+        Err(reason) => serde_json::json!({"ok": false, "error": reason, "code": "invalid_params"}),
+    }
 }
 
 async fn api_monitor_probe(body: &str) -> serde_json::Value {
@@ -3501,6 +3517,7 @@ mod tests {
             ("POST", "/api/monitors/add"),
             ("POST", "/api/monitors/remove"),
             ("POST", "/api/monitors/probe"),
+            ("POST", "/api/monitors/note"),
             ("GET", "/api/events/poll"),
             ("GET", "/api/settings"),
             ("PUT", "/api/settings"),
