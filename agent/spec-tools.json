@@ -140,6 +140,7 @@
     "name": "monitor_add",
     "params": [
       "host",
+      "path",
       "port"
     ],
     "plugin": "monitor",

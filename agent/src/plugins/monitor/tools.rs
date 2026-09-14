@@ -28,7 +28,7 @@ fn tool_list() -> ToolDef {
     ToolDef::new(
         "monitor_list",
         "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. \
-         The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, and `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it). \
+         The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it), and `last_status` (the HTTP status code, for a target watched with a path). \
          The series is oldest-first; a probe with `ok: false` carries NO latency (nothing was measured) and a GAP in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE), which is the form a person writes into a report. \
          The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
         json!({"type": "object", "properties": {}}),
@@ -62,12 +62,13 @@ fn tool_add() -> ToolDef {
         "Start watching a host:port on this device and leave the watch in place. \
          The list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards — add one when something you are about to touch must be seen coming back. \
          The probe is a TCP connect: a REFUSED connection counts as down (the service is not there), which is the question this instrument answers. \
-         Adding the same host:port twice is idempotent — it is the same watch, not a second one. A port is required: name the SERVICE (22 for SSH, 80 for a web UI), because guessing it would probe the wrong thing and report it as fact.",
+         Adding the same host:port (and path) twice is idempotent — it is the same watch, not a second one. A port is required: name the SERVICE (22 for SSH, 80 for a web UI), because guessing it would probe the wrong thing and report it as fact.          `path` turns the check into a real HTTP GET of that path (\"/\" for a UI's front page, \"/api/health\" for a health endpoint): the probe then records the STATUS CODE, and `ok` means a response arrived with a status below 500 — so a UI answering 500 is DOWN while one answering 401 is UP (it wants credentials, and it is serving). Without a path the probe is a bare TCP connect, which cannot tell those apart. HTTP only: a TLS check needs a certificate story this instrument does not have.",
         json!({
             "type": "object",
             "properties": {
                 "host": {"type": "string", "description": "IP address or name, e.g. \"192.168.1.1\"."},
-                "port": {"type": "integer", "description": "TCP port to connect to, 1-65535."}
+                "port": {"type": "integer", "description": "TCP port to connect to, 1-65535."},
+                "path": {"type": "string", "description": "Optional HTTP path to GET, e.g. \"/\" or \"/api/health\". Omit for a plain TCP connect check."}
             },
             "required": ["host", "port"]
         }),
@@ -85,7 +86,8 @@ fn tool_add() -> ToolDef {
                         message: format!("{port} is not a port"),
                     });
                 }
-                match crate::monitor::add_target(&crate::paths::data_dir(), &host, port as u16) {
+                let path = params.get("path").and_then(|p| p.as_str()).unwrap_or("");
+                match crate::monitor::add_target_with_path(&crate::paths::data_dir(), &host, port as u16, path) {
                     Ok(t) => Ok(json!({
                         "ok": true,
                         "target": t,

@@ -30,6 +30,8 @@ export interface MonitorSummary {
    *  whether that state is current. */
   drops: number | null;
   latency: { min: number; avg: number; max: number } | null;
+  /** The last HTTP status code, for a target watched with a path (null otherwise). */
+  lastStatus: number | null;
 }
 
 /** ONE STATE CHANGE, as the device records it: when it happened, which state took effect, and
@@ -44,6 +46,8 @@ export interface MonitorTarget {
   id: string;
   host: string;
   port: number;
+  /** The HTTP path this target is checked with, or null for a plain TCP connect. */
+  path: string | null;
   summary: MonitorSummary;
   /** Newest last; the card shows them newest-first. */
   transitions: MonitorTransition[];
@@ -91,6 +95,7 @@ export function parseMonitors(j: unknown): Monitors {
         id,
         host: str(r.host),
         port: num(r.port) ?? 0,
+        path: r.path === null || r.path === undefined ? null : str(r.path) || null,
         transitions,
         series,
         summary: {
@@ -104,6 +109,7 @@ export function parseMonitors(j: unknown): Monitors {
           latency: lat
             ? { min: num(lat.min) ?? 0, avg: num(lat.avg) ?? 0, max: num(lat.max) ?? 0 }
             : null,
+          lastStatus: num(s.last_status),
         },
       },
     ];
@@ -120,7 +126,7 @@ export function parseMonitors(j: unknown): Monitors {
 export function useMonitors(intervalMs = 20_000): Monitors & {
   failed: boolean;
   refresh: () => Promise<void>;
-  add: (host: string, port: number) => Promise<{ ok: boolean; error?: string }>;
+  add: (host: string, port: number, path?: string) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
   probe: (id: string) => Promise<void>;
 } {
@@ -151,12 +157,12 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
   }, []);
 
   const add = useCallback(
-    async (host: string, port: number) => {
+    async (host: string, port: number, path = "") => {
       try {
         const j = await callApi("/api/monitors/add", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ host, port }),
+          body: JSON.stringify({ host, port, path }),
         });
         if (j?.ok !== true) return { ok: false, error: str(j?.error) || "the device refused it" };
         // Probe immediately: a target that shows "no readings yet" for 15 s after being added
@@ -227,6 +233,8 @@ export interface MonitorAlert {
   up: boolean;
   lastedMs: number;
   atMs: number;
+  /** The HTTP status behind the verdict, when the target is watched with a path. */
+  status: number | null;
 }
 
 /** Read one `monitor-change` frame. A frame this build cannot use is null — never a thrown
@@ -245,6 +253,7 @@ export function parseMonitorChange(detail: unknown): MonitorAlert | null {
     up: d.up === true,
     lastedMs: num(d.lasted_ms) ?? 0,
     atMs,
+    status: num(d.status),
   };
 }
 

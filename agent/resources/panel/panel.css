@@ -1662,6 +1662,18 @@ code {
 .monitor-facts { display: flex; gap: 8px; font: 400 11px var(--font-mono); color: var(--chrome-ink-dim); }
 .monitor-fact-down { color: var(--danger-on-soft); }
 .monitor-add { display: flex; gap: 6px; align-items: center; }
+.monitor-path { flex: 1; min-width: 120px; }
+/* THE STATUS NUMBER, shown even when the target is up: "404 up" and "200 up" are different facts
+   about one service, and hiding the number would make the verdict unfalsifiable. A 5xx is the
+   only case that gets the warn ink, because that is the one the verdict already calls down. */
+.monitor-status {
+  font: 400 11px var(--font-mono);
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--chrome-ink-dim);
+}
+.monitor-status.is-bad { color: var(--danger-on-soft); border-color: var(--danger-on-soft); }
 .monitor-add input {
   padding: 4px 8px;
   border: 1px solid var(--line);

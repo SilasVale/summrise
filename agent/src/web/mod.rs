@@ -1387,7 +1387,7 @@ async fn api_update(state: &AppState) -> serde_json::Value {
 /// The monitor form's body: `{"host": "...", "port": 22}`. A missing or non-numeric port is a
 /// form error, not a silent default — the operator is naming a SERVICE, and guessing which one
 /// would probe the wrong thing and report it as fact.
-fn monitor_form(body: &str) -> Result<(String, u16), serde_json::Value> {
+fn monitor_form(body: &str) -> Result<(String, u16, String), serde_json::Value> {
     let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
         .map_err(|e| serde_json::json!({"ok": false, "error": format!("invalid JSON body: {e}"), "code": "invalid_params"}))?;
     let host = v
@@ -1405,14 +1405,26 @@ fn monitor_form(body: &str) -> Result<(String, u16), serde_json::Value> {
             serde_json::json!({"ok": false, "error": format!("{port} is not a port"), "code": "invalid_params"}),
         );
     }
-    Ok((host, port as u16))
+    // An HTTP path turns the check into a real GET (see `monitor::probe_http`); absent means the
+    // TCP probe this instrument started as.
+    let path = v
+        .get("path")
+        .and_then(|p| p.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok((host, port as u16, path))
 }
 
 fn api_monitor_add(body: &str) -> serde_json::Value {
     match monitor_form(body) {
         Err(e) => e,
-        Ok((host, port)) => {
-            match crate::monitor::add_target(&crate::paths::data_dir(), &host, port) {
+        Ok((host, port, path)) => {
+            match crate::monitor::add_target_with_path(
+                &crate::paths::data_dir(),
+                &host,
+                port,
+                &path,
+            ) {
                 Ok(t) => serde_json::json!({"ok": true, "target": t}),
                 // The reason goes to the operator verbatim: it is written for a form.
                 Err(reason) => {

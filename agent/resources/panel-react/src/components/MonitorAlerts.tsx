@@ -30,11 +30,15 @@ export function MonitorAlerts({ alerts }: { alerts: MonitorAlert[] }) {
               <>
                 {" "}
                 is back up after {fmtSince(a.lastedMs)} down
+                {a.status !== null ? ` (HTTP ${a.status})` : ""}
               </>
             ) : (
               <>
                 {" "}
                 is DOWN — it had been up {fmtSince(a.lastedMs)}
+                {/* "is DOWN" and "is DOWN, answering 500" are different sentences, and the
+                    second is the one that tells an operator where to look. */}
+                {a.status !== null ? ` (HTTP ${a.status})` : ""}
               </>
             )}
           </span>

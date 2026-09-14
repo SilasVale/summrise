@@ -719,19 +719,24 @@ const MONITOR_TOOLS: McpTool[] = [
   {
     name: "monitor_list",
     description:
-      "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries `up_now`, `since_ms` (when the CURRENT state began), `up_pct`, the latency range and `drops` (how many times it fell from up to down in this window). The series is oldest-first; a probe with `ok: false` carries NO latency, and a gap in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE). The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
+      "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries `up_now`, `since_ms` (when the CURRENT state began), `up_pct`, the latency range, `drops` and `last_status` (the HTTP status code, for a target watched with a path) (how many times it fell from up to down in this window). The series is oldest-first; a probe with `ok: false` carries NO latency, and a gap in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE). The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
     inputSchema: { type: "object", properties: { ...DEVICE_PARAM }, required: [] },
   },
   {
     name: "monitor_add",
     description:
-      "Start watching a host:port on this device and leave the watch in place — the list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards. Add one when something you are about to touch must be seen coming back. The probe is a TCP connect: a REFUSED connection counts as down. Adding the same host:port twice is idempotent. Name the SERVICE (22 for SSH, 80 for a web UI) — guessing a port would probe the wrong thing and report it as fact.",
+      "Start watching a host:port on this device and leave the watch in place — the list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards. Add one when something you are about to touch must be seen coming back. Without a path the probe is a TCP connect (a REFUSED connection counts as down); with `path` it is a real HTTP GET and the status code is recorded, where `ok` means a response arrived with a status below 500 — so a UI answering 500 is DOWN while one answering 401 is UP. HTTP only. Adding the same host:port (and path) twice is idempotent. Name the SERVICE (22 for SSH, 80 for a web UI) — guessing a port would probe the wrong thing and report it as fact.",
     inputSchema: {
       type: "object",
       properties: {
         ...DEVICE_PARAM,
         host: { type: "string", description: 'IP address or name, e.g. "192.168.1.1".' },
         port: { type: "integer", description: "TCP port to connect to, 1-65535." },
+        path: {
+          type: "string",
+          description:
+            'Optional HTTP path to GET, e.g. "/" or "/api/health". Omit for a plain TCP connect check.',
+        },
       },
       required: ["host", "port"],
     },

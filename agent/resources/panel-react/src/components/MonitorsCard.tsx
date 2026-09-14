@@ -42,7 +42,10 @@ function TargetRow({
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
 }) {
-  const { summary, series, transitions } = target;
+  const { summary, series, transitions, path: httpPath } = target;
+  // The URL an HTTP check is actually asking, which is the thing an operator copies into a browser
+  // when the device says it is down.
+  const subject = `${target.host}:${target.port}${httpPath ?? ""}`;
   const down = summary.upNow === false;
   const up = summary.upNow === true;
   const state = up ? "up" : down ? "down" : "unknown";
@@ -52,8 +55,9 @@ function TargetRow({
   const latency = series.map((p) => (p.ok ? p.ms : null));
   const label =
     summary.probes === 0
-      ? `${target.host}:${target.port} — no readings yet`
-      : `${target.host}:${target.port} is ${state}` +
+      ? `${subject} — no readings yet`
+      : `${subject} is ${state}` +
+        (summary.lastStatus !== null ? ` (HTTP ${summary.lastStatus})` : "") +
         (summary.latency ? `, ${summary.latency.avg} ms average` : "") +
         `, ${summary.up} of ${summary.probes} probes answered`;
 
@@ -61,9 +65,14 @@ function TargetRow({
     <li className="monitor-row" data-state={state} title={label}>
       <div className="monitor-head">
         <span className={`monitor-dot ${state}`} aria-hidden="true" />
-        <span className="monitor-name">
-          {target.host}:{target.port}
-        </span>
+        <span className="monitor-name">{subject}</span>
+        {summary.lastStatus !== null && (
+          // The status is shown EVEN WHEN UP, because `404 up` and `200 up` are different facts
+          // about the same service, and hiding the number would make the verdict unfalsifiable.
+          <span className={`monitor-status ${summary.lastStatus >= 500 ? "is-bad" : ""}`}>
+            HTTP {summary.lastStatus}
+          </span>
+        )}
         <span className={`monitor-state ${state}`}>
           {up ? "up" : down ? `down ${fmtSince(sinceMs)}` : "no readings"}
         </span>
@@ -151,13 +160,14 @@ export function MonitorsCard({
 }: {
   monitors: Monitors;
   failed?: boolean;
-  onAdd: (host: string, port: number) => Promise<{ ok: boolean; error?: string }>;
+  onAdd: (host: string, port: number, path?: string) => Promise<{ ok: boolean; error?: string }>;
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
   nowMs?: number;
 }) {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
+  const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -165,7 +175,7 @@ export function MonitorsCard({
     setBusy(true);
     setError("");
     const n = Number(port);
-    const res = await onAdd(host, Number.isFinite(n) ? n : 0);
+    const res = await onAdd(host, Number.isFinite(n) ? n : 0, path);
     setBusy(false);
     // The device's reason is shown VERBATIM: it is written for this form ("a host is required",
     // "a port is required…"), and paraphrasing it here would be a second, worse copy.
@@ -228,6 +238,17 @@ export function MonitorsCard({
               placeholder="22"
               value={port}
               onChange={(e) => setPort(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void submit()}
+            />
+            {/* OPTIONAL PATH: filling it in turns the check into a real HTTP GET and gives the
+                row a status code — the difference between "the port answers" and "the UI works". */}
+            <input
+              aria-label="path"
+              className="monitor-path"
+              placeholder="/ (optional HTTP path)"
+              title="Optional: GET this path and record the status code instead of only connecting to the port"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
             />
             <button type="button" className="btn" disabled={busy} onClick={() => void submit()}>

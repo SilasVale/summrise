@@ -53,6 +53,11 @@ pub struct Target {
     pub id: String,
     pub host: String,
     pub port: u16,
+    /// WHEN SET, THE PROBE IS AN HTTP GET OF THIS PATH instead of a bare TCP connect — because a
+    /// TCP connect cannot tell an operator the difference between a web UI that is DOWN and one
+    /// that is ANSWERING 500, and that difference was the whole reason somebody was staring at it.
+    /// The path is stored as given (starting with `/`); `None` means the original TCP probe.
+    pub path: Option<String>,
 }
 
 /// One probe: WHEN, whether it answered, and how long it took when it did.
@@ -60,9 +65,12 @@ pub struct Target {
 pub struct Probe {
     pub ts_ms: u64,
     pub ok: bool,
-    /// Connect time in milliseconds; `None` for a failed probe — a latency for a connection
-    /// that never happened would be a fabricated measurement.
+    /// Time to connect (TCP) or to the response (HTTP), in milliseconds; `None` for a failed probe
+    /// — a latency for a connection that never happened would be a fabricated measurement.
     pub ms: Option<u64>,
+    /// THE HTTP STATUS, when this probe was an HTTP one and a response arrived. `None` for a TCP
+    /// probe and for a transport failure — and the two are told apart by `path`, not by guessing.
+    pub status: Option<u16>,
 }
 
 struct Watch {
@@ -134,7 +142,20 @@ pub fn parse_targets(text: &str) -> Vec<Target> {
             if host.is_empty() || port == 0 || id.is_empty() {
                 return None;
             }
-            Some(Target { id, host, port })
+            // Absent or empty means the TCP probe — the shape every target had before paths
+            // existed, so an older persisted list loads unchanged.
+            let path = r
+                .get("path")
+                .and_then(|p| p.as_str())
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_string);
+            Some(Target {
+                id,
+                host,
+                port,
+                path,
+            })
         })
         .take(TARGETS_MAX)
         .collect()
@@ -147,7 +168,7 @@ fn render_targets(targets: &[Target]) -> String {
 /// A stable-enough id for a target: host:port, lowercased, with anything that would make a
 /// path or a selector ambiguous removed. Two adds of the same host:port are the SAME target —
 /// the alternative is two probers hammering one host and two identical rows in the panel.
-fn target_id(host: &str, port: u16) -> String {
+fn target_id(host: &str, port: u16, path: Option<&str>) -> String {
     let mut h: String = host
         .trim()
         .to_lowercase()
@@ -163,11 +184,48 @@ fn target_id(host: &str, port: u16) -> String {
     if h.is_empty() {
         h = "target".to_string();
     }
-    format!("{h}:{port}")
+    match path.map(str::trim).filter(|p| !p.is_empty()) {
+        // TWO PATHS ON ONE PORT ARE TWO CHECKS: `/` answering and `/api/health` answering are
+        // different facts about one service, and collapsing them would make the monitor unable to
+        // say which one broke. The id stays readable because it is what the operator types back.
+        Some(p) => format!(
+            "{h}:{port}{}",
+            if p.starts_with('/') {
+                p.to_string()
+            } else {
+                format!("/{p}")
+            }
+        ),
+        None => format!("{h}:{port}"),
+    }
 }
 
 /// Validate and normalise a target. `Err` carries the reason a user can act on — this is fed
 /// straight from a form in the panel.
+/// A path the probe can request, or `None` for the TCP probe. Refused WITH A REASON because this
+/// is fed straight from a form: a path with a space in it is a typo, not a URL.
+pub fn validate_path(path: &str) -> Result<Option<String>, String> {
+    let p = path.trim();
+    if p.is_empty() {
+        return Ok(None);
+    }
+    if p.contains(char::is_whitespace) {
+        return Err("a path cannot contain spaces".into());
+    }
+    if p.starts_with("http://") || p.starts_with("https://") {
+        return Err(
+            "give the path only (\"/status\") — the host and port are their own fields".into(),
+        );
+    }
+    // A missing leading slash is a typo this can fix without guessing: `status` and `/status` are
+    // the same intent, and the id must be stable either way.
+    Ok(Some(if p.starts_with('/') {
+        p.to_string()
+    } else {
+        format!("/{p}")
+    }))
+}
+
 pub fn validate_target(host: &str, port: u16) -> Result<(String, u16), String> {
     let host = host.trim().to_string();
     if host.is_empty() {
@@ -203,9 +261,26 @@ pub fn targets() -> Vec<Target> {
 /// Add a target. Idempotent by id: adding an existing host:port returns the existing target and
 /// changes nothing.
 pub fn add_target(data_dir: &Path, host: &str, port: u16) -> Result<Target, String> {
+    add_target_with_path(data_dir, host, port, "")
+}
+
+/// Add a target, optionally with an HTTP path (see [`Target::path`]). The no-path form is the
+/// original TCP probe, so every existing caller keeps its meaning.
+pub fn add_target_with_path(
+    data_dir: &Path,
+    host: &str,
+    port: u16,
+    path: &str,
+) -> Result<Target, String> {
     let (host, port) = validate_target(host, port)?;
-    let id = target_id(&host, port);
-    let target = Target { id, host, port };
+    let path = validate_path(path)?;
+    let id = target_id(&host, port, path.as_deref());
+    let target = Target {
+        id,
+        host,
+        port,
+        path,
+    };
     let stored = state_with(|st| {
         if let Some(existing) = st.watches.iter().find(|w| w.target.id == target.id) {
             return existing.target.clone();
@@ -215,6 +290,7 @@ pub fn add_target(data_dir: &Path, host: &str, port: u16) -> Result<Target, Stri
                 id: String::new(), // sentinel: at capacity
                 host: String::new(),
                 port: 0,
+                path: None,
             };
         }
         st.watches.push(Watch {
@@ -310,6 +386,10 @@ fn record(id: &str, probe: Probe) {
             // How long the state that just ENDED had lasted — for a recovery, the outage.
             "lasted_ms": probe.ts_ms.saturating_sub(run_start),
             "ms": probe.ms,
+            // The HTTP status behind the verdict, when there was one: "is DOWN" and "is DOWN,
+            // answering 500" are different sentences and the second is the one that helps.
+            "status": probe.status,
+            "path": target.path,
         }));
     }
 }
@@ -332,6 +412,20 @@ pub fn series(id: &str, limit: usize) -> Vec<Probe> {
 /// (and the panel's "check now") can drive exactly one probe.
 pub async fn probe_once(id: &str) -> Option<Probe> {
     let target = targets().into_iter().find(|t| t.id == id)?;
+    let probe = match target.path.as_deref() {
+        Some(path) => probe_http(&target, path).await,
+        None => probe_tcp(&target).await,
+    };
+    record(id, probe);
+    Some(probe)
+}
+
+/// The original probe: can a TCP connection be made to this port?
+///
+/// A refused connection is a REACHABLE host with nothing on that port — which for this instrument
+/// is DOWN (the service the operator cares about is not there), and the distinction is drawn in the
+/// panel's wording rather than here: this probe answers one question.
+async fn probe_tcp(target: &Target) -> Probe {
     let started = now_ms();
     let addr = format!("{}:{}", target.host, target.port);
     let ok = match tokio::time::timeout(
@@ -341,13 +435,9 @@ pub async fn probe_once(id: &str) -> Option<Probe> {
     .await
     {
         Ok(Ok(_stream)) => true,
-        // A refused connection is a REACHABLE host with nothing on that port — which for this
-        // instrument is DOWN (the service the operator cares about is not there), and the
-        // distinction is drawn in the panel's wording rather than here: the probe answers one
-        // question, "did a connection to this port succeed".
         Ok(Err(_)) | Err(_) => false,
     };
-    let probe = Probe {
+    Probe {
         ts_ms: now_ms(),
         ok,
         ms: if ok {
@@ -355,9 +445,60 @@ pub async fn probe_once(id: &str) -> Option<Probe> {
         } else {
             None
         },
+        status: None,
+    }
+}
+
+/// WHAT A WEB UI IS ACTUALLY DOING, which a TCP connect cannot say.
+///
+/// The rule for `ok`, written down because it is a judgement and not a measurement:
+/// **a response arrived AND its status is below 500**. A UI that answers `401` is WORKING (it wants
+/// credentials); one that answers `500` is not serving anybody, and calling that "up" because the
+/// socket opened is exactly the reading that sends an operator looking in the wrong place. The
+/// status is recorded either way, so the CARD can show the number and the operator can disagree with
+/// the verdict.
+///
+/// No redirects are followed: the question is "what does THIS url answer", and a 302 to a login page
+/// is a true and useful answer. HTTPS is not supported here on purpose — a TLS check needs a
+/// certificate story (is a self-signed cert "up"?), and an instrument that guesses would be worse
+/// than one that says what it does.
+async fn probe_http(target: &Target, path: &str) -> Probe {
+    let started = now_ms();
+    let url = format!("http://{}:{}{}", target.host, target.port, path);
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(PROBE_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => {
+            return Probe {
+                ts_ms: now_ms(),
+                ok: false,
+                ms: None,
+                status: None,
+            }
+        }
     };
-    record(id, probe);
-    Some(probe)
+    match client.get(&url).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            Probe {
+                ts_ms: now_ms(),
+                ok: status < 500,
+                ms: Some(now_ms().saturating_sub(started)),
+                status: Some(status),
+            }
+        }
+        // No response at all: the same answer a TCP probe would give, and the one case where a
+        // path-bearing target reports no status.
+        Err(_) => Probe {
+            ts_ms: now_ms(),
+            ok: false,
+            ms: None,
+            status: None,
+        },
+    }
 }
 
 /// Keep probing every target for the life of the process.
@@ -468,6 +609,7 @@ pub fn summary(id: &str) -> Value {
             // No probes, no transitions to count — and NOT a fabricated zero that would read
             // as "measured, stable".
             "drops": Value::Null,
+            "last_status": Value::Null,
         });
     }
     let up = probes.iter().filter(|p| p.ok).count();
@@ -503,6 +645,9 @@ pub fn summary(id: &str) -> Value {
         "since_ms": since,
         "latency": latency,
         "drops": count_drops(&probes),
+        // THE NUMBER AN OPERATOR ASKS FOR BY NAME when the target is a web UI: what did it answer?
+        // `null` for a TCP target and for a probe that got no response at all.
+        "last_status": probes[probes.len() - 1].status,
     })
 }
 
@@ -564,11 +709,56 @@ mod tests {
     #[test]
     fn the_same_host_and_port_is_one_target_not_two() {
         // Two rows for one host would be two probers and two identical charts.
-        assert_eq!(target_id("192.168.1.1", 22), target_id("192.168.1.1", 22));
-        assert_eq!(target_id("Host.Local", 80), "host.local:80");
+        assert_eq!(
+            target_id("192.168.1.1", 22, None),
+            target_id("192.168.1.1", 22, None)
+        );
+        assert_eq!(target_id("Host.Local", 80, None), "host.local:80");
         // A name that would be ambiguous as a selector is normalised, not rejected: the
         // operator's intent is the host, and the id is ours to choose.
-        assert_eq!(target_id("fe80::1", 22), "fe80::1:22");
+        assert_eq!(target_id("fe80::1", 22, None), "fe80::1:22");
+        // A PATH IS PART OF THE IDENTITY: two paths on one port are two different checks, and the
+        // id is what the operator types back to remove one of them.
+        assert_eq!(target_id("h", 80, Some("/")), "h:80/");
+        assert_eq!(target_id("h", 80, Some("status")), "h:80/status");
+        assert_ne!(
+            target_id("h", 80, Some("/a")),
+            target_id("h", 80, Some("/b"))
+        );
+        assert_ne!(target_id("h", 80, None), target_id("h", 80, Some("/")));
+    }
+
+    /// A PATH IS VALIDATED WITH A REASON, and normalised rather than guessed at.
+    #[test]
+    fn a_path_is_normalised_and_refused_with_a_reason() {
+        assert_eq!(validate_path(""), Ok(None));
+        assert_eq!(validate_path("   "), Ok(None));
+        assert_eq!(validate_path("status"), Ok(Some("/status".into())));
+        assert_eq!(validate_path("/status"), Ok(Some("/status".into())));
+        assert_eq!(validate_path(" /a/b?c=1 "), Ok(Some("/a/b?c=1".into())));
+        assert!(validate_path("/a b").is_err());
+        let err = validate_path("http://192.168.1.1/status").unwrap_err();
+        assert!(err.contains("path only"), "{err}");
+    }
+
+    /// A PATH SURVIVES THE PERSISTED LIST, and a list written before paths existed loads as TCP
+    /// targets — the migration is "absent means the old shape", not a version number.
+    #[test]
+    fn paths_survive_the_round_trip_and_old_lists_still_load() {
+        let parsed = parse_targets(
+            r#"{"targets":[
+                {"id":"192.168.1.1:22","host":"192.168.1.1","port":22},
+                {"id":"192.168.1.1:80/","host":"192.168.1.1","port":80,"path":"/"},
+                {"id":"x:9","host":"x","port":9,"path":"  "}
+            ]}"#,
+        );
+        assert_eq!(parsed.len(), 3, "{parsed:?}");
+        assert_eq!(parsed[0].path, None, "an old row is a TCP target");
+        assert_eq!(parsed[1].path.as_deref(), Some("/"));
+        assert_eq!(parsed[2].path, None, "a blank path is no path");
+        // …and rendering what we parsed gives the same list back.
+        let again = parse_targets(&render_targets(&parsed));
+        assert_eq!(again, parsed);
     }
 
     #[test]
@@ -588,6 +778,87 @@ mod tests {
         assert!(parse_targets("{}").is_empty());
     }
 
+    /// THE HTTP PROBE, against a REAL server that answers 200 and one that answers 500 — which is
+    /// the whole reason paths exist: a TCP connect calls both of them "up".
+    ///
+    /// The judgement is pinned in both directions too: `200` is up, `404` is UP (the service
+    /// answers; the path is what is missing, and the operator can see the number), `500` is DOWN
+    /// (nobody is being served), and no-response carries NO status rather than a fabricated one.
+    #[tokio::test]
+    async fn an_http_probe_tells_a_working_ui_from_one_that_answers_500() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // One listener, three paths: /ok answers 200, /bad answers 500, /missing answers 404.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 512];
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let code = if req.starts_with("GET /bad ") {
+                        "500 Internal Server Error"
+                    } else if req.starts_with("GET /missing ") {
+                        "404 Not Found"
+                    } else {
+                        "200 OK"
+                    };
+                    let body = "x";
+                    let resp = format!(
+                        "HTTP/1.1 {code}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.flush().await;
+                });
+            }
+        });
+
+        let d = dir("http");
+        let ok = add_target_with_path(&d, "127.0.0.1", port, "/ok").expect("added");
+        assert_eq!(ok.path.as_deref(), Some("/ok"));
+        assert_eq!(ok.id, format!("127.0.0.1:{port}/ok"));
+        let bad = add_target_with_path(&d, "127.0.0.1", port, "bad").expect("added");
+        assert_eq!(
+            bad.id,
+            format!("127.0.0.1:{port}/bad"),
+            "a bare path is normalised"
+        );
+        let missing = add_target_with_path(&d, "127.0.0.1", port, "/missing").expect("added");
+        // A TCP target on the SAME port, for contrast: it cannot see the difference.
+        let tcp = add_target(&d, "127.0.0.1", port).expect("added");
+
+        let p = probe_once(&ok.id).await.expect("probed");
+        assert!(p.ok, "{p:?}");
+        assert_eq!(p.status, Some(200), "{p:?}");
+        assert!(p.ms.is_some(), "{p:?}");
+
+        let p = probe_once(&missing.id).await.expect("probed");
+        assert!(p.ok, "a 404 means the service ANSWERS: {p:?}");
+        assert_eq!(p.status, Some(404));
+
+        let p = probe_once(&bad.id).await.expect("probed");
+        assert!(!p.ok, "a 500 is not serving anybody: {p:?}");
+        assert_eq!(
+            p.status,
+            Some(500),
+            "…and it says WHY, which the TCP probe cannot"
+        );
+
+        let p = probe_once(&tcp.id).await.expect("probed");
+        assert!(p.ok, "the TCP probe still calls that port up: {p:?}");
+        assert_eq!(p.status, None, "and carries no status to confuse anyone");
+
+        for id in [ok.id, bad.id, missing.id, tcp.id] {
+            remove_target(&d, &id);
+        }
+    }
+
     /// THE DROP RULE. It counts FALLS (up → down), not outages: a target that is down now still
     /// contributes the drop that started its outage — `up_now` is what says whether it is
     /// current — and a series that begins down has nothing to fall from.
@@ -597,6 +868,7 @@ mod tests {
             ts_ms: 1_700_000_000_000 + i * 15_000,
             ok,
             ms: if ok { Some(1) } else { None },
+            status: None,
         };
         // Steady: nothing fell.
         assert_eq!(count_drops(&[p(true, 0), p(true, 1), p(true, 2)]), 0);
@@ -623,6 +895,7 @@ mod tests {
             ts_ms: 1_700_000_000_000 + secs * 1_000,
             ok,
             ms: if ok { Some(1) } else { None },
+            status: None,
         };
         // 60 s up, then down for 30 s, then up: two transitions with the durations an operator
         // writes down — the uptime that ended, then the OUTAGE.
@@ -692,6 +965,7 @@ mod tests {
                     id: id.clone(),
                     host: "bounded".into(),
                     port: 22,
+                    path: None,
                 },
                 series: VecDeque::new(),
             });
@@ -703,6 +977,7 @@ mod tests {
                     ts_ms: 1_700_000_000_000 + i * 15_000,
                     ok: i % 5 != 0,
                     ms: if i % 5 != 0 { Some(3) } else { None },
+                    status: None,
                 },
             );
         }
@@ -739,6 +1014,7 @@ mod tests {
                     id: id.clone(),
                     host: "empty".into(),
                     port: 22,
+                    path: None,
                 },
                 series: VecDeque::new(),
             });
