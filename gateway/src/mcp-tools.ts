@@ -719,7 +719,7 @@ const MONITOR_TOOLS: McpTool[] = [
   {
     name: "monitor_list",
     description:
-      "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries `up_now`, `since_ms` (when the CURRENT state began), `up_pct`, the latency range and `drops` (how many times it fell from up to down in this window). The series is oldest-first; a probe with `ok: false` carries NO latency, and a gap in time is a probe that failed. The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
+      "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries `up_now`, `since_ms` (when the CURRENT state began), `up_pct`, the latency range and `drops` (how many times it fell from up to down in this window). The series is oldest-first; a probe with `ok: false` carries NO latency, and a gap in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE). The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
     inputSchema: { type: "object", properties: { ...DEVICE_PARAM }, required: [] },
   },
   {

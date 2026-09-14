@@ -14,7 +14,8 @@ import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
-import { useMonitors } from "../hooks/useMonitors";
+import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
+import { MonitorAlerts } from "./MonitorAlerts";
 import { VitalsDial } from "./VitalsDial";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
@@ -153,6 +154,9 @@ export function DesktopShell({
   // The reachability monitors, polled once per shell: the strip's down chip and the Settings
   // card read the same list, and the card's actions are the hook's own.
   const monitors = useMonitors();
+  // The device SPEAKS about a watched target changing state — the one monitor fact that is only
+  // useful now (see MonitorAlerts).
+  const monitorAlerts = useMonitorAlerts();
   // stage-n: native menu page navigation — the electron menu sends
   // vale-menu commands for pages too (open-memory / open-settings /
   // open-plugins); route them to the page state.
@@ -406,6 +410,9 @@ export function DesktopShell({
                 onControlledViewChange={(sid, v) => changeView(sid, v)}
               />
             )}
+            {/* The device speaking about a watched target (see MonitorAlerts): above the page, never
+                over it, and gone on its own. */}
+            <MonitorAlerts alerts={monitorAlerts} />
             {page === "archive" && <ArchivePage sessions={sessions} />}
             {page === "activity" && <ActivityPage />}
             {page === "browser" && <BrowserPage token={token} />}

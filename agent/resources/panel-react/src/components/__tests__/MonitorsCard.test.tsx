@@ -9,9 +9,19 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MonitorsCard } from "../MonitorsCard";
 import { MonitorChip } from "../MonitorChip";
-import { downTargets, fmtSince, parseMonitors, unstableTargets, type Monitors } from "../../hooks/useMonitors";
+import { MonitorAlerts } from "../MonitorAlerts";
+import {
+  downTargets,
+  fmtSince,
+  parseMonitorChange,
+  parseMonitors,
+  unstableTargets,
+  type Monitors,
+} from "../../hooks/useMonitors";
 
 const now = 1_789_000_000_000;
+/** Module scope: the per-describe `noop` does not reach the other blocks (learned here). */
+const noop = () => {};
 /** The PARSED shape the hook hands to components (`tsMs`, not the wire's `ts_ms`) — the first
  *  version of this helper built the wire shape, which vitest ran happily and `tsc --noEmit`
  *  refused, i.e. the panel's own build gate caught what the test run could not. */
@@ -44,6 +54,19 @@ const target = (over: Partial<{ id: string; upNow: boolean | null; oks: boolean[
     host,
     port: Number(portStr) || 22,
     series: series(oks),
+    // TRANSITIONS derived the way the device derives them (a flip, with the duration of the
+    // state it ended), so the fixture cannot describe a log the device could not produce.
+    transitions: (() => {
+      const out: { atMs: number; up: boolean; lastedMs: number }[] = [];
+      let runStart = series(oks)[0]?.tsMs ?? now;
+      for (let i = 1; i < oks.length; i++) {
+        if (oks[i] !== oks[i - 1]) {
+          out.push({ atMs: series(oks)[i].tsMs, up: oks[i], lastedMs: series(oks)[i].tsMs - runStart });
+          runStart = series(oks)[i].tsMs;
+        }
+      }
+      return out;
+    })(),
     summary: {
       probes: oks.length,
       up,
@@ -257,6 +280,79 @@ describe("MonitorChip", () => {
     expect(chip.textContent).toContain("192.168.1.1:22 down 30s (+1)");
     expect(chip.getAttribute("title")).toContain("192.168.1.1:80");
     expect(container.querySelector(".monitor-mark")).not.toBeNull();
+  });
+});
+
+describe("the outage log and the device speaking", () => {
+  it("lists the transitions newest-first with what each one ENDED", () => {
+    const { container } = render(
+      <MonitorsCard
+        monitors={monitors([target({ oks: [true, true, false, false, true] })])}
+        onAdd={async () => ({ ok: true })}
+        onRemove={noop}
+        onProbe={noop}
+        nowMs={now}
+      />,
+    );
+    const log = [...container.querySelectorAll(".monitor-log li")];
+    expect(log).toHaveLength(2);
+    // Newest first: the recovery, naming the OUTAGE; then the fall, naming the uptime it ended.
+    expect(log[0].textContent).toContain("back up");
+    expect(log[0].textContent).toContain("after 30s down");
+    expect(log[1].textContent).toContain("went down");
+    expect(log[1].textContent).toContain("it had been up");
+    expect(log[0].querySelector(".monitor-log-time")!.textContent).toMatch(/^\d\d:\d\d:\d\d$/);
+  });
+
+  it("shows no log at all for a target that never changed state", () => {
+    const { container } = render(
+      <MonitorsCard monitors={monitors([target({ oks: [true, true, true] })])} onAdd={async () => ({ ok: true })} onRemove={noop} onProbe={noop} nowMs={now} />,
+    );
+    expect(container.querySelectorAll(".monitor-log")).toHaveLength(0);
+  });
+
+  it("reads a change frame, and refuses one it cannot use", () => {
+    const a = parseMonitorChange({
+      ev: "monitor-change",
+      id: "192.168.1.1:22",
+      host: "192.168.1.1",
+      port: 22,
+      up: false,
+      at_ms: now,
+      lasted_ms: 61_000,
+    })!;
+    expect(a.id).toBe("192.168.1.1:22");
+    expect(a.up).toBe(false);
+    expect(a.lastedMs).toBe(61_000);
+    expect(a.key).toBe(`192.168.1.1:22:${now}`);
+    // A different event, a frame with no id, and one with no stamp: all null, never a banner
+    // about something that did not happen.
+    expect(parseMonitorChange({ ev: "sessions-changed" })).toBeNull();
+    expect(parseMonitorChange({ ev: "monitor-change", at_ms: now })).toBeNull();
+    expect(parseMonitorChange({ ev: "monitor-change", id: "x:1" })).toBeNull();
+    expect(parseMonitorChange(null)).toBeNull();
+  });
+
+  it("names the outage on the way back and the uptime on the way down", () => {
+    const { container } = render(
+      <MonitorAlerts
+        alerts={[
+          { key: "k1", id: "a:22", host: "a", port: 22, up: false, lastedMs: 3_600_000, atMs: now },
+          { key: "k2", id: "b:22", host: "b", port: 22, up: true, lastedMs: 135_000, atMs: now },
+        ]}
+      />,
+    );
+    const rows = [...container.querySelectorAll(".monitor-alert")];
+    expect(rows[0].textContent).toContain("a:22 is DOWN — it had been up 1h 00m");
+    expect(rows[1].textContent).toContain("b:22 is back up after 2m down");
+    // is-down / is-up drive the mark's silhouette, which is what separates the two without colour.
+    expect(rows[0].className).toContain("is-down");
+    expect(rows[1].className).toContain("is-up");
+    expect(rows[1].querySelector(".monitor-mark")!.className).toContain("is-up");
+  });
+
+  it("renders nothing when the device has said nothing", () => {
+    expect(render(<MonitorAlerts alerts={[]} />).container.firstChild).toBeNull();
   });
 });
 

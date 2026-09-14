@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// How often every target is probed. 15 s is the interval the operator's own loop used: fast
@@ -39,6 +39,10 @@ const PROBE_TIMEOUT_SECS: u64 = 3;
 
 /// Samples kept per target: 240 × 15 s = one hour. Bounded because every panel poll reads them.
 pub const SERIES_MAX: usize = 240;
+
+/// Transitions carried per target. One hour of samples holds at most a handful of real state
+/// changes; the cap is there so a target toggling every probe cannot make a response unbounded.
+pub const TRANSITIONS_MAX: usize = 20;
 
 /// Targets a device will watch. Small on purpose: this is an operator's instrument, not a
 /// network management station, and every target costs a probe per interval.
@@ -72,6 +76,29 @@ struct State {
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+/// WHERE A STATE CHANGE IS ANNOUNCED. Set once at boot (`main.rs`) to the device's event bus,
+/// which is the same broadcast the panel's SSE stream and the terminal output share — so a
+/// target going down reaches an open panel as `vale-monitor-change` without the monitor
+/// knowing anything about SSE, HTTP or the panel.
+///
+/// NOT SET IN TESTS, and that is the point: the module is silent unless somebody is listening,
+/// and the rule that decides WHEN to speak (a flip, not every probe) is testable on its own.
+type ChangeSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+
+static SINK: Mutex<Option<ChangeSink>> = Mutex::new(None);
+
+/// Install the sink. A second call replaces it (a restarting supervisor is not an error).
+pub fn set_event_sink(sink: ChangeSink) {
+    *SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink);
+}
+
+fn emit_change(payload: serde_json::Value) {
+    let sink = SINK.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    if let Some(f) = sink {
+        f(payload);
+    }
+}
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -239,14 +266,52 @@ pub fn load_targets(data_dir: &Path) {
 }
 
 fn record(id: &str, probe: Probe) {
-    state_with(|st| {
-        if let Some(w) = st.watches.iter_mut().find(|w| w.target.id == id) {
-            w.series.push_back(probe);
-            while w.series.len() > SERIES_MAX {
-                w.series.pop_front();
-            }
+    // The flip is decided INSIDE the same lock that appends the probe, so the announcement can
+    // never describe a series that has since moved on. The payload is emitted after the lock is
+    // released: a subscriber that calls back into this module (the panel asking for a snapshot)
+    // must not deadlock against the writer.
+    let announced = state_with(|st| {
+        let w = st.watches.iter_mut().find(|w| w.target.id == id)?;
+        // The state the series was in before this probe, and when that run began.
+        let previous = w.series.back().map(|p| p.ok);
+        let mut run_start = probe.ts_ms;
+        if previous.is_some() {
+            let current_state = w.series.back().map(|p| p.ok).unwrap_or(probe.ok);
+            run_start = w
+                .series
+                .iter()
+                .rev()
+                .take_while(|p| p.ok == current_state)
+                .last()
+                .map(|p| p.ts_ms)
+                .unwrap_or(probe.ts_ms);
+        }
+        w.series.push_back(probe);
+        while w.series.len() > SERIES_MAX {
+            w.series.pop_front();
+        }
+        match previous {
+            // A FIRST probe is not a change: nothing was known before it. Announcing "up" for a
+            // target that was simply never probed would be the device inventing an event.
+            None => None,
+            Some(prev) if prev == probe.ok => None,
+            Some(_) => Some((w.target.clone(), run_start)),
         }
     });
+
+    if let Some((target, run_start)) = announced {
+        emit_change(json!({
+            "ev": "monitor-change",
+            "id": target.id,
+            "host": target.host,
+            "port": target.port,
+            "up": probe.ok,
+            "at_ms": probe.ts_ms,
+            // How long the state that just ENDED had lasted — for a recovery, the outage.
+            "lasted_ms": probe.ts_ms.saturating_sub(run_start),
+            "ms": probe.ms,
+        }));
+    }
 }
 
 /// One target's series, OLDEST FIRST (the order a chart draws in).
@@ -336,6 +401,56 @@ pub fn count_drops(probes: &[Probe]) -> u64 {
     drops
 }
 
+/// ONE STATE CHANGE, with the number an operator writes down: how long the state it ENDED had
+/// lasted. For a `down` entry that is the uptime that just ended; for an `up` entry it is the
+/// OUTAGE — the duration somebody pastes into a bug report.
+///
+/// Derived from the series rather than stored beside it: one source of truth (the probes), so a
+/// transition cannot disagree with the chart drawn from the same bytes.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct Transition {
+    /// When the new state was first observed.
+    pub at_ms: u64,
+    /// The state now in effect, as of `at_ms`.
+    pub up: bool,
+    /// How long the PREVIOUS state lasted, ending at `at_ms`.
+    pub lasted_ms: u64,
+}
+
+/// The state changes in a series, OLDEST FIRST, at most `limit` of the newest.
+///
+/// The first probe is not a transition — nothing was observed before it — so a series that
+/// begins down reports no `down` entry, which is correct: the device did not see it fall.
+pub fn transitions(probes: &[Probe], limit: usize) -> Vec<Transition> {
+    let mut out: Vec<Transition> = Vec::new();
+    let mut run_start = match probes.first() {
+        Some(p) => p.ts_ms,
+        None => return out,
+    };
+    let mut current = probes[0].ok;
+    for p in probes.iter().skip(1) {
+        if p.ok != current {
+            out.push(Transition {
+                at_ms: p.ts_ms,
+                up: p.ok,
+                lasted_ms: p.ts_ms.saturating_sub(run_start),
+            });
+            current = p.ok;
+            run_start = p.ts_ms;
+        }
+    }
+    if out.len() > limit {
+        out.drain(..out.len() - limit);
+    }
+    out
+}
+
+/// The most recent transitions for one target — what `/api/monitors` and `monitor_list` carry,
+/// and what the card's outage list draws.
+pub fn recent_transitions(id: &str, limit: usize) -> Vec<Transition> {
+    transitions(&series(id, SERIES_MAX), limit)
+}
+
 /// One target's summary over the samples it has: how many probes, how many answered, the share
 /// that did, the latency range, and WHEN the state last changed (the number an operator reads
 /// first — "down since 18:41" is the whole story).
@@ -402,6 +517,9 @@ pub fn snapshot() -> Value {
                 "host": t.host,
                 "port": t.port,
                 "summary": summary(&t.id),
+                // The story, not just the shape: each entry is a state change with how long
+                // the state it ended had lasted (an outage, for an "up" entry).
+                "transitions": recent_transitions(&t.id, TRANSITIONS_MAX),
                 "series": series(&t.id, SERIES_MAX),
             })
         })
@@ -497,6 +615,73 @@ mod tests {
         assert_eq!(count_drops(&[p(true, 0)]), 0);
     }
 
+    /// THE TRANSITION RULE: a change is a change, the duration is how long the state it ENDED
+    /// lasted, and a series that begins down reports no fall (nothing was seen to fall).
+    #[test]
+    fn transitions_carry_the_duration_of_the_state_they_end() {
+        let p = |ok: bool, secs: u64| Probe {
+            ts_ms: 1_700_000_000_000 + secs * 1_000,
+            ok,
+            ms: if ok { Some(1) } else { None },
+        };
+        // 60 s up, then down for 30 s, then up: two transitions with the durations an operator
+        // writes down — the uptime that ended, then the OUTAGE.
+        let series = [
+            p(true, 0),
+            p(true, 30),
+            p(true, 60),
+            p(false, 90),
+            p(false, 120),
+            p(true, 150),
+        ];
+        let t = transitions(&series, 10);
+        assert_eq!(t.len(), 2, "{t:?}");
+        assert_eq!(
+            t[0],
+            Transition {
+                at_ms: p(false, 90).ts_ms,
+                up: false,
+                lasted_ms: 90_000
+            }
+        );
+        assert_eq!(
+            t[1],
+            Transition {
+                at_ms: p(true, 150).ts_ms,
+                up: true,
+                lasted_ms: 60_000
+            }
+        );
+
+        // A series that BEGINS down: no fall was observed, so no entry — the first observed
+        // state is a starting point, not an event.
+        assert!(transitions(&[p(false, 0), p(false, 15)], 10).is_empty());
+        // …but the recovery IS an event, and it names the outage as measured from the first
+        // observation (which is the honest bound: the device does not know what came before).
+        let t = transitions(&[p(false, 0), p(false, 15), p(true, 45)], 10);
+        assert_eq!(
+            t,
+            vec![Transition {
+                at_ms: p(true, 45).ts_ms,
+                up: true,
+                lasted_ms: 45_000
+            }]
+        );
+        // Steady and degenerate inputs.
+        assert!(transitions(&[p(true, 0), p(true, 15)], 10).is_empty());
+        assert!(transitions(&[], 10).is_empty());
+        assert!(transitions(&[p(true, 0)], 10).is_empty());
+        // The cap keeps the NEWEST entries, still oldest-first.
+        let toggling: Vec<Probe> = (0..10).map(|i| p(i % 2 == 0, i * 15)).collect();
+        let capped = transitions(&toggling, 3);
+        assert_eq!(capped.len(), 3);
+        assert!(
+            capped.windows(2).all(|w| w[0].at_ms < w[1].at_ms),
+            "{capped:?}"
+        );
+        assert_eq!(capped[2].at_ms, toggling[toggling.len() - 1].ts_ms);
+    }
+
     #[test]
     fn the_series_is_bounded_and_the_summary_counts_what_it_has() {
         let id = format!("bounded-{}:22", std::process::id());
@@ -564,6 +749,74 @@ mod tests {
         assert!(sum["up_now"].is_null(), "{sum}");
         assert!(sum["latency"].is_null(), "{sum}");
         state_with(|st| st.watches.retain(|w| w.target.id != id));
+    }
+
+    /// THE ANNOUNCEMENT RULE, tested on its own: exactly one event per FLIP, never for a first
+    /// probe (the device did not see it fall) and never for a probe that changed nothing. The
+    /// payload carries the outage/uptime that just ended, which is the number a reader wants.
+    ///
+    /// The sink is process-global, so this test restores it — the same discipline the other
+    /// globals in this file get.
+    #[tokio::test]
+    async fn a_state_flip_is_announced_once_and_a_steady_probe_is_not() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let d = dir("announce");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let down = add_target(&d, "127.0.0.1", 1).expect("added"); // port 1: refused
+
+        let seen: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let count = Arc::new(AtomicUsize::new(0));
+        {
+            let seen = seen.clone();
+            let count = count.clone();
+            set_event_sink(Arc::new(move |v| {
+                count.fetch_add(1, Ordering::SeqCst);
+                seen.lock().unwrap_or_else(|p| p.into_inner()).push(v);
+            }));
+        }
+
+        // FIRST probe: no announcement — the device did not observe a change, it observed a
+        // state for the first time.
+        probe_once(&down.id).await.expect("probed");
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            0,
+            "a first probe is not a change"
+        );
+        // The SAME state again: still nothing.
+        probe_once(&down.id).await.expect("probed");
+        assert_eq!(count.load(Ordering::SeqCst), 0, "no change, no event");
+
+        // A target that CAN answer, probed twice: up, up — no event (it was never down).
+        let up = add_target(&d, "127.0.0.1", port).expect("added");
+        probe_once(&up.id).await.expect("probed");
+        probe_once(&up.id).await.expect("probed");
+        assert_eq!(count.load(Ordering::SeqCst), 0, "steady is silent");
+
+        // Now make it FLAP: the listener is dropped, so the next probe is a real down.
+        drop(listener);
+        probe_once(&up.id).await.expect("probed");
+        let events = seen.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0]["ev"], "monitor-change");
+        assert_eq!(events[0]["id"], up.id);
+        assert_eq!(events[0]["up"], false);
+        assert!(events[0]["lasted_ms"].as_u64().is_some(), "{:?}", events[0]);
+
+        // And one more down: the state did not change, so nothing more is announced.
+        probe_once(&up.id).await.expect("probed");
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            1,
+            "no second event for the same state"
+        );
+
+        *SINK.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        remove_target(&d, &up.id);
+        remove_target(&d, &down.id);
     }
 
     #[tokio::test]

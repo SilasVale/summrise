@@ -580,6 +580,17 @@ pub(crate) async fn run_server(config_path: PathBuf) {
         {
             let monitors_dir = vale_agent::paths::data_dir();
             vale_agent::monitor::load_targets(&monitors_dir);
+            // The device ANNOUNCES a state change on the same broadcast the panel's SSE stream
+            // carries: a watched host going down reaches an open panel without it polling, and
+            // the monitor module never learns what SSE is.
+            {
+                let bus = state.event_bus.clone();
+                vale_agent::monitor::set_event_sink(std::sync::Arc::new(move |payload| {
+                    // The trait must be in scope for the method, not just the type.
+                    use vale_agent::EventBus as _;
+                    bus.emit_term_output(payload);
+                }));
+            }
             vale_agent::monitor::spawn_prober();
         }
         tokio::spawn(async move {

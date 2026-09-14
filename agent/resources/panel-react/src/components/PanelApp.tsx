@@ -11,7 +11,8 @@ import { StatusBar } from "./StatusBar";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
-import { useMonitors } from "../hooks/useMonitors";
+import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
+import { MonitorAlerts } from "./MonitorAlerts";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { ArchivePage } from "./ArchivePage";
 import { ActivityPage } from "./ActivityPage";
@@ -81,6 +82,9 @@ export function PanelApp(props: Props) {
   // The reachability monitors, polled once per shell: the strip's down chip and the Settings
   // card read the same list, and the card's actions are the hook's own.
   const monitors = useMonitors();
+  // The device SPEAKS about a watched target changing state — the one monitor fact that is only
+  // useful now (see MonitorAlerts).
+  const monitorAlerts = useMonitorAlerts();
   const [page, setPage] = useState<Page>("terminal");
   const connected = props.sseState === "connected";
 
@@ -152,6 +156,9 @@ export function PanelApp(props: Props) {
                 sseState={props.sseState as "connected" | "down" | "connecting"}
               />
             )}
+            {/* The device speaking about a watched target (see MonitorAlerts): above the page, never
+                over it, and gone on its own. */}
+            <MonitorAlerts alerts={monitorAlerts} />
             {page === "archive" && <ArchivePage sessions={props.sessions} />}
             {page === "activity" && <ActivityPage />}
             {page === "browser" && <BrowserPage token={props.token} />}

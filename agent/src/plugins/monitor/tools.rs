@@ -29,7 +29,7 @@ fn tool_list() -> ToolDef {
         "monitor_list",
         "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. \
          The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, and `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it). \
-         The series is oldest-first; a probe with `ok: false` carries NO latency (nothing was measured) and a GAP in time is a probe that failed. \
+         The series is oldest-first; a probe with `ok: false` carries NO latency (nothing was measured) and a GAP in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE), which is the form a person writes into a report. \
          The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
         json!({"type": "object", "properties": {}}),
         move |_params: Value| {

@@ -32,11 +32,21 @@ export interface MonitorSummary {
   latency: { min: number; avg: number; max: number } | null;
 }
 
+/** ONE STATE CHANGE, as the device records it: when it happened, which state took effect, and
+ *  how long the state it ENDED had lasted (an outage, for a recovery). */
+export interface MonitorTransition {
+  atMs: number;
+  up: boolean;
+  lastedMs: number;
+}
+
 export interface MonitorTarget {
   id: string;
   host: string;
   port: number;
   summary: MonitorSummary;
+  /** Newest last; the card shows them newest-first. */
+  transitions: MonitorTransition[];
   series: MonitorProbe[];
 }
 
@@ -68,11 +78,20 @@ export function parseMonitors(j: unknown): Monitors {
       if (tsMs === null) return [];
       return [{ tsMs, ok: pr.ok === true, ms: num(pr.ms) }];
     });
+    const transitions: MonitorTransition[] = (Array.isArray(r.transitions) ? r.transitions : []).flatMap(
+      (raw) => {
+        const t = (raw ?? {}) as Record<string, unknown>;
+        const atMs = num(t.at_ms);
+        if (atMs === null) return [];
+        return [{ atMs, up: t.up === true, lastedMs: num(t.lasted_ms) ?? 0 }];
+      },
+    );
     return [
       {
         id,
         host: str(r.host),
         port: num(r.port) ?? 0,
+        transitions,
         series,
         summary: {
           probes: num(s.probes) ?? series.length,
@@ -188,6 +207,65 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
   }, [refresh, intervalMs]);
 
   return { ...monitors, failed, refresh, add, remove, probe };
+}
+
+/** THE DEVICE SPEAKING. A watched target changing state arrives as `vale-monitor-change` on the
+ *  SSE stream (the monitor emits it; the panel does not poll for it), and this turns the window
+ *  event into a short list of alerts the shell renders.
+ *
+ *  WHY AN ALERT AT ALL: everything else about the monitors is something an operator has to GO
+ *  AND LOOK AT — a card and a chip. A host you asked the device to watch is the one case where
+ *  the device should speak first, because the answer ("it just went down") is only useful now.
+ *
+ *  Bounded and self-expiring: at most three at a time, each gone after `ttlMs`, because a flapping
+ *  link must not be able to fill the screen with banners that never leave. */
+export interface MonitorAlert {
+  key: string;
+  id: string;
+  host: string;
+  port: number;
+  up: boolean;
+  lastedMs: number;
+  atMs: number;
+}
+
+/** Read one `monitor-change` frame. A frame this build cannot use is null — never a thrown
+ *  error inside an event handler, and never a banner about something that did not happen. */
+export function parseMonitorChange(detail: unknown): MonitorAlert | null {
+  const d = (detail ?? {}) as Record<string, unknown>;
+  if (d.ev !== "monitor-change") return null;
+  const id = str(d.id);
+  const atMs = num(d.at_ms);
+  if (!id || atMs === null) return null;
+  return {
+    key: `${id}:${atMs}`,
+    id,
+    host: str(d.host),
+    port: num(d.port) ?? 0,
+    up: d.up === true,
+    lastedMs: num(d.lasted_ms) ?? 0,
+    atMs,
+  };
+}
+
+export const MAX_ALERTS = 3;
+
+/** The alerts, newest first, expiring on their own. */
+export function useMonitorAlerts(ttlMs = 12_000): MonitorAlert[] {
+  const [alerts, setAlerts] = useState<MonitorAlert[]>([]);
+  useEffect(() => {
+    const onFrame = (e: Event) => {
+      const alert = parseMonitorChange((e as CustomEvent).detail);
+      if (!alert) return;
+      setAlerts((prev) => [alert, ...prev.filter((a) => a.key !== alert.key)].slice(0, MAX_ALERTS));
+      window.setTimeout(() => {
+        setAlerts((prev) => prev.filter((a) => a.key !== alert.key));
+      }, ttlMs);
+    };
+    window.addEventListener("vale-monitor-change", onFrame);
+    return () => window.removeEventListener("vale-monitor-change", onFrame);
+  }, [ttlMs]);
+  return alerts;
 }
 
 /** `4m`, `1h 04m`, `2d 4h` — the shapes the rest of the panel uses for durations. */

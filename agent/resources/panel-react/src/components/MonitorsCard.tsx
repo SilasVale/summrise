@@ -20,6 +20,15 @@ import { useState } from "react";
 import { Sparkline } from "./Sparkline";
 import { fmtSince, type MonitorTarget, type Monitors } from "../hooks/useMonitors";
 
+/** A wall-clock stamp for the log — `18:41:07`. Local time, because the operator reading it is
+ *  standing next to the device, and a log they cannot line up with their own clock is a log they
+ *  have to convert before they can use it. */
+function clock(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 const pct = (v: number): string => `${Math.round(v)}%`;
 
 function TargetRow({
@@ -33,7 +42,7 @@ function TargetRow({
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
 }) {
-  const { summary, series } = target;
+  const { summary, series, transitions } = target;
   const down = summary.upNow === false;
   const up = summary.upNow === true;
   const state = up ? "up" : down ? "down" : "unknown";
@@ -70,6 +79,29 @@ function TargetRow({
           remove
         </button>
       </div>
+      {/* THE OUTAGE LOG — what the chart cannot say in words: when it fell, when it came back,
+          and how long each lasted. Newest first, because the last one is what the operator is
+          usually asking about. */}
+      {transitions.length > 0 && (
+        <ul className="monitor-log">
+          {[...transitions]
+            .reverse()
+            .slice(0, 5)
+            .map((t, i) => (
+              <li key={`${t.atMs}-${i}`} className={t.up ? "is-up" : "is-down"}>
+                <span className="monitor-log-time">{clock(t.atMs)}</span>
+                <span className="monitor-log-what">
+                  {t.up ? "back up" : "went down"}
+                  {" — "}
+                  {t.up
+                    ? `after ${fmtSince(t.lastedMs)} down`
+                    : `it had been up ${fmtSince(t.lastedMs)}`}
+                </span>
+              </li>
+            ))}
+        </ul>
+      )}
+
       <div className="monitor-body">
         <Sparkline
           values={latency}

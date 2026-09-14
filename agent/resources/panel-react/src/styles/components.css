@@ -1222,6 +1222,38 @@
 .monitor-chip.is-flapping { color: var(--state-warn); }
 .monitor-mark.is-flapping { background: transparent; border: 1.5px solid var(--state-warn); }
 
+/* ── The device SPEAKING: a watched target changed state ─────────────────────
+   Above the page, never over it, and it leaves on its own. `is-up` and `is-down`
+   differ by BOTH the mark's silhouette (filled diamond vs. a ring) and the ink,
+   so the two are told apart without resolving a hue. */
+.monitor-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.monitor-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--state-warn);
+  border-radius: 7px;
+  background: var(--surface-chip);
+  font-size: var(--fs-sm);
+  color: var(--chrome-ink);
+}
+.monitor-alert.is-up { border-left-color: var(--state-ok); }
+.monitor-alert.is-down .monitor-alert-text strong { color: var(--danger-on-soft); }
+.monitor-alert .monitor-mark { background: var(--state-warn); }
+.monitor-alert .monitor-mark.is-up { background: transparent; border: 1.5px solid var(--state-ok); }
+/* The outage log inside a target's row: the chart's facts, in words with clock times. */
+.monitor-log { margin: 2px 0 0; padding: 0 0 0 2px; list-style: none; display: flex; flex-direction: column; gap: 1px; }
+.monitor-log li { display: flex; gap: 8px; font: 400 11px var(--font-mono); color: var(--chrome-ink-dim); }
+.monitor-log li.is-down .monitor-log-what { color: var(--danger-on-soft); }
+.monitor-log-time { color: var(--chrome-ink); opacity: 0.75; }
+
 /* ---------- terminal ---------- */
 #term-container {
   flex: 1;
