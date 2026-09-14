@@ -526,6 +526,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 245 (**THE "STILL OPEN" TAIL IS COPIED FORWARD FROM ROUND TO ROUND — which is
+why it stops being re-measured, and three stale claims fell out of reading it against reality**). Commit:
+agent/tests/ + ledger + journal. agent 676 = 675 + 1, four steps green.
+  (1) THE LEDGER ALREADY CARRIED THE RULE AND THE COUNT IS NOW HIGHER: its own note reads "**A 'STILL OPEN' LINE IS
+  A CLAIM, NOT A FACT — two rounds running now**", with the round-115/116 instances where a later commit had
+  silently closed an item two rounds before. **This round harvested every such line and tested each against
+  reality, and round 244's own pattern is what made it worth doing — that was the third time in seven rounds
+  that something described as waiting on an event turned out to be answerable from what already existed.**
+  (2) TWO STALE CLAIMS, ONE PER INSTANCE TYPE: **round 239's** "STILL OPEN: … an index deploy to publish the
+  corrected `fix-tunnel.ps1` (a release action the loop may take)" — **round 240 performed exactly that deploy
+  and verified it by byte equality.** And **"convergence rows 6-7, which wait on a device event rather than on
+  work" is carried verbatim in rounds 240, 241 and 242**, while **round 244 measured row 6 at ≤6 s and
+  re-characterised row 7 as retention-bounded.** Neither claim was wrong when written; both were wrong when read,
+  and the second was wrong for three consecutive rounds.
+  (3) AND THE MECHANISM IS THE JOURNAL'S OWN SHAPE, WHICH IS WHY THIS RECURS: **the tail of each entry is a copy
+  of the previous round's tail. Copying is what makes it cheap, and copying is what stops it being re-measured**
+  — a claim that travels by copy-paste never passes through a measurement again. **Round 244 broke the pattern
+  by accident: its tail DROPS "convergence rows 6-7", because that round actually did the work.** The durable
+  consequence is not "be careful" but that the ledger's rule now has a THIRD instance and a named cause, and the
+  cause is structural rather than careless.
+  (4) A THIRD STALE CLAIM WAS LIVE RATHER THAN HISTORICAL, AND IT IS FIXED HERE: the never-examined-surfaces
+  section opens **"MEASURED ROUND 236: 282 of the repository's 358 non-excluded files are in scope (79%), and 52
+  are never named"** — and the tool answers **39**. **The first two numbers were still right and the third had
+  drifted 13, which is the instrument working rather than a slip**: the scope moves only when `ROOTS` changes,
+  while the never-named count falls every time a round's entry happens to NAME a file — the tool's own stated
+  limit. **And the scope itself moved to 283/359 in this very round, because this round ADDED
+  `agent/tests/coverage_numbers.rs` and `agent/tests/` is in scope since ADR 0012: adding a file changes the
+  number, demonstrated on the paragraph that says so.**
+  (5) SO THE ASSERTION IS `agent/tests/coverage_numbers.rs`, AND ITS MOST IMPORTANT DECISION IS WHAT IT REFUSES TO
+  ASSERT: it compares the ledger's headline against the tool's `files`/`repositoryFiles` **and the sentence's own
+  percentage against its own ratio** — and **deliberately NOT the never-named count, because a value that
+  legitimately moves has no stable subject and asserting it would fail on a normal working day** (ADR 0011's
+  deletion criterion: state the limit instead of asserting what has no subject). Mutation-proven: `283` → `284`
+  turns it red with a message naming both numbers. **And my parser failed on its FIRST run** — it read `282 of
+  **245**`, because "MEASURED ROUND 236, RE-MEASURED ROUND 245:" puts two ROUND numbers before the counts and a
+  backwards count cannot tell them from the values; the fix anchors on the surrounding phrases, and the failure
+  message is quoted in the file so the next reader does not re-derive it. STILL OPEN, and now stated as the
+  ledger's rule requires: the installer's signing decision (the user's call); the never-named to-read queue
+  (bounded in round 242, and the count is not asserted by design).
+
 Last updated: 2026-09-14 round 244 (**THE DEAD-AGENT REVIVAL WINDOW IS BOUNDED AT SIX SECONDS, MEASURED ON THE
 DEVICE BY `runstate`'s OWN LINE — and that same line says "DID NOT EXIT CLEANLY", which at an update is the
 DESIGNED outcome rather than a defect**). Device read only; no tracked file changed.
