@@ -541,6 +541,56 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 262 (**PRODUCT CHANGE — reachability became CALLABLE: a new `monitor` plugin exposes the watches
+over MCP (`monitor_list` / `monitor_probe` / `monitor_add` / `monitor_remove`), so the AI driving this device can finally see
+the network record the device has been keeping since round 261 — and the strip gained a signal for a link that keeps FALLING:
+`host:port flapping (2 drops)`, marked with a hollow diamond so unstable is told apart from down by SHAPE, not by hue**).
+Commits: 07c59d8f (the plugin + console-MCP registration + the drops rule + the chip), 44fe88bf (the panel test assertions the
+panel's own tsc caught). Release **1.2.376** published, gateway **redeployed**, and d1 UPDATED — where every tool, the probe
+sequence, the chip and the card were exercised against the real device.
+  (1) THE GAP IT CLOSES, in the guides' own words: the device watched host:port targets but **only the panel could see them,
+  and the AI's only channel to this device is MCP** — so a model could reboot an ONU and then have no ground truth about
+  whether it came back, while the device held a minute-by-minute record of exactly that. Unlisted is uncalled; the same shape
+  round 260 met one family over.
+  (2) THE FOUR TOOLS ARE A SHELL OVER `crate::monitor`, not a second copy: `monitor_list` (targets with summaries and the
+  recent series — the "what happened while I was doing something else" call), `monitor_probe` (probe NOW, synchronously: the
+  pair probe → act → probe is how an AI states a before and after instead of inferring one from a 15 s timer),
+  `monitor_add`/`monitor_remove` (a watch an AI adds is PERSISTED, so it is still there for the operator afterwards). An AI
+  reading `monitor_list` and an operator reading the Reachability card see the same numbers, because they ARE the same numbers.
+  (3) CONSOLE-MCP VISIBILITY, THE DECISION THE GUIDES SAY IS SEPARATE, TAKEN EXPLICITLY: all four are registered in
+  `mcp-tools.ts` AND matched by `isDeviceDirectTool()` — registering without the routing predicate is registered-but-
+  uncallable, which is what the guides warn about. **Three gateway gates had to agree, and each failed in turn until it got its
+  answer**: the contract test ("neither registered nor decided against"), the device-direct partition mirror, and the registry
+  count (35 → 39). The code viewer was re-synced and the gateway redeployed; the DEPLOYED worker's own source mirror now shows
+  the four names and the routing prefix.
+  (4) A NEW RULE WITH A MEASURED THRESHOLD: `drops` — how many times a target FELL from up to down inside the window. A link
+  that is up every time the operator looks still has a count, which is the difference between a state and a PATTERN.
+  `UNSTABLE_DROPS = 2`, because one drop is often the operator's own reboot or an agent update and two inside one window is a
+  link to look at. My own first draft of this rule said "flaps that RECOVERED" in the doc while the code counted falls; **the
+  test I wrote for it caught the disagreement**, and the honest resolution was to keep the count and rename it (`drops`) — a
+  filtered count would say zero about a link that is down, and `up_now` is what says whether the state is current.
+  (5) THE CHIP SPEAKS FOR THE PATTERN, AND ONLY WHEN NOTHING ELSE DOES: `down` outranks `flapping` (two chips about one host is
+  worse than one), and the mark is a HOLLOW diamond against the down chip's filled one — this repo has an incident where two
+  states differed by colour alone, so the silhouette carries the difference. The card prints `N drops` beside the failed-probe
+  count.
+  (6) VERIFIED LIVE ON d1 (1.2.376). The four tools ran through the device's own `/api/tools/` wire: `monitor_add` took a
+  target, and the documented probe → act → probe sequence produced a REAL flapping series — listener up (`ms: 0`), stopped
+  (`ok: false, ms: null, drops: 1`), back (`ms: 14`), stopped (`drops: 2`), back (`drops: 2, up_now: true`) — with the 15 s
+  timer's own probes interleaved (the summary read `probes: 3, down: 2` mid-sequence, which is the two producers in one
+  series). The strip then read `127.0.0.1:45999 flapping (2 drops)` (class `is-flapping`, hollow mark, title "2 drops in this
+  window, up now"), the card `63% up | avg 6 ms | max 15 ms | 3 failed probes | 2 drops` beside the ONU's untouched
+  `100% up | 15 of 15 probes answered`, and screenshots were pulled and read. **Cleanup done**: my test target was removed and
+  the listener stopped, so the device keeps only the operator's own watch (`192.168.1.1:22 up_now=True drops=0 probes=17`).
+  (7) THE PANEL'S OWN GATE CAUGHT ME TWICE IN ONE ROUND and both times it was the release build that stopped, not the test
+  run: first `expect(x, [])` (a MESSAGE argument, not an equality — vitest ran it happily, `tsc --noEmit` refused it), then my
+  own repair regex, which ate a closing paren. The lesson is the one round 261 already recorded, now with a second data point:
+  **`npm test` is not the gate; `npm run build` is.**
+  STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still reads
+  as "CRASHED or was killed"; `runstate::mark_exited` still has no production caller); a monitor is host:port only (no HTTP
+  status check, no latency threshold, no notification when something flaps — the chip is the only place it speaks); 1.2.376
+  needs its tag + audit; the `.tsx` scope decision; 1.2.370 and 1.2.374 in `release-reconcile.txt`; 1.2.362-1.2.364 in the same
+  ledger; the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue.
+
 Last updated: 2026-09-14 round 261 (**PRODUCT CHANGE — the DEVICE now watches reachability: watched host:port targets probed over
 TCP every 15 s into a bounded series, a Reachability card with a latency chart whose failed probes are GAPS, and a strip chip
 naming a target that is down and for how long. The operator's own tool for this was a hand-rolled `Test-NetConnection` loop in
