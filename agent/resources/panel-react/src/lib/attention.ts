@@ -21,6 +21,12 @@
 // either alone.
 import type { Monitors } from "../hooks/useMonitors";
 
+/** The key for "this target is in THIS state, since this moment" — shared by the poll
+ *  (`summary.sinceMs`) and the device's push (`at_ms`), which describe the same transition. */
+export function stateKey(id: string, sinceMs: number | null | undefined): string {
+  return `state:${id}:${sinceMs ?? 0}`;
+}
+
 export interface AttentionItem {
   /** Stable across renders: what makes one item the same item. */
   key: string;
@@ -52,7 +58,12 @@ export function attentionFrom(
   for (const t of monitors?.targets ?? []) {
     if (t.summary.upNow === false) {
       items.push({
-        key: `down:${t.id}`,
+        // ONE KEY PER STATE, NOT PER SOURCE. The device PUSHES a transition (with the outage
+        // duration) and the poll also sees the same down state — and they are the same fact, so
+        // they must share a key or one outage is announced twice. `sinceMs` is when the current
+        // state began, which is exactly what the push calls `at_ms`; when the state changes the
+        // key changes, so a link that goes down twice still notifies twice.
+        key: stateKey(t.id, t.summary.sinceMs),
         kind: "down",
         text: `${t.host}:${t.port} is down`,
       });

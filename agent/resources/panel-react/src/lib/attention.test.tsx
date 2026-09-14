@@ -14,6 +14,7 @@ import {
   attentionFrom,
   attentionSummary,
   badgeIcon,
+  stateKey,
   titleFor,
   BASE_TITLE,
   type AttentionItem,
@@ -171,6 +172,46 @@ describe("the notifier's rules", () => {
     expect(permissionHint("unsupported")).toContain("tab title");
     expect(permissionHint("granted")).toContain("background");
     expect(permissionHint("default")).toContain("asks your browser once");
+  });
+});
+
+describe("one outage is ONE notification (the bug the live test found)", () => {
+  it("gives the poll and the device's push the same key for the same state", async () => {
+    const { sent, C } = (() => {
+      const sent: { title: string; body?: string; tag?: string }[] = [];
+      const C = function (this: unknown, title: string, opts?: { body?: string; tag?: string }) {
+        sent.push({ title, ...opts });
+        return {};
+      } as unknown as new (t: string, o?: { body?: string; tag?: string }) => NotificationLike;
+      return { sent, C };
+    })();
+    // A CLOCK THE TEST OWNS: the rate limit is part of the design, so a test that fires three
+    // notifications "at once" is testing the limiter, not the keys.
+    let now = 1_000_000;
+    const n = new DeviceNotifier(C, () => now);
+
+    // The PUSH arrives first (it is emitted from the same lock that appends the probe)…
+    const sinceMs = 1_789_392_840_540;
+    n.notify(
+      { key: stateKey("a:22", sinceMs), title: "Vale: host down", body: "a:22 is DOWN — it had been up 40s" },
+      "granted",
+    );
+    // …and the next POLL sees the same down state, deriving its key from `summary.sinceMs`.
+    n.notify({ key: stateKey("a:22", sinceMs), title: "Vale: host down", body: "a:22 is down" }, "granted");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body).toContain("40s");
+
+    // The link recovers: the state key changes, and the recovery is announced once.
+    now += 60_000;
+    n.retain([]);
+    n.notify({ key: stateKey("a:22", sinceMs + 60_000), title: "Vale: host back up", body: "back up" }, "granted");
+    expect(sent).toHaveLength(2);
+
+    // A SECOND outage (new state) notifies again — the dedupe must not become permanent.
+    now += 60_000;
+    n.retain([]);
+    n.notify({ key: stateKey("a:22", sinceMs + 300_000), title: "Vale: host down", body: "again" }, "granted");
+    expect(sent).toHaveLength(3);
   });
 });
 

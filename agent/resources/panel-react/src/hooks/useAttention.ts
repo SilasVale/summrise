@@ -11,7 +11,7 @@
 // origin by the browser and the toggle in Settings is what asks; this hook only READS it, so a page
 // that has never asked shows the title/badge channels and nothing else.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { attentionFrom, badgeIcon, titleFor, BASE_TITLE, type AttentionItem } from "../lib/attention";
+import { attentionFrom, badgeIcon, stateKey, titleFor, BASE_TITLE, type AttentionItem } from "../lib/attention";
 import {
   DeviceNotifier,
   readPermission,
@@ -141,17 +141,18 @@ export function useAttentionNotifications(
       const body = change.up
         ? `back up after ${humanMs(change.lastedMs)} down`
         : `DOWN — it had been up ${humanMs(change.lastedMs)}`;
+      // The SAME key the poll derives for this state (`stateKey`): whichever of the two notices
+      // arrives first is the one that notifies, and the other is deduped. The first version of
+      // this used two keys and "cleared" the poll's — which RE-ARMED it, and the device sent two
+      // notifications for one outage (caught by the live test on d1, not by the unit tests).
       notifier.current?.notify(
         {
-          key: `change:${change.id}:${change.atMs}`,
+          key: stateKey(change.id, change.atMs),
           title: change.up ? "Vale: host back up" : "Vale: host down",
           body: `${change.host}:${change.port} is ${body}`,
         },
         permission,
       );
-      // The poll's `down:<id>` key has been answered by this push; retiring it stops the same
-      // outage from being announced twice.
-      notifier.current?.clear(`down:${change.id}`);
     };
     window.addEventListener("vale-monitor-change", onFrame);
     return () => window.removeEventListener("vale-monitor-change", onFrame);
