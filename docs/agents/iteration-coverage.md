@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 246**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 247**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -316,7 +316,7 @@ deployed mirror is byte-identical to the tested source.
      ready key, because 0/8 keys is not "no credentials". Proven by `smoke:overview` (three scenes,
      8 checks) and four mutations.
 5. **Panel F5** (host allowlist family match) — recorded as hardening only.
-6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose).
+6. **ADR 0007 step 3** — `RELAY_ADMIN_CUTOVER` flag exists, default off; flipping it is a deprecation-window decision (propose). **Round 247 verified the item and found its PRECONDITION is unrecorded: `ARCHITECTURE.md`'s trade-off row says the window stays open until step 2 (clients on the relay token) AND step 3, and nothing anywhere records whether step 2 has been assessed.** So the ask is two-part — first "are the clients migrated?", then the flip — and only the second half was written down. The flag itself holds up (implemented in `0007:43`, exercised by `gateway/test/relay-token.test.mjs:215`).
 7. **CDN ⇄ GitHub release reconcile** — member-wise comparison + exe provenance proposal awaits sign-off.
 
 ## Finding ID registry

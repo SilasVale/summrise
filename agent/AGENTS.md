@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 247 (**ADR 0007's STEP 3 HOLDS UP IN FOUR INDEPENDENT PLACES — and the round's
+honest signal is that this is the THIRD consecutive round whose finding is "it holds up"**). Commit: journal
+only; nothing changed.
+  (1) THE LEAD WAS THE LAST OPEN ITEM THE LOOP HAS NEVER REVISITED, AND THE ONLY ONE THAT IS A REAL
+  DEPRECATION-WINDOW DECISION: **`ARCHITECTURE.md`'s trade-off table calls the relay dual-accept window "open by
+  design (ADR 0007) — admin tokens still pass relay paths until step 2 (clients on relay token) + step 3 (flip
+  `RELAY_ADMIN_CUTOVER`); announce the window before flipping — it is a flag-day 401 for stragglers"**, and the
+  objective names closing a deprecation window as an irreversible external commitment — so this is a
+  propose-only item by design, which makes it the kind that must not silently rot.
+  (2) MEASURED RATHER THAN INHERITED, AND IT AGREES IN FOUR PLACES: **`docs/adr/0007-scoped-relay-token.md:43`
+  says "The cutover is implemented, not just planned: `settings:RELAY_ADMIN_CUTOVER`"**; **`gateway/test/relay-token.test.mjs:215`
+  actually EXERCISES it** (`...(cutover ? { "settings:RELAY_ADMIN_CUTOVER": "1" } : {})`), so the flag is not
+  merely documented but covered; **the ledger's open item 6 states it with the right owner** ("flag exists,
+  default off; flipping it is a deprecation-window decision (propose)"); and **`ARCHITECTURE.md:65`'s
+  boundary-verdict row** names the mechanism precisely ("one KV write, no deploy"). **Three of those four are
+  artifacts the loop has checked before; the test is the one that turns the claim into a behaviour, and this is
+  the first round to confirm the cutover path has coverage.**
+  (3) AND THE ONE REAL GAP, STATED AT ITS TRUE SIZE: the trade-off row says the window stays open until **step 2
+  (clients on relay token)** *and* step 3, and **no artifact records whether step 2 has been assessed — the
+  ledger's item names the FLIP but not its PRECONDITION.** So the item cannot be acted on even by the person who
+  owns it without first answering "are the clients migrated?" from outside the repository. **That is a genuine
+  omission and a thin one: it is named here rather than inflated, and the fix is one clause in the ledger's item
+  rather than a new instrument.**
+  (4) THE ROUND'S SIGNAL IS THE THING WORTH RECORDING, AND IT CUTS AGAINST CONTINUING: **rounds 245, 246 and 247
+  each ended with "the artifact holds up"** — the ledger's headline numbers were the only drift found in 245, the
+  root pair was clean in 246, and this item is clean in 247. **That is the shape the objective's completion
+  condition watches for** ("three consecutive rounds with no new finding or proposal"), and it is worth saying
+  plainly rather than manufacturing a fourth angle: **the remaining open items are one user decision (the
+  installer's signing), one propose-only deprecation window (this ADR), the never-named to-read queue (38 files,
+  measured and characterised in round 242 as a coverage gap in this journal rather than a defect list), and the
+  unassessed step-2 precondition named above.**
+  (5) SO NOTHING WAS CHANGED THIS ROUND BEYOND THE RECORD, and that is deliberate: the honest response to three
+  clean rounds is to say so, not to find something. **The instrument that would have to be built for step 2 is not
+  buildable here — it asks whether real clients have migrated to a relay credential, which is a fact about
+  deployments and users, not about this tree.** STILL OPEN: the installer's signing decision (the user's call);
+  **ADR 0007 step 2's assessment (the precondition for its step 3 — new, and it needs the user because it is
+  the same deprecation-window decision)**; the never-named to-read queue (38, count deliberately unasserted).
+
 Last updated: 2026-09-14 round 246 (**THE ROOT GUIDE PAIR DID HAVE AN UNCHECKED OBLIGATION, AND THE FIRST INSTRUMENT
 WRITTEN TO CLOSE IT COULD HAVE DEPLOYED THE WORKERS — the most expensive slip of this stretch, caught by checking
 rather than by trusting a green test**). Commit: agent/tests/ + ledger + journal.
