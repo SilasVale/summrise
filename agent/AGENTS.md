@@ -526,6 +526,20 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 255 — **live check of the model catalogue: NO confirmable drift, so no fix.**
+No commit (product check only).
+  Ran `node scripts/model-drift.mjs` against the live gateway: 21 advertised, and five CHECKs across `or/`
+  and `og/`. Tested each the way round 57 did (does the BARE name exist upstream?): **`openai/gpt-5.6-luna:floor`
+  and `z-ai/glm-5.2:free` are aliases — OpenRouter offers both base names; `stealth/ox-alpha` is NOT in
+  OpenRouter's 445-model list but stealth models are cloaked BY DESIGN there, so absence is not retirement;
+  `og/ox-alpha-free` could not be checked (the anonymous read gets 403).** No model was retired. **Round 57's
+  finding held because the bare name was absent in EVERY form; none of these is that case.**
+  **RULE 4: no product change this round, and the reason is that the check came back clean** — not that the
+  work was skipped. The catalogue users select from was verified against upstream today.
+  STILL OPEN: the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's);
+  `describe_previous`'s new line is unverified on a device until the next agent restart writes it to
+  `startup.log`; the never-named to-read queue (36).
+
 Last updated: 2026-09-14 round 254 (**PRODUCT CHANGE: `describe_previous` now says WHAT HAPPENED instead of handing
 the operator three numbers — the distinction round 244 had to work out by hand on d1 is now computed**).
 Commit: agent/src/runstate.rs + journal. agent 680 = 679 + 1, four steps green.
