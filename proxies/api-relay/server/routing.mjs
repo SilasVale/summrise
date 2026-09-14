@@ -44,7 +44,9 @@ export function collectResponseHeaders(response) {
   return out;
 }
 
-// Routing replicates vercel.json's rewrites in-process:
+// Routing replays the retired vercel.json's rewrites in-process (that file is
+// DELETED — Vercel retired 2026-09-08 — so THIS table and routing.test.mjs are
+// the semantics; there is nothing else to consult):
 //   /api/git/<rest>     -> handler(Request at /api/git?path=/<rest>&<orig args>)
 //   /api/github/...     -> /api/github?path=...
 //   /api/gform/...      -> /api/gform?path=...
@@ -71,9 +73,10 @@ export function resolveRoute(routes, rawUrl) {
 
 /**
  * Build the upstream Request URL for a route hit. pathFromRest routes fold
- * the tail into the `path` query param, mirroring vercel.json
- * "/api/git/:path*" -> "/api/git?path=/:path*" (extra query args of the
- * original request are preserved; git smart-http needs service=...).
+ * the tail into the `path` query param, the shape the deleted vercel.json
+ * declared as "/api/git/:path*" -> "/api/git?path=/:path*" (extra query args
+ * of the original request are preserved; git smart-http needs service=...).
+ * Pinned by server/test/routing.test.mjs.
  */
 export function buildUrl({ r, pathname, search }, host) {
   if (!r.pathFromRest) {

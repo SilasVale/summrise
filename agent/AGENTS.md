@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 232 (**THE VRELAY SERVER'S TWO UN-NAMED FILES CITE `vercel.json` AS THE AUTHORITY
+FOR THE ROUTING SEMANTICS — four times, across both files — AND `vercel.json` DOES NOT EXIST**). Commit:
+proxies/api-relay/server/ + journal. api-relay 70 tests, 70 pass, and CI now runs them (round 231).
+  (1) THE LEAD WAS ROUND 230's CORRECTED INSTRUMENT (the two files no round had named), and the FIRST TWO
+  RESULTS ARE THAT THE DESIGN HELD UP: `server/test/routing.test.mjs` imports all five exports from
+  `../routing.mjs`, so **round 231's coverage claim is real and the router IS tested**; `entry.mjs` is a
+  composition root (imports the handlers, builds `ROUTES`, calls `createServer`/`listen`) and is untested BY
+  DESIGN, with the logic extracted — which is the right shape, not a gap. **And `ROUTES` matches `api/`
+  exactly: five routes to five handler files, one-to-one, with nothing missing and nothing extra.**
+  (2) THE FINDING IS THE COMMENT, AND IT IS ROUND 218's SHAPE WITH A SHARPER EDGE: `entry.mjs:7` and
+  `routing.mjs:47` both say **"Routing replicates vercel.json's rewrites in-process"**, `entry.mjs:43` and
+  `routing.mjs:74` both say **"mirroring vercel.json"** — and **`vercel.json` is not in the repository.**
+  It went with the Vercel retirement (2026-09-08), which round 222 completed. **Round 218's stale header
+  described the wrong COPY; this text names a SOURCE OF TRUTH, so a reader changing routing is sent to a file
+  they cannot open and cannot tell whether what they see is the intended semantics or a leftover.**
+  (3) WHAT WAS NOT BROKEN, STATED SO THE FINDING IS NOT OVERREAD: **the behaviour was never unpinned.**
+  `routing.test.mjs` covers `buildUrl`'s `pathFromRest` folding — "buildUrl: pathFromRest folds the tail
+  into ?path=, keeps smart-http args" is one of the 69 — so **what broke is the reference, not the
+  semantics.** The fix therefore points the reader at where the semantics actually live
+  (`server/test/routing.test.mjs`) rather than trying to recreate a deleted file.
+  (4) AND MY OWN INSTRUMENT FAILED ON ITS FIRST RUN, WHICH BELONGS IN THE RECORD: the assertion's regex was
+  `\b(del|remov|retir|…)\b`, and a trailing `\b` after a STEM does not match the words built on it —
+  **it rejected "DELETED", "deleted" and "retired", i.e. exactly the lines that were correct.** The first run
+  came back `1 fail` with all four of my own new comment lines listed as offenders. **That is the fifth-such
+  harness slip of this stretch and the first one that caught itself before I drew a conclusion from it —
+  which is the difference ADR 0011 buys when it says a parser is affordable because it fails LOUDLY on the
+  first run rather than silently on the day the artifacts diverge.**
+  (5) THE FIX IS FOUR COMMENTS PLUS ONE ASSERTION, AND THE ASSERTION'S MUTATION IS THE HISTORICAL TEXT ITSELF:
+  each mention now says the file was deleted and points at the test; `server/test/vercel-references.test.mjs`
+  refuses any `vercel.json` mention in `server/*.mjs` that does not say so on the same line, and is moot if
+  the file ever comes back. **Restoring the old wording verbatim turns it red; the whole suite is 70 tests /
+  70 pass, and round 231's CI step means it is now enforced rather than merely available.** STILL OPEN, AND
+  NOTHING ELSE WAITS ON THE LOOP: the installer's signing decision (the user's call); `api-relay`'s remaining
+  un-named files are nine gate tests whose content the 69-test run already exercises; convergence rows 6-7,
+  which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 231 (**`api-relay` HAD 69 PASSING TESTS AND CI RAN NONE OF THEM — verified inside
 `ci.yml` rather than read from the ledger, which is the one difference between this finding and the one round 226
 had to retract**). Commit: `.github/workflows/ci.yml` + journal.

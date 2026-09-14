@@ -4,9 +4,11 @@
 // web-API edge functions (Request -> Response), so behavior parity with the
 // Vercel deployment is by construction, not by re-implementation.
 //
-// Routing replicates vercel.json's rewrites in-process (pure table +
-// matchers in ./routing.mjs — unit-tested; entry keeps only the handler
-// wiring + HTTP plumbing):
+// Routing replays the rewrites the retired vercel.json used to declare, in
+// process (pure table + matchers in ./routing.mjs — unit-tested; entry keeps
+// only the handler wiring + HTTP plumbing). **vercel.json itself is DELETED**
+// (Vercel retired 2026-09-08), so the semantics live in the table below and in
+// server/test/routing.test.mjs — not in a file you can go and read:
 //   /api/git/<rest>     -> handler(Request at /api/git?path=/<rest>&<orig args>)
 //   /api/github/...     -> /api/github?path=...
 //   /api/gform/...      -> /api/gform?path=...
@@ -39,9 +41,10 @@ import { resolveRoute, buildUrl, resolveHost, forwardHeaders, collectResponseHea
 
 const PORT = Number(process.env.PORT || 8081);
 
-// pathFromRest: rewrite the tail into the `path` query param, mirroring
-// vercel.json "/api/git/:path*" -> "/api/git?path=/:path*" (extra query args
-// of the original request are preserved; git smart-http needs service=...).
+// pathFromRest: rewrite the tail into the `path` query param, the shape the
+// deleted vercel.json declared as "/api/git/:path*" -> "/api/git?path=/:path*"
+// (extra query args of the original request are preserved; git smart-http
+// needs service=...). Pinned by server/test/routing.test.mjs.
 const ROUTES = [
   { prefix: "/api/zen", handler: zen },
   { prefix: "/api/proxy", handler: proxy },
