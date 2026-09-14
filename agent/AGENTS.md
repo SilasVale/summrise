@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 205 (**THE FIX'S FIRST HALF IS EXECUTED AND ITS EFFECT IS VERIFIED BY
+MEASUREMENT: `bc2d3d8e` went from 1 check-run to 12.** The gate now has the evidence it was refusing to
+release without). Commit: journal.
+  (1) WHAT WAS DONE, AND WHAT WAS MEASURED RATHER THAN ASSUMED: round 204 named the fix — re-run the CI for
+  the tagged commit so a green check-run lands on it — and this round executed its first half.
+  `POST /actions/runs/34793202280/rerun` → **HTTP 201**, and then the EFFECT was checked instead of the
+  status code: `commits/bc2d3d8e/check-runs` now returns **`total_count: 12`** where round 204 measured
+  **1**. The twelve are the real jobs — `proxies`/`index`/`ui`/`pack-chain` already `success`, `panel`/
+  `gateway`/three `agent` jobs `in_progress`, `extension` `queued`, and `agent (xwin build → npm tgz →
+  release asset)` which is release #138's own. **This is the same "the equality is the deliverable, not the
+  return code" discipline the push in round 200 used, applied to a re-run.**
+  (2) AND THE GATE'S BEHAVIOUR IS NOW CORRECT RATHER THAN STUCK, which is the point: with `N_ALL=11` and
+  `PENDING` non-empty it keeps WAITING — which is what its comment says it should do — and when the checks
+  finish green the same condition (`N_ALL -gt 0`, no `PENDING`, no `BAD`) will PASS. **The workflow never
+  needed changing; it needed the evidence it was fail-closed for.** Round 204's reading of the gate is
+  therefore confirmed by the gate's own subsequent behaviour, not merely by its source.
+  (3) AND ONE OBSERVATION LEFT UNEXPLAINED RATHER THAN GLOSSED: release #138 is **still** `in_progress` with
+  `updated_at` frozen at `00:37:04Z` — long past the ~10 minutes (30 × `sleep 20`) the loop should take to
+  time out. So either the frozen `updated_at` is not a reliable liveness signal, or the step is not where
+  the source says it is. **I have not established which**, and the distinction matters: if the gate is
+  still looping it will now pass on its own, and if it already exited non-zero then #138 needs a re-run.
+  The cheap way to tell them apart is the next check of #138's `conclusion` — if it is `failure`, re-run
+  it; the CI evidence it was waiting for is now arriving either way.
+  (4) SO THE RELEASE'S STATE, STATED SO NOBODY HAS TO RECONSTRUCT IT: the tag `v1.2.365` exists on
+  `bc2d3d8e`; the GitHub release is still 404; CI is running on that commit with four jobs already green;
+  release #138 is either still gating or has failed and needs one re-run. **Nothing is ambiguous and
+  nothing is half-applied** — the remaining work is waiting for CI, then one re-run if needed, and then
+  round 203's corrected publish order (`publish-release.sh` first, then `publish-cdn-from-ci.sh`).
+  (5) STILL OPEN: #138's `conclusion` (read-only); the publish and installer after it; the mirror test's
+  manifest blind spot (round 199); `studio/` (noticed round 197); the recurring second failure's name
+  under mutation; `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 204 (**THE RELEASE IS STUCK, FULLY DIAGNOSED, AND THE CAUSE IS MY OWN
 PUSH ORDER.** `release` #138 has been at step 3 since 00:37:04Z; the gate is FAIL-CLOSED ON SILENCE, and
 `bc2d3d8e` carries no CI evidence because round 201's next push cancelled it). Commit: journal.
