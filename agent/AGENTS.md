@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 215 (**THE CORS ALLOWLIST IS HAND-MAINTAINED IN THREE FILES AND ITS OWN COMMENT
+ASSERTS THEY AGREE — round 214's shape one level up, and the rank-1 row of round 165's never-examined
+table now has an instrument**). Commit: gateway/test/ + journal. gateway 863 = 861 + 2, four steps green.
+  (1) THE RANK-1 FILE HELD UP, AND THAT IS THE FIRST RESULT: `gateway/src/http.ts` is "every response goes
+  through it", and it is well built — reflecting paths (`corsHeadersFor`, `stampCors`, `withCors`) all pair
+  the reflection with `Vary: Origin`, `jsonOk`/`jsonError` deliberately carry NO `Access-Control-Allow-Origin`
+  (so a static `*` cannot ride along on a merge), and `index.ts` stamps at the one choke point
+  (`if (hit !== null) return withCors(request, await hit)`) with 404 / static / 500 all covered. **No
+  `Vary` source exists elsewhere in `src/`, so the `set("Vary", "Origin")` clobber risk is latent rather
+  than live** — recorded, not fixed, because nothing can clobber it today.
+  (2) AND THE ONE WILDCARD IS DELIBERATE, WITH ITS REASON WRITTEN DOWN: `index.ts:178`'s
+  `publicCors = { "Access-Control-Allow-Origin": "*" }` covers `/api/vale-cli`, `/api/vale-install` and
+  `/api/vale-install.ps1` — "Genuinely-public installer payloads … No session, no secret." Those three
+  return `new Response(...)` directly rather than through `withCors`, which is what KEEPS the `*`:
+  `stampCors`'s refusal branch would DELETE it. **Nothing prevents a future edit from wrapping them, which
+  would silently break browser-hosted install helpers** — noted as a hazard rather than acted on, since no
+  such edit exists.
+  (3) THE FINDING IS THE COMMENT, and it is round 214's shape exactly: `ALLOWED_ORIGINS`'s doc block makes
+  THREE claims about three OTHER files — `CONSOLE_HOST` in `wrangler.jsonc`, `extension/manifest.json`'s
+  host_permissions, and "(Mirrors `proxies/zen-go-proxy/src/index.js`.)". **All three verify TRUE today,
+  measured: `CONSOLE_HOST` is `ai.saisi.online,api.saisi.online`, the manifest's only host_permission is
+  `https://dsh.saisi.online/*`, and zen-go's list is the identical three — and NOTHING read any of them.**
+  (4) THE STAKE IS CONCRETE, NOT THEORETICAL, which is why this ranks as a finding: `wrangler.jsonc:75`
+  says `CONSOLE_HOST` may be overridden "via dashboard", so **the console's real origin can move without a
+  commit — and when it does, the new origin is absent from this allowlist and the console silently loses
+  CORS in the browser while every server-side test stays green.** The zen-go pair is the same hazard with
+  no override story at all: two lists declared to mirror each other, and only one of them edited.
+  (5) THE FIX IS `gateway/test/cors-allowlist.test.mjs`, two assertions that read all three sources as data
+  so none restates another, and BOTH ARE MUTATION-PROVEN — with the mutation counts themselves
+  informative: deleting `dsh` from zen-go turns **exactly 1** test red (the mirror-divergence one), while
+  deleting it from the gateway turns **4** red (this new one plus three pre-existing tests that also depend
+  on that origin). And one honesty note on my own harness: mutation ①'s landed-check threw a false negative
+  because `dsh.saisi.online` also appears in a zen-go comment, so "the string is gone" was the wrong test —
+  **the file was already written, so the red result stands, but the check was wrong and that is worth
+  knowing rather than hiding.** STILL OPEN: the installer's signing decision (the user's call);
+  `agent/src/plugins/playwright/helper.js`, `lib/ratelimit.ts` and `plugins/registry.ts` (round-165 rows
+  still never opened); the recurring second failure's name under mutation.
+
 Last updated: 2026-09-14 round 214 (**THE AGENT↔GATEWAY ERROR-CODE CONTRACT WAS PINNED ON EACH SIDE AGAINST
 ONLY ITSELF — the fourth instance of this loop's signature shape, and the first one whose mutation is the
 direction NOBODY covered**). Commit: 2 new test files + ledger. agent 673 = 671 + 2, zero red.
