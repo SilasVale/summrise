@@ -153,11 +153,32 @@ impl SerialPool {
             }
         }
 
-        let port = builder
-            .open()
-            .map_err(|e| DeviceError::SerialPortNotFound {
-                port: format!("{port_name}: {e}"),
-            })?;
+        // AN IN-USE PORT IS NOT A MISSING ONE, and saying "not found" for it sends an
+        // operator looking for a cable that is plugged in (measured on d1, round 259: a
+        // leaked handle inside the agent produced `Serial port not found: COM4: 拒绝访问`
+        // and the real answer was "something already holds it"). The OS tells the two
+        // apart — a permission/access failure means the device is THERE and busy.
+        let port = builder.open().map_err(|e| {
+            // `serialport::ErrorKind::Io(io)` carries the OS error's kind; a permission
+            // failure (Windows ERROR_ACCESS_DENIED, Unix EACCES/EBUSY) is the busy case.
+            // Deliberately NOT matching on the message text: it is localised (`拒绝访问`),
+            // and a classification that depends on the display language is not one.
+            if matches!(
+                e.kind(),
+                serialport::ErrorKind::Io(std::io::ErrorKind::PermissionDenied)
+            ) {
+                DeviceError::Internal {
+                    message: format!(
+                        "{port_name} is in use by another program or an open Vale session \
+                         ({e}) — close that session or program and retry"
+                    ),
+                }
+            } else {
+                DeviceError::SerialPortNotFound {
+                    port: format!("{port_name}: {e}"),
+                }
+            }
+        })?;
 
         // round-99: the exclusivity check above was check-then-act — two
         // concurrent opens of the same port BOTH passed the check (lock

@@ -52,13 +52,58 @@ fn read_chunk(port: &mut dyn serialport::SerialPort, buf: &mut [u8]) -> std::io:
     }
 }
 
+/// THE POOL ENTRY THIS SESSION HOLDS — a guard that FOLLOWS the session across
+/// auto-reconnects, and releases the entry it currently holds when it is dropped or
+/// explicitly released.
+///
+/// WHY IT EXISTS (round 259, measured on d1). `SerialPool::open` mints a NEW entry id on
+/// every open, INCLUDING the reopen an auto-reconnect performs. The backend used to keep
+/// the id it was born with, so the reconnect released the new entry nowhere: closing the
+/// session called `release_port(stale_id)` — a no-op — and the live entry, WITH ITS OPEN
+/// OS HANDLE, stayed in the pool for the life of the process. **The symptom is exactly
+/// what an operator reported: a serial session that closed normally, a COM port that
+/// stayed locked (`Access to the path 'COM4' is denied`) for every later open — ours and
+/// every other program's — until the agent was restarted.**
+///
+/// The id therefore lives HERE, behind one lock, and both writers (the reader thread on a
+/// reconnect, `close`) go through it: a reconnect REPOINTS the guard (releasing the old
+/// entry), and closing RELEASES it immediately rather than waiting for every `Arc<dyn
+/// TermBackend>` clone in flight to drop. Released is idempotent — `take()` makes the
+/// second call a no-op — so the close path, the reader's exit and `Drop` can all run.
+struct PoolEntry {
+    pool: Arc<SerialPool>,
+    id: Option<String>,
+}
+
+impl PoolEntry {
+    fn new(pool: Arc<SerialPool>, id: String) -> Self {
+        Self { pool, id: Some(id) }
+    }
+    /// Drop the entry we currently hold (idempotent).
+    fn release(&mut self) {
+        if let Some(id) = self.id.take() {
+            self.pool.release_port(&id);
+        }
+    }
+    /// Follow a reconnect: release the old entry, hold the new one.
+    fn repoint(&mut self, new_id: String) {
+        self.release();
+        self.id = Some(new_id);
+    }
+}
+
+impl Drop for PoolEntry {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 pub struct SerialBackend {
     write_tx: std::sync::mpsc::SyncSender<Vec<u8>>,
     close_tx: std::sync::mpsc::Sender<()>,
-    // round-118: the pool entry must be dropped when the session closes so
-    // the port can be reopened; without this the exclusivity guard leaked.
-    pool: Option<Arc<SerialPool>>,
-    port_id: Option<String>,
+    /// The pool entry, shared with the reader thread (which repoints it on reconnect).
+    /// `None` only if the pool was never acquired (a construction failure path).
+    entry: Option<Arc<std::sync::Mutex<PoolEntry>>>,
 }
 
 impl SerialBackend {
@@ -108,6 +153,8 @@ impl SerialBackend {
                 })?
         }?;
         let port = Arc::new(tokio::sync::Mutex::new(port));
+        // The entry guard, shared with the reader thread so a reconnect can follow it.
+        let entry = Arc::new(std::sync::Mutex::new(PoolEntry::new(pool.clone(), port_id)));
 
         // Bounded write queue (was unbounded — a stalled device could buffer
         // keystrokes without limit). sync_channel(1024) + try_send below drops
@@ -130,10 +177,9 @@ impl SerialBackend {
         let link_r = link.clone();
         let tx_r = tx.clone();
         let sid_r = sid.clone();
-        let port_id_r = port_id.clone();
+        let entry_r = entry.clone();
         let port_shared_r = port_shared.clone();
         std::thread::spawn(move || {
-            let mut port_id = port_id_r;
             loop {
                 if close_rx.try_recv().is_ok() {
                     break;
@@ -166,11 +212,14 @@ impl SerialBackend {
                             session_id: sid_r.clone(),
                             data: format!("\r\n\x1b[33m[serial] {port_name}: link lost — waiting for the port to reappear (auto-reconnect)…\x1b[0m\r\n").into_bytes(),
                         });
-                        // Release the dead entry so open() can succeed again.
+                        // Release the dead entry so open() can succeed again — through the
+                        // guard, so the entry we later follow is the one we actually hold.
                         {
-                            let pool = pool_r.clone();
-                            let id = port_id.clone();
-                            let _ = std::thread::spawn(move || pool.release_port(&id)).join();
+                            let e = entry_r.clone();
+                            let _ = std::thread::spawn(move || {
+                                e.lock().unwrap_or_else(|p| p.into_inner()).release()
+                            })
+                            .join();
                         }
                         // Retry loop until the port comes back or the session
                         // is closed. pool_open is synchronous (serialport open
@@ -192,7 +241,13 @@ impl SerialBackend {
                                     });
                                     *port_shared_r.lock().unwrap_or_else(|p| p.into_inner()) =
                                         Arc::new(tokio::sync::Mutex::new(new_port));
-                                    port_id = new_id;
+                                    // FOLLOW THE NEW ENTRY: the id this session holds is now
+                                    // the reconnected one, so closing releases THAT, not the
+                                    // dead id — the leak this guard exists to prevent.
+                                    entry_r
+                                        .lock()
+                                        .unwrap_or_else(|p| p.into_inner())
+                                        .repoint(new_id);
                                     break;
                                 }
                                 Err(_) => {
@@ -253,8 +308,7 @@ impl SerialBackend {
         Ok(SerialBackend {
             write_tx,
             close_tx,
-            pool: Some(pool),
-            port_id: Some(port_id),
+            entry: Some(entry),
         })
     }
 }
@@ -289,6 +343,12 @@ impl TermBackend for SerialBackend {
     fn resize(&self, _rows: u16, _cols: u16) {}
     fn close(&self) {
         let _ = self.close_tx.send(());
+        // RELEASE NOW, not when the last Arc drops: an in-flight tool call may still be
+        // holding a clone of this backend, and a port nobody is reading must not stay
+        // locked against every other program on the device (round 259).
+        if let Some(entry) = &self.entry {
+            entry.lock().unwrap_or_else(|p| p.into_inner()).release();
+        }
     }
     // A serial port has no process to abort — a timed-out write to a device
     // cannot be "killed". Nothing to do (the session stays open).
@@ -298,12 +358,9 @@ impl TermBackend for SerialBackend {
 impl Drop for SerialBackend {
     fn drop(&mut self) {
         let _ = self.close_tx.send(());
-        // round-118: release the pool entry so the port can be reopened —
-        // the old take_port removed it at open time (breaking exclusivity),
-        // and without a release here the new borrow design would leak it.
-        if let (Some(pool), Some(port_id)) = (self.pool.take(), self.port_id.take()) {
-            pool.release_port(&port_id);
-        }
+        // The guard releases whatever entry this session currently holds (round-118's rule,
+        // now correct across reconnects — see `PoolEntry`).
+        self.entry = None;
     }
 }
 
@@ -349,6 +406,108 @@ mod tx_tests {
     /// EOF
     /// ```
     ///
+    /// A CLOSED SERIAL SESSION MUST RELEASE THE PORT IT HOLDS (round 259).
+    ///
+    /// Measured on d1 before this test existed: an operator's serial session closed
+    /// normally (its audit trail ends with `status: closed`) and COM4 stayed locked —
+    /// `Access to the path 'COM4' is denied` for every later open, OURS AND EVERY OTHER
+    /// PROGRAM'S — until the agent process was restarted. Two defects produced that, and
+    /// this test covers the first: the entry guard released the id the session was BORN
+    /// with, so an entry minted by an auto-reconnect was never released at all.
+    ///
+    /// Needs a real tty (`VALE_TEST_SERIAL_PORT`, the harness in the file header), because
+    /// the pool's entries ARE OS handles; skips without one, so CI is unaffected.
+    #[tokio::test]
+    async fn a_serial_session_releases_its_pool_entry_on_close() {
+        let Ok(port) = std::env::var("VALE_TEST_SERIAL_PORT") else {
+            return; // no tty provided — skip (CI)
+        };
+        let pool = std::sync::Arc::new(SerialPool::new(115200, 200));
+        let (tx, _rx) = tokio::sync::mpsc::channel::<TermOutput>(64);
+        let be = SerialBackend::open(
+            pool.clone(),
+            &port,
+            None,
+            None,
+            None,
+            false,
+            tx,
+            "close-probe".into(),
+        )
+        .await
+        .expect("opening the provided tty must succeed");
+        assert_eq!(
+            pool.list_open_ports().len(),
+            1,
+            "an open session holds exactly one pool entry"
+        );
+        be.close();
+        // The entry is released by close itself, NOT by the Arc count reaching zero: a tool
+        // call in flight may still hold a clone of this backend, and the port must be free
+        // the moment the session is closed.
+        assert!(
+            pool.list_open_ports().is_empty(),
+            "closing the session must release the pool entry: {:?}",
+            pool.list_open_ports()
+        );
+    }
+
+    /// THE RECONNECT HALF: `SerialPool::open` mints a NEW entry id on every open, including
+    /// the reopen an auto-reconnect performs — so the guard must FOLLOW the new id. Before
+    /// round 259 the backend kept the id it was born with, `release_port(stale_id)` was a
+    /// no-op, and the entry minted by the reconnect (with its open handle) stayed in the
+    /// pool for the life of the process: the d1 symptom, exactly.
+    ///
+    /// Driven through the real pool, not a fake: the property under test IS about the ids
+    /// real opens mint. Needs a tty, so it skips without one like its sibling above.
+    #[tokio::test]
+    async fn the_entry_guard_follows_a_reconnect_to_the_new_entry() {
+        let Ok(port) = std::env::var("VALE_TEST_SERIAL_PORT") else {
+            return; // no tty provided — skip (CI)
+        };
+        let pool = std::sync::Arc::new(SerialPool::new(115200, 200));
+        // The entry a session is born with. BOUNDED RETRY: the harness reuses ONE tty for
+        // every test in this module, and a previous test's reader thread holds the handle for
+        // up to its 50 ms read window after that session closed — so a single attempt would
+        // measure the harness's timing, not this test's subject.
+        let opened =
+            (0..40).find_map(
+                |_| match pool.open(port.clone(), Some(115200), None, None, None) {
+                    Ok(v) => Some(v),
+                    Err(_) => {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        None
+                    }
+                },
+            );
+        let (first_id, _) = opened.expect("the tty must become openable within 2 s");
+        let guard = std::sync::Arc::new(std::sync::Mutex::new(PoolEntry::new(
+            pool.clone(),
+            first_id,
+        )));
+        assert_eq!(pool.list_open_ports().len(), 1);
+        // The reconnect: the old entry is released, a NEW one is minted and held.
+        pool.release_port(&pool.list_open_ports()[0].id.clone());
+        let (second_id, _) = pool
+            .open(port.clone(), Some(115200), None, None, None)
+            .expect("reopen");
+        guard.lock().unwrap().repoint(second_id.clone());
+        let open = pool.list_open_ports();
+        assert_eq!(
+            open.len(),
+            1,
+            "exactly the reconnected entry is held: {open:?}"
+        );
+        assert_eq!(open[0].id, second_id, "and it is the NEW one: {open:?}");
+        // And closing releases that one — the leak this pins.
+        drop(guard);
+        assert!(
+            pool.list_open_ports().is_empty(),
+            "the guard must release the entry it followed: {:?}",
+            pool.list_open_ports()
+        );
+    }
+
     /// THE WAIT AT THE END IS LOAD-BEARING, and it is a lesson from writing
     /// this: the writer is a separate std thread, so a test that writes and
     /// returns immediately exits the process before the frame is sent — which
