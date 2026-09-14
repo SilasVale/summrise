@@ -1760,3 +1760,16 @@ test("asciiJson: text that goes through a command line must survive it", () => {
   assert.equal(JSON.parse(out).targets[0].note.text, "我重启的 — ok 🚀");
   assert.match(out, /\n  "device"/, "the indent is kept, so a human can still read it");
 });
+
+
+test("the --json paths actually USE the escaping helper (a helper test is not a wiring test)", () => {
+  // Both encoding bugs of this round had the same shape: the helper was right and the CALL SITE
+  // was not. `asciiJson`'s own test passed while the two `--json` printers still called
+  // `JSON.stringify` directly, so the pipe stayed broken. This reads the shipped file and asserts
+  // the wiring, which is the only place the difference is visible.
+  const shipped = readFileSync(new URL("../bin/vale.js", import.meta.url), "utf8");
+  const wired = shipped.split("asciiJson(monitorsJson(").length - 1;
+  assert.equal(wired, 2, "both --json printers must go through asciiJson (see asciiJson's comment)");
+  // …and the request body path, for the same reason.
+  assert.match(shipped, /-d", asciiJson\(body\)/);
+});

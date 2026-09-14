@@ -2046,10 +2046,13 @@ const commands = {
           // could not be reached is a NON-ZERO EXIT with the reason on stderr, never a JSON body
           // pretending everything is fine.
           const os = require("os");
+          // ASCII-escaped for the same reason the request body is (see `asciiJson`): a PIPE is an
+          // encoding boundary too. PowerShell decodes a child's output with the console code page
+          // (CP936 on d1), so raw UTF-8 through a pipe came back as mojibake while the same text
+          // printed directly read fine — the second face of this bug.
           console.log(
-              JSON.stringify(
+              asciiJson(
                   monitorsJson({ device: os.hostname(), askedAtMs: Date.now(), payload: r.body, only: null }),
-                  null,
                   2,
               ),
           );
@@ -2091,12 +2094,11 @@ const commands = {
                   process.exit(1);
               }
               console.log(
-                  JSON.stringify(
+                  asciiJson(
                       monitorsJson({ device: os.hostname(), askedAtMs: now, payload: r.body, only: only ? only.id : null }),
-                      null,
                       2,
-                  ),
-              );
+                      ),
+                  );
               return;
           }
           const lines = [];
