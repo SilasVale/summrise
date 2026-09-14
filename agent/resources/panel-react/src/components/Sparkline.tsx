@@ -19,10 +19,15 @@ export function Sparkline({
   height = 28,
   label,
   tone = "cpu",
+  emptyLabel = "no readings",
 }: {
   values: (number | null)[];
   width?: number;
   height?: number;
+  /** What to say when there is nothing to draw. A CALLER'S FACT, not this component's: "no
+   *  readings yet" (nothing has been probed) and "never answered" (probed, and every probe
+   *  failed) are different situations, and the component cannot tell them apart. */
+  emptyLabel?: string;
   /** What it is a picture OF, and its numbers — read out by a screen reader and shown as
    *  the hover. The chart is a summary; the sentence is the value. */
   label: string;
@@ -35,7 +40,7 @@ export function Sparkline({
     // honest empty state instead of a chart-shaped lie.
     return (
       <span className="spark spark-empty" title={label} aria-label={label} role="img">
-        <span className="spark-none">no readings</span>
+        <span className="spark-none">{emptyLabel}</span>
       </span>
     );
   }

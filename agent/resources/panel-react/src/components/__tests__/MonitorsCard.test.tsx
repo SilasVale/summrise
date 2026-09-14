@@ -125,8 +125,30 @@ describe("MonitorsCard", () => {
     const { container } = render(
       <MonitorsCard monitors={monitors([t])} onAdd={async () => ({ ok: true })} onRemove={noop} onProbe={noop} nowMs={now} />,
     );
-    expect(container.querySelector(".monitor-row")!.textContent).toContain("no readings");
+    // "No readings YET" — nothing has been probed. The other state ("never answered") is
+    // asserted below, and the two must not read the same on a row that also counts failures.
+    expect(container.querySelector(".monitor-row")!.textContent).toContain("no readings yet");
     expect(container.textContent).not.toContain("0% up");
+  });
+
+  it("says 'never answered' for a target whose every probe failed", () => {
+    // The row also counts the failed probes; "no readings" beside "7 failed probes" reads as a
+    // contradiction, and the two facts are about different things (latency vs. reachability).
+    const { container } = render(
+      <MonitorsCard
+        monitors={monitors([target({ oks: [false, false, false] })])}
+        onAdd={async () => ({ ok: true })}
+        onRemove={noop}
+        onProbe={noop}
+        nowMs={now}
+      />,
+    );
+    const row = container.querySelector(".monitor-row")!;
+    expect(row.textContent).toContain("never answered");
+    expect(row.textContent).not.toContain("no readings yet");
+    expect(row.textContent).toContain("3 failed probes");
+    // No chart at all: a line along the floor would read as a measurement.
+    expect(container.querySelectorAll(".spark-svg")).toHaveLength(0);
   });
 
   it("sends the form's values and shows the device's reason VERBATIM on refusal", async () => {

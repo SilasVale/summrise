@@ -71,7 +71,14 @@ function TargetRow({
         </button>
       </div>
       <div className="monitor-body">
-        <Sparkline values={latency} label={label} tone="mem" />
+        <Sparkline
+          values={latency}
+          label={label}
+          tone="mem"
+          // "Nothing probed yet" and "probed, never answered" are different facts; the row's
+          // own count of failed probes sits beside this text, and they must not contradict.
+          emptyLabel={series.length === 0 ? "no readings yet" : "never answered"}
+        />
         <span className="monitor-facts">
           {summary.upPct !== null && (
             <span className="monitor-fact" title="share of the probes that answered">
