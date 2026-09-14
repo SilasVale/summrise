@@ -526,6 +526,45 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 214 (**THE AGENT↔GATEWAY ERROR-CODE CONTRACT WAS PINNED ON EACH SIDE AGAINST
+ONLY ITSELF — the fourth instance of this loop's signature shape, and the first one whose mutation is the
+direction NOBODY covered**). Commit: 2 new test files + ledger. agent 673 = 671 + 2, zero red.
+  (1) THE CONTRACT, MEASURED ON BOTH SIDES RATHER THAN READ FROM A COMMENT: `error.rs` declares
+  `GATEWAY_DISPATCHED_CODES = ["session_not_found", "session_busy", "ssh_timeout"]` and pins it with TWO
+  tests; `gateway/src/mcp.ts:281-285` matches exactly those three literals in the `!ok || data.ok === false`
+  arm, and the gateway's own suite exercises that mapping through a stubbed agent response. **Extracted
+  mechanically from `mcp.ts` (not from the comment that claims it): `session_busy`, `session_not_found`,
+  `ssh_timeout` — identical today, and `human_in_control` appears nowhere in `gateway/src/`.**
+  (2) SO THE DEFECT IS NOT A DRIFT, IT IS A DIRECTION: rename on either side fails that side's own tests,
+  but **if the GATEWAY ADDS a fourth dispatched code, the gateway's tests still pass (they only exercise the
+  arms they know) AND the agent's tests still pass (the agent file did not change).** At that moment
+  `GATEWAY_DISPATCHED_CODES` understates the real contract, and `error.rs`'s documented "deliberately NOT
+  dispatched" list — whose first entry is `human_in_control`, with a paragraph of reasoning — **silently
+  becomes false. Nothing refuses it.**
+  (3) AND THE AGENT'S OWN COMMENT WAS THE TELL, WHICH IS WHY THIS RANKS AS A FINDING RATHER THAN CHORES:
+  `gateway_dispatched_codes_are_exactly_three` carries the message "gateway/src/mcp.ts matches exactly
+  these three" — **a claim about a file that test never opens.** The file's doc comment reasons carefully
+  about the AGENT-side rename hazard and says nothing about the gateway-side one, which is the uncovered
+  direction. **A pin that asserts its own literals is a pin against one of the two ways the thing can
+  break, described as though it covered both.**
+  (4) THE FIX IS `agent/tests/gateway_code_contract.rs`, and it reads BOTH files as data so neither side's
+  literals are restated in it: the Rust side parses the `= &[…]` array, the TS side extracts `data?.code
+  === "…"` **scoped to the `!ok` arm deliberately** (a wider search would report phantom drift from
+  unrelated `code ===` uses). It lives in `agent/tests/` beside `module_map.rs` and round 213's
+  `ledger_head.rs` — the same precedent, and the third test in this suite that reads a file rather than a
+  value.
+  (5) THE MUTATION IS THE UNCOVERED DIRECTION AND THE FAILURE SHOWS BOTH SETS: adding
+  `data?.code === "human_in_control" ? SESSION_BUSY` to mcp.ts turns it red with
+  `left: [session_busy, session_not_found, ssh_timeout]` against
+  `right: [human_in_control, session_busy, session_not_found, ssh_timeout]`; restoring it (verified: the
+  string occurs 0 times again) turns it green. **AND MY FIRST TWO ATTEMPTS AT THAT MUTATION DID NOT APPLY
+  — a wrong anchor and then wrong indentation — which would have left a green test "proving" an assertion
+  that had never been exercised. Both were caught only because the mutation script ASSERTS it landed before
+  running the test; that assertion is now the habit, and round 213 is where it was earned.** STILL OPEN:
+  the installer's signing decision (the user's call); `agent/src/plugins/playwright/helper.js` and
+  `http.ts`/`lib/ratelimit.ts`/`plugins/registry.ts` (the round-165 rows still never opened); the recurring
+  second failure's name under mutation.
+
 Last updated: 2026-09-14 round 213 (**THE LEDGER WAS 91 ROUNDS BEHIND THE JOURNAL, and now a TEST refuses
 that** — the same "two artifacts, one obligation, no assertion" shape as rounds 199 and 211, found this time
 in the bookkeeping the goal itself requires). Commit: ledger + new test.
