@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 217 (**`registry.ts`'s DIRECTORY CONTRACT IS TRUE — and the point is that it is
+now DERIVED rather than trusted: the file's own rule can generate its list, and nothing did until this round**).
+Commit: gateway/test/ + journal. gateway 867 = 865 + 2, four steps green.
+  (1) THE RANK-5 FILE HELD UP, AND BOTH OF MY FIRST "FINDINGS" WERE FALSE POSITIVES CAUGHT BY MEASURING
+  AGAIN — which is the honest form of this round and is recorded as such. Claim one: the SOLID Round-2 rule
+  ("prefer the typed helpers over raw `ctx.api.<dep>` reads") — the count said **4 raw reads against only 2
+  typed-helper uses**, and reading them showed **all four are in COMMENTS** (`model-route.ts:6`,
+  `registry.ts:112` and `:116`, `translate.ts:1609`), with zero raw reads in code and the typed helpers live
+  (`optionalApi` in `auth.ts:782`, `provideApi` in `translate.ts:1634`). Claim two: `plugins/mcp.ts` looked
+  like a collaborator missing from the list — but `index.ts:60` imports it, **so it is a PLUGIN**, and the
+  list names exactly the four non-plugin modules. **Neither grep was a lie; both were the wrong question.**
+  (2) AND THE MEASUREMENT THAT SETTLED IT IS THE ONE THE FILE ASKS FOR: the contract states a RULE — "a
+  module with two live consumers is NOT a private collaborator: it belongs in src/ as foundation" — and the
+  rule is mechanical, so the list can be DERIVED. Derived: plugins = the five `index.ts` imports
+  (`auth`/`devices`/`mcp`/`translate`/`admin`); collaborators = `plugins/*.ts` minus `registry` minus those
+  five = **`device-proxy`, `model-route`, `models-probe`, `translate-vision`** — each with **exactly one**
+  consumer, exactly as listed. **The claim is true, and it is checkable, and that pair is the finding.**
+  (3) THE FIX MAKES THE CLAIM SELF-CHECKING, which is what the file itself has been asking for since round
+  184: `gateway/test/plugin-collaborators.test.mjs` derives the collaborator set from the import graph and
+  asserts the header's list equals it — then asserts each collaborator has exactly one consumer (two would
+  mean it belongs in `src/`, zero would mean it is dead) and each registered plugin at least one. Nothing
+  is restated from the other side, so the assertion cannot agree with itself.
+  (4) THE MUTATION IS ROUND 184'S OWN DEFECT, which is the strongest form this loop has: deleting
+  `models-probe.ts` from the header's list — RE-CREATING the exact staleness that round 184 found by hand —
+  turns it red with `actual: [device-proxy, model-route, translate-vision]` against
+  `expected: [… models-probe …]`. **The test would have caught the bug it was written about, and it caught
+  it the first time it was asked to.**
+  (5) AND THE STRETCH HAS AN INSTRUMENT PATTERN WORTH NAMING, BECAUSE IT IS NOW FOUR FOR FOUR: every wrong
+  answer in rounds 214-217 came from MY PARSER OR MY LANDED-CHECK, never from the finding —
+  `find('[')` landing inside the type `&[&str]` (214), a landed-check that grepped for a string still
+  present in a comment (215), a header lookahead that broke on a comment's continuation `*` (217), and a
+  landed-check that grepped for a name still present in a round-184 note (217). **Four instruments, four
+  bugs, zero wrong findings — and each was caught only because the measurement was run before the
+  conclusion was drawn.** Parsing prose and comments is where these harnesses break, and that is now a
+  stated hazard rather than a run of bad luck. STILL OPEN: the installer's signing decision (the user's
+  call); **`agent/src/plugins/playwright/helper.js` is now the LAST row of round 165's table never
+  opened**; the recurring second failure's name under mutation.
+
 Last updated: 2026-09-14 round 216 (**THE RATE LIMITER'S `kvSeed` FLAG IS LOAD-BEARING AND ITS PLACEMENT WAS A
 CLAIM NOTHING CHECKED — round 215's shape in a third foundation file, and the dangerous edit is ONE WORD**).
 Commit: gateway/test/ + journal. gateway 865 = 863 + 2, four steps green.
