@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 216 (**THE RATE LIMITER'S `kvSeed` FLAG IS LOAD-BEARING AND ITS PLACEMENT WAS A
+CLAIM NOTHING CHECKED — round 215's shape in a third foundation file, and the dangerous edit is ONE WORD**).
+Commit: gateway/test/ + journal. gateway 865 = 863 + 2, four steps green.
+  (1) THE LIMITER ITSELF HELD UP, MEASURED RATHER THAN ASSUMED: the 4096-key cap runs on every NEW-key
+  insertion (the early return on the `hit !== undefined` path cannot grow the map), `cf-connecting-ip` is
+  edge-written so it is not client-forgeable, and the memory path has no `await` between the `get` and the
+  `set`. The `kvSeed` path DOES have one — concurrent first-sights can lose an increment — but that is
+  inherent to seeding from KV and the header documents the accepted trade.
+  (2) THE FINDING IS THE HEADER'S ENUMERATION, and it is the round-215 shape exactly: `ratelimit.ts` names
+  its own call sites — **"kvSeed: true (probe)"** and **"kvSeed: false (auth register, devices public
+  gate)"** — and nothing read them. **All three verify TRUE today, extracted from the sources: `tooling.ts`
+  passes `kvSeed: true` for `probe-rate`; `auth.ts`'s `auth-rate` and `devices.ts`'s `pub-rate` omit it and
+  therefore get the `kvSeed = false` default.** Three call sites, exactly as enumerated.
+  (3) THE STAKE IS ROUND 104'S OWN FINDING, QUOTED FROM THE FILE: those two endpoints "cost 2-3 KV writes
+  per attempt themselves; a per-request KV write HERE would let an attacker exhaust the Free-plan daily KV
+  write quota." **So the dangerous edit is adding `kvSeed: true` to auth or devices — one word, passing
+  every existing test, reintroducing the vector the doc names.** The reverse direction matters too and the
+  doc says why: the probe bucket WANTS the seed ("so a new isolate inherits the budget"), so silently
+  DROPPING it is also a regression, just a quieter one.
+  (4) THE FIX IS `gateway/test/ratelimit-kvseed.test.mjs`, two assertions reading the three sources as data
+  (a balanced-brace scan, so a nested object or a comment cannot truncate the options literal) rather than
+  restating them, and it pins BOTH directions plus the bucket-name set. **Both mutations landed — asserted
+  before the run, which is round 213/214's hard-won habit — and both went red: adding `kvSeed: true` to
+  auth turns 2 tests red (this one plus one pre-existing test that also covers that direction), and
+  flipping tooling's to `false` turns 3 red with the message naming the doc's own reason.**
+  (5) SO THE ROUND-165 LIST IS NOW DOWN TO THREE UNOPENED SURFACES, and two of the three opened this
+  stretch held up on inspection: `agent/src/plugins/playwright/helper.js`, `gateway/src/plugins/registry.ts`,
+  and — opened and CLEARED in rounds 215/216 — `http.ts` and `lib/ratelimit.ts`, which were ranks 1 and 4
+  precisely because a defect there is expensive. STILL OPEN: the installer's signing decision (the user's
+  call); `agent/src/plugins/playwright/helper.js` and `gateway/src/plugins/registry.ts`; the recurring
+  second failure's name under mutation.
+
 Last updated: 2026-09-14 round 215 (**THE CORS ALLOWLIST IS HAND-MAINTAINED IN THREE FILES AND ITS OWN COMMENT
 ASSERTS THEY AGREE — round 214's shape one level up, and the rank-1 row of round 165's never-examined
 table now has an instrument**). Commit: gateway/test/ + journal. gateway 863 = 861 + 2, four steps green.
