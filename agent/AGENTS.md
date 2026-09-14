@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 211 (**ROUND 199'S MANIFEST BLIND SPOT IS CLOSED, with the historical defect
+itself as the mutation**). Commit: gateway/test/ + journal. Tests: gateway 861 = 860 + 1, zero red;
+mutation 860-pass/1-fail.
+  (1) WHAT THE GAP WAS, RESTATED BECAUSE IT IS THE WHOLE POINT: `sync-code-viewer.sh` writes TWO tracked
+  artifacts — the `files/` mirror and `manifest.json` — and the mirror test compared only the FILES
+  (`missing`/`extra`/`differing` over the walked trees). **It never read the manifest.** So the manifest
+  could lag its own mirror indefinitely, which is precisely what round 199 found by hand: the entry for
+  `src/store/byok.ts` sat uncommitted for nine rounds while the file it indexes was committed in round 190.
+  Two artifacts carrying one obligation, one assertion.
+  (2) THE FIX IS ONE ASSERTION IN THE SAME FILE, deliberately: every file the mirror contains must be
+  indexed by the manifest, and the failure message names which ones are not. Adding it to
+  `test/code-viewer-mirror.test.mjs` rather than a new file is the round-183 rule — the harness, the
+  `walk()` helper and the constants were already there and already paid for.
+  (3) AND THE MUTATION IS THE HISTORICAL DEFECT ITSELF, which is the strongest form this loop has: deleting
+  the `byok.ts` entry from `manifest.json` — i.e. RE-CREATING round 199's exact state — turns the suite red
+  with `unindexed=files/vale-gate/src/store/byok.ts`, and restoring it turns it green (861/861). **A test
+  whose mutation is the bug it was written for is a test that would have caught that bug**, and this one
+  needed no invention to demonstrate it.
+  (4) WHAT THIS DOES NOT FIX, STATED SO THE CLOSURE IS NOT OVERREAD: the manifest test proves the INDEX
+  agrees with the MIRROR; it says nothing about whether the mirror agrees with `src/` — that is the older
+  test's job, and the two now cover their halves. Neither can see a `src/` change that was never synced
+  into either artifact; only running `sync-code-viewer.sh` (or the suite, which fails when they diverge)
+  catches that, and rounds 168/173/175/182/184/199/206 all record it working.
+  (5) AND ONE THING THIS ROUND DID NOT DO, DELIBERATELY: the live installer is still unsigned and still
+  advertised, because the root cause is a DESIGN CHOICE rather than a bug — `release-lib.sh:20` writes the
+  `installer`/`installer_sha256` fields whenever a file exists at that path, and `build-installer.sh`'s own
+  comment says "No cert = skip with a note (the build stays shippable)". **Adding a fail-closed guard there
+  would reverse a documented decision, which is the user's call and not the loop's** — so it is recorded as
+  an open decision rather than acted on. STILL OPEN: that decision; `studio/` (noticed round 197);
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; the recurring second failure's name under mutation.
+
 Last updated: 2026-09-14 round 210 (**THE FULL RELEASE SHIPPED END-TO-END, and the signing pipeline was
 VALIDATED with a self-signed cert — sign+verify both pass, nothing shipped**). Plus one false claim of mine,
 caught by a sha comparison rather than by memory.
