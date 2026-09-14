@@ -583,7 +583,7 @@ card and the chip were all read back off the device.
   as "CRASHED or was killed"; `runstate::mark_exited` still has no production caller); **the monitors are panel-only — no MCP
   tool exposes them, so an AI driving this device cannot add, read or remove a watch** (the console-MCP visibility decision the
   guides name, deliberately not taken this round); a monitor is host:port only (no HTTP status, no latency threshold alarm);
-  1.2.374/1.2.375 need their tags + audits; the `.tsx` scope decision; 1.2.370 in `release-reconcile.txt`; 1.2.362-1.2.364 in the
+  1.2.375 is tagged on a CI-green commit and audited; **1.2.374 is RECORDED in `release-reconcile.txt`** — superseded within its own round, and neither of its commits can pass release.yml's tag gate (one is red, the other has no CI run because CI only runs on a pushed tip); the `.tsx` scope decision; 1.2.370 in `release-reconcile.txt`; 1.2.362-1.2.364 in the
   same ledger; the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue (91).
 
 Last updated: 2026-09-14 round 260 (**PRODUCT CHANGE — the panel's terminal now has CONSOLE KEYS: ^C, Enter, ^D, ^Z, Tab, Esc and,
