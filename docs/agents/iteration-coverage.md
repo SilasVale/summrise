@@ -10,8 +10,22 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 121** (the extension's link allowlist: it now refuses credential homes,
-  resolves relative mentions against the real workspace, and stops turning prose into links);
+- Round log head: **round 213**. **This line said `round 121` until round 213 — a 91-round drift, and
+  NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
+  code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
+  head line and this one are both hand-written numbers; the journal's is written every round and this
+  one was not, so "the ledger is current" was a claim no test could refuse. Repairing the values below
+  is the small half; making the two heads comparable is the durable half and is NOT done yet.
+- Round 213 (THIS round — the ledger repaired and the drift recorded); round 212 (`studio/`: 182 MB of
+  untracked residue from ADR 0006's retirement, hidden from `git status` for ~100 rounds by FOUR orphan
+  `.gitignore` rules — removed with the rules, because the rules were the mechanism of the hiding);
+  round 211 (the manifest blind spot closed, mutation = the historical defect itself); rounds 207-210
+  (THE RELEASE: `v1.2.365` shipped end-to-end — GitHub release, CDN, and device d1 updated and verified
+  by two independent sources; the P0 dual-builder audit ran on a REAL release for the first time and
+  passed byte-for-byte; the signing pipeline validated with a self-signed cert); rounds 204-206 (the
+  release gate was RIGHT, and the reason was this loop's own instrument — it had been quoting ONE of
+  CI's four gateway steps, and `format:check` had been red for ~38 rounds); rounds 200-203 (the first
+  push, the tag, and `publish-cdn-from-ci.sh` shown to be a CONVERGENCE tool rather than a publish tool);
 - Round 120 (the DISCOVERY round: four read-only scouts on surfaces no round
   had audited — extension, the agent's `design` plugin, proxies/vrelay, the release machinery —
   ~45 findings, two HIGHs fixed here, one of them LIVE-CONFIRMED and deployed); the console/gateway fixes of rounds 116-119 are all DEPLOYED
@@ -30,8 +44,11 @@ Seeded 2026-09-14 at round 110.
   on top of that. Found by round 112's independent gate run, fixed there. The lesson is cheap to
   state and expensive to forget: `cargo test` also runs `tests/`, and one of those tests READS THE
   GUIDES — so adding a module is a map change, not only a code change.
-- **d1 IS BACK AND CURRENT (1.2.364)** — `vale status`: RUNNING, `this device is current`, no
-  update in flight; install `D:\Vale`, data `C:\ProgramData\Vale`. The multi-day dark period is
+- **d1 IS ON 1.2.365 (updated in round 210, verified by TWO independent sources)** — `vale status`:
+  RUNNING, `this device is current`, no
+  update in flight; the agent's own `/api/status` agrees (`"release":"1.2.365","ok":true`); install
+  `D:\Vale`, data `C:\ProgramData\Vale`. The update log carries the full four-part chain
+  (`update requested` / `update start` / `copy ok=True` / `task restarted`). The multi-day dark period is
   over. Round 114 spent the live session verifying what rounds 110/111 could only pin: the boot
   task's revival contract (trigger/settings read from the live task, and the protective half
   proven BY EFFECT — a manual start while healthy is refused and the process count stays 1), the
@@ -118,6 +135,17 @@ named by any round.** Ranked by what a defect there would cost:
 | 7 | `gateway/src/store/{regkeys,settings,file-config}.ts` | three store surfaces |
 | 8 | `agent/src/plugins/playwright/helper.js` | shipped helper code |
 | 9 | `agent/vale-command-core/src/{events,error,config}.rs` | core contract files every plugin depends on |
+
+**AND THIS TABLE'S OWN HISTORY IS THE PROOF IT WAS RIGHT TO EXIST** (added round 213): the
+121-file check named 15 never-named files, and the loop has since WORKED THE LIST rather than inherited
+it — `body-scan.ts` in round 168 (B1, the CPU cap), `approval.rs` in round 170 (**B2, a SECURITY fix**:
+an assignment prefix is never a grant), `model-route.ts`/`models-probe.ts` in rounds 191/195 (the BYOK
+four-table drift class), `store/file-config.ts` in rounds 174-178 (D14). **So rows 2, 3, 6 and 7 have
+been opened.** Still genuinely never examined, and therefore still the best fuel on this page:
+**row 8 `agent/src/plugins/playwright/helper.js`** and **row 9
+`agent/vale-command-core/src/{events,error,config}.rs`** — three core contract files every plugin
+depends on. Rows 1, 4 and 5 (`http.ts`, `lib/ratelimit.ts`, `plugins/registry.ts`) are foundation
+surfaces this ledger still cannot claim anyone has opened.
 
 The lesson recorded with it: **a surface table derived from history cannot tell you what
 history missed.** The ledger's "surfaces covered" meant "surfaces someone looked at".

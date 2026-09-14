@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 213 (**THE LEDGER WAS 91 ROUNDS BEHIND THE JOURNAL, and now a TEST refuses
+that** — the same "two artifacts, one obligation, no assertion" shape as rounds 199 and 211, found this time
+in the bookkeeping the goal itself requires). Commit: ledger + new test.
+  (1) WHAT WAS MEASURED, NOT SUSPECTED: `docs/agents/iteration-coverage.md`'s `Round log head` read
+  **`round 121`** while this journal's head read **`round 212`** — a 91-round drift — and its `Current
+  state` still said "d1 IS BACK AND CURRENT (1.2.364)" (it is 1.2.365 since round 210) and "THE STANDING
+  LIST IS CLEAR OF OFFLINE WORK" (long superseded). The goal requires recording in THREE places — the
+  `Last updated` line, the round entry, and the corresponding ledger row — and the third had silently
+  stopped happening. `git log -- docs/agents/iteration-coverage.md` dates the last real edit to round 198,
+  which touched one row and not the head.
+  (2) AND THE MECHANISM IS THE FINDING, exactly as in rounds 199 and 211: **both heads are HAND-WRITTEN
+  numbers, the journal's is written every round and the ledger's is not, and nothing compared them.**
+  "The ledger is current" was therefore a claim no test could refuse. Round 199 found the same shape
+  between a mirror and its manifest; round 211 closed it with an assertion. **This is the third instance,
+  and the first one in the ledger itself rather than in code.**
+  (3) THE REPAIR IS IN TWO HALVES AND BOTH ARE DONE: the VALUES (head 121 -> 213, the `Current state`
+  corrected to 1.2.365 with the two-source verification, and the round-165 never-examined table annotated
+  with what has since been opened), and the INSTRUMENT — `agent/tests/ledger_head.rs`, which reads BOTH
+  files as data (never restating either number, so it cannot go stale the way a hardcoded expectation
+  would) and asserts they name the same round. It sits in `agent/tests/` because that is where
+  `module_map.rs` already reads the guides, so the harness and the precedent were paid for.
+  (4) AND THE TEST CAUGHT ME ON ITS FIRST RUN, which is worth recording because it is the instrument
+  working: I updated the ledger to round 213 BEFORE writing this entry, so the journal still said 212 and
+  the assertion failed with exactly that pair. **That is the ordering the test enforces — the round entry
+  moves the journal's head, and the ledger must then agree in the SAME commit** — and it refused a state
+  I had created seconds earlier. A test that only ever passes on the first try would have proved nothing.
+  (5) THE ROUND-165 TABLE'S OWN HISTORY TURNED OUT TO BE THE PROOF IT WAS RIGHT TO EXIST: of the 15 files
+  it named as never-named, `body-scan.ts` was opened in round 168 (B1), **`approval.rs` in round 170 (B2 —
+  a SECURITY fix)**, `model-route.ts`/`models-probe.ts` in rounds 191/195, `store/file-config.ts` in
+  rounds 174-178. STILL GENUINELY NEVER EXAMINED, and therefore still the best fuel on that page:
+  **`agent/src/plugins/playwright/helper.js`** and **the three `vale-command-core` contract files**
+  (`events.rs`/`error.rs`/`config.rs` — every plugin depends on them). Rows 1, 4 and 5 (`http.ts`,
+  `lib/ratelimit.ts`, `plugins/registry.ts`) are foundation surfaces this ledger still cannot claim anyone
+  has opened. Plus: the installer's signing decision (the user's call); the recurring second failure's
+  name under mutation.
+
 Last updated: 2026-09-14 round 212 (**ROUND 197'S `studio/` CLOSES — it was never unknown, and the
 reason nobody noticed is the finding: four `.gitignore` rules were hiding 182 MB of retired residue from
 `git status`**). Commit: .gitignore + `rm -rf studio/`.
