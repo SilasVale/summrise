@@ -111,43 +111,4 @@ test("registry: every collaborator has exactly one consumer, every plugin at lea
   }
 });
 
-test("ARCHITECTURE.md's plugins/ row accounts for every file in the directory", () => {
-  // The Directory contracts row enumerates `plugins/`, so it is the SECOND place
-  // that lists the same set — and round 249 found it disagreeing with the derived
-  // one: it said "9 route plugins", listed `device-proxy`, `model-route` and
-  // `registry` among them, and OMITTED `models-probe` entirely, which is the same
-  // omission round 184 found in registry.ts's header. Round 217's test covers the
-  // header; nothing covered the row. Both are read as data here.
-  const row = read("../docs/ARCHITECTURE.md")
-    .split("\n")
-    .find((l) => l.startsWith("| `gateway/src/plugins/`"));
-  assert.ok(row, "ARCHITECTURE.md still has a `gateway/src/plugins/` contract row");
-
-  // THE CONTRACT IS THE ENUMERATION, NOT THE WHOLE ROW — and this distinction is the
-  // whole test. The first version asked "does the row mention X?" and COULD NOT FAIL:
-  // the row's own correction note says "while OMITTING `models-probe`", so deleting
-  // `models-probe` from the LIST left the word present in the PROSE about the defect
-  // and the check stayed green. That is round 215's exact instrument defect ("a
-  // landed-check grepping a string still present in a comment"), reproduced here on
-  // the first attempt. So: strip the note, then read the two parenthesised lists.
-  const contract = row.replace(/\*\*Corrected round \d+:.*?\*\*/s, "");
-  // `registry` is legitimately named OUTSIDE the parentheses ("the **registry framework**"),
-  // so the check is against the whole note-stripped cell rather than against the two lists —
-  // which is only safe BECAUSE the note is stripped: measured, removing `models-probe` from
-  // the collaborator list leaves the name nowhere in `contract`.
-  assert.ok(contract.includes("route plugins"), `the row's contract did not parse: ${contract}`);
-
-  const onDisk = [...new Set([...collaboratorFiles(), ...pluginSet(), "registry"])].sort();
-  const missing = onDisk.filter((f) => !new RegExp(`(^|[^a-z-])${f}([^a-z-]|$)`).test(contract));
-  assert.deepEqual(
-    missing,
-    [],
-    `ARCHITECTURE.md's plugins/ row does not account for: ${missing.join(", ")}. The row ` +
-      `enumerates that directory, and plugins/ holds ${onDisk.length} .ts files \u2014 every one ` +
-      `of them must appear in the row's plugin list or its collaborator list. (This is round ` +
-      `184's defect in a second artifact: round 217's test derives the set for registry.ts's ` +
-      `header, and nothing read this row.)`,
-  );
-});
-
-
+// The ARCHITECTURE.md row check was deleted 2026-09-14 with the document it read.

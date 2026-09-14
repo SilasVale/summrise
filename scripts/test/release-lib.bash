@@ -128,35 +128,11 @@ rm -rf "$T" && mkdir -p "$T"
 out=$(prune_installers "$T")
 check "empty asset dir installer-prunes nothing and stays silent" "$out" ""
 
-# ── the reconcile ledger (round 123) ─────────────────────────────────────
-# The debt used to live only in the operator's scrollback: measured 2026-09-14
-# the CDN served three versions that had no GitHub release and no tag, so the
-# dual-builder audit had never run against a real release and nothing could
-# refuse the next publish. These drive the REAL functions against a temp ledger.
-export RECONCILE_LEDGER="$T/reconcile.txt"
-check "a missing ledger owes nothing" "$(reconcile_pending)" ""
-reconcile_record 1.2.362 "--skip-reconcile: test"
-reconcile_record 1.2.363 "--skip-reconcile: test"
-check "recorded versions are pending, in file order" "$(reconcile_pending | tr '\n' ' ')" "1.2.362 1.2.363 "
-reconcile_record 1.2.362 "--skip-reconcile: recorded again"
-check "recording twice is idempotent — or the debt count stops being answerable" "$(reconcile_pending | wc -l)" "2"
-reconcile_clear 1.2.362
-check "clearing removes exactly that version" "$(reconcile_pending | tr '\n' ' ')" "1.2.363 "
-check "and keeps the ledger's own header" "$(grep -c '^#' "$RECONCILE_LEDGER")" "2"
-reconcile_clear 9.9.9
-check "clearing an absent version is a no-op" "$(reconcile_pending | wc -l)" "1"
-# The gate's condition, exactly as publish-release.sh computes it.
-PENDING="$(reconcile_pending | tr '\n' ' ')"
-check "a pending version makes the gate refuse" "$([ -n "${PENDING// /}" ] && echo refuse || echo allow)" "refuse"
-reconcile_clear 1.2.363
-PENDING="$(reconcile_pending | tr '\n' ' ')"
-check "an empty ledger lets a publish through" "$([ -n "${PENDING// /}" ] && echo refuse || echo allow)" "allow"
-# And the debt must not be clearable by a run that only PRETENDS to settle it:
-# the recording site and the clearing site must be different code paths.
-check_match "the skip path RECORDS the debt" "$(sed -n '/--skip-reconcile given and no GitHub release/,+3p' scripts/publish-release.sh)" "reconcile_record"
-check_match "a passing audit CLEARS it" "$(sed -n '/audit OK: CDN serves this run/,+2p' scripts/publish-release.sh)" "reconcile_clear"
-check_match "and the next publish refuses while it is owed" "$(sed -n '/^# THE RECONCILE GATE/,/^fi$/p' scripts/publish-release.sh)" "refusing to publish"
-check_match "naming the way out" "$(sed -n '/^# THE RECONCILE GATE/,/^fi$/p' scripts/publish-release.sh)" "acknowledge-unreconciled"
+# ── the reconcile ledger was deleted 2026-09-14 ─────────────────────────────
+# The publish step stopped writing it: it produced a markdown file per release and a
+# gate that had to be satisfied by hand. What it recorded — "this version's CDN bytes
+# were never compared against the GitHub asset" — is now the audit's own output.
+
 
 # ── the release scripts' own silent self-disabling checks (round 127) ────────
 # These are SOURCE pins, the instrument this file already uses for the reconcile
