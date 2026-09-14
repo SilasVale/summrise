@@ -534,9 +534,11 @@ release (not the Cargo version).
 Last updated: 2026-09-14 round 258 (**PRODUCT CHANGE — the device now keeps a VITALS SERIES and the panel draws the trend: every
 instrument in the panel was instantaneous, and "has it been like this, or did I catch a moment?" now has an answer — a Device
 health card with real sparklines, and a sustained-load CHIP on the strip that speaks only when a load has PERSISTED**).
-Commit: 39209bb0 (metrics + `/api/vitals/history` + `lib/spark.ts` + the card and the chip). Release **1.2.369** published (CDN
-`/api/version` smoke: versioned + latest sha verified) and UPDATED ON d1, where the whole surface was verified under a REAL
-load, read out of the device's own browser.
+Commits: 39209bb0 (the product), a0229246 (this record). Release **1.2.369** published (CDN `/api/version` smoke: versioned +
+latest sha verified) and UPDATED ON d1, where the whole surface was verified under a REAL load, read out of the device's own
+browser. **CI green on a0229246, the tag was created on that commit, release.yml built the GitHub asset, and the P0
+dual-builder audit ran against it: `release audit OK: CDN == GitHub asset byte-for-byte`** — which cleared 1.2.369 from
+`release-reconcile.txt` (1.2.362-1.2.364 remain: pre-round-207 releases with no GitHub release to audit against).
   (1) THE GAP IT CLOSES, STATED AS A QUESTION AN OPERATOR ASKS: every surface this device had reported the PRESENT — a dial,
   two percentages, an uptime, a boot verdict. None could answer "has it been like this, or did I catch a moment?", which is the
   question that matters when a box feels slow. **A reading is a number; a TREND is a fact somebody can act on.**
