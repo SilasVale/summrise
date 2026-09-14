@@ -19,6 +19,7 @@ const {
   parseTargetArg,
   parseWatchArgs,
   probeLine,
+  monitorsJson,
   stripAnsi,
   lastLine,
   lastOutputBefore,
@@ -1610,4 +1611,74 @@ test("reportText: a DOWN target carries the console line from just before it dro
     sessions: null, boots: null, nowMs: now, cliVersion: "1.2.389", hostLabel: "d1",
   }).join("\n");
   assert.doesNotMatch(bare, /console /);
+});
+
+
+// ── machine-readable output ─────────────────────────────────────────────────
+test("monitorsJson: the device's numbers verbatim, with only what the CLI knows added", () => {
+  const payload = {
+    ok: true,
+    interval_secs: 15,
+    targets: [
+      {
+        id: "192.168.1.1:22",
+        host: "192.168.1.1",
+        port: 22,
+        path: null,
+        expect: null,
+        summary: { probes: 12, up: 12, down: 0, up_pct: 100, up_now: true, since_ms: 111, drops: 0, latency: { min: 7, avg: 9, max: 16 }, last_status: null, last_expect_ok: null },
+        transitions: [{ at_ms: 100, up: true, lasted_ms: 39_000 }],
+        series: [{ ts_ms: 1, ok: true, ms: 9 }],
+      },
+      {
+        id: "h:80/",
+        host: "h",
+        port: 80,
+        path: "/",
+        expect: "OpenWrt",
+        summary: { probes: 4, up: 2, down: 2, up_pct: 50, up_now: false, since_ms: 222, drops: 1, latency: null, last_status: 200, last_expect_ok: false },
+        transitions: [],
+      },
+    ],
+  };
+  const all = monitorsJson({ device: "d1", askedAtMs: 1_789_000_000_000, payload, only: null });
+  assert.equal(all.device, "d1");
+  assert.equal(all.asked_at_ms, 1_789_000_000_000);
+  assert.equal(all.interval_secs, 15);
+  assert.equal(all.targets.length, 2);
+  // The numbers are the device's, under names a script can branch on.
+  assert.deepEqual(all.targets[0], {
+    id: "192.168.1.1:22",
+    host: "192.168.1.1",
+    port: 22,
+    path: null,
+    expect: null,
+    up: true,
+    up_pct: 100,
+    since_ms: 111,
+    drops: 0,
+    latency_ms: 9,
+    last_status: null,
+    last_expect_ok: null,
+    probes: 12,
+    transitions: [{ at_ms: 100, up: true, lasted_ms: 39_000 }],
+  });
+  assert.equal(all.targets[1].last_expect_ok, false);
+  assert.equal(all.targets[1].last_status, 200);
+  // A filtered view (watch --once <target> --json) is the same shape, one entry.
+  const one = monitorsJson({ device: "d1", askedAtMs: 1, payload, only: "h:80/" });
+  assert.equal(one.targets.length, 1);
+  assert.equal(one.targets[0].id, "h:80/");
+  // Nothing read yet is null, NOT false: a script must be able to tell "not known" from "down".
+  const unknown = monitorsJson({
+    device: "d1",
+    askedAtMs: 1,
+    payload: { targets: [{ id: "x:1", host: "x", port: 1, summary: { up_now: null, probes: 0 } }] },
+    only: null,
+  });
+  assert.equal(unknown.targets[0].up, null);
+  assert.equal(unknown.targets[0].up_pct, null);
+  assert.equal(unknown.targets[0].transitions.length, 0);
+  // A payload with no targets at all is an empty list, not a crash.
+  assert.deepEqual(monitorsJson({ device: "d1", askedAtMs: 1, payload: null }).targets, []);
 });

@@ -494,6 +494,49 @@ export function targetLine(t, nowMs, width = 30) {
     const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}`;
 }
+// ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
+// `vale monitor list --json` and `vale watch --once --json` print the DEVICE'S OWN ANSWER,
+// projected rather than re-derived: the summaries, the transitions and the samples are the ones
+// `/api/monitors` returns, so a script and the panel (and the AI) can never disagree about whether
+// a target is up. The CLI adds only what the device cannot know — which device answered, and when
+// this script asked — under names that say so.
+//
+// A STABLE SHAPE, not a passthrough: `{device, asked_at_ms, interval_secs, targets:[…]}`. Anything
+// a script needs to branch on is in it; anything that is presentation (the coloured line, the
+// outage wording) is not.
+export function monitorsJson({ device, askedAtMs, payload, only }) {
+    const targets = ((payload && payload.targets) || [])
+        .filter((t) => !only || t.id === only)
+        .map((t) => ({
+            // EVERY field is present in every row, as `null` when the device did not send it: a
+            // field that vanishes from the JSON is a field a script cannot tell from `false`, and
+            // `JSON.stringify` drops `undefined` keys silently (which is how the first version of
+            // this shipped `up_pct` missing for a target that had never been probed).
+            id: t.id === undefined ? null : t.id,
+            host: t.host === undefined ? null : t.host,
+            port: t.port === undefined ? null : t.port,
+            path: t.path === undefined ? null : t.path,
+            expect: t.expect === undefined ? null : t.expect,
+            // The device's numbers, verbatim. `up: null` means "not read yet" and is NOT false.
+            up: t.summary && t.summary.up_now !== undefined ? t.summary.up_now : null,
+            up_pct: t.summary && t.summary.up_pct !== undefined ? t.summary.up_pct : null,
+            since_ms: t.summary && t.summary.since_ms !== undefined ? t.summary.since_ms : null,
+            drops: t.summary && t.summary.drops !== undefined ? t.summary.drops : null,
+            latency_ms: t.summary && t.summary.latency ? t.summary.latency.avg : null,
+            last_status: t.summary && t.summary.last_status !== undefined ? t.summary.last_status : null,
+            last_expect_ok:
+                t.summary && t.summary.last_expect_ok !== undefined ? t.summary.last_expect_ok : null,
+            probes: t.summary && t.summary.probes !== undefined ? t.summary.probes : null,
+            transitions: (t.transitions || []).map((x) => ({ at_ms: x.at_ms, up: x.up, lasted_ms: x.lasted_ms })),
+        }));
+    return {
+        device: device || "",
+        asked_at_ms: askedAtMs,
+        interval_secs: (payload && payload.interval_secs) || null,
+        targets,
+    };
+}
+
 // ── WHAT THE CONSOLE SAID WHEN IT HAPPENED ──────────────────────────────────
 // The device keeps two timelines that have never been put side by side: the probes (a host went
 // down at 22:51:05) and the session audit (the console printed something at 22:51:04). For an
@@ -1943,13 +1986,27 @@ const commands = {
           return;
       }
       if (sub !== "list") {
-          console.error("usage: vale monitor [list | add <host:port[/path]> | probe <host:port[/path]> | rm <host:port[/path]>]");
+          console.error("usage: vale monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | rm <host:port[/path]>]");
           process.exit(1);
       }
       const r = deviceApi("GET", "/api/monitors");
       if (!r.ok) {
           console.error(`monitor: ${r.error}`);
           process.exit(1);
+      }
+      if (args.includes("--json")) {
+          // For a script: the device's numbers, one object, no colour and no prose. A device that
+          // could not be reached is a NON-ZERO EXIT with the reason on stderr, never a JSON body
+          // pretending everything is fine.
+          const os = require("os");
+          console.log(
+              JSON.stringify(
+                  monitorsJson({ device: os.hostname(), askedAtMs: Date.now(), payload: r.body, only: null }),
+                  null,
+                  2,
+              ),
+          );
+          return;
       }
       const targets = (r.body && r.body.targets) || [];
       if (targets.length === 0) {
@@ -1965,7 +2022,8 @@ const commands = {
   // Live view: redraw in place every few seconds until Ctrl+C. `vale watch
   // <host:port[/path]>` narrows it to one target and adds its outage log.
   async watch(args) {
-      const { once, only, error } = parseWatchArgs(args);
+      const json = args.includes("--json");
+      const { once, only, error } = parseWatchArgs(args.filter((a) => a !== "--json"));
       if (error) {
           console.error(error);
           process.exit(1);
@@ -1977,6 +2035,23 @@ const commands = {
       for (;;) {
           const r = deviceApi("GET", "/api/monitors");
           const now = Date.now();
+          if (once && json) {
+              // The live view's own data, filtered to the target asked for — the same shape as
+              // `monitor list --json`, so a script has ONE thing to parse.
+              const os = require("os");
+              if (!r.ok) {
+                  console.error(`watch: ${r.error}`);
+                  process.exit(1);
+              }
+              console.log(
+                  JSON.stringify(
+                      monitorsJson({ device: os.hostname(), askedAtMs: now, payload: r.body, only: only ? only.id : null }),
+                      null,
+                      2,
+                  ),
+              );
+              return;
+          }
           const lines = [];
           lines.push(`vale watch — ${new Date(now).toLocaleTimeString()}${once ? "" : "  (Ctrl+C to stop)"}`);
           if (!r.ok) {
