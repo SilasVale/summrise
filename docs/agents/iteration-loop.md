@@ -124,5 +124,15 @@ Pull skills when they fit: `codebase-design`, `domain-modeling`, `prototype`,
    by the next round.
 2. `docs/agents/iteration-coverage.md`: update the surface row and open items.
 3. Every 10 rounds: the design review from `docs/CHARTER.md`.
+4. **A round ships a PRODUCT change, or states in writing why it did not.** Measured over rounds
+   226-253 (60 commits): **2 touched product source (`scripts/build.sh`'s build step in 241 and
+   `ci.yml`'s test step in 231), 17 added or changed only tests, and 41 changed only docs and
+   ledgers.** Round 252's design review caught this itself — "apparatus-heavy and product-light" —
+   and the next round added a 42nd document change anyway, which is why this is a record rule rather
+   than a note: **verification is an UNBOUNDED question ("what else disagrees?") with a binary verdict,
+   so every round can answer it and prove it produced something; product work has neither property,
+   which is exactly why it loses by default.** A round that only adds an instrument is not forbidden —
+   but it must say so, so the pattern is visible while it is happening rather than in a review 10
+   rounds later.
 
 Journal prose is English; it is the only memory that survives rounds.
