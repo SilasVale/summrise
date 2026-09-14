@@ -15,6 +15,12 @@ const {
   playwrightProbePs,
   parseAgentPort,
   agentPort,
+  parseDeviceToken,
+  parseTargetArg,
+  parseWatchArgs,
+  targetLine,
+  transitionLines,
+  fmtDuration,
   firewallPs,
   uninstallVersionPs,
   uninstallRegBodyPs,
@@ -1332,4 +1338,24 @@ test("every CLI verb the root guide promises is one the CLI prints", () => {
       `verb disappearing is a device-breaking change that needs dual-accept, a rollback point and a ` +
       `device regression, not just a doc edit. CLI printed: ${out.split("\n")[0]}`,
   );
+});
+
+
+test("parseWatchArgs: --once in any position, and one target at most", () => {
+  assert.deepEqual(parseWatchArgs([]), { once: false, only: null });
+  assert.deepEqual(parseWatchArgs(["--once"]), { once: true, only: null });
+  const withTarget = parseWatchArgs(["192.168.1.1:80/", "--once"]);
+  assert.equal(withTarget.once, true);
+  assert.equal(withTarget.only.id, "192.168.1.1:80/");
+  // A typo in the flag position is still a typo, not a target.
+  assert.ok(parseWatchArgs(["not-a-target"]).error);
+  assert.ok(parseWatchArgs(["a:22", "b:22"]).error);
+});
+
+test("targetLine: one drop is 'drop', several are 'drops'", () => {
+  const now = 1_789_000_000_000;
+  const at = (drops) => targetLine({ id: "a:22", summary: { up_now: true, since_ms: now - 1000, drops } }, now);
+  assert.match(at(1), /1 drop(?!s)/);
+  assert.match(at(2), /2 drops/);
+  assert.doesNotMatch(at(0), /drop/);
 });

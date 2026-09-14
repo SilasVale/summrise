@@ -42,6 +42,7 @@ exports.parseAgentPort = parseAgentPort;
 exports.parseDeviceToken = parseDeviceToken;
 exports.parseTargetArg = parseTargetArg;
 exports.deviceApi = deviceApi;
+exports.parseWatchArgs = parseWatchArgs;
 exports.fmtDuration = fmtDuration;
 exports.targetLine = targetLine;
 exports.transitionLines = transitionLines;
@@ -374,6 +375,18 @@ function deviceApi(method, pathname, body) {
     }
 }
 // `4m`, `1h 04m`, `2d 4h` — the shapes the rest of the panel uses.
+// `vale watch [<host:port[/path]>] [--once]` -> what to do, decided in ONE place so the
+// flag cannot be read differently by the loop and by a test.
+function parseWatchArgs(args) {
+    const once = args.includes("--once");
+    const rest = args.filter((a) => a !== "--once");
+    if (rest.length > 1)
+        return { error: "usage: vale watch [<host:port[/path]>] [--once]" };
+    const only = rest.length ? parseTargetArg(rest[0]) : null;
+    if (rest.length && !only)
+        return { error: "usage: vale watch [<host:port[/path]>] [--once]" };
+    return { once, only };
+}
 function fmtDuration(ms) {
     const s = Math.max(0, Math.floor(Number(ms || 0) / 1000));
     if (s < 60)
@@ -396,7 +409,7 @@ function targetLine(t, nowMs, width = 30) {
     const status = s.last_status === null || s.last_status === undefined ? "" : `  HTTP ${s.last_status}`;
     const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
     const pct = s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
-    const drops = s.drops ? `  ${s.drops} drops` : "";
+    const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${lat}${pct}${drops}`;
 }
 // The transitions a target has been through, newest first — the outage log an
@@ -1501,18 +1514,20 @@ const commands = {
     // Live view: redraw in place every few seconds until Ctrl+C. `vale watch
     // <host:port[/path]>` narrows it to one target and adds its outage log.
     async watch(args) {
-        const only = args.length ? parseTargetArg(args[0]) : null;
-        if (args.length && !only) {
-            console.error("usage: vale watch [<host:port[/path]>]");
+        const { once, only, error } = parseWatchArgs(args);
+        if (error) {
+            console.error(error);
             process.exit(1);
         }
         const every = 5000;
         let first = true;
+        // `--once` prints ONE frame and exits: the same numbers, for a script, a cron line or a
+        // `for` loop. A live view is for a person; this is for everything that is not a person.
         for (;;) {
             const r = deviceApi("GET", "/api/monitors");
             const now = Date.now();
             const lines = [];
-            lines.push(`vale watch — ${new Date(now).toLocaleTimeString()}  (Ctrl+C to stop)`);
+            lines.push(`vale watch — ${new Date(now).toLocaleTimeString()}${once ? "" : "  (Ctrl+C to stop)"}`);
             if (!r.ok) {
                 lines.push(`  device unreachable: ${r.error}`);
             }
@@ -1528,8 +1543,11 @@ const commands = {
                         lines.push(l);
                 }
             }
-            // Clear + home, then the frame: a live view rather than a scroll of prints.
-            process.stdout.write((first ? "" : "\x1b[2J\x1b[H") + lines.join("\n") + "\n");
+            // Clear + home only BETWEEN frames: a single frame (--once) carries no escape
+            // codes at all, so it can be piped into a file or another command.
+            process.stdout.write((first || once ? "" : "\x1b[2J\x1b[H") + lines.join("\n") + "\n");
+            if (once)
+                return;
             first = false;
             await new Promise((res) => setTimeout(res, every));
         }
