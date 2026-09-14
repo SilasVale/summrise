@@ -251,6 +251,18 @@ fn cpu_busy_pct(prev_idle: u64, prev_total: u64, cur_idle: u64, cur_total: u64) 
 mod tests {
     use super::*;
 
+    /// SERIALISES THE TESTS THAT TOUCH THE RING. It is a process-global by design (the sampler
+    /// owns it) and cargo runs one binary's tests IN PARALLEL, so two tests recording at once
+    /// interleave: **CI caught `latest()` disagreeing with a series snapshot taken a moment
+    /// earlier, and a second run caught the count in `a_reading_the_host_cannot_take_is_not_a_sample`
+    /// moving under it** (round 261). The assertions were the racy part, not the code — but the
+    /// fix belongs here, where the shared thing is.
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn guard() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     #[test]
     fn sample_never_panics_and_round1_is_exact() {
         let v = sample();
@@ -276,6 +288,7 @@ mod tests {
 
     #[test]
     fn the_history_keeps_the_newest_and_reads_oldest_first() {
+        let _serial = guard();
         // The ring is GLOBAL, so this test owns its own slice of the stamp space and
         // asserts about ITS samples rather than about the length of the whole ring —
         // cargo runs tests in parallel and a second test may be recording at the same
@@ -306,6 +319,7 @@ mod tests {
 
     #[test]
     fn a_reading_the_host_cannot_take_is_not_a_sample() {
+        let _serial = guard();
         // A host with no vitals (every non-Windows build) must produce an EMPTY history,
         // not a series of blanks that a chart would draw as data.
         assert!(record(vitals(None, None)).is_none());
@@ -316,6 +330,7 @@ mod tests {
 
     #[test]
     fn the_ring_is_bounded() {
+        let _serial = guard();
         // Bounded for the same reason every list route here is: the cost of reading it
         // must not grow with uptime. HISTORY_MAX + 1 pushes must leave exactly MAX.
         let base = 1_600_000_000_000u64;
