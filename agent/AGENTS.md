@@ -526,6 +526,44 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 212 (**ROUND 197'S `studio/` CLOSES — it was never unknown, and the
+reason nobody noticed is the finding: four `.gitignore` rules were hiding 182 MB of retired residue from
+`git status`**). Commit: .gitignore + `rm -rf studio/`.
+  (1) WHAT IT ACTUALLY WAS, MEASURED: `git ls-files studio/` returns **ZERO** — the whole 182 MB directory
+  is untracked. It held `node_modules/`, `test/artifacts/` (eight PNGs: `01-logged-in`, `02-editor-flow`,
+  `03-deeplink-line12`, `04-terminal`, `05-git-view`, `06-diff-gutter`, `07-final-git-view`,
+  `probe-editor` — a test run's evidence) and `vendor/monaco` + `vendor/xterm`. And
+  **`docs/adr/0006-retire-studio-adopt-code-server.md` is the answer this journal already had**: the studio
+  was RETIRED in favour of code-server. So round 197's phrasing — "a directory this journal has never
+  mentioned, noticed but not investigated" — made it look like an unknown when it was a documented
+  retirement. **The grep for live references finds only EXTENSION hits (`DEFAULT_STUDIO_ORIGIN`,
+  `studioFolderUrl`, `content/studio-links.js`), which name the studio CONCEPT/origin — code-server's
+  address — not this directory.** A scan for the same shape found no second instance in the repo.
+  (2) AND THE MECHANISM IS THE FINDING, not the 182 MB: `.gitignore` carried FOUR rules for a directory with
+  zero tracked files — a `# vale-studio` comment plus `studio/node_modules/`, `studio/test/artifacts/` and
+  `studio/vendor/`. **Because those rules survived the retirement, the residue was invisible to
+  `git status` AND to `git clean -fdq`, so it sat on disk from 2026-09-05 through roughly a hundred rounds
+  of this loop.** That is precisely the shape the DSH upgrade notes record from the other direction
+  ("upstream deletes packages; their `lib/` + `node_modules/` are git-ignored, so neither `git checkout`
+  nor `git clean -fdq` removes them"). **The rules were the mechanism of the hiding, so they go with the
+  files** — an orphan ignore rule is not harmless housekeeping, it is what makes the next person's
+  `git status` lie by omission.
+  (3) THE REMOVAL WAS VERIFIED RATHER THAN ASSUMED, in the order that matters: the four lines were shown to
+  be orphans BEFORE deletion (`git ls-files studio/` = 0, zero live references), the unrelated live rules
+  were deliberately KEPT (`.vale-tmp-*` and `.dsh-tmp-*` sit between the studio lines and are not
+  studio-related), and after the edit `git check-ignore -v` was re-run to prove those two rules still
+  match — with `**/node_modules/` as the remaining node_modules rule. `git status` is clean apart from the
+  `.gitignore` change itself, which is the direct evidence that the rules were guarding nothing: **deleting
+  them surfaced no new untracked files.**
+  (4) AND THE REMOVAL INVALIDATED ONE COMMENT, WHICH WAS FIXED IN THE SAME COMMIT: `**/node_modules/`'s note
+  read "explicit per-dir rules above stay authoritative", and this commit deleted the last of them. **A
+  comment describing rules that no longer exist is the same defect class as a `.gitignore` rule guarding no
+  files** — and it is cheaper to fix while the reason is still in hand.
+  (5) STILL OPEN: the installer's signing decision (user's call — the live installer is unsigned and
+  advertised, and a fail-closed guard there would reverse `build-installer.sh`'s documented "the build stays
+  shippable"); `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files; the recurring second failure's name under mutation.
+
 Last updated: 2026-09-14 round 211 (**ROUND 199'S MANIFEST BLIND SPOT IS CLOSED, with the historical defect
 itself as the mutation**). Commit: gateway/test/ + journal. Tests: gateway 861 = 860 + 1, zero red;
 mutation 860-pass/1-fail.
