@@ -201,15 +201,15 @@ describe("the flapping rule (and its chip)", () => {
     expect(unstableTargets(flapping).map((t) => t.id)).toEqual(["192.168.1.1:22"]);
 
     // ONE drop is not unstable: it is often the operator's own reboot.
-    expect(unstableTargets(monitors([target({ oks: [true, false, true] })])), []);
+    expect(unstableTargets(monitors([target({ oks: [true, false, true] })]))).toEqual([]);
 
     // A target that is DOWN is named by downTargets, not here — two chips about one host is
     // worse than one.
-    expect(unstableTargets(monitors([target({ oks: [true, false, false] })])), []);
+    expect(unstableTargets(monitors([target({ oks: [true, false, false] })]))).toEqual([]);
 
     // Steady, or nothing probed: silence.
-    expect(unstableTargets(monitors([target({ oks: [true, true, true] })])), []);
-    expect(unstableTargets(monitors([target({ oks: [], upNow: null })])), []);
+    expect(unstableTargets(monitors([target({ oks: [true, true, true] })]))).toEqual([]);
+    expect(unstableTargets(monitors([target({ oks: [], upNow: null })]))).toEqual([]);
   });
 
   it("shows the pattern when nothing is down, and the outage when something is", () => {
