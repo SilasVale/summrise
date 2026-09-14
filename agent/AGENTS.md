@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 251 (**THE LOOP HAS NEVER ONCE NAMED `docs/agents/ideas.md` — the file the objective
+makes its TOP-PRIORITY input and its own header calls "the anchor against drift", in 251 rounds**). Commit:
+agent/tests/ + ledger + journal. agent 678 = 677 + 1.
+  (1) THE ROUND CHANGED THE QUESTION RATHER THAN THE SUBJECT, WHICH IS THE PART WORTH KEEPING: rounds 248-250 swept
+  `ARCHITECTURE.md`'s tables, and this one opened the same file's largest table — 45 `Module boundary verdicts` —
+  and profiled it: **only 4 rows name a file and only 3 carry a number**, so the mechanical sweep that worked on
+  the other tables has run out here. **Instead of forcing a fourth angle (which round 247 already declined to do),
+  the round asked which input the OBJECTIVE calls highest-priority and whether the loop has ever touched it.**
+  (2) AND THE ANSWER IS NO, MEASURED RATHER THAN RECALLED: `docs/agents/ideas.md` exists (935 bytes), it holds
+  **one entry — status `standing`**, "The project should iterate and design itself; my creative direction enters
+  through here", landed in `docs/CHARTER.md` + `docs/agents/iteration-loop.md` — **and `grep -c 'ideas.md'` over
+  `agent/AGENTS.md` and `docs/agents/iteration-coverage.md` returns ZERO and ZERO.** The file was CREATED as the
+  fix for round 100's drift (its own header: "round 100's `aurora` was the loop *interpreting* a request instead
+  of following one, and the user had to say plainly that they never wanted it"), **so the anti-drift mechanism
+  has been unread for 151 rounds by the records of the thing it was built to correct.**
+  (3) AND ITS RULES WERE THE PART WITH NO INSTRUMENT: the inbox states "Each entry gets either a round of its own,
+  or an explicit reasoned verdict in the round log — with evidence" and "**Never dropped silently. Never
+  reinterpreted into something else.**" — **the most emphatic sentences in the file, and nothing anywhere could
+  fail if they were violated.** The single `standing` entry happens not to need a round of its own (it is
+  foundational), so nothing WAS dropped; what was missing is any way to tell that from the outside.
+  (4) SO `agent/tests/ideas_inbox.rs` ASSERTS THE TWO MECHANICAL HALVES, AND **IT WAS RED BEFORE IT WAS GREEN**:
+  (i) the loop's records must NAME the file — "if the loop's records never name it, nothing distinguishes 'we
+  considered it' from 'we forgot it exists'"; and (ii) any entry whose status is not `standing` must be named in
+  the round log, which is the inbox's own evidence rule made executable. **The first run failed on (i) with that
+  message printed, and it went green once this entry and the ledger section existed** — the red state was the
+  finding, which is the evidence bar this loop holds itself to.
+  (5) AND THE NEW LEDGER SECTION IS WHERE THE NEXT ROUND WILL LOOK: `### The user's ideas inbox` sits at the TOP of
+  the open-items list (ahead of the never-examined surfaces), records the current contents and status, names the
+  instrument, and states the rule a future entry must satisfy. **That is deliberately the first thing a resuming
+  agent reads, because the objective's own ordering puts the user's ideas first.** STILL OPEN: the installer's
+  signing decision (the user's call); ADR 0007 step 2's assessment (the user's); the never-named to-read queue
+  (38); and **the ideas inbox, now monitored — one `standing` entry, no action outstanding.**
+
 Last updated: 2026-09-14 round 250 (**ONE `Directory contracts` ROW HELD UP AND ONE WAS INCOMPLETE — and the one that
 held up did so for a reason my first instrument could not see, which is the round's more useful half**).
 Commit: ARCHITECTURE.md + journal.
