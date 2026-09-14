@@ -98,12 +98,25 @@ impl Drop for PoolEntry {
     }
 }
 
+/// How long a BREAK is held. See `send_break` — a pulse the device may miss is not a break.
+const BREAK_HOLD_MS: u64 = 250;
+
+/// THE SHARED PORT SLOT: the reader and writer threads swap the inner Arc on auto-reconnect,
+/// and the backend keeps one clone so a line BREAK reaches whatever port the session is
+/// attached to NOW. Named because the type is the whole idea, and spelling it out three times
+/// is how two of them drift.
+type SharedPort = Arc<std::sync::Mutex<Arc<tokio::sync::Mutex<Box<dyn serialport::SerialPort>>>>>;
+
 pub struct SerialBackend {
     write_tx: std::sync::mpsc::SyncSender<Vec<u8>>,
     close_tx: std::sync::mpsc::Sender<()>,
     /// The pool entry, shared with the reader thread (which repoints it on reconnect).
     /// `None` only if the pool was never acquired (a construction failure path).
     entry: Option<Arc<std::sync::Mutex<PoolEntry>>>,
+    /// THE LIVE PORT, for the one operation that is not a write: a line BREAK. The threads
+    /// swap this slot on auto-reconnect, so a break always reaches the port the session is
+    /// actually attached to — the same reason the entry guard exists.
+    port: SharedPort,
 }
 
 impl SerialBackend {
@@ -165,8 +178,9 @@ impl SerialBackend {
         // swapped only the reader's local Arc on auto-reconnect — the writer
         // thread kept the DEAD handle, its write errored, the loop broke,
         // and TX was permanently lost after any unplug/replug.
-        let port_shared: std::sync::Arc<std::sync::Mutex<_>> =
-            std::sync::Arc::new(std::sync::Mutex::new(port.clone()));
+        let port_shared: SharedPort = std::sync::Arc::new(std::sync::Mutex::new(port.clone()));
+        // One more handle for the BACKEND itself (a line break is issued outside the threads).
+        let port_shared_be = port_shared.clone();
 
         // Reader thread — owns its own Arc clone, no pool lock needed.
         // P4b: with auto_reconnect, a read error (unplug / device reboot)
@@ -309,6 +323,7 @@ impl SerialBackend {
             write_tx,
             close_tx,
             entry: Some(entry),
+            port: port_shared_be,
         })
     }
 }
@@ -341,6 +356,31 @@ impl TermBackend for SerialBackend {
         })
     }
     fn resize(&self, _rows: u16, _cols: u16) {}
+
+    /// Assert a BREAK on the line for `BREAK_HOLD_MS`, then release it.
+    ///
+    /// The HOLD matters: `set_break` alone is a level the device sees as a very short pulse
+    /// (or not at all, depending on the UART), and a bootloader watching for a break needs it
+    /// long enough to notice. 250 ms is the conventional console break and is what the
+    /// panel's button sends.
+    fn send_break(&self) -> Result<(), String> {
+        let port = self.port.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        // Blocking OS calls (and the hold) — never on the async runtime's worker.
+        let done = std::thread::spawn(move || {
+            let p = port.blocking_lock();
+            p.set_break()
+                .map_err(|e| format!("break refused by the port: {e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(BREAK_HOLD_MS));
+            // ALWAYS clear it, even if the hold was interrupted: a line left in the break
+            // state is a console that appears dead to everything else on it.
+            p.clear_break()
+                .map_err(|e| format!("break held but not cleared: {e}"))?;
+            Ok::<(), String>(())
+        })
+        .join()
+        .map_err(|_| "break thread panicked".to_string())?;
+        done
+    }
     fn close(&self) {
         let _ = self.close_tx.send(());
         // RELEASE NOW, not when the last Arc drops: an in-flight tool call may still be

@@ -558,6 +558,7 @@
   {
     "name": "terminal_write",
     "params": [
+      "break_ms",
       "data",
       "data_base64",
       "session_id"

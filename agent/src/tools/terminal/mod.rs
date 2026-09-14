@@ -359,6 +359,21 @@ pub trait TermBackend: Send + Sync {
     fn marker_injected(&self) -> bool {
         false
     }
+    /// Assert a BREAK on the line — the one console signal a keyboard cannot send.
+    ///
+    /// WHY IT IS HERE (round 260). A serial BREAK is how an operator interrupts a bootloader's
+    /// autoboot, drops into a ROM monitor, or un-wedges a console whose shell is gone; from the
+    /// PANEL it was previously impossible, and from a BROWSER terminal so is Ctrl+C (the
+    /// browser owns that keystroke). The device can do it — `serialport` exposes
+    /// `set_break`/`clear_break` on both platforms — so the capability existed everywhere
+    /// except the surface the operator was looking at.
+    ///
+    /// The default REFUSES, by name: a PTY, an SSH channel and a stub session have no break
+    /// signal, and a silent success would tell an operator their bootloader was interrupted
+    /// when nothing happened.
+    fn send_break(&self) -> Result<(), String> {
+        Err("break is a serial-line signal — this session has no serial line".into())
+    }
 }
 
 #[cfg(feature = "terminal")]
@@ -888,6 +903,20 @@ mod desktop_impl {
                 .await
                 .map_err(|e| DeviceError::Internal { message: e })?;
             Ok(())
+        }
+
+        /// Assert a BREAK on the session's line (serial only — every other backend refuses by
+        /// name, see `TermBackend::send_break`). Runs the backend OFF the manager lock, like
+        /// `term_write_bytes`: the call blocks for the break's hold, and holding the lock
+        /// across it would freeze every other session.
+        pub async fn term_send_break(&self, sid: &str) -> Result<(), DeviceError> {
+            let backend = self.find_backend(sid, true).await?;
+            tokio::task::spawn_blocking(move || backend.send_break())
+                .await
+                .map_err(|e| DeviceError::Internal {
+                    message: format!("break task failed: {e}"),
+                })?
+                .map_err(|e| DeviceError::Internal { message: e })
         }
 
         /// Clone the live backend for `sid` (the Arc keeps it valid even if

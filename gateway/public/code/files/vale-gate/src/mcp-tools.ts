@@ -195,7 +195,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_write",
     description:
-      "Write data to a terminal session. `data` is UTF-8 text; use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols). For shell commands the command must end with a newline (\\n; \\r\\n for PowerShell).",
+      "Write data to a terminal session, or assert a line BREAK on a serial one. `data` is UTF-8 text; use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols). For shell commands the command must end with a newline (\\n; \\r\\n for PowerShell). Control characters (e.g. \\u0003 for Ctrl+C) are sent verbatim and need no newline.",
     inputSchema: {
       type: "object",
       properties: {
@@ -203,12 +203,17 @@ const TERMINAL_TOOLS: McpTool[] = [
         session_id: { type: "string" },
         data: {
           type: "string",
-          description: "UTF-8 text to write. Required unless data_base64 is given.",
+          description: "UTF-8 text to write. Required unless data_base64 or break_ms is given.",
         },
         data_base64: {
           type: "string",
           description:
             "Base64-encoded bytes to write (for binary frames). Takes precedence over data.",
+        },
+        break_ms: {
+          type: "integer",
+          description:
+            "Assert a BREAK on a serial line for this many ms (default 250, max 5000) — the signal that interrupts a bootloader's autoboot or drops into a ROM monitor. Serial sessions only; a PTY/SSH session refuses by name. Takes precedence over data.",
         },
       },
       required: ["session_id"],

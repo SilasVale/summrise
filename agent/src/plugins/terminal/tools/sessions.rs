@@ -350,13 +350,26 @@ pub(super) fn tool_write(terminal_mgr: &Arc<TerminalManager>) -> ToolDef {
     let terminal_mgr = terminal_mgr.clone();
     ToolDef::new(
         "terminal_write",
-        "Write data to a terminal session. `data` is UTF-8 text (JSON strings cannot carry arbitrary bytes); use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols) — it is decoded and written exactly as given. For shell commands on Unix devices (serial/ssh to Linux), the command must end with a newline (\\n) — otherwise the shell joins it with whatever is typed next, mangling both. For Windows PowerShell use \\r\\n. Control characters (e.g. \\u0003 for Ctrl+C) are sent verbatim and need no newline.",
-        json!({"type":"object","properties":{"session_id":{"type":"string"},"data":{"type":"string","description":"UTF-8 text to write. Required unless data_base64 is given."},"data_base64":{"type":"string","description":"Base64-encoded bytes to write (for binary frames that JSON strings cannot carry). Takes precedence over data."}},"required":["session_id"]}),
+        "Write data to a terminal session, or assert a line BREAK on a serial one. `data` is UTF-8 text (JSON strings cannot carry arbitrary bytes); use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols) — it is decoded and written exactly as given. For shell commands on Unix devices (serial/ssh to Linux), the command must end with a newline (\\n) — otherwise the shell joins it with whatever is typed next, mangling both. For Windows PowerShell use \\r\\n. Control characters (e.g. \\u0003 for Ctrl+C) are sent verbatim and need no newline. `break_ms` (serial sessions only) asserts a BREAK on the line for that many milliseconds — the signal that interrupts a bootloader's autoboot or drops into a ROM monitor, and the one thing a browser terminal cannot send.",
+        json!({"type":"object","properties":{"session_id":{"type":"string"},"data":{"type":"string","description":"UTF-8 text to write. Required unless data_base64 or break_ms is given."},"data_base64":{"type":"string","description":"Base64-encoded bytes to write (for binary frames that JSON strings cannot carry). Takes precedence over data."},"break_ms":{"type":"integer","description":"Assert a BREAK on a serial line for this many ms (default 250, max 5000). Serial sessions only; a PTY/SSH session refuses by name. Takes precedence over data."}},"required":["session_id"]}),
         move |params: Value| {
             let terminal_mgr = terminal_mgr.clone();
             async move {
                 let session_id = require_str(&params, "session_id")?;
                 ensure_session_known(&terminal_mgr, &session_id).await?;
+                // A BREAK is not a write: it wins over both data forms, and the backend
+                // decides whether this session HAS a line to break (round 260).
+                if let Some(ms) = params.get("break_ms").and_then(|v| v.as_u64()) {
+                    if ms == 0 || ms > 5000 {
+                        return Err(DeviceError::InvalidParams {
+                            message: format!("break_ms must be 1..=5000 (got {ms})"),
+                        });
+                    }
+                    return match terminal_mgr.term_send_break(&session_id).await {
+                        Ok(()) => Ok(json!("OK")),
+                        Err(e) => Err(e),
+                    };
+                }
                 // data_base64 wins — it is the only path that can carry
                 // arbitrary bytes (round-54); `data` is UTF-8 text.
                 let bytes: Vec<u8> = if let Some(b64) = params.get("data_base64").and_then(|v| v.as_str()) {

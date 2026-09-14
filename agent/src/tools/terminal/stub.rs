@@ -32,6 +32,14 @@ impl TerminalManager {
     pub async fn term_write_bytes(&self, _sid: &str, _data: &[u8]) -> Result<(), DeviceError> {
         Err(disabled_err())
     }
+    /// Same surface as the real manager (the feature-gating rule: public paths must be
+    /// identical across configs) — a build without the terminal feature has no serial line
+    /// either, so the refusal is the honest one rather than a "disabled" placeholder.
+    pub async fn term_send_break(&self, _sid: &str) -> Result<(), DeviceError> {
+        Err(DeviceError::Internal {
+            message: "break is a serial-line signal — this session has no serial line".into(),
+        })
+    }
     pub async fn term_close(&self, _sid: &str) -> Result<String, DeviceError> {
         Err(disabled_err())
     }
