@@ -50,6 +50,26 @@ pub struct SerialPool {
     default_timeout: Duration,
 }
 
+/// WHICH FAILURE IS THIS? A port the OS lists but will not open is BUSY (another program, or
+/// a Vale session whose handle outlived it); a port it does not list is MISSING. Both facts
+/// are handed in, so the rule is pure and unit-pinned — see the call site for why presence,
+/// and not the error kind or its text, is what decides.
+#[cfg_attr(not(feature = "terminal"), allow(dead_code))]
+fn classify_open_failure(port_name: &str, present: bool, os_error: &str) -> DeviceError {
+    if present {
+        DeviceError::Internal {
+            message: format!(
+                "{port_name} is in use by another program or an open Vale session \
+                 ({os_error}) — close that program or session and retry"
+            ),
+        }
+    } else {
+        DeviceError::SerialPortNotFound {
+            port: format!("{port_name}: {os_error}"),
+        }
+    }
+}
+
 impl SerialPool {
     pub fn new(default_baud_rate: u32, default_timeout_ms: u64) -> Self {
         Self {
@@ -147,37 +167,32 @@ impl SerialPool {
         {
             let guard = recover_guard(&self.ports);
             if guard.values().any(|p| p.port_name == port_name) {
-                return Err(DeviceError::SerialPortNotOpen {
-                    id: format!("{port_name} already in use"),
+                return Err(DeviceError::Internal {
+                    message: format!(
+                        "{port_name} is already open in another Vale session — use that \
+                         session, or close it and retry"
+                    ),
                 });
             }
         }
 
-        // AN IN-USE PORT IS NOT A MISSING ONE, and saying "not found" for it sends an
-        // operator looking for a cable that is plugged in (measured on d1, round 259: a
-        // leaked handle inside the agent produced `Serial port not found: COM4: 拒绝访问`
-        // and the real answer was "something already holds it"). The OS tells the two
-        // apart — a permission/access failure means the device is THERE and busy.
+        // AN IN-USE PORT IS NOT A MISSING ONE, and the OS message is the only thing that
+        // knows the difference: `serialport` folds ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
+        // and ERROR_ACCESS_DENIED into ONE kind (`ErrorKind::NoDevice`, windows/error.rs), so
+        // a kind-based classification cannot work and the message is localised (`拒绝访问`).
+        // THE DISCRIMINATOR IS THEREFORE PRESENCE: a port the OS still LISTS but will not
+        // open is busy; one it does not list is missing. Measured on d1 (round 259): the
+        // leaked handle produced "Serial port not found: COM4: 拒绝访问" while `COM4` was
+        // listed by Windows and simply held — an operator sent looking for a cable that was
+        // plugged in.
         let port = builder.open().map_err(|e| {
-            // `serialport::ErrorKind::Io(io)` carries the OS error's kind; a permission
-            // failure (Windows ERROR_ACCESS_DENIED, Unix EACCES/EBUSY) is the busy case.
-            // Deliberately NOT matching on the message text: it is localised (`拒绝访问`),
-            // and a classification that depends on the display language is not one.
-            if matches!(
-                e.kind(),
-                serialport::ErrorKind::Io(std::io::ErrorKind::PermissionDenied)
-            ) {
-                DeviceError::Internal {
-                    message: format!(
-                        "{port_name} is in use by another program or an open Vale session \
-                         ({e}) — close that session or program and retry"
-                    ),
-                }
-            } else {
-                DeviceError::SerialPortNotFound {
-                    port: format!("{port_name}: {e}"),
-                }
-            }
+            let present = serialport::available_ports()
+                .map(|ps| {
+                    ps.iter()
+                        .any(|p| p.port_name.eq_ignore_ascii_case(&port_name))
+                })
+                .unwrap_or(false);
+            classify_open_failure(&port_name, present, &e.to_string())
         })?;
 
         // round-99: the exclusivity check above was check-then-act — two
@@ -192,8 +207,11 @@ impl SerialPool {
             let mut guard = recover_guard(&self.ports);
             if guard.values().any(|p| p.port_name == port_name) {
                 drop(port);
-                return Err(DeviceError::SerialPortNotOpen {
-                    id: format!("{port_name} already in use"),
+                return Err(DeviceError::Internal {
+                    message: format!(
+                        "{port_name} is already open in another Vale session — use that \
+                         session, or close it and retry"
+                    ),
                 });
             }
             guard.insert(
@@ -243,5 +261,27 @@ impl SerialPool {
                 baud_rate: p.baud_rate,
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// THE MESSAGE AN OPERATOR READS WHEN A PORT WILL NOT OPEN (round 259). d1's report was
+    /// "COM4 拒绝访问", and what the agent said was **"Serial port not found: COM4: 拒绝访问"** —
+    /// a missing-cable claim about a cable that was plugged in and merely held. The two cases
+    /// are told apart by PRESENCE, because `serialport` folds ERROR_FILE_NOT_FOUND and
+    /// ERROR_ACCESS_DENIED into ONE kind and the message text is localised.
+    #[test]
+    fn an_in_use_port_is_not_reported_as_a_missing_one() {
+        let busy = classify_open_failure("COM4", true, "拒绝访问。").to_string();
+        assert!(busy.contains("in use"), "{busy}");
+        assert!(!busy.contains("not found"), "{busy}");
+
+        let missing =
+            classify_open_failure("COM2", false, "The system cannot find the file").to_string();
+        assert!(missing.contains("not found"), "{missing}");
+        assert!(!missing.contains("in use"), "{missing}");
     }
 }
