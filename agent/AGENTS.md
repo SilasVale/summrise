@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 219 (**THE 27-ROUND ANOMALY IS NAMED: round 192's unidentified SECOND failure
+under mutation was the CODE-VIEWER MIRROR test, not the format check the journal guessed — and that makes it a
+second, independent detector of every `src/` edit rather than noise**). Commit: journal. gateway 867/867, four
+steps green; mutation 865-pass/2-fail reproduced, then restored.
+  (1) WHAT WAS OPEN, AND THE JOURNAL HAD ALREADY PRESCRIBED THE CLOSURE: rounds 192 and 194 both recorded
+  "2 failures under mutation" and neither named the second one — round 192 spelled the fix out itself ("the
+  cheap way to close it is to re-run the mutation capturing the test names"). The mutation was exact and
+  cheap to replay: ONE LINE added to `src/plugins/models-probe.ts`, `const MUTANT = "OPENROUTER_API_KEY";`.
+  **Replayed, it reproduced the same count — 867 tests, 865 pass, 2 FAIL — and the names came out.**
+  (2) THE TWO NAMES, AND THE GUESS CORRECTED: (i) `byok: models-probe DERIVES its table — a re-typed copy
+  fails this` — the intended acceptance test, exactly as designed; (ii) **`code viewer: the tracked mirror
+  matches what src/ would publish`**. Round 192's recorded guess was "a repo-wide format/pretty check
+  reacting to the added line" — **wrong in mechanism, right in family: it was the MIRROR obligation.** And
+  the membership was verified rather than assumed: `models-probe.ts` exists in
+  `public/code/files/vale-gate/src/plugins/` AND is indexed by `manifest.json`, which is exactly the pair
+  round 211 made checkable.
+  (3) SO THE SUBSTANTIVE RESULT IS NOT "a mystery solved" BUT A PROPERTY OF THE SUITE WORTH KNOWING: **any
+  edit to `gateway/src` trips TWO independent detectors — the semantic one (the test that reads the file)
+  and the structural one (the mirror obligation) — so a mutation with only ONE failure now means the MIRROR
+  TEST DID NOT FIRE, which is itself a signal.** Rounds 168, 173, 175, 182, 184, 199, 206 and 211 all record
+  that instrument working; this round records why it shows up in mutation counts, and that it is doing so by
+  design rather than as collateral.
+  (4) AND THE INSTRUMENT PATTERN EXTENDS TO FIVE, WHICH IS NOW WORTH STATING AS A RULE: the journal's own
+  prescribed command, `grep -E "^not ok"`, **captured nothing at all** — this runner's output is not
+  TAP-shaped and the failures carry `✖`. That is the fifth instrument defect in rounds 214-219 (`find('[')`
+  inside `&[&str]`; a landed-check grepping a string still present in a comment; a header lookahead broken by
+  a comment's continuation `*`; a landed-check grepping a name still present in a round-184 note; and now a
+  prescribed grep that matches no line). **Five instruments, five bugs, zero wrong findings — and the rule
+  they justify is: before trusting a capture, verify the capture is capable of capturing, exactly as the
+  evidence bar requires of a test.**
+  (5) STILL OPEN: the installer's signing decision (the user's call); `models-probe.ts`'s remaining body
+  (lines 70-198) — the last unread region of the BYOK arc; the seven rows of the round-157 convergence table;
+  the round-165 sweep is COMPLETE as of round 218. And the anomaly list itself is now empty: the only two
+  unnamed recurrences this journal carried (rounds 192/194) were the same event, and it has a name.
+
 Last updated: 2026-09-14 round 218 (**ROUND 165'S TABLE IS COMPLETE — all 15 rows opened — and the last one,
 `playwright/helper.js`, carried a header that told every future editor the opposite of the truth about the
 file they had open**). Commit: helper.js + tools.rs + journal. agent 673, zero red, four steps green.
