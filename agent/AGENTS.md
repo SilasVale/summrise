@@ -541,6 +541,46 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 263 (**PRODUCT CHANGE — the monitor gets a VOICE: the device now ANNOUNCES a watched target changing
+state (a banner in an open panel, pushed over the SSE stream it already had), keeps an OUTAGE LOG with wall-clock times and
+durations (`20:52:26 went down`, `20:53:15 back up — previous state lasted 49s`), and hands the same log to the AI. Everything
+about reachability until now was PULL: a card you open and a chip you happen to see**).
+Commit: ca34aa18. Release **1.2.377** published and UPDATED ON d1, where the flap, the banner, the log and the AI's view were
+all exercised against the real device.
+  (1) WHY THE PUSH IS THE POINT: a host you asked the device to watch is the one reachability fact that DECAYS — "192.168.1.1:22
+  went down at 18:41" is only useful now, and by the time somebody opens Settings the interesting part is over. A chip and a card
+  cannot say it in time; the device has to speak first.
+  (2) `Transition { at_ms, up, lasted_ms }`, DERIVED from the series rather than stored beside it (one source of truth: the probes,
+  so the log and the chart cannot disagree). `lasted_ms` is how long the state it ENDED had lasted — for a recovery, the OUTAGE,
+  which is the number somebody pastes into a bug report. A series that begins DOWN reports no fall: the device did not see it
+  fall, and inventing the event would be the worst kind of wrong for an instrument.
+  (3) THE ANNOUNCEMENT IS DECIDED INSIDE THE LOCK THAT APPENDS THE PROBE (`record` returns the flip, the payload is emitted after
+  the lock is released so a subscriber cannot deadlock the writer), and it leaves through a sink installed once at boot onto the
+  EXISTING event bus — the same broadcast the panel's SSE stream carries. The monitor module therefore never learns what SSE,
+  HTTP or a panel is, and the panel needed no new transport: `useSSE` already turns a control frame into a `vale-<ev>` window
+  event. **A FIRST probe is not a change, and neither is a probe that changed nothing** — both pinned in the module's own tests,
+  with the sink restored afterwards (it is process-global).
+  (4) THE PANEL: an **outage log** in the target's row (newest first, wall-clock times — a log an operator cannot line up with
+  their own clock is a log they have to convert before they can use it) and a **banner** the shell renders when the device speaks.
+  Bounded to three and self-expiring, `role="status"` rather than `role="alert"`, and placed ABOVE the page rather than over it so
+  a console session underneath keeps its keystrokes. `is-down` and `is-up` differ by the mark's silhouette as well as the ink.
+  (5) VERIFIED LIVE ON d1 (1.2.377), with the DEVICE DOING THE TALKING: a listener on a loopback port was scheduled to fall and
+  recover, the panel was merely left OPEN, and it received — without polling or refreshing — `12:54:54 127.0.0.1:45988 is DOWN —
+  it had been up 26s` and `12:55:11 127.0.0.1:45988 is back up after 17s down`, both read out of the DOM and screenshotted. The
+  device's own log for a longer flap read `20:52:26 went down (previous state lasted 37s)` / `20:53:15 back up (previous state
+  lasted 49s)` — i.e. a 49-second outage, measured. Cleanup: both test targets and their listeners were removed, leaving the
+  operator's own watch (`192.168.1.1:22 up_now=True`).
+  (6) TWO PROCESS NOTES, ONE MINE AND ONE THE TOOLING'S: clippy caught a `let…else` that is a `?` (fixed, not suppressed), and
+  **my own browser script exceeded the MCP call timeout while waiting 110 s for a banner** — the flap was already recorded by
+  then, so the durable evidence existed, and the banner was then verified with a 38-second window instead. A verification whose
+  evidence is durable does not have to be observed inside one tool call, but the NEXT one should be sized to the call.
+  STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still reads as
+  "CRASHED or was killed"; `runstate::mark_exited` still has no production caller); a monitor is host:port only — no HTTP status
+  check and no threshold/latency alert (the DEVICE now speaks about state changes, which is the first half of alerting); the
+  banner is panel-only (the Electron shell shows it too, but nothing reaches the operator when no window is open); 1.2.377 needs
+  its tag + audit; the `.tsx` scope decision; 1.2.370 and 1.2.374 in `release-reconcile.txt`; 1.2.362-1.2.364 in the same ledger;
+  the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue.
+
 Last updated: 2026-09-14 round 262 (**PRODUCT CHANGE — reachability became CALLABLE: a new `monitor` plugin exposes the watches
 over MCP (`monitor_list` / `monitor_probe` / `monitor_add` / `monitor_remove`), so the AI driving this device can finally see
 the network record the device has been keeping since round 261 — and the strip gained a signal for a link that keeps FALLING:
