@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 226 (**"THE TREE IS GREEN" NOW HAS COVERAGE BEHIND IT THAT IT DID NOT HAVE AN HOUR
+AGO — the suites this stretch had never run all pass, 130 node tests and 130 bash checks** — and the ledger's
+own count for one of them does not match what they report). No tracked code change; every suite below was run.
+  (1) THE QUESTION CAME FROM ROUND 206/209's LESSON APPLIED ONE LEVEL UP. Those rounds found the loop quoting
+  ONE OF FOUR gateway steps as the whole gate; this round asked the same question about the REPOSITORY: the
+  journal has been saying "the tree is green", and the gateway's four steps plus `cargo test` were all it had
+  ever verified this stretch. **Measured, `index/` has `test: node --test`, `extension/` is tested by CI, the
+  proxies ship test files, and `scripts/test/` holds six bash suites CI runs — and NONE of the four had been
+  executed by this loop in rounds 220-225.**
+  (2) ALL OF THEM PASS, which is the result and is worth stating with numbers rather than as a colour:
+  **node side — `index` 89/89, `extension` 13/13, `zen-go-proxy` 15/15, `zen-us-proxy` 13/13 (130 tests).**
+  **bash side — `release-lib` 45 checks, `build-pins` 32, `release-audit` 25, `smoke-index` 12, `smoke-helpers`
+  9, `publish-release` 7 (130 checks).** So the claim was TRUE; it simply had not been checked. **That
+  distinction is the whole round: a claim that is true and a claim that has been verified are different
+  objects, and only the second one can fail.**
+  (3) AND ONE NUMBER IN THE LEDGER DOES NOT MATCH THE SUITE IT DESCRIBES, recorded as unresolved rather than
+  explained away: the `proxies` surface row ends **"CI does not run these 54 tests — only `node --check`"**,
+  while the two suites report **15 + 13 = 28** and `zen-go-proxy/test/` contains exactly 15 `test()` calls,
+  matching what was run. **`proxies/api-relay/` has no test directory at all, so the row's own
+  "zen-go / zen-us / vrelay" cannot account for the difference either. 26 tests are unaccounted for and I did
+  NOT establish where 54 came from** — inventing a source for a number I cannot reproduce is exactly what
+  rounds 204 and 219 record this loop being punished for.
+  (4) THE CLAUSE'S SUBSTANCE SURVIVES THE NUMBER, AND IT IS THE FINDING: **CI runs `node --check` for the
+  proxies, not `node --test`** — so those tests (28 by measurement) have no automatic runner. They pass today
+  because a human ran them; nothing would notice them breaking. **That is round 206's shape again, in the one
+  place it can still bite: a gate that exists and is never pulled.** Named here rather than acted on at the
+  edge of a round; adding `node --test` to CI's proxies job is the fix and it is a CI change that deserves its
+  own budget.
+  (5) STILL OPEN, AND NOTHING WAITS ON THE LOOP: **the installer's signing decision (the user's call)**;
+  **CI does not run the proxies' 28 tests (this round's finding — a CI change, one round)**; convergence rows
+  6-7, which wait on a device event rather than on work.
+
 Last updated: 2026-09-14 round 225 (**ADR 0011 WRITTEN — the pattern this stretch found SEVEN times is
 finally a decision rather than a habit, with its rejected options, its mutation-proven instances and its
 deletion criterion**). Commit: docs/adr/ + ledger + journal. No code change.
