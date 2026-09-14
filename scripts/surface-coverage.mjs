@@ -30,7 +30,13 @@ const ROOTS = [
   "agent/vale-command-core/src",
   "proxies/zen-go-proxy/src",
   "proxies/zen-us-proxy/src",
-  "proxies/api-relay/src",
+  // api-relay has NO src/ — round 229 listed `proxies/api-relay/src`, which does not
+  // exist, and walk() skipped it silently, so the whole subsystem went uncounted while
+  // the output still read "never named: 0". Its real directories are these two, and
+  // they hold 17 files — 5 handlers plus the vrelay server's entry/routing, which
+  // round 223 DEPLOYED without any round ever naming them.
+  "proxies/api-relay/api",
+  "proxies/api-relay/server",
   "extension",
 ];
 const EXTS = [".ts", ".mjs", ".js", ".rs", ".ps1", ".nsi"];
@@ -40,8 +46,17 @@ function walk(dir, out = []) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return out;
+  } catch (e) {
+    // A ROOT that cannot be read is an ERROR, never an empty directory. Round 229
+    // shipped this with `catch { return out }`, and the measurement that exposed it is
+    // in the journal: typo'ing one root took `files` from 118 to 77 while
+    // `never named` stayed 0 — a plausible, LOWER number with a clean verdict, which
+    // is the one failure mode an instrument must not have.
+    if (ROOTS.includes(relative(ROOT, dir))) {
+      console.error(`FATAL: root in scope does not exist or is unreadable: ${relative(ROOT, dir)}`);
+      process.exit(2);
+    }
+    return out; // a nested directory may legitimately vanish mid-walk
   }
   for (const e of entries) {
     if (SKIP.includes(e.name)) continue;

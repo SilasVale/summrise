@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 230 (**I AUDITED THE INSTRUMENT I WROTE ONE ROUND EARLIER AND IT WAS WRONG — its
+scope listed a directory that does not exist, `walk()` skipped it silently, and round 229's `never named: 0` was
+therefore a verdict about 118 files when the real scope holds 135**). Commit: scripts/ + ledger + journal.
+  (1) THE QUESTION WAS THE ONE THIS STRETCH KEEPS EARNING: a tool written last round had been RUN but never
+  MUTATED, and the evidence bar wants red-then-green. **So the first thing tested was not a root but the
+  failure mode: what happens when a root in `ROOTS` cannot be read?** The answer was `catch { return out }` —
+  **an empty directory.** Measured: typo'ing `gateway/src` took `files` from **118 to 77** while
+  `never named` stayed **0**. That is not a crash and not a zero — **it is a plausible, LOWER number with a
+  clean verdict, which is the one failure mode an instrument must not have**, and it is the same shape rounds
+  214-219 spent themselves naming.
+  (2) AND CHECKING THE EIGHT ROOTS FOUND A SECOND, WORSE ONE: **`proxies/api-relay/src` DOES NOT EXIST.**
+  `api-relay` keeps its sources in `api/` and `server/`; the round-229 scope named neither, so **the entire
+  subsystem — 17 files — went uncounted while the output still read "never named: 0"**. The scope
+  statement itself was false: it claimed eight roots and scanned seven.
+  (3) SO ROUND 229'S CONCLUSION IS WITHDRAWN, and the corrected measurement is **135 files in scope and
+  `never named: 12`** — nine gate tests under `api/test/`, plus `server/entry.mjs`, `server/routing.mjs`
+  and `server/test/routing.test.mjs`. **The trajectory this journal has been telling is therefore
+  15 → 1 → 0 → 12, and only the last number is about the scope it claims to be about.**
+  (4) THE SHARP PART IS WHERE THE 12 SIT: **every one is under `api-relay`, which is the single subsystem
+  round 227's corrected ledger clause says CI only `node --check`s.** So the files no round has named are also
+  the files with the weakest automatic gate — the two facts are not independent, and the tool is what made
+  that visible. **And one of them, `server/routing.mjs`, is the vrelay router that round 223 DEPLOYED.**
+  Recorded with the tool's own limit rather than glossed: it matches exact basenames, so round 223's bundle
+  listing — which writes `entry` and `routing` without extensions — does not count. **Three of the 12
+  are therefore near-misses on that definition and nine are not; the honest number is 12 BY THE TOOL'S
+  DEFINITION, and the stems of three of them have appeared in this journal.**
+  (5) THE FIX IS TWO LINES AND BOTH ARE PROVEN: a root that cannot be read is now
+  **`FATAL: root in scope does not exist or is unreadable: …`, exit 2** (a NESTED directory may still
+  vanish mid-walk without killing the run, which is why the check is against `ROOTS` and not against every
+  call), and the scope now names `proxies/api-relay/api` and `proxies/api-relay/server` with the reason they
+  are there. **The mutation reproduces the round-230 defect exactly and now exits non-zero with the offending
+  path named.** STILL OPEN, AND NOTHING ELSE WAITS ON THE LOOP: the installer's signing decision (the user's
+  call); **12 files under `api-relay` that no round has named, three of them the vrelay server's own entry and
+  routing — a code-read round, now that an instrument can find them**; convergence rows 6-7, which wait on
+  a device event rather than on work.
+
 Last updated: 2026-09-14 round 229 (**ROUND 165'S POPULATION-LEVEL ITEM IS CLOSED — `never named: 0` — and the
 reason it could not be checked for 64 rounds is that the number it was stated with had no scope and no
 instrument**). Commit: scripts/ + ledger + journal.
