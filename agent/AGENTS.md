@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 197 (**round 196's release plan was WRONG in its first step, and one read
+proved it.** Tagging is not bookkeeping: `release.yml` triggers on `on: push: tags: ["v*"]` and runs the
+full pipeline, with a fail-fast guard that `package.json` must equal the tag). Commit: journal. No code
+change — reconnaissance only, deliberately.
+  (1) THE MEASURED LIVE STATE, which is what the plan had to be checked against: `/api/version` advertises
+  **1.2.364** (sha256 `9ed7063e8c22753bf6d6df184807f60b4d6fea45fe9f14569df045a983db7787`); the newest GitHub
+  tag is **v1.2.361**; the staged installer set stops at **ValeAgent-Setup-1.2.361.exe** with
+  `ValeAgent-Setup.exe` as the stale alias; and the npm package lives at **`agent/vale-agent-npm/`** (NOT
+  the top level — round 196's plan named the wrong path) with `"version": "1.2.364"`.
+  (2) THE CORRECTION, AND IT IS THE SAME LESSON ONE ROUND LATER, AIMED AT MY OWN PLAN: round 196 wrote
+  that reconciling the three missing tags "is bookkeeping for artifacts that exist, not a new publish".
+  `release.yml`'s header says `on: push: tags: ["v*"]` — **a tag push fires cargo-xwin → panel SPA → npm
+  pack → `gh release create`.** It IS a publish. **"De-risking by reading one level is not de-risking"
+  (round 181's law) applied to a PLAN rather than to a code change**, and the plan was one round old.
+  (3) AND THE MEASUREMENT SPLITS ROW 2, WHICH WAS WRITTEN AS ONE ACTION: the workflow's guard is
+  "package.json version must equal the tag — a mismatch fails fast". The package is at `1.2.364`, so
+  **`v1.2.364` is tag-able and its tag is legitimate reconciliation** (the artifact it would build is the
+  version the CDN already serves), while **`v1.2.362` and `v1.2.363` CANNOT be created by this route** —
+  the pipeline's own guard refuses them, by design, because the repository has moved on. So the row is not
+  "three tags to add" but "one tag-able version, and two intermediate versions the pipeline will never
+  release retroactively".
+  (4) THE OPTIONS FOR THOSE TWO, NAMED SO THE NEXT ROUND CHOOSES RATHER THAN DISCOVERS: (i) `gh release
+  create` directly against the existing CDN tarballs, bypassing the workflow — honest only if the tarball
+  is attached as an asset and the release notes say the tag's commit is not what built it; (ii) leave them
+  unreconciled and correct row 2 to say so, recording that the CDN served two versions that have no
+  release and never will. **I have not chosen, because the choice is about what the release record MEANS
+  to an outside reader, and that is a product decision, not a mechanical one** — which is why it is stated
+  here rather than settled silently.
+  (5) STILL OPEN: that choice; the installer rebuild (row 3 — now known to be worse than recorded: not one
+  stale alias but **three versions, 362/363/364, for which no installer was ever built**, the local set
+  stopping at 361); `studio/` (a directory this journal has never mentioned, containing `node_modules`,
+  `test`, `vendor` — newly NOTICED, not investigated); the recurring second failure's name under mutation;
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 196 (**CHARTER-1 IS ANSWERED — 授权循环自主发布.** The user authorized the
 loop to run build → CDN → device regression → report on its own, at the CHARTER's thresholds; irreversible
 external commitments (full rollout, closing deprecation windows, billing/compliance/third-party) are still
