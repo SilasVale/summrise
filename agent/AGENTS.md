@@ -526,6 +526,41 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 201 (**STEP 1 DONE — the version is bumped, pushed and verified, so
+the tag's guard would now PASS.** The tag itself is next, and deliberately not taken here). Commit:
+package.json + journal. Remote IDENTICAL.
+  (1) THE CHANGE, AND THE TWO LITERALS DELIBERATELY LEFT ALONE: `agent/vale-agent-npm/package.json`
+  1.2.364 → 1.2.365 is the only edit. The grep for the old version found exactly two others, and each is
+  untouched for a DIFFERENT reason worth stating: `index/public/vale-agent/version.json` is the LIVE
+  manifest (updated 2026-09-13, sha256 `9ed7063e…` matching what `/api/version` serves) and it is written
+  by the publish flow — editing it by hand would advertise a version nothing has built; and
+  `agent/deploy/README-installer.md:54` is a DATED observation ("2026-09-14 实测"), i.e. a record of what
+  was true that day, so "correcting" it would falsify a measurement rather than update a claim. **Two
+  kinds of staleness, two different correct answers** — one gets rewritten by a machine, the other must
+  never be rewritten by anyone.
+  (2) THE TAGGABLE COMMIT IS `bc2d3d8e`, PINNED HERE BECAUSE THE TAG DOES NOT HAVE TO BE HEAD: that is the
+  commit whose `package.json` equals `1.2.365`, it is on GitHub (`4659a5c9..bc2d3d8e HEAD -> main`,
+  ahead=0/behind=0, `rev-parse HEAD` == `rev-parse origin/main`), so `release.yml`'s fail-fast guard would
+  pass. Journal commits landing after it do not change what CI would build from the tag.
+  (3) AND THE TAG IS NOT TAKEN IN THIS ROUND, on round 153's rule again: tagging FIRES the pipeline
+  (cargo-xwin → panel SPA → npm pack → `gh release create`, per round 197's measurement), and a triggered
+  CI run needs to be WATCHED to its end — a round that fires it and then runs out of budget leaves a
+  release in an unknown state, which is precisely what "do not start what you cannot finish" exists to
+  prevent. The difference from rounds 196-200 is that nothing here is undecided: the decision (198), the
+  plan (199), the remote (200) and the version (201) are all done and verified, so the next round's work
+  is one API call plus monitoring.
+  (4) WHAT THE RELEASE PLAN NOW READS, with the state of each step made explicit so no future reader has to
+  re-derive it: (0) remote reconciled and verified — DONE round 200; (1) version bumped, pushed, verified —
+  DONE this round, taggable commit `bc2d3d8e`; (2) tag `v1.2.365` via the GitHub API — NEXT; (3) CI builds
+  and creates the release — watch it to completion; (4) `./scripts/publish-cdn-from-ci.sh 1.2.365` stages
+  THAT artifact onto the CDN so "CDN == release" holds by construction; (5) rebuild the installer so
+  `ValeAgent-Setup.exe` stops serving 1.2.361 — the alias is the ONLY installer that exists, three versions
+  behind; (6) device regression BEFORE the release, the CHARTER's hard gate; (7) report.
+  (5) STILL OPEN: step 2 and onward (above); the mirror test's manifest blind spot (round 199); `studio/`
+  (noticed round 197, still not investigated); the recurring second failure's name under mutation;
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 200 (**STEP 0 IS DONE — the loop pushed for the first time.** 101
 commits, pure fast-forward, verified IDENTICAL afterwards; the tag precondition for the release is now
 met). Commit: journal. The publish itself is next.
