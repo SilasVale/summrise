@@ -309,6 +309,22 @@ export function parseTargetArg(arg) {
         return null;
     return { host: m[1], port, path: m[3] || "", id: `${m[1]}:${port}${m[3] || ""}` };
 }
+/**
+ * JSON that survives the command line.
+ *
+ * `deviceApi` hands its body to `curl -d <string>`, and on Windows that argument is encoded in the
+ * process's ANSI code page — NOT UTF-8. So a note typed with an em dash reached the device as
+ * mojibake: the CLI echoed back what it had been GIVEN ("— I rebooted it"), while the stored copy
+ * read `鈥?` everywhere the device's own data was shown (list, report, --json). Caught on d1 by
+ * writing a note with a dash in it and reading it back from the device.
+ *
+ * Escaping every non-ASCII character as \uXXXX makes the body pure ASCII, which no code page can
+ * mangle, and `JSON.parse` on the device restores the original text exactly.
+ */
+export function asciiJson(value) {
+    return JSON.stringify(value).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
 // The device's own API on loopback, with the token from etc\config.yaml.
 export function deviceApi(method, pathname, body?) {
     const dir = ETC_DIR;
@@ -318,7 +334,7 @@ export function deviceApi(method, pathname, body?) {
     const port = agentPort(dir);
     const args = ["-sS", "-m", "15", "-X", method, "-H", "Authorization: Bearer " + token];
     if (body !== undefined) {
-        args.push("-H", "content-type: application/json", "-d", JSON.stringify(body));
+        args.push("-H", "content-type: application/json", "-d", asciiJson(body));
     }
     args.push(`http://127.0.0.1:${port}${pathname}`);
     const r = spawnSync("curl", args, { encoding: "utf8", timeout: 20000 });

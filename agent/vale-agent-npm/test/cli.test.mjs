@@ -20,6 +20,7 @@ const {
   parseWatchArgs,
   probeLine,
   monitorsJson,
+  asciiJson,
   stripAnsi,
   lastLine,
   lastOutputBefore,
@@ -1732,4 +1733,22 @@ test("reportText: a DOWN target shows the note above the console line", () => {
   }).join("\n");
   assert.match(text, /went down\s+\(previous state lasted 39s\)/);
   assert.match(text, /note: I rebooted it/);
+});
+
+
+test("asciiJson: text that goes through a command line must survive it", () => {
+  // The bug this exists for: a note with an em dash was stored as mojibake, because `curl -d` takes
+  // its argument in the process code page on Windows.
+  const body = asciiJson({ id: "h:22", text: "I rebooted it — not a fault" });
+  // 1. Pure ASCII: no code page can mangle what has no high bytes.
+  // eslint-disable-next-line no-control-regex
+  assert.doesNotMatch(body, /[\u0080-\uffff]/);
+  // 2. The escape is the standard \uXXXX form, so the device's JSON parser restores the text.
+  assert.match(body, /\\u2014/);
+  assert.deepEqual(JSON.parse(body), { id: "h:22", text: "I rebooted it — not a fault" });
+  // 3. Structure and other types are untouched.
+  assert.equal(asciiJson({ a: 1, b: true, c: null }), '{"a":1,"b":true,"c":null}');
+  assert.deepEqual(JSON.parse(asciiJson({ t: "中文 / 日本語 / émoji 🚀" })), { t: "中文 / 日本語 / émoji 🚀" });
+  // 4. An empty body stays empty (no stray braces).
+  assert.equal(asciiJson({}), "{}");
 });
