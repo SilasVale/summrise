@@ -776,6 +776,25 @@ pub fn dial_addr(target: &Target) -> Option<SocketAddr> {
 mod tests {
     use super::*;
 
+    /// SERIALISES THE TESTS THAT TOUCH THE TARGET LIST. It is a process-global by design (the prober
+    /// and every route read it), and cargo runs one binary's tests IN PARALLEL — which CI caught:
+    /// two tests added the SAME id (`127.0.0.1:1`, "reserved, refused") and one of them removed it at
+    /// the end, so the other's `probe_once` found nothing and panicked at `.expect("probed")`.
+    /// The same family as round 259's data-dir lock and round 261's metrics ring: the shared thing
+    /// gets one lock, and the ids stay readable instead of being made unique by hand.
+    ///
+    /// A TOKIO mutex, because half these tests are async: a std guard across an `.await` is refused
+    /// by clippy (round 259 learned that in CI too). The sync tests use `blocking_lock()`.
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().await
+    }
+
+    fn serial_sync() -> tokio::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.blocking_lock()
+    }
+
     fn dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("vale-monitor-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -876,6 +895,7 @@ mod tests {
     /// (nobody is being served), and no-response carries NO status rather than a fabricated one.
     #[tokio::test]
     async fn an_http_probe_tells_a_working_ui_from_one_that_answers_500() {
+        let _serial = serial().await;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         // One listener, three paths: /ok answers 200, /bad answers 500, /missing answers 404.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -958,6 +978,7 @@ mod tests {
     /// the expectation FALSE, and `ok: false` saying so.
     #[tokio::test]
     async fn an_expectation_makes_a_200_that_lacks_the_text_count_as_down() {
+        let _serial = serial().await;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -1130,6 +1151,7 @@ mod tests {
 
     #[test]
     fn the_series_is_bounded_and_the_summary_counts_what_it_has() {
+        let _serial = serial_sync();
         let id = format!("bounded-{}:22", std::process::id());
         state_with(|st| {
             st.watches.retain(|w| w.target.id != id);
@@ -1179,6 +1201,7 @@ mod tests {
 
     #[test]
     fn an_empty_series_summarises_as_unknown_not_as_zero_percent() {
+        let _serial = serial_sync();
         // "No probes yet" and "everything is down" are different facts; a share of nothing is
         // not 0%.
         let id = format!("empty-{}:22", std::process::id());
@@ -1211,6 +1234,7 @@ mod tests {
     /// globals in this file get.
     #[tokio::test]
     async fn a_state_flip_is_announced_once_and_a_steady_probe_is_not() {
+        let _serial = serial().await;
         use std::sync::atomic::{AtomicUsize, Ordering};
         let d = dir("announce");
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1273,6 +1297,7 @@ mod tests {
 
     #[tokio::test]
     async fn adding_and_removing_persists_the_list_beside_the_other_runtime_state() {
+        let _serial = serial().await;
         let d = dir("persist");
         let t = add_target(&d, "192.0.2.10", 22).expect("added");
         assert_eq!(t.host, "192.0.2.10");
@@ -1298,6 +1323,7 @@ mod tests {
     /// the panel draws.
     #[tokio::test]
     async fn a_probe_reports_up_for_a_listening_port_and_down_for_a_closed_one() {
+        let _serial = serial().await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
