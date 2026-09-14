@@ -541,6 +541,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 265 (**PRODUCT CHANGE — a monitor can now ask a WEB UI WHAT IT ANSWERS: a target can carry an optional
+HTTP path, which turns the probe into a real GET and records the STATUS CODE. "Down" could not distinguish a refused connection from
+a UI answering 500, and that difference was the whole reason somebody was staring at it**).
+Commits: 44e2ab43 (the HTTP probe), 5a771776 (the snapshot fix the DEVICE found). Releases **1.2.380** and **1.2.381** published and
+UPDATED ON d1, where every branch was exercised against real servers.
+  (1) `Target.path` (persisted; ABSENT means the TCP probe every existing target already was, so an old list loads unchanged) and
+  the path is part of the target's IDENTITY — two paths on one port are two checks, because `/` answering and `/api/health`
+  answering are different facts about one service.
+  (2) THE VERDICT IS A JUDGEMENT, SO IT IS WRITTEN DOWN: `ok` = a response arrived with a status BELOW 500. A UI answering 401 is
+  WORKING (it wants credentials); one answering 500 is not serving anybody, and calling that "up" because the socket opened is
+  exactly the reading that sends an operator looking in the wrong place. The status is carried into the summary (`last_status`),
+  into the device's push frame, and into the panel — **shown even when the target is up**, so the operator can disagree with the
+  verdict instead of having to trust it.
+  (3) Paths are validated with a reason (a space is a typo; a full URL is a field mistake), normalised (`status` → `/status`), and
+  the rule is `http://` ONLY: a TLS check needs a certificate story ("is a self-signed cert up?") that this instrument does not
+  have, and guessing would be worse than saying so.
+  (4) VERIFIED ON d1, against real servers, and the interesting rows are the two a TCP probe cannot tell apart:
+  `127.0.0.1:18080/api/status` → **HTTP 401, UP** (wants credentials, and it IS serving); a purpose-built server answering
+  `500` → **DOWN with status 500** (the port answers; nobody is being served); `127.0.0.1:18080/panel/` → **200 up**; and the
+  operator's own ONU web UI `192.168.1.1:80/` → **down, no response at all** (which matches what they had been chasing). A TCP
+  probe on the same host:port was run alongside for contrast.
+  (5) AND THE DEVICE FOUND A SERVER-SIDE OMISSION ONE MINUTE AFTER THE RELEASE WENT ON: the panel showed `127.0.0.1:18080` three
+  times, because `/api/monitors` builds its rows by HAND and the `path` field existed only on `Target`'s own serialization. **A
+  component test cannot see a missing server-side field** — the panel had parsed `path` correctly all along — so the pin went
+  where the omission was: the route test now asserts the field is present (and null for a TCP target), and that a path-bearing
+  target reports it and gets an id that differs from the same host:port without one. Shipped as 1.2.381 and re-verified on d1
+  (the three rows now read `/panel/`, `/nope`, `/api/status`).
+  (6) A DESIGN NOTE WORTH KEEPING: the probe deliberately does NOT follow redirects — the question is "what does THIS url
+  answer", and a 302 to a login page is a true and useful answer.
+  STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still reads as
+  "CRASHED or was killed"); a monitor still checks only status, not CONTENT (a UI serving a login page with 200 looks healthy,
+  which is the next honest step); notifications remain panel-only (an operator with no window open is still not reached);
+  1.2.380/1.2.381 need their tags + audits; the `.tsx` scope decision; 1.2.370, 1.2.374 and 1.2.378 in `release-reconcile.txt`;
+  1.2.362-1.2.364 in the same ledger; the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's);
+  the never-named queue (93).
+
 Last updated: 2026-09-14 round 264 (**PRODUCT CHANGE — ATTENTION THAT FOLLOWS YOU OUT OF THE TAB: a live count in the tab title, a
 badge on the panel's icon, and — if the operator allows it — a desktop notification when a host they asked us to watch goes down
 or an AI is blocked on a question. The panel's whole vocabulary assumed somebody was looking at it; these are the two facts that
