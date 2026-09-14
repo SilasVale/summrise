@@ -585,8 +585,10 @@ Commits: 27924b9e (the panel update card, 1.2.370), 0645de48 (the serial leak, 1
   the shape round 257 lost a release build to. They now serialise inside a binary; the honest limit is stated in the code:
   two test BINARIES over one data dir still interleave, and that configuration is not supported.
   STILL OPEN: **the deliberate-stop marker — `vale restart`/`vale stop` whose revival outlives the classifier's minute still
-  reads as "CRASHED or was killed"**, and `runstate::mark_exited` still has no production caller; **1.2.370 and 1.2.371 were
-  published minutes before 1.2.372 and need tags (1.2.372 is tagged at the CI-green commit)**; the `.tsx` scope decision
+  reads as "CRASHED or was killed"**, and `runstate::mark_exited` still has no production caller; **1.2.371 and 1.2.372 were
+  tagged on CI-green commits and both audited `CDN == GitHub asset byte-for-byte`; 1.2.370 is RECORDED in
+  `release-reconcile.txt` instead — superseded within its own round, and its commit has no CI run for release.yml's tag gate
+  to check, so a tag for it could only fail that gate**; the `.tsx` scope decision
   (see the coverage ledger); 1.2.362-1.2.364 in `release-reconcile.txt`; the installer's signing decision (the user's);
   ADR 0007 step 2's assessment (the user's); the never-named queue.
 

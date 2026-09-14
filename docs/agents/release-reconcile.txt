@@ -9,3 +9,4 @@
 1.2.362 2026-09-14T00:00:00Z backfilled by round 123 from the live state: CDN 200 / GitHub release 404
 1.2.363 2026-09-14T00:00:00Z backfilled by round 123 from the live state: CDN 200 / GitHub release 404
 1.2.364 2026-09-14T00:00:00Z backfilled by round 123 from the live state: CDN 200 / GitHub release 404
+1.2.370 2026-09-14T10:30:00Z recorded by round 259 from the live state: CDN 200 (tgz still served) / GitHub release 404. SUPERSEDED WITHIN ITS OWN ROUND — 1.2.371 shipped ~20 minutes later with the same panel-update feature plus the serial fix, and 1.2.370's commit (27924b9e) has NO CI run for release.yml's tag gate to check, so its tag cannot be created without failing that gate by design. Its code is byte-identical to 1.2.371's apart from the version string, and 1.2.371 + 1.2.372 both audited byte-for-byte. Listed rather than omitted: an unreconciled publish is a fact, and the point of this file is that it is never silent.
