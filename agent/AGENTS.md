@@ -526,6 +526,52 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 210 (**THE FULL RELEASE SHIPPED END-TO-END, and the signing pipeline was
+VALIDATED with a self-signed cert — sign+verify both pass, nothing shipped**). Plus one false claim of mine,
+caught by a sha comparison rather than by memory.
+  (1) THE RELEASE, LAYER BY LAYER, EACH INDEPENDENTLY VERIFIED: repo gates all green (gateway 4/4 at
+  860/860; agent 671/671 + clippy + **fmt** + xwin check); GitHub release `v1.2.365` with a 6,744,895-byte
+  tgz asset (sha `7fd33e8a…`); **the P0 dual-builder audit ran on a REAL release for the first time and
+  passed — `CDN == GitHub asset byte-for-byte`** (round 122 measured that `--skip-reconcile` was the only
+  path any recent release took, so the audit had never run on one); the CDN serves 1.2.365 with the
+  installer fields in the manifest; and **device d1 was updated to 1.2.365 and verified by TWO independent
+  sources** — `vale status` (`release: 1.2.365`, `this device is current`) AND the agent's own HTTP API
+  (`"release":"1.2.365","ok":true,"uptime_secs":151` with every boxed component reported). The update log
+  carries the full four-part chain: `update requested 1.2.364 -> 1.2.365` / `update start` / `copy ok=True`
+  / `task restarted`. **The live `/api/version` moved from 1.2.364 to 1.2.365 — the first externally
+  observable metric movement in this loop's recent history, which is exactly what round 196's design review
+  said had not happened.**
+  (2) THE SIGNING PIPELINE IS VALIDATED, WHICH IS WHAT THIS ROUND WAS ASKED TO DO: a self-signed cert with
+  the right EKU (`openssl req -x509 … -addext "extendedKeyUsage=codeSigning"`) fed to
+  `build-installer.sh 1.2.365 --no-deploy` produced `signed: … (6900104 bytes)` — 1,613 bytes larger than
+  the unsigned build, which is the signature block — and an INDEPENDENT `osslsigncode verify` (not the
+  script's self-report) returned **`Signature verification: ok`** with the test subject. `--no-deploy` did
+  its job: the CDN was never touched. **And the run surfaced a real requirement for a production cert:
+  `-- WARN: no VALE_SIGN_TSA — signature expires with the cert`, so a TSA URL is not optional.**
+  (3) AND MY OWN FALSE CLAIM, RECORDED BECAUSE IT IS THIS LOOP'S LESSON IN A NEW COSTUME: after the
+  validation run I ran `git checkout -- index/public/vale-agent/`, saw it succeed, and wrote "已恢复". **It
+  restored nothing.** `index/.gitignore:1` is `*.exe`, so the installer is not tracked and checkout has no
+  opinion about it; the file on disk was still the SIGNED one. **What caught it was comparing the sha to the
+  manifest** (`207d6638…` on disk vs `7e75ff3d…` published) — the same "a success-shaped return is not the
+  effect" discipline rounds 17, 200 and 205 established, applied here to `git checkout` rather than to a
+  push. The recovery was to treat the CDN as the source of truth for a published artifact: re-download it,
+  verify the sha against the manifest, and only then place it — after which local stage and live both read
+  `7e75ff3dd4575d13` and the worktree is clean.
+  (4) WHAT REMAINS, AND IT IS A DECISION RATHER THAN A TASK: the installer that is LIVE is UNSIGNED (the
+  user chose to validate the pipeline first), so the landing page currently offers a binary that will trip
+  SmartScreen. The measured options, with their real trade-offs: an **OV** cert (~$200-400/yr) converts to
+  PEM and works with the existing `osslsigncode` path **but still warns until download reputation accrues**;
+  an **EV** cert (~$400-700/yr) gives instant trust **but ships on a hardware token and therefore cannot be
+  used by this pipeline at all** (the script needs cert+key FILES on a headless box); **Azure Trusted
+  Signing** (~$10/month) is CI-native but needs a different signing step; and **self-signed buys zero
+  trust** (the script's own words). A fourth option costs nothing: **stop advertising an installer**, since
+  `AGENTS.md` calls npm "THE single channel" and the installer a "sharing front-end".
+  (5) STILL OPEN: that signing decision; the mirror test's manifest blind spot (round 199); `studio/`
+  (noticed round 197, still not investigated); the recurring second failure's name under mutation;
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files. The three local commits from rounds 207-209 were pushed as part of
+  this release.
+
 Last updated: 2026-09-14 round 209 (**THE SAME FINDING AS ROUND 206, ON THE RUST SIDE — so it is a
 PATTERN, not a slip: the agent job fails ONLY at `cargo fmt --check`, and the loop has never run it**).
 Commit: journal, still deliberately LOCAL.
