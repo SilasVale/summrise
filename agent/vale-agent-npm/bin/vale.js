@@ -39,6 +39,12 @@ exports.psArgv = psArgv;
 exports.deskShortcutRepairPs = deskShortcutRepairPs;
 exports.startDesktopPs = startDesktopPs;
 exports.parseAgentPort = parseAgentPort;
+exports.parseDeviceToken = parseDeviceToken;
+exports.parseTargetArg = parseTargetArg;
+exports.deviceApi = deviceApi;
+exports.fmtDuration = fmtDuration;
+exports.targetLine = targetLine;
+exports.transitionLines = transitionLines;
 exports.agentPort = agentPort;
 exports.firewallPs = firewallPs;
 exports.bootTaskPs = bootTaskPs;
@@ -306,6 +312,104 @@ function parseAgentPort(yamlText) {
         }
     }
     return null;
+}
+// The device token, read from etc\config.yaml the same way the port is: a line
+// scan, no YAML dependency. Absent means "cannot talk to the device API", which
+// the callers report as a state rather than as a crash.
+function parseDeviceToken(yamlText) {
+    let inServer = false;
+    for (const raw of String(yamlText || "").split(/\r?\n/)) {
+        const line = raw.replace(/\s+$/, "");
+        if (/^\S/.test(line))
+            inServer = /^server\s*:/.test(line);
+        if (!inServer)
+            continue;
+        const m = /^\s*device_token\s*:\s*"?([A-Za-z0-9._-]+)"?\s*(#.*)?$/.exec(line);
+        if (m)
+            return m[1];
+    }
+    return null;
+}
+function deviceToken(dir) {
+    try {
+        return parseDeviceToken(fs.readFileSync(path.join(dir, "config.yaml"), "utf8"));
+    }
+    catch {
+        return null;
+    }
+}
+// `host:port[/path]` -> the target id the device uses. A path is part of the
+// identity, so `192.168.1.1:80/` and `192.168.1.1:80` are two different checks.
+function parseTargetArg(arg) {
+    const s = String(arg || "").trim();
+    const m = /^([^\s/:]+):(\d{1,5})(\/.*)?$/.exec(s);
+    if (!m)
+        return null;
+    const port = Number(m[2]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+        return null;
+    return { host: m[1], port, path: m[3] || "", id: `${m[1]}:${port}${m[3] || ""}` };
+}
+// The device's own API on loopback, with the token from etc\config.yaml.
+function deviceApi(method, pathname, body) {
+    const dir = ETC_DIR;
+    const token = deviceToken(dir);
+    if (!token)
+        return { ok: false, error: "no device token in " + path.join(dir, "config.yaml") };
+    const port = agentPort(dir);
+    const args = ["-sS", "-m", "15", "-X", method, "-H", "Authorization: Bearer " + token];
+    if (body !== undefined) {
+        args.push("-H", "content-type: application/json", "-d", JSON.stringify(body));
+    }
+    args.push(`http://127.0.0.1:${port}${pathname}`);
+    const r = (0, child_process_1.spawnSync)("curl", args, { encoding: "utf8", timeout: 20000 });
+    if (r.error || r.status !== 0) {
+        return { ok: false, error: `device unreachable on 127.0.0.1:${port}` + (r.error ? ` (${r.error.message})` : "") };
+    }
+    try {
+        return { ok: true, body: JSON.parse(String(r.stdout || "").trim()) };
+    }
+    catch {
+        return { ok: false, error: "device sent something that is not JSON" };
+    }
+}
+// `4m`, `1h 04m`, `2d 4h` — the shapes the rest of the panel uses.
+function fmtDuration(ms) {
+    const s = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+    if (s < 60)
+        return `${s}s`;
+    if (s < 3600)
+        return `${Math.floor(s / 60)}m`;
+    const h = Math.floor(s / 3600);
+    return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+// One target as a fixed-width line. Pure so the tests can read it: the STATE is a
+// word (never a colour alone), the duration comes from `since_ms`, and the HTTP
+// status is shown even when the target is up — `404 up` and `200 up` are
+// different facts about one service.
+function targetLine(t, nowMs, width = 30) {
+    const s = t.summary || {};
+    const up = s.up_now === true;
+    const state = up ? "up" : s.up_now === false ? "down" : "no readings";
+    const id = String(t.id || "");
+    const since = s.since_ms ? ` ${fmtDuration(nowMs - s.since_ms)}` : "";
+    const status = s.last_status === null || s.last_status === undefined ? "" : `  HTTP ${s.last_status}`;
+    const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
+    const pct = s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
+    const drops = s.drops ? `  ${s.drops} drops` : "";
+    return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${lat}${pct}${drops}`;
+}
+// The transitions a target has been through, newest first — the outage log an
+// operator pastes into a report.
+function transitionLines(t, limit = 4) {
+    const tr = Array.isArray(t.transitions) ? t.transitions.slice(-limit).reverse() : [];
+    return tr.map((x) => {
+        const at = new Date(Number(x.at_ms));
+        const hhmmss = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}:${String(at.getSeconds()).padStart(2, "0")}`;
+        const what = x.up ? "back up" : "went down";
+        const lasted = fmtDuration(x.lasted_ms);
+        return `       ${hhmmss}  ${what}  (previous state lasted ${lasted})`;
+    });
 }
 function agentPort(dir) {
     try {
@@ -1338,6 +1442,98 @@ const commands = {
             console.log("setup: no tunnel configured (local mode). Enable later with `vale tunnel install <hostname>`.");
         }
     },
+    // ── monitor / watch ─────────────────────────────────────────────────────
+    // The device's reachability instrument, in the terminal the operator already
+    // works in. The panel draws the same numbers; this runs where the ssh session
+    // is, needs no browser, and `vale watch` keeps it live on screen.
+    monitor(args) {
+        const sub = String(args[0] || "list").toLowerCase();
+        if (sub === "add" || sub === "rm" || sub === "remove") {
+            const t = parseTargetArg(args[1]);
+            if (!t) {
+                console.error("usage: vale monitor add <host:port[/path]>   (e.g. 192.168.1.1:80/ or 192.168.1.1:22)");
+                process.exit(1);
+            }
+            if (sub === "add") {
+                const r = deviceApi("POST", "/api/monitors/add", { host: t.host, port: t.port, path: t.path });
+                if (!r.ok) {
+                    console.error(`monitor add: ${r.error}`);
+                    process.exit(1);
+                }
+                if (r.body && r.body.ok === false) {
+                    console.error(`monitor add: ${r.body.error}`);
+                    process.exit(1);
+                }
+                // Probe once so the operator sees a reading instead of "no readings yet"
+                // for one 15 s cycle — the same courtesy the panel gives.
+                deviceApi("POST", "/api/monitors/probe", { id: t.id });
+                console.log(`watching ${t.id}${t.path ? " (HTTP GET, status code recorded)" : " (TCP connect)"}`);
+                return;
+            }
+            const r = deviceApi("POST", "/api/monitors/remove", { id: t.id });
+            if (!r.ok) {
+                console.error(`monitor rm: ${r.error}`);
+                process.exit(1);
+            }
+            console.log(r.body && r.body.removed ? `stopped watching ${t.id}` : `monitor rm: ${t.id} was not being watched`);
+            return;
+        }
+        if (sub !== "list") {
+            console.error("usage: vale monitor [list | add <host:port[/path]> | rm <host:port[/path]>]");
+            process.exit(1);
+        }
+        const r = deviceApi("GET", "/api/monitors");
+        if (!r.ok) {
+            console.error(`monitor: ${r.error}`);
+            process.exit(1);
+        }
+        const targets = (r.body && r.body.targets) || [];
+        if (targets.length === 0) {
+            console.log("watching nothing. `vale monitor add 192.168.1.1:22` starts one;");
+            console.log("add a path to check a web UI instead of a port: `vale monitor add 192.168.1.1:80/`");
+            return;
+        }
+        const now = Date.now();
+        console.log(`watching ${targets.length} target(s), probed every ${r.body.interval_secs || 15}s:`);
+        for (const t of targets)
+            console.log(targetLine(t, now));
+    },
+    // Live view: redraw in place every few seconds until Ctrl+C. `vale watch
+    // <host:port[/path]>` narrows it to one target and adds its outage log.
+    async watch(args) {
+        const only = args.length ? parseTargetArg(args[0]) : null;
+        if (args.length && !only) {
+            console.error("usage: vale watch [<host:port[/path]>]");
+            process.exit(1);
+        }
+        const every = 5000;
+        let first = true;
+        for (;;) {
+            const r = deviceApi("GET", "/api/monitors");
+            const now = Date.now();
+            const lines = [];
+            lines.push(`vale watch — ${new Date(now).toLocaleTimeString()}  (Ctrl+C to stop)`);
+            if (!r.ok) {
+                lines.push(`  device unreachable: ${r.error}`);
+            }
+            else {
+                const all = (r.body && r.body.targets) || [];
+                const targets = only ? all.filter((t) => t.id === only.id) : all;
+                if (targets.length === 0) {
+                    lines.push(all.length === 0 ? "  nothing is being watched (vale monitor add <host:port>)" : `  ${only.id} is not being watched`);
+                }
+                for (const t of targets) {
+                    lines.push(targetLine(t, now));
+                    for (const l of transitionLines(t, 3))
+                        lines.push(l);
+                }
+            }
+            // Clear + home, then the frame: a live view rather than a scroll of prints.
+            process.stdout.write((first ? "" : "\x1b[2J\x1b[H") + lines.join("\n") + "\n");
+            first = false;
+            await new Promise((res) => setTimeout(res, every));
+        }
+    },
     status() {
         // NOT via shell: `shell: true` concatenates argv into one cmd.exe string,
         // so the unquoted filter "IMAGENAME eq …" was split at its spaces, tasklist
@@ -2289,7 +2485,7 @@ const commands = {
 if (require.main === module) {
     const [cmd, ...rest] = process.argv.slice(2);
     if (!cmd || !commands[cmd]) {
-        console.log("vale <setup|status|start|stop|restart|autostart|update|rollback|uninstall|run|tunnel> -- Vale Agent control");
+        console.log("vale <setup|status|watch|monitor|start|stop|restart|autostart|update|rollback|uninstall|run|tunnel> -- Vale Agent control");
         Object.keys(commands).forEach((k) => console.log(" ", k));
         process.exit(cmd ? 1 : 0);
     }

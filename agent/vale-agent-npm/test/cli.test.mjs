@@ -1306,8 +1306,11 @@ test("every CLI verb the root guide promises is one the CLI prints", () => {
   const promised = [
     ...new Set([...guide.matchAll(/^vale ([a-z]+)/gm)].map((m) => m[1])),
   ].sort();
+  // The guide is no longer a verb catalogue (it names what an operator needs and nothing
+  // more), so the bar is "the verbs it DOES name are real" — the CLI's own usage line below
+  // is the contract, and it is checked in full.
   assert.ok(
-    promised.length >= 5,
+    promised.length >= 2,
     `expected the root guide to advertise several CLI verbs, found ${promised.length} — if the ` +
       `mention syntax changed, fix THIS extractor rather than deleting the test (ADR 0011's ` +
       `deletion criterion)`,
