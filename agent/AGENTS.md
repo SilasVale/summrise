@@ -526,6 +526,47 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 246 (**THE ROOT GUIDE PAIR DID HAVE AN UNCHECKED OBLIGATION, AND THE FIRST INSTRUMENT
+WRITTEN TO CLOSE IT COULD HAVE DEPLOYED THE WORKERS — the most expensive slip of this stretch, caught by checking
+rather than by trusting a green test**). Commit: agent/tests/ + ledger + journal.
+  (1) THE LEAD WAS ROUND 245's MECHANISM (a claim that travels by copy never passes through a measurement) TURNED
+  ON THE MIRROR OBLIGATION, WHICH BOTH ROOT GUIDES STATE ABOUT EACH OTHER: `AGENTS.md` says it "mirrors
+  `CLAUDE.md` … keep both in sync" and `CLAUDE.md` says the header difference is "by design … this file
+  stays shorter". **Measured: `agent/tests/module_map.rs` DOES enforce the one checkable thing — that the AGENT
+  pair documents the same SET of modules — and its docstring had already reasoned about why a blanket file
+  comparison is the wrong instrument ("so 'compare AGENTS.md with CLAUDE.md' would not have caught it either").
+  But it reads `agent/AGENTS.md` and `agent/CLAUDE.md`; the ROOT pair has no check at all, and its headers state
+  the obligation only as "keep both in sync", which is not a testable sentence.**
+  (2) THE ROOT PAIR ITSELF HOLDS UP, AND THE FIRST MEASUREMENT OF IT WAS WRONG: extracting "factual fragments"
+  from both files suggested three CLAUDE-only facts, **and all three turned out to be present in `AGENTS.md` —
+  the extractor tokenised `` `agent.saisi.online/vale-agent/ValeAgent-Setup.exe` `` differently from
+  `` `ValeAgent-Setup.exe` ``.** The real state is 115 shared fragments and no substantive divergence. Then the
+  sharper, mechanical check: **both guides list the `build.sh` entry points, and all six they advertise
+  (`agent`, `gateway`, `index`, `proxies`, `api-relay`, `deploy`) really are accepted** — verified by
+  INVOKING the script, which is where this round went wrong.
+  (3) **AND THAT IS THE ROUND'S REAL FINDING, ABOUT MY OWN INSTRUMENT: the first version of
+  `agent/tests/guide_build_commands.rs` ran `bash scripts/build.sh <sub>` for each advertised subcommand and
+  passed — in 333 SECONDS, because `agent` performs a FULL CROSS-COMPILE and the deploy subcommands ENTER
+  THEIR DEPLOY PATHS. `require_cf_token` falls back to `~/.cloudflare-token`, which EXISTS on this box, so the
+  guard does not stop them.** Nothing changed — the worktree stayed clean and the live `fix-tunnel.ps1`
+  sha256 was `e3af02d8480eef71` before and after, identical to round 240's post-deploy record, and
+  `/api/version` still answers `1.2.365` — **but every other instrument slip of this stretch produced a wrong
+  NUMBER, and this one could have produced a wrong DEPLOYMENT.**
+  (4) THE FIX IS ROUNDS 238/244's OWN RULE APPLIED WHERE IT WAS SKIPPED, AND THE MEASUREMENT WAS SITTING IN LINE
+  336 THE WHOLE TIME: `scripts/build.sh` states its subcommands in a usage line, so the test now PARSES
+  `usage: $0 [agent|gateway|index|proxies|api-relay|deploy]` and never invokes anything. **333 s → 0.00 s.** The
+  mutation is a guide advertising a command that does not exist: appending `` `./scripts/build.sh bogus-sub` ``
+  to `CLAUDE.md` turns it red naming `["bogus-sub"]` against the script's own accepted set. **When the direct
+  verification is destructive, find the part of it that is a measurement** — the rule this loop has now stated
+  three times and violated once.
+  (5) AND THE LEDGER'S HEADLINE DRIFTED AGAIN, CAUGHT BY THE INSTRUMENT ROUND 245 ADDED: **the scope moved
+  `283/359` → `284/360` because THIS round added a file under `agent/tests/`**, and `coverage_numbers` went red
+  on the first full-suite run with the message naming both numbers. The headline is updated to `284/360` with the
+  twice-demonstrated fact written into it, and the sentence now records that the second drift was caught by the
+  instrument rather than by a reader — **which is the difference between stating a limit and enforcing one.**
+  STILL OPEN: the installer's signing decision (the user's call); the never-named to-read queue (38 now, and the
+  count is deliberately unasserted).
+
 Last updated: 2026-09-14 round 245 (**THE "STILL OPEN" TAIL IS COPIED FORWARD FROM ROUND TO ROUND — which is
 why it stops being re-measured, and three stale claims fell out of reading it against reality**). Commit:
 agent/tests/ + ledger + journal. agent 676 = 675 + 1, four steps green.
