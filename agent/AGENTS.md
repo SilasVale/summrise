@@ -526,6 +526,39 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 229 (**ROUND 165'S POPULATION-LEVEL ITEM IS CLOSED — `never named: 0` — and the
+reason it could not be checked for 64 rounds is that the number it was stated with had no scope and no
+instrument**). Commit: scripts/ + ledger + journal.
+  (1) THE PREMISE ROUND 228 FLAGGED AND DID NOT RESOLVE, RESOLVED: that round measured **118** source files
+  against the ledger's **121** and recorded "may be my root definition rather than the tree shrinking —
+  flagged as unverified". **This round asked what definition the 121 had: the ledger says "Every source file
+  checked against this ledger and the journal: **121 files, 15 never named by any round**" — and states no
+  scope, and no script anywhere computes it (grep across `scripts/`, `gateway/test/`, `agent/tests/` found
+  nothing). So the difference was never reconcilable: **a count whose scope is unstated is a recollection,
+  not a measurement**, and two recollections cannot be compared.**
+  (2) THE INSTRUMENT IS `scripts/surface-coverage.mjs`, and its first job is to STATE ITS SCOPE where the old
+  sentence stated none: eight source roots (`gateway/src`, `index/src`, `agent/src`,
+  `agent/vale-command-core/src`, both CF proxies' `src`, `proxies/api-relay/src`, `extension`), six extensions
+  (`.ts .mjs .js .rs .ps1 .nsi`), three skipped directory names (`node_modules`, `target`, `dist`). It prints
+  the file count and the never-named list, `--json` for machine use.
+  (3) AND WHAT IT REPORTS TODAY IS THE TABLE'S OWN CLOSING NUMBER: **118 files in scope, and `never named: 0`
+  — every source file is named by some round.** That is a direct consequence of round 228 naming the last
+  one (`gateway/src/mcp-errors.ts`), so the trajectory this journal can now show is **15 → 1 → 0**
+  across rounds 165 → 228 → 229. **Round 165's open item was "Never-examined surfaces"; at the
+  population level it is closed.**
+  (4) THE TOOL'S LIMIT IS WRITTEN INTO ITS OWN OUTPUT AND INTO THE TABLE, because an instrument that
+  overstates is worse than none: **it measures "named", NOT "examined"** — which is this table's founding
+  lesson in its own words, "the ledger's 'surfaces covered' meant 'surfaces someone looked at'". A file the
+  journal mentions in passing counts as named, so the number is an **UPPER BOUND on coverage and never a
+  claim of it**. That is also why it is an OPS TOOL and deliberately NOT a CI gate, exactly as
+  `scripts/model-drift.mjs` is: the count legitimately changes every time a file is added, so asserting it
+  would fail on a normal working day.
+  (5) SO THE LEDGER'S OPEN-ITEM LIST IS NOW: **the installer's signing decision (the user's call)**;
+  convergence rows 6-7, which wait on a device event rather than on work. **Nothing else, and nothing that
+  waits on the loop.** The surface table's header now carries the instrument, the measured number, and the
+  limit — which is the shape this stretch settled on for every claim it could not assert: make it
+  reproducible, state its scope, and say what it does not cover.
+
 Last updated: 2026-09-14 round 228 (**THE ONE SOURCE FILE NO ROUND HAD EVER NAMED IS A FOUNDATION MODULE —
 `gateway/src/mcp-errors.ts`, "the tool-failure code family" — and my claim about its gaps was WRONG in the same
 way round 227's was: a grep too narrow to see the evidence**). Commit: gateway/test/ + journal.

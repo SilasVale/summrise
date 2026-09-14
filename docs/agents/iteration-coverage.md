@@ -10,7 +10,7 @@ Seeded 2026-09-14 at round 110.
 
 ## Current state
 
-- Round log head: **round 228**. **This line said `round 121` until round 213 — a 91-round drift, and
+- Round log head: **round 229**. **This line said `round 121` until round 213 — a 91-round drift, and
   NOTHING compared it to the journal.** The mechanism is the same one rounds 199 and 211 found in the
   code-viewer: two artifacts carry one obligation, and only one of them has an assertion. The journal's
   head line and this one are both hand-written numbers; the journal's is written every round and this
@@ -121,8 +121,26 @@ design and add a one-line equality check at the cache site. Needs a full round.
 
 ### Never-examined surfaces (round 165 — the tree, not the history)
 
-Every source file checked against this ledger and the journal: **121 files, 15 never
-named by any round.** Ranked by what a defect there would cost:
+Every source file checked against this ledger and the journal. **The count has an instrument as of
+round 229: `node scripts/surface-coverage.mjs`.**
+
+**WHY THAT SENTENCE NEEDED ONE, AND WHAT THE OLD NUMBER WAS:** this table opened with
+"**121 files, 15 never named by any round**" — and stated no scope and shipped no instrument, so
+**the number could not be checked**. Round 228 measured 118 with its own definition and could not
+reconcile the difference, because there was nothing to reconcile against. **A count whose scope is
+unstated is a recollection, not a measurement.** The tool states its scope (eight source roots,
+six extensions, three skipped directory names) and prints both numbers.
+
+**Measured round 229: 118 files in scope, and ZERO never named** — the table's own population-level
+open item is closed, because round 228 found and named the last one (`gateway/src/mcp-errors.ts`).
+**And the instrument's limit is stated with it: it measures "named", not "examined"** — which is
+this table's own founding lesson, that "the ledger's 'surfaces covered' meant 'surfaces someone
+looked at'". A file the journal mentions in passing counts as named here, so the number is an
+UPPER BOUND on coverage, never a claim of it. That is why this is an ops tool and NOT a CI gate:
+the number legitimately changes every time a file is added, so asserting it would fail on a normal
+working day.
+
+Ranked by what a defect there would cost:
 
 | # | File | Why it ranks there |
 |---|---|---|
