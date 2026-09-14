@@ -1271,3 +1271,62 @@ test("delivery drift: counts patches within a minor, refuses a count across one"
   assert.equal(behindBy("1.1.9", "1.2.0"), "a release line, not a patch count");
   assert.equal(behindBy("garbage", "1.2.0"), "an unknown number of releases");
 });
+
+// ── the contract list's ROW 1, which had no instrument ──────────────────────────
+//
+// `docs/agents/iteration-loop.md` carries a four-row contract list headed "check before
+// touching a promise". Its FIRST row is the one with the widest blast radius:
+//
+//   | published tgz + devices in the field | CLI verbs/args, install layout, boot-task
+//     arguments | rename or remove a verb/arg | dual-accept + rollback point + device
+//     regression |
+//
+// Round 253 measured how that promise is kept: **this file's 36 tests cover HELPERS and
+// PowerShell generators** (`busyIsFresh`, `writeReleaseMarker`, `uninstallVersionPs`,
+// `autostartArgv`, `rollbackVersionOk`, `psq`, `parseAgentPort` …) **and ZERO of them touch
+// the verb dispatch.** So nothing anywhere would fail if a verb were renamed — which is
+// the exact break the contract list names.
+//
+// SAFETY, learned the hard way in round 246: this assertion runs the CLI **with NO
+// ARGUMENTS ONLY**. `vale` with no args prints its verb list and exits 0 — measured. Every
+// documented verb (`setup`, `update`, `uninstall`, `rollback`) MUTATES the machine, so an
+// assertion that "checked" a verb by invoking it would install, swap or delete something.
+// When the direct verification is destructive, find the part of it that is a measurement.
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join, dirname } from "node:path";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = join(HERE, "..", "..", "..");
+
+test("every CLI verb the root guide promises is one the CLI prints", () => {
+  // The verbs the guide advertises, read as data.
+  const guide = readFileSync(join(REPO, "AGENTS.md"), "utf8");
+  const promised = [
+    ...new Set([...guide.matchAll(/^vale ([a-z]+)/gm)].map((m) => m[1])),
+  ].sort();
+  assert.ok(
+    promised.length >= 5,
+    `expected the root guide to advertise several CLI verbs, found ${promised.length} — if the ` +
+      `mention syntax changed, fix THIS extractor rather than deleting the test (ADR 0011's ` +
+      `deletion criterion)`,
+  );
+
+  // NO ARGUMENTS. That prints the verb list and changes nothing.
+  const out = execFileSync(process.execPath, [join(HERE, "..", "bin", "vale.js")], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+
+  const missing = promised.filter((v) => !new RegExp(`(^|[^a-z-])${v}([^a-z-]|$)`, "m").test(out));
+  assert.deepEqual(
+    missing,
+    [],
+    `these verbs are promised by the root guide but the CLI does not print them: ${missing.join(", ")}. ` +
+      `The contract list in docs/agents/iteration-loop.md names this as a promise to published tgz ` +
+      `holders and "devices in the field", with the break being "rename or remove a verb/arg" — so a ` +
+      `verb disappearing is a device-breaking change that needs dual-accept, a rollback point and a ` +
+      `device regression, not just a doc edit. CLI printed: ${out.split("\n")[0]}`,
+  );
+});
