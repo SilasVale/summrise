@@ -567,6 +567,12 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                 }
             });
         }
+        // ── VITALS SAMPLER ──────────────────────────────────────────────────────
+        // One reading every 30 s, kept as a bounded series (see `crate::metrics`). It runs
+        // HERE, in the process that serves `/api/status`, because CPU% is a DELTA: the
+        // interval between readings is part of the value, and a second poller taking its
+        // own readings would shorten the window the first one is measuring over.
+        vale_agent::metrics::spawn_sampler();
         tokio::spawn(async move {
             // Supervision audit #2: the old loop SNAPSHOT-READ the config
             // once and — violating the documented saisi decouple — fell back

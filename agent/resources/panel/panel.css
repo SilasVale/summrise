@@ -1521,6 +1521,73 @@ code {
 .restart-row-rel { margin-left: auto; }
 .restart-note { margin: 8px 0 0; font-size: var(--fs-sm); }
 
+/* ── The sustained-load chip ────────────────────────────────────────────────
+   Appears only when the series says a load has PERSISTED (lib/spark.ts owns the
+   rule); the mark is a filled square, its own silhouette beside the waiting
+   chip's diamond and the boot chip's triangle. The text always names the metric
+   and the duration, so the chip is readable without the hover. */
+.load-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-chip);
+  color: var(--chrome-ink-dim);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.load-mark {
+  flex: none;
+  width: 7px; height: 7px;
+  background: var(--danger-on-soft);
+  border-radius: 1px;
+}
+
+/* ── Device health (Settings) ───────────────────────────────────────────────
+   Two series and their verdict. The chart is a summary of numbers that are
+   printed beside it, and the ink for a series is the same family the dial uses. */
+.health-verdict {
+  margin: 4px 0 10px;
+  font: 400 12px var(--font);
+  color: var(--chrome-ink);
+}
+.health-verdict.is-load { color: var(--danger-on-soft); }
+.health-series-list { display: flex; flex-direction: column; gap: 6px; }
+.health-series {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.health-series-name {
+  flex: none;
+  width: 34px;
+  font: 400 11px var(--font-mono);
+  color: var(--chrome-ink-dim);
+}
+.spark { flex: none; display: inline-flex; align-items: center; }
+.spark-svg { display: block; overflow: visible; }
+.spark-line {
+  stroke: var(--chrome-ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.health-series[data-series="mem"] .spark-line { stroke: var(--chrome-ink-dim); }
+.spark-empty .spark-none { font: 400 11px var(--font); color: var(--chrome-ink-dim); }
+.health-series-stats {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font: 400 11px var(--font-mono);
+  color: var(--chrome-ink-dim);
+}
+.health-stat-total { margin-left: auto; }
+.health-window { margin: 10px 0 0; font-size: var(--fs-sm); }
+
 /* ---------- terminal ---------- */
 #term-container {
   flex: 1;

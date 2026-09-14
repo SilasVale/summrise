@@ -13,6 +13,7 @@ import { pendingApprovalCount, type Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
+import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { VitalsDial } from "./VitalsDial";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
@@ -29,6 +30,7 @@ import type { SessionView } from "./TabBar";
 import { ViewSwitch } from "./ViewSwitch";
 import { WaitingChip } from "./WaitingChip";
 import { BootChip } from "./BootChip";
+import { LoadChip } from "./LoadChip";
 import type { usePlugins } from "../hooks/usePlugins";
 
 interface Props {
@@ -145,6 +147,7 @@ export function DesktopShell({
   // One poller per density (see PanelApp): the strip's chip and the Settings card read
   // the same history.
   const restarts = useBootHistory();
+  const vitalsSeries = useVitalsSeries();
   // stage-n: native menu page navigation — the electron menu sends
   // vale-menu commands for pages too (open-memory / open-settings /
   // open-plugins); route them to the page state.
@@ -408,6 +411,8 @@ export function DesktopShell({
                 onOpenMemory={() => setPage("memory")}
                 restarts={restarts}
                 restartsFailed={restarts.failed}
+                vitals={vitalsSeries}
+                vitalsFailed={vitalsSeries.failed}
               />
             )}
           </main>
@@ -428,6 +433,7 @@ export function DesktopShell({
                 uptimeSecs={vitals.uptimeSecs}
                 recentCrashes={restarts.summary.crashes}
               />
+              <LoadChip series={vitalsSeries} />
               <WaitingChip sessions={sessions} />
             </div>
           )}
@@ -449,6 +455,7 @@ export function DesktopShell({
                 uptimeSecs={vitals.uptimeSecs}
                 recentCrashes={restarts.summary.crashes}
               />
+              <LoadChip series={vitalsSeries} />
               <WaitingChip sessions={sessions} />
             </div>
           )}

@@ -6,12 +6,137 @@
 //! configs — same convention as the terminal feature gating).
 //!
 //! CPU is a DELTA metric: `GetSystemTimes` returns boot-relative counters,
-//! so utilization is only computable between two samples. The previous
-//! sample is kept in a static (poison-recovered `into_inner`). Callers that
-//! poll the status endpoint (SPA strip, tray) naturally produce the pair.
+//! so utilization is only computable between two samples — which makes the
+//! INTERVAL part of the value, and is why this module now owns the clock: a
+//! background sampler takes one reading every [`SAMPLE_INTERVAL_SECS`] and keeps
+//! the last [`HISTORY_MAX`] of them in a ring. `/api/status` serves the NEWEST
+//! sample rather than taking its own, so the number a strip prints and the last
+//! point of the chart beside it can never disagree, and two consumers polling at
+//! different rates can no longer shorten each other's delta window (which is what
+//! happened when both the poller and a sampler called `sample()`).
+//!
+//! THE HISTORY IS WHAT MAKES A READING USEFUL. "CPU 87%" is a number; "CPU has
+//! been above 90% for twelve minutes" is a fact somebody can act on, and it is
+//! invisible to every instantaneous instrument this device had.
 
 #[cfg(windows)]
 use std::sync::Mutex;
+
+/// ONE STAMPED READING — the unit the history, the route and every chart use.
+///
+/// `ts_ms` is unix MILLISECONDS, the same axis `crate::operation` orders on and the
+/// panel's clocks print, so a vitals sample and an activity record can be placed side
+/// by side without a unit conversion nobody would remember to do.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct Sample {
+    pub ts_ms: u64,
+    pub cpu_pct: Option<f64>,
+    pub mem_pct: Option<f64>,
+    pub mem_total_mb: Option<u64>,
+}
+
+/// How often the sampler reads. 30 s is chosen against the CPU delta it produces: long
+/// enough that one busy second does not move the reading, short enough that a load spike
+/// and its recovery are both visible, and cheap enough (two kernel32 calls) to run for
+/// the life of the process.
+pub const SAMPLE_INTERVAL_SECS: u64 = 30;
+
+/// How many readings are kept — two hours at the interval above. Bounded because this is
+/// read by every panel poll: an unbounded series would make the endpoint's cost grow with
+/// uptime, which is the one thing that must not happen on a device left running for weeks.
+pub const HISTORY_MAX: usize = 240;
+
+/// The ring. Poison-recovered rather than unwrapped: a panicking reader must not take the
+/// instrument down with it (the same rule the crate's other statics follow).
+static HISTORY: std::sync::Mutex<std::collections::VecDeque<Sample>> =
+    std::sync::Mutex::new(std::collections::VecDeque::new());
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Record a reading taken NOW. Returns the sample stored, or `None` when the host reported
+/// nothing at all — a sample with no reading in it carries no information, and storing it
+/// would give a host that cannot report vitals a series of blanks that looks like data.
+pub fn record(v: Vitals) -> Option<Sample> {
+    if v.cpu_pct.is_none() && v.mem_pct.is_none() {
+        return None;
+    }
+    let s = Sample {
+        ts_ms: now_ms(),
+        cpu_pct: v.cpu_pct,
+        mem_pct: v.mem_pct,
+        mem_total_mb: v.mem_total_mb,
+    };
+    let mut h = HISTORY.lock().unwrap_or_else(|p| p.into_inner());
+    h.push_back(s);
+    while h.len() > HISTORY_MAX {
+        h.pop_front();
+    }
+    Some(s)
+}
+
+/// Record a reading with an explicit stamp. The sampler uses [`record`]; this exists so a
+/// test can build a series without sleeping through two hours of wall clock.
+pub fn record_at(v: Vitals, ts_ms: u64) {
+    if v.cpu_pct.is_none() && v.mem_pct.is_none() {
+        return;
+    }
+    let mut h = HISTORY.lock().unwrap_or_else(|p| p.into_inner());
+    h.push_back(Sample {
+        ts_ms,
+        cpu_pct: v.cpu_pct,
+        mem_pct: v.mem_pct,
+        mem_total_mb: v.mem_total_mb,
+    });
+    while h.len() > HISTORY_MAX {
+        h.pop_front();
+    }
+}
+
+/// The whole history, OLDEST FIRST — the order a chart draws in, so no consumer has to
+/// remember which way round it is.
+pub fn history() -> Vec<Sample> {
+    HISTORY
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .copied()
+        .collect()
+}
+
+/// The newest reading, or `None` before the first sample. `/api/status` serves THIS: one
+/// clock, one delta window, and the number beside the chart is the chart's last point.
+pub fn latest() -> Option<Sample> {
+    HISTORY
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .back()
+        .copied()
+}
+
+/// Take one reading now and store it. Called by the sampler and, once, at boot.
+pub fn sample_now() -> Option<Sample> {
+    record(sample())
+}
+
+/// Keep taking readings for the life of the process.
+///
+/// The FIRST reading is taken immediately so a device that just booted has memory to show
+/// (CPU needs a second reading — it is a delta — so it appears one interval later, which is
+/// the same honest-empty behaviour the endpoint always had).
+pub fn spawn_sampler() {
+    tokio::spawn(async move {
+        let _ = sample_now();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(SAMPLE_INTERVAL_SECS)).await;
+            let _ = sample_now();
+        }
+    });
+}
 
 /// Snapshot of the vitals. `None` = not (yet) computable on this host.
 #[derive(Debug, Clone, Copy, Default)]
@@ -139,6 +264,72 @@ mod tests {
         assert_eq!(round1(12.34), 12.3);
         assert_eq!(round1(12.36), 12.4);
         assert_eq!(round1(100.0), 100.0);
+    }
+
+    fn vitals(cpu: Option<f64>, mem: Option<f64>) -> Vitals {
+        Vitals {
+            cpu_pct: cpu,
+            mem_pct: mem,
+            mem_total_mb: Some(16384),
+        }
+    }
+
+    #[test]
+    fn the_history_keeps_the_newest_and_reads_oldest_first() {
+        // The ring is GLOBAL, so this test owns its own slice of the stamp space and
+        // asserts about ITS samples rather than about the length of the whole ring —
+        // cargo runs tests in parallel and a second test may be recording at the same
+        // time. (The property under test — order and trimming — does not need isolation;
+        // the counts do.)
+        let base = 1_700_000_000_000u64;
+        for i in 0..5u64 {
+            record_at(vitals(Some(i as f64), Some(50.0)), base + i * 1_000);
+        }
+        let h = history();
+        let mine: Vec<&Sample> = h.iter().filter(|s| s.ts_ms >= base).collect();
+        assert_eq!(mine.len(), 5);
+        // OLDEST FIRST: the chart draws in this order.
+        assert_eq!(mine[0].cpu_pct, Some(0.0));
+        assert_eq!(mine[4].cpu_pct, Some(4.0));
+        assert!(mine.windows(2).all(|w| w[0].ts_ms <= w[1].ts_ms));
+        // `latest()` IS the tail of `history()` — the same value `/api/status` serves, and
+        // the last point of the chart. Asserted as that RELATION rather than against this
+        // test's own stamp: the ring is global, so a parallel test may legitimately have
+        // pushed after these.
+        let tail = history().last().copied();
+        assert_eq!(
+            latest(),
+            tail,
+            "latest() must be the tail history() ends on"
+        );
+    }
+
+    #[test]
+    fn a_reading_the_host_cannot_take_is_not_a_sample() {
+        // A host with no vitals (every non-Windows build) must produce an EMPTY history,
+        // not a series of blanks that a chart would draw as data.
+        assert!(record(vitals(None, None)).is_none());
+        let before = history().len();
+        record_at(vitals(None, None), 1);
+        assert_eq!(history().len(), before, "an empty reading stores nothing");
+    }
+
+    #[test]
+    fn the_ring_is_bounded() {
+        // Bounded for the same reason every list route here is: the cost of reading it
+        // must not grow with uptime. HISTORY_MAX + 1 pushes must leave exactly MAX.
+        let base = 1_600_000_000_000u64;
+        for i in 0..(HISTORY_MAX + 1) as u64 {
+            record_at(vitals(Some(1.0), Some(2.0)), base + i);
+        }
+        let h = history();
+        let mine: Vec<&Sample> = h.iter().filter(|s| s.ts_ms >= base).collect();
+        assert_eq!(
+            mine.len(),
+            HISTORY_MAX,
+            "the front is dropped, never the tail"
+        );
+        assert_eq!(mine[mine.len() - 1].ts_ms, base + HISTORY_MAX as u64);
     }
 
     #[cfg(not(windows))]

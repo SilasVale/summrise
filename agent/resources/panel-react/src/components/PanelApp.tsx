@@ -10,6 +10,7 @@ import { ContextRail } from "./ContextRail";
 import { StatusBar } from "./StatusBar";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
+import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { ArchivePage } from "./ArchivePage";
 import { ActivityPage } from "./ActivityPage";
@@ -73,6 +74,9 @@ export function PanelApp(props: Props) {
   // The restart history, polled ONCE here and handed to both consumers: the strip's crash
   // chip (which says how many there have been) and the Settings card (which lists them).
   const restarts = useBootHistory();
+  // The vitals SERIES, polled once here (see useVitalsSeries): the strip's sustained-load
+  // chip and the Settings card's charts read the same array.
+  const vitalsSeries = useVitalsSeries();
   const [page, setPage] = useState<Page>("terminal");
   const connected = props.sseState === "connected";
 
@@ -103,6 +107,7 @@ export function PanelApp(props: Props) {
         statusBar={
           <StatusBar
             recentCrashes={restarts.summary.crashes}
+            vitalsSeries={vitalsSeries}
             sessions={props.sessions}
             status={props.status}
             sseState={props.sseState as "connected" | "down" | "connecting"}
@@ -152,6 +157,8 @@ export function PanelApp(props: Props) {
                 onOpenMemory={() => setPage("memory")}
                 restarts={restarts}
                 restartsFailed={restarts.failed}
+                vitals={vitalsSeries}
+                vitalsFailed={vitalsSeries.failed}
               />
             )}
           </div>

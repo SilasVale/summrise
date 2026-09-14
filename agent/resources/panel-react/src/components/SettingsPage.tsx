@@ -3,7 +3,10 @@ import { callApi } from "../lib/api";
 import { ConnectCard } from "./ConnectCard";
 import { DeviceLogsCard } from "./DeviceLogsCard";
 import { RestartHistoryCard } from "./RestartHistoryCard";
+import { DeviceHealthCard } from "./DeviceHealthCard";
+import type { VitalsSeries } from "../hooks/useVitalsSeries";
 import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
+import { EMPTY_SERIES } from "../hooks/useVitalsSeries";
 
 // SettingsPage — device settings as a first-class page (both densities).
 // Cards: Connect an AI client (onboarding — first, because nothing else on this
@@ -14,6 +17,8 @@ export function SettingsPage({
   onOpenMemory,
   restarts,
   restartsFailed,
+  vitals,
+  vitalsFailed,
 }: {
   onOpenMemory?: () => void;
   /** The device's restart history, polled ONCE by the shell that renders this page —
@@ -21,6 +26,10 @@ export function SettingsPage({
    *  card that says it has nothing to show rather than a second poller. */
   restarts?: BootHistory;
   restartsFailed?: boolean;
+  /** The vitals series, polled once by the shell (see `useVitalsSeries`) — optional so
+   *  every existing caller keeps compiling. */
+  vitals?: VitalsSeries;
+  vitalsFailed?: boolean;
 }) {
   const [bufferMb, setBufferMb] = useState("8");
   const [status, setStatus] = useState("");
@@ -191,6 +200,8 @@ export function SettingsPage({
           new user's first screen was a terminal and the product's promise was
           invisible. See docs/adr/proposal-game-design.md §4. */}
       <ConnectCard />
+
+      <DeviceHealthCard series={vitals ?? EMPTY_SERIES} failed={vitalsFailed} />
 
       <DeviceLogsCard />
 

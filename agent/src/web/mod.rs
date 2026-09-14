@@ -799,6 +799,11 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
             // status poll runs every 15 s and must stay small, while this list is read when a
             // human asks (the Settings card) or once a minute (the strip's count).
             ("GET", "/api/boots") => api_boots(),
+            // The device's vitals HISTORY — the trend behind the two numbers on the strip.
+            // Separate from `/api/status` for the same reason `/api/boots` is: the status
+            // poll runs every 15 s and must stay small, while a series is read when a human
+            // asks for it.
+            ("GET", "/api/vitals/history") => api_vitals_history(),
             // Control handoff (design §D5). MUST be matched before any broader
             // /api/sessions POST arm; the `.ends_with` also keeps it from
             // swallowing a future sibling action on the same collection.
@@ -1333,6 +1338,30 @@ fn api_boots() -> serde_json::Value {
     })
 }
 
+/// `GET /api/vitals/history` — the agent's own CPU/memory series, oldest first.
+///
+/// `samples` is EMPTY, never absent, for a host that reports no vitals (every non-Windows
+/// build) or for a device that has not been up long enough to have taken a reading: the
+/// panel then says the host does not report vitals rather than drawing an empty chart that
+/// reads as a broken feature.
+///
+/// `interval_secs` rides along because the series' SPACING is part of its meaning — a panel
+/// that assumed a cadence would draw the same shape for 30 s and 5 min samples, and the
+/// chart is the thing an operator reads a rate off.
+fn api_vitals_history() -> serde_json::Value {
+    let samples = crate::metrics::history();
+    let span_secs = match (samples.first(), samples.last()) {
+        (Some(a), Some(b)) => b.ts_ms.saturating_sub(a.ts_ms) / 1000,
+        _ => 0,
+    };
+    serde_json::json!({
+        "ok": true,
+        "interval_secs": crate::metrics::SAMPLE_INTERVAL_SECS,
+        "span_secs": span_secs,
+        "samples": samples,
+    })
+}
+
 fn api_logs() -> serde_json::Value {
     let dir = crate::paths::logs_dir();
     // The update log is the one this route was invented for; the others are the
@@ -1714,7 +1743,13 @@ async fn api_status(state: &AppState) -> serde_json::Value {
         .count();
     // stage-n: device vitals (Windows: CPU delta + memory; other hosts
     // return None → fields are omitted, endpoint shape stays additive).
-    let vitals = crate::metrics::sample();
+    //
+    // THE NEWEST SAMPLE, NOT A FRESH ONE. Since the sampler owns the clock
+    // (`metrics::spawn_sampler`), taking a reading HERE would shorten the delta window
+    // that the sampler's CPU percentage is computed over — the two consumers would be
+    // measuring different intervals and the strip's number would disagree with the last
+    // point of the chart beside it. One clock, one series, one answer.
+    let vitals = crate::metrics::latest();
     let mut out = serde_json::json!({
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
@@ -1782,13 +1817,13 @@ async fn api_status(state: &AppState) -> serde_json::Value {
     if let Some(boxed) = boxed_versions() {
         out["boxed_versions"] = boxed;
     }
-    if let Some(cpu) = vitals.cpu_pct {
+    if let Some(cpu) = vitals.as_ref().and_then(|v| v.cpu_pct) {
         out["cpu_pct"] = serde_json::json!(cpu);
     }
-    if let Some(mem) = vitals.mem_pct {
+    if let Some(mem) = vitals.as_ref().and_then(|v| v.mem_pct) {
         out["mem_pct"] = serde_json::json!(mem);
     }
-    if let Some(mb) = vitals.mem_total_mb {
+    if let Some(mb) = vitals.as_ref().and_then(|v| v.mem_total_mb) {
         out["mem_total_mb"] = serde_json::json!(mb);
     }
     // round-103: expose the proxy secret (token-authenticated endpoint) so
@@ -2797,6 +2832,56 @@ mod tests {
         }
     }
 
+    /// `/api/vitals/history` is the TREND behind the strip's two numbers.
+    ///
+    /// Three properties a consumer depends on, none of which a chart can check for itself:
+    /// the series is OLDEST FIRST (the order it must be drawn in), it carries the SPACING
+    /// that gives it meaning (`interval_secs` — a shape drawn without its cadence is a lie
+    /// about rates), and a host that reports nothing answers with an EMPTY series rather
+    /// than an absent field.
+    #[tokio::test]
+    async fn vitals_history_serves_the_series_oldest_first_with_its_cadence() {
+        use crate::metrics::{record_at, Vitals};
+        let path_samples = [(1_700_000_000_000u64, 10.0), (1_700_000_030_000, 20.0)];
+        for (ts, cpu) in path_samples {
+            record_at(
+                Vitals {
+                    cpu_pct: Some(cpu),
+                    mem_pct: Some(50.0),
+                    mem_total_mb: Some(8192),
+                },
+                ts,
+            );
+        }
+        let v = json_body(handle_request(req("GET", "/api/vitals/history"), state()).await).await;
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["interval_secs"], 30, "{v}");
+        let samples = v["samples"].as_array().expect("a samples array");
+        let mine: Vec<&serde_json::Value> = samples
+            .iter()
+            .filter(|s| s["mem_total_mb"].as_u64() == Some(8192))
+            .collect();
+        assert_eq!(mine.len(), 2, "both seeded readings are served: {v}");
+        assert_eq!(mine[0]["cpu_pct"], 10.0, "oldest first: {v}");
+        assert_eq!(mine[1]["cpu_pct"], 20.0, "{v}");
+        // The span is derived from the series itself, so a chart's x-axis can be honest
+        // without the panel re-deriving it.
+        assert!(v["span_secs"].as_u64().unwrap_or(0) >= 30, "{v}");
+    }
+
+    /// THE SHAPE IS ALWAYS THERE, whatever the host can measure: `samples` is an ARRAY and
+    /// `span_secs` a NUMBER, never an absent field or a null. A chart reads an absent series
+    /// and an empty one very differently, and "this host reports no vitals" must arrive as
+    /// the second (the emptiness itself is pinned in `metrics`' own tests, where the ring can
+    /// be reasoned about without the process-wide series this test shares).
+    #[tokio::test]
+    async fn vitals_history_always_answers_with_a_series_and_a_span() {
+        let v = json_body(handle_request(req("GET", "/api/vitals/history"), state()).await).await;
+        assert!(v["samples"].is_array(), "{v}");
+        assert!(v["span_secs"].is_u64(), "{v}");
+        assert_eq!(v["interval_secs"], 30, "{v}");
+    }
+
     #[tokio::test]
     async fn status_ok() {
         let resp = handle_request(req("GET", "/api/status"), state()).await;
@@ -3172,6 +3257,7 @@ mod tests {
             ("GET", "/api/sessions/some-session-id"),
             ("GET", "/api/logs"),
             ("GET", "/api/boots"),
+            ("GET", "/api/vitals/history"),
             ("GET", "/api/events/poll"),
             ("GET", "/api/settings"),
             ("PUT", "/api/settings"),

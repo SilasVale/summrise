@@ -89,4 +89,26 @@ describe("StatusBar instrument line", () => {
     expect(title).toContain("CRASHED or was killed");
     expect(title).not.toContain("24 hours");
   });
+
+  it("carries the sustained-load chip, and only when the series says so", () => {
+    const now = Date.now();
+    const series = (cpu: number[]) => ({
+      samples: cpu.map((c, i) => ({
+        tsMs: now - (cpu.length - 1 - i) * 30_000,
+        cpu: c,
+        mem: 20,
+        memTotalMb: 8192,
+      })),
+      intervalSecs: 30,
+      spanSecs: (cpu.length - 1) * 30,
+    });
+    // A quiet device: the strip is exactly what it was before this chip existed.
+    const quiet = strip({ vitals: V, vitalsSeries: series(Array(14).fill(15)) });
+    expect(quiet.container.querySelector(".load-chip")).toBeNull();
+    // A pegged one: the chip appears ON THE STRIP, beside the other chips.
+    const pegged = strip({ vitals: V, vitalsSeries: series(Array(14).fill(96)) });
+    expect(pegged.container.querySelector(".load-chip")!.textContent).toContain("CPU pegged");
+    // And with no series at all (an older shell): no chip, no crash.
+    expect(strip({ vitals: V }).container.querySelector(".load-chip")).toBeNull();
+  });
 });
