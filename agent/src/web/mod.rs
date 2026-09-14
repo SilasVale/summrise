@@ -3634,7 +3634,7 @@ mod tests {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        let posture: Vec<(String, String)> = events
+        let all: Vec<(String, String)> = events
             .iter()
             .filter(|e| e["kind"] == "approval")
             .map(|e| {
@@ -3643,6 +3643,26 @@ mod tests {
                     e["text"].as_str().unwrap_or("").to_string(),
                 )
             })
+            .collect();
+        // `abandoned` is a TIMING-DEPENDENT extra, and CI is what proved it: the superseded
+        // first exec is dropped when the second attempt replaces it, and whether that drop has
+        // been recorded by the time the trail is read depends on the scheduler — one run had it
+        // between `asked` and `approved`, another did not. The SUBJECT of this test is the
+        // posture trail, so the filter is right; the filter is not BLIND, though: when the
+        // event is present it must sit exactly between the question and its answer, which is
+        // the only place an abandoned decision can honestly be.
+        if let Some(ai) = all.iter().position(|(status, _)| status == "abandoned") {
+            let asked = all.iter().position(|(status, _)| status == "asked");
+            let approved = all.iter().position(|(status, _)| status == "approved");
+            assert!(
+                asked.is_some() && asked < Some(ai) && Some(ai) < approved,
+                "an abandoned decision must sit between the question and the answer: {all:?}"
+            );
+        }
+        let posture: Vec<(String, String)> = all
+            .iter()
+            .filter(|(status, _)| status != "abandoned")
+            .cloned()
             .collect();
         assert_eq!(
             posture,
