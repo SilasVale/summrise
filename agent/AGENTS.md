@@ -526,6 +526,38 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 248 (**ALL SIX ROWS OF `ARCHITECTURE.md`'s TEST-GATE COUNTS WERE STALE — every
+one, after 222 rounds, in a table whose own text already documented an earlier unrepaired drift**). Commit:
+docs/ARCHITECTURE.md + journal.
+  (1) THE LEAD WAS ROUND 245's MECHANISM APPLIED TO THE GOAL-MANDATED ARTIFACT: the objective requires every
+  design decision to update `docs/ARCHITECTURE.md`'s boundary verdicts, and that file is **80 claims across four
+  tables** under a header reading "all reviewed 2026-08/09". **The sharpest of the four is `Test gates (per
+  subproject)`, because its `Count` column is a NUMBER rather than a judgement**, and numbers can be re-measured.
+  (2) SO THEY WERE, EACH AGAINST ITS OWN RUNNER, AND EVERY ROW WAS WRONG: **gateway 755 → 872** (+117),
+  **agent 484 → 677** (+193), **vale-agent-core 25 → 29**, **vale CLI (npm) 20 → 36**,
+  **api-relay 69 → 70**, **index 73 → 90**. The table's header said "measured R25"; the ledger has reached
+  R247. **222 rounds, six wrong numbers, and the drift is not uniform — which is the useful detail: the two
+  large ones are the two suites this loop runs every single round and quotes in its own entries, so the numbers
+  were being re-measured constantly and the TABLE was never updated from them.**
+  (3) AND THE TABLE'S OWN TEXT ALREADY KNEW, WHICH IS WHAT MAKES THIS ROUND 245's FINDING RATHER THAN A TYPO: the
+  gateway row carries the sentence **"the row read 712 since R81 … 720 − 712 = 8 were added between R81
+  and R117 with the row never refreshed"** — **a documented, diagnosed, previously-repaired instance of exactly
+  this drift.** So the mechanism had been named in the artifact itself and the artifact drifted anyway:
+  **a claim that travels by copy never passes through a measurement**, and this one had travelled 222 rounds.
+  (4) THE FIX IS THE RE-MEASUREMENT PLUS THE REASON IT IS NOT A TEST, WHICH IS ROUND 245's LINE HELD: the six
+  counts are updated in place with "(re-measured R248; was N)" so the drift is visible rather than erased, and
+  the section now explains that **these counts are deliberately NOT asserted — they move every time anyone adds
+  a test, which is the same reason `surface-coverage.mjs` is an ops tool rather than a gate.** What this table
+  needs is what round 221 prescribed for the convergence table's evidence cells: **re-measure a claim before
+  trusting the row it sits in.** *Asserting a value that legitimately moves would fail on a normal working day,
+  and a test that fails on a normal working day gets deleted — which is worse than no test.*
+  (5) AND MY OWN SCRIPT CAUGHT ITSELF, WHICH IS WORTH ONE LINE: the first attempt replaced only **3 of 6** rows,
+  because the table mixes bold counts (`**755**`) with plain ones (`25`, `20`, `73`) and my pattern assumed one
+  format — **and the assertion fired BEFORE the write, so the failed attempt changed no file at all.** That is
+  round 213's habit (assert the mutation/edit landed before running) doing its job on prose rather than on a
+  test. STILL OPEN: the installer's signing decision (the user's call); ADR 0007 step 2's assessment (the
+  user's — the precondition for its step 3); the never-named to-read queue (38).
+
 Last updated: 2026-09-14 round 247 (**ADR 0007's STEP 3 HOLDS UP IN FOUR INDEPENDENT PLACES — and the round's
 honest signal is that this is the THIRD consecutive round whose finding is "it holds up"**). Commit: journal
 only; nothing changed.

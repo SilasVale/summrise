@@ -119,6 +119,17 @@ auth: admin token + scoped relay credential (role "relay", ADR 0007) — relay p
 
 ## Test gates (per subproject)
 
+**THE COUNT COLUMN IS A CLAIM WITH AN EXPIRY DATE, AND ROUND 248 FOUND ALL SIX ROWS STALE.** Re-measured
+against each subproject's own runner: **gateway 755 -> 872**, **agent 484 -> 677**, **vale-agent-core 25 -> 29**,
+**vale CLI 20 -> 36**, **api-relay 69 -> 70**, **index 73 -> 90**. The header said "measured R25" and the ledger
+had reached R247 — **222 rounds, every row wrong, and this table's OWN text already documented an earlier
+unrepaired drift** ("the row read **712** since R81 … **with the row never refreshed**"). The mechanism is round
+245's: a claim that travels by copy never passes through a measurement. **The counts are deliberately NOT
+asserted by a test — they move every time anyone adds a test, the same reason `surface-coverage.mjs` is an ops
+tool rather than a gate (round 245: a value that legitimately moves has no stable subject). What this table
+needs instead is a re-measure before it is trusted, exactly like the convergence table's evidence cells
+(round 221).**
+
 Run each gate from its own directory — never bare `node --test` from the
 repo root: root discovery sweeps panel-react's vitest `.ts` files into
 node's runner (extensionless imports unresolvable there), producing ~14
@@ -133,12 +144,12 @@ file glob (`node --test test/*.mjs`) when you want an explicit list.
 
 | Subproject | Gate | Count |
 |---|---|---|
-| gateway | tsc + eslint(src+ui) + prettier + node --test | **755** (measured R25; the row read **712** since R81). The 36-test gap splits cleanly and both halves are verified: R117–R121 added **28** (9+6+2+9+2, each measured per-round), and **720 − 712 = 8** were added between R81 and R117 with the row never refreshed. The 720 figure is confirmed two independent ways — arithmetic (748 − 28) and a mixed-tree run that reported 722 = 720 real + 2 unloadable new test files. Suite green |
-| agent | cargo test + clippy -D warnings + fmt --check + xwin check | **484** feat-gated terminal,keyring (measured R25; R116 added the download-gate pin. R115 added 3 epoch-unit pins; R114 added 4 module-map pins; AUTHORITATIVE via `cargo test -- --list` at R113, which replaced attr-grep counting: 417 lib + 54 integration/bin; 464 default. History: recounted R112: 418 lib — +9 evidence-feed R98, +4 busy-marker R99, +7 result-cap R100, +3 failure-envelope R101, +2 auth-coverage R102, +7 settings-parse R104, +5 text-clipping R105, +5 kill-tree R106, +1 pre-dispatch-seam R108, +2 memory-identity R109, +6 jsonl-hygiene R111 — R112 was a pure interface refactor (±0) — + 6 bin + 2 dep-surface + 27 + 1 + 2 + 7 + 1 + 3 router-auth + 5 boot-surface integration; default-config lib 411; xwin gate re-verified R98–R112; suite green) |
-| vale-agent-core | cargo test + clippy -D warnings + fmt --check | 25 (15 + 7 SOLID-program pins R11–R12 + 3 gateway-code pins R107; suite green) |
-| vale CLI (npm) | node --test | 20 (16 + 4 SOLID-program pins R17: boxed-manifest contract; suite green) |
-| api-relay (vrelay) | node --test + build-relay.sh bundle build | **69** (0 → 49 across SOLID R18–R23; 49 → 54 across R67–R69; 54 → 69 across rounds 129–140: the header-budget shape in git/github/gform, the 5xx contract in zen.js/proxy.js/github.ts/gform.ts, P10's target contract, P8's count_tokens; suite green) |
-| index (vale-dist) | node --test | 73 (66 + 5 R30 disposition/token/sha + 2 R74 electron-proxy; suite green) |
+| gateway | tsc + eslint(src+ui) + prettier + node --test | **872** (re-measured R248; was 755) (measured R25; the row read **712** since R81). The 36-test gap splits cleanly and both halves are verified: R117–R121 added **28** (9+6+2+9+2, each measured per-round), and **720 − 712 = 8** were added between R81 and R117 with the row never refreshed. The 720 figure is confirmed two independent ways — arithmetic (748 − 28) and a mixed-tree run that reported 722 = 720 real + 2 unloadable new test files. Suite green |
+| agent | cargo test + clippy -D warnings + fmt --check + xwin check | **677** (re-measured R248; was 484) feat-gated terminal,keyring (measured R25; R116 added the download-gate pin. R115 added 3 epoch-unit pins; R114 added 4 module-map pins; AUTHORITATIVE via `cargo test -- --list` at R113, which replaced attr-grep counting: 417 lib + 54 integration/bin; 464 default. History: recounted R112: 418 lib — +9 evidence-feed R98, +4 busy-marker R99, +7 result-cap R100, +3 failure-envelope R101, +2 auth-coverage R102, +7 settings-parse R104, +5 text-clipping R105, +5 kill-tree R106, +1 pre-dispatch-seam R108, +2 memory-identity R109, +6 jsonl-hygiene R111 — R112 was a pure interface refactor (±0) — + 6 bin + 2 dep-surface + 27 + 1 + 2 + 7 + 1 + 3 router-auth + 5 boot-surface integration; default-config lib 411; xwin gate re-verified R98–R112; suite green) |
+| vale-agent-core | cargo test + clippy -D warnings + fmt --check | **29** (re-measured R248; was 25) (15 + 7 SOLID-program pins R11–R12 + 3 gateway-code pins R107; suite green) |
+| vale CLI (npm) | node --test | **36** (re-measured R248; was 20) (16 + 4 SOLID-program pins R17: boxed-manifest contract; suite green) |
+| api-relay (vrelay) | node --test + build-relay.sh bundle build | **70** (re-measured R248; was 69) (0 → 49 across SOLID R18–R23; 49 → 54 across R67–R69; 54 → 69 across rounds 129–140: the header-budget shape in git/github/gform, the 5xx contract in zen.js/proxy.js/github.ts/gform.ts, P10's target contract, P8's count_tokens; suite green) |
+| index (vale-dist) | node --test | **90** (re-measured R248; was 73) (66 + 5 R30 disposition/token/sha + 2 R74 electron-proxy; suite green) |
 | extension | node --check all JS + node --test pure guards | 9 (4 R24 httpsOrigin MITM table + 5 R96 studio-links path core; CI extension job runs them) |
 | proxies (×2) | node --test behavior suites + wrangler dry-run | 20 |
 | ~~studio~~ | retired (ADR 0006); CI studio job dropped, suite lives in git history | — |
