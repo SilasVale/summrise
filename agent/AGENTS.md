@@ -526,6 +526,42 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 204 (**THE RELEASE IS STUCK, FULLY DIAGNOSED, AND THE CAUSE IS MY OWN
+PUSH ORDER.** `release` #138 has been at step 3 since 00:37:04Z; the gate is FAIL-CLOSED ON SILENCE, and
+`bc2d3d8e` carries no CI evidence because round 201's next push cancelled it). Commit: journal.
+  (1) THE OBSERVED STATE, THEN THE MEASUREMENT THAT EXPLAINED IT: #138 `in_progress`, `created=00:37:01Z`,
+  `updated=00:37:04Z` — frozen for the whole run — with step 3 "Gate on tag-commit CI status"
+  `in_progress` and every later step `pending`; `releases/tags/v1.2.365` → **HTTP 404**. My first
+  diagnosis was "the gate is waiting on the CI run round 202 recorded as `cancelled`" and **the
+  measurement refuted it**: `commits/bc2d3d8e/check-runs` returns **`total_count: 1`**, and that one is the
+  release job ITSELF (which the gate excludes via `$4 !~ self`). **A cancelled CI run leaves NO check-run
+  on its commit** — so the tagged commit has zero CI evidence, not cancelled CI evidence.
+  (2) AND THE GATE IS DESIGNED TO REFUSE EXACTLY THAT, which the source says in as many words:
+  `N_ALL=$(grep -c . …)` and the pass condition requires **`N_ALL -gt 0`**, under the comment **"Fail-CLOSED
+  on silence: zero check-runs + zero statuses means CI has not reported yet (or never will) — WAIT, never
+  pass."** With `N_ALL=0` the condition can never hold, so it sleeps 20 s × 30 and exits 1 after ~10
+  minutes. **That is not a bug to route around; it is the workflow refusing to release a commit it has no
+  evidence about — and the evidence is genuinely absent.**
+  (3) THE ROOT CAUSE IS ROUND 201'S PUSH ORDER, and it is the kind of mistake only a later gate reveals:
+  round 201 pushed `bc2d3d8e` (the version bump) and then `dc142dec` (its own journal) moments later. The
+  second push **cancelled the first's CI run** (#1198 `conclusion=cancelled`) by the workflow's
+  newer-supersedes-older concurrency. Round 201 then pinned `bc2d3d8e` as "the taggable commit … pinned
+  here because the tag does not have to be HEAD" — **correct about `release.yml`'s version guard, wrong
+  about this one**: the tag also requires its commit to carry a GREEN CI, and the very next push destroyed
+  that. Both facts were checkable in round 201 and neither was checked.
+  (4) THE FIX IS NAMED BY THE GATE'S OWN ERROR MESSAGE: *"bypass: wait for CI to go green, then Re-run
+  jobs"*. Concretely — re-run **CI #1198** for `bc2d3d8e` (the API can re-run a workflow run), let it go
+  green so a check-run lands on that commit, **then re-run release #138**; its gate will then see a
+  non-zero `N_ALL` with a success and proceed. The alternative, moving the tag, would work but throws away
+  the point: the tag would no longer point at the commit this journal spent round 201 verifying.
+  (5) STILL OPEN: the two re-runs above (this round is the diagnosis, not the fix — the fix is a state
+  change on a running pipeline and deserves its own round); then `publish-release.sh 1.2.365` →
+  `publish-cdn-from-ci.sh 1.2.365` (round 203's corrected order, `--dry-run` first); then the installer;
+  then device regression BEFORE the release; then the mirror test's manifest blind spot (round 199);
+  `studio/` (noticed round 197); the recurring second failure's name under mutation;
+  `models-probe.ts`'s remaining body; `agent/src/plugins/playwright/helper.js`; the three
+  `vale-command-core` contract files.
+
 Last updated: 2026-09-14 round 203 (**the release is still running, and reading ONE LEVEL into the next
 step found that step 4's tool CANNOT do what round 198's plan asked of it**: `publish-cdn-from-ci.sh` is a
 CONVERGENCE tool, not a publish tool). Commit: journal.
