@@ -575,8 +575,20 @@ tests; gateway **874** tests, prettier + tsc clean; devices render smoke 15/15 (
   heartbeat 4s before this start …]`, still with ZERO pending approvals. The panel — read out of the REAL embedded browser on
   d1, not a harness — then showed the chip: `class="boot-chip info"`, text `just restarted`, `title` = the device's own
   sentence, in a strip reading `… | UP | 1m 23s | VER | 1.2.367 | 1 session | just restarted`. **The crash branch was then
-  produced the same way rather than argued: `vale stop` on the canary (the sanctioned verb), the boot task's own watchdog
-  revived the agent, and the next boot reported what the field could never say before.**
+  produced the same way rather than argued: `vale stop` on the canary (the sanctioned verb) took it down for ~2 min until
+  the boot task's own watchdog revived it, and the next boot reported **`kind=crashed`, `last heartbeat 125s before this
+  start, survived 121s`** — served as `last_boot_kind=[crashed]` with `pending=[]`, and rendered in BOTH densities
+  (`boot-chip warn` / `last run crashed` in the panel strip at `UP | 1m 31s`, and in the desktop footer at `up 7m 38s`).**
+  (7) **CI WAS RED ON `main` BEFORE THIS ROUND AND THE CAUSE WAS AN INSTRUMENT, NOT A PRODUCT**: the release gate
+  `agent/tests/coverage_numbers.rs` compares the ledger's headline with `scripts/surface-coverage.mjs`, and that tool
+  counted the WORKING DIRECTORY. Four untracked root helpers (`ecosystem.config.js`, `restart-plugin{,-client,-host}.js`)
+  exist on this box and not in a checkout, so the SAME COMMIT measured 365 here and 361 in CI — the gate passed locally
+  and failed on every CI run, with the ledger's number correct in exactly one of the two environments. **A count that
+  depends on which machine asks is not a measurement of the repository, and the ledger's own sentence says "the
+  repository's N non-excluded files".** The tool now counts `git ls-files` (the COMMIT), PRINTS its basis, and says so
+  when there is no checkout; re-measured 286 of 361 both here and inside `git archive HEAD`, identical. The four-file
+  difference is NAMED in the ledger rather than rounded away, and the headline's stale clause about the scope's growth
+  now separates numerator from denominator because only one of them was ever the scope.
   STILL OPEN: the installer's signing decision (the user's); ADR 0007 step 2's assessment (the user's); **1.2.362-1.2.364 +
   1.2.367 sit in `docs/agents/release-reconcile.txt` — the publish used `--acknowledge-unreconciled` because the gate found
   three versions on the CDN with no GitHub release to audit against; clearing them needs their tags/releases to exist**; the

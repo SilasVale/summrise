@@ -17,6 +17,7 @@
 // Usage:  node scripts/surface-coverage.mjs [--json]
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -85,6 +86,40 @@ const EXCLUDED = [
 const EXTS = [".ts", ".mjs", ".js", ".rs", ".ps1", ".nsi", ".bash", ".py"];
 const SKIP = ["node_modules", "target", "dist", ".wrangler"];
 
+/**
+ * THE FILES THE **REPOSITORY** CONTAINS — git's index, not whatever is on this disk.
+ *
+ * WHY THIS EXISTS (round 256). `repositoryFiles` was a plain walk of the working
+ * directory, so a local scratch file counted. Four did: `ecosystem.config.js` and the
+ * three `restart-plugin*.js` helpers sit in the repo root, untracked and never
+ * committed, so THIS box measured a denominator of 365 while a CI checkout of the same
+ * commit measured 361 — and `agent/tests/coverage_numbers.rs` asserts the ledger's
+ * headline against whatever the tool says. **The gate therefore passed here and failed
+ * in CI on every run**, with the ledger's number correct for exactly one of the two
+ * environments. A count that depends on which machine asks is not a measurement of the
+ * repository, and the ledger's own sentence says "the repository's N non-excluded
+ * files" — so the repository is what gets counted.
+ *
+ * `null` (no git, or no checkout) falls back to the walk and SAYS SO in the output:
+ * an unstably-scoped number is worse than a stated one, but a silently narrower scope
+ * is worse than both — the failure round 229 recorded, where an unreadable root read
+ * as an empty directory and the verdict stayed clean.
+ */
+function trackedInRepo() {
+  try {
+    const out = execFileSync("git", ["ls-files", "-z"], {
+      cwd: ROOT,
+      maxBuffer: 128 * 1024 * 1024,
+    });
+    return new Set(out.toString("utf8").split("\0").filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+const TRACKED = trackedInRepo();
+/** A walked path is kept only when the repository actually holds it. */
+const inRepo = (p) => !TRACKED || TRACKED.has(relative(ROOT, p));
+
 function walk(dir, out = []) {
   // EXCLUDED applies to the WALK, not only to the denominator. Round 236 first put
   // this check inside the `catch` below, where it ran only on a READ ERROR — so
@@ -119,7 +154,9 @@ function walk(dir, out = []) {
 // `.../server/test` alongside `.../server`, so the walk reached those files twice and
 // `files.length` counted them twice — inflating the numerator past the denominator.
 // The run's own self-check (`a + b MUST equal c`) caught it on its first execution.
-const files = [...new Set(ROOTS.flatMap((r) => walk(join(ROOT, r))))].sort();
+const files = [...new Set(ROOTS.flatMap((r) => walk(join(ROOT, r))))]
+  .filter(inRepo)
+  .sort();
 
 /**
  * WHAT THIS SCOPE DOES **NOT** COVER, COMPUTED RATHER THAN IMPLIED.
@@ -153,9 +190,9 @@ function repositoryTotals() {
   return all;
 }
 
-const everything = repositoryTotals().filter(
-  (f) => !EXCLUDED.some(([dir]) => relative(ROOT, f).startsWith(dir + "/")),
-);
+const everything = repositoryTotals()
+  .filter(inRepo)
+  .filter((f) => !EXCLUDED.some(([dir]) => relative(ROOT, f).startsWith(dir + "/")));
 const inScope = new Set(files);
 const outside = everything.filter((f) => !inScope.has(f));
 const outsideByTop = {};
@@ -174,7 +211,12 @@ if (process.argv.includes("--json")) {
   console.log(
     JSON.stringify(
       {
-        scope: { roots: ROOTS, extensions: EXTS, skipped: SKIP },
+        scope: {
+          roots: ROOTS,
+          extensions: EXTS,
+          skipped: SKIP,
+          countedOver: TRACKED ? "git ls-files" : "working-directory",
+        },
         files: files.length,
         repositoryFiles: everything.length,
         notInScope: outsideByTop,
@@ -189,6 +231,15 @@ if (process.argv.includes("--json")) {
 } else {
   console.log("scope:");
   for (const r of ROOTS) console.log(`  ${r}  (${EXTS.join(" ")})`);
+  // THE SCOPE'S OWN SCOPE, PRINTED. Both counts are over `git ls-files`, so this
+  // number is a property of the COMMIT and not of the machine that asked — see
+  // trackedInRepo(). Untracked working-directory files are named as excluded rather
+  // than silently dropped, because "not counted" and "not there" are different facts.
+  console.log(
+    TRACKED
+      ? "  counted over: git ls-files (the COMMIT, so a CI checkout measures the same)"
+      : "  counted over: the working directory (no git checkout — this number may not travel)",
+  );
   console.log(`\nfiles in scope: ${files.length} of ${everything.length} in the repository ` +
     `(${((files.length / everything.length) * 100).toFixed(0)}%)`);
   console.log(
