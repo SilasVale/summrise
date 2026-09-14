@@ -577,7 +577,7 @@ Commits: 8fef06b8 (the three channels), d06bdec2 (the double-notification fix th
   STILL OPEN: the deliberate-stop marker (`vale restart`/`vale stop` whose revival outlives the classifier's minute still reads as
   "CRASHED or was killed"); a monitor is host:port only (no HTTP status check, no latency threshold), so "down" still cannot
   distinguish a refused connection from a web UI that answers 500; notifications are panel-only (an operator with NO window open
-  is still not reached — the next step is the OS, not the page); 1.2.378/1.2.379 need their tags + audits; the `.tsx` scope
+  is still not reached — the next step is the OS, not the page); 1.2.379 is tagged on a CI-green commit; **1.2.378 is RECORDED in `release-reconcile.txt`** — superseded within the round by 1.2.379, and its commit is red on the coverage-numbers gate because the ledger update landed one commit later **(the same mistake has now cost three rounds: the numbers must move in the SAME commit that changes the file set)**; the `.tsx` scope
   decision; 1.2.370 and 1.2.374 in `release-reconcile.txt`; 1.2.362-1.2.364 in the same ledger; the installer's signing decision
   (the user's); ADR 0007 step 2's assessment (the user's); the never-named queue (93).
 
