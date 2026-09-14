@@ -535,9 +535,12 @@ Last updated: 2026-09-14 round 257 (**PRODUCT CHANGE — the device now keeps a 
 `logs/boot-history.jsonl`, `GET /api/boots`, a **Restarts** card in Settings, and the strip's crash chip says how many there have
 been — the question d1's founding incident could never answer, "has this been happening or was that once?", now has an answer
 on the device**).
-Commits: cecc00b3 (the flaky panel fixture that aborted this round's release build), 82892e24 (the product), + the instrument
-repair and this record. Release **1.2.368** published (CDN `/api/version` smoke: versioned + latest sha verified) and UPDATED
-ON d1, where the whole surface was read back out of the device's own browser.
+Commits: cecc00b3 (the flaky panel fixture that aborted this round's release build), 82892e24 (the product), c3f0373e (the
+coverage-scope repair in (8) + this record). Release **1.2.368** published (CDN `/api/version` smoke: versioned + latest sha
+verified) and UPDATED ON d1, where the whole surface was read back out of the device's own browser. **CI on `main` went green
+again on c3f0373e (run 34821822402), the tag was created on that commit, release.yml built the GitHub asset, and the P0
+dual-builder audit ran against it: `release audit OK: CDN == GitHub asset byte-for-byte`** — which also cleared 1.2.368 from
+`release-reconcile.txt` (1.2.362-1.2.364 stay there: three pre-round-207 releases with no GitHub release to audit against).
   (1) WHY A HISTORY, MEASURED RATHER THAN ASSUMED: every surface in the panel answered a question about the PRESENT (uptime,
   vitals, the boot chip's "how did the run before this one end"), and the verdict behind that chip is OVERWRITTEN at every
   boot. **On 2026-09-13 the agent on d1 "restarted every one to two hours" and the pattern could not even be COUNTED while it
