@@ -526,6 +526,40 @@ release (not the Cargo version).
 > read this first, then update it at the end of its round (replace the
 > "last updated" line + append to Recent / In progress / Next).
 
+Last updated: 2026-09-14 round 240 (**ROUND 239's FIX IS LIVE, AND THE DEPLOY WAS VERIFIED BY BYTE EQUALITY RATHER
+THAN BY ITS OWN SMOKE — which is round 200's rule applied to the CDN, and the BEFORE state was captured first so
+the change is a measurement rather than a claim**). Release action only; no tracked file changed.
+  (1) THE NAMED OPEN ITEM WAS "an index deploy to publish the corrected `fix-tunnel.ps1`", AND THE ROUND'S FIRST
+  ACT WAS TO CAPTURE THE BEFORE — because a deploy whose "after" is not compared with a recorded "before" is
+  indistinguishable from one that did nothing. **Measured live: `https://agent.saisi.online/vale-agent/fix-tunnel.ps1`
+  served HTTP 200 at 6172 bytes, byte-DIFFERENT from the repository's fixed 7468-byte copy and containing NO
+  occurrence of `components\cloudflared.exe`.** So round 239's finding is confirmed from outside the repository:
+  the CDN really was serving the pre-round-237 script, and a device fetching it would have got the derivation
+  round 238 proved wrong on d1.
+  (2) THE DEPLOY ITSELF CARRIED ITS OWN EVIDENCE, WHICH IS WORTH RECORDING BECAUSE IT IS NOT THE EVIDENCE THIS
+  ROUND RELIED ON: `./scripts/build.sh index` uploaded `vale-dist` (41.73 KiB / 12.11 KiB gzip), version id
+  **`e88342b4-e139-4fe0-8b6c-29df8eccf474`**, and printed **`ok: installer smoke passed (versioned + alias binary
+  sha verified)`** and **`ok: /api/version smoke passed (v1.2.365, versioned + latest binary sha verified)`**.
+  **Both smokes are about the BINARIES, not about the script this round published** — so a green deploy would
+  have been consistent with the script still being stale, and that is exactly why the next step exists.
+  (3) THE VERIFICATION THAT SETTLES IT IS BYTE EQUALITY: after the deploy the same URL returns **HTTP 200 at 7468
+  bytes, `sha256 = e3af02d8480eef71` on BOTH sides**, and the `components\cloudflared.exe` marker round 237
+  introduced is present. **That is round 200's rule — "the equality is the deliverable, not the return code"
+  — applied for the third time in this stretch (the vrelay scp in 223, the mirror test in 199/211, and now the
+  CDN).** "Deployed" here means the bytes a device fetches are the bytes in the repository, which is a claim the
+  deploy's own output cannot make.
+  (4) AND THE NEIGHBOURS WERE CHECKED, because a publish that fixes one asset while breaking another is a worse
+  outcome than the one it repaired: **`/api/version` still answers `v1.2.365` WITH its `sha256`, and the
+  `ValeAgent-Setup.exe` alias still answers 200.** The index worker serves the installer, the version manifest
+  and the script assets together, so touching any of them is a change to all of them.
+  (5) SO THE CHAIN CLOSES, AND IT IS WORTH STATING AS ONE THING BECAUSE FOUR ROUNDS BUILT IT: **237 found
+  `fix-tunnel.ps1` derived its own path wrongly and exited 1 on every run; 238 verified both path premises on d1
+  without running the repair; 239 found the copy a device would actually fetch was a stale hand-synced duplicate
+  with nothing comparing it, synced it and pinned the mirror; 240 published it and proved the CDN now serves
+  those exact bytes.** STILL OPEN: the installer's signing decision (the user's call); the 50 never-named files
+  (a bounded, visible set since round 236); convergence rows 6-7, which wait on a device event rather than on
+  work.
+
 Last updated: 2026-09-14 round 239 (**THE CDN'S `fix-tunnel.ps1` IS A HAND-SYNCED DUPLICATE WITH NOTHING COMPARING
 IT — and it was STALE, so the copy a device would fetch still carried the bug round 237 fixed. Round 199/211's
 shape, recurring for the CDN's script assets**). Commit: index/public + index/test/ + journal.
