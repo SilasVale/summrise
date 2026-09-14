@@ -3088,6 +3088,78 @@ journal + ledger. No code change.
   failure's name under mutation (one grep, two sightings); `models-probe.ts`'s remaining body (lines
   70-198); `agent/src/plugins/playwright/helper.js`; the three `vale-command-core` contract files.
 
+## Design review — round 263 (CHARTER.md:53). INTERVAL: rounds 253-263 (11 rounds, 65 commits). LAST REVIEW: round 252.
+
+**WHY IT ARRIVES ON TIME THIS TIME:** `agent/tests/review_cadence.rs` (written at round 252, red before
+that section existed) fired in CI at round 263 and **failed the release gate** — the instrument did
+exactly what it was built for, and the review below is the answer it demanded rather than a paragraph
+added afterwards. Its warning is worth repeating: the obligation had been met twice in 263 rounds
+(intervals of 46 and then 67) before anything could fail when it was skipped.
+
+**(1) DID ANY METRIC MOVE?** **YES, AND FOR THE FIRST TIME IN SEVERAL INTERVALS THE MOVEMENT IS THE
+PRODUCT.** The previous review could write "no release shipped in this interval, the device stayed on
+1.2.365". This one cannot: **eleven versions shipped — 1.2.367 through 1.2.377 — and d1 moved
+1.2.367 → 1.2.377**, each one verified on the device (the COM4 handle leak reproduced and fixed, the
+console keys proven to interrupt a real foreground command, a reachability flap recorded and announced,
+the panel's update card read back from the device's own browser). The instruments moved with it:
+**agent lib tests 577 → 588 (630 → 641 with `terminal,keyring`), panel 601 → 630, gateway 874 (flat),
+device MCP tools 52 → 56** (the four `monitor_*`), and the coverage scope **352/366 → 358/372** — the
+ratio flat at 96% while the denominator grew, which is what a coverage metric should do when product
+files are added. The never-named count **ROSE, 89 → 91**. The reconcile ledger went from three recorded
+debts to five (1.2.370 and 1.2.374, both with their mechanism written out).
+
+**(2) WAS ANY ADR REVERSED?** **No — and none was added in this interval either.** ADRs **0011** (two
+artifacts, one obligation) and **0012** (tests are surfaces) landed at the HEAD of it (their commits sit
+at the 252/253 seam, which is why the previous review already cites them); the numbered set has been
+stable since. Nothing was superseded, and no ADR's decision was contradicted by a round's behaviour —
+checked the other way round as well: the two occasions this interval where a rule could have been bent
+(registering a device tool without routing it, and shipping 1.2.374 unreconciled) were handled by the
+mechanism the ADRs and guides name, not by an exception.
+
+**(3) WAS THE SAME PLACE CHANGED TWICE?** Yes, four times over, and the honest reading splits in two:
+  * **The instrument files, every round by design**: `agent/AGENTS.md` and
+    `docs/agents/iteration-coverage.md`. **And twice for a reason that is not design: I wrote an
+    ESTIMATED coverage headline in rounds 261 and 262 and the gate corrected me both times** — the
+    number must be measured before it is written, which is a sentence this loop has now written to
+    itself three intervals running.
+  * **`agent/resources/panel-react/src/{hooks/useMonitors.ts,components/MonitorsCard.tsx}` in 261, 262
+    AND 263** — the reachability surface grew feature by feature (watches → MCP tools + flapping →
+    transitions + banners). That is a feature maturing, not thrash, but it is the same three files
+    three rounds running and it is why the panel's test count moved 601 → 630.
+  * **`agent/src/web/mod.rs`** in 256, 257, 259, 261 and 263 (routes plus the count pins its tests
+    carry) — the same shape round 252's review saw in `ARCHITECTURE.md`: the loop keeps returning to
+    the file that both serves and INVENTORIES.
+  * **The pattern worth naming: four of these eleven rounds went red** — 259 (a std `MutexGuard` across
+    an await, plus three data-dir tests racing), 261 (the metrics ring raced between tests), 262 (test
+    fixtures the panel's own `tsc` refused, then a device tool-count pin), 263 (a scheduler-dependent
+    approval assertion, then this cadence gate). **Every one was a latent pin or a timing assumption,
+    not a product defect — but the count says the local gate is still not the CI gate**, and the loop
+    should run the whole thing (both feature configs, the panel build, the gateway suite) before every
+    push rather than after CI says so.
+
+**(4) IS ANY METRIC ONE THE LOOP COULD HAVE RAISED BY ITSELF?** Four answers, in descending order of
+how much they should worry a reader:
+  * **`never named` — still yes, and this interval it moved the WRONG WAY (89 → 91) for the honest
+    reason**: the loop adds product files faster than its journal names them, so the number now
+    measures the loop's writing rate against its build rate rather than anything about examination.
+    The tool says so in its own output, and this review repeats it rather than letting a future entry
+    claim 91 → 80 as diligence.
+  * **The monitor's `UNSTABLE_DROPS = 2`** (round 262): a THRESHOLD the loop chose. A round could make
+    a chip appear or disappear by moving it, and **nothing tests it against real data** — the only
+    defence is that the reasoning is written next to it and the count it reads comes from real probes.
+    It is the weakest number this loop has shipped, and it is labelled as a judgement, not a
+    measurement.
+  * **The coverage denominator's `.tsx` hole**: the panel's components are excluded by a decision the
+    loop made, so "96% of files in scope" cannot be moved by anything under `panel-react/` — a loop
+    that wanted a better number would write `.tsx`. The decision is still open in the ledger, and this
+    review is the place to say plainly that the metric has a door in it.
+  * **`up_pct`, `drops`, latency, vitals, the outage log durations** — **NOT self-raisable, and these
+    are the most honest numbers this loop now has**: they come from real TCP connects, real CPU
+    sampling and real transitions on the device, and the rounds that added them had to go to d1 and
+    produce the events (a listener stopped and restarted, `Start-Sleep 300` interrupted, a port held by
+    another process) before any of it could be written down. If there is a direction for the next
+    interval it is this one: **prefer metrics the device produces over metrics the journal produces.**
+
 ## Design review — round 252 (CHARTER.md:53). INTERVAL: rounds 197-252 (55 rounds). LAST REVIEW: round 196.
 
 **WHY THIS EXISTS AND WHY IT IS LATE:** CHARTER.md:53 requires a review "every 10 rounds". The
