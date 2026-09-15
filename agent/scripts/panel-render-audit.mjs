@@ -109,11 +109,25 @@ function buildHarness() {
   window.__PANEL_TOKEN__ = 'audit-token';
   var SID = ${JSON.stringify(SID)}, SESSION = ${JSON.stringify(SESSION)}, EVENTS = ${JSON.stringify(EVENTS)};
   if (MODE === 'idle') SESSION = Object.assign({}, SESSION, {pending_approval: null});
+  // ?sessions=N — MEASURE THE TAB STRIP AT A REALISTIC WIDTH. The operator's own panel carried
+  // ELEVEN tabs, and a strip with one tab says nothing about overflow, truncation or whether the
+  // close affordance survives a crowd. Default 1 so every existing check keeps its baseline.
+  var WANT = parseInt(P.get('sessions') || '1', 10);
+  var SESSIONS = [SESSION];
+  for (var i = 1; i < WANT; i++) {
+    SESSIONS.push(Object.assign({}, SESSION, {
+      id: 'term-audit-' + i,
+      label: i % 3 === 0 ? 'stc@192.168.1.1' : (i % 3 === 1 ? 'serial:COM4' : 'pwsh'),
+      kind: i % 3 === 0 ? 'ssh' : (i % 3 === 1 ? 'serial' : 'pty'),
+      pending_approval: null,
+      goal: '',
+    }));
+  }
   var J = function(o){ return new Response(JSON.stringify(o), {status:200, headers:{'content-type':'application/json'}}); };
   var realFetch = window.fetch.bind(window);
   window.fetch = function(url, init){
     var u = String(url);
-    if (u.indexOf('/api/tools/terminal_list') >= 0)    return Promise.resolve(J({ok:true, result:[SESSION]}));
+    if (u.indexOf('/api/tools/terminal_list') >= 0)    return Promise.resolve(J({ok:true, result:SESSIONS}));
     if (u.indexOf('/api/tools/terminal_history') >= 0) return Promise.resolve(J({ok:true, result:[]}));
     if (u.indexOf('/api/tools/terminal_read') >= 0)    return Promise.resolve(J({ok:true, result:{text:'ONT 0/1 online', start:0, end:14, evicted:false}}));
     if (u.indexOf('/api/tools/') >= 0)                 return Promise.resolve(J({ok:true, result:'OK'}));

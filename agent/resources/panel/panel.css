@@ -893,6 +893,11 @@ h3 { font-size: var(--fs-base); }
   flex: 1;
   min-width: 0;
   overflow-x: auto;
+  /* At the operator's real width this row holds ~2 tabs of 16, so the scrollbar is not decoration:
+     it is the only signal that the other sessions exist. `thin` + the global thumb keeps it quiet,
+     and `scroll-padding` stops the auto-scrolled active tab from sitting flush against the edge. */
+  scrollbar-width: thin;
+  scroll-padding-inline: var(--sp-2);
 }
 .tab {
   background: var(--chrome-bg-2);
@@ -951,7 +956,16 @@ h3 { font-size: var(--fs-base); }
   text-overflow: ellipsis;
 }
 .tab-export, .tab-close {
-  margin-left: 5px;
+  /* A 24x24 HIT AREA around a 12px glyph: measured at 12x15 on the built panel, well under the
+     24x24 a pointer target needs (WCAG 2.5.8), on a strip that is usually crowded. The glyph size
+     is unchanged, so nothing looks bigger — only what you can hit. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 1px;
+  vertical-align: middle;
   font-size: var(--fs-xs);
   color: var(--chrome-ink-dim);
   visibility: hidden;
@@ -4535,6 +4549,35 @@ button.dtab-close:hover { opacity: 1; }
 }
 .history-hint { font: 400 var(--fs-xs)/1.4 var(--font); color: var(--chrome-ink-dim); }
 
+/* ── "THERE ARE MORE SESSIONS" ──────────────────────────────────────────────────
+   A scrollbar is not enough: `scrollbar-width: thin` IS honoured and Chromium on Windows still
+   draws overlay scrollbars that only appear while scrolling — measured on the built strip, an
+   operator looking at 2 of 16 tabs sees a strip that looks complete. The fade is drawn by the
+   app (see useStripOverflow), appears ONLY when content is actually hidden, and is painted by a
+   pseudo-element on the container so it cannot swallow a click meant for a tab. */
+.tabrow[data-more="1"] { position: relative; }
+.tabrow[data-more="1"]::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 0;
+  bottom: 4px;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--chrome-bg));
+}
+.desktop-tabs[data-more="1"] { position: relative; }
+.desktop-tabs[data-more="1"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--chrome-bg-2));
+}
+
 
 /* ============ dial.css ============ */
 /* ============================================================
@@ -4966,9 +5009,15 @@ button.dtab-close:hover { opacity: 1; }
   align-items: center;
   gap: var(--sp-1);
   overflow-x: auto;
-  scrollbar-width: none;
+  /* THE SCROLLBAR IS THE ONLY THING THAT SAYS "THERE ARE MORE SESSIONS". Measured with 11
+     sessions at 1440px: 911px of strip for 1462px of tabs, i.e. FOUR tabs off-screen — and
+     `scrollbar-width: none` plus a hidden webkit bar meant nothing on screen said so. The
+     global 8px thumb styling in base.css gives it a visible, quiet form; `thin` keeps it from
+     stealing a row. */
+  scrollbar-width: thin;
+  /* The auto-scroll that keeps the active tab visible must not park it against the edge. */
+  scroll-padding-inline: var(--sp-2);
 }
-.desktop-tabs::-webkit-scrollbar { display: none; }
 .dtab {
   flex: 0 0 auto;
   display: flex;
@@ -5025,8 +5074,11 @@ button.dtab-close:hover { opacity: 1; }
 .dtab-close {
   display: grid;
   place-items: center;
-  width: 15px;
-  height: 15px;
+  /* 24x24, NOT 15x15. Measured on the built panel: every close control was 15x15 in this density
+     and 12x15 in the panel's — under the 24x24 minimum a pointer target needs (WCAG 2.5.8), on a
+     strip that is by definition crowded. The GLYPH stays 12px; only the hit area grows. */
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-xs);
   color: var(--chrome-ink-dim);
   opacity: 0;

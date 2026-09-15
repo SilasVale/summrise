@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
+import { useStripOverflow } from "../hooks/useStripOverflow";
 import { Icon } from "../ui/Icon";
 import { ViewSwitch } from "./ViewSwitch";
 
@@ -27,8 +28,11 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
   // (close selects a neighbour, the AI opens sessions, a deep link selects),
   // and none of those scroll the strip — see the hook's header.
   const tabsRef = useActiveTabVisible(activeSid, sessions.length);
+  // The strip hides sessions behind its right edge at any realistic width; say so, and say it only
+  // when it is true (see the hook for the measurement that made this necessary).
+  const more = useStripOverflow(tabsRef, sessions.length);
   return (
-    <div className="tabrow">
+    <div className="tabrow" data-more={more ? "1" : undefined}>
       <div id="tabs" role="tablist" aria-label="Terminal sessions" ref={tabsRef}>
         {sessions.map((s) => {
           // A question is waiting for a PERSON in this session. Keyed on

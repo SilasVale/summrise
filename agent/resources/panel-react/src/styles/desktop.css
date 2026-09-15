@@ -67,9 +67,15 @@
   align-items: center;
   gap: var(--sp-1);
   overflow-x: auto;
-  scrollbar-width: none;
+  /* THE SCROLLBAR IS THE ONLY THING THAT SAYS "THERE ARE MORE SESSIONS". Measured with 11
+     sessions at 1440px: 911px of strip for 1462px of tabs, i.e. FOUR tabs off-screen — and
+     `scrollbar-width: none` plus a hidden webkit bar meant nothing on screen said so. The
+     global 8px thumb styling in base.css gives it a visible, quiet form; `thin` keeps it from
+     stealing a row. */
+  scrollbar-width: thin;
+  /* The auto-scroll that keeps the active tab visible must not park it against the edge. */
+  scroll-padding-inline: var(--sp-2);
 }
-.desktop-tabs::-webkit-scrollbar { display: none; }
 .dtab {
   flex: 0 0 auto;
   display: flex;
@@ -126,8 +132,11 @@
 .dtab-close {
   display: grid;
   place-items: center;
-  width: 15px;
-  height: 15px;
+  /* 24x24, NOT 15x15. Measured on the built panel: every close control was 15x15 in this density
+     and 12x15 in the panel's — under the 24x24 minimum a pointer target needs (WCAG 2.5.8), on a
+     strip that is by definition crowded. The GLYPH stays 12px; only the hit area grows. */
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-xs);
   color: var(--chrome-ink-dim);
   opacity: 0;

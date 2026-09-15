@@ -22,6 +22,22 @@ function builtCss(): string {
   );
 }
 
+/** Declarations of one top-level block, by exact selector (the same helper the contrast contract
+ *  uses; two copies exist because the two files measure different things and neither imports test
+ *  code from the other). */
+function blockOf(css: string, selector: string): string {
+  // ANCHORED AT A LINE START. Unanchored, `.dtab-close` also matches inside
+  // `button.dtab-close { … }` — and that earlier rule has no width, so the assertion failed
+  // against a block nobody was asking about.
+  const m = css.match(
+    new RegExp(
+      "(?:^|\\n)" + selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([\\s\\S]*?)\\n\\}",
+    ),
+  );
+  expect(m, `block ${selector} not found in built panel.css`).not.toBeNull();
+  return m![1];
+}
+
 /** Every value written for one property, as the raw text. */
 function valuesOf(css: string, prop: string): string[] {
   return [...css.matchAll(new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;}]+)`, "g"))].map((m) =>
@@ -81,6 +97,43 @@ describe("the design scale", () => {
       offenders,
       "an off-scale gap is how the 73 distinct spacing values happened — use --sp-0-5|1|2|3|4|5",
     ).toEqual([]);
+  });
+
+  it("the strips that hold many sessions keep their scrollbar and a hittable close", () => {
+    // MEASURED on the built panel with the operator's own 16 sessions: `#tabs` is 211px wide for
+    // 1777px of tabs, and the desktop strip 911px for 1462px — two and four tabs off-screen. The
+    // desktop explicitly hid the scrollbar (`scrollbar-width: none` + a hidden webkit bar), so
+    // nothing said the rest existed; and every close/export control measured 12x15 (panel) and
+    // 15x15 (desktop), under the 24x24 a pointer target needs (WCAG 2.5.8).
+    // COMMENTS STRIPPED FIRST: the block I wrote explains the defect it fixes and therefore
+    // CONTAINS the string the assertion forbids ("must not contain scrollbar-width: none") — a
+    // test that judges prose instead of declarations, which is how this failed the first time.
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const sel of ["#tabs", ".desktop-tabs"]) {
+      const block = blockOf(css, sel);
+      expect(block, `${sel} must keep a scrollbar: it is the only sign that sessions are hidden`)
+        .toContain("scrollbar-width: thin");
+      expect(block, `${sel} must not hide its scrollbar`).not.toContain("scrollbar-width: none");
+    }
+    // No rule anywhere may hide the webkit scrollbar of a strip that overflows.
+    expect(css, "a hidden webkit scrollbar is the same defect in another engine").not.toMatch(
+      /\.desktop-tabs::-webkit-scrollbar\s*\{\s*display:\s*none/,
+    );
+    // The panel's close and export controls share ONE declaration (`.tab-export, .tab-close`), so
+    // there is no lone `.tab-close` block to find — the shared rule is asserted below instead.
+    for (const sel of [".dtab-close"]) {
+      const block = blockOf(css, sel);
+      const w = /width:\s*(\d+)px/.exec(block);
+      const h = /height:\s*(\d+)px/.exec(block);
+      // Assert the MATCH first: `expect(w && Number(w[1]))` hands `null` to a numeric matcher and
+      // the failure reads "received object" instead of naming what is missing.
+      expect(w, `${sel} must declare a width`).not.toBeNull();
+      expect(h, `${sel} must declare a height`).not.toBeNull();
+      expect(Number(w![1]), `${sel} must be at least 24px wide`).toBeGreaterThanOrEqual(24);
+      expect(Number(h![1]), `${sel} must be at least 24px tall`).toBeGreaterThanOrEqual(24);
+    }
+    // The export control shares the panel's rule, so it is covered by the same block.
+    expect(blockOf(css, ".tab-export, .tab-close")).toContain("width: 24px");
   });
 
   it("type sizes come from the scale, and none of them is a half pixel", () => {

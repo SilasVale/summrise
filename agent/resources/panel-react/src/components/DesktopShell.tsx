@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
+import { useStripOverflow } from "../hooks/useStripOverflow";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
@@ -146,6 +147,8 @@ export function DesktopShell({
   // overflow arrives sooner.
   const openTabs = sessions.filter((s) => !s.closed);
   const tabsRef = useActiveTabVisible(activeSid, openTabs.length);
+  // Same rule, same hook, other density (see useStripOverflow for the measurement).
+  const moreTabs = useStripOverflow(tabsRef, openTabs.length);
   // Agent version + vitals for the status strip. THE POLL LIVES IN THE HOOK NOW:
   // the panel's instrument line reads the same values, and two copies of this fetch
   // would be two places for the `release` rule to drift — the single defect
@@ -258,6 +261,7 @@ export function DesktopShell({
                   className="desktop-tabs"
                   role="tablist"
                   aria-label="Terminal sessions"
+                  data-more={moreTabs ? "1" : undefined}
                   ref={tabsRef}
                 >
                   {openTabs.map((s) => {

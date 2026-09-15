@@ -359,6 +359,11 @@
   flex: 1;
   min-width: 0;
   overflow-x: auto;
+  /* At the operator's real width this row holds ~2 tabs of 16, so the scrollbar is not decoration:
+     it is the only signal that the other sessions exist. `thin` + the global thumb keeps it quiet,
+     and `scroll-padding` stops the auto-scrolled active tab from sitting flush against the edge. */
+  scrollbar-width: thin;
+  scroll-padding-inline: var(--sp-2);
 }
 .tab {
   background: var(--chrome-bg-2);
@@ -417,7 +422,16 @@
   text-overflow: ellipsis;
 }
 .tab-export, .tab-close {
-  margin-left: 5px;
+  /* A 24x24 HIT AREA around a 12px glyph: measured at 12x15 on the built panel, well under the
+     24x24 a pointer target needs (WCAG 2.5.8), on a strip that is usually crowded. The glyph size
+     is unchanged, so nothing looks bigger — only what you can hit. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 1px;
+  vertical-align: middle;
   font-size: var(--fs-xs);
   color: var(--chrome-ink-dim);
   visibility: hidden;
@@ -4000,3 +4014,32 @@ button.dtab-close:hover { opacity: 1; }
   border-bottom: 1px solid var(--chrome-line);
 }
 .history-hint { font: 400 var(--fs-xs)/1.4 var(--font); color: var(--chrome-ink-dim); }
+
+/* ── "THERE ARE MORE SESSIONS" ──────────────────────────────────────────────────
+   A scrollbar is not enough: `scrollbar-width: thin` IS honoured and Chromium on Windows still
+   draws overlay scrollbars that only appear while scrolling — measured on the built strip, an
+   operator looking at 2 of 16 tabs sees a strip that looks complete. The fade is drawn by the
+   app (see useStripOverflow), appears ONLY when content is actually hidden, and is painted by a
+   pseudo-element on the container so it cannot swallow a click meant for a tab. */
+.tabrow[data-more="1"] { position: relative; }
+.tabrow[data-more="1"]::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 0;
+  bottom: 4px;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--chrome-bg));
+}
+.desktop-tabs[data-more="1"] { position: relative; }
+.desktop-tabs[data-more="1"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--chrome-bg-2));
+}
