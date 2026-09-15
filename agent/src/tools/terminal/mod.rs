@@ -3112,6 +3112,65 @@ mod tests {
         );
     }
 
+    /// THE WIRE FORMAT, pinned from this end.
+    ///
+    /// `agent/tests/fixtures/session-row.json` is read by this test and by the panel's
+    /// `useSessions` tests. The panel's parsers are defensive on purpose — a missing field yields a
+    /// default rather than an error, which is right for a live UI and means a RENAMED field would
+    /// silently render nothing. This test is the other half of that guarantee: the serializer must
+    /// produce exactly the fixture, so a rename or a type change fails here instead of on a device.
+    #[test]
+    fn the_session_row_serializes_to_the_shared_fixture() {
+        let raw = include_str!("../../../tests/fixtures/session-row.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
+
+        let full = TermSessionInfo {
+            id: "term-abc123-7".into(),
+            kind: "ssh".into(),
+            label: "stc@192.168.1.1".into(),
+            shell: "bash".into(),
+            held_by_human: true,
+            idle_ms: 3_600_000,
+            approval_required: true,
+            pending_approval: Some(PendingApprovalInfo {
+                id: "ap-9f2c".into(),
+                command: "vlan 100 / port vlan 100 0/1 1".into(),
+                expires_in_ms: 47_000,
+            }),
+            approval_grants: vec!["display".into(), "show".into()],
+            goal: Some("provision the ONU 0/1 on VLAN 100".into()),
+            plan: vec![
+                "read the current config".into(),
+                "apply the VLAN".into(),
+                "verify".into(),
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(&full).expect("serializes"),
+            fixture["full"],
+            "the device's session row no longer matches the panel's fixture"
+        );
+
+        let minimal = TermSessionInfo {
+            id: "term-abc123-8".into(),
+            kind: "pty".into(),
+            label: "pwsh".into(),
+            shell: "powershell".into(),
+            held_by_human: false,
+            idle_ms: 0,
+            approval_required: false,
+            pending_approval: None,
+            approval_grants: vec![],
+            goal: None,
+            plan: vec![],
+        };
+        assert_eq!(
+            serde_json::to_value(&minimal).expect("serializes"),
+            fixture["minimal"],
+            "the minimal row must stay minimal: a waiting question is omitted, not nulled"
+        );
+    }
+
     /// Real PTY round-trip (needs a local shell, so Linux/macOS only).
     #[cfg(all(feature = "terminal", not(target_os = "windows")))]
     #[tokio::test]

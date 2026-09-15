@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { render, renderHook, act, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { useSessions, mapPending, pendingApprovalCount, type Session } from "../useSessions";
@@ -392,5 +395,59 @@ describe("the 30s sweep is quiet", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── THE WIRE FORMAT, pinned from THIS end ─────────────────────────────────────────────────────
+//
+// `agent/tests/fixtures/session-row.json` is read here and by the device's
+// `the_session_row_serializes_to_the_shared_fixture`. The mappers below are defensive on purpose —
+// a missing or mistyped field yields a default rather than an error, which is right for a live UI
+// and means a RENAMED field would silently render nothing at all. So the fixture is fed through the
+// real hook and every field is asserted: if a mapper stops reading one, this fails; if the device
+// renames one, the Rust half fails. Neither side can drift without the other noticing.
+describe("the device's session row", () => {
+  it("lands every field the panel renders", async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../tests/fixtures/session-row.json"),
+        "utf8",
+      ),
+    ) as { full: Record<string, unknown>; minimal: Record<string, unknown> };
+    mockCallTool.mockImplementation((name: string) =>
+      name === "terminal_list" ? Promise.resolve([fixture.full, fixture.minimal]) : Promise.resolve({ ok: true }),
+    );
+    const before = Date.now();
+    const { result } = renderHook(() => useSessions(true));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    const sessions = result.current.sessions;
+    expect(sessions).toHaveLength(2);
+
+    const full = sessions.find((s) => s.sid === "term-abc123-7")!;
+    expect(full.kind).toBe("ssh");
+    expect(full.label).toBe("stc@192.168.1.1");
+    expect(full.heldByHuman).toBe(true);
+    expect(full.idleMs).toBe(3_600_000);
+    expect(full.approvalRequired).toBe(true);
+    expect(full.approvalGrants).toEqual(["display", "show"]);
+    expect(full.goal).toBe("provision the ONU 0/1 on VLAN 100");
+    expect(full.plan).toEqual(["read the current config", "apply the VLAN", "verify"]);
+    // The countdown is converted ONCE into an absolute deadline: keeping the device's shrinking
+    // budget while also accumulating time would count down twice as fast.
+    expect(full.pendingApproval?.id).toBe("ap-9f2c");
+    expect(full.pendingApproval?.command).toBe("vlan 100 / port vlan 100 0/1 1");
+    expect(full.pendingApproval!.expiresAtMs - before).toBeGreaterThanOrEqual(46_000);
+    expect(full.pendingApproval!.expiresAtMs - before).toBeLessThanOrEqual(47_500);
+
+    // The minimal row keeps its defaults — no invented question, no invented goal.
+    const minimal = sessions.find((s) => s.sid === "term-abc123-8")!;
+    expect(minimal.pendingApproval).toBeNull();
+    expect(minimal.approvalRequired).toBe(false);
+    expect(minimal.approvalGrants).toEqual([]);
+    expect(minimal.goal).toBeNull();
+    expect(minimal.plan).toEqual([]);
+    expect(minimal.idleMs).toBe(0);
   });
 });
