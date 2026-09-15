@@ -101,7 +101,7 @@
   background: var(--term-canvas-bg);
 }
 #term-container > div { flex: 1 1 0; min-height: 0; min-width: 0; }
-#term-container > .browser-wrap { display: flex; }
+
 #traj-view { flex: 1 1 0; }
 
 /* ---------- command drawer (right overlay) ---------- */
@@ -190,26 +190,14 @@
   display: flex;
   flex-direction: column;
 }
-.desktop-browser {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
+
 .desktop-browser .browser-pane {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.desktop-tabs-row {
-  display: flex;
-  align-items: center;
-  padding: 4px 8px 0;
-  border-bottom: 1px solid var(--chrome-line);
-  background: var(--chrome-bg);
-  flex: 0 0 auto;
-}
+
 .desktop-tabs-row .tabrow { flex: 1; border: none; padding: 0; }
 .desktop-tabs-row .tabrow #tabs { overflow-x: auto; }
 .desktop-new { display: flex; gap: var(--sp-1); padding: 0 8px 4px; }

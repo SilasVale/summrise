@@ -21,8 +21,7 @@
   background: transparent;
 }
 
-html,
-body {
+html, body {
   height: 100%;
   margin: 0;
 }
@@ -44,29 +43,21 @@ body {
 
 /* Display sizes get slightly tightened; micro sizes slightly opened. See the
    tracking tokens for why both directions exist. */
-.modal-card h2,
-.plug-title,
-.desktop-settings h2,
-.app-crash-card h1,
-#conn-form h1,
-.empty-mark,
-.app-crash-mark {
+.modal-card h2, .plug-title, .desktop-settings h2, .app-crash-card h1, #conn-form h1, .empty-mark, .app-crash-mark {
   letter-spacing: var(--tracking-display);
 }
 
 /* ---- the ground: paper, not a light show ----
    HISTORY, because it explains the vocabulary. An iridescent layer entered this
    design from a request for a 炫彩 art direction, and the session that built it
-   chose AURORA as the concrete form. Aurora was that session's interpretation,
-   never the ask, and it is gone — mark and backdrop both.
+   chose AURORA as the concrete form. Aurora was that session's interpretation, never the ask, and it is gone — mark and backdrop both.
 
    WHAT REPLACED IT, AND WHY THERE IS NO COLOUR HERE. "Glass" and "materiality"
    are not the same request, and conflating them is what made two passes fail in
    opposite directions. Translucency and blur are only perceptible when there is
    DETAIL behind them: over a flat or smoothly graded field a frosted pane
    differs from an opaque one by a couple of percent of luminance and blurs
-   nothing at all. The previous pass "fixed" that by saturating the backdrop,
-   which is exactly the 炫彩 that was NOT wanted.
+   nothing at all. The previous pass "fixed" that by saturating the backdrop, which is exactly the 炫彩 that was NOT wanted.
 
    So the ground is a MATERIAL instead: a warm paper whose depth comes from a
    barely-there vertical light and a visible grain, not from hue. The panes above
@@ -164,8 +155,7 @@ code {
 
 /* HEADINGS DESCEND BY DEFAULT. Every heading in the panel is styled by its own class, so an
    unclassed one landed at the browser's default 2em — and the levels themselves were inverted
-   (an h1 at 13px in the rail above an h2 at 17px on the page). These three rules are the floor,
-   not the design: a class still wins, but a heading can no longer land off the hierarchy by
+   (an h1 at 13px in the rail above an h2 at 17px on the page). These three rules are the floor, not the design: a class still wins, but a heading can no longer land off the hierarchy by
    accident. */
 h1 { font-size: var(--fs-lg); }
 h2 { font-size: var(--fs-md); }

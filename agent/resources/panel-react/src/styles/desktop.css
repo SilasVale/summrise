@@ -142,8 +142,7 @@
   opacity: 0;
   transition: opacity 0.12s ease;
 }
-.dtab:hover .dtab-close,
-.dtab.active .dtab-close { opacity: 1; }
+.dtab:hover .dtab-close, .dtab.active .dtab-close { opacity: 1; }
 .dtab-close:hover { background: var(--danger-soft); color: var(--danger-on-soft); }
 
 /* Trajectory/terminal toggle (header, desktop density) */

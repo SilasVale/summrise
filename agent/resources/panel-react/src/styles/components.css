@@ -1,7 +1,5 @@
 /* ============================================================
-   Components — shared atoms: rail, tabs, cards, badges, pills,
-   modals, statusbar, details, drawer, trajectory, plugins,
-   memory, browser. All class names kept from the legacy CSS;
+   Components — shared atoms: rail, tabs, cards, badges, pills, modals, statusbar, details, drawer, trajectory, plugins, memory, browser. All class names kept from the legacy CSS;
    dead selectors (frame-*, #toolbar, ...) removed.
    ============================================================ */
 
@@ -104,8 +102,7 @@
 }
 
 /* The seat: the same treatment the console gives the mark on its own rail. */
-.rail-brand svg,
-.desktop-rail-brand svg {
+.rail-brand svg, .desktop-rail-brand svg {
   border-radius: 22%;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
 }
@@ -129,12 +126,7 @@
   padding: 4px;
   border-radius: var(--radius-sm);
 }
-.desktop-rail-nav {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  flex: 1;
-}
+
 .desktop-rail-btn {
   width: 40px; height: 40px;
   display: grid; place-items: center;
@@ -437,8 +429,7 @@
   visibility: hidden;
   cursor: pointer;
 }
-.tab:hover .tab-export, .tab:hover .tab-close,
-.tab.active .tab-export, .tab.active .tab-close { visibility: visible; }
+.tab:hover .tab-export, .tab:hover .tab-close, .tab.active .tab-export, .tab.active .tab-close { visibility: visible; }
 .tab-export:hover { color: var(--chrome-active-ink); }
 .tab-close:hover { color: var(--danger-on-soft); }
 .view-switch {
@@ -781,8 +772,7 @@
 }
 .approval-actions button:disabled { opacity: 0.5; cursor: default; }
 /* White on --success-solid, not on --success: the plain success green gives
-   white text 3.45, under AA at this size. The button carries the primary answer,
-   so it is the last place to be hard to read. */
+   white text 3.45, under AA at this size. The button carries the primary answer, so it is the last place to be hard to read. */
 .approval-approve {
   background: var(--success-solid) !important;
   border-color: var(--success-solid) !important;
@@ -924,8 +914,7 @@
 }
 
 /* Active pill uses --chrome-active-ink, NOT --accent-ink directly. In light the
-   two resolve identically (--chrome-active-ink IS var(--accent-ink) in :root),
-   so this is byte-identical there; in dark --chrome-active-ink carries the
+   two resolve identically (--chrome-active-ink IS var(--accent-ink) in :root), so this is byte-identical there; in dark --chrome-active-ink carries the
    theme's own "accent readable on dark chrome" value. Measured with
    --accent-ink: the active label was #d9480f on #2a2b33 = 3.27, under AA for
    11px text. */
@@ -966,8 +955,7 @@
 }
 #sse-status.hidden { display: none; }
 /* The device-level "a decision is waiting" chip (StatusBar + the desktop
-   footer). Rendered only when the count is > 0 — the component owns that rule,
-   and the styling here must not imply an always-on badge. Same diamond as the
+   footer). Rendered only when the count is > 0 — the component owns that rule, and the styling here must not imply an always-on badge. Same diamond as the
    rail's waiting dot: one meaning, one shape. --chrome-ink-dim is the readable
    text weight on --surface-chip (--muted measured 4.40 there, under AA). */
 .waiting-chip {
@@ -1056,8 +1044,7 @@
 .restart-row-time { color: var(--chrome-ink-dim); }
 .restart-row-kind { color: var(--chrome-ink); }
 .restart-row-kind.is-crash { color: var(--danger-on-soft); }
-.restart-row-fact,
-.restart-row-rel { color: var(--chrome-ink-dim); font-size: var(--fs-sm); }
+.restart-row-fact, .restart-row-rel { color: var(--chrome-ink-dim); font-size: var(--fs-sm); }
 .restart-row-rel { margin-left: auto; }
 .restart-note { margin: 8px 0 0; font-size: var(--fs-sm); }
 
@@ -1272,8 +1259,7 @@
 
 /* ── The device SPEAKING: a watched target changed state ─────────────────────
    Above the page, never over it, and it leaves on its own. `is-up` and `is-down`
-   differ by BOTH the mark's silhouette (filled diamond vs. a ring) and the ink,
-   so the two are told apart without resolving a hue. */
+   differ by BOTH the mark's silhouette (filled diamond vs. a ring) and the ink, so the two are told apart without resolving a hue. */
 .monitor-alerts {
   display: flex;
   flex-direction: column;
@@ -1348,15 +1334,9 @@
   margin-bottom: 12px;
 }
 .empty-card p { color: var(--chrome-ink-dim); margin: 0 0 16px; font-size: var(--fs-md); }
-.empty-actions { display: flex; gap: var(--sp-2); justify-content: center; }
-.empty-actions button {
-  padding: 8px 16px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface); color: var(--ink);
-  font: 600 13px var(--font); cursor: pointer;
-}
-.empty-actions button:hover { border-color: var(--accent); color: var(--accent-on-soft); }
+
+
+
 
 /* ---------- modals ---------- */
 #conn-modal {
@@ -1404,8 +1384,7 @@
    the trajectory rail AND on the plugin page.
 
    The second channel is FILL, not geometry: every dot stays a CIRCLE, matching
-   the rest of this sheet. Colour marks the exception, fill carries the rest,
-   which is what keeps a screen of completed commands from becoming a wall of
+   the rest of this sheet. Colour marks the exception, fill carries the rest, which is what keeps a screen of completed commands from becoming a wall of
    green (the restrained-console premise of this design system):
      running  solid + soft halo   (the one state that earns the accent)
      ok       solid, quiet        (the common, unremarkable outcome)
@@ -1475,8 +1454,7 @@
   padding: 1px 8px;
   white-space: nowrap;
 }
-/* The badge is the PRECISE channel (it prints "0", "exit 1", "backgrounded"),
-   so its text already distinguishes the states; here colour only sets the
+/* The badge is the PRECISE channel (it prints "0", "exit 1", "backgrounded"), so its text already distinguishes the states; here colour only sets the
    temperature. "ok" is deliberately QUIET rather than green: successes are the
    common case, and painting every one of them accent-coloured is what makes a
    command stream read as noise. Only the live, the failed and the interrupted
@@ -1838,8 +1816,7 @@
 /* Same five-state contract as .cmd-dot above — one vocabulary, two renderers.
    The trajectory rail is denser (7px) and sits on a 1px line, so the halo is
    tightened rather than the colour changed.
-   DELIBERATE asymmetry with .cmd-dot: `muted` stays a QUIET FILLED dot here,
-   not a hollow ring. On the rail, `muted` is the MAJORITY (every raw output
+   DELIBERATE asymmetry with .cmd-dot: `muted` stays a QUIET FILLED dot here, not a hollow ring. On the rail, `muted` is the MAJORITY (every raw output
    line is an event with no verdict), so hollowing it would give the
    non-events the most visual weight on the timeline. On a command card the
    same state is rare and meaningful — one command that ended without a
@@ -2097,8 +2074,7 @@
 .plug-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
 .plug-btn.danger { color: var(--danger-on-soft); background: var(--danger-soft); }
 /* `--danger` is the MARK weight (#dc2626): measured 3.32 as text on the dark
-   surface. `--danger-on-soft` is its text counterpart (#a51d1d / #ff8787),
-   the same pair `--success-text`/`--chrome-active-text` already form. */
+   surface. `--danger-on-soft` is its text counterpart (#a51d1d / #ff8787), the same pair `--success-text`/`--chrome-active-text` already form. */
 .plug-btn.danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
 .plug-btn:disabled { opacity: 0.45; cursor: default; }
 .plug-card-desc { margin: 8px 0 0; font-size: var(--fs-sm); color: var(--muted); }
@@ -2171,8 +2147,7 @@
   flex-direction: column;
   gap: var(--sp-2);
 }
-.mem-edit-input,
-.mem-edit-content {
+.mem-edit-input, .mem-edit-content {
   width: 100%;
   padding: 6px 8px;
   border-radius: var(--radius-xs);
@@ -2223,40 +2198,17 @@
   flex-direction: column;
 }
 .browser-page .browser-pane { flex: 1 1 0; min-height: 0; }
-/* round-refactor: the runner control is a compact chip inside the
-   view-switch row — the full-width status bar is gone. */
-.bp-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--chrome-ink-faint);
-  flex: none;
-}
+
 .bp-dot.ok {
   background: var(--success);
   box-shadow: 0 0 6px rgba(47, 191, 113, 0.7);
 }
 .bp-dot.err { background: var(--danger); }
-.bp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin-left: auto;
-  padding: 2px 4px 2px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-chip);
-  border: 1px solid var(--line-strong);
-  font-size: var(--fs-xs);
-  color: var(--muted);
-  max-width: 60%;
-}
+
 .bp-chip .btn { margin-left: 2px; }
 .bp-chip.on { border-color: color-mix(in srgb, var(--success) 40%, var(--line-strong)); }
 .bp-chip.err { border-color: color-mix(in srgb, var(--danger) 40%, var(--line-strong)); }
-.bp-chip-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 /* ---------- browser ---------- */
 .browser-pane {
   flex: 1 1 0;
@@ -2264,48 +2216,12 @@
   display: flex;
   flex-direction: column;
 }
-.browser-view-switch {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-0-5);
-  padding: 6px 12px;
-  background: var(--chrome-bg);
-  border-bottom: 1px solid var(--line);
-}
+
 .browser-view-switch .view-switch-btn { padding: 5px 14px; }
-.browser-live {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 0;
-}
-.browser-tabstrip {
-  display: flex;
-  gap: var(--sp-1);
-  padding: 4px 8px;
-  background: var(--chrome-bg-2);
-  border-bottom: 1px solid var(--chrome-line);
-  overflow-x: auto;
-  flex: none;
-}
-.browser-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  max-width: 180px;
-  padding: 4px 8px 5px;
-  border-radius: var(--radius-sm2) var(--radius-sm2) 0 0;
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  transition: background 0.12s ease;
-}
-.browser-tab:hover { background: var(--chrome-bg-3); }
+
+
+
+
 /* stage-n: selected tab — Chrome-style: raised, accent top bar, connected
    to the content below it (no bottom border → merges with the urlbar row). */
 .browser-tab.sel {
@@ -2314,18 +2230,10 @@
   box-shadow: inset 0 2px 0 var(--accent);
   font-weight: var(--fw-semi);
 }
-.browser-tab-label { overflow: hidden; text-overflow: ellipsis; }
-.browser-tab-close { color: var(--chrome-ink-dim); cursor: pointer; }
-.browser-tab-close:hover { color: var(--danger-on-soft); }
-.browser-tab-new {
-  padding: 3px 8px;
-  border-radius: var(--radius-xs);
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  border: 1px dashed var(--chrome-line);
-  color: var(--chrome-ink-dim);
-  flex: none;
-}
+
+
+
+
 .browser-urlbar {
   display: flex;
   gap: var(--sp-2);
@@ -2367,12 +2275,7 @@
   position: relative;
   min-height: 0;
 }
-.browser-error {
-  color: var(--danger-on-soft);
-  font-size: var(--fs-xs);
-  padding: 4px 8px;
-  flex: none;
-}
+
 .browser-ev-stage {
   flex: 1;
   min-height: 0;
@@ -2587,12 +2490,7 @@
   color: #7aa2ff;
   border-color: rgba(90, 130, 240, 0.35);
 }
-.browser-error-inline {
-  color: #e06c6c;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 .browser-status-right {
   display: flex;
   align-items: center;
@@ -2708,7 +2606,7 @@
 }
 .settings-check { display: flex; align-items: center; gap: var(--sp-2); }
 .settings-actions { display: flex; gap: var(--sp-2); }
-.settings-row { margin-top: 8px; }
+
 .settings-status { margin-top: 8px; }
 
 /* ── Connect an AI client (onboarding card) ──
@@ -2986,8 +2884,8 @@
    already been caught once relying on a channel a user may not have (the
    reduced-motion incident behind src/lib/statePalette.test.ts), so each state
    gets its own border STYLE beside its own word and its own ink:
-     closed        solid border,  reading ink   — the boundary was recorded
-     open          solid border,  accent ink    — the common case
+     closed        solid border, reading ink   — the boundary was recorded
+     open          solid border, accent ink    — the common case
      unregistered  dashed border, warn ink      — an id with no begin
      unattributed  dotted border, muted ink     — no id at all
    The word on the chip is the state's name, never a verdict: a closed run says
@@ -3075,9 +2973,7 @@
 .run-row-unattributed { background: var(--surface-recessed); }
 
 /* ── Activity page (the device-level timeline) ───────────────────────────
-   The page is a RECORD, not a console: no live indicator and no refresh button
-   — it polls (useOperationRuns) and shows exactly what the device recorded.
-   The run GROUPS reuse the `.run-row-*` vocabulary above, so the two surfaces
+   The page is a RECORD, so the two surfaces
    that list runs cannot drift apart; only the record ROWS are new here.
 
    CHANNELS, per the incident this repo already has on record (see
@@ -3114,7 +3010,7 @@
 }
 .activity-head-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .activity-title { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); color: var(--ink); }
-.activity-scope { font-size: var(--fs-xs); color: var(--muted); }
+
 .activity-lede {
   margin: 5px 0 0; max-width: 66ch;
   font-size: var(--fs-sm); line-height: 1.5; color: var(--muted);
@@ -3223,8 +3119,7 @@
   background: var(--surface-chip); border-radius: var(--radius-sm); padding: 1px 6px;
 }
 
-/* ── Browser evidence empty state (token color; no inline styles) ── */
-.browser-live-evidence { min-height: 0; }
+
 .browser-ev-empty-mini { font-size: var(--fs-xs); color: var(--muted); padding: 4px 0; }
 
 /* Browser wrap visibility is driven by the browserActive state class —
@@ -3268,8 +3163,7 @@
   color: var(--chrome-ink);
   font: 12px var(--font-mono);
 }
-.term-searchbar button,
-.term-fontbar button {
+.term-searchbar button, .term-fontbar button {
   border: none;
   background: transparent;
   cursor: pointer;
@@ -3278,8 +3172,7 @@
   padding: 2px 6px;
   border-radius: var(--radius-xs);
 }
-.term-searchbar button:hover,
-.term-fontbar button:hover { background: var(--chrome-hover); color: var(--chrome-ink); }
+.term-searchbar button:hover, .term-fontbar button:hover { background: var(--chrome-hover); color: var(--chrome-ink); }
 .term-fontbar {
   position: absolute;
   bottom: 8px;
@@ -3309,32 +3202,7 @@
   background: var(--warn-soft);
   backdrop-filter: blur(2px);
 }
-  border-bottom: 1px solid var(--line);
-}
 
-/* ── Browser UX (round-160: AI activity / zoom / fullscreen) ──
-   round-refactor: the AI banner floats over the top edge of the viewport
-   instead of pushing the page down; it uses theme tokens (was hardcoded
-   light) so dark mode stays consistent. */
-.browser-ai-indicator {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: 4px 12px;
-  border-radius: var(--radius-pill);
-  font-size: var(--fs-sm);
-  color: var(--warn-ink);
-  background: var(--warn-soft);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  pointer-events: none;
-  white-space: nowrap;
-}
 .browser-ai-dot {
   width: 8px;
   height: 8px;
@@ -3446,8 +3314,7 @@
 .mem-confirm-hint { font-size: var(--fs-xs); color: var(--danger-on-soft); font-weight: var(--fw-semi); }
 /* The same hint, shared: two inline confirms that look different would be two
    vocabularies for one interaction. */
-.mem-confirm-hint,
-.plug-confirm-hint {
+.mem-confirm-hint, .plug-confirm-hint {
   font-size: var(--fs-xs);
   color: var(--danger-on-soft);
   font-weight: var(--fw-semi);
@@ -3505,14 +3372,7 @@
    stage-n: inputs/selects/textareas used the BROWSER DEFAULT surface —
    white background + black text in dark mode (glaring on the Settings
    page). Bind them to the theme tokens so both modes look native. */
-input[type="text"],
-input[type="search"],
-input[type="url"],
-input[type="number"],
-input[type="password"],
-input:not([type]),
-select,
-textarea {
+input[type="text"], input[type="search"], input[type="url"], input[type="number"], input[type="password"], input:not([type]), select, textarea {
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line);
@@ -3521,14 +3381,7 @@ textarea {
   font-size: var(--fs-base);
   outline: none;
 }
-input[type="text"]:focus,
-input[type="search"]:focus,
-input[type="url"]:focus,
-input[type="number"]:focus,
-input[type="password"]:focus,
-input:not([type]):focus,
-select:focus,
-textarea:focus {
+input[type="text"]:focus, input[type="search"]:focus, input[type="url"]:focus, input[type="number"]:focus, input[type="password"]:focus, input:not([type]):focus, select:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
@@ -3666,7 +3519,7 @@ button.dtab-close:hover { opacity: 1; }
 }
 .archive-head-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .archive-title { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); color: var(--ink); }
-.archive-scope { font-size: var(--fs-xs); color: var(--muted); }
+
 .archive-lede {
   margin: 5px 0 0; max-width: 66ch;
   font-size: var(--fs-sm); line-height: 1.5; color: var(--muted);
@@ -3845,8 +3698,7 @@ button.dtab-close:hover { opacity: 1; }
 /* A trail that could not be read is NOT an empty one. The tone is the fail
    family's, muted rather than alarming: it asks the operator to retry, not to
    investigate a command that never ran. */
-.traj-empty-fail,
-.path-empty-title-fail { color: var(--state-fail); }
+.traj-empty-fail, .path-empty-title-fail { color: var(--state-fail); }
 
 /* The device's own sentence about why a browser action ended as it did
    (stderr_tail: "spawn failed: …", "timed out after Ns"). It was recorded and
@@ -3897,8 +3749,7 @@ button.dtab-close:hover { opacity: 1; }
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .gs-card { animation: none; }
+@media (prefers-reduced-motion: reduce) {.gs-card { animation: none; }
 }
 
 .gs-head { display: flex; align-items: baseline; gap: var(--sp-3); }
@@ -3971,8 +3822,7 @@ button.dtab-close:hover { opacity: 1; }
 .gs-where:hover { color: var(--accent-on-soft); background: var(--accent-soft); border-color: var(--accent-soft); }
 .gs-where:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .gs-where.static { cursor: default; }
-/* Points RIGHT: the chip NAVIGATES, and the first version rotated the glyph to point up,
-   which reads as a collapse control rather than "go there" (seen in the card's own screenshot). */
+/* Points RIGHT: the chip NAVIGATES, and the first version rotated the glyph to point up, which reads as a collapse control rather than "go there" (seen in the card's own screenshot). */
 .gs-where svg { width: 11px; height: 11px; }
 .gs-body p { margin: 4px 0 0; font: 400 13px/1.55 var(--font); color: var(--chrome-ink-dim); max-width: 56ch; }
 /* The exact thing to type, set apart: monospace, on a recessed surface, never bolded into prose. */
