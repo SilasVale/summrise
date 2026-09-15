@@ -142,6 +142,14 @@
   --chrome-bg-3: #ececef;
   --chrome-ink: #1d1d1f;
   --chrome-ink-dim: #52525b;
+  /* THE BROWSER-ACTION BADGES, and why they are tokens: they sit on --chrome-bg-3, which is a LIGHT
+     surface in the light theme (#ececef) and a DARK one in the dark theme (#2a2b33). One hard-coded
+     colour cannot be legible on both — the values that were there measured 1.99/2.15/1.54 on the
+     light surface. These are measured on their own wash over that base: 5.73 / 6.01 / 6.03 here,
+     8.12 / 7.12 / 8.45 in the dark block. */
+  --badge-ok-ink: #0f5c33;
+  --badge-err-ink: #8f1b15;
+  --badge-run-ink: #6b4a00;
   --chrome-ink-faint: #a1a1aa;
   --chrome-line: rgba(0, 0, 0, 0.08);
   --chrome-hover: rgba(0, 0, 0, 0.05);
@@ -325,6 +333,11 @@ body[data-theme="dark"] {
   --chrome-bg-3: #2a2b33;
   --chrome-ink: #ecedef;
   --chrome-ink-dim: #a2a3ac;
+  /* Restated, NOT inherited: a custom property substitutes on the element that declares it, so a
+     token defined only in :root keeps its LIGHT value here (the trap this file documents). */
+  --badge-ok-ink: #8ff0bb;
+  --badge-err-ink: #ffb3b3;
+  --badge-run-ink: #ffe89a;
   --chrome-ink-faint: #6f707a;
   --chrome-line: rgba(255, 255, 255, 0.07);
   --chrome-hover: rgba(255, 255, 255, 0.08);
@@ -2859,7 +2872,12 @@ h3 { font-size: var(--fs-base); }
   left: 3px; bottom: 2px;
   font-size: var(--fs-2xs);
   color: #fff;
-  background: rgba(0, 0, 0, 0.5);
+  /* 0.6, NOT 0.5, and the number is the point: this label sits over a SCREENSHOT, so its background
+     is whatever the page happened to show. Measured with the probe's own maths over both extremes,
+     white text on a 50% scrim reads 3.98 over a WHITE screenshot (under AA) and 21.00 over a black
+     one — a timestamp that disappears on bright pages. At 0.6 the worst case is 5.74, so the label
+     is legible on a white screenshot and better on everything else. */
+  background: rgba(0, 0, 0, 0.6);
   border-radius: var(--radius-xs);
   padding: 0 3px;
 }
@@ -2901,9 +2919,12 @@ h3 { font-size: var(--fs-base); }
   background: var(--chrome-bg-2);
   color: var(--muted);
 }
-.browser-action-badge.ok { background: rgba(40, 160, 80, 0.18); color: #3fae6a; }
-.browser-action-badge.err { background: rgba(220, 60, 60, 0.18); color: #e06c6c; }
-.browser-action-badge.run { background: rgba(200, 160, 40, 0.18); color: #d0b24e; }
+/* INK FROM TOKENS, not hard-coded: the surface under these washes is --chrome-bg-3, which is LIGHT
+   in the light theme and DARK in the dark one, so neither `#3fae6a` nor a brightened version of it
+   can work in both (measured 1.99 on the light surface). See tokens.css for the numbers. */
+.browser-action-badge.ok { background: rgba(40, 160, 80, 0.18); color: var(--badge-ok-ink); }
+.browser-action-badge.err { background: rgba(220, 60, 60, 0.18); color: var(--badge-err-ink); }
+.browser-action-badge.run { background: rgba(200, 160, 40, 0.18); color: var(--badge-run-ink); }
 .browser-action-dur, .browser-action-shots { color: var(--muted); font-size: var(--fs-2xs); }
 .browser-action-script {
   font-family: var(--font-mono);

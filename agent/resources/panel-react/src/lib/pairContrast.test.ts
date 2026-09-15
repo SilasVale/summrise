@@ -90,10 +90,13 @@ describe("colour pairs declared in one rule", () => {
       "the rail's GLYPH, not text: WCAG 1.4.11 applies (3.0), and it measures 3.83 light / 4.30 dark",
     ".desktop-rail-btn.active": "same glyph, other density",
     ".browser-ev-time":
-      "white on a 50% black scrim over a screenshot; the base is the image, which a static read cannot see",
-    ".browser-action-badge.ok": "coloured text on a wash drawn over a screenshot thumbnail",
-    ".browser-action-badge.err": "same: wash over a thumbnail",
-    ".browser-action-badge.run": "same: wash over a thumbnail",
+      "white on a scrim over a screenshot: judged by the WORST base rule instead (see the probe suite), worst case 5.74",
+    // These three are NOT exempt any more: the earlier note claimed they sat over a screenshot
+    // thumbnail, and that was simply wrong — `.browser-action` paints `--chrome-bg-3`, so the wash
+    // composites over a chrome surface. Their base is named and measured like any other pair.
+    ".browser-action-badge.ok": "--chrome-bg-3",
+    ".browser-action-badge.err": "--chrome-bg-3",
+    ".browser-action-badge.run": "--chrome-bg-3",
     ".browser-ev-toggle.active":
       "a chip inside the evidence drawer, over the embedded browser surface rather than the page background",
   };
@@ -112,7 +115,13 @@ describe("colour pairs declared in one rule", () => {
       // INACTIVE CONTROLS ARE EXEMPT from the contrast minimum (WCAG 1.4.3 excludes them), and the
       // sheet expresses that state with opacity rather than a dimmer token.
       if (/:disabled|\[disabled\]|\[aria-disabled/.test(rule.selector)) continue;
-      if (NOT_JUDGEABLE[rule.selector]) continue;
+      const hint = NOT_JUDGEABLE[rule.selector];
+      // A REASON means "this static view cannot judge it"; a TOKEN names the base to measure
+      // against (the surface comes from a SIBLING class, which no single rule can see). A named
+      // base is still measured — a wrong claim fails here, and the rendered sweep on a device is
+      // the authority that would contradict it.
+      const namedBase = hint && hint.startsWith("--") ? hint : null;
+      if (hint && !namedBase) continue;
       // A background that is not a flat colour (a gradient, an image) cannot be measured here.
       if (/gradient|url\(/.test(rule.background)) continue;
 
@@ -128,14 +137,16 @@ describe("colour pairs declared in one rule", () => {
         // this sweep reported .cmd-badge at 1.93 where the device measures 6.76 — 80 "failures" that
         // were one alpha bug. The in-page probe composites the ancestor stack; here the base is the
         // theme's page background, which is what a chip sits on.
-        const base = parseColour(tokens["--bg"] ?? "#ffffff") ?? { r: 255, g: 255, b: 255 };
+        const baseToken = namedBase ?? "--bg";
+        const base = parseColour(tokens[baseToken] ?? "#ffffff") ?? { r: 255, g: 255, b: 255 };
         const composited = bg.a !== undefined && bg.a < 1 ? compositeStack([bg], base) : bg;
         checked++;
         const ratio = contrastRatio(fg, composited);
         const need = aaThreshold(12, 400); // the sheet's small-text floor: 4.5
         if (ratio < need) {
           failures.push(
-            `${rule.selector} [${theme}] ${rule.color} on ${rule.background} = ${ratio.toFixed(2)} (needs ${need})`,
+            `${rule.selector} [${theme}] ${rule.color} on ${rule.background}` +
+              `${namedBase ? ` over ${namedBase}` : ""} = ${ratio.toFixed(2)} (needs ${need})`,
           );
         }
       }
@@ -144,7 +155,8 @@ describe("colour pairs declared in one rule", () => {
     // A sweep that read nothing is not a sweep that found nothing: this floor is the measured count
     // (36 pairs across two themes) minus room for the allowlist, so a broken resolver fails loudly.
     expect(checked, "the sweep must actually measure something").toBeGreaterThan(24);
-    expect(Object.keys(NOT_JUDGEABLE).length, "every exemption needs its reason").toBe(7);
+    // 7 entries: 4 named BASES (measured against them) and 3 reasons (irreducibly contextual).
+    expect(Object.keys(NOT_JUDGEABLE).length, "every entry needs its reason or its base").toBe(7);
     expect(
       failures,
       `${failures.length} colour pair(s) under AA — pick the next step up in the same family ` +

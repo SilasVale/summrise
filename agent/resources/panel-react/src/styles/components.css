@@ -2335,7 +2335,12 @@
   left: 3px; bottom: 2px;
   font-size: var(--fs-2xs);
   color: #fff;
-  background: rgba(0, 0, 0, 0.5);
+  /* 0.6, NOT 0.5, and the number is the point: this label sits over a SCREENSHOT, so its background
+     is whatever the page happened to show. Measured with the probe's own maths over both extremes,
+     white text on a 50% scrim reads 3.98 over a WHITE screenshot (under AA) and 21.00 over a black
+     one — a timestamp that disappears on bright pages. At 0.6 the worst case is 5.74, so the label
+     is legible on a white screenshot and better on everything else. */
+  background: rgba(0, 0, 0, 0.6);
   border-radius: var(--radius-xs);
   padding: 0 3px;
 }
@@ -2377,9 +2382,12 @@
   background: var(--chrome-bg-2);
   color: var(--muted);
 }
-.browser-action-badge.ok { background: rgba(40, 160, 80, 0.18); color: #3fae6a; }
-.browser-action-badge.err { background: rgba(220, 60, 60, 0.18); color: #e06c6c; }
-.browser-action-badge.run { background: rgba(200, 160, 40, 0.18); color: #d0b24e; }
+/* INK FROM TOKENS, not hard-coded: the surface under these washes is --chrome-bg-3, which is LIGHT
+   in the light theme and DARK in the dark one, so neither `#3fae6a` nor a brightened version of it
+   can work in both (measured 1.99 on the light surface). See tokens.css for the numbers. */
+.browser-action-badge.ok { background: rgba(40, 160, 80, 0.18); color: var(--badge-ok-ink); }
+.browser-action-badge.err { background: rgba(220, 60, 60, 0.18); color: var(--badge-err-ink); }
+.browser-action-badge.run { background: rgba(200, 160, 40, 0.18); color: var(--badge-run-ink); }
 .browser-action-dur, .browser-action-shots { color: var(--muted); font-size: var(--fs-2xs); }
 .browser-action-script {
   font-family: var(--font-mono);

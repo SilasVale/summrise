@@ -201,6 +201,12 @@ describe("recessed content surfaces", () => {
       // The ghost button is the quiet action, and it sits on soft surfaces in 24 places. On the
       // offer bar's chip it measured 4.40 at 12px (light theme) before this pin.
       ['.btn-ghost', "--chrome-ink-dim"],
+      // The browser-action badges sit on --chrome-bg-3 (light in the light theme, dark in the dark
+      // one). Hard-coded inks measured 1.99/2.15/1.54 there; these tokens measure 5.73-6.03 and
+      // 7.12-8.45 respectively.
+      ['.browser-action-badge.ok', "--badge-ok-ink"],
+      ['.browser-action-badge.err', "--badge-err-ink"],
+      ['.browser-action-badge.run', "--badge-run-ink"],
       ['.plug-tag[data-state="error"]', "--danger-on-soft"],
       ['.path-step-tag.s-fail', "--danger-on-soft"],
       ['.path-attention-tag.s-fail', "--danger-on-soft"],

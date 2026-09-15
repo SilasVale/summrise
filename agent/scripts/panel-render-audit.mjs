@@ -97,6 +97,13 @@ const REQUIRED = [
 
 function buildHarness() {
   const css = readFileSync(join(PANEL, "panel.css"), "utf8");
+  // WHAT THIS HARNESS CANNOT REACH, measured rather than assumed (round 45): the evidence drawer —
+  // and with it the browser-action badges and the screenshot timestamp — renders ONLY in the
+  // Electron shell, because BrowserPage mounts its pane behind `window.valeEmbedded` and a plain
+  // browser gets an explanation page instead. A fixture for it was tried and removed: it could not
+  // render, and a dead fixture is a lie about coverage. Those three badge inks were therefore fixed
+  // on the STATIC pair sweep's measurement (1.99 -> 5.73+ on the light chrome surface) and are
+  // confirmed there and in the token contract; the rendered confirmation needs the desktop app.
   const js = readFileSync(join(PANEL, "panel.js"), "utf8");
   // No closing script tag may appear in ANY inline script, and there are two of them: the bundle
   // here and the stub below. Checking only the bundle is how a comment in the stub silently cut the

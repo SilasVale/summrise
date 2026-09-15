@@ -141,6 +141,14 @@
   --chrome-bg-3: #ececef;
   --chrome-ink: #1d1d1f;
   --chrome-ink-dim: #52525b;
+  /* THE BROWSER-ACTION BADGES, and why they are tokens: they sit on --chrome-bg-3, which is a LIGHT
+     surface in the light theme (#ececef) and a DARK one in the dark theme (#2a2b33). One hard-coded
+     colour cannot be legible on both — the values that were there measured 1.99/2.15/1.54 on the
+     light surface. These are measured on their own wash over that base: 5.73 / 6.01 / 6.03 here,
+     8.12 / 7.12 / 8.45 in the dark block. */
+  --badge-ok-ink: #0f5c33;
+  --badge-err-ink: #8f1b15;
+  --badge-run-ink: #6b4a00;
   --chrome-ink-faint: #a1a1aa;
   --chrome-line: rgba(0, 0, 0, 0.08);
   --chrome-hover: rgba(0, 0, 0, 0.05);
@@ -324,6 +332,11 @@ body[data-theme="dark"] {
   --chrome-bg-3: #2a2b33;
   --chrome-ink: #ecedef;
   --chrome-ink-dim: #a2a3ac;
+  /* Restated, NOT inherited: a custom property substitutes on the element that declares it, so a
+     token defined only in :root keeps its LIGHT value here (the trap this file documents). */
+  --badge-ok-ink: #8ff0bb;
+  --badge-err-ink: #ffb3b3;
+  --badge-run-ink: #ffe89a;
   --chrome-ink-faint: #6f707a;
   --chrome-line: rgba(255, 255, 255, 0.07);
   --chrome-hover: rgba(255, 255, 255, 0.08);
