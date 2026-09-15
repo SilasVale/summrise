@@ -151,7 +151,10 @@
   --radius-md: 10px;
   --radius-lg: 20px;
   --radius-xl: 20px;
-  --radius-pill: 99px;
+  /* 999px, not 99px: this token is SHARED with the panel, which declares 999 — and the token
+     contract requires the two surfaces to agree, with the panel's value winning because it is the
+     device's primary operator surface. Both clamp to half the control height, so nothing moves. */
+  --radius-pill: 999px;
 
   /* Channel identity colours — the routes and models views tint a lane by which
      upstream it belongs to. Deliberately NOT named --lane-*: the device panel

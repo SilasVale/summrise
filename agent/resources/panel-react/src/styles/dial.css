@@ -14,13 +14,13 @@
 .instrument {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   margin-right: 4px;
 }
 .instrument-reading {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 /* The label is chrome, the value is data: different sizes AND different weights, so
    the pair reads as a caption over a number rather than as one grey sentence. */

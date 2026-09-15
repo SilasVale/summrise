@@ -12,7 +12,7 @@
 }
 *::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.16);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.28);
@@ -126,7 +126,7 @@ code {
   background: var(--accent-soft);
   color: var(--accent-on-soft);
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   font-family: var(--font-mono);
   font-size: 12px;
 }

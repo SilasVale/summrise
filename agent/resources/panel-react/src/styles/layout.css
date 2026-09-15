@@ -29,7 +29,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
   padding: 10px 0 12px;
   /* midnight cockpit: the rail is the same dark chrome as the desktop rail */
   background: color-mix(in srgb, var(--chrome-bg) 88%, transparent);
@@ -66,7 +66,7 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   padding: 6px 10px;
   border-bottom: 1px solid var(--chrome-line);
   background: var(--chrome-bg);
@@ -82,7 +82,7 @@
   padding: 4px 10px;
   font-size: var(--fs-sm);
   border: 1px solid var(--chrome-line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm2);
   background: var(--chrome-bg-2);
   color: var(--chrome-ink-dim);
   cursor: pointer;
@@ -145,7 +145,7 @@
   color: var(--muted);
   font-size: var(--fs-base);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 2px 6px;
 }
 #drawer-head button:hover { color: var(--ink); background: var(--line-soft); }
@@ -212,7 +212,7 @@
 }
 .desktop-tabs-row .tabrow { flex: 1; border: none; padding: 0; }
 .desktop-tabs-row .tabrow #tabs { overflow-x: auto; }
-.desktop-new { display: flex; gap: 4px; padding: 0 8px 4px; }
+.desktop-new { display: flex; gap: var(--sp-1); padding: 0 8px 4px; }
 #desktop-term-container {
   flex: 1 1 0;
   min-height: 0;
@@ -231,7 +231,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--sp-2);
   /* Floating brand card — the first screen every visitor sees. */
   background: var(--surface);
   border: 1px solid var(--line);

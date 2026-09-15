@@ -14,7 +14,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--sp-2);
   padding: 14px 16px 16px;
   background:
     radial-gradient(1200px 500px at 85% -10%, color-mix(in srgb, var(--accent-soft) 60%, transparent), transparent 60%);
@@ -26,7 +26,7 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-3);
   padding: 8px 14px;
   min-height: 46px;
   /* Glass, and the rim is doing the work the tint cannot: on a warm paper field a
@@ -42,7 +42,7 @@
 .desktop-header-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   font-size: var(--fs-base);
   font-weight: var(--fw-semi);
   letter-spacing: -0.01em;
@@ -54,7 +54,7 @@
   place-items: center;
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm2);
   background: var(--accent-soft);
   color: var(--accent-on-soft);
 }
@@ -65,7 +65,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -74,9 +74,9 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   padding: 5px 8px 5px 10px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--chrome-ink-dim);
@@ -128,7 +128,7 @@
   place-items: center;
   width: 15px;
   height: 15px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   color: var(--chrome-ink-dim);
   opacity: 0;
   transition: opacity 0.12s ease;
@@ -142,19 +142,19 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--sp-0-5);
   padding: 3px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--chrome-bg);
   border: 1px solid var(--line);
 }
 .desktop-view-switch .view-switch-btn {
   padding: 4px 10px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-sm2);
   background: transparent;
   color: var(--chrome-ink-dim);
-  font: 600 11.5px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
@@ -176,10 +176,10 @@
 .btn-new {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--sp-1);
   padding: 6px 12px;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   /* White on --accent-solid, NOT on --accent, for the same reason `components.css`
      already does it for `.goal-save`: the brand orange gives white text **4.30**,
      under AA at this size, and this is a primary action. THAT COMMENT IS THE
@@ -188,7 +188,7 @@
      Measured on the live panel: 4.3, needing 4.5. `--accent-solid` gives 6.05. */
   background: var(--accent-solid);
   color: #fff;
-  font: 600 12.5px var(--font);
+  font: 600 var(--fs-sm) var(--font);
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(176, 58, 10, 0.35);
   transition: background 0.12s ease, transform 0.06s ease;
@@ -206,7 +206,7 @@
   padding: 5px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
   animation: new-menu-in 0.12s ease;
 }
@@ -217,11 +217,11 @@
 .new-menu button {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
   padding: 7px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm2);
   background: transparent;
   color: var(--ink);
   font: 13px var(--font);
@@ -234,7 +234,7 @@
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm2);
   background: var(--chrome-bg);
   color: var(--chrome-ink-dim);
 }
@@ -286,7 +286,7 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   padding: 6px 14px;
   min-height: 26px;
   border-top: 1px solid var(--line);
@@ -304,7 +304,7 @@
    and it is the ONLY place the release is shown anywhere in the panel. It was
    drawn in `--chrome-ink-faint` on `--chrome-bg-2`, measured in a real browser
    at **2.56:1 in light mode** (and ~3.45:1 in dark): below AA in BOTH, for the
-   default state, at 11.5px.
+   default state, at var(--fs-xs).
    `--chrome-ink-dim` measures 7.73 light / 6.46 dark. The hierarchy survives
    because the transient message above now takes `--chrome-ink` (strongest):
    a live message outranks a steady readout, and BOTH are readable. */
@@ -332,7 +332,7 @@
   transform: translateX(-50%);
   z-index: 20;
   padding: 5px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--warn-soft);
   border: 1px solid rgba(180, 83, 9, 0.3);
   color: var(--warn-ink);

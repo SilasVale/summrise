@@ -153,9 +153,17 @@
   --rail-ink-strong: var(--chrome-ink);
 
   /* ---- geometry ---- */
-  --radius: 14px;
-  --radius-sm: 10px;
-  --radius-lg: 20px;
+  /* THE RADIUS SCALE, named after the values the UI already used rather than after a
+     designer's ideal: an audit of the BUILT stylesheet found 12 distinct literals in use while
+     only three had names (999px alone appeared 51 times, 6px 18, 8px 17, and 10px 13 — that last
+     one WAS --radius-sm, written out by hand). Rare odd values (1/5/7/9/12/22) fold into their
+     nearest step below: every move is at most 2px, so nothing is restyled, it is only named. */
+  --radius-xs: 6px;   /* chips, tags, tiny marks */
+  --radius-sm2: 8px;  /* buttons, inputs, rows — the most common small radius */
+  --radius-sm: 10px;  /* cards inside a pane */
+  --radius: 14px;     /* panes, modals */
+  --radius-lg: 20px;  /* sheets, the largest surfaces */
+  --radius-pill: 999px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
   --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06);
@@ -218,8 +226,19 @@
      in use (32 declarations) and are NOT real weights in Segoe UI or in the CJK
      fallbacks — the browser was synthesising or snapping them, and doing it
      differently per platform, so "the same" UI weighed differently on Windows. */
+  /* THE SPACING SCALE. There was none: the audit counted 73 distinct padding/margin/gap values in
+     the rendered pages, with gaps at 2/4/5/6/7/8/10/12 — four of those off any scale. The steps
+     below are the ones the layout actually leans on, so adopting them is a rename for most sites
+     and a ≤2px nudge for the odd ones. */
+  --sp-0-5: 2px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
   --fs-2xs: 10px; /* micro labels, badge counts, dot-with-text */
-  --fs-xs: 11px; /* meta, timestamps, secondary lines */
+  --fs-xs: 11px; /* meta, timestamps, secondary lines (var(--fs-xs) sites folded here) */
   --fs-sm: 12px; /* the workhorse: most UI text */
   --fs-base: 13px; /* body, controls, terminal-adjacent prose */
   --fs-md: 14px; /* card and list titles */
