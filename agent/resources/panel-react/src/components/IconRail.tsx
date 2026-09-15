@@ -29,7 +29,7 @@ export const PAGE_ICONS: Record<Page, IconName> = {
   settings: "settings",
 };
 
-export function IconRail({ page, onPageChange, connected, desktop, pendingCount = 0 }: {
+export function IconRail({ page, onPageChange, connected, desktop, pendingCount = 0, onOpenGuide }: {
   page: Page;
   onPageChange: (p: Page) => void;
   connected: boolean;
@@ -38,6 +38,8 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
    *  Optional and defaulted so a caller that has no session list (or an older
    *  embedding) cannot crash the rail — it degrades to "no questions waiting". */
   pendingCount?: number;
+  /** Reopen the getting-started guide. Absent on a surface that does not host it. */
+  onOpenGuide?: () => void;
 }) {
   const btn = (active: boolean) => (desktop ? `desktop-rail-btn${active ? " active" : ""}` : `rail-btn${active ? " active" : ""}`);
   const [theme, setThemeState] = useState(getTheme());
@@ -88,6 +90,20 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
       >
         <Icon name={theme === "dark" ? "sun" : "moon"} size={desktop ? 16 : 18} />
       </button>
+      {/* THE GUIDE'S WAY BACK. A first-run card that can only be seen once is a card somebody
+          closes by accident and then resents; this sits next to the other rail controls, where
+          a lost reader looks. */}
+      {onOpenGuide && (
+        <button
+          type="button"
+          className={themeBtnClass}
+          title="Getting started"
+          aria-label="Getting started"
+          onClick={onOpenGuide}
+        >
+          <Icon name="help" size={desktop ? 16 : 18} />
+        </button>
+      )}
       {desktop ? (
         <>
           {/* data-state drives the colour AND the shape in CSS (off / idle /

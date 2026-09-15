@@ -25,7 +25,8 @@ export type IconName =
   | "arrow-up"
   | "arrow-down"
   | "sun"
-  | "moon";
+  | "moon"
+  | "help";
 
 const PATHS: Record<IconName, ReactNode> = {
   sun: (
@@ -42,6 +43,15 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
+  // A circled question mark: the guide's own mark. Drawn from the same 24px stroke family as
+  // every other glyph (radius 9 keeps it inside the optical box).
+  help: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.2 9.3a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2.2-2.8 4" />
+      <line x1="12" y1="17.3" x2="12" y2="17.4" />
+    </>
+  ),
   terminal: (
     <>
       <polyline points="4 17 10 11 4 5" />

@@ -4,8 +4,10 @@
 // dual-view are replaced by Shell + ContextRail.
 import { useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
+import { GettingStarted } from "./GettingStarted";
 import { IconRail } from "./IconRail";
 import { Shell, type Page } from "./Shell";
+import { GETTING_STARTED_KEY, GETTING_STARTED_VERSION, shouldShowGuide } from "../lib/gettingStarted";
 import { ContextRail } from "./ContextRail";
 import { StatusBar } from "./StatusBar";
 import { useAgentVitals } from "../hooks/useAgentVitals";
@@ -117,9 +119,36 @@ export function PanelApp(props: Props) {
   };
   const [page, setPage] = useState<Page>("terminal");
   const connected = props.sseState === "connected";
+  // THE FIRST FIVE MINUTES, ONCE. Read through a try/catch because private-mode storage throws on
+  // access (the same rule `boot.ts` learned): a browser that refuses to remember must still get the
+  // guide, not a blank panel.
+  const [guideOpen, setGuideOpen] = useState(() => {
+    try {
+      return shouldShowGuide(localStorage.getItem(GETTING_STARTED_KEY));
+    } catch {
+      return true;
+    }
+  });
+  const closeGuide = () => {
+    setGuideOpen(false);
+    try {
+      localStorage.setItem(GETTING_STARTED_KEY, GETTING_STARTED_VERSION);
+    } catch {
+      /* a browser that cannot remember will simply show it again */
+    }
+  };
 
   return (
     <>
+      {guideOpen && (
+        <GettingStarted
+          onClose={closeGuide}
+          onGoTo={(p) => {
+            setPage(p);
+            closeGuide();
+          }}
+        />
+      )}
       <Shell
         density="panel"
         iconRail={
@@ -128,6 +157,7 @@ export function PanelApp(props: Props) {
             onPageChange={setPage}
             connected={connected}
             pendingCount={pendingApprovalCount(props.sessions)}
+            onOpenGuide={() => setGuideOpen(true)}
           />
         }
         contextRail={

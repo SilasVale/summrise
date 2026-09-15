@@ -290,6 +290,48 @@ describe("recessed content surfaces", () => {
     }
   });
 
+  it("the getting-started card paints its text with readable tokens", () => {
+    // The card is the FIRST screen a new user sees, and it is a surface of its own: a floating
+    // panel rather than chrome, with its own hierarchy (a title, a lead, three steps, a footer).
+    // MEASURED on the real bundle in a browser (device Chrome, both themes, 19 text nodes each):
+    // 0 under AA — worst pair the primary button at 5.49, the number circles at 6.20, body 6.71+.
+    // This pin is the cheaper half: it fails the moment a rule swaps to a token that would not
+    // measure that way, which is the mistake this file exists to catch (five chrome sites were
+    // wrong for rounds because nothing pinned them).
+    const css = builtCss();
+    const sites: Array<[string, string]> = [
+      [".gs-lead", "--chrome-ink-dim"],
+      [".gs-body p", "--chrome-ink-dim"],
+      [".gs-reopen", "--chrome-ink-dim"],
+      [".gs-head h2", "--ink"],
+      [".gs-line h3", "--ink"],
+      [".gs-click", "--ink"],
+      [".gs-action", "--ink"],
+      [".gs-num", "--accent-on-soft"],
+      [".gs-where:hover", "--accent-on-soft"],
+    ];
+    for (const [sel, token] of sites) {
+      expect(blockOf(css, sel), `${sel} must paint its text with var(${token})`).toContain(
+        `color: var(${token})`,
+      );
+    }
+    // The card's surface is a token too: a hand-picked white would ignore the dark theme.
+    expect(blockOf(css, ".gs-card")).toContain("background: var(--surface)");
+    expect(blockOf(css, ".gs-num")).toContain("background: var(--accent-soft)");
+    // And the guide uses the SAME primary button as the rest of the product rather than a private
+    // colour of its own: there is no `.gs-*` rule for the button at all, which is the point. The
+    // pair it inherits measures 5.49 in both themes (--accent-fg on --accent, the number the
+    // existing assertions above pin for every other primary action).
+    const source = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "components", "GettingStarted.tsx"),
+      "utf8",
+    );
+    expect(source, "the card's primary action must be the product's own button").toContain(
+      'className="btn primary"',
+    );
+    expect(css, "no private button colour may be introduced for the card").not.toMatch(/\.gs-[a-z-]*\s*\{[^}]*background:\s*var\(--accent\)/);
+  });
+
   it("the Logs toggle does not use the dark-chrome accent on light chrome", () => {
     // --amber-bright is documented as "accent readable on DARK chrome" and
     // measured 1.9 on the light chrome this button actually sits on.

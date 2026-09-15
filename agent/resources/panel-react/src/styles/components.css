@@ -3835,3 +3835,149 @@ button.dtab-close:hover { opacity: 1; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ── GETTING STARTED (first run, once, reopenable from the rail's ?) ───────────
+   ONE COLUMN, NUMBERED. The steps are a sequence — open a console, watch something, let an AI
+   work — so they are drawn as one, with the numbers on a rail that carries the eye down. A grid
+   of equal cards would say "here are four unrelated buttons", which is the opposite of the point.
+
+   THE SURFACE IS THE PRODUCT'S. Tokens only (no literal colour), the panel's radii and shadows and
+   its own `.btn primary`, so the card belongs to Vale in both themes and inherits any future
+   re-theming instead of drifting from it.
+
+   MOTION IS OPTIONAL. The card fades in unless `prefers-reduced-motion`, and NOTHING here depends
+   on the animation having run — the overlay is usable at frame zero. */
+.gs-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* above the pane chrome, below nothing: this is a first-run decision */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(24, 24, 27, 0.44);
+  backdrop-filter: blur(3px);
+}
+.gs-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  animation: gs-in 160ms ease-out;
+}
+@keyframes gs-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gs-card { animation: none; }
+}
+
+.gs-head { display: flex; align-items: baseline; gap: 12px; }
+.gs-head h2 { margin: 0; font: 650 19px/1.25 var(--font); color: var(--ink); letter-spacing: -0.01em; }
+.gs-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--chrome-ink-dim);
+  cursor: pointer;
+}
+.gs-close:hover { color: var(--ink); background: var(--surface-chip); border-color: var(--chrome-line); }
+.gs-close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.gs-close svg { width: 16px; height: 16px; }
+
+/* 13.5px/1.6: comfortably above the 12px the chrome uses, because this paragraph is the one
+   somebody actually reads, and long measure is what makes a lead unreadable. */
+.gs-lead { margin: 8px 0 20px; font: 400 13.5px/1.6 var(--font); color: var(--chrome-ink-dim); max-width: 52ch; }
+
+.gs-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 18px; }
+.gs-step { display: flex; gap: 14px; }
+/* The rail: a circled number with a hairline running down to the next one, which is what makes
+   three items read as a path rather than a list. */
+.gs-num {
+  flex: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-on-soft);
+  font: 650 12.5px/1 var(--font);
+}
+.gs-step:not(:last-child) .gs-num::after {
+  content: "";
+  position: absolute;
+  top: 29px;
+  left: 50%;
+  /* Long enough to REACH the next circle: a rail with gaps reads as three separate notes, and the
+     whole point of the numbering is that it is one path. (Step gap 18px + circle 26px = 44px
+     between circle tops; minus this circle's 29px offset leaves 15px to the next one's top.) */
+  height: 17px;
+  background: var(--chrome-line);
+  transform: translateX(-0.5px);
+}
+.gs-body { min-width: 0; padding-top: 1px; }
+.gs-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.gs-line h3 { margin: 0; font: 600 14px/1.3 var(--font); color: var(--ink); }
+/* The chip is the ACTION: click it and you are on that page. Where it cannot navigate it is a
+   plain label, not a button that does nothing. */
+.gs-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 7px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 999px;
+  background: none;
+  font: 600 11px/1.6 var(--font);
+  color: var(--chrome-ink-dim);
+  cursor: pointer;
+}
+.gs-where:hover { color: var(--accent-on-soft); background: var(--accent-soft); border-color: var(--accent-soft); }
+.gs-where:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.gs-where.static { cursor: default; }
+/* Points RIGHT: the chip NAVIGATES, and the first version rotated the glyph to point up,
+   which reads as a collapse control rather than "go there" (seen in the card's own screenshot). */
+.gs-where svg { width: 11px; height: 11px; }
+.gs-body p { margin: 4px 0 0; font: 400 13px/1.55 var(--font); color: var(--chrome-ink-dim); max-width: 56ch; }
+/* The exact thing to type, set apart: monospace, on a recessed surface, never bolded into prose. */
+/* A CLICK path, in prose: deliberately NOT the mono command style, because nothing here can be
+   typed. */
+.gs-click { display: inline-block; margin-top: 7px; font: 500 12.5px/1.6 var(--font); color: var(--ink); }
+
+.gs-action {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--surface-recessed);
+  border: 1px solid var(--chrome-line);
+  /* No fallback stack: the system DECLARES --font-mono, so a fallback written beside it can never
+     apply — the token contract flags that as a dead fallback, and it describes a design that is
+     gone. (Written as an EXAMPLE of the pattern first, which the CSS builder reads as a real
+     reference to an undefined variable and refuses: the gate was right.) */
+  font: 500 12px/1.6 var(--font-mono);
+  color: var(--ink);
+}
+
+.gs-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--chrome-line);
+}
+.gs-reopen { flex: 1; font: 400 11.5px/1.5 var(--font); color: var(--chrome-ink-dim); }
