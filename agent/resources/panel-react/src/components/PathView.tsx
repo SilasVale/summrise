@@ -399,7 +399,10 @@ export function PathView({
 
       {attention.length > 0 && (
         <section className="path-attention">
-          <h4 className="path-attention-title">Worth a look</h4>
+          {/* h2, because the PAGE owns the h1: measured in the running Path view the outline read
+              `h1 Terminal` then `h3 Worth a look` — a skipped level, and the second attempt at this
+              (h4 -> h3) was still one too deep. A view's top-level block is a SECTION of the page. */}
+          <h2 className="path-attention-title">Worth a look</h2>
           <ul className="path-attention-list">
             {attention.map((s) => (
               <li key={s.id}>

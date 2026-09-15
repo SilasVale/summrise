@@ -2016,10 +2016,15 @@ h3 { font-size: var(--fs-base); }
    command stream read as noise. Only the live, the failed and the interrupted
    states raise their voice. */
 .cmd-badge[data-state="running"] { color: var(--accent-on-soft); background: var(--accent-soft); }
-.cmd-badge[data-state="ok"] { color: var(--muted); background: var(--state-muted-soft); }
+/* --chrome-ink-dim, NOT --muted: measured on the built bundle, `--muted` on this soft wash is
+   **4.23** where 11px text needs 4.5 (it passes on white at 4.83 and on --bg at 4.63, which is why
+   the mistake is invisible anywhere except the surface it actually sits on). The same pair was
+   fixed for `.plug-tools` and `.plug-tag.success`; this badge was still carrying it, and only the
+   Trajectory view ever rendered one. */
+.cmd-badge[data-state="ok"] { color: var(--chrome-ink-dim); background: var(--state-muted-soft); }
 .cmd-badge[data-state="fail"] { color: var(--danger-on-soft); background: var(--danger-soft); }
 .cmd-badge[data-state="warn"] { color: var(--warn-ink); background: var(--warn-soft); }
-.cmd-badge[data-state="muted"] { color: var(--muted); background: var(--state-muted-soft); }
+.cmd-badge[data-state="muted"] { color: var(--chrome-ink-dim); background: var(--state-muted-soft); }
 .cmd-btn {
   flex: none;
   font-size: var(--fs-xs);

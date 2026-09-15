@@ -194,6 +194,10 @@ describe("recessed content surfaces", () => {
     const css = builtCss();
     const textSites: Array<[string, string]> = [
       ['.cmd-badge[data-state="fail"]', "--danger-on-soft"],
+      // The two "quiet" badges sit on --state-muted-soft, where --muted measures 4.23 at 11px.
+      // Found by sweeping the TRAJECTORY view (round 39) — the only place either is rendered.
+      ['.cmd-badge[data-state="ok"]', "--chrome-ink-dim"],
+      ['.cmd-badge[data-state="muted"]', "--chrome-ink-dim"],
       ['.plug-tag[data-state="error"]', "--danger-on-soft"],
       ['.path-step-tag.s-fail', "--danger-on-soft"],
       ['.path-attention-tag.s-fail', "--danger-on-soft"],
