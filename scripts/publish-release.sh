@@ -358,6 +358,13 @@ fi
 SHA=$(write_version_json "$VER" "$TGZ" "$ASSET_DIR" "$INST_EXE")
 echo "sha256: $SHA"
 
+# THE RETIRED INSTALLER MUST NOT LINGER — see retire_installers() in lib/release-lib.sh for
+# what was measured and why a warning nobody could clear is not good enough.
+if [ "$WITH_INSTALLER" -eq 0 ]; then
+  retire_installers "$ASSET_DIR"
+fi
+fi
+
 echo "== last-5-per-minor prune (round-309) =="
 # Keep the newest 5 of EACH major.minor line + the latest alias (the policy
 # and its awk grouping live in scripts/lib/release-lib.sh, pinned by

@@ -180,3 +180,23 @@ check "the verdict runs BEFORE the success line" \
   "$([ "${V_LINE:-0}" -lt "${D_LINE:-0}" ] && echo before || echo after)" "before"
 
 echo "release-lib: $PASS checks passed"
+
+
+# ── retiring the NSIS installer (round 27) ───────────────────────────────────
+# Measured state that motivated it: six staged exes (1.2.358-1.2.365, 40 MB) were uploaded by
+# every deploy, and the versionless alias served 1.2.365 from the CDN while the release was
+# 1.2.406. The publish flow retires them when it is not building one.
+R=$(mktemp -d)
+touch "$R/ValeAgent-Setup.exe" "$R/ValeAgent-Setup-1.2.365.exe" "$R/ValeAgent-Setup-1.2.361.exe"
+echo tgz > "$R/vale-agent-latest.tgz"
+echo '{}' > "$R/version.json"
+out="$(retire_installers "$R")"
+check_match "retire_installers counts what it removed" "$out" "retired 3 staged installer"
+check "the alias is gone" "$(ls "$R"/ValeAgent-Setup*.exe 2>/dev/null | wc -l)" "0"
+# …and it touches NOTHING else: the npm channel is the one that must survive.
+check "the tgz survives" "$(cat "$R/vale-agent-latest.tgz")" "tgz"
+check "the manifest survives" "$(cat "$R/version.json")" "{}"
+# A second call has nothing to do, and says so rather than claiming a removal.
+out="$(retire_installers "$R")"
+check_match "an empty asset dir is reported honestly" "$out" "no staged installer to retire"
+rm -rf "$R"

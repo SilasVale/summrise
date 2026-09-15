@@ -12,6 +12,7 @@
 # must stay identical; this file pins the shell half.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+source "scripts/lib/release-lib.sh"   # sha256_of_url (round 27)
 source "scripts/smoke-index.sh"
 
 PASS=0
@@ -38,5 +39,24 @@ for bad in "" "abc" "${GOOD64:0:63}" "${GOOD64}00" \
   PASS=$((PASS+1))
 done
 rm -f /tmp/smoke-err.txt
+
+# ── sha256_of_url: "no download" must be EMPTY, not the empty-string hash ──
+# The bug this exists for: `curl … | sha256sum | cut -d' ' -f1` returns e3b0c442… (the hash of
+# NOTHING) when the download fails, so a check meant to detect an absent artifact saw a hash and
+# reported the artifact as present. Measured on the live CDN after the retired installer alias
+# was deleted: the smoke kept saying "the alias still serves a build".
+TMP_HASH="$(mktemp -d)"
+printf 'payload' > "$TMP_HASH/real.bin"
+want_hash="$(sha256sum < "$TMP_HASH/real.bin" | cut -d' ' -f1)"
+got_hash="$(sha256_of_url "file://$TMP_HASH/real.bin")"
+if [ "$got_hash" = "$want_hash" ]; then PASS=$((PASS+1)); else echo "FAIL: sha256_of_url hashed a readable file wrongly: $got_hash"; exit 1; fi
+gone="$(sha256_of_url "file://$TMP_HASH/does-not-exist.bin")"
+if [ -z "$gone" ]; then PASS=$((PASS+1)); else echo "FAIL: a missing download must be EMPTY, got '$gone'"; exit 1; fi
+if [ "$gone" != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then
+  PASS=$((PASS+1))
+else
+  echo "FAIL: sha256_of_url returned the empty-string hash — the exact bug this pins"; exit 1
+fi
+rm -rf "$TMP_HASH"
 
 echo "ok: smoke-helpers $PASS checks passed"

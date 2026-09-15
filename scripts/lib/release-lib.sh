@@ -35,6 +35,9 @@ write_version_json() {
 # new line ships 5 releases and break pinned installs. $1 = asset dir.
 prune_last5_per_minor() {
   local dir="$1"
+  # Captured BEFORE the shopt below: capturing after it would "restore" the state this function
+  # just imposed (the first version did exactly that, and the leak survived its own fix).
+  local _nullglob_was="$(shopt -p nullglob || true)"
   shopt -s nullglob
   mapfile -t KEEP < <(ls "$dir"/vale-agent-1.*.*.tgz 2>/dev/null | grep -v latest | sort -V | awk '
     { ver = $0; sub(/.*vale-agent-/, "", ver); sub(/\.tgz$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
@@ -46,6 +49,7 @@ prune_last5_per_minor() {
     for k in "${KEEP[@]}"; do [ "$k" = "$f" ] && keep=1 && break; done
     if [ "$keep" -eq 0 ]; then rm -f "$f"; echo "pruned $(basename "$f")"; fi
   done
+  eval "$_nullglob_was"
 }
 
 # Installer prune: keep the newest $2 (default 5) versioned
@@ -63,6 +67,9 @@ prune_last5_per_minor() {
 # the two policies apart; there is a two-minor one now.
 prune_installers() {
   local dir="$1" keep_n="${2:-5}"
+  # Captured BEFORE the shopt below: capturing after it would "restore" the state this function
+  # just imposed (the first version did exactly that, and the leak survived its own fix).
+  local _nullglob_was="$(shopt -p nullglob || true)"
   shopt -s nullglob
   mapfile -t KEEP_EXE < <(ls "$dir"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | sort -V | awk -v keep="$keep_n" '
     { ver = $0; sub(/.*ValeAgent-Setup-/, "", ver); sub(/\.exe$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
@@ -74,6 +81,56 @@ prune_installers() {
     for k in "${KEEP_EXE[@]}"; do [ "$k" = "$f" ] && keep=1 && break; done
     if [ "$keep" -eq 0 ]; then rm -f "$f"; echo "pruned $(basename "$f")"; fi
   done
+  eval "$_nullglob_was"
+}
+
+# ── hashing a DOWNLOAD that may not exist (round 27) ─────────────────────────
+# `curl … | sha256sum | cut -d' ' -f1` LOOKS like "hash it, or empty on failure" and is not:
+# when curl fails (a 404, a timeout) it writes nothing, sha256sum still hashes the EMPTY input
+# and prints e3b0c442…, and the pipeline's status is `cut`'s — so the caller sees a HASH, not
+# an absence. Measured on the live CDN: after the retired installer alias was deleted (404
+# confirmed by hand) the smoke still reported "the alias still serves a build", i.e. the check
+# could never say "absent" and would have warned forever.
+#
+# Download to a file first, then hash only what actually arrived. Empty output = no download.
+sha256_of_url() {
+  local url="$1" tmp
+  tmp="$(mktemp)"
+  if curl -fsSL -m 120 -o "$tmp" "$url" 2>/dev/null; then
+    sha256sum <"$tmp" | cut -d' ' -f1
+  fi
+  rm -f "$tmp"
+}
+
+# ── retiring the NSIS installer (round 27) ───────────────────────────────────
+# The installer stopped being a channel on 2026-08-28 (npm only), but its artifacts kept
+# being STAGED in the asset dir and uploaded by every deploy. Measured 2026-09-15: six exes
+# from 1.2.358 to 1.2.365 (40 MB) were still there, and the versionless alias among them
+# answered 200 on the CDN serving **1.2.365** while the release was 1.2.406 — a publicly
+# downloadable build from 41 releases ago, which the smoke could only WARN about on every
+# publish. A warning that cannot be cleared is noise, so the publish flow now removes them
+# when it is not building one: the next deploy drops them from the manifest and the URLs
+# 404, which the worker already handles by design ("a missing exe must 404, never the
+# landing page as 200 HTML").
+#
+# Echoes the count and the bytes it freed, so a publish log says what happened to them.
+retire_installers() {
+  local dir="$1"
+  # Captured BEFORE the shopt below: capturing after it would "restore" the state this function
+  # just imposed (the first version did exactly that, and the leak survived its own fix).
+  local _nullglob_was="$(shopt -p nullglob || true)"
+  shopt -s nullglob
+  local files=("$dir"/ValeAgent-Setup*.exe)
+  if [ "${#files[@]}" -eq 0 ]; then
+    echo "no staged installer to retire (npm is the channel)"
+    eval "$_nullglob_was"
+    return 0
+  fi
+  local bytes
+  bytes="$(du -ch "${files[@]}" 2>/dev/null | tail -1 | cut -f1)"
+  rm -f "${files[@]}"
+  echo "retired ${#files[@]} staged installer(s) ($bytes) — installer URLs will 404 after this deploy"
+  eval "$_nullglob_was"
 }
 
 # ── the reconcile ledger (round 123) ─────────────────────────────────────────

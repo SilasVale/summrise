@@ -151,10 +151,16 @@ smoke_index_release() {
     fi
     local alias_sha=""
     for _ in 1 2 3 4 5; do
-      alias_sha="$(curl -fsSL -m 120 "$base/vale-agent/ValeAgent-Setup.exe" 2>/dev/null | sha256sum | cut -d' ' -f1)" || alias_sha=""
+      # Empty means "could not download", which is NOT the same as "downloaded something else"
+      # (see sha256_of_url for why the old pipeline could never report that).
+      alias_sha="$(sha256_of_url "$base/vale-agent/ValeAgent-Setup.exe")"
       [ "$alias_sha" = "$inst_want" ] && break
       sleep "$retry_sleep"
     done
+    if [ -z "$alias_sha" ]; then
+      echo "  !! the manifest advertises an installer for v$want_version but the alias could not be downloaded ($base/vale-agent/ValeAgent-Setup.exe)"
+      return 1
+    fi
     if [ "$alias_sha" != "$inst_want" ]; then
       echo "  !! installer-alias sha256 mismatch: manifest $inst_want, downloaded $alias_sha ($base/vale-agent/ValeAgent-Setup.exe)"
       return 1
@@ -173,7 +179,7 @@ smoke_index_release() {
     # but a stale artifact NOBODY NAMES is how the landing page got away with
     # offering it for three releases. So: name it, every time.
     local alias_now=""
-    alias_now="$(curl -fsSL -m 120 "$base/vale-agent/ValeAgent-Setup.exe" 2>/dev/null | sha256sum | cut -d' ' -f1)" || alias_now=""
+    alias_now="$(sha256_of_url "$base/vale-agent/ValeAgent-Setup.exe")"
     if [ -z "$alias_now" ]; then
       echo "  ok: no installer advertised for v$want_version, and the ValeAgent-Setup.exe alias is absent (consistent)"
     else
