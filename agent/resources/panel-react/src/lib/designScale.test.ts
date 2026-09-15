@@ -151,6 +151,32 @@ describe("the design scale", () => {
     expect(Number(/height:\s*(\d+)px/.exec(x)![1])).toBeGreaterThanOrEqual(24);
   });
 
+  it("the approval card keeps a readable floor and never breaks a decision mid-phrase", () => {
+    // MEASURED at a 900px viewport (round 46): the card shrank to ~190px, its buttons wrapped to
+    // two and three lines ("Run / it", "Always / allow / vlan") and the note became a cramped
+    // column — on the one surface where a person decides whether a command runs. `min-width: 0` was
+    // the cause; `min(320px, 100%)` is the floor that cannot overflow.
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    const card = blockOf(css, ".approval-prompt");
+    expect(card, "the approval card must keep a width floor").toContain("min-width: min(320px, 100%)");
+    const row = blockOf(css, ".approval-actions");
+    expect(row, "the row must wrap as a group").toContain("flex-wrap: wrap");
+    const button = blockOf(css, ".approval-actions button");
+    expect(button, "a decision label must not break mid-phrase").toContain("white-space: nowrap");
+  });
+
+  it("the session-control rows wrap instead of squeezing their siblings", () => {
+    // MEASURED at a 900px viewport: the approval card (now with a 320px floor) took its width and
+    // the goal chip beside it collapsed to ~30px — the objective rendered one character per line.
+    // Wrapping is the fix that keeps BOTH readable; ellipsising the goal would contradict the
+    // decision .goal-text documents (an objective truncated to "provision the ONU on VL…" is not
+    // something anyone can act on).
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const sel of ["#canvas-top", ".desktop-term-bar"]) {
+      expect(blockOf(css, sel), `${sel} must wrap rather than squeeze`).toContain("flex-wrap: wrap");
+    }
+  });
+
   it("type sizes come from the scale, and none of them is a half pixel", () => {
     const css = builtCss();
     // Sizes appear both as `font-size:` and inside the `font:` shorthand; the shorthand is why

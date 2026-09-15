@@ -1260,7 +1260,12 @@ h3 { font-size: var(--fs-base); }
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  min-width: 0;
+  /* A FLOOR THAT CANNOT OVERFLOW: `min(320px, 100%)`. This card is the one place a person decides
+     whether a command runs, and `min-width: 0` let it shrink to ~190px at a 900px viewport —
+     measured: its own buttons broke mid-phrase ("Run / it", "Always / allow / vlan") and the note
+     became a cramped column. `min()` keeps the floor while never asking for more than the container
+     has, which is what the old `0` was protecting against. */
+  min-width: min(320px, 100%);
   flex: 1 1 320px;
   padding: 9px 12px;
   border: 1px solid var(--warn);
@@ -1302,8 +1307,11 @@ h3 { font-size: var(--fs-base); }
   max-height: 96px;
   overflow-y: auto;
 }
-.approval-actions { display: flex; gap: var(--sp-2); }
+/* The row wraps as a GROUP; the labels never break. A phrase like "Always allow vlan" reads as one
+   decision, and splitting it across three lines makes it read as three. */
+.approval-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .approval-actions button {
+  white-space: nowrap;
   font: 600 var(--fs-xs) var(--font);
   padding: 4px 13px;
   border-radius: var(--radius-sm2);
@@ -1450,6 +1458,9 @@ h3 { font-size: var(--fs-base); }
 .desktop-term-bar {
   flex: none;
   display: flex;
+  /* Same rule as the panel's #canvas-top: wrap rather than squeeze (see that rule for the 900px
+     measurement that found it). */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   padding: 0 0 6px;
@@ -4673,6 +4684,11 @@ button.dtab-close:hover { opacity: 1; }
 #canvas-top {
   flex: 0 0 auto;
   display: flex;
+  /* WRAP, so a narrow window moves a control to the next line instead of squeezing its siblings to
+     slivers. Measured at a 900px viewport (round 46): the approval card took the width it needs and
+     the GOAL chip beside it collapsed to ~30px, rendering "provision the ONU …" one character per
+     line. Both siblings are right — the row just could not hold them. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   padding: 6px 10px;

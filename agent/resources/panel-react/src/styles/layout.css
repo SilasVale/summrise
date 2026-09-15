@@ -65,6 +65,11 @@
 #canvas-top {
   flex: 0 0 auto;
   display: flex;
+  /* WRAP, so a narrow window moves a control to the next line instead of squeezing its siblings to
+     slivers. Measured at a 900px viewport (round 46): the approval card took the width it needs and
+     the GOAL chip beside it collapsed to ~30px, rendering "provision the ONU …" one character per
+     line. Both siblings are right — the row just could not hold them. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   padding: 6px 10px;

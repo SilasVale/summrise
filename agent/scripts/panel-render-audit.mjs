@@ -123,6 +123,12 @@ function buildHarness() {
   window.__PANEL_TOKEN__ = 'audit-token';
   var SID = ${JSON.stringify(SID)}, SESSION = ${JSON.stringify(SESSION)}, EVENTS = ${JSON.stringify(EVENTS)};
   if (MODE === 'idle') SESSION = Object.assign({}, SESSION, {pending_approval: null});
+  // THE APPROVAL CLOCK, three states a person actually sees (round 46). The default fixture carries
+  // expires_in_ms: 47000, which the gate reads as URGENT (under its one-minute threshold) — so the
+  // alarmed state was the only one any sweep had ever rendered. 'relaxed' is a question with time
+  // left, 'expired' is the zero-second rule: the device has retired it and nothing can be answered.
+  if (MODE === 'relaxed') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 600000 }) });
+  if (MODE === 'expired') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 0 }) });
   // ?sessions=N — MEASURE THE TAB STRIP AT A REALISTIC WIDTH. The operator's own panel carried
   // ELEVEN tabs, and a strip with one tab says nothing about overflow, truncation or whether the
   // close affordance survives a crowd. Default 1 so every existing check keeps its baseline.
