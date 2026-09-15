@@ -15,6 +15,7 @@ import { useStripOverflow } from "../hooks/useStripOverflow";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
+import { idleSessions } from "../lib/idleSessions";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
@@ -26,6 +27,7 @@ import {
 import { MonitorAlerts } from "./MonitorAlerts";
 import { VitalsDial } from "./VitalsDial";
 import { EvictedNotice } from "./EvictedNotice";
+import { IdleSessionsBar } from "./IdleSessionsBar";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
@@ -239,6 +241,8 @@ export function DesktopShell({
     <>
       {/* Same line, same reason, other density: the device announced that it closed a session. */}
       <EvictedNotice notice={evicted} />
+      {/* Same offer, same rule, other density — and the same close path its tabs use. */}
+      <IdleSessionsBar candidates={idleSessions(sessions)} onClose={onClose} />
       <Shell
         density="desktop"
       iconRail={

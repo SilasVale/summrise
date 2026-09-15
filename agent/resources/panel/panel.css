@@ -4454,6 +4454,37 @@ button.dtab-close:hover { opacity: 1; }
 .evicted-x:hover { color: var(--ink); background: var(--chrome-hover); }
 .evicted-x svg { width: 12px; height: 12px; }
 
+/* ── "SESSIONS NOBODY IS USING" ─────────────────────────────────────────────────
+   A quiet offer, not a warning: chrome text on the chip surface, one action, and it draws nothing
+   at all when there is nothing to offer. It sits under the tab strip — where the crowding is felt —
+   in both densities (see IdleSessionsBar for the rule that decides what counts as idle). */
+.idle-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--chrome-line);
+  background: var(--surface-chip);
+  font: 400 var(--fs-xs)/1.5 var(--font);
+  color: var(--chrome-ink-dim);
+}
+.idle-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idle-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--chrome-ink-dim);
+  cursor: pointer;
+}
+.idle-x:hover { color: var(--ink); background: var(--chrome-hover); }
+.idle-x svg { width: 12px; height: 12px; }
+
 
 /* ============ dial.css ============ */
 /* ============================================================

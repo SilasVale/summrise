@@ -5,10 +5,12 @@
 import { useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
 import { EvictedNotice } from "./EvictedNotice";
+import { IdleSessionsBar } from "./IdleSessionsBar";
 import { GettingStarted } from "./GettingStarted";
 import { HistoryPage } from "./HistoryPage";
 import { IconRail } from "./IconRail";
 import { Shell, type Page } from "./Shell";
+import { idleSessions } from "../lib/idleSessions";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { GETTING_STARTED_KEY, GETTING_STARTED_VERSION, shouldShowGuide } from "../lib/gettingStarted";
 import { ContextRail } from "./ContextRail";
@@ -156,6 +158,10 @@ export function PanelApp(props: Props) {
       {/* The device's own announcement, above the shell: a session it took away (cap or idle TTL),
           with the rule that took it. Nothing renders when nothing happened. */}
       <EvictedNotice notice={evicted} />
+      {/* The offer to shed what nobody is using — nothing drawn when there is nothing to offer
+          (see lib/idleSessions for the threshold and why it is an hour). It closes through the same
+          callback the tabs' own × uses, so there is one close path in this density. */}
+      <IdleSessionsBar candidates={idleSessions(props.sessions)} onClose={props.onClose} />
       <Shell
         density="panel"
         iconRail={

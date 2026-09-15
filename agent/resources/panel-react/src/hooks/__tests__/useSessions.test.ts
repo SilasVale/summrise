@@ -296,7 +296,7 @@ describe("pendingApprovalCount — the badge input", () => {
     closed: false,
     savedOnly: false,
     active: true,
-    firstSeenAt: 0,
+    idleMs: 0, firstSeenAt: 0,
     closedAt: null,
     heldByHuman: false,
     approvalRequired: false,

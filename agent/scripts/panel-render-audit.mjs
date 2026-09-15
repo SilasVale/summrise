@@ -98,10 +98,17 @@ const REQUIRED = [
 function buildHarness() {
   const css = readFileSync(join(PANEL, "panel.css"), "utf8");
   const js = readFileSync(join(PANEL, "panel.js"), "utf8");
-  // No `</script` may appear in the bundle or the inline tag would terminate early.
-  if (/<\/script/i.test(js)) throw new Error("panel.js contains </script — inline embedding is unsafe");
+  // No closing script tag may appear in ANY inline script, and there are two of them: the bundle
+  // here and the stub below. Checking only the bundle is how a comment in the stub silently cut the
+  // whole fixture in half — the page still loaded, still rendered a panel, and simply had no
+  // sessions, which reads like a product bug rather than a broken harness.
+  if (/<\/script/i.test(js)) throw new Error("panel.js contains a closing script tag — inline embedding is unsafe");
 
   const stub = `
+// NO BACKTICKS IN THIS TEMPLATE, AND NO CLOSING SCRIPT TAG EITHER — not even inside a comment.
+// A backtick ends the literal and the file stops parsing; a closing script tag ends the HTML tag
+// and the rest of this stub is silently dropped by the parser (measured: round 41, three times,
+// twice in comments that were explaining something else). Quote identifiers with 'single quotes'.
 (function(){
   var P = new URLSearchParams(location.search);
   var THEME = P.get('theme') || 'light', MODE = P.get('mode') || 'pending';
@@ -116,6 +123,13 @@ function buildHarness() {
   var SESSIONS = [SESSION];
   for (var i = 1; i < WANT; i++) {
     SESSIONS.push(Object.assign({}, SESSION, {
+      // IDLE TIME, as the device reports it since round 37 (terminal_list.idle_ms). No backticks
+      // here: this is INSIDE a template literal, and one would end the stub — the same trap the
+      // contrast probe's own header documents.
+      // The first session stays active; the rest are silent for hours — the state the
+      // panel's "nobody is using these" offer exists for. A fixture with no idle data
+      // cannot show that offer at all.
+      idle_ms: i * 20 * 60 * 1000,
       id: 'term-audit-' + i,
       label: i % 3 === 0 ? 'stc@192.168.1.1' : (i % 3 === 1 ? 'serial:COM4' : 'pwsh'),
       kind: i % 3 === 0 ? 'ssh' : (i % 3 === 1 ? 'serial' : 'pty'),
@@ -124,9 +138,25 @@ function buildHarness() {
     }));
   }
   var J = function(o){ return new Response(JSON.stringify(o), {status:200, headers:{'content-type':'application/json'}}); };
+  // WHAT THE PANEL ACTUALLY CALLED. A reader watching Playwright's network events sees NOTHING —
+  // this stub answers in-page, so the only witness to "did that button really close seven sessions"
+  // is the stub itself. (Round 41: the first version of this verification reported closeCalls: 0
+  // and the action HAD run; the counter was looking at the wrong layer. No backticks in this
+  // file's stub comments — see the warning at the top of the template.)
+  window.__calls = [];
+  // Recorded entries are 'tools/terminal_close {json}'; match the NAME ANYWHERE, not by equality —
+  // the first version compared the whole string to the bare name, so a run that closed seven
+  // sessions reported zero and the product looked broken while the counter was.
+  window.__callCount = function(name){ return window.__calls.filter(function(c){ return c.indexOf(name) >= 0; }).length; };
+  window.__callBody = function(name){ return window.__calls.filter(function(c){ return c.indexOf(name) >= 0; }); };
   var realFetch = window.fetch.bind(window);
   window.fetch = function(url, init){
     var u = String(url);
+    var body = (init && init.body) ? String(init.body) : '';
+    // Double backslash: this is inside a template literal, where a single \/ collapses to / and the
+    // emitted regex becomes /^.*/api// — "Invalid regular expression flags", which killed the WHOLE
+    // stub (no token, no sessions, no counter) and looked from the outside like a broken product.
+    window.__calls.push(u.replace(/^.*\\/api\\//, '') + ' ' + body);
     if (u.indexOf('/api/tools/terminal_list') >= 0)    return Promise.resolve(J({ok:true, result:SESSIONS}));
     if (u.indexOf('/api/tools/terminal_history') >= 0) return Promise.resolve(J({ok:true, result:[]}));
     if (u.indexOf('/api/tools/terminal_read') >= 0)    return Promise.resolve(J({ok:true, result:{text:'ONT 0/1 online', start:0, end:14, evicted:false}}));
@@ -141,6 +171,7 @@ function buildHarness() {
   window.WebSocket = function(){ this.addEventListener=function(){}; this.send=function(){}; this.close=function(){}; };
 })();`;
 
+  if (/<\/script/i.test(stub)) throw new Error("the stub contains a closing script tag — it would cut the fixture short");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Vale Agent</title>
 <style>${css}</style></head><body><div id="root"></div>
