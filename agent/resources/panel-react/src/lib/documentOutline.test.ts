@@ -61,11 +61,25 @@ describe("the document outline", () => {
     }
   });
 
-  it("the terminal page is named where it mounts, since its canvas is the workspace", () => {
-    const panel = read("components/PanelApp.tsx");
-    expect(panel, "the terminal page needs its name in the outline too").toMatch(
-      /<h1 className="sr-only">Terminal<\/h1>/,
+  it("the terminal page is named where it mounts, in BOTH densities", () => {
+    // The panel and the desktop mount the terminal differently, and only the panel got the hidden
+    // h1 in round 34 — measured live, the desktop's landing page had NO headings at all while every
+    // other page had one.
+    for (const file of ["components/PanelApp.tsx", "components/DesktopShell.tsx"]) {
+      expect(read(file), `${file} must name the terminal page`).toMatch(
+        /<h1 className="sr-only">Terminal<\/h1>/,
+      );
+    }
+  });
+
+  it("no page is nested inside another main landmark", () => {
+    // MEASURED live on /desktop/: `main.desktop-main` contained `main.desktop-content` — invalid
+    // HTML, and one page offering a screen reader two main landmarks to choose between.
+    const desktop = read("components/DesktopShell.tsx");
+    expect(desktop, "the content card must not be a second <main>").not.toMatch(
+      /<main className="desktop-content"/,
     );
+    expect(desktop).toMatch(/<div className="desktop-content">/);
   });
 
   it("a section carries a heading and never an h1", () => {
@@ -110,10 +124,12 @@ describe("the document outline", () => {
 
   it("the panel's regions are landmarks, like the desktop density's", () => {
     const shell = read("components/Shell.tsx");
-    expect(shell, "the rail is navigation").toMatch(/<nav id="icon-rail"/);
+    expect(shell, "the panel's rail is navigation").toMatch(/<nav id="icon-rail"/);
     expect(shell, "the side list is complementary").toMatch(/<aside id="context-rail"/);
     expect(shell, "the page is main").toMatch(/<main id="canvas-host"/);
-    // And the desktop density keeps its own pair.
+    // …and the desktop density uses the SAME vocabulary: a nav rail and ONE main. It had an
+    // <aside> rail and, further in, a second <main>.
+    expect(shell, "the desktop's rail is navigation too").toMatch(/<nav className="desktop-rail"/);
     expect(shell).toMatch(/<main className="desktop-main"/);
   });
 

@@ -414,8 +414,18 @@ export function DesktopShell({
             )}
           </header>
 
-          {/* ── Content card ── */}
-          <main className="desktop-content">
+          {/* ── Content card ──
+              NOT a <main>: the desktop shell ALREADY has one (`main.desktop-main`), and a main
+              inside a main is invalid HTML — measured live as `mains: ["main.desktop-main",
+              "main.desktop-content"]`, i.e. one page with two main landmarks for a screen reader to
+              choose between. */}
+          <div className="desktop-content">
+            {page === "terminal" && (
+              /* The terminal page's name, for the outline only — the panel density mounts the same
+                 hidden h1 in PanelApp, and this density is the reason the desktop measured zero
+                 headings on its landing page while every other page had one. */
+              <h1 className="sr-only">Terminal</h1>
+            )}
             {page === "terminal" && (
               <TerminalWorkspace
                 sessions={sessions as any}
@@ -464,7 +474,7 @@ export function DesktopShell({
                 runningRelease={vitals.release}
               />
             )}
-          </main>
+          </div>
 
           {/* ── Status strip: folded into the content card footer ── */}
           {showStatus && (

@@ -15,6 +15,7 @@
 // them with `Function.prototype.toString()`, so this is not a copy that can drift.
 import {
   compositeStack, contrastRatio, aaThreshold, parseColour, failures, unmeasurable, inactive, PROBE_SOURCE,
+  gradientStops, worstOverGradient,
 } from "../../agent/scripts/lib/contrast-probe.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -130,5 +131,32 @@ t("PROBE_SOURCE carries the REAL functions, not a paraphrase", () => {
   assert.ok(PROBE_SOURCE.includes(aaThreshold.toString()), "aaThreshold not embedded");
   assert.ok(PROBE_SOURCE.includes(parseColour.toString()), "parseColour not embedded");
 });
+
+
+// ── GRADIENTS ARE MEASURED AS A BOUND, NOT SKIPPED ───────────────────────────
+// 140 of the desktop density's 242 text nodes sat over a gradient and came back
+// unmeasurable. A bound is the honest answer: measure every stop, report the worst.
+t("a gradient's stops are read, and an unreadable background stays unreadable", () => {
+  const g2 = gradientStops('linear-gradient(135deg, rgb(250, 250, 250) 0%, rgb(0, 0, 0) 100%)');
+  assert.equal(g2.length, 2);
+  assert.equal(g2[0].r, 250);
+  // A translucent stop keeps its alpha: compositing it as opaque is how a probe
+  // reads rgba(255,255,255,0.07) as WHITE and reports twenty false findings.
+  assert.equal(gradientStops('linear-gradient(rgba(255,255,255,0.5), transparent)')[1].a, 0);
+  assert.equal(gradientStops('url("x.png")').length, 0);
+  assert.equal(gradientStops('none').length, 0);
+});
+
+t("the WORST stop decides, never the best", () => {
+  const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
+  const base = { r: 255, g: 255, b: 255 };
+  // White text is unreadable on the white stop and perfect on the black one; the
+  // number reported is the one that can hurt somebody.
+  assert.equal(worstOverGradient({ r: 255, g: 255, b: 255 }, bw, base).toFixed(2), '1.00');
+  assert.equal(worstOverGradient({ r: 0, g: 0, b: 0 }, bw, base).toFixed(2), '1.00');
+  assert.equal(worstOverGradient({ r: 0, g: 0, b: 0 }, [], base), null);
+});
+
+const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
 
 console.log(`contrast-probe: all ${n} checks passed`);

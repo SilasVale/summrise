@@ -72,19 +72,64 @@ export function parseColour(c) {
  * `assertRendered` makes a page that produced ZERO rows FAIL rather than pass: a
  * sweep that read nothing is not a sweep that found nothing.
  */
+/** The colour stops of a computed `background-image`, as colours — or [] when it cannot be read.
+ *
+ *  A GRADIENT IS MEASURABLE, CONSERVATIVELY. The probe used to return `cr: null` for every text
+ *  node over one (honest, and it left 58% of the desktop density's text unjudged: 140 of 242 rows).
+ *  Reading its stops instead gives a BOUND: if the WORST stop still clears AA, the text clears it on
+ *  every stop. That is the safe direction — a gradient cannot hide a failure behind an average.
+ *
+ *  `color(srgb …)`, conic gradients and image URLs return [] and stay unmeasurable: a parser for
+ *  every colour function is how a probe starts lying again. */
+export function gradientStops(image) {
+  const text = String(image || "");
+  if (!text || text === "none") return [];
+  const out = [];
+  for (const m of text.matchAll(/(rgba?\([^)]*\)|transparent)/g)) {
+    if (m[1] === "transparent") {
+      out.push({ r: 0, g: 0, b: 0, a: 0 });
+      continue;
+    }
+    const c = parseColour(m[1]);
+    if (c) out.push(c);
+  }
+  return out;
+}
+
+/** The LOWEST contrast `fg` has against any stop of a gradient, each composited over `base`.
+ *  Returns null when there is nothing to measure. */
+export function worstOverGradient(fg, stops, base) {
+  let worst = null;
+  for (const stop of stops) {
+    const bg = compositeStack([{ ...stop, a: stop.a ?? 1 }], base);
+    const ratio = contrastRatio(fg, bg);
+    if (worst === null || ratio < worst) worst = ratio;
+  }
+  return worst;
+}
+
 export const PROBE_SOURCE = `(() => {
   const compositeStack = ${compositeStack.toString()};
   const contrastRatio = ${contrastRatio.toString()};
   const aaThreshold = ${aaThreshold.toString()};
   const parseColour = ${parseColour.toString()};
+  const gradientStops = ${gradientStops.toString()};
+  const worstOverGradient = ${worstOverGradient.toString()};
   const SKIP = ${JSON.stringify(".xterm")};
 
-  const effBg = (el) => { const st = []; let p = el; let gradient = false;
+  const effBg = (el) => { const st = []; let p = el; let gradient = false; let stops = [];
     while (p) { const cs = getComputedStyle(p);
-      if (cs.backgroundImage && cs.backgroundImage !== 'none') { gradient = true; break; }
+      if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+        stops = gradientStops(cs.backgroundImage);
+        gradient = true;
+        // KEEP WALKING: the gradient sits ON something, and that something is the base every stop
+        // composites over. Stopping here is what forced the old probe to answer null.
+        p = p.parentElement;
+        continue;
+      }
       const c = parseColour(cs.backgroundColor);
       if (c && c.a > 0) { st.push(c); if (c.a === 1) break; } p = p.parentElement; }
-    return { colour: compositeStack(st), gradient }; };
+    return { colour: compositeStack(st), gradient, stops }; };
 
   const chainOpacity = (el) => { let o = 1, p = el;
     while (p && p !== document.documentElement) { o *= parseFloat(getComputedStyle(p).opacity || '1'); p = p.parentElement; }
@@ -114,11 +159,13 @@ export const PROBE_SOURCE = `(() => {
     const bg = effBg(el);
     const fg = effFg(el, bg.colour); if (!fg) continue;
     const size = parseFloat(st.fontSize);
-    // A GRADIENT BACKGROUND IS NOT MEASURABLE THIS WAY. Reporting a ratio against
-    // whatever lies BEYOND the gradient produced a false 1.0 for the panel's
-    // gradient-filled "V" mark. The row comes back marked gradient with a null
-    // ratio, so failures() excludes it and the caller can print how many were
-    // skipped — a sweep that measured nothing must be VISIBLE, not silent.
+    // A GRADIENT IS MEASURED AS A BOUND, not skipped: the worst of its stops, each composited
+    // over the background beyond it. 'approx' says how the number was obtained (and a gradient
+    // whose stops could not be parsed keeps 'cr: null', counted by unmeasurable() so a caller can
+    // print the number instead of letting a skip read as a pass).
+    const gradientCr = bg.gradient && bg.stops.length
+      ? worstOverGradient(fg, bg.stops, bg.colour)
+      : null;
     rows.push({
       sel: el.tagName.toLowerCase() + (cls ? '.' + cls.trim().split(/\\s+/).join('.') : ''),
       text: (el.textContent || '').trim().slice(0, 24),
@@ -126,7 +173,8 @@ export const PROBE_SOURCE = `(() => {
       need: aaThreshold(size, st.fontWeight),
       inactive,
       gradient: bg.gradient,
-      cr: bg.gradient ? null : contrastRatio(fg, bg.colour),
+      approx: gradientCr !== null,
+      cr: bg.gradient ? gradientCr : contrastRatio(fg, bg.colour),
     });
   }
   return rows;

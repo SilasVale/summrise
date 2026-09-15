@@ -34,7 +34,7 @@ export function Shell({ density, iconRail, contextRail, canvas, statusBar }: {
   if (density === "desktop") {
     return (
       <div className="desktop-shell">
-        <aside className="desktop-rail">{iconRail}</aside>
+        <nav className="desktop-rail" aria-label="Pages">{iconRail}</nav>
         <main className="desktop-main">{canvas}</main>
       </div>
     );
