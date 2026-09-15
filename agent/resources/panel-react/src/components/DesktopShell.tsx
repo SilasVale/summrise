@@ -15,6 +15,7 @@ import { useStripOverflow } from "../hooks/useStripOverflow";
 import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
+import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
   useAttention,
@@ -24,6 +25,7 @@ import {
 } from "../hooks/useAttention";
 import { MonitorAlerts } from "./MonitorAlerts";
 import { VitalsDial } from "./VitalsDial";
+import { EvictedNotice } from "./EvictedNotice";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
@@ -135,6 +137,8 @@ export function DesktopShell({
   cmdEvents,
 }: Props) {
   const [page, setPage] = useState<Page>("terminal");
+  // Same line, same reason, other density.
+  const evicted = useEvictedNotice();
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const newMenuRef = useRef<HTMLDivElement | null>(null);
   // P1-5: closing a session kills a possibly-running command — inline
@@ -232,8 +236,11 @@ export function DesktopShell({
   const showStatus = !!status || sseState === "down";
 
   return (
-    <Shell
-      density="desktop"
+    <>
+      {/* Same line, same reason, other density: the device announced that it closed a session. */}
+      <EvictedNotice notice={evicted} />
+      <Shell
+        density="desktop"
       iconRail={
         <IconRail
           page={page}
@@ -539,6 +546,7 @@ export function DesktopShell({
           )}
         </div>
       }
-    />
+      />
+    </>
   );
 }

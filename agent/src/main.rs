@@ -592,6 +592,24 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                 }));
             }
             vale_agent::monitor::spawn_prober();
+
+            // THE IDLE SWEEPER, SPAWNED WHERE STARTING IS GUARANTEED. It used to be spawned from the
+            // TerminalManager constructor behind `Handle::try_current()`, which declines in silence —
+            // and the operator's box measured SIXTEEN sessions silent for up to ELEVEN HOURS under a
+            // fifteen-minute TTL, i.e. the reaper had never run. Built here, next to the prober, so a
+            // task that must exist does not depend on where a struct happens to be constructed.
+            #[cfg(feature = "terminal")]
+            {
+                let bus = state.event_bus.clone();
+                vale_agent::tools::terminal::set_event_sink(std::sync::Arc::new(move |payload| {
+                    use vale_agent::EventBus as _;
+                    bus.emit_term_output(payload);
+                }));
+            }
+            // Gated like the module it calls: the feature-less build has no terminal manager at all,
+            // and a call that only exists with `terminal` must say so (both configs build).
+            #[cfg(feature = "terminal")]
+            vale_agent::tools::terminal::spawn_idle_sweeper(state.terminal_mgr.clone());
         }
         tokio::spawn(async move {
             // Supervision audit #2: the old loop SNAPSHOT-READ the config

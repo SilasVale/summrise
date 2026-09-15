@@ -4043,3 +4043,34 @@ button.dtab-close:hover { opacity: 1; }
   pointer-events: none;
   background: linear-gradient(to right, transparent, var(--chrome-bg-2));
 }
+
+/* ── "THE DEVICE TOOK A SESSION AWAY" ───────────────────────────────────────────
+   Housekeeping, not a fault: a hairline rule and dim text, no alarm colour, no icon of warning.
+   It appears ONLY when the device announced an eviction (see EvictedNotice) and leaves on its own
+   after 20s, so it cannot become permanent furniture. */
+.evicted-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--chrome-line);
+  background: var(--surface-chip);
+  font: 400 var(--fs-xs)/1.5 var(--font);
+  color: var(--chrome-ink-dim);
+}
+.evicted-text { flex: 1; min-width: 0; }
+.evicted-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--chrome-ink-dim);
+  cursor: pointer;
+}
+.evicted-x:hover { color: var(--ink); background: var(--chrome-hover); }
+.evicted-x svg { width: 12px; height: 12px; }

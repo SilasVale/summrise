@@ -70,6 +70,14 @@ pub struct TermSessionInfo {
     /// BEFORE trying to execute and collecting the refusal.
     #[serde(default)]
     pub held_by_human: bool,
+    /// HOW LONG THIS SESSION HAS BEEN SILENT (ms since the last output, resize, write or break).
+    ///
+    /// WHY IT IS ON THE ROW. The device has a 15-minute idle sweeper and a 16-session cap; on the
+    /// operator's box SIXTEEN sessions were alive, several silent for ELEVEN HOURS, and nothing in
+    /// any API said so — the only way to see it was to read the audit files' mtimes by hand. A
+    /// client (and the next person measuring this) can now see staleness directly.
+    #[serde(default)]
+    pub idle_ms: u64,
     /// The session is in APPROVAL MODE: `terminal_execute` must be approved by a
     /// person before it reaches the shell. Off by default — autonomous operation
     /// is the point of the product, and a gate nobody asked for is just a delay.
@@ -383,8 +391,8 @@ mod desktop_impl {
     use tokio::sync::mpsc;
     use vale_agent_core::DeviceError;
 
-    struct Session {
-        id: String,
+    pub(crate) struct Session {
+        pub(crate) id: String,
         kind: String,
         label: String,
         shell: String,
@@ -411,7 +419,7 @@ mod desktop_impl {
         /// three-way gate is pinned by `marker_gate_is_reported_not_assumed`.
         inject_marker: bool,
         /// Last time output was seen — used by the idle sweeper.
-        last_output: std::time::Instant,
+        pub(crate) last_output: std::time::Instant,
         /// When the session was opened — tiebreaker for eviction when
         /// last_output is equal: min_by_key on last_output alone would evict
         /// the FIRST session in vec order on a tie; opened_at spares the
@@ -620,19 +628,124 @@ mod desktop_impl {
     /// client disconnect leaking SSH/PTY/serial sessions forever: nothing tied
     /// a session to its owning connection, so a crashed panel/MCP client left
     /// every open session running indefinitely.
-    const SESSION_IDLE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) const SESSION_IDLE_TTL: std::time::Duration =
+        std::time::Duration::from_secs(15 * 60);
     /// Hard cap on concurrent sessions; oldest is evicted when exceeded.
-    const MAX_SESSIONS: usize = 16;
+    pub(crate) const MAX_SESSIONS: usize = 16;
 
-    struct TerminalInner {
-        sessions: Vec<Session>,
+    /// WHAT THE DEVICE TOOK AWAY, AND WHY. Produced by the idle sweeper and by the session cap;
+    /// carried to the caller (a tool response) and announced on the event bus, because a session
+    /// disappearing silently is how an operator loses a tab with no explanation.
+    #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+    pub struct EvictedSession {
+        pub id: String,
+        pub label: String,
+        pub kind: String,
+        pub idle_ms: u64,
+        pub reason: String,
+    }
+
+    /// The event sink: the same pattern `monitor` uses, so this module never learns what SSE is.
+    type EvictSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+    static EVICT_SINK: std::sync::Mutex<Option<EvictSink>> = std::sync::Mutex::new(None);
+    /// The last eviction, for the caller that caused it (an open that hit the cap).
+    static LAST_EVICTED: std::sync::Mutex<Vec<EvictedSession>> = std::sync::Mutex::new(Vec::new());
+
+    /// Install the announcement sink (called once from `main`, like the monitor's).
+    pub fn set_event_sink(sink: EvictSink) {
+        *EVICT_SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink);
+    }
+
+    /// Announce what was taken away. Logs as well as emits: a reaper whose work is invisible in the
+    /// log is a reaper nobody can debug (which is how the dead sweeper above survived unnoticed).
+    fn announce_evicted(evicted: &[EvictedSession], cap_or_ttl: u64, cause: &str) {
+        for e in evicted {
+            tracing::info!(
+                "terminal: closed {} ({}, {} since last output) — {}",
+                e.id,
+                e.label,
+                human_ms(e.idle_ms),
+                e.reason
+            );
+        }
+        let payload = serde_json::json!({
+            "ev": "session-evicted",
+            "cause": cause,
+            "limit": cap_or_ttl,
+            "sessions": evicted,
+        });
+        if let Some(f) = EVICT_SINK.lock().unwrap_or_else(|p| p.into_inner()).clone() {
+            f(payload);
+        }
+        let mut last = LAST_EVICTED.lock().unwrap_or_else(|p| p.into_inner());
+        last.extend_from_slice(evicted);
+    }
+
+    /// Run the idle sweeper for the life of the process.
+    ///
+    /// CALLED FROM `main` (never from the constructor): the previous version spawned it behind
+    /// `Handle::try_current()` and skipped silently when that declined, which is how a device came to
+    /// hold sixteen sessions silent for eleven hours under a fifteen-minute TTL with nothing in any
+    /// log to say the reaper was not running. Starting here means it always starts, and the `info!`
+    /// it logs at startup is the line that would have made the failure obvious.
+    ///
+    /// Each pass is `sweep_idle`, which cannot be killed by one bad backend; if the task itself ever
+    /// ends, the warning below is the only thing that can say so — hence its being a warning.
+    pub fn spawn_idle_sweeper(mgr: Arc<TerminalManager>) {
+        let ttl = SESSION_IDLE_TTL;
+        let handle = tokio::spawn(async move {
+            tracing::info!(
+                "terminal idle sweeper: reaping sessions silent for more than {}s",
+                ttl.as_secs()
+            );
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+            tick.tick().await; // the first tick fires immediately — skip it
+            loop {
+                tick.tick().await;
+                let reaped = mgr.sweep_idle().await;
+                if !reaped.is_empty() {
+                    tracing::info!("terminal idle sweeper: reaped {} session(s)", reaped.len());
+                }
+            }
+        });
+        // A supervisor that only logs: `tokio::spawn` returns a JoinHandle nobody awaits, and a task
+        // that panicked used to vanish without a word (the shape this whole round is about).
+        tokio::spawn(async move {
+            if let Err(e) = handle.await {
+                tracing::warn!(
+                    "terminal idle sweeper STOPPED: {e} — sessions will no longer be reaped"
+                );
+            }
+        });
+    }
+
+    /// Take (and clear) what the last operation evicted. A caller that just opened a session needs
+    /// to know what that cost, and only the caller knows when to ask.
+    pub fn take_evicted() -> Vec<EvictedSession> {
+        std::mem::take(&mut *LAST_EVICTED.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    fn human_ms(ms: u64) -> String {
+        let s = ms / 1000;
+        if s < 60 {
+            format!("{s}s")
+        } else if s < 3600 {
+            format!("{}m", s / 60)
+        } else {
+            format!("{}h{}m", s / 3600, (s % 3600) / 60)
+        }
+    }
+
+    pub(crate) struct TerminalInner {
+        pub(crate) sessions: Vec<Session>,
         next_id: u32,
         boot_prefix: String, // per-boot sid prefix (restart-safe ids)
     }
 
     #[derive(Clone)]
     pub struct TerminalManager {
-        inner: std::sync::Arc<tokio::sync::Mutex<TerminalInner>>,
+        pub(crate) inner: std::sync::Arc<tokio::sync::Mutex<TerminalInner>>,
         serial_pool: Arc<crate::tools::serial::SerialPool>,
     }
 
@@ -656,43 +769,63 @@ mod desktop_impl {
                 })),
                 serial_pool,
             };
-            // Idle sweeper: force-close sessions that have been silent for the
-            // TTL (client disconnected, backend stalled). Best-effort — never
-            // blocks open/close. Only spawn when a tokio runtime is active —
-            // unit tests construct the manager outside one and tokio::spawn
-            // would panic ("no reactor running").
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                let mgr2 = mgr.clone();
-                drop(runtime.spawn(async move {
-                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
-                    tick.tick().await; // first tick fires immediately — skip
-                    loop {
-                        tick.tick().await;
-                        let mut inner = mgr2.inner.lock().await;
-                        let now = std::time::Instant::now();
-                        let mut sweep = Vec::new();
-                        for (i, s) in inner.sessions.iter().enumerate() {
-                            if now.duration_since(s.last_output) > SESSION_IDLE_TTL {
-                                sweep.push(i);
-                            }
-                        }
-                        // review #10: clone the Arcs and drop the inner
-                        // guard BEFORE close() — close signals reader/
-                        // reaper threads (std locks + joins), and the repo
-                        // rule is never block under `inner`.
-                        let reaped: Vec<Arc<dyn TermBackend>> = sweep
-                            .into_iter()
-                            .rev()
-                            .map(|i| inner.sessions.remove(i).backend)
-                            .collect();
-                        drop(inner);
-                        for b in reaped {
-                            b.close();
-                        }
-                    }
-                }));
-            }
+            // THE IDLE SWEEPER IS SPAWNED FROM `main`, NOT FROM HERE — see spawn_idle_sweeper.
+            //
+            // It used to be spawned here, guarded by `Handle::try_current()`, and that guard is how
+            // this box ended up with SIXTEEN sessions silent for up to ELEVEN HOURS under a
+            // fifteen-minute TTL: constructed outside a runtime the spawn was skipped, silently, and
+            // nothing anywhere said the reaper was not running. A background task that may decline
+            // to start must be started from where starting is guaranteed (the same reason
+            // `monitor::spawn_prober` is called from main).
             mgr
+        }
+
+        /// REAP EVERY SESSION THAT HAS BEEN SILENT PAST THE TTL, and return what was reaped.
+        ///
+        /// Extracted from the loop so the DECISION and the SURVIVAL are testable without a clock: a
+        /// test can age a session past the TTL by hand, and a backend whose `close` panics must not
+        /// take the sweeper (or the other sessions) with it — which is why each close runs on its
+        /// own blocking thread and its result is discarded rather than unwrapped.
+        pub async fn sweep_idle(&self) -> Vec<EvictedSession> {
+            let reaped: Vec<(Session, Arc<dyn TermBackend>)> = {
+                let mut inner = self.inner.lock().await;
+                let now = std::time::Instant::now();
+                let mut idx: Vec<usize> = Vec::new();
+                for (i, s) in inner.sessions.iter().enumerate() {
+                    if now.duration_since(s.last_output) > SESSION_IDLE_TTL {
+                        idx.push(i);
+                    }
+                }
+                // review #10: take the backends and drop the guard BEFORE closing — close signals
+                // reader/reaper threads (std locks + joins), and the repo rule is never block under
+                // `inner`.
+                idx.into_iter()
+                    .rev()
+                    .map(|i| {
+                        let s = inner.sessions.remove(i);
+                        let b = s.backend.clone();
+                        (s, b)
+                    })
+                    .collect()
+            };
+            let mut evicted = Vec::new();
+            for (session, backend) in reaped {
+                let idle_ms = session.last_output.elapsed().as_millis() as u64;
+                evicted.push(EvictedSession {
+                    id: session.id.clone(),
+                    label: session.label.clone(),
+                    kind: session.kind.clone(),
+                    idle_ms,
+                    reason: format!("silent for {}s (idle TTL)", idle_ms / 1000),
+                });
+                // ON ITS OWN THREAD, AND ITS RESULT IGNORED: one backend that cannot close cleanly
+                // must not stop the sweep for every other session.
+                let _ = tokio::task::spawn_blocking(move || backend.close()).await;
+            }
+            if !evicted.is_empty() {
+                announce_evicted(&evicted, SESSION_IDLE_TTL.as_secs(), "idle");
+            }
+            evicted
         }
 
         /// Mark a session as recently active (called when output is received).
@@ -813,9 +946,10 @@ mod desktop_impl {
             // opened — an old-but-actively-watched session must survive.
             // review #10: the block RETURNS the evicted backends so their
             // close() (thread signals) runs AFTER the inner guard drops.
-            let deferred: Vec<Arc<dyn TermBackend>> = {
+            let (deferred, evicted): (Vec<Arc<dyn TermBackend>>, Vec<EvictedSession>) = {
                 let mut inner = self.inner.lock().await;
                 let mut deferred: Vec<Arc<dyn TermBackend>> = Vec::new();
+                let mut evicted: Vec<EvictedSession> = Vec::new();
                 while inner.sessions.len() >= MAX_SESSIONS {
                     // Evict the session idle-longest; on a last_output tie
                     // fall back to the OLDEST-opened — an old-but-actively-
@@ -830,7 +964,18 @@ mod desktop_impl {
                         // review #10: defer close() out of the lock (see the
                         // sweeper); the slot is freed by remove() immediately.
                         Some(i) => {
-                            deferred.push(inner.sessions.remove(i).backend);
+                            let s = inner.sessions.remove(i);
+                            // WHAT THE CAP COST is recorded, not just closed: the operator's box sits
+                            // at this cap, so the next session opened takes a tab away, and until now
+                            // that happened in complete silence.
+                            evicted.push(EvictedSession {
+                                id: s.id.clone(),
+                                label: s.label.clone(),
+                                kind: s.kind.clone(),
+                                idle_ms: s.last_output.elapsed().as_millis() as u64,
+                                reason: format!("session cap ({MAX_SESSIONS}) reached"),
+                            });
+                            deferred.push(s.backend);
                         }
                         None => break,
                     }
@@ -858,10 +1003,13 @@ mod desktop_impl {
                     goal: None,
                     plan: Vec::new(),
                 });
-                deferred
+                (deferred, evicted)
             };
             for b in deferred {
                 b.close();
+            }
+            if !evicted.is_empty() {
+                announce_evicted(&evicted, MAX_SESSIONS as u64, "cap");
             }
             Ok((id, rx))
         }
@@ -1696,6 +1844,7 @@ mod desktop_impl {
                     id: s.id.clone(),
                     kind: s.kind.clone(),
                     label: s.label.clone(),
+                    idle_ms: s.last_output.elapsed().as_millis() as u64,
                     shell: s.shell.clone(),
                     held_by_human: s.held_by_human,
                     approval_required: s.approval_required,
@@ -1721,6 +1870,7 @@ mod desktop_impl {
                     id: s.id.clone(),
                     kind: s.kind.clone(),
                     label: s.label.clone(),
+                    idle_ms: s.last_output.elapsed().as_millis() as u64,
                     shell: s.shell.clone(),
                     held_by_human: s.held_by_human,
                     approval_required: s.approval_required,
@@ -1771,6 +1921,11 @@ mod desktop_impl {
 
 #[cfg(feature = "terminal")]
 pub use desktop_impl::TerminalManager;
+// The eviction surface lives beside the code that produces it (inside `desktop_impl`, where the
+// manager's state is) and is re-exported here so `main` can install the sink and start the sweeper
+// without knowing the module's internal shape — the same reason `TerminalManager` is re-exported.
+#[cfg(feature = "terminal")]
+pub use desktop_impl::{set_event_sink, spawn_idle_sweeper, take_evicted, EvictedSession};
 #[cfg(not(feature = "terminal"))]
 pub use stub::TerminalManager;
 
@@ -2864,6 +3019,96 @@ mod tests {
         assert_eq!(
             mgr.term_plan("no-such-sid").await.unwrap_err().code(),
             "session_not_found"
+        );
+    }
+
+    /// THE SWEEPER REAPS WHAT IS SILENT AND KEEPS WHAT IS NOT — and it SAYS what it took.
+    ///
+    /// WHY THIS TEST EXISTS (round 37). The operator's device held SIXTEEN sessions, several silent
+    /// for ELEVEN HOURS, under a fifteen-minute TTL: the sweeper had never run, because it was
+    /// spawned from the manager's constructor behind `Handle::try_current()` and that declines in
+    /// silence outside a runtime. The decision is tested here; the STARTING is now in `main`
+    /// (`spawn_idle_sweeper`), which is the half no unit test can cover.
+    #[cfg(all(feature = "terminal", not(target_os = "windows")))]
+    #[tokio::test]
+    async fn the_idle_sweeper_reaps_only_what_is_silent_and_names_it() {
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        let pool = StdArc::new(crate::tools::serial::SerialPool::new(115200, 1000));
+        let mgr = TerminalManager::new(pool);
+        fn req() -> TermOpenRequest {
+            TermOpenRequest {
+                kind: "pty".into(),
+                target: String::new(),
+                password: String::new(),
+                key_path: String::new(),
+                rows: 24,
+                cols: 80,
+                inject_marker: false,
+                data_bits: None,
+                parity: None,
+                stop_bits: None,
+                auto_reconnect: false,
+            }
+        }
+        let (stale, _rx1) = mgr.term_open(&req()).await.expect("open stale");
+        let (fresh, _rx2) = mgr.term_open(&req()).await.expect("open fresh");
+
+        // Age ONE of them past the TTL by hand: the clock is exactly what a unit test cannot wait for.
+        {
+            let mut inner = mgr.inner.lock().await;
+            let s = inner
+                .sessions
+                .iter_mut()
+                .find(|s| s.id == stale)
+                .expect("stale session");
+            s.last_output = std::time::Instant::now()
+                - super::desktop_impl::SESSION_IDLE_TTL
+                - std::time::Duration::from_secs(60);
+        }
+
+        // The announcement must reach a sink — that is how the panel learns a tab was taken.
+        let seen: StdArc<StdMutex<Vec<serde_json::Value>>> = StdArc::new(StdMutex::new(Vec::new()));
+        let sink = seen.clone();
+        set_event_sink(StdArc::new(move |payload| {
+            sink.lock().unwrap_or_else(|p| p.into_inner()).push(payload)
+        }));
+
+        let evicted = mgr.sweep_idle().await;
+        assert_eq!(evicted.len(), 1, "exactly the silent session is reaped");
+        assert_eq!(evicted[0].id, stale);
+        assert!(
+            evicted[0].reason.contains("idle TTL"),
+            "the reason names the rule: {}",
+            evicted[0].reason
+        );
+        assert!(
+            evicted[0].idle_ms >= 16 * 60 * 1000,
+            "and carries how long it was silent"
+        );
+
+        // The one that is still warm survives, and the caller can still reach it.
+        let live: Vec<String> = mgr.term_list().await.into_iter().map(|s| s.id).collect();
+        assert_eq!(
+            live,
+            vec![fresh],
+            "a session with recent output is not reaped"
+        );
+
+        // The sink got the announcement, with the cause and the limit.
+        let payloads = seen.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert_eq!(payloads.len(), 1, "one announcement for one reaping");
+        assert_eq!(payloads[0]["ev"], "session-evicted");
+        assert_eq!(payloads[0]["cause"], "idle");
+        assert_eq!(payloads[0]["sessions"][0]["id"], serde_json::json!(stale));
+
+        // …and the record is available to the next caller that asks (the cap path uses the same
+        // channel: whoever caused an eviction is told what it cost).
+        let taken = take_evicted();
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[0].id, stale);
+        assert!(
+            take_evicted().is_empty(),
+            "taking is taking: the record does not repeat"
         );
     }
 

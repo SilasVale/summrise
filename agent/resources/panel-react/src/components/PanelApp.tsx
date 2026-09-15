@@ -4,10 +4,12 @@
 // dual-view are replaced by Shell + ContextRail.
 import { useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
+import { EvictedNotice } from "./EvictedNotice";
 import { GettingStarted } from "./GettingStarted";
 import { HistoryPage } from "./HistoryPage";
 import { IconRail } from "./IconRail";
 import { Shell, type Page } from "./Shell";
+import { useEvictedNotice } from "../hooks/useEvicted";
 import { GETTING_STARTED_KEY, GETTING_STARTED_VERSION, shouldShowGuide } from "../lib/gettingStarted";
 import { ContextRail } from "./ContextRail";
 import { StatusBar } from "./StatusBar";
@@ -128,6 +130,9 @@ export function PanelApp(props: Props) {
       return true;
     }
   });
+  // The device announces evictions on the same stream the monitors use; this is the one line
+  // that says what it took (see hooks/useEvicted).
+  const evicted = useEvictedNotice();
   const closeGuide = () => {
     setGuideOpen(false);
     try {
@@ -148,6 +153,9 @@ export function PanelApp(props: Props) {
           }}
         />
       )}
+      {/* The device's own announcement, above the shell: a session it took away (cap or idle TTL),
+          with the rule that took it. Nothing renders when nothing happened. */}
+      <EvictedNotice notice={evicted} />
       <Shell
         density="panel"
         iconRail={
