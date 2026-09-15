@@ -177,6 +177,18 @@ describe("the design scale", () => {
     }
   });
 
+  it("the settings rows wrap, and a deliberate ellipsis is not treated as clipping", () => {
+    // MEASURED at 720px (round 47): the monitor-add row (host + port + path + expected text + watch)
+    // overflowed its container by 38px, and the settings section with it. Five controls that cannot
+    // shrink have to wrap.
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(blockOf(css, ".monitor-add")).toContain("flex-wrap: wrap");
+    // The other half of the measurement: a text-overflow: ellipsis IS the design (.plug-meta
+    // documents it), so a sweep that calls it "clipped text" cries wolf. This pins the distinction
+    // the audit script now draws, in the place a reader would look for it.
+    expect(blockOf(css, ".plug-meta")).toContain("text-overflow: ellipsis");
+  });
+
   it("type sizes come from the scale, and none of them is a half pixel", () => {
     const css = builtCss();
     // Sizes appear both as `font-size:` and inside the `font:` shorthand; the shorthand is why

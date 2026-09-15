@@ -1204,7 +1204,11 @@
 .monitor-body { display: flex; align-items: center; gap: var(--sp-2); }
 .monitor-facts { display: flex; gap: var(--sp-2); font: 400 11px var(--font-mono); color: var(--chrome-ink-dim); }
 .monitor-fact-down { color: var(--danger-on-soft); }
-.monitor-add { display: flex; gap: var(--sp-2); align-items: center; }
+/* WRAPS AT NARROW WIDTHS. The row holds five controls (host, port, optional path, optional expected
+   text, watch) and none of them can shrink below a usable input width, so at a 720px viewport it
+   measured 619px inside a 619px box with 657px of content — a horizontal scroll inside a settings
+   panel, which is where the operator goes when something is already wrong. */
+.monitor-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
 .monitor-path { flex: 1; min-width: 120px; }
 /* THE STATUS NUMBER, shown even when the target is up: "404 up" and "200 up" are different facts
    about one service, and hiding the number would make the verdict unfalsifiable. A 5xx is the
