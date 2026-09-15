@@ -12,6 +12,9 @@
 //     and a decision that did not land leaves them believing they answered;
 //   * expiry is visible and its meaning is stated, because "nothing happened"
 //     and "your click was lost" are otherwise indistinguishable.
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   render,
@@ -633,5 +636,27 @@ describe("ApprovalGate — copy that is true whether the AI is blocked or parked
     // The panel cannot tell "blocked" from "gave up and parked" — there is no
     // such bit on the wire — so it must not assert either.
     expect(note).not.toMatch(/paused|blocked|stopped waiting for good/i);
+  });
+});
+
+// ── THE CROSS-CHECK: one fixture, both implementations ────────────────────────────────────────
+//
+// `agent/tests/fixtures/approval-grants.json` is read by THIS test and by
+// `approval.rs::the_panel_mirror_and_the_device_agree_on_every_fixture_case`. The two implementations
+// had already drifted before the fixture existed: this mirror still offered `PATH=/evil` as a grant
+// after the device began refusing it, and offered `.` for `. ./deploy.sh` where the device refuses
+// pure punctuation. A divergence cannot widen a permission, but it makes the UI promise something
+// the device will not do — so the pair is pinned rather than trusted.
+describe("the grant mirror agrees with the device", () => {
+  it("derives the same grant for every fixture case", () => {
+    const raw = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../tests/fixtures/approval-grants.json"),
+      "utf8",
+    );
+    const { cases } = JSON.parse(raw) as { cases: { cmd: string; grant: string | null; why?: string }[] };
+    expect(cases.length, "the fixture must stay substantive").toBeGreaterThanOrEqual(25);
+    for (const c of cases) {
+      expect(firstWord(c.cmd), `firstWord(${JSON.stringify(c.cmd)}) ${c.why ?? ""}`).toBe(c.grant);
+    }
   });
 });

@@ -268,16 +268,30 @@ export function ApprovalGate({ armed, pending, grants, onArm, onDecide, onRevoke
 
 /** The word a grant would cover, or null when the command is not a simple one.
  *
- *  A CLIENT-SIDE MIRROR of `approval.rs::grant_for`, used only to decide whether
- *  to OFFER the control and what to label it. The server derives the real grant
- *  from the stored command, so a divergence here can mislabel a button or hide
- *  one — it cannot widen a permission. Kept deliberately conservative and in sync
- *  with the Rust list; the two are cross-checked by a test.
+ *  A CLIENT-SIDE MIRROR of `approval.rs::grant_for`, used only to decide whether to OFFER the
+ *  control and what to label it. The device derives the real grant from the stored command, so a
+ *  divergence here cannot widen a permission — but it CAN make the UI promise something the device
+ *  will not do, which is a control that lies.
+ *
+ *  AND IT HAD DRIFTED. When round 51 checked the two against each other, this mirror was missing
+ *  two rules the device had: the `=`/`%`-in-the-first-word refusal (round 170's env-assignment fix)
+ *  and the "the first word must name a program" rule, so it offered `Always allow PATH=/evil` and
+ *  `Always allow .` for grants the device refuses. The doc comment above used to claim "the two are
+ *  cross-checked by a test"; none existed.
+ *
+ *  Now they read ONE fixture — `agent/tests/fixtures/approval-grants.json` — from both sides, so a
+ *  rule change that touches only one of them fails a test.
  */
-const UNSAFE_CHARS = /[;&|\n\r`$<>(){}"'\\*?[\]!#~]/;
+const UNSAFE_CHARS = /[;&|\n\r`$<>(){}"'\\*?[\]!#~^]/;
 
 export function firstWord(cmd: string): string | null {
   const t = cmd.trim();
   if (!t || UNSAFE_CHARS.test(t)) return null;
-  return t.split(/\s+/)[0] || null;
+  const first = t.split(/\s+/)[0] || null;
+  if (!first) return null;
+  // The device's two narrow rules, mirrored exactly: a first word that assigns (`PATH=/evil`) or
+  // expands (`%COMSPEC%`) is not a program, and neither is pure punctuation (`.`, `..`, `/`, `:`).
+  if (first.includes("=") || first.includes("%")) return null;
+  if (!/[\p{L}\p{N}]/u.test(first)) return null;
+  return first;
 }

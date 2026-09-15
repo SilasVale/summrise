@@ -48,11 +48,25 @@
 ///   looks like;
 /// * `~` — home expansion.
 ///
+/// And the two the list was missing because it was written POSIX-FIRST, on a
+/// product whose terminal is most often a Windows one (measured: `infer_shell`
+/// defaults to PowerShell, and cmd is a supported target):
+///
+/// * `%` — cmd's substitution, but ONLY in the first word (see the narrow check
+///   below, the same shape as `=`): `%COMSPEC% /c del x` is grantable today and
+///   its first word expands to a program the word does not name, which is the
+///   exact property this file claims to keep. A `%` in a LATER word cannot change
+///   which program runs — `git log --format=%H` must stay grantable — so it is
+///   not in the list;
+/// * `^` — cmd's escape character, which builds a command line whose text is not
+///   what the shell reads. This file's policy is to refuse rather than reason
+///   about such constructs.
+///
 /// The cost is real and accepted: a legitimate command using any of these asks
 /// every time. Asking is the safe direction.
 const UNSAFE: &[char] = &[
     ';', '&', '|', '\n', '\r', '`', '$', '<', '>', '(', ')', '{', '}', '"', '\'', '\\', '*', '?',
-    '[', ']', '!', '#', '~',
+    '[', ']', '!', '#', '~', '^',
 ];
 
 /// Whether a command is simple enough for a grant to be meaningful.
@@ -75,7 +89,18 @@ pub fn is_simple_command(cmd: &str) -> bool {
     // (`git log --format=%H`, `curl -d a=b`) cannot change which program runs, and
     // banning it there would make ordinary commands ask every time for no safety
     // gained. The narrow check encodes the property instead of approximating it.
-    !t.split_whitespace().next().unwrap_or("").contains('=')
+    let first = t.split_whitespace().next().unwrap_or("");
+    if first.contains('=') || first.contains('%') {
+        return false;
+    }
+    // AND THE FIRST WORD MUST NAME A PROGRAM. The rule above says "the first word
+    // is the whole story about what program runs"; that is false when the word is
+    // pure punctuation. Measured: `. ./deploy.sh` is grantable as `.` — dot-sourcing
+    // an arbitrary script under a word that says nothing — and `.` has no character
+    // a shell could not also spell as a separator. Requiring one alphanumeric keeps
+    // `./deploy.sh`, `ls`, `git` and `C:\\tools\\x.exe` and refuses `.`, `..`, `/`
+    // and `:`.
+    first.chars().any(|c| c.is_alphanumeric())
 }
 
 /// The grant a command would create: its first whitespace-separated word.
@@ -226,6 +251,87 @@ mod tests {
         assert_eq!(grant_for("PATH=/evil ls"), None);
         assert!(!grant_matches("PATH=/evil", "PATH=/evil rm -rf /"));
         assert!(!grant_matches("PATH=/evil ls", "PATH=/evil rm -rf /"));
+    }
+
+    /// THE CROSS-CHECK the module's doc promised and nothing provided.
+    ///
+    /// `grant_for` decides on the device; `firstWord` in ApprovalGate.tsx decides whether the panel
+    /// OFFERS the control and what to label it. Two implementations, two languages — and they had
+    /// already drifted: the panel still offered `PATH=/evil` as a grant after this file started
+    /// refusing it, and it offered `.` for `. ./deploy.sh` where this file refuses pure punctuation.
+    /// A divergence cannot widen a permission (the device derives the grant it will honour), but it
+    /// makes the UI promise something the device will not do — a control that lies.
+    ///
+    /// Both sides now read ONE fixture, so a rule change that touches only one of them fails here
+    /// or in the panel's suite.
+    #[test]
+    fn the_panel_mirror_and_the_device_agree_on_every_fixture_case() {
+        let raw = include_str!("../../../tests/fixtures/approval-grants.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(raw).expect("the shared fixture parses");
+        let cases = parsed["cases"].as_array().expect("cases");
+        assert!(cases.len() >= 25, "the fixture must stay substantive");
+        let mut checked = 0;
+        for c in cases {
+            let cmd = c["cmd"].as_str().expect("cmd");
+            let want = c["grant"].as_str();
+            let why = c["why"].as_str().unwrap_or("");
+            match want {
+                Some(word) => assert_eq!(
+                    grant_for(cmd).as_deref(),
+                    Some(word),
+                    "{cmd:?} must be grantable as {word:?} ({why})"
+                ),
+                None => assert_eq!(
+                    grant_for(cmd),
+                    None,
+                    "{cmd:?} must NOT be grantable ({why})"
+                ),
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, cases.len());
+    }
+
+    #[test]
+    fn cmd_substitution_in_the_first_word_is_never_grantable() {
+        // WINDOWS FIRST. This list was written POSIX-first: `$` and backtick were refused while
+        // cmd's own substitution was not, so `%COMSPEC% /c del x` was grantable as `%COMSPEC%` — a
+        // word that expands to a program it does not name, which is the one property this module
+        // promises to keep. `^` is refused everywhere (cmd's escape builds a line whose text is not
+        // what the shell reads); `%` only in the FIRST word, for the same reason `=` is.
+        assert_eq!(grant_for("%COMSPEC% /c del x"), None);
+        assert_eq!(grant_for("%TEMP%/tool.exe --go"), None);
+        assert!(!is_simple_command("%COMSPEC% /c dir"));
+        assert_eq!(
+            grant_for("echo ^hello"),
+            None,
+            "^ is cmd's escape character"
+        );
+        // The counterweight, unchanged: a `%` in a LATER word cannot change which program runs.
+        assert!(is_simple_command("git log --format=%H"));
+        assert_eq!(grant_for("echo %USERPROFILE%").as_deref(), Some("echo"));
+    }
+
+    #[test]
+    fn the_first_word_must_name_a_program() {
+        // The rule "the first word is the whole story about what program runs" is false when that
+        // word is pure punctuation: `. ./deploy.sh` was grantable as `.` — dot-sourcing an arbitrary
+        // script under a word that says nothing. One alphanumeric keeps every real program name.
+        assert_eq!(grant_for(". ./deploy.sh"), None);
+        assert_eq!(grant_for(".. /etc/passwd"), None);
+        assert_eq!(grant_for("/ ./x"), None);
+        assert_eq!(grant_for(": :"), None);
+        // ...and does not touch the ordinary ones.
+        assert_eq!(
+            grant_for("./deploy.sh --prod").as_deref(),
+            Some("./deploy.sh")
+        );
+        assert_eq!(grant_for("ls -la").as_deref(), Some("ls"));
+        assert_eq!(
+            grant_for("C:/tools/x.exe -v").as_deref(),
+            Some("C:/tools/x.exe")
+        );
     }
 
     #[test]
