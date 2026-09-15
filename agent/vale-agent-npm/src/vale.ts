@@ -715,9 +715,18 @@ export function stripAnsi(text) {
         .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 }
 
-/** The last non-empty line of a chunk, clipped — a report line, not a transcript. */
+/** The last COMPLETE line of a chunk, clipped — a report line, not a transcript.
+ *
+ *  A CONSOLE IS A BYTE STREAM, and the last line of it is often half-typed: the audit records
+ *  whatever arrived, so a chunk can end mid-word (`…PS C:\> n`) and the naive "last non-empty
+ *  line" then quotes `n` as what the console said — observed on d1 the first time this shipped).
+ *  An unterminated trailing fragment is DROPPED: what the console SAID is the last thing it
+ *  finished saying. */
 export function lastLine(text, cap = 120) {
-    const lines = stripAnsi(text)
+    const raw = String(text || "");
+    // Only used when the chunk ends mid-line: everything up to the last newline is complete.
+    const complete = /\r?\n$/.test(raw) ? raw : raw.slice(0, Math.max(0, raw.lastIndexOf("\n") + 1));
+    const lines = stripAnsi(complete)
         .split(/\r?\n/)
         .map((l) => l.replace(/\s+$/, ""))
         .filter((l) => l.trim().length > 0);

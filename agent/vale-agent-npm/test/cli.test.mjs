@@ -1554,10 +1554,18 @@ test("stripAnsi/lastLine: a report line, not a transcript", () => {
   assert.equal(lastLine("one\ntwo\r\n\n   \nlast line here\n"), "last line here");
   // A trailing blank line is not "the last line": an operator wants the content.
   assert.equal(lastLine("content\n\n\n"), "content");
+  // A HALF-TYPED LINE IS NOT A LINE: the console is a byte stream, so the last chunk often ends
+  // mid-word. Quoting `n` as "what the console said" (observed on d1) is worse than quoting nothing.
+  assert.equal(lastLine("PS C:\\> ifconfig\r\nPS C:\\> n"), "PS C:\\> ifconfig");
+  assert.equal(lastLine("n"), "");
+  assert.equal(lastLine("only a fragment, no newline"), "");
+  // …and a chunk that DOES end with a newline keeps its last line.
+  assert.equal(lastLine("first\nsecond\n"), "second");
   assert.equal(lastLine(""), "");
   assert.equal(lastLine("\u001b[2J\u001b[H"), "");
-  // Long lines are clipped, because this lands inside a report line.
-  const long = lastLine("x".repeat(300));
+  // Long lines are clipped, because this lands inside a report line — and the line must be
+  // TERMINATED to count as a line at all (see the half-typed case above).
+  const long = lastLine("x".repeat(300) + "\n");
   assert.equal(long.length, 120);
   assert.match(long, /\.\.\.$/);
 });
