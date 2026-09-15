@@ -2957,9 +2957,10 @@ const commands = {
 if (require.main === module) {
   const [cmd, ...rest] = process.argv.slice(2);
   if (!cmd || !commands[cmd]) {
-    console.log(
-      "vale <setup|status|report|watch|monitor|start|stop|restart|autostart|update|rollback|uninstall|run|tunnel> -- Vale Agent control",
-    );
+    // The list is DERIVED from `commands`, so the help cannot promise a verb that was pruned
+    // (`report` and `watch` were still advertised after their round-25 removal — a usage line is a
+    // contract, and one that lies is worse than none).
+    console.log("vale <" + Object.keys(commands).join("|") + "> -- Vale Agent control");
     Object.keys(commands).forEach((k) => console.log(" ", k));
     process.exit(cmd ? 1 : 0);
   }

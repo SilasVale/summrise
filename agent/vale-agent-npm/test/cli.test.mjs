@@ -1522,3 +1522,13 @@ test("stop and restart mark the run as deliberate before killing it", () => {
 
 // ── following a LIVE console ────────────────────────────────────────────────
 
+
+
+test("the help cannot promise a verb that does not exist", () => {
+  // The round-25 prune deleted `report` and `watch` while the hand-written usage line still
+  // advertised them — a usage line is a contract. It is derived from `commands` now, and this pins
+  // that: every name printed comes from the dispatcher's own table, and nothing else is printed.
+  const shipped = readFileSync(new URL("../bin/vale.js", import.meta.url), "utf8");
+  assert.match(shipped, /vale <" \+ Object\.keys\(commands\)\.join\("\|"\) \+ ">/);
+  assert.doesNotMatch(shipped, /vale <setup\|status\|report/);
+});
