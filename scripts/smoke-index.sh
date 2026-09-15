@@ -39,6 +39,14 @@ smoke_index_release() {
   local want_version="$1" want_sha="$2"
   local stale_alias=0
   assert_want_sha256 "$want_sha" || return 1
+  # A CHECK THAT CANNOT RUN MUST NOT REPORT A VERDICT. Without this, a missing helper (the smoke
+  # is sourced by publish-release.sh AND by its own harness) made every `sha256_of_url` call fail
+  # as "command not found" and return EMPTY — i.e. "no installer is served", which is exactly the
+  # answer this round was trying to make trustworthy. Fail loudly instead.
+  if ! command -v sha256_of_url >/dev/null 2>&1; then
+    echo "  !! smoke cannot verify downloads: sha256_of_url is not available (source scripts/lib/release-lib.sh first)"
+    return 1
+  fi
   local base="${SMOKE_BASE_URL:-https://agent.saisi.online}"
   local retry_sleep="${SMOKE_RETRY_SLEEP:-3}"
   local live=""

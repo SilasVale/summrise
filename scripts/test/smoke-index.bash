@@ -14,6 +14,7 @@
 # Run: bash scripts/test/smoke-index.bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+source "scripts/lib/release-lib.sh"   # sha256_of_url — as publish-release.sh does
 source "scripts/smoke-index.sh"
 
 PASS=0
@@ -51,23 +52,31 @@ run_smoke() {
   # records the same lesson.
   local raw="$1" live_json="$2" alias_body="$3"
   curl() {
-    local url=""
+    local url="" out=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        -o) shift 2;;
+        # -o IS HONOURED, like the real thing: the smoke downloads to a FILE and hashes
+        # that, because an installer is a BINARY and command substitution drops NUL bytes
+        # (round 27 replaced the `curl | sha256sum` pipeline for exactly this reason, and
+        # this stub has to keep behaving like curl or the arm it stubs passes for the
+        # wrong reason).
+        -o) out="$2"; shift 2;;
         -m|--retry|--retry-delay) shift 2;;
         -*) shift;;
         *) url="$1"; shift;;
       esac
     done
+    _emit() { if [ -n "$out" ]; then printf '%s' "$1" > "$out"; else printf '%s' "$1"; fi; }
     case "$url" in
-      */api/version) printf '%s' "$live_json";;
-      */vale-agent/version.json) printf '%s' "$raw";;
-      */vale-agent/vale-agent-latest.tgz) printf '%s' "$FIX_TGZ";;
-      */vale-agent/vale-agent-$VER.tgz) printf '%s' "$FIX_TGZ";;
-      */vale-agent/ValeAgent-Setup-$VER.exe) printf '%s' "$FIX_INST";;
+      */api/version) _emit "$live_json";;
+      */vale-agent/version.json) _emit "$raw";;
+      */vale-agent/vale-agent-latest.tgz) _emit "$FIX_TGZ";;
+      */vale-agent/vale-agent-$VER.tgz) _emit "$FIX_TGZ";;
+      */vale-agent/ValeAgent-Setup-$VER.exe) _emit "$FIX_INST";;
       */vale-agent/ValeAgent-Setup.exe)
-        [ -n "$alias_body" ] && printf '%s' "$alias_body" || return 22;;
+        # A MISSING ALIAS IS A FAILED DOWNLOAD (curl's exit 22 on a 404), not an empty body —
+        # the difference is the whole point of the round-27 fix.
+        if [ -n "$alias_body" ]; then _emit "$alias_body"; else return 22; fi;;
       *) return 22;;
     esac
   }
