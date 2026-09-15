@@ -52,8 +52,6 @@ export interface MonitorTarget {
   path: string | null;
   /** Text the body must contain, when the operator asked for a content check. */
   expect: string | null;
-  /** The operator's own words about the current state ("I rebooted it"), when they wrote any. */
-  note: { text: string; atMs: number } | null;
   summary: MonitorSummary;
   /** Newest last; the card shows them newest-first. */
   transitions: MonitorTransition[];
@@ -103,10 +101,6 @@ export function parseMonitors(j: unknown): Monitors {
         port: num(r.port) ?? 0,
         path: r.path === null || r.path === undefined ? null : str(r.path) || null,
         expect: r.expect === null || r.expect === undefined ? null : str(r.expect) || null,
-        note:
-          r.note && typeof r.note === "object"
-            ? { text: str((r.note as Record<string, unknown>).text), atMs: num((r.note as Record<string, unknown>).at_ms) ?? 0 }
-            : null,
         transitions,
         series,
         summary: {

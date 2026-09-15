@@ -44,10 +44,6 @@ pub const SERIES_MAX: usize = 240;
 /// changes; the cap is there so a target toggling every probe cannot make a response unbounded.
 pub const TRANSITIONS_MAX: usize = 20;
 
-/// A note is one line the operator writes about a MOMENT ("I rebooted it"), not a log — bounded so
-/// a paste cannot become the watch list's payload.
-pub const NOTE_MAX: usize = 200;
-
 /// Targets a device will watch. Small on purpose: this is an operator's instrument, not a
 /// network management station, and every target costs a probe per interval.
 pub const TARGETS_MAX: usize = 8;
@@ -92,19 +88,6 @@ pub struct Probe {
 struct Watch {
     target: Target,
     series: VecDeque<Probe>,
-    /// THE OPERATOR'S OWN WORDS about the current state — "I rebooted it", "maintenance window".
-    ///
-    /// WHY IT IS NOT PART OF THE TARGET: a target is a decision that persists (it is written to
-    /// `monitors.json`), while a note explains a MOMENT. Keeping it out of the persisted list means
-    /// a restart cannot resurrect a note that has stopped being true — the same reasoning that
-    /// keeps samples out of the file. It is replaced by the next note and cleared by an empty one.
-    note: Option<Note>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct Note {
-    pub text: String,
-    pub at_ms: u64,
 }
 
 #[derive(Default)]
@@ -375,7 +358,6 @@ pub fn add_target_full(
         st.watches.push(Watch {
             target: target.clone(),
             series: VecDeque::new(),
-            note: None,
         });
         target.clone()
     });
@@ -385,40 +367,6 @@ pub fn add_target_full(
     // Persist the list (best-effort — see the module header).
     let _ = crate::jsonl::rewrite_atomically(&targets_path(data_dir), &render_targets(&targets()));
     Ok(stored)
-}
-
-/// Attach the operator's explanation to a target's CURRENT state, or clear it with an empty
-/// string. Returns the note as stored (or `None` after a clear), and `Err` when the target is not
-/// being watched — a note about nothing is not a note.
-pub fn set_note(id: &str, text: &str) -> Result<Option<Note>, String> {
-    let trimmed = text.trim();
-    if trimmed.len() > NOTE_MAX {
-        return Err(format!("a note is at most {NOTE_MAX} characters"));
-    }
-    state_with(|st| {
-        let Some(w) = st.watches.iter_mut().find(|w| w.target.id == id) else {
-            return Err(format!("not watching {id} — nothing to annotate"));
-        };
-        w.note = if trimmed.is_empty() {
-            None
-        } else {
-            Some(Note {
-                text: trimmed.to_string(),
-                at_ms: now_ms(),
-            })
-        };
-        Ok(w.note.clone())
-    })
-}
-
-/// The note currently attached to a target, if any.
-pub fn note_of(id: &str) -> Option<Note> {
-    state_with(|st| {
-        st.watches
-            .iter()
-            .find(|w| w.target.id == id)
-            .and_then(|w| w.note.clone())
-    })
 }
 
 /// Remove a target. `false` when it was not being watched — the caller reports that honestly
@@ -449,7 +397,6 @@ pub fn load_targets(data_dir: &Path) {
                 st.watches.push(Watch {
                     target: t,
                     series: VecDeque::new(),
-                    note: None,
                 });
             }
         }
@@ -804,8 +751,6 @@ pub fn snapshot() -> Value {
                 // would show three identical names for three different checks (the panel caught
                 // exactly that on d1: `127.0.0.1:18080` three times over).
                 "path": t.path,
-                // The operator's explanation, when one is attached to the current state.
-                "note": note_of(&t.id),
                 "summary": summary(&t.id),
                 // The story, not just the shape: each entry is a state change with how long
                 // the state it ended had lasted (an outage, for an "up" entry).
@@ -1219,7 +1164,6 @@ mod tests {
                     expect: None,
                 },
                 series: VecDeque::new(),
-                note: None,
             });
         });
         for i in 0..(SERIES_MAX + 5) as u64 {
@@ -1272,7 +1216,6 @@ mod tests {
                     expect: None,
                 },
                 series: VecDeque::new(),
-                note: None,
             });
         });
         let sum = summary(&id);

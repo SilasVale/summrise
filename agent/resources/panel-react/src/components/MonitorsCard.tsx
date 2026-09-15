@@ -42,7 +42,7 @@ function TargetRow({
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
 }) {
-  const { summary, series, transitions, path: httpPath, expect: wantText, note } = target;
+  const { summary, series, transitions, path: httpPath, expect: wantText } = target;
   // The URL an HTTP check is actually asking, which is the thing an operator copies into a browser
   // when the device says it is down.
   // The subject is the URL; the expectation is shown beside it, because two watches can differ
@@ -68,9 +68,6 @@ function TargetRow({
       <div className="monitor-head">
         <span className={`monitor-dot ${state}`} aria-hidden="true" />
         <span className="monitor-name">{subject}</span>
-        {/* THE OPERATOR'S OWN WORDS, on the row they explain: without them an intentional reboot
-            reads exactly like a fault. */}
-        {note && note.text && <span className="monitor-note">— {note.text}</span>}
         {summary.lastStatus !== null && (
           // The status is shown EVEN WHEN UP, because `404 up` and `200 up` are different facts
           // about the same service, and hiding the number would make the verdict unfalsifiable.

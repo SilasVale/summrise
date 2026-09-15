@@ -1430,7 +1430,6 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
     last_status: null,
     last_expect_ok: null,
     probes: 12,
-    note: null, // no note attached: null, never a missing key
     transitions: [{ at_ms: 100, up: true, lasted_ms: 39_000 }],
   });
   assert.equal(all.targets[1].last_expect_ok, false);

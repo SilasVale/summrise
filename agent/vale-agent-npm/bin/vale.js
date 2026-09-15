@@ -463,8 +463,6 @@ function monitorsJson({ device, askedAtMs, payload, only }) {
         last_status: t.summary && t.summary.last_status !== undefined ? t.summary.last_status : null,
         last_expect_ok: t.summary && t.summary.last_expect_ok !== undefined ? t.summary.last_expect_ok : null,
         probes: t.summary && t.summary.probes !== undefined ? t.summary.probes : null,
-        // The operator's explanation, if one is attached to the current state.
-        note: t.note ? { text: t.note.text, at_ms: t.note.at_ms } : null,
         transitions: (t.transitions || []).map((x) => ({ at_ms: x.at_ms, up: x.up, lasted_ms: x.lasted_ms })),
     }));
     return {

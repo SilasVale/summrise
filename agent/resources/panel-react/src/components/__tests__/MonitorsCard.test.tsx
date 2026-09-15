@@ -58,7 +58,6 @@ const target = (
     port: Number(portStr) || 22,
     path: null,
     expect: null,
-    note: null,
     series: series(oks),
     // TRANSITIONS derived the way the device derives them (a flip, with the duration of the
     // state it ended), so the fixture cannot describe a log the device could not produce.
@@ -221,19 +220,6 @@ describe("MonitorsCard", () => {
     expect(container.querySelector(".monitor-name")!.textContent).toBe("192.168.1.1:22/status");
     expect(container.querySelector(".monitor-status")!.textContent).toBe("HTTP 503");
     expect(container.querySelector(".monitor-status")!.className).toContain("is-bad");
-  });
-
-  it("shows the operator's note on the row it explains", () => {
-    const noted = { ...target({ oks: [true, false] }), note: { text: "I rebooted it", atMs: now - 90_000 } };
-    const { container, rerender } = render(
-      <MonitorsCard monitors={monitors([noted])} onAdd={async () => ({ ok: true })} onRemove={noop} onProbe={noop} nowMs={now} />,
-    );
-    expect(container.querySelector(".monitor-note")!.textContent).toBe("— I rebooted it");
-    // Without a note there is no em dash: an empty explanation is not rendered as one.
-    rerender(
-      <MonitorsCard monitors={monitors([target({ oks: [true, true] })])} onAdd={async () => ({ ok: true })} onRemove={noop} onProbe={noop} nowMs={now} />,
-    );
-    expect(container.querySelector(".monitor-note")).toBeNull();
   });
 
   it("accepts a content check and reports a 200 that does not contain the text", () => {

@@ -1178,10 +1178,6 @@
 .monitor-state { font: 400 12px var(--font); color: var(--chrome-ink-dim); }
 .monitor-state.up { color: var(--state-ok); }
 .monitor-state.down { color: var(--danger-on-soft); }
-/* The operator's note: their words, set apart from the device's numbers (italic + dim) so a
-   reader can tell an observation from an explanation. */
-.monitor-note { font: italic 400 11px var(--font); color: var(--chrome-ink-dim); }
-
 .monitor-btn { margin-left: auto; }
 .monitor-btn + .monitor-btn { margin-left: 0; }
 .monitor-body { display: flex; align-items: center; gap: 10px; }
