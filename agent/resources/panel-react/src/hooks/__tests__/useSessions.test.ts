@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { render, renderHook, act, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { useSessions, mapPending, pendingApprovalCount, type Session } from "../useSessions";
 import { callTool } from "../../lib/api";
 
@@ -318,5 +319,78 @@ describe("pendingApprovalCount — the badge input", () => {
   it("does not count a closed tombstone's question", () => {
     // A closed session's question is history; the device has retired it.
     expect(pendingApprovalCount([withPending({ closed: true })])).toBe(0);
+  });
+});
+
+// ── THE QUIET POLL: a sweep that learns nothing must not touch the DOM ────────────────────────
+//
+// WHY THIS IS PINNED (round 48). Performance had never been measured on this panel, so it was
+// measured the same way the design is: on the device, in the built bundle.
+//
+//     first paint            168ms (panel) / 96ms (desktop)
+//     session list on screen 200ms / 171ms
+//     long tasks             0
+//     rail switch (click->2 frames)  27-43ms
+//     poll window, 34s idle  48 fetches (to 127.0.0.1) and ZERO DOM MUTATIONS
+//
+// The last line is the property worth keeping: the 30s sweep re-fetches the session list, gets the
+// SAME list, and must therefore change nothing. A sweep that re-rendered the rail every 30 seconds
+// would look identical in every screenshot and cost the operator nothing visible — until a session
+// list of sixteen made it stutter. This test fails the moment the poll starts producing new state
+// from identical data.
+describe("the 30s sweep is quiet", () => {
+  it("leaves the DOM untouched when the device reports the same list", async () => {
+    // FAKE TIMERS, because the sweep runs every 30s: a real-timer version of this test advanced
+    // 200ms and therefore never ran a poll at all — a test that could not fail for the reason it
+    // claimed, which is worse than no test.
+    //
+    // AND THE ASSERTION IS ABOUT THE DOM, NOT ABOUT RENDERS. With identical data the hook DOES
+    // re-render twice across three poll periods (React re-running a component whose state changed
+    // identity is normal and costs microseconds); what matters — and what the device measured — is
+    // that the DOM is untouched, so nothing repaints and no long task appears. Counting renders
+    // would have failed a correct implementation; counting mutations fails only a real regression.
+    vi.useFakeTimers();
+    try {
+      const list = [
+        { id: "term-1", label: "one", kind: "pty" },
+        { id: "term-2", label: "two", kind: "pty" },
+      ];
+      mockCallTool.mockImplementation((name: string) =>
+        name === "terminal_list" ? Promise.resolve(list) : Promise.resolve({ ok: true }),
+      );
+      let container: HTMLElement | null = null;
+      // createElement, not JSX: this file is .ts and the parser rejects JSX in it. Renaming the file
+      // to .tsx would work and would also churn every path that names it; one createElement is the
+      // smaller change.
+      function Probe() {
+        const { sessions } = useSessions(true);
+        return createElement(
+          "ul",
+          {
+            ref: (el: HTMLElement | null) => {
+              container = el;
+            },
+          },
+          sessions.map((s) => createElement("li", { key: s.sid }, s.label)),
+        );
+      }
+      render(createElement(Probe));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(container!.textContent).toContain("one");
+      let mutations = 0;
+      const mo = new MutationObserver((recs) => {
+        mutations += recs.length;
+      });
+      mo.observe(container!, { childList: true, subtree: true, characterData: true, attributes: true });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(95_000);
+      });
+      mo.disconnect();
+      expect(mutations, `the poll touched the DOM ${mutations} times with identical data`).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
