@@ -107,26 +107,30 @@ export function titleFor(items: AttentionItem[], base: string = BASE_TITLE): str
 
 /** The favicon for this much attention, as a data URL.
  *
- *  Built rather than shipped as files: one SVG, one colour decision, and the SAME icon the panel
- *  already loads (the orange mark) with a badge added — so a pinned tab stays recognisable. The
- *  badge is a red disc with the count, or a plain disc with NO count when there is nothing to
- *  count (a count of 9+ would be illegible at 16 px anyway). */
+ *  THE BADGE IS ADDED TO THE ICON, NOT INSTEAD OF IT. The first version RETURNED a simplified
+ *  drawing of its own (an orange square, a red disc, a count) — which looked like a different,
+ *  wrong icon the moment anything needed attention (the operator noticed on the panel and asked
+ *  what had happened to it). Now the badge is inserted into the EXISTING svg data URL, so the
+ *  artwork is byte-for-byte the one the page already loads and only a disc is added on top.
+ *
+ *  Returns the base unchanged when there is nothing to badge, or when the base is not an inline
+ *  SVG (a file URL, an empty href) — an icon that cannot be parsed is left alone rather than
+ *  replaced by something invented. */
 export function badgeIcon(count: number, urgent: boolean, baseHref?: string): string {
-  if (count <= 0) return baseHref ?? "";
-  const fill = urgent ? "%23d9480f" : "%23e03131";
-  const label = count > 9 ? "" : String(count);
-  const text = label
-    ? `<text x='37' y='43' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'>${label}</text>`
-    : "";
-  return (
-    "data:image/svg+xml," +
-    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E" +
-    "%3Crect width='48' height='48' rx='11' fill='%23f59f00'/%3E" +
-    "%3Cpath fill='%23ffffff' opacity='.85' d='M14 41Q26 16 44 41Z'/%3E" +
-    `%3Ccircle cx='37' cy='11' r='11' fill='${fill}'/%3E` +
-    text +
-    "%3C/svg%3E"
-  );
+    const base = baseHref ?? "";
+    if (count <= 0 || !base) return base;
+    // `data:image/svg+xml,<svg …>` — the panel's icon is inlined, so this is a string edit.
+    const marker = base.indexOf("<svg");
+    const close = base.lastIndexOf("</svg>");
+    if (marker < 0 || close < 0) return base;
+    const fill = urgent ? "%23d9480f" : "%23e03131";
+    const label = count > 9 ? "" : String(count);
+    const text = label
+        ? `<text x='37' y='43' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'>${label}</text>`
+        : "";
+    const badge = `%3Ccircle cx='37' cy='11' r='11' fill='${fill}'/%3E${text ? "" : ""}`;
+    // Inserted just before the closing tag: on top of the artwork, with the artwork intact.
+    return base.slice(0, close) + badge + (text ? encodeURIComponent(text) : "") + base.slice(close);
 }
 
 /** The one-line summary the settings card and any tooltip use. */

@@ -3261,43 +3261,6 @@
 }
 .term-searchbar button:hover,
 .term-fontbar button:hover { background: var(--chrome-hover); color: var(--chrome-ink); }
-/* The console key bar: the keystrokes a browser cannot send, bottom-LEFT so it never
-   collides with the font controls, and at full opacity — these are hit mid-session,
-   often on a console that is not answering, so hiding them behind a hover would cost
-   the operator the one moment they are needed. */
-.term-keybar {
-  position: absolute;
-  bottom: 8px;
-  left: 14px;
-  z-index: 5;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--chrome-line);
-  border-radius: 7px;
-  background: var(--chrome-bg-2);
-}
-.term-keybar button {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: var(--chrome-ink-dim);
-  font: 400 var(--fs-sm) var(--font-mono);
-  padding: 2px 7px;
-  border-radius: 5px;
-}
-.term-keybar button:hover { background: var(--chrome-hover); color: var(--chrome-ink); }
-.term-keybar button:active { background: var(--chrome-hover); }
-/* The serial-only break is the one signal that changes what the DEVICE does, not what it
-   reads — marked by a left rule so it is not pressed by accident while reaching for ^C. */
-.term-keybar button[data-key="break"] {
-  margin-left: 4px;
-  border-left: 1px solid var(--chrome-line);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  color: var(--state-warn);
-}
-
 .term-fontbar {
   position: absolute;
   bottom: 8px;

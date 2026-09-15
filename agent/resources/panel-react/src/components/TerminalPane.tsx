@@ -3,7 +3,6 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { callTool } from "../lib/api";
-import { ConsoleKeys } from "./ConsoleKeys";
 import { getTheme, onThemeChange } from "../lib/theme";
 import { Icon } from "../ui/Icon";
 import type { Session } from "../hooks/useSessions";
@@ -405,10 +404,6 @@ export function TerminalPane({ session, registerWrite }: {
           <button title="Close (Esc)" onClick={searchClose}>✕</button>
         </div>
       )}
-      {/* CONSOLE KEYS — the keystrokes a browser cannot send (^C, ^D, ^Z, Esc, Tab) and, on a
-          serial line, a real BREAK. Its own bar rather than an addition to the font bar: these
-          are used mid-session, the font controls are used once. */}
-      {session.active && <ConsoleKeys sessionId={session.sid} kind={session.kind} />}
       {session.active && (
         <div className="term-fontbar">
           <button title="Search scrollback (Ctrl+F)" onClick={() => setSearchOpen(true)}>
