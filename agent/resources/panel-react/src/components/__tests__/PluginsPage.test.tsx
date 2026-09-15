@@ -2,6 +2,7 @@
 // loading/empty states, tool-count singular/plural (stage-n), enabled
 // pills, playwright control card (disabled logic, busy labels, ports),
 // verbatim error log lines.
+import { expectOneH1, expectNoSkippedLevel } from "../../test-utils/outline";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PluginsPage } from "../PluginsPage";
@@ -235,5 +236,14 @@ describe("PluginsPage — the production instance reports no start time", () => 
     const text = document.body.textContent!;
     expect(text).toMatch(/up 3h/);
     expect(text).not.toContain("not reported");
+  });
+
+  it("names itself in the document outline, with no skipped level", () => {
+    // The page's OWN name as its only h1 (whatever carries it visually — several pages use a
+    // visually hidden one), and no level jumped on the way down. Shared helper so every page
+    // inherits the rule: see src/test-utils/outline.ts for why a source scan is not enough.
+    const { container } = render(<PluginsPage plugins={plugins({ specLoaded: true, rows: [] })} />);
+    expectOneH1(container, "Plugins");
+    expectNoSkippedLevel(container);
   });
 });

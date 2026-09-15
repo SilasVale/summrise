@@ -192,7 +192,7 @@ export function ConnectCard() {
   return (
     <>
       <div className="settings-section">
-        <h3>Connect an AI client</h3>
+        <h2>Connect an AI client</h2>
         <p className="connect-lede">
           This panel is the <b>human</b> view of the machine. AI clients drive
           it over MCP — point one here and it can operate this device with the
@@ -224,7 +224,7 @@ export function ConnectCard() {
       </div>
 
       <div className="settings-section">
-        <h3>Give it to your client</h3>
+        <h2>Give it to your client</h2>
         <div className="connect-tabs">
           {CLIENTS.map((c) => (
             <button

@@ -12,6 +12,7 @@
 //   (c) an absent field renders as ABSENCE — no "—", no stand-in word — and an
 //       exit code of zero renders as the VALUE it is, differently;
 //   (d) the page renders with ZERO sessions, which is the entire point.
+import { expectNoSkippedLevel, expectSectionHeading } from "../../test-utils/outline";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   render,
@@ -471,5 +472,14 @@ describe("ActivityPage — (d) the page works with ZERO sessions", () => {
     expect(
       within(canvas as HTMLElement).queryByText("No sessions yet"),
     ).toBeNull();
+  });
+
+  it("names itself in the document outline, with no skipped level", async () => {
+    // The page's OWN name as its only h1 (whatever carries it visually — several pages use a
+    // visually hidden one), and no level jumped on the way down. Shared helper so every page
+    // inherits the rule: see src/test-utils/outline.ts for why a source scan is not enough.
+    const { container } = await await mount(<ActivityPage pollMs={60_000} />);
+    expectSectionHeading(container, "Runs");
+    expectNoSkippedLevel(container);
   });
 });

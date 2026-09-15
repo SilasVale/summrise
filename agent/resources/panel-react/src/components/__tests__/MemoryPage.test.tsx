@@ -1,6 +1,7 @@
 // MemoryPage pins — the device knowledge UI over memory_* tools: initial
 // list load, search (tag passed too — round-161 fix), two-step delete,
 // inline edit + create (stage-n), export + copy, error surfacing.
+import { expectOneH1, expectNoSkippedLevel } from "../../test-utils/outline";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryPage } from "../MemoryPage";
@@ -143,5 +144,14 @@ describe("MemoryPage", () => {
     vi.mocked(callTool).mockRejectedValue(new Error("device down"));
     render(<MemoryPage />);
     expect(await screen.findByText("device down")).toBeTruthy();
+  });
+
+  it("names itself in the document outline, with no skipped level", () => {
+    // The page's OWN name as its only h1 (whatever carries it visually — several pages use a
+    // visually hidden one), and no level jumped on the way down. Shared helper so every page
+    // inherits the rule: see src/test-utils/outline.ts for why a source scan is not enough.
+    const { container } = render(<MemoryPage />);
+    expectOneH1(container, "Memory");
+    expectNoSkippedLevel(container);
   });
 });

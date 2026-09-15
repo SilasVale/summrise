@@ -44,6 +44,15 @@ function expectNoRawHex(block: string, selector: string): void {
   expect(hex, `${selector} hardcodes ${hex?.join(", ")} — use a token`).toBeNull();
 }
 
+/** The gate's own source: a class name in the stylesheet proves the rule exists, not that the
+ *  markup uses it (the round-27 lesson about helpers versus call sites). */
+function ApprovalGateSource(): string {
+  return readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "components", "ApprovalGate.tsx"),
+    "utf8",
+  );
+}
+
 describe("the retired question (0 s)", () => {
   it("is demoted to a quiet chip, NOT the live prompt's warning treatment", () => {
     const css = builtCss();
@@ -70,10 +79,14 @@ describe("the gate's screen-reader plumbing", () => {
   it("has a clipped (not display:none) utility for the static description", () => {
     // display:none would drop the text out of the accessibility tree entirely,
     // so the alertdialog's aria-describedby would resolve to nothing.
-    const sr = blockOf(builtCss(), ".approval-sr");
-    expect(sr, ".approval-sr missing").not.toBeNull();
+    // The utility is GENERAL now (round 34): it was named after this one feature while three pages
+    // had no accessible name at all, so it lives in base.css as `.sr-only` and the gate uses it.
+    const sr = blockOf(builtCss(), ".sr-only");
+    expect(sr, ".sr-only missing — a display:none node is dropped by screen readers").not.toBeNull();
     expect(sr!).toMatch(/position:\s*absolute/);
     expect(sr!).toMatch(/clip:\s*rect\(0 0 0 0\)/);
+    // …and the gate must actually use it, or the description resolves to nothing.
+    expect(ApprovalGateSource(), "the gate must use the shared utility").toContain('className="sr-only"');
     expect(sr!).not.toMatch(/display:\s*none/);
   });
 

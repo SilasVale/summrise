@@ -77,7 +77,7 @@ export function RestartHistoryCard({
 
   return (
     <div className="settings-section">
-      <h3>Restarts</h3>
+      <h2>Restarts</h2>
       {failed && boots.length === 0 ? (
         <p className="muted">
           The device did not answer, so its restart history could not be read. That is not

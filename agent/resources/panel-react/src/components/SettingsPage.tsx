@@ -239,7 +239,7 @@ export function SettingsPage({
 
   return (
     <div className="desktop-settings">
-      <h2>Settings</h2>
+      <h1>Settings</h1>
       <p className="muted">Device: local agent on 127.0.0.1:18080</p>
 
       {/* Onboarding FIRST. Until an AI client is pointed here, none of the rest
@@ -272,7 +272,7 @@ export function SettingsPage({
       <RestartHistoryCard history={restarts ?? EMPTY_BOOT_HISTORY} failed={restartsFailed} />
 
       <div className="settings-section">
-        <h3>Gateway</h3>
+        <h2>Gateway</h2>
         <p className="muted">
           Optional — connect this device to a Vale gateway console so remote clients can use its
           terminal / browser / memory. Pure local mode needs none of this.
@@ -318,7 +318,7 @@ export function SettingsPage({
       </div>
 
       <div className="settings-section">
-        <h3>Session buffer</h3>
+        <h2>Session buffer</h2>
         <p className="muted">
           Output recall per terminal session (memory + spill file, ~2x this). 1-64.
           Applies to new output; persisted across restarts.
@@ -341,7 +341,7 @@ export function SettingsPage({
 
       {/* Desktop-app card — only in the Electron shell (window.valeDesktop bridge). */}
       <div className="settings-section">
-        <h3>Desktop app</h3>
+        <h2>Desktop app</h2>
         <p className="muted">
           Start Vale Desktop automatically when you log in to this machine.
         </p>
@@ -358,7 +358,7 @@ export function SettingsPage({
       </div>
 
       <div className="settings-section">
-        <h3>Memory</h3>
+        <h2>Memory</h2>
         <p className="muted">
           Memory entries live in <code>&lt;install&gt;/memory/memory.jsonl</code>, shared across
           AI clients (Claude Code / DSH / this desktop). Capacity applies
@@ -402,7 +402,7 @@ export function SettingsPage({
       </div>
 
       <div className="settings-section">
-        <h3>Terminal</h3>
+        <h2>Terminal</h2>
         <p className="muted">
           Sessions (PTY/SSH/serial) are held by the agent service — closing this
           window or refreshing never kills a running session. Reconnect via the
@@ -411,7 +411,7 @@ export function SettingsPage({
       </div>
 
       <div className="settings-section">
-        <h3>Transport</h3>
+        <h2>Transport</h2>
         <p className="muted">
           The desktop shell talks to the agent over loopback HTTP/WS with the
           device token. No cloud dependency — gateway endpoints are optional.

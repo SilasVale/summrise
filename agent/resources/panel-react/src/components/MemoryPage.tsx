@@ -203,6 +203,8 @@ export function MemoryPage() {
 
   return (
     <div className="mem-pane">
+      {/* Names the page without adding a title the design does not have. */}
+      <h1 className="sr-only">Memory</h1>
       <div className="mem-toolbar">
         <input
           className="mem-input"

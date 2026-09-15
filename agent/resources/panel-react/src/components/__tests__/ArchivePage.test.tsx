@@ -15,6 +15,7 @@
 //       two states that differed only by an animation reduced motion removes);
 //   (d) a session whose trail cannot be read SAYS SO and never renders as an
 //       empty history, and an empty ARCHIVE is a different sentence again.
+import { expectNoSkippedLevel, expectSectionHeading } from "../../test-utils/outline";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ArchivePage } from "../ArchivePage";
@@ -540,5 +541,14 @@ describe("the archive is reachable from the rail", () => {
     expect(await screen.findByText("from-before-the-reload")).toBeTruthy();
     expect(document.querySelector(".archive-page")).toBeTruthy();
     expect(mockCallApi).toHaveBeenCalledWith("/api/sessions");
+  });
+
+  it("names itself in the document outline, with no skipped level", () => {
+    // The page's OWN name as its only h1 (whatever carries it visually — several pages use a
+    // visually hidden one), and no level jumped on the way down. Shared helper so every page
+    // inherits the rule: see src/test-utils/outline.ts for why a source scan is not enough.
+    const { container } = render(<ArchivePage sessions={[]} />);
+    expectSectionHeading(container, "Sessions");
+    expectNoSkippedLevel(container);
   });
 });

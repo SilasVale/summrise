@@ -68,7 +68,7 @@ export function GettingStarted({
               </span>
               <div className="gs-body">
                 <div className="gs-line">
-                  <h3>{step.title}</h3>
+                  <h2>{step.title}</h2>
                   {onGoTo ? (
                     <button className="gs-where" onClick={() => onGoTo(step.page)}>
                       {step.where}

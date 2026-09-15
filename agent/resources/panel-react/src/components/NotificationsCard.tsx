@@ -30,7 +30,7 @@ export function NotificationsCard({
 
   return (
     <div className="settings-section">
-      <h3>Getting your attention</h3>
+      <h2>Getting your attention</h2>
       <p className="muted">
         This page keeps a count in its <strong>tab title</strong> and a badge on its icon whenever
         something needs you — no permission required, and it works in a background tab. Desktop

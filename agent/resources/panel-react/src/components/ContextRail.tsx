@@ -83,7 +83,9 @@ export function ContextRail({
     return (
       <>
         <div className="side-header">
-          <h1 className="side-title">Plugins</h1>
+          {/* NOT a heading: this labels the side list, and as an `<h1>` it was the largest-level
+              heading in the whole product at 13px — above every page's own title. */}
+          <div className="side-title">Plugins</div>
           <span className="side-count">{plugins.rows.length}</span>
         </div>
         <div className="side-list">
@@ -110,7 +112,8 @@ export function ContextRail({
   return (
     <>
       <div className="side-header">
-        <h1 className="side-title">Sessions</h1>
+        {/* See the Plugins rail: a label, not the page's heading. */}
+        <div className="side-title">Sessions</div>
         {/* The count of what is LISTED, not of what was loaded: `rows` is filtered
             below, and using `sessions.length` here made the header disagree with the
             list under it the moment anything was hidden. */}

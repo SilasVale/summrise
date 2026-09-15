@@ -200,7 +200,7 @@ export function MonitorsCard({
 
   return (
     <div className="settings-section">
-      <h3>Reachability</h3>
+      <h2>Reachability</h2>
       {failed && monitors.targets.length === 0 ? (
         <p className="muted">
           The device did not answer, so its watch list could not be read. That is not the same as

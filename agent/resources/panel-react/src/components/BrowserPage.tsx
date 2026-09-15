@@ -18,6 +18,9 @@ export function BrowserPage({ token }: Props) {
   if (embedded) {
     return (
       <div className="browser-page">
+        {/* The page's name, for the outline only: this view is a pane, not a document with a
+            visible title. */}
+        <h1 className="sr-only">Browser</h1>
         <EmbeddedBrowserPane token={token} />
       </div>
     );
@@ -27,6 +30,7 @@ export function BrowserPage({ token }: Props) {
   // Vale desktop app; a plain web page cannot show it.
   return (
     <div className="browser-page">
+      <h1 className="sr-only">Browser</h1>
       <div className="browser-mode-b-placeholder">
         <div className="browser-placeholder">
           {/* AN ICON, NOT AN EMOJI. This was `<span style={{fontSize:40}}>🖥</span>`:

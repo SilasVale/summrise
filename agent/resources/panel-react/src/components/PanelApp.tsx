@@ -195,6 +195,11 @@ export function PanelApp(props: Props) {
               />
             )}
             {page === "terminal" && (
+              /* The terminal page's name lives in the outline only: every visible row belongs to
+                 the terminal, and a title would cost one. */
+              <h1 className="sr-only">Terminal</h1>
+            )}
+            {page === "terminal" && (
               <TerminalWorkspace
                 sessions={props.sessions as any}
                 activeSid={props.activeSid}

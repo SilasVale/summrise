@@ -46,6 +46,10 @@ export function HistoryPage({ sessions }: { sessions: Session[] }) {
 
   return (
     <div className="history-page">
+      {/* The page's own name, for the outline only: on screen the rail icon and the scope switch
+          already say where you are, and a visible "History" heading would be a third label for the
+          same thing. The sections below stay h2 ("Sessions" / "Runs"). */}
+      <h1 className="sr-only">History</h1>
       <div className="history-bar">
         <div className="view-switch" role="tablist" aria-label="Recorded history">
           {HISTORY_SCOPES.map((s) => (

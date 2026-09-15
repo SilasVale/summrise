@@ -70,7 +70,7 @@ export function DeviceLogsCard() {
 
   return (
     <div className="settings-section">
-      <h3>Device logs</h3>
+      <h2>Device logs</h2>
       {failed ? (
         <p className="muted">
           The device did not answer, so its logs could not be read. This is not the same

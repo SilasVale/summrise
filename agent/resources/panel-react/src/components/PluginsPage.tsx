@@ -58,7 +58,7 @@ export function PluginsPage({
   return (
     <div id="plugins-view">
       <header className="plug-header">
-        <h2 className="plug-title">Plugins</h2>
+        <h1 className="plug-title">Plugins</h1>
         <p className="plug-sub">
           Device tooling and browser automation. Enabled plugins are available
           to every client.

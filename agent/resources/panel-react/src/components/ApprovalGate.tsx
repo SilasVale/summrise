@@ -214,13 +214,13 @@ export function ApprovalGate({ armed, pending, grants, onArm, onDecide, onRevoke
         {/* STATIC text, in the description, so the alertdialog's implicit
             assertive region never has to carry a 1 Hz update. It names the
             deadline as a clock time instead of a countdown. */}
-        <span className="approval-sr" id={describedById}>
+        <span className="sr-only" id={describedById}>
           Waiting for your answer. Expires at {expiresAtClock(expiresAtMs)}.
         </span>
         {/* The ONE polite announcement. Present (empty) from the start so the
             live region exists before its content changes, and it never changes
             again for this question. */}
-        <span className="approval-sr" role="status">
+        <span className="sr-only" role="status">
           {announcedLow ? "Less than a minute left to answer." : ""}
         </span>
       </div>

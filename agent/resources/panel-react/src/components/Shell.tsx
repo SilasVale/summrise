@@ -45,9 +45,12 @@ export function Shell({ density, iconRail, contextRail, canvas, statusBar }: {
   return (
     <div id="app-shell">
       <div id="shell-main">
-        <div id="icon-rail">{iconRail}</div>
-        {contextRail && <div id="context-rail">{contextRail}</div>}
-        <div id="canvas-host">{canvas}</div>
+        {/* LANDMARKS, like the desktop density already had: the panel's shell was four plain divs, so
+            a screen reader had no way to jump between the rail, the page and the side list — and no
+            way to tell which of the three regions it was in. */}
+        <nav id="icon-rail" aria-label="Pages">{iconRail}</nav>
+        {contextRail && <aside id="context-rail">{contextRail}</aside>}
+        <main id="canvas-host">{canvas}</main>
       </div>
       {statusBar}
     </div>

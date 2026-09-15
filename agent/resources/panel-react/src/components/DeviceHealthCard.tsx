@@ -99,7 +99,7 @@ export function DeviceHealthCard({
 
   return (
     <div className="settings-section">
-      <h3>Device health</h3>
+      <h2>Device health</h2>
       {failed && !hasAny ? (
         <p className="muted">
           The device did not answer, so its vitals could not be read. That is not the same as

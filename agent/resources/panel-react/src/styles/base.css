@@ -142,3 +142,31 @@ code {
   color: var(--danger-on-soft);
   font-size: 12px;
 }
+
+/* ── HIDDEN TEXT, ONE NAME ──────────────────────────────────────────────────────
+   A visually hidden but screen-reader-visible node. It used to exist as
+   `.approval-sr` (named after the one feature that needed it) while three pages
+   had no accessible name at all; the utility is now general, and the approval
+   gate uses it too. `clip-path` + 1px keeps it in the accessibility tree, unlike
+   `display: none`. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* HEADINGS DESCEND BY DEFAULT. Every heading in the panel is styled by its own class, so an
+   unclassed one landed at the browser's default 2em — and the levels themselves were inverted
+   (an h1 at 13px in the rail above an h2 at 17px on the page). These three rules are the floor,
+   not the design: a class still wins, but a heading can no longer land off the hierarchy by
+   accident. */
+h1 { font-size: var(--fs-lg); }
+h2 { font-size: var(--fs-md); }
+h3 { font-size: var(--fs-base); }
