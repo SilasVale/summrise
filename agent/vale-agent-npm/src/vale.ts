@@ -634,6 +634,57 @@ export function consoleLineNear(dataDir, atMs, withinMs, files?, only?) {
     return found && found.line ? found : null;
 }
 
+// ── FOLLOWING A LIVE CONSOLE ────────────────────────────────────────────────
+// The AUDIT FILE is right for history (`report` asks "what did the console say just before it
+// dropped"), and wrong for NOW: its writer flushes in batches, so a live view that reads it lags by
+// a cycle and can show a line that is already stale (observed on d1: the first of three narration
+// lines, then nothing). The device serves the LIVE buffer through `terminal_read`, which is what
+// the panel's own terminal uses — so `wait` follows that, with a byte cursor so it never repeats
+// what it has already shown.
+
+/** WHICH SESSION IS THE CONSOLE: an explicit one wins; otherwise the newest serial/ssh session,
+ *  because a local PTY is where the OPERATOR types and an SSH-or-serial session is the box being
+ *  debugged. `terminal_list` is the live source — the same one the panel reads — so this needs no
+ *  file scan and cannot pick a session that has already closed. */
+export function chooseConsoleSession(sessions, explicit) {
+    const rows = Array.isArray(sessions) ? sessions : [];
+    if (explicit) {
+        const named = rows.find((r) => r && r.id === explicit);
+        // Unknown is reported as such rather than silently followed: the caller may be naming a
+        // session that has closed, and a console that never speaks should say why.
+        return named ? { sid: named.id, kind: named.kind || null, known: true } : { sid: explicit, kind: null, known: false };
+    }
+    // The LAST one: `terminal_list` is in creation order, so the newest serial/ssh is the session
+    // the operator most likely just opened for this box.
+    const consoles = rows.filter((r) => r && (r.kind === "serial" || r.kind === "ssh"));
+    if (consoles.length === 0)
+        return null;
+    const last = consoles[consoles.length - 1];
+    return { sid: last.id, kind: last.kind, known: true };
+}
+
+/** Advance a console cursor over one read. Returns the new cursor and the newest COMPLETE line.
+ *
+ *  The cursor only moves past text that ended with a newline: a partial line is still being typed,
+ *  so the cursor stays BEFORE it and the next read returns it whole (the same rule `lastLine`
+ *  applies to a finished read — a half-typed line is not a line). Byte lengths, because the
+ *  offsets the device reports are byte offsets and the text may be non-ASCII. */
+export function advanceConsoleCursor(cursor, res) {
+    const text = String((res && res.text) || "");
+    const end = typeof (res && res.end) === "number" ? res.end : cursor;
+    if (!text)
+        return { cursor, line: null };
+    const lastNewline = text.lastIndexOf("\n");
+    if (lastNewline < 0) {
+        // Nothing complete arrived: leave the cursor where it is so nothing is lost.
+        return { cursor, line: null };
+    }
+    const complete = text.slice(0, lastNewline + 1);
+    const partial = text.slice(lastNewline + 1);
+    const line = lastLine(complete);
+    return { cursor: end - Buffer.byteLength(partial, "utf8"), line: line || null };
+}
+
 // ── WAITING FOR A STATE ─────────────────────────────────────────────────────
 // Every reboot-and-verify cycle needs the same primitive: "wait until it answers". Doing it by
 // hand means a polling loop in the operator's shell, with its own timeout, its own idea of what
@@ -697,6 +748,7 @@ export function parseWaitArgs(args) {
     if (!target || positional.length > 1)
         return { error: "usage: vale monitor wait <host:port[/path]> [--up|--down] [--timeout <secs>] [--console <sid>]" };
     return { target, wantUp, timeoutMs, json, consoleSid };
+
 }
 
 // ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
@@ -2206,7 +2258,27 @@ const commands = {
               process.exit(1);
           }
           const started = Date.now();
-          let lastConsole = null;
+          // The console is chosen ONCE, from the device's LIVE session list (see
+          // chooseConsoleSession): a session that closes mid-wait does not move the view to
+          // another box's console the way "newest file" did.
+          let consoleSid = null;
+          let consoleCursor = 0;
+          if (!w.json) {
+              const listed = deviceApi("POST", "/api/tools/terminal_list", {});
+              const rows = listed.ok && listed.body && listed.body.result
+                  ? Array.isArray(listed.body.result)
+                      ? listed.body.result
+                      : listed.body.result.sessions
+                  : null;
+              const chosen = chooseConsoleSession(rows, w.consoleSid);
+              if (chosen) {
+                  consoleSid = chosen.sid;
+                  if (w.consoleSid && !chosen.known)
+                      console.error(`  (note: ${chosen.sid} is not in this device's session list — following it anyway)`);
+                  else if (!w.consoleSid)
+                      console.error(`  (console: ${chosen.sid}${chosen.kind ? " " + chosen.kind : ""} — follow another with --console <sid>)`);
+              }
+          }
           for (;;) {
               const r = deviceApi("POST", "/api/tools/monitor_probe", { id: w.target.id });
               if (!r.ok) {
@@ -2225,16 +2297,24 @@ const commands = {
               // and the operator staring at "waiting for up" is the person who wants to read it —
               // one line, from the newest session, printed only when it has changed.
               let consoleNow = null;
-              if (!w.json) {
+              if (!w.json && consoleSid) {
+                  // THE LIVE BUFFER, not the audit file: see FOLLOWING A LIVE CONSOLE.
                   try {
-                      const near = consoleLineNear(DATA_DIR, Date.now(), 120_000, undefined, w.consoleSid);
-                      if (near && near.line !== lastConsole) {
-                          consoleNow = near;
-                          lastConsole = near.line;
+                      const cr = deviceApi("POST", "/api/tools/terminal_read", {
+                          session_id: consoleSid,
+                          offset: consoleCursor,
+                          clean: true,
+                      });
+                      if (cr.ok && cr.body && cr.body.ok !== false && cr.body.result) {
+                          const advanced = advanceConsoleCursor(consoleCursor, cr.body.result);
+                          consoleCursor = advanced.cursor;
+                          if (advanced.line) {
+                              consoleNow = { sid: consoleSid, line: advanced.line };
+                          }
                       }
                   }
                   catch {
-                      /* no trail, no line: the wait still works */
+                      /* a console that cannot be read does not stop the wait */
                   }
               }
               console.log(

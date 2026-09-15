@@ -25,6 +25,8 @@ const {
   recentSessionFiles,
   sessionTailRecords,
   consoleLineNear,
+  chooseConsoleSession,
+  advanceConsoleCursor,
   waitLine,
   parseWaitArgs,
   stripAnsi,
@@ -1942,4 +1944,47 @@ test("parseWaitArgs: --console names the session, and needs one", () => {
   assert.match(parseWaitArgs(["wait", "h:22", "--console"]).error, /--console needs a session id/);
   // The session id is not mistaken for the target.
   assert.equal(parseWaitArgs(["wait", "h:22", "--console", "term-1"]).target.id, "h:22");
+});
+
+
+// ── following a LIVE console ────────────────────────────────────────────────
+test("chooseConsoleSession: a serial/ssh session is a console, a local pty is not", () => {
+  const rows = [
+    { id: "term-1", kind: "pty", label: "pwsh" },
+    { id: "term-2", kind: "ssh", label: "stc@192.168.1.1" },
+    { id: "term-3", kind: "pty", label: "pwsh" },
+    { id: "term-4", kind: "serial", label: "serial:COM4" },
+  ];
+  // The newest console wins (creation order), never the chattiest shell.
+  assert.deepEqual(chooseConsoleSession(rows, null), { sid: "term-4", kind: "serial", known: true });
+  // An explicit session wins even when it is a pty — the operator may know better.
+  assert.deepEqual(chooseConsoleSession(rows, "term-1"), { sid: "term-1", kind: "pty", known: true });
+  // …but naming one this device does not have is reported as unknown, not silently followed.
+  assert.deepEqual(chooseConsoleSession(rows, "term-9"), { sid: "term-9", kind: null, known: false });
+  // No console at all: null, so the wait says nothing rather than guessing.
+  assert.equal(chooseConsoleSession([{ id: "t", kind: "pty" }], null), null);
+  assert.equal(chooseConsoleSession(null, null), null);
+  assert.equal(chooseConsoleSession(undefined, null), null);
+});
+
+test("advanceConsoleCursor: complete lines move it, a half-typed one does not", () => {
+  // A fresh read at offset 0: the cursor lands at the end, and the last complete line is shown.
+  const a = advanceConsoleCursor(0, { text: "boot\nStarting kernel ...\nbr-lan: up\n", start: 0, end: 38 });
+  assert.equal(a.line, "br-lan: up");
+  assert.equal(a.cursor, 38);
+  // A read that ended mid-word: NOTHING is shown and the cursor stays put, so the next read
+  // returns that fragment whole (losing it would lose the line the operator is watching for).
+  const b = advanceConsoleCursor(38, { text: "PS C:\\> n", start: 38, end: 46 });
+  assert.equal(b.line, null);
+  assert.equal(b.cursor, 38);
+  // …and when the rest arrives, the line is complete and the cursor moves past it.
+  const c = advanceConsoleCursor(38, { text: "PS C:\\> next\n", start: 38, end: 52 });
+  assert.equal(c.line, "PS C:\\> next");
+  assert.equal(c.cursor, 52);
+  // An empty read changes nothing.
+  assert.deepEqual(advanceConsoleCursor(52, { text: "", start: 52, end: 52 }), { cursor: 52, line: null });
+  // Non-ASCII is measured in BYTES, because the offsets are byte offsets.
+  const u = advanceConsoleCursor(0, { text: "中文行\npartial", start: 0, end: 9 + 11 });
+  assert.equal(u.line, "中文行");
+  assert.equal(u.cursor, 9 + 11 - Buffer.byteLength("partial", "utf8"));
 });
