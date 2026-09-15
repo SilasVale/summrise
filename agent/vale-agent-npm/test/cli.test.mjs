@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs");
 const {
+
   psq,
   busyIsFresh,
   deskShortcutRepairPs,
@@ -17,24 +18,10 @@ const {
   agentPort,
   parseDeviceToken,
   parseTargetArg,
-  parseWatchArgs,
   probeLine,
   monitorsJson,
   asciiJson,
-  waitDecision,
-  recentSessionFiles,
-  sessionTailRecords,
-  consoleLineNear,
-  chooseConsoleSession,
-  advanceConsoleCursor,
-  waitLine,
-  parseWaitArgs,
-  stripAnsi,
-  lastLine,
-  lastOutputBefore,
-  reportText,
   targetLine,
-  transitionLines,
   fmtDuration,
   firewallPs,
   uninstallVersionPs,
@@ -44,7 +31,7 @@ const {
   bootTaskPs,
   migrateLayoutPs,
   startDesktopPs,
-  rollbackVersionOk,
+  rollbackVersionOk
 } = require("../bin/vale.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -1356,16 +1343,6 @@ test("every CLI verb the root guide promises is one the CLI prints", () => {
 });
 
 
-test("parseWatchArgs: --once in any position, and one target at most", () => {
-  assert.deepEqual(parseWatchArgs([]), { once: false, only: null });
-  assert.deepEqual(parseWatchArgs(["--once"]), { once: true, only: null });
-  const withTarget = parseWatchArgs(["192.168.1.1:80/", "--once"]);
-  assert.equal(withTarget.once, true);
-  assert.equal(withTarget.only.id, "192.168.1.1:80/");
-  // A typo in the flag position is still a typo, not a target.
-  assert.ok(parseWatchArgs(["not-a-target"]).error);
-  assert.ok(parseWatchArgs(["a:22", "b:22"]).error);
-});
 
 test("targetLine: one drop is 'drop', several are 'drops'", () => {
   const now = 1_789_000_000_000;
@@ -1377,124 +1354,7 @@ test("targetLine: one drop is 'drop', several are 'drops'", () => {
 
 
 // ── vale report: the block an operator pastes ────────────────────────────────
-test("reportText: assembles status, sessions, restarts and watched targets", () => {
-  // LOCAL time on purpose (the reader stands next to the device). Dates are built locally
-  // here too: a Date.UTC fixture made this test timezone-dependent.
-  const now = new Date(2026, 8, 14, 23, 20, 5).getTime();
-  const lines = reportText({
-    // The REAL /api/status shape: `version` is the crate (1.0.x) and `release` the npm
-    // release. A fixture with only `version` is how the report shipped claiming a drift of
-    // a hundred versions on a device that was current.
-    status: {
-      ok: true,
-      version: "1.0.145",
-      release: "1.2.384",
-      uptime_secs: 11_520,
-      last_boot: "run journal: previous run DID NOT EXIT CLEANLY — REPLACED by a restart (an update swap or a task restart killed it mid-flight); started 2062s ago, last heartbeat 21s before this start, survived 2041s",
-      last_boot_kind: "replaced",
-      cpu_pct: 12,
-      mem_pct: 61,
-      live_sessions: 2,
-      pending_approvals: 1,
-    },
-    monitors: {
-      interval_secs: 15,
-      targets: [
-        { id: "192.168.1.1:22", summary: { up_now: true, since_ms: now - 60_000, latency: { avg: 9 }, up_pct: 100, drops: 0 } },
-        {
-          id: "192.168.1.1:80/",
-          summary: { up_now: false, since_ms: now - 360_000, latency: null, up_pct: 50, drops: 2, last_status: 500 },
-          transitions: [{ at_ms: now - 360_000, up: false, lasted_ms: 17_000 }],
-        },
-      ],
-    },
-    // The LIVE list (terminal_list), which is the only surface that knows what is running —
-    // and `live_sessions` from /api/status, which must agree with it. The audit trail was the
-    // wrong source: it keeps sessions killed by an agent restart marked `opened` (38 of them on
-    // d1 for a device with one), which the first fix counted.
-    sessions: {
-      sessions: [
-        { id: "term-1", kind: "pty" },
-        { id: "term-2", kind: "ssh" },
-      ],
-    },
-    boots: { summary: { window_secs: 86_400, boots: 3, crashes: 1 } },
-    nowMs: now,
-    cliVersion: "1.2.384",
-    hostLabel: "d1",
-  });
-  const text = lines.join("\n");
-  assert.match(text, /Vale report — d1 — 2026-09-14/);
-  assert.match(text, /release 1\.2\.384, CLI 1\.2\.384, agent up 3h 12m/);
-  assert.doesNotMatch(text, /DRIFT/); // same version: no drift claimed
-  // The previous boot is the KIND plus the first clause — not the whole run-journal sentence.
-  assert.match(text, /previous boot: replaced — previous run DID NOT EXIT CLEANLY/);
-  assert.doesNotMatch(text, /survived 2041s/);
-  assert.match(text, /CPU 12%, mem 61%, 2 session\(s\), 1 awaiting approval/);
-  assert.match(text, /sessions: 1 pty, 1 ssh/);
-  assert.doesNotMatch(text, /kind unknown/);
-  // A LIVE LIST that disagrees with /api/status says so instead of picking a winner.
-  const disagreeing = reportText({
-    status: { ok: true, release: "1.2.385", uptime_secs: 60, live_sessions: 3 },
-    monitors: null,
-    sessions: { sessions: [{ id: "a", kind: "pty" }] },
-    boots: null,
-    nowMs: now,
-    cliVersion: "1.2.385",
-    hostLabel: "d1",
-  }).join("\n");
-  assert.match(disagreeing, /sessions: 1 pty \(status says 3\)/);
-  // …and with no live list at all, the count it does have, with no invented breakdown.
-  const countOnly = reportText({
-    status: { ok: true, release: "1.2.385", uptime_secs: 60, live_sessions: 2 },
-    monitors: null, sessions: null, boots: null,
-    nowMs: now, cliVersion: "1.2.385", hostLabel: "d1",
-  }).join("\n");
-  assert.match(countOnly, /sessions: 2 \(kinds not read\)/);
-  assert.match(text, /restarts in the last 24h: 3 \(1 crash-like\)/);
-  assert.match(text, /watching 2 target\(s\), probed every 15s — 1 down:/);
-  assert.match(text, /DOWN 192\.168\.1\.1:80\/\s+down 6m\s+HTTP 500/);
-  // The DOWN target brings its outage log; the UP one does not (noise).
-  assert.match(text, /went down\s+\(previous state lasted 17s\)/);
-  assert.equal((text.match(/previous state lasted/g) || []).length, 1);
-});
-test("reportText: a route that did not answer reads as NOT READ, never as a value", () => {
-  const text = reportText({
-    status: { __error: "device unreachable on 127.0.0.1:18080" },
-    monitors: null,
-    sessions: null,
-    boots: null,
-    nowMs: new Date(2026, 8, 14, 23, 20, 5).getTime(),
-    cliVersion: "1.2.383",
-    hostLabel: "d1",
-  }).join("\n");
-  assert.match(text, /agent status: NOT READ/);
-  assert.match(text, /watched targets: NOT READ/);
-  // No invented numbers for what was not read.
-  assert.doesNotMatch(text, /release 1\.|CPU|mem /);
-  // A device that reported no npm release says so, and does not dress the crate version up as one.
-  const noRelease = reportText({
-    status: { ok: true, version: "1.0.145", uptime_secs: 60 },
-    monitors: null, sessions: null, boots: null,
-    nowMs: new Date(2026, 8, 14, 23, 20, 5).getTime(), cliVersion: "1.2.384", hostLabel: "d1",
-  }).join("\n");
-  assert.match(noRelease, /release NOT REPORTED \(crate 1\.0\.145\)/);
-  assert.doesNotMatch(noRelease, /DRIFT/);
-});
 
-test("reportText: a version drift is named, and an empty watch list says how to start one", () => {
-  const text = reportText({
-    status: { ok: true, version: "1.0.145", release: "1.2.400", uptime_secs: 60 },
-    monitors: { interval_secs: 15, targets: [] },
-    sessions: null,
-    boots: null,
-    nowMs: new Date(2026, 8, 14, 23, 20, 5).getTime(),
-    cliVersion: "1.2.383",
-    hostLabel: "d1",
-  }).join("\n");
-  assert.match(text, /CLI 1\.2\.383 \(DRIFT\)/);
-  assert.match(text, /watching nothing \(vale monitor add <host:port>\)/);
-});
 
 
 test("targetLine: a content check that failed says so, next to the code that looked fine", () => {
@@ -1516,119 +1376,11 @@ test("targetLine: a content check that failed says so, next to the code that loo
 });
 
 
-test("probeLine: a DOWN probe says WHICH way it failed", () => {
-  const now = 1_789_000_000_000;
-  // Up, plain TCP: state and latency, no invented status.
-  assert.equal(
-    probeLine({ id: "h:22" }, { ok: true, status: null, ms: 9, expect_ok: null }, now),
-    "UP   h:22  9ms",
-  );
-  // Up with a status: the number an operator asked for.
-  assert.match(probeLine({ id: "h:80/" }, { ok: true, status: 200, ms: 11, expect_ok: null }, now), /HTTP 200/);
-  // 500: down, with the code — the case a TCP connect cannot see.
-  const bad = probeLine({ id: "h:80/" }, { ok: false, status: 500, ms: 12, expect_ok: null }, now);
-  assert.match(bad, /^DOWN/);
-  assert.match(bad, /HTTP 500/);
-  // 200 with the wrong body: down, and the line names the text it wanted.
-  const miss = probeLine(
-    { id: "h:80/", expect: "OpenWrt" },
-    { ok: false, status: 200, ms: 11, expect_ok: false },
-    now,
-  );
-  assert.match(miss, /^DOWN/);
-  assert.match(miss, /HTTP 200/);
-  assert.match(miss, /no match for "OpenWrt"/);
-  // A match is stated too, so a healthy content check is visible rather than merely absent.
-  assert.match(
-    probeLine({ id: "h:80/", expect: "OpenWrt" }, { ok: true, status: 200, ms: 5, expect_ok: true }, now),
-    /matches "OpenWrt"/,
-  );
-  // No answer at all: no status, no latency, and the line says so.
-  assert.equal(probeLine({ id: "h:9" }, { ok: false, status: null, ms: null, expect_ok: null }, now), "DOWN h:9  no answer");
-});
 
 
 // ── what the console said when it happened (the join) ───────────────────────
-test("stripAnsi/lastLine: a report line, not a transcript", () => {
-  // OSC (the window-title escape npm emits) and CSI colour both go; the text stays.
-  assert.equal(stripAnsi("\u001b]0;npm i something\u0007done"), "done");
-  assert.equal(stripAnsi("\u001b[31mred\u001b[0m"), "red");
-  assert.equal(lastLine("one\ntwo\r\n\n   \nlast line here\n"), "last line here");
-  // A trailing blank line is not "the last line": an operator wants the content.
-  assert.equal(lastLine("content\n\n\n"), "content");
-  // A HALF-TYPED LINE IS NOT A LINE: the console is a byte stream, so the last chunk often ends
-  // mid-word. Quoting `n` as "what the console said" (observed on d1) is worse than quoting nothing.
-  assert.equal(lastLine("PS C:\\> ifconfig\r\nPS C:\\> n"), "PS C:\\> ifconfig");
-  assert.equal(lastLine("n"), "");
-  assert.equal(lastLine("only a fragment, no newline"), "");
-  // …and a chunk that DOES end with a newline keeps its last line.
-  assert.equal(lastLine("first\nsecond\n"), "second");
-  assert.equal(lastLine(""), "");
-  assert.equal(lastLine("\u001b[2J\u001b[H"), "");
-  // Long lines are clipped, because this lands inside a report line — and the line must be
-  // TERMINATED to count as a line at all (see the half-typed case above).
-  const long = lastLine("x".repeat(300) + "\n");
-  assert.equal(long.length, 120);
-  assert.match(long, /\.\.\.$/);
-});
 
-test("lastOutputBefore: the newest output AT OR BEFORE the moment, never after", () => {
-  const recs = [
-    { kind: "command/start", ts_ms: 1000, command: "x" },
-    { kind: "output", ts_ms: 1500, text: "first" },
-    { kind: "output", ts_ms: 2500, text: "second" },
-    { kind: "output", ts_ms: 9000, text: "AFTER the moment" },
-    { kind: "output", ts_ms: 500, text: "" }, // no text: cannot be a console line
-    { kind: "output" }, // no stamp: dropped rather than placed by guess
-  ];
-  assert.equal(lastOutputBefore(recs, 3000).text, "second");
-  assert.equal(lastOutputBefore(recs, 1500).text, "first");
-  assert.equal(lastOutputBefore(recs, 10), null, "nothing before the moment is null, not the first");
-  assert.equal(lastOutputBefore([], 1000), null);
-});
 
-test("reportText: a DOWN target carries the console line from just before it dropped", () => {
-  const now = new Date(2026, 8, 14, 23, 20, 5).getTime();
-  const downAt = now - 60_000;
-  const text = reportText({
-    status: { ok: true, release: "1.2.389", uptime_secs: 60 },
-    monitors: {
-      interval_secs: 15,
-      targets: [
-        {
-          id: "127.0.0.1:45993",
-          summary: { up_now: false, since_ms: downAt, drops: 1, up_pct: 50, latency: null, last_status: null },
-          transitions: [{ at_ms: downAt, up: false, lasted_ms: 39_000 }],
-        },
-      ],
-    },
-    sessions: null,
-    boots: null,
-    nowMs: now,
-    cliVersion: "1.2.389",
-    hostLabel: "d1",
-    consoleNear: { "127.0.0.1:45993": { sid: "term-98cf04-0", tsMs: downAt - 1500, line: "ifconfig br-lan down" } },
-  }).join("\n");
-  assert.match(text, /went down\s+\(previous state lasted 39s\)/);
-  assert.match(text, /console \d\d:\d\d:\d\d \(term-98cf04-0\): ifconfig br-lan down/);
-
-  // No join found: the report says nothing about the console rather than guessing at it.
-  const bare = reportText({
-    status: { ok: true, release: "1.2.389", uptime_secs: 60 },
-    monitors: {
-      interval_secs: 15,
-      targets: [
-        {
-          id: "127.0.0.1:45993",
-          summary: { up_now: false, since_ms: downAt, drops: 1, up_pct: 50, latency: null, last_status: null },
-          transitions: [{ at_ms: downAt, up: false, lasted_ms: 39_000 }],
-        },
-      ],
-    },
-    sessions: null, boots: null, nowMs: now, cliVersion: "1.2.389", hostLabel: "d1",
-  }).join("\n");
-  assert.doesNotMatch(bare, /console /);
-});
 
 
 // ── machine-readable output ─────────────────────────────────────────────────
@@ -1702,54 +1454,7 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
 });
 
 
-test("the operator's note rides on the line it explains", () => {
-  const now = 1_789_000_000_000;
-  // A DOWN line with the human's reason: without it an intentional reboot reads as a fault.
-  const line = targetLine(
-    { id: "h:22", note: { text: "I rebooted it", at_ms: now - 5000 }, summary: { up_now: false, since_ms: now - 4000, drops: 1 } },
-    now,
-  );
-  assert.match(line, /^DOWN/);
-  assert.match(line, /— I rebooted it$/);
-  // No note: nothing appended (not an em dash with nothing after it).
-  const bare = targetLine({ id: "h:22", summary: { up_now: true, since_ms: now - 1000 } }, now);
-  assert.doesNotMatch(bare, /—/);
-  // And the JSON carries it as data, with its stamp.
-  const j = monitorsJson({
-    device: "d1",
-    askedAtMs: now,
-    payload: { targets: [{ id: "h:22", host: "h", port: 22, note: { text: "I rebooted it", at_ms: now - 5000 }, summary: { up_now: false } }] },
-    only: null,
-  });
-  assert.deepEqual(j.targets[0].note, { text: "I rebooted it", at_ms: now - 5000 });
-  assert.equal(
-    monitorsJson({ device: "d1", askedAtMs: now, payload: { targets: [{ id: "h:22", host: "h", port: 22, summary: {} }] }, only: null })
-      .targets[0].note,
-    null,
-    "no note is null, never a missing key",
-  );
-});
 
-test("reportText: a DOWN target shows the note above the console line", () => {
-  const now = new Date(2026, 8, 15, 1, 40, 0).getTime();
-  const text = reportText({
-    status: { ok: true, release: "1.2.392", uptime_secs: 60 },
-    monitors: {
-      interval_secs: 15,
-      targets: [
-        {
-          id: "h:22",
-          note: { text: "I rebooted it", at_ms: now - 90_000 },
-          summary: { up_now: false, since_ms: now - 60_000, drops: 1, up_pct: 50, latency: null, last_status: null },
-          transitions: [{ at_ms: now - 60_000, up: false, lasted_ms: 39_000 }],
-        },
-      ],
-    },
-    sessions: null, boots: null, nowMs: now, cliVersion: "1.2.392", hostLabel: "d1",
-  }).join("\n");
-  assert.match(text, /went down\s+\(previous state lasted 39s\)/);
-  assert.match(text, /note: I rebooted it/);
-});
 
 
 test("asciiJson: text that goes through a command line must survive it", () => {
@@ -1778,62 +1483,22 @@ test("asciiJson: text that goes through a command line must survive it", () => {
 });
 
 
-test("the --json paths actually USE the escaping helper (a helper test is not a wiring test)", () => {
+test("the --json path actually USES the escaping helper (a helper test is not a wiring test)", () => {
   // Both encoding bugs of this round had the same shape: the helper was right and the CALL SITE
   // was not. `asciiJson`'s own test passed while the two `--json` printers still called
   // `JSON.stringify` directly, so the pipe stayed broken. This reads the shipped file and asserts
   // the wiring, which is the only place the difference is visible.
   const shipped = readFileSync(new URL("../bin/vale.js", import.meta.url), "utf8");
   const wired = shipped.split("asciiJson(monitorsJson(").length - 1;
-  assert.equal(wired, 2, "both --json printers must go through asciiJson (see asciiJson's comment)");
+  assert.equal(wired, 1, "the remaining --json printer must go through asciiJson (watch was pruned)");
   // …and the request body path, for the same reason.
   assert.match(shipped, /-d", asciiJson\(body\)/);
 });
 
 
 // ── waiting for a state ─────────────────────────────────────────────────────
-test("waitDecision: the boundaries, including the one that would hang", () => {
-  // Already there: one probe and out.
-  assert.equal(waitDecision({ ok: true, wantUp: true, elapsedMs: 0, timeoutMs: 180_000 }), "met");
-  assert.equal(waitDecision({ ok: false, wantUp: false, elapsedMs: 0, timeoutMs: 180_000 }), "met");
-  // Not there yet: keep waiting while there is time.
-  assert.equal(waitDecision({ ok: false, wantUp: true, elapsedMs: 1000, timeoutMs: 180_000 }), "waiting");
-  // The exact boundary gives up — `>=`, not `>`, or `--timeout 0` would never finish.
-  assert.equal(waitDecision({ ok: false, wantUp: true, elapsedMs: 180_000, timeoutMs: 180_000 }), "timed-out");
-  assert.equal(waitDecision({ ok: false, wantUp: true, elapsedMs: 0, timeoutMs: 0 }), "timed-out");
-  // An unknown state (no probe yet) is never "met", in either direction.
-  assert.equal(waitDecision({ ok: null, wantUp: true, elapsedMs: 0, timeoutMs: 10 }), "waiting");
-  assert.equal(waitDecision({ ok: undefined, wantUp: false, elapsedMs: 0, timeoutMs: 0 }), "timed-out");
-});
 
-test("parseWaitArgs: one place decides what wait means", () => {
-  const a = parseWaitArgs(["wait", "192.168.1.1:22"]);
-  assert.equal(a.target.id, "192.168.1.1:22");
-  assert.equal(a.wantUp, true); // default: wait for it to come UP
-  assert.equal(a.timeoutMs, 180_000);
-  assert.equal(a.json, false);
-  const b = parseWaitArgs(["wait", "h:80/", "--down", "--timeout", "30", "--json"]);
-  assert.equal(b.wantUp, false);
-  assert.equal(b.timeoutMs, 30_000);
-  assert.equal(b.json, true);
-  // Refusals, each with the reason a person needs.
-  assert.match(parseWaitArgs(["wait", "h:22", "--up", "--down"]).error, /usage/);
-  assert.match(parseWaitArgs(["wait", "h:22", "--timeout", "soon"]).error, /--timeout takes seconds/);
-  assert.match(parseWaitArgs(["wait", "h:22", "--timeout", "999999"]).error, /--timeout takes seconds/);
-  assert.match(parseWaitArgs(["wait"]).error, /usage/);
-  assert.match(parseWaitArgs(["wait", "nonsense"]).error, /usage/);
-});
 
-test("waitLine: says what it saw, how long, and what it is waiting for", () => {
-  const human = waitLine({ elapsedMs: 4000, probe: { ok: false, status: 500 }, wantUp: true, id: "h:80/" });
-  assert.match(human, /^\s+4s\s+down\s+HTTP 500\s+\(waiting for up\)$/);
-  const json = JSON.parse(waitLine({ elapsedMs: 4000, probe: { ok: true, status: 200, ms: 7 }, wantUp: true, id: "h:80/", json: true }));
-  assert.deepEqual(json, { id: "h:80/", waited_ms: 4000, ok: true, status: 200, expect_ok: null, ms: 7, state: "up" });
-  // A probe with no status (a TCP check) says null, not a missing key.
-  const tcp = JSON.parse(waitLine({ elapsedMs: 0, probe: { ok: true, ms: 3 }, wantUp: true, id: "h:22", json: true }));
-  assert.equal(tcp.status, null);
-  assert.equal(tcp.state, "up");
-});
 
 
 test("stop and restart mark the run as deliberate before killing it", () => {
@@ -1849,142 +1514,11 @@ test("stop and restart mark the run as deliberate before killing it", () => {
 
 
 // ── the console, read the same way by `report` and `wait` ───────────────────
-test("the console reader is bounded, newest-first, and honest about nothing", () => {
-  const os = require("node:os");
-  const fsp = require("node:fs");
-  const path = require("node:path");
-  const dir = fsp.mkdtempSync(path.join(os.tmpdir(), "vale-console-"));
-  const sessions = path.join(dir, "sessions");
-  fsp.mkdirSync(sessions, { recursive: true });
-  const now = Date.now();
-  // Two sessions: the older one chatted a moment ago, the newer one is silent in the window.
-  fsp.writeFileSync(
-    path.join(sessions, "term-a.jsonl"),
-    [
-      // The identity header every real session file starts with; it is what says this file is a
-      // SERIAL console rather than the local shell the CLI runs in.
-      JSON.stringify({ v: 2, kind: "serial", label: "serial:COM4" }),
-      JSON.stringify({ seq: 1, ts_ms: now - 5000, kind: "output", text: "\u001b[31mfirst line\u001b[0m\n" }),
-      JSON.stringify({ seq: 2, ts_ms: now - 2000, kind: "output", text: "ifconfig br-lan down\n" }),
-      JSON.stringify({ seq: 3, ts_ms: now + 60_000, kind: "output", text: "in the future" }),
-    ].join("\n"),
-  );
-  fsp.writeFileSync(path.join(sessions, "term-b.jsonl"), JSON.stringify({ seq: 1, ts_ms: now - 300_000, kind: "output", text: "ancient" }));
-  // A file that is not a session is not a session.
-  fsp.writeFileSync(path.join(sessions, "notes.txt"), "ignore me");
-
-  const files = recentSessionFiles(dir);
-  assert.equal(files.length, 2, "only .jsonl files are sessions");
-  const records = sessionTailRecords(files.find((f) => f.f === "term-a.jsonl"));
-  assert.equal(records.filter((r) => r.kind === "output").length, 3, "the header is not an output record");
-  // Newest at or before the moment, ANSI stripped, and never a line from the future.
-  const near = consoleLineNear(dir, now, 120_000, files);
-  assert.equal(near.line, "ifconfig br-lan down");
-  assert.equal(near.sid, "term-a");
-  // Outside the window: nothing, rather than the oldest thing available.
-  assert.equal(consoleLineNear(dir, now, 1000, files), null);
-  // A directory that does not exist is an empty list, not a throw.
-  assert.deepEqual(recentSessionFiles(path.join(dir, "nope")), []);
-  assert.equal(consoleLineNear(path.join(dir, "nope"), now, 120_000), null);
-  fsp.rmSync(dir, { recursive: true, force: true });
-});
-
-test("waitLine: the console line rides along while waiting", () => {
-  const line = waitLine({ elapsedMs: 6000, probe: { ok: false }, wantUp: true, id: "h:22" });
-  assert.match(line, /waiting for up/);
-  // The console text is appended by the caller; the pure line keeps its own shape.
-  assert.doesNotMatch(line, /console:/);
-});
 
 
-test("the console is a serial/ssh session, not the shell the CLI runs in", () => {
-  // The bug this pins: `wait` read its OWN session's output (the newest file) and quoted the
-  // operator's typing back as "console". Found on d1 on the feature's first live run.
-  const os = require("node:os");
-  const fsp = require("node:fs");
-  const path = require("node:path");
-  const dir = fsp.mkdtempSync(path.join(os.tmpdir(), "vale-console2-"));
-  const sessions = path.join(dir, "sessions");
-  fsp.mkdirSync(sessions, { recursive: true });
-  const now = Date.now();
-  const header = (kind) => JSON.stringify({ v: 2, kind, label: `${kind}:x` }) + "\n";
-  // A local pty (where the CLI runs) that is CHATTING, and a serial console that is quiet.
-  fsp.writeFileSync(
-    path.join(sessions, "term-pty.jsonl"),
-    header("pty") + JSON.stringify({ seq: 1, ts_ms: now - 1000, kind: "output", text: "PS C:\\> vale monitor wait\n" }),
-  );
-  fsp.writeFileSync(
-    path.join(sessions, "term-ser.jsonl"),
-    header("serial") + JSON.stringify({ seq: 1, ts_ms: now - 4000, kind: "output", text: "br-lan: link up\n" }),
-  );
-  const files = recentSessionFiles(dir);
-  assert.equal(files.length, 2);
-  assert.equal(files.find((f) => f.f === "term-ser.jsonl").kind, "serial");
-  assert.equal(files.find((f) => f.f === "term-pty.jsonl").kind, "pty");
-  // The newest line overall is the pty's… and the console reader ignores it.
-  const near = consoleLineNear(dir, now, 120_000, files);
-  assert.equal(near.line, "br-lan: link up");
-  assert.equal(near.sid, "term-ser");
-  // …and with NO serial/ssh session, the answer is nothing rather than the operator's own echo.
-  fsp.rmSync(path.join(sessions, "term-ser.jsonl"));
-  assert.equal(consoleLineNear(dir, now, 120_000, recentSessionFiles(dir)), null);
-  // Naming one explicitly is how a caller says "that one IS my console" — including a local shell,
-  // which is exactly what the override is for (the default must not guess it).
-  assert.equal(
-    consoleLineNear(dir, now, 120_000, recentSessionFiles(dir), "term-pty").line,
-    "PS C:\\> vale monitor wait",
-  );
-  fsp.rmSync(dir, { recursive: true, force: true });
-});
 
-test("parseWaitArgs: --console names the session, and needs one", () => {
-  const a = parseWaitArgs(["wait", "h:22", "--console", "term-1"]);
-  assert.equal(a.consoleSid, "term-1");
-  assert.equal(a.target.id, "h:22");
-  assert.match(parseWaitArgs(["wait", "h:22", "--console"]).error, /--console needs a session id/);
-  // The session id is not mistaken for the target.
-  assert.equal(parseWaitArgs(["wait", "h:22", "--console", "term-1"]).target.id, "h:22");
-});
+
 
 
 // ── following a LIVE console ────────────────────────────────────────────────
-test("chooseConsoleSession: a serial/ssh session is a console, a local pty is not", () => {
-  const rows = [
-    { id: "term-1", kind: "pty", label: "pwsh" },
-    { id: "term-2", kind: "ssh", label: "stc@192.168.1.1" },
-    { id: "term-3", kind: "pty", label: "pwsh" },
-    { id: "term-4", kind: "serial", label: "serial:COM4" },
-  ];
-  // The newest console wins (creation order), never the chattiest shell.
-  assert.deepEqual(chooseConsoleSession(rows, null), { sid: "term-4", kind: "serial", known: true });
-  // An explicit session wins even when it is a pty — the operator may know better.
-  assert.deepEqual(chooseConsoleSession(rows, "term-1"), { sid: "term-1", kind: "pty", known: true });
-  // …but naming one this device does not have is reported as unknown, not silently followed.
-  assert.deepEqual(chooseConsoleSession(rows, "term-9"), { sid: "term-9", kind: null, known: false });
-  // No console at all: null, so the wait says nothing rather than guessing.
-  assert.equal(chooseConsoleSession([{ id: "t", kind: "pty" }], null), null);
-  assert.equal(chooseConsoleSession(null, null), null);
-  assert.equal(chooseConsoleSession(undefined, null), null);
-});
 
-test("advanceConsoleCursor: complete lines move it, a half-typed one does not", () => {
-  // A fresh read at offset 0: the cursor lands at the end, and the last complete line is shown.
-  const a = advanceConsoleCursor(0, { text: "boot\nStarting kernel ...\nbr-lan: up\n", start: 0, end: 38 });
-  assert.equal(a.line, "br-lan: up");
-  assert.equal(a.cursor, 38);
-  // A read that ended mid-word: NOTHING is shown and the cursor stays put, so the next read
-  // returns that fragment whole (losing it would lose the line the operator is watching for).
-  const b = advanceConsoleCursor(38, { text: "PS C:\\> n", start: 38, end: 46 });
-  assert.equal(b.line, null);
-  assert.equal(b.cursor, 38);
-  // …and when the rest arrives, the line is complete and the cursor moves past it.
-  const c = advanceConsoleCursor(38, { text: "PS C:\\> next\n", start: 38, end: 52 });
-  assert.equal(c.line, "PS C:\\> next");
-  assert.equal(c.cursor, 52);
-  // An empty read changes nothing.
-  assert.deepEqual(advanceConsoleCursor(52, { text: "", start: 52, end: 52 }), { cursor: 52, line: null });
-  // Non-ASCII is measured in BYTES, because the offsets are byte offsets.
-  const u = advanceConsoleCursor(0, { text: "中文行\npartial", start: 0, end: 9 + 11 });
-  assert.equal(u.line, "中文行");
-  assert.equal(u.cursor, 9 + 11 - Buffer.byteLength("partial", "utf8"));
-});
