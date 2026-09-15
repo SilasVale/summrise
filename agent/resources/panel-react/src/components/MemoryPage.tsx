@@ -208,6 +208,7 @@ export function MemoryPage() {
       <div className="mem-toolbar">
         <input
           className="mem-input"
+          aria-label="Search memory by title, content or tag"
           placeholder="Search title/content/tags… (Enter)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -217,6 +218,7 @@ export function MemoryPage() {
         />
         <input
           className="mem-input mem-narrow"
+          aria-label="Filter by namespace"
           placeholder="namespace"
           value={namespace}
           onChange={(e) => setNamespace(e.target.value)}
@@ -226,6 +228,7 @@ export function MemoryPage() {
         />
         <input
           className="mem-input mem-narrow"
+          aria-label="Filter by tag"
           placeholder="tag"
           value={tag}
           onChange={(e) => setTag(e.target.value)}

@@ -87,6 +87,9 @@ describe("TerminalPane", () => {
   it("search bar opens via button and closes via Esc", async () => {
     render(<TerminalPane session={session()} registerWrite={registerWrite} />);
     expect(screen.queryByPlaceholderText("Search…")).toBeNull();
+    // BOTH the label and the tooltip: a title-only name is the last resort in the accessible-name
+    // computation and is not exposed on touch at all (measured by the name sweep, round 49).
+    expect(screen.getByLabelText("Search scrollback (Ctrl+F)"), "the button must carry a name").toBeTruthy();
     fireEvent.click(screen.getByTitle("Search scrollback (Ctrl+F)"));
     const input = await screen.findByPlaceholderText("Search…");
     fireEvent.keyDown(input, { key: "Escape" });
@@ -106,3 +109,5 @@ describe("TerminalPane", () => {
     expect(screen.queryByTitle("Smaller font")).toBeNull();
   });
 });
+// The scrollback search button carried its name in `title` alone — the last resort in the
+// accessible-name computation and not exposed on touch (measured by the name sweep, round 49).

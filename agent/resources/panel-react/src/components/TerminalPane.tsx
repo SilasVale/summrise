@@ -406,7 +406,14 @@ export function TerminalPane({ session, registerWrite }: {
       )}
       {session.active && (
         <div className="term-fontbar">
-          <button title="Search scrollback (Ctrl+F)" onClick={() => setSearchOpen(true)}>
+          {/* aria-label AND title: the title is the tooltip, but a `title`-only name is the last
+              resort in the accessible-name computation and is not exposed on touch at all
+              (measured by the name sweep, round 49). */}
+          <button
+            aria-label="Search scrollback (Ctrl+F)"
+            title="Search scrollback (Ctrl+F)"
+            onClick={() => setSearchOpen(true)}
+          >
             <Icon name="search" size={12} />
           </button>
           <button title="Smaller font" onClick={() => applyFont(fontSize - 1)}>A−</button>

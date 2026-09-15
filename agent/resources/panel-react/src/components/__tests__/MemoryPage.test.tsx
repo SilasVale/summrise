@@ -155,3 +155,18 @@ describe("MemoryPage", () => {
     expectNoSkippedLevel(container);
   });
 });
+// ACCESSIBLE NAMES: a placeholder is not one. Measured on the running panel (round 49, both
+// densities, both themes): the three toolbar inputs were announced as three unnamed "edit text"
+// fields, distinguishable only by a hint that disappears as soon as anyone types.
+describe("MemoryPage accessible names", () => {
+  it("names all three toolbar inputs, independently of their placeholders", () => {
+    render(<MemoryPage />);
+    for (const label of [
+      "Search memory by title, content or tag",
+      "Filter by namespace",
+      "Filter by tag",
+    ]) {
+      expect(screen.getByLabelText(label), `${label} must be findable by its name`).toBeTruthy();
+    }
+  });
+});
