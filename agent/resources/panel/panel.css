@@ -2563,7 +2563,7 @@ h3 { font-size: var(--fs-base); }
 .plug-tag[data-state="success"] { color: var(--chrome-ink-dim); background: var(--state-muted-soft); }
 .plug-tag[data-state="warn"] { color: var(--warn-ink); background: var(--warn-soft); }
 .plug-tag[data-state="error"] { color: var(--danger-on-soft); background: var(--danger-soft); }
-.plug-tag[data-state="muted"] { color: var(--muted); background: var(--state-muted-soft); }
+.plug-tag[data-state="muted"] { color: var(--chrome-ink-dim); background: var(--state-muted-soft); }
 .plug-card {
   flex: none;
   background: var(--glass-tint);
@@ -2849,7 +2849,10 @@ h3 { font-size: var(--fs-base); }
   width: 96px; height: 60px;
   background: var(--chrome-bg-3);
   display: grid; place-items: center;
-  font-size: var(--fs-2xs); color: var(--muted);
+  /* --chrome-ink, not --muted: measured 4.10 on this chrome surface by the static pair sweep
+     (round 43). The chrome surfaces are dark in BOTH themes, so the light theme's quiet token is
+     the wrong family here. */
+  font-size: var(--fs-2xs); color: var(--chrome-ink);
 }
 .browser-ev-time {
   position: absolute;
@@ -2993,7 +2996,8 @@ h3 { font-size: var(--fs-base); }
   background: var(--chrome-bg);
   border-top: 1px solid var(--chrome-line);
   font-size: var(--fs-xs);
-  color: var(--muted);
+  /* --chrome-ink, not --muted: 4.40 on the chrome status bar (static pair sweep, round 43). */
+  color: var(--chrome-ink);
 }
 .browser-status-left {
   display: flex;

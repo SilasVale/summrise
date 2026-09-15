@@ -159,4 +159,37 @@ t("the WORST stop decides, never the best", () => {
 
 const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
 
+// ── HEX IS A COLOUR, AND IT MUST EQUAL ITS rgb() FORM ────────────────────────────────────────
+// The parser scraped numbers out of whatever it was given, so `#f4f4f5` became {4,4,5} — a real
+// colour, silently wrong — and `#71717a` became nothing. The rendered sweep never noticed because
+// getComputedStyle returns rgb(); a static check reading the token sheet hit it at once. These
+// checks compare hex against the rgb() spelling of the SAME colour, so a stride bug cannot pass by
+// happening to look plausible.
+t("6-digit hex parses to the same colour as its rgb() form", () => {
+  const hex = parseColour("#71717a");
+  const rgb = parseColour("rgb(113, 113, 122)");
+  assert(hex && rgb, "both spellings must parse");
+  assert(hex.r === 113 && hex.g === 113 && hex.b === 122, `hex parsed as ${JSON.stringify(hex)}`);
+  assert(hex.r === rgb.r && hex.g === rgb.g && hex.b === rgb.b, "hex and rgb() must agree");
+});
+t("a hex pair and its rgb() pair give the SAME contrast ratio", () => {
+  const a = contrastRatio(parseColour("#71717a"), parseColour("#f4f4f5"));
+  const b = contrastRatio(parseColour("rgb(113,113,122)"), parseColour("rgb(244,244,245)"));
+  assert(Math.abs(a - b) < 0.001, `hex ${a.toFixed(3)} vs rgb ${b.toFixed(3)}`);
+  assert(Math.abs(a - 4.4) < 0.15, `expected ~4.4 (the measured ghost-button pair), got ${a.toFixed(2)}`);
+});
+t("3- and 4-digit hex expand, and 8-digit hex carries alpha", () => {
+  const short = parseColour("#fff");
+  assert(short && short.r === 255 && short.g === 255 && short.b === 255 && short.a === 1, JSON.stringify(short));
+  const shortAlpha = parseColour("#0008");
+  assert(shortAlpha && shortAlpha.a > 0 && shortAlpha.a < 1, JSON.stringify(shortAlpha));
+  const long = parseColour("#ffffff80");
+  assert(long && long.r === 255 && Math.abs(long.a - 0.502) < 0.01, JSON.stringify(long));
+});
+t("a malformed hex is null, not a colour", () => {
+  assert(parseColour("#12345") === null, "5 digits is not a colour");
+  assert(parseColour("#1234567") === null, "7 digits is not a colour");
+  assert(parseColour("#gggggg") === null, "not hex at all");
+});
+
 console.log(`contrast-probe: all ${n} checks passed`);

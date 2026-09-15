@@ -57,7 +57,37 @@ export function aaThreshold(fontSize, fontWeight) {
 
 /** `#rgb`/`#rrggbb`/`rgb()`/`rgba()` -> {r,g,b,a}; null when unparseable. */
 export function parseColour(c) {
-  const m = String(c || "").match(/[\d.]+/g);
+  const s = String(c || "").trim();
+  // HEX FIRST, AND EXPLICITLY. The numeric scrape below reads '#f4f4f5' as the numbers 4, 4 and 5 —
+  // a real colour, silently wrong — and '#71717a' as nothing at all, because the 'a' ends the run.
+  // It went unnoticed because the RENDERED sweep only ever sees 'rgb()'/'rgba()': getComputedStyle
+  // never returns hex, so the bug lived in the one path nothing called until a STATIC check read the
+  // token sheet (round 43). Its own suite had no hex case, which is why 13 green checks proved
+  // nothing about it.
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(s);
+  if (hex) {
+    const digits = hex[1];
+    const expand = (d) => parseInt(d.length === 1 ? d + d : d, 16);
+    if (digits.length === 3 || digits.length === 4) {
+      return {
+        r: expand(digits[0]),
+        g: expand(digits[1]),
+        b: expand(digits[2]),
+        a: digits.length === 4 ? expand(digits[3]) / 255 : 1,
+      };
+    }
+    if (digits.length === 6 || digits.length === 8) {
+      return {
+        r: parseInt(digits.slice(0, 2), 16),
+        g: parseInt(digits.slice(2, 4), 16),
+        b: parseInt(digits.slice(4, 6), 16),
+        a: digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1,
+      };
+    }
+    return null; // 5 or 7 digits is not a colour
+  }
+  // rgb() / rgba() (and anything else numeric) keeps the original scrape.
+  const m = s.match(/[\d.]+/g);
   if (!m || m.length < 3) return null;
   const [r, g, b] = m.map(Number);
   return { r, g, b, a: m.length > 3 ? Number(m[3]) : 1 };
