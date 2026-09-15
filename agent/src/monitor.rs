@@ -1230,18 +1230,53 @@ mod tests {
     /// probe (the device did not see it fall) and never for a probe that changed nothing. The
     /// payload carries the outage/uptime that just ended, which is the number a reader wants.
     ///
+    /// THE FLIP IS A CONTENT CHANGE, NOT A CLOSED PORT, and that is a fix rather than a style
+    /// choice. The old version dropped the listener and relied on the NEXT connect being refused —
+    /// which is a race against every other test in the binary binding an ephemeral port: the port
+    /// gets taken in the window between `drop` and the probe, the probe sees a live socket, the
+    /// state did not change, and the assertion read `left: 0, right: 1` (INTERMITTENT, caught by a
+    /// twelve-run hunt after one unexplained `1 failed`). An expectation on the BODY flips
+    /// deterministically with the listener still bound.
+    ///
     /// The sink is process-global, so this test restores it — the same discipline the other
     /// globals in this file get.
     #[tokio::test]
     async fn a_state_flip_is_announced_once_and_a_steady_probe_is_not() {
         let _serial = serial().await;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let d = dir("announce");
+        // Port 1 is refused by construction: no race, no listener.
+        let down = add_target(&d, "127.0.0.1", 1).expect("added");
+        // The flapping target is an HTTP page whose BODY changes on command, watched with an
+        // expectation — the listener stays bound the whole time.
+        let body = Arc::new(Mutex::new("up".to_string()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
         let port = listener.local_addr().expect("addr").port();
-        let down = add_target(&d, "127.0.0.1", 1).expect("added"); // port 1: refused
+        {
+            let body = body.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Ok((mut sock, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let body = body.clone();
+                    tokio::spawn(async move {
+                        let mut buf = [0u8; 512];
+                        let _ = sock.read(&mut buf).await;
+                        let text = body.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+                            text.len()
+                        );
+                        let _ = sock.write_all(resp.as_bytes()).await;
+                        let _ = sock.flush().await;
+                    });
+                }
+            });
+        }
 
         let seen: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
         let count = Arc::new(AtomicUsize::new(0));
@@ -1267,19 +1302,27 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 0, "no change, no event");
 
         // A target that CAN answer, probed twice: up, up — no event (it was never down).
-        let up = add_target(&d, "127.0.0.1", port).expect("added");
+        let up = add_target_full(&d, "127.0.0.1", port, "/status", "up").expect("added");
         probe_once(&up.id).await.expect("probed");
         probe_once(&up.id).await.expect("probed");
         assert_eq!(count.load(Ordering::SeqCst), 0, "steady is silent");
 
-        // Now make it FLAP: the listener is dropped, so the next probe is a real down.
-        drop(listener);
+        // Now make it FLAP: the page stops carrying the text it must carry. Deterministic — the
+        // socket is still there, so what changed is the CONTENT, not the willingness to answer.
+        *body.lock().unwrap_or_else(|p| p.into_inner()) = "down".to_string();
         probe_once(&up.id).await.expect("probed");
         let events = seen.lock().unwrap_or_else(|p| p.into_inner()).clone();
         assert_eq!(events.len(), 1, "{events:?}");
         assert_eq!(events[0]["ev"], "monitor-change");
         assert_eq!(events[0]["id"], up.id);
-        assert_eq!(events[0]["up"], false);
+        assert_eq!(
+            events[0]["up"], false,
+            "the expectation stopped matching: that IS a fall"
+        );
+        assert_eq!(
+            events[0]["status"], 200,
+            "and the status is reported as read"
+        );
         assert!(events[0]["lasted_ms"].as_u64().is_some(), "{:?}", events[0]);
 
         // And one more down: the state did not change, so nothing more is announced.
