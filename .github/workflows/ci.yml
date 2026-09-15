@@ -340,6 +340,11 @@ jobs:
       # `fi` in publish-release.sh and found out only when a publish was attempted.
       - name: every shell script parses
         run: bash scripts/test/script-syntax.bash
+      # The design sweep tool packages every measurement the panel has (contrast, hierarchy,
+      # landmarks, focus, geometry, reflow, names, timing). This gate proves it still EMITS a
+      # script that parses and still FAILS a planted defect on every axis — no browser needed.
+      - name: the design sweep tool emits and judges correctly
+        run: bash scripts/test/panel-design-sweep.bash
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
