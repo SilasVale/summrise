@@ -48,6 +48,7 @@ exports.parseWatchArgs = parseWatchArgs;
 exports.fmtDuration = fmtDuration;
 exports.targetLine = targetLine;
 exports.recentSessionFiles = recentSessionFiles;
+exports.sessionKind = sessionKind;
 exports.sessionTailRecords = sessionTailRecords;
 exports.consoleLineNear = consoleLineNear;
 exports.waitDecision = waitDecision;
@@ -573,7 +574,12 @@ function targetLine(t, nowMs, width = 30) {
 // (what was on the console when a target dropped) and `wait` (what it is saying WHILE we wait) —
 // and they want it the same way: the newest line at or before a moment, from the most recently
 // touched files, bounded so a report never walks a gigabyte of history. One reader, two callers.
-/** The newest session files, newest first. Unreadable files are skipped, not fatal. */
+/** The newest session files, newest first, each with the KIND the session recorded for itself.
+ *
+ *  The kind comes from the file's own identity header (the first line), which the terminal plugin
+ *  writes when the session opens. It is what makes "which session is the device's console?" an
+ *  answerable question instead of "whichever file changed last" — the latter made `wait` read its
+ *  OWN session's output and quote the operator's typing back at them (found on d1). */
 function recentSessionFiles(dataDir, limit = 12) {
     const dir = path.join(dataDir, "sessions");
     try {
@@ -583,7 +589,8 @@ function recentSessionFiles(dataDir, limit = 12) {
             .map((f) => {
             const p = path.join(dir, f);
             try {
-                return { f, p, m: fs.statSync(p).mtimeMs };
+                const st = fs.statSync(p);
+                return { f, p, m: st.mtimeMs, kind: sessionKind(p, st.size) };
             }
             catch {
                 return null;
@@ -596,6 +603,26 @@ function recentSessionFiles(dataDir, limit = 12) {
     catch {
         // No sessions directory at all is an empty list: "nothing recorded", not a failure.
         return [];
+    }
+}
+/** The kind a session recorded for itself, or null when the file has no header we can read. */
+function sessionKind(filePath, size) {
+    try {
+        const fd = fs.openSync(filePath, "r");
+        const buf = Buffer.alloc(Math.min(size, 4096));
+        try {
+            fs.readSync(fd, buf, 0, buf.length, 0);
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+        const first = String(buf).split("\n")[0];
+        const header = JSON.parse(first);
+        const kind = header && (header.kind || (header.identity && header.identity.kind));
+        return typeof kind === "string" && kind ? kind : null;
+    }
+    catch {
+        return null;
     }
 }
 /** The output records of ONE session file, from its bounded tail. */
@@ -624,9 +651,22 @@ function sessionTailRecords(file, capBytes = 128 * 1024) {
 }
 /** The newest console line printed at or before `atMs`, within `withinMs`, across the watchable
  *  sessions — or null when the console said nothing in that window (never an invented line). */
-function consoleLineNear(dataDir, atMs, withinMs, files) {
+function consoleLineNear(dataDir, atMs, withinMs, files, only) {
+    // WHICH SESSION IS THE DEVICE'S CONSOLE. A serial line or an SSH session to the box being
+    // debugged is a console; the local shell the CLI runs in is where the OPERATOR types, and
+    // reading it back is how this first shipped a line of the operator's own command echo. With no
+    // serial/ssh session at all the answer is NOTHING rather than a guess — and `--console <sid>`
+    // names one explicitly when the default is not what the caller wants.
+    let candidates = files || recentSessionFiles(dataDir);
+    if (only) {
+        candidates = candidates.filter((f) => f.f === `${only}.jsonl`);
+    }
+    else {
+        const consoles = candidates.filter((f) => f.kind === "serial" || f.kind === "ssh");
+        candidates = consoles;
+    }
     let found = null;
-    for (const file of files || recentSessionFiles(dataDir)) {
+    for (const file of candidates) {
         let hit = null;
         try {
             hit = lastOutputBefore(sessionTailRecords(file), atMs);
@@ -691,11 +731,15 @@ function parseWaitArgs(args) {
         timeoutMs = Math.round(secs * 1000);
     }
     const json = args.includes("--json");
-    const positional = args.filter((a, i) => i > 0 && !a.startsWith("--") && i !== tAt + 1);
+    const cAt = args.indexOf("--console");
+    const consoleSid = cAt >= 0 ? String(args[cAt + 1] || "") : null;
+    if (cAt >= 0 && !consoleSid)
+        return { error: "--console needs a session id (see `vale monitor list`… or the panel's sessions)" };
+    const positional = args.filter((a, i) => i > 0 && !a.startsWith("--") && i !== tAt + 1 && i !== cAt + 1);
     const target = positional.length ? parseTargetArg(positional[0]) : null;
     if (!target || positional.length > 1)
-        return { error: "usage: vale monitor wait <host:port[/path]> [--up|--down] [--timeout <secs>]" };
-    return { target, wantUp, timeoutMs, json };
+        return { error: "usage: vale monitor wait <host:port[/path]> [--up|--down] [--timeout <secs>] [--console <sid>]" };
+    return { target, wantUp, timeoutMs, json, consoleSid };
 }
 // ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
 // `vale monitor list --json` and `vale watch --once --json` print the DEVICE'S OWN ANSWER,
@@ -1961,7 +2005,7 @@ const commands = {
                 let consoleNow = null;
                 if (!w.json) {
                     try {
-                        const near = consoleLineNear(DATA_DIR, Date.now(), 120_000);
+                        const near = consoleLineNear(DATA_DIR, Date.now(), 120_000, undefined, w.consoleSid);
                         if (near && near.line !== lastConsole) {
                             consoleNow = near;
                             lastConsole = near.line;

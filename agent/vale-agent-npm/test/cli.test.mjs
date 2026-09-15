@@ -1859,6 +1859,9 @@ test("the console reader is bounded, newest-first, and honest about nothing", ()
   fsp.writeFileSync(
     path.join(sessions, "term-a.jsonl"),
     [
+      // The identity header every real session file starts with; it is what says this file is a
+      // SERIAL console rather than the local shell the CLI runs in.
+      JSON.stringify({ v: 2, kind: "serial", label: "serial:COM4" }),
       JSON.stringify({ seq: 1, ts_ms: now - 5000, kind: "output", text: "\u001b[31mfirst line\u001b[0m\n" }),
       JSON.stringify({ seq: 2, ts_ms: now - 2000, kind: "output", text: "ifconfig br-lan down\n" }),
       JSON.stringify({ seq: 3, ts_ms: now + 60_000, kind: "output", text: "in the future" }),
@@ -1871,7 +1874,7 @@ test("the console reader is bounded, newest-first, and honest about nothing", ()
   const files = recentSessionFiles(dir);
   assert.equal(files.length, 2, "only .jsonl files are sessions");
   const records = sessionTailRecords(files.find((f) => f.f === "term-a.jsonl"));
-  assert.equal(records.length, 3);
+  assert.equal(records.filter((r) => r.kind === "output").length, 3, "the header is not an output record");
   // Newest at or before the moment, ANSI stripped, and never a line from the future.
   const near = consoleLineNear(dir, now, 120_000, files);
   assert.equal(near.line, "ifconfig br-lan down");
@@ -1889,4 +1892,54 @@ test("waitLine: the console line rides along while waiting", () => {
   assert.match(line, /waiting for up/);
   // The console text is appended by the caller; the pure line keeps its own shape.
   assert.doesNotMatch(line, /console:/);
+});
+
+
+test("the console is a serial/ssh session, not the shell the CLI runs in", () => {
+  // The bug this pins: `wait` read its OWN session's output (the newest file) and quoted the
+  // operator's typing back as "console". Found on d1 on the feature's first live run.
+  const os = require("node:os");
+  const fsp = require("node:fs");
+  const path = require("node:path");
+  const dir = fsp.mkdtempSync(path.join(os.tmpdir(), "vale-console2-"));
+  const sessions = path.join(dir, "sessions");
+  fsp.mkdirSync(sessions, { recursive: true });
+  const now = Date.now();
+  const header = (kind) => JSON.stringify({ v: 2, kind, label: `${kind}:x` }) + "\n";
+  // A local pty (where the CLI runs) that is CHATTING, and a serial console that is quiet.
+  fsp.writeFileSync(
+    path.join(sessions, "term-pty.jsonl"),
+    header("pty") + JSON.stringify({ seq: 1, ts_ms: now - 1000, kind: "output", text: "PS C:\\> vale monitor wait\n" }),
+  );
+  fsp.writeFileSync(
+    path.join(sessions, "term-ser.jsonl"),
+    header("serial") + JSON.stringify({ seq: 1, ts_ms: now - 4000, kind: "output", text: "br-lan: link up\n" }),
+  );
+  const files = recentSessionFiles(dir);
+  assert.equal(files.length, 2);
+  assert.equal(files.find((f) => f.f === "term-ser.jsonl").kind, "serial");
+  assert.equal(files.find((f) => f.f === "term-pty.jsonl").kind, "pty");
+  // The newest line overall is the pty's… and the console reader ignores it.
+  const near = consoleLineNear(dir, now, 120_000, files);
+  assert.equal(near.line, "br-lan: link up");
+  assert.equal(near.sid, "term-ser");
+  // …and with NO serial/ssh session, the answer is nothing rather than the operator's own echo.
+  fsp.rmSync(path.join(sessions, "term-ser.jsonl"));
+  assert.equal(consoleLineNear(dir, now, 120_000, recentSessionFiles(dir)), null);
+  // Naming one explicitly is how a caller says "that one IS my console" — including a local shell,
+  // which is exactly what the override is for (the default must not guess it).
+  assert.equal(
+    consoleLineNear(dir, now, 120_000, recentSessionFiles(dir), "term-pty").line,
+    "PS C:\\> vale monitor wait",
+  );
+  fsp.rmSync(dir, { recursive: true, force: true });
+});
+
+test("parseWaitArgs: --console names the session, and needs one", () => {
+  const a = parseWaitArgs(["wait", "h:22", "--console", "term-1"]);
+  assert.equal(a.consoleSid, "term-1");
+  assert.equal(a.target.id, "h:22");
+  assert.match(parseWaitArgs(["wait", "h:22", "--console"]).error, /--console needs a session id/);
+  // The session id is not mistaken for the target.
+  assert.equal(parseWaitArgs(["wait", "h:22", "--console", "term-1"]).target.id, "h:22");
 });
