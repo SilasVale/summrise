@@ -825,6 +825,40 @@ fn embedded_view_index(text: &str) -> Option<usize> {
     None
 }
 
+/// The index of the DESKTOP SPA tab (`/desktop/`) — the twin of `embedded_view_index`, and the
+/// fallback that matters after a restart.
+///
+/// WHY IT EXISTS (device-caught, 2026-09-15T10:03): the agent restarted while the window's
+/// embedded tab was pointed at the panel, so Chromium left that tab on
+/// `chrome-error://chromewebdata/`. The auto-select then found NO embedded view — correctly, since
+/// the only other tab was the SPA — and "left default selection", which left the operator's window
+/// showing the ERROR PAGE. The list itself said which tab was worth showing; all that was missing
+/// was the rule to prefer it.
+fn desktop_spa_index(text: &str) -> Option<usize> {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('-') {
+            continue;
+        }
+        let rest = &trimmed[1..];
+        let idx: usize = match rest
+            .trim_start()
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .parse()
+        {
+            Ok(i) => i,
+            Err(_) => continue,
+        };
+        if line.contains("/desktop/") {
+            return Some(idx);
+        }
+    }
+    None
+}
+
 /// Private-network host predicate for the http-MCP policy (LAN clients
 /// must be reachable without TLS; public-internet http stays rejected).
 /// RFC1918 + loopback + link-local + .local — pure + unit-tested.
@@ -965,8 +999,22 @@ async fn select_embedded_view_tab(sess: &mut McpSession) -> Result<(), DeviceErr
             )),
         }
     }
+    // NO EMBEDDED VIEW: prefer the desktop SPA over whatever is selected now. After a restart the
+    // selected tab is often Chromium's error page for a page that died with the agent, and the
+    // honest thing to leave on screen is the product (see `desktop_spa_index`).
+    let mut reason = "embedded-view";
+    if embedded_idx.is_none() {
+        let current_is_spa = text
+            .lines()
+            .find(|l| l.contains("(current)"))
+            .is_some_and(|l| l.contains("/desktop/"));
+        if !current_is_spa {
+            embedded_idx = desktop_spa_index(&text);
+            reason = "desktop-view fallback";
+        }
+    }
     if let Some(idx) = embedded_idx {
-        diag_log(&format!("[select] selecting embedded-view tab {idx}"));
+        diag_log(&format!("[select] selecting {reason} tab {idx}"));
         let select_id = take_rpc_id(sess);
         let _ = rpc_ref(
             sess,
@@ -1645,6 +1693,41 @@ mod one_browser_tests {
         assert_eq!(embedded_view_index(reversed), Some(0));
         // Garbage lines are skipped.
         assert_eq!(embedded_view_index("nothing here"), None);
+    }
+
+    /// THE TAB LIST FROM THE DEVICE'S OWN DIAGNOSTIC LOG, verbatim — the fixture is the evidence,
+    /// not a guess about what a tab list looks like:
+    ///
+    ///     [select] initial tab list text:
+    ///     - 0: (current) [](chrome-error://chromewebdata/)
+    ///     - 1: [(2) Vale Agent](http://127.0.0.1:18080/desktop/)
+    ///
+    /// The agent had restarted while the embedded tab pointed at the panel, so Chromium left it on
+    /// its error page; the selector correctly found no embedded view and then LEFT THE ERROR PAGE
+    /// SELECTED, which is what the operator saw. The fallback is what this pins.
+    #[test]
+    fn desktop_spa_index_finds_the_product_tab() {
+        let after_restart = "- 0: (current) [](chrome-error://chromewebdata/)\n- 1: [(2) Vale Agent](http://127.0.0.1:18080/desktop/)";
+        assert_eq!(
+            embedded_view_index(after_restart),
+            None,
+            "an error page is not an embedded view, and the SPA is not one either"
+        );
+        assert_eq!(
+            desktop_spa_index(after_restart),
+            Some(1),
+            "the SPA is the tab worth showing when there is nothing else"
+        );
+        // The earlier, healthy lists still behave: an embedded view wins, and it is picked from
+        // either position.
+        let healthy = "- 0: (current) [搜索 - Microsoft 必应](https://cn.bing.com/)\n- 1: [Vale Agent](http://127.0.0.1:18080/desktop/)";
+        assert_eq!(embedded_view_index(healthy), Some(0));
+        assert_eq!(desktop_spa_index(healthy), Some(1));
+        let panel_tab = "- 0: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Vale Agent](http://127.0.0.1:18080/panel/)";
+        assert_eq!(embedded_view_index(panel_tab), Some(1));
+        // No SPA at all (a window that never loaded it) -> None, so nothing is invented.
+        assert_eq!(desktop_spa_index("- 0: [X](https://x.com/)"), None);
+        assert_eq!(desktop_spa_index("nothing here"), None);
     }
 
     #[test]
