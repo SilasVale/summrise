@@ -1437,6 +1437,29 @@ function initTunnel(hostname, regKey) {
 function rollbackVersionOk(v) {
     return /^\d+\.\d+\.\d+$/.test(v);
 }
+/**
+ * TELL THE AGENT IT IS ABOUT TO BE STOPPED ON PURPOSE, before anything kills it.
+ *
+ * `vale restart` and `vale stop` end the process from OUTSIDE, so it writes no clean-exit marker —
+ * and the run journal then reports the operator's own action as `crashed` whenever the revival
+ * takes longer than the heartbeat window. The device has one place that knows how to mark it
+ * (`runstate::mark_deliberate_stop`, behind `POST /api/run/mark-exit`), so the CLI asks rather than
+ * writing the file itself: one rule, one implementation.
+ *
+ * BEST-EFFORT BY DESIGN: it runs BEFORE the kill, and a device whose agent is already gone must
+ * still be stoppable. A failure is a WARNING, never a refusal to stop.
+ */
+function markDeliberateStop() {
+    const r = deviceApi("POST", "/api/run/mark-exit", {});
+    if (!r.ok) {
+        console.error(`  (note: could not mark this stop as deliberate -- ${r.error}; the next start may report a crash)`);
+        return;
+    }
+    if (r.body && r.body.marked === false) {
+        // Nothing to mark: no run on record, or it already said it exited. Not an error.
+        return;
+    }
+}
 const commands = {
     // `vale setup` = PURE LOCAL install (no key, no tunnel, no cloud). The
     // gateway/tunnel are OPTIONAL extras configured LATER via the Settings
@@ -2148,6 +2171,8 @@ const commands = {
         svc("Run");
     },
     stop() {
+        // Say WHY before the process goes: see markDeliberateStop.
+        markDeliberateStop();
         const r = svc("End");
         if (r && r.status !== 0) {
             console.error(`vale stop: schtasks /End failed (status ${r.status}) -- the agent may still be running`);
@@ -2156,6 +2181,7 @@ const commands = {
         console.log("stopped -- revives via 'vale start' or the 5-min watchdog ('vale autostart off' opts out of autostart)");
     },
     restart() {
+        markDeliberateStop();
         svc("End");
         sh("timeout /t 2 >nul");
         svc("Run");

@@ -567,6 +567,31 @@ pub fn mark_exited(data_dir: &Path, started: u64) {
     );
 }
 
+/// MARK THE CURRENT RUN AS DELIBERATELY ENDED — what a supervisor must do BEFORE it kills the
+/// agent, so the next start can say "a person stopped this" instead of guessing.
+///
+/// WHY IT IS NEEDED. `classify` can tell a clean exit from a crash, an update swap and a host
+/// reboot, and it has no way to know that an operator typed `vale restart`: the process is killed
+/// from outside, writes no marker, and a revival slower than the heartbeat window is then reported
+/// as `crashed` — the product calling the operator's own action a failure.
+///
+/// Returns whether anything changed: marking an already-marked run, or marking when no run is on
+/// record, is a no-op rather than an error (a supervisor racing a dying agent must not fail).
+pub fn mark_deliberate_stop(data_dir: &Path) -> bool {
+    let Some(mut state) = load(data_dir) else {
+        return false;
+    };
+    if state.exited {
+        return false;
+    }
+    state.exited = true;
+    // The heartbeat is refreshed too: `last` is what tells a later start whether the process was
+    // alive a moment ago, and a deliberate stop IS the last thing it did.
+    state.last = now_secs();
+    save(data_dir, &state);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,6 +601,42 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).expect("temp dir");
         d
+    }
+
+    /// THE DELIBERATE STOP, in every direction: it marks an unfinished run, it refuses to
+    /// re-mark one that already exited, it does nothing when there is no run on record, and it
+    /// never touches `started` (the run's identity) — because the whole point is to tell the next
+    /// start what happened to THIS run.
+    #[test]
+    fn a_deliberate_stop_marks_the_run_and_only_once() {
+        let d = dir("deliberate");
+        // No journal: nothing to mark, and no crash either.
+        assert!(!mark_deliberate_stop(&d));
+
+        save(
+            &d,
+            &RunState {
+                started: 111,
+                last: 222,
+                exited: false,
+            },
+        );
+        assert!(mark_deliberate_stop(&d), "an unfinished run must be marked");
+        let after = load(&d).expect("journal");
+        assert!(after.exited);
+        assert_eq!(after.started, 111, "the run's identity is untouched");
+        assert!(after.last >= 222, "the heartbeat is refreshed");
+
+        // Already marked: a second call changes nothing (a supervisor may race the agent's own
+        // shutdown, and a race must not fail).
+        assert!(!mark_deliberate_stop(&d));
+
+        // …and the verdict a next start would reach is CleanExit, not Crashed.
+        assert_eq!(
+            classify(Some(&after), 111 + 1, None),
+            BootKind::CleanExit,
+            "a deliberate stop must read as a clean exit"
+        );
     }
 
     #[test]

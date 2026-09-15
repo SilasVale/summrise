@@ -811,6 +811,11 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
             ("GET", "/api/update") => api_update(state).await,
             // REACHABILITY — the watched targets, each with its probe series and summary.
             ("GET", "/api/monitors") => crate::monitor::snapshot(),
+            // A supervisor that is about to kill this process says so FIRST, so the next start
+            // reads "stopped on purpose" instead of "crashed" (see runstate::mark_deliberate_stop).
+            ("POST", "/api/run/mark-exit") => {
+                serde_json::json!({"ok": true, "marked": crate::runstate::mark_deliberate_stop(&crate::paths::data_dir())})
+            }
             ("POST", "/api/monitors/add") => api_monitor_add(body_str),
             ("POST", "/api/monitors/remove") => api_monitor_remove(body_str),
             // One probe, now — the panel's "check now" (a target that was just added, or an
@@ -3514,6 +3519,7 @@ mod tests {
             ("GET", "/api/vitals/history"),
             ("GET", "/api/update"),
             ("GET", "/api/monitors"),
+            ("POST", "/api/run/mark-exit"),
             ("POST", "/api/monitors/add"),
             ("POST", "/api/monitors/remove"),
             ("POST", "/api/monitors/probe"),

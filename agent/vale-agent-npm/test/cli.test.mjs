@@ -1821,3 +1821,15 @@ test("waitLine: says what it saw, how long, and what it is waiting for", () => {
   assert.equal(tcp.status, null);
   assert.equal(tcp.state, "up");
 });
+
+
+test("stop and restart mark the run as deliberate before killing it", () => {
+  // The run journal cannot see WHO ended the process, so a supervisor must say so first — otherwise
+  // `vale restart` reads as "crashed" whenever the revival is slower than the heartbeat window.
+  // This pins the WIRING (the helper is in the device route; a helper test cannot see a call site).
+  const shipped = readFileSync(new URL("../bin/vale.js", import.meta.url), "utf8");
+  const marks = shipped.split("markDeliberateStop()").length - 1;
+  // 1 definition + 2 call sites (stop, restart).
+  assert.equal(marks, 3, "stop and restart must both mark the run before ending it");
+  assert.match(shipped, /\/api\/run\/mark-exit/);
+});
