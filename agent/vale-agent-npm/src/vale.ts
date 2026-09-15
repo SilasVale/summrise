@@ -517,6 +517,83 @@ export function targetLine(t, nowMs, width = 30) {
     const note = t.note && t.note.text ? `  — ${t.note.text}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
 }
+// ── THE CONSOLE, FOR THE CLI ────────────────────────────────────────────────
+// The audit trail is a directory of JSONL files, one per session, each a stream of
+// `{"kind":"output","text":…}` records with millisecond stamps. Two commands want it — `report`
+// (what was on the console when a target dropped) and `wait` (what it is saying WHILE we wait) —
+// and they want it the same way: the newest line at or before a moment, from the most recently
+// touched files, bounded so a report never walks a gigabyte of history. One reader, two callers.
+
+/** The newest session files, newest first. Unreadable files are skipped, not fatal. */
+export function recentSessionFiles(dataDir, limit = 12) {
+    const dir = path.join(dataDir, "sessions");
+    try {
+        return fs
+            .readdirSync(dir)
+            .filter((f) => f.endsWith(".jsonl"))
+            .map((f) => {
+                const p = path.join(dir, f);
+                try {
+                    return { f, p, m: fs.statSync(p).mtimeMs };
+                }
+                catch {
+                    return null;
+                }
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.m - a.m)
+            .slice(0, limit);
+    }
+    catch {
+        // No sessions directory at all is an empty list: "nothing recorded", not a failure.
+        return [];
+    }
+}
+
+/** The output records of ONE session file, from its bounded tail. */
+export function sessionTailRecords(file, capBytes = 128 * 1024) {
+    const size = fs.statSync(file.p).size;
+    const from = Math.max(0, size - capBytes);
+    const fd = fs.openSync(file.p, "r");
+    const buf = Buffer.alloc(size - from);
+    try {
+        fs.readSync(fd, buf, 0, buf.length, from);
+    }
+    finally {
+        fs.closeSync(fd);
+    }
+    return String(buf)
+        .split("\n")
+        .map((l) => {
+            try {
+                return JSON.parse(l);
+            }
+            catch {
+                return null;
+            }
+        })
+        .filter(Boolean);
+}
+
+/** The newest console line printed at or before `atMs`, within `withinMs`, across the watchable
+ *  sessions — or null when the console said nothing in that window (never an invented line). */
+export function consoleLineNear(dataDir, atMs, withinMs, files?) {
+    let found = null;
+    for (const file of files || recentSessionFiles(dataDir)) {
+        let hit = null;
+        try {
+            hit = lastOutputBefore(sessionTailRecords(file), atMs);
+        }
+        catch {
+            continue; // a file that vanished mid-scan is not a console line
+        }
+        if (hit && atMs - hit.tsMs <= withinMs && (!found || hit.tsMs > found.tsMs)) {
+            found = { sid: file.f.replace(/\.jsonl$/, ""), tsMs: hit.tsMs, line: lastLine(hit.text) };
+        }
+    }
+    return found && found.line ? found : null;
+}
+
 // ── WAITING FOR A STATE ─────────────────────────────────────────────────────
 // Every reboot-and-verify cycle needs the same primitive: "wait until it answers". Doing it by
 // hand means a polling loop in the operator's shell, with its own timeout, its own idea of what
@@ -2074,6 +2151,7 @@ const commands = {
               process.exit(1);
           }
           const started = Date.now();
+          let lastConsole = null;
           for (;;) {
               const r = deviceApi("POST", "/api/tools/monitor_probe", { id: w.target.id });
               if (!r.ok) {
@@ -2088,7 +2166,26 @@ const commands = {
               }
               const probe = r.body.result && r.body.result.probe;
               const elapsedMs = Date.now() - started;
-              console.log(waitLine({ elapsedMs, probe, wantUp: w.wantUp, id: w.target.id, json: w.json }));
+              // WHAT THE CONSOLE IS SAYING WHILE WE WAIT. A reboot's story is on the serial line,
+              // and the operator staring at "waiting for up" is the person who wants to read it —
+              // one line, from the newest session, printed only when it has changed.
+              let consoleNow = null;
+              if (!w.json) {
+                  try {
+                      const near = consoleLineNear(DATA_DIR, Date.now(), 120_000);
+                      if (near && near.line !== lastConsole) {
+                          consoleNow = near;
+                          lastConsole = near.line;
+                      }
+                  }
+                  catch {
+                      /* no trail, no line: the wait still works */
+                  }
+              }
+              console.log(
+                  waitLine({ elapsedMs, probe, wantUp: w.wantUp, id: w.target.id, json: w.json }) +
+                      (consoleNow ? `   console: ${consoleNow.line}` : ""),
+              );
               const decision = waitDecision({ ok: probe && probe.ok, wantUp: w.wantUp, elapsedMs, timeoutMs: w.timeoutMs });
               if (decision === "met") {
                   if (!w.json) console.log(`${w.target.id} is ${w.wantUp ? "up" : "down"} after ${Math.round(elapsedMs / 1000)}s`);
@@ -2277,46 +2374,17 @@ const commands = {
       // touched files and to the tail of each — a report must not walk a gigabyte of history.
       const consoleNear = {};
       try {
-          const dir = path.join(DATA_DIR, "sessions");
-          const files = fs
-              .readdirSync(dir)
-              .filter((f) => f.endsWith(".jsonl"))
-              .map((f) => ({ f, p: path.join(dir, f), m: fs.statSync(path.join(dir, f)).mtimeMs }))
-              .sort((a, b) => b.m - a.m)
-              .slice(0, 12);
+          const files = recentSessionFiles(DATA_DIR);
           for (const t of (monitors && monitors.targets) || []) {
               if (!t.summary || t.summary.up_now !== false)
                   continue;
               const last = (t.transitions || [])[t.transitions.length - 1];
               if (!last)
                   continue;
-              let found = null;
-              for (const file of files) {
-                  const size = fs.statSync(file.p).size;
-                  const from = Math.max(0, size - 128 * 1024);
-                  const fd = fs.openSync(file.p, "r");
-                  const buf = Buffer.alloc(size - from);
-                  fs.readSync(fd, buf, 0, buf.length, from);
-                  fs.closeSync(fd);
-                  const records = String(buf)
-                      .split("\n")
-                      .map((l) => {
-                          try {
-                              return JSON.parse(l);
-                          }
-                          catch {
-                              return null;
-                          }
-                      })
-                      .filter(Boolean);
-                  const hit = lastOutputBefore(records, last.at_ms);
-                  // The window matters: a line printed an hour before the drop explains nothing.
-                  if (hit && last.at_ms - hit.tsMs <= 120_000 && (!found || hit.tsMs > found.tsMs)) {
-                      found = { sid: file.f.replace(/\.jsonl$/, ""), tsMs: hit.tsMs, line: lastLine(hit.text) };
-                  }
-              }
-              if (found && found.line)
-                  consoleNear[t.id] = found;
+              // The window matters: a line printed an hour before the drop explains nothing.
+              const near = consoleLineNear(DATA_DIR, last.at_ms, 120_000, files);
+              if (near)
+                  consoleNear[t.id] = near;
           }
       }
       catch {

@@ -22,6 +22,9 @@ const {
   monitorsJson,
   asciiJson,
   waitDecision,
+  recentSessionFiles,
+  sessionTailRecords,
+  consoleLineNear,
   waitLine,
   parseWaitArgs,
   stripAnsi,
@@ -1832,4 +1835,50 @@ test("stop and restart mark the run as deliberate before killing it", () => {
   // 1 definition + 2 call sites (stop, restart).
   assert.equal(marks, 3, "stop and restart must both mark the run before ending it");
   assert.match(shipped, /\/api\/run\/mark-exit/);
+});
+
+
+// ── the console, read the same way by `report` and `wait` ───────────────────
+test("the console reader is bounded, newest-first, and honest about nothing", () => {
+  const os = require("node:os");
+  const fsp = require("node:fs");
+  const path = require("node:path");
+  const dir = fsp.mkdtempSync(path.join(os.tmpdir(), "vale-console-"));
+  const sessions = path.join(dir, "sessions");
+  fsp.mkdirSync(sessions, { recursive: true });
+  const now = Date.now();
+  // Two sessions: the older one chatted a moment ago, the newer one is silent in the window.
+  fsp.writeFileSync(
+    path.join(sessions, "term-a.jsonl"),
+    [
+      JSON.stringify({ seq: 1, ts_ms: now - 5000, kind: "output", text: "\u001b[31mfirst line\u001b[0m\n" }),
+      JSON.stringify({ seq: 2, ts_ms: now - 2000, kind: "output", text: "ifconfig br-lan down\n" }),
+      JSON.stringify({ seq: 3, ts_ms: now + 60_000, kind: "output", text: "in the future" }),
+    ].join("\n"),
+  );
+  fsp.writeFileSync(path.join(sessions, "term-b.jsonl"), JSON.stringify({ seq: 1, ts_ms: now - 300_000, kind: "output", text: "ancient" }));
+  // A file that is not a session is not a session.
+  fsp.writeFileSync(path.join(sessions, "notes.txt"), "ignore me");
+
+  const files = recentSessionFiles(dir);
+  assert.equal(files.length, 2, "only .jsonl files are sessions");
+  const records = sessionTailRecords(files.find((f) => f.f === "term-a.jsonl"));
+  assert.equal(records.length, 3);
+  // Newest at or before the moment, ANSI stripped, and never a line from the future.
+  const near = consoleLineNear(dir, now, 120_000, files);
+  assert.equal(near.line, "ifconfig br-lan down");
+  assert.equal(near.sid, "term-a");
+  // Outside the window: nothing, rather than the oldest thing available.
+  assert.equal(consoleLineNear(dir, now, 1000, files), null);
+  // A directory that does not exist is an empty list, not a throw.
+  assert.deepEqual(recentSessionFiles(path.join(dir, "nope")), []);
+  assert.equal(consoleLineNear(path.join(dir, "nope"), now, 120_000), null);
+  fsp.rmSync(dir, { recursive: true, force: true });
+});
+
+test("waitLine: the console line rides along while waiting", () => {
+  const line = waitLine({ elapsedMs: 6000, probe: { ok: false }, wantUp: true, id: "h:22" });
+  assert.match(line, /waiting for up/);
+  // The console text is appended by the caller; the pure line keeps its own shape.
+  assert.doesNotMatch(line, /console:/);
 });
