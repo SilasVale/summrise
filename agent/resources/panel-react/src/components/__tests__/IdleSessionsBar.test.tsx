@@ -31,6 +31,24 @@ describe("IdleSessionsBar", () => {
     expect(onClose.mock.calls.map((c) => c[0])).toEqual(["a", "b"]);
   });
 
+  it("hides when asked to hide, and comes back when the list changes", () => {
+    // The dismiss button's label promises "hide until the list changes"; before round 42 its handler
+    // only cancelled the confirmation, so the bar stayed exactly where it was.
+    const onClose = vi.fn();
+    const { container, getByLabelText, rerender } = render(
+      <IdleSessionsBar candidates={[idle("a", "d1")]} onClose={onClose} />,
+    );
+    fireEvent.click(getByLabelText("Hide until the list changes"));
+    expect(container.firstChild).toBeNull();
+    // The SAME set stays hidden across re-renders…
+    rerender(<IdleSessionsBar candidates={[idle("a", "d1")]} onClose={onClose} />);
+    expect(container.firstChild).toBeNull();
+    // …and a new idle session is new information, so the offer returns.
+    rerender(<IdleSessionsBar candidates={[idle("a", "d1"), idle("b", "pwsh")]} onClose={onClose} />);
+    expect(container.firstChild).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("lets the operator change their mind", () => {
     const onClose = vi.fn();
     const { getByText } = render(<IdleSessionsBar candidates={[idle("a", "d1")]} onClose={onClose} />);

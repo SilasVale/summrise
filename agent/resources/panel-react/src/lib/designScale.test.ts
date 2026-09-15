@@ -136,6 +136,21 @@ describe("the design scale", () => {
     expect(blockOf(css, ".tab-export, .tab-close")).toContain("width: 24px");
   });
 
+  it("the two device-notice strips share one vertical rhythm and hittable controls", () => {
+    // Measured on the built panel (round 42), both densities: `.idle-bar` 37px tall with 5px/16px
+    // padding and `.evicted-notice` 30px with 6px/16px — the same family of strip, two different
+    // rhythms. It also carries the dismiss control every strip needs, at the 24px a pointer needs.
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const sel of [".idle-bar", ".evicted-notice"]) {
+      const block = blockOf(css, sel);
+      expect(block, `${sel} padding must come from the scale`).toMatch(/padding:\s*var\(--sp-[\w-]+\)/);
+      expect(block, `${sel} gap must come from the scale`).toContain("gap: var(--sp-");
+    }
+    const x = blockOf(css, ".idle-x");
+    expect(Number(/width:\s*(\d+)px/.exec(x)![1])).toBeGreaterThanOrEqual(24);
+    expect(Number(/height:\s*(\d+)px/.exec(x)![1])).toBeGreaterThanOrEqual(24);
+  });
+
   it("type sizes come from the scale, and none of them is a half pixel", () => {
     const css = builtCss();
     // Sizes appear both as `font-size:` and inside the `font:` shorthand; the shorthand is why

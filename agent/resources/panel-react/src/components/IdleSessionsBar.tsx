@@ -5,7 +5,7 @@
 // like the eviction notice) and it is QUIET: one line, chrome text, a single action. It renders
 // NOTHING when there is nothing to offer — a permanent "close idle sessions" button on a device
 // with two active sessions is an invitation to close something somebody is using.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "../ui/Icon";
 import { idleOfferText } from "../lib/idleSessions";
 import type { Session } from "../hooks/useSessions";
@@ -20,7 +20,18 @@ export function IdleSessionsBar({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [closing, setClosing] = useState(false);
-  if (candidates.length === 0) return null;
+  // "HIDE UNTIL THE LIST CHANGES" HAS TO MEAN IT. The dismiss button carried that label from the
+  // start and its handler only cancelled the confirmation, so clicking it left the bar exactly where
+  // it was — a control that promises something and does nothing (found by measuring the surface,
+  // round 42). The offer is keyed on WHICH sessions it is offering: hiding holds until the set
+  // changes, and a new idle session brings it back.
+  const signature = candidates.map((s) => s.sid).join(",");
+  const [hiddenFor, setHiddenFor] = useState<string | null>(null);
+  useEffect(() => {
+    // A different set of candidates is new information: un-hide.
+    setHiddenFor((h) => (h !== null && h !== signature ? null : h));
+  }, [signature]);
+  if (candidates.length === 0 || hiddenFor === signature) return null;
 
   const closeAll = async () => {
     setClosing(true);
@@ -51,9 +62,12 @@ export function IdleSessionsBar({
       )}
       <button
         className="idle-x"
-        aria-label="Hide this until the list changes"
+        aria-label="Hide until the list changes"
         title="Hide until the list changes"
-        onClick={() => setConfirming(false)}
+        onClick={() => {
+          setConfirming(false);
+          setHiddenFor(signature);
+        }}
       >
         <Icon name="close" />
       </button>

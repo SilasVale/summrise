@@ -29,7 +29,12 @@
   color: var(--accent-fg);
 }
 .btn.primary:hover { background: var(--accent-ink); }
-.btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+/* --chrome-ink-dim, NOT --muted. Measured on the built panel: a ghost button on the chip surface
+   ("Close them" in the session offer) reads **4.40** where 12px text needs 4.5, light theme — and
+   there are 24 ghost buttons, several of them on soft surfaces (the offer bar, the evidence drawer,
+   the memory page) where `--muted` is under AA. It passes on white (4.83) and on --bg (4.63), which
+   is exactly why the failure stayed invisible. */
+.btn-ghost { background: transparent; border-color: transparent; color: var(--chrome-ink-dim); }
 .btn-ghost:hover { color: var(--accent-on-soft); background: var(--accent-soft); }
 .btn-danger { color: var(--danger-on-soft); background: var(--danger-soft); border-color: transparent; }
 .btn-danger:hover { background: var(--danger); color: #fff; }
@@ -3907,7 +3912,7 @@ button.dtab-close:hover { opacity: 1; }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 6px 16px;
+  padding: var(--sp-1) var(--sp-4);
   border-bottom: 1px solid var(--chrome-line);
   background: var(--surface-chip);
   font: 400 var(--fs-xs)/1.5 var(--font);
@@ -3938,7 +3943,9 @@ button.dtab-close:hover { opacity: 1; }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 5px 16px;
+  /* The same vertical rhythm as the eviction notice it sits next to, from the scale: measured at
+     5px vs 6px (round 42), two strips of the same family with two different rhythms. */
+  padding: var(--sp-1) var(--sp-4);
   border-bottom: 1px solid var(--chrome-line);
   background: var(--surface-chip);
   font: 400 var(--fs-xs)/1.5 var(--font);

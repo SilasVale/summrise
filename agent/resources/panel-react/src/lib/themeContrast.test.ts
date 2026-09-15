@@ -198,6 +198,9 @@ describe("recessed content surfaces", () => {
       // Found by sweeping the TRAJECTORY view (round 39) — the only place either is rendered.
       ['.cmd-badge[data-state="ok"]', "--chrome-ink-dim"],
       ['.cmd-badge[data-state="muted"]', "--chrome-ink-dim"],
+      // The ghost button is the quiet action, and it sits on soft surfaces in 24 places. On the
+      // offer bar's chip it measured 4.40 at 12px (light theme) before this pin.
+      ['.btn-ghost', "--chrome-ink-dim"],
       ['.plug-tag[data-state="error"]', "--danger-on-soft"],
       ['.path-step-tag.s-fail', "--danger-on-soft"],
       ['.path-attention-tag.s-fail', "--danger-on-soft"],
