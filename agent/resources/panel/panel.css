@@ -69,6 +69,12 @@
      3.45 against white — under AA at button sizes, which is why this is a
      separate token rather than the same one lightened. */
   --success-solid: #1e7a33;
+  /* The HOVER step of the same family, the way `--accent-ink` is for the accent: a solid button
+     needs somewhere darker to go when the pointer is on it, and inventing a filter for one button
+     (the first attempt) is not a design system. MEASURED with the repo's own ratio helper:
+     white on it is 7.36, against 5.40 on --success-solid — so the hover DARKENS and the label
+     gets MORE readable, which is the direction a hover should move. */
+  --success-ink: #17632a;
   /* The brand orange, dark enough to carry WHITE text. Plain --accent (#d9480f)
      gives white 4.30 — under AA at button sizes — so a primary action button
      needs this rather than the accent itself. Measured 6.08. */
@@ -303,6 +309,9 @@ body[data-theme="dark"] {
      countdown and its "not run" note were all effectively invisible. */
   --warn-ink: #ffc078;
   --success-solid: #217a35;
+  /* The dark theme's hover step: white on it measures 6.67 against 5.38 on --success-solid, the
+     same relationship as the light block rather than a reused value. */
+  --success-ink: #1b6a2e;
   /* Restated for the same computed-value reason as the tokens above. */
   --accent-solid: #b03a0a;
   /* Status ink for SMALL TEXT. --danger and --success are tuned for marks
@@ -971,6 +980,9 @@ code {
    here — an affordance nobody can read is one nobody takes. */
 #goal-bar.no-goal { border-style: dashed; color: var(--chrome-ink-dim); }
 #goal-bar.no-goal:hover { color: var(--chrome-ink-dim); border-color: var(--faint); }
+/* …and the SET state acknowledges the pointer too: the bar is a button in both states, and only
+   the empty one reacted. Same channel as its sibling above (the border), not a new one. */
+#goal-bar.has-goal:hover { border-color: var(--accent-ink); }
 #goal-bar.has-goal {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -1268,6 +1280,13 @@ code {
   border-color: var(--success-solid) !important;
   color: #fff !important;
 }
+/* THE MOST CONSEQUENTIAL BUTTON IN THE PRODUCT HAD NO HOVER. Measured with real keyboard and
+   pointer states across all six pages: `.approval-approve` was one of two controls with no
+   `:hover` rule at all, while the refuse button sitting NEXT TO IT has one — an inconsistency
+   inside the same gate. It answers a click that runs a command on the device, so it must look
+   pressable. The colour is the solid's own family, not a new one. */
+.approval-approve:hover:not(:disabled) { background: var(--success-ink) !important; border-color: var(--success-ink) !important; }
+.approval-approve:active:not(:disabled) { transform: translateY(0.5px); }
 .approval-refuse:hover:not(:disabled) { color: var(--danger-on-soft); border-color: var(--danger); }
 .approval-note { margin: 0; font-size: var(--fs-xs); color: var(--warn-ink); }
 /* "Always allow <word>" — the grant action. Carries the WORD it will cover in

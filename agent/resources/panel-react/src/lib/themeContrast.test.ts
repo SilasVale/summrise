@@ -290,6 +290,24 @@ describe("recessed content surfaces", () => {
     }
   });
 
+  it("the controls that lacked a hover state have one, and their families agree", () => {
+    // MEASURED with real pointer and keyboard states across all six pages (device Chrome): the
+    // approval gate's "Run it" and the SET goal bar were the only two controls with no `:hover`
+    // rule at all — while `.approval-refuse`, sitting in the same gate, had one. (The other two the
+    // probe flagged were DISABLED plugin buttons, and a disabled control correctly does not hover:
+    // a phantom finding of exactly the kind a state sweep invites.)
+    const css = builtCss();
+    expect(blockOf(css, ".approval-approve:hover:not(:disabled)")).toContain("var(--success-ink)");
+    expect(blockOf(css, "#goal-bar.has-goal:hover")).toContain("border-color");
+    // The refuse button next to it already reacted, which is what made the gap visible.
+    expect(blockOf(css, ".approval-refuse:hover:not(:disabled)")).toContain("border-color");
+    // The hover step is a DECLARED token in both themes — a filter or a literal would pass a
+    // screenshot review and fail the next re-theme.
+    for (const block of [":root", 'body[data-theme="dark"]']) {
+      expect(blockOf(css, block), `${block} must declare --success-ink`).toContain("--success-ink:");
+    }
+  });
+
   it("the getting-started card paints its text with readable tokens", () => {
     // The card is the FIRST screen a new user sees, and it is a surface of its own: a floating
     // panel rather than chrome, with its own hierarchy (a title, a lead, three steps, a footer).

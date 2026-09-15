@@ -68,6 +68,12 @@
      3.45 against white — under AA at button sizes, which is why this is a
      separate token rather than the same one lightened. */
   --success-solid: #1e7a33;
+  /* The HOVER step of the same family, the way `--accent-ink` is for the accent: a solid button
+     needs somewhere darker to go when the pointer is on it, and inventing a filter for one button
+     (the first attempt) is not a design system. MEASURED with the repo's own ratio helper:
+     white on it is 7.36, against 5.40 on --success-solid — so the hover DARKENS and the label
+     gets MORE readable, which is the direction a hover should move. */
+  --success-ink: #17632a;
   /* The brand orange, dark enough to carry WHITE text. Plain --accent (#d9480f)
      gives white 4.30 — under AA at button sizes — so a primary action button
      needs this rather than the accent itself. Measured 6.08. */
@@ -302,6 +308,9 @@ body[data-theme="dark"] {
      countdown and its "not run" note were all effectively invisible. */
   --warn-ink: #ffc078;
   --success-solid: #217a35;
+  /* The dark theme's hover step: white on it measures 6.67 against 5.38 on --success-solid, the
+     same relationship as the light block rather than a reused value. */
+  --success-ink: #1b6a2e;
   /* Restated for the same computed-value reason as the tokens above. */
   --accent-solid: #b03a0a;
   /* Status ink for SMALL TEXT. --danger and --success are tuned for marks

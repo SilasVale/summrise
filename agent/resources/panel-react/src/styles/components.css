@@ -474,6 +474,9 @@
    here — an affordance nobody can read is one nobody takes. */
 #goal-bar.no-goal { border-style: dashed; color: var(--chrome-ink-dim); }
 #goal-bar.no-goal:hover { color: var(--chrome-ink-dim); border-color: var(--faint); }
+/* …and the SET state acknowledges the pointer too: the bar is a button in both states, and only
+   the empty one reacted. Same channel as its sibling above (the border), not a new one. */
+#goal-bar.has-goal:hover { border-color: var(--accent-ink); }
 #goal-bar.has-goal {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -771,6 +774,13 @@
   border-color: var(--success-solid) !important;
   color: #fff !important;
 }
+/* THE MOST CONSEQUENTIAL BUTTON IN THE PRODUCT HAD NO HOVER. Measured with real keyboard and
+   pointer states across all six pages: `.approval-approve` was one of two controls with no
+   `:hover` rule at all, while the refuse button sitting NEXT TO IT has one — an inconsistency
+   inside the same gate. It answers a click that runs a command on the device, so it must look
+   pressable. The colour is the solid's own family, not a new one. */
+.approval-approve:hover:not(:disabled) { background: var(--success-ink) !important; border-color: var(--success-ink) !important; }
+.approval-approve:active:not(:disabled) { transform: translateY(0.5px); }
 .approval-refuse:hover:not(:disabled) { color: var(--danger-on-soft); border-color: var(--danger); }
 .approval-note { margin: 0; font-size: var(--fs-xs); color: var(--warn-ink); }
 /* "Always allow <word>" — the grant action. Carries the WORD it will cover in
