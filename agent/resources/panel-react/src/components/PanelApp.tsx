@@ -146,15 +146,6 @@ export function PanelApp(props: Props) {
 
   return (
     <>
-      {guideOpen && (
-        <GettingStarted
-          onClose={closeGuide}
-          onGoTo={(p) => {
-            setPage(p);
-            closeGuide();
-          }}
-        />
-      )}
       {/* The device's own announcement, above the shell: a session it took away (cap or idle TTL),
           with the rule that took it. Nothing renders when nothing happened. */}
       <EvictedNotice notice={evicted} />
@@ -263,6 +254,15 @@ export function PanelApp(props: Props) {
           </div>
         }
       />
+      {guideOpen && (
+        <GettingStarted
+          onClose={closeGuide}
+          onGoTo={(p) => {
+            setPage(p);
+            closeGuide();
+          }}
+        />
+      )}
     </>
   );
 }

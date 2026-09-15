@@ -100,6 +100,23 @@ describe("the document outline", () => {
     }
   });
 
+  it("a modal renders AFTER the page, so the page still names itself first", () => {
+    // MEASURED (round 44, sweeping every page on a device): with the first-run guide open, the first
+    // heading in the document was the DIALOG's, because PanelApp rendered `{guideOpen && <GettingStarted/>}`
+    // before the shell. A person reading linearly — or a screen reader — met the guide's headings
+    // before the page had said what page it was. A modal belongs after the page in the tree and on
+    // top by position; that is the whole rule.
+    const app = read("components/PanelApp.tsx");
+    const shell = app.indexOf("<Shell");
+    const guide = app.indexOf("<GettingStarted");
+    expect(shell, "PanelApp must render the shell").toBeGreaterThan(-1);
+    expect(guide, "PanelApp must render the guide").toBeGreaterThan(-1);
+    expect(
+      shell,
+      "the guide must come AFTER <Shell> in the document (it is a modal, not a header)",
+    ).toBeLessThan(guide);
+  });
+
   it("a view's top-level heading is an h2 — the page owns the h1", () => {
     // The relative-skip check below cannot see this: PathView.tsx contains ONE heading, so there is
     // no pair to compare, and only the RENDERED page showed `h1 Terminal` above `h3 Worth a look`
