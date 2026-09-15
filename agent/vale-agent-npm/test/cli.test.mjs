@@ -21,6 +21,9 @@ const {
   probeLine,
   monitorsJson,
   asciiJson,
+  waitDecision,
+  waitLine,
+  parseWaitArgs,
   stripAnsi,
   lastLine,
   lastOutputBefore,
@@ -1772,4 +1775,49 @@ test("the --json paths actually USE the escaping helper (a helper test is not a 
   assert.equal(wired, 2, "both --json printers must go through asciiJson (see asciiJson's comment)");
   // …and the request body path, for the same reason.
   assert.match(shipped, /-d", asciiJson\(body\)/);
+});
+
+
+// ── waiting for a state ─────────────────────────────────────────────────────
+test("waitDecision: the boundaries, including the one that would hang", () => {
+  // Already there: one probe and out.
+  assert.equal(waitDecision({ ok: true, wantUp: true, elapsedMs: 0, timeoutMs: 180_000 }), "met");
+  assert.equal(waitDecision({ ok: false, wantUp: false, elapsedMs: 0, timeoutMs: 180_000 }), "met");
+  // Not there yet: keep waiting while there is time.
+  assert.equal(waitDecision({ ok: false, wantUp: true, elapsedMs: 1000, timeoutMs: 180_000 }), "waiting");
+  // The exact boundary gives up — `>=`, not `>`, or `--timeout 0` would never finish.
+  assert.equal(waitDecision({ ok: false, wantUp: true, elapsedMs: 180_000, timeoutMs: 180_000 }), "timed-out");
+  assert.equal(waitDecision({ ok: false, wantUp: true, elapsedMs: 0, timeoutMs: 0 }), "timed-out");
+  // An unknown state (no probe yet) is never "met", in either direction.
+  assert.equal(waitDecision({ ok: null, wantUp: true, elapsedMs: 0, timeoutMs: 10 }), "waiting");
+  assert.equal(waitDecision({ ok: undefined, wantUp: false, elapsedMs: 0, timeoutMs: 0 }), "timed-out");
+});
+
+test("parseWaitArgs: one place decides what wait means", () => {
+  const a = parseWaitArgs(["wait", "192.168.1.1:22"]);
+  assert.equal(a.target.id, "192.168.1.1:22");
+  assert.equal(a.wantUp, true); // default: wait for it to come UP
+  assert.equal(a.timeoutMs, 180_000);
+  assert.equal(a.json, false);
+  const b = parseWaitArgs(["wait", "h:80/", "--down", "--timeout", "30", "--json"]);
+  assert.equal(b.wantUp, false);
+  assert.equal(b.timeoutMs, 30_000);
+  assert.equal(b.json, true);
+  // Refusals, each with the reason a person needs.
+  assert.match(parseWaitArgs(["wait", "h:22", "--up", "--down"]).error, /usage/);
+  assert.match(parseWaitArgs(["wait", "h:22", "--timeout", "soon"]).error, /--timeout takes seconds/);
+  assert.match(parseWaitArgs(["wait", "h:22", "--timeout", "999999"]).error, /--timeout takes seconds/);
+  assert.match(parseWaitArgs(["wait"]).error, /usage/);
+  assert.match(parseWaitArgs(["wait", "nonsense"]).error, /usage/);
+});
+
+test("waitLine: says what it saw, how long, and what it is waiting for", () => {
+  const human = waitLine({ elapsedMs: 4000, probe: { ok: false, status: 500 }, wantUp: true, id: "h:80/" });
+  assert.match(human, /^\s+4s\s+down\s+HTTP 500\s+\(waiting for up\)$/);
+  const json = JSON.parse(waitLine({ elapsedMs: 4000, probe: { ok: true, status: 200, ms: 7 }, wantUp: true, id: "h:80/", json: true }));
+  assert.deepEqual(json, { id: "h:80/", waited_ms: 4000, ok: true, status: 200, expect_ok: null, ms: 7, state: "up" });
+  // A probe with no status (a TCP check) says null, not a missing key.
+  const tcp = JSON.parse(waitLine({ elapsedMs: 0, probe: { ok: true, ms: 3 }, wantUp: true, id: "h:22", json: true }));
+  assert.equal(tcp.status, null);
+  assert.equal(tcp.state, "up");
 });

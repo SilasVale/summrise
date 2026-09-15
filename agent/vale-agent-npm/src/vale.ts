@@ -517,6 +517,65 @@ export function targetLine(t, nowMs, width = 30) {
     const note = t.note && t.note.text ? `  — ${t.note.text}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
 }
+// ── WAITING FOR A STATE ─────────────────────────────────────────────────────
+// Every reboot-and-verify cycle needs the same primitive: "wait until it answers". Doing it by
+// hand means a polling loop in the operator's shell, with its own timeout, its own idea of what
+// "answered" means, and no exit code a script can branch on. `vale monitor wait` is that loop,
+// once, with the device's own probe deciding.
+
+/** What to do with one probe: `met`, keep waiting, or give up. Pure, so the boundaries (the first
+ *  probe, the exact timeout, a timeout of zero) are testable without a clock. */
+export function waitDecision({ ok, wantUp, elapsedMs, timeoutMs }) {
+    const met = wantUp ? ok === true : ok === false;
+    if (met) return "met";
+    // `>=`: a timeout of 0 means "one probe, no waiting", and an elapsed time equal to the timeout
+    // has waited long enough. Deciding "keep waiting" on the boundary would make --timeout 0 hang.
+    if (elapsedMs >= timeoutMs) return "timed-out";
+    return "waiting";
+}
+
+/** One progress line: what was seen, how long we have been waiting, what we are waiting for. */
+export function waitLine({ elapsedMs, probe, wantUp, id, json }) {
+    const state = probe && probe.ok === true ? "up" : probe && probe.ok === false ? "down" : "unknown";
+    const status = probe && probe.status !== null && probe.status !== undefined ? `  HTTP ${probe.status}` : "";
+    const wait = Math.round(elapsedMs / 1000);
+    if (json) {
+        return JSON.stringify({
+            id,
+            waited_ms: elapsedMs,
+            ok: probe ? probe.ok : null,
+            status: probe ? (probe.status === undefined ? null : probe.status) : null,
+            expect_ok: probe ? (probe.expect_ok === undefined ? null : probe.expect_ok) : null,
+            ms: probe ? (probe.ms === undefined ? null : probe.ms) : null,
+            state,
+        });
+    }
+    return `  ${String(wait).padStart(4)}s  ${state}${status}  (waiting for ${wantUp ? "up" : "down"})`;
+}
+
+/** Parse `wait`'s own flags. One place, so the loop and the help text cannot disagree. */
+export function parseWaitArgs(args) {
+    const wantDown = args.includes("--down");
+    const wantUp = args.includes("--up") || !wantDown;
+    if (args.includes("--up") && wantDown)
+        return { error: "usage: vale monitor wait <host:port[/path]> [--up|--down] [--timeout <secs>]" };
+    const tAt = args.indexOf("--timeout");
+    let timeoutMs = 180_000;
+    if (tAt >= 0) {
+        const raw = args[tAt + 1];
+        const secs = Number(raw);
+        if (!Number.isFinite(secs) || secs < 0 || secs > 86_400)
+            return { error: `--timeout takes seconds (0..86400), got ${JSON.stringify(raw)}` };
+        timeoutMs = Math.round(secs * 1000);
+    }
+    const json = args.includes("--json");
+    const positional = args.filter((a, i) => i > 0 && !a.startsWith("--") && i !== tAt + 1);
+    const target = positional.length ? parseTargetArg(positional[0]) : null;
+    if (!target || positional.length > 1)
+        return { error: "usage: vale monitor wait <host:port[/path]> [--up|--down] [--timeout <secs>]" };
+    return { target, wantUp, timeoutMs, json };
+}
+
 // ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
 // `vale monitor list --json` and `vale watch --once --json` print the DEVICE'S OWN ANSWER,
 // projected rather than re-derived: the summaries, the transitions and the samples are the ones
@@ -1938,7 +1997,8 @@ const commands = {
   // The device's reachability instrument, in the terminal the operator already
   // works in. The panel draws the same numbers; this runs where the ssh session
   // is, needs no browser, and `vale watch` keeps it live on screen.
-  monitor(args) {
+  // async: `wait` blocks on probes (the dispatcher already awaits every command).
+  async monitor(args) {
       const sub = String(args[0] || "list").toLowerCase();
       // `--expect <text>`: the page must CONTAIN this text, or the watch counts it as down — the
       // difference between a working UI and a login page that answers 200.
@@ -1979,6 +2039,45 @@ const commands = {
           }
           console.log(r.body && r.body.removed ? `stopped watching ${t.id}` : `monitor rm: ${t.id} was not being watched`);
           return;
+      }
+      if (sub === "wait") {
+          // BLOCK until the target reaches the state asked for, printing each probe; exit 0 when it
+          // got there and 1 when the timeout ran out. The primitive a reboot cycle needs, with an
+          // exit code a shell can branch on instead of a hand-written polling loop.
+          const w = parseWaitArgs(args);
+          if (w.error) {
+              console.error(w.error);
+              process.exit(1);
+          }
+          const started = Date.now();
+          for (;;) {
+              const r = deviceApi("POST", "/api/tools/monitor_probe", { id: w.target.id });
+              if (!r.ok) {
+                  console.error(`monitor wait: ${r.error}`);
+                  process.exit(1);
+              }
+              if (!r.body || r.body.ok !== true) {
+                  // Not watched: the device refuses (one rule, one place) and the CLI adds the way out.
+                  console.error(`monitor wait: ${(r.body && r.body.error) || "the device refused the probe"}`);
+                  console.error(`  to watch it: vale monitor add ${w.target.id}`);
+                  process.exit(1);
+              }
+              const probe = r.body.result && r.body.result.probe;
+              const elapsedMs = Date.now() - started;
+              console.log(waitLine({ elapsedMs, probe, wantUp: w.wantUp, id: w.target.id, json: w.json }));
+              const decision = waitDecision({ ok: probe && probe.ok, wantUp: w.wantUp, elapsedMs, timeoutMs: w.timeoutMs });
+              if (decision === "met") {
+                  if (!w.json) console.log(`${w.target.id} is ${w.wantUp ? "up" : "down"} after ${Math.round(elapsedMs / 1000)}s`);
+                  process.exit(0);
+              }
+              if (decision === "timed-out") {
+                  console.error(
+                      `monitor wait: ${w.target.id} was still not ${w.wantUp ? "up" : "down"} after ${Math.round(elapsedMs / 1000)}s`,
+                  );
+                  process.exit(1);
+              }
+              await new Promise((res) => setTimeout(res, 2000));
+          }
       }
       if (sub === "note") {
           // The operator's own words about the current state. The device records what it SAW; only
@@ -2033,7 +2132,7 @@ const commands = {
           return;
       }
       if (sub !== "list") {
-          console.error("usage: vale monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | note <host:port[/path]> \"text\" | rm <host:port[/path]>]");
+          console.error("usage: vale monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | wait <host:port[/path]> [--up|--down] [--timeout <secs>] [--json] | note <host:port[/path]> \"text\" | rm <host:port[/path]>]");
           process.exit(1);
       }
       const r = deviceApi("GET", "/api/monitors");
