@@ -54,12 +54,12 @@ export const STEPS: Step[] = [
     action: "vale monitor add 192.168.1.1:22",
   },
   {
-    page: "activity",
-    where: "Activity",
+    page: "history",
+    where: "History · Runs",
     title: "Let an AI work on it, with you in the loop",
     detail:
       "Connect your AI client to this device's MCP endpoint. Every run it makes shows up here, each session keeps its own evidence, and anything that needs a human waits for your approval.",
-    click: "Open Activity → pick the run",
+    click: "Open History, pick Runs, then the run",
   },
 ];
 

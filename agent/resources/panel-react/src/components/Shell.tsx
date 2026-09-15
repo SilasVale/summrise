@@ -11,13 +11,13 @@ export type Density = "panel" | "desktop";
  *  the device-level answer to the question the terminal page answers
  *  per-session, and because it is the one page that works with no session at
  *  all, which is where an operator landing on an idle device starts. */
-export type Page = "terminal" | "archive" | "activity" | "browser" | "memory" | "plugins" | "settings";
+export type Page = "terminal" | "history" | "browser" | "memory" | "plugins" | "settings";
 
-export const PAGES: Page[] = ["terminal", "archive", "activity", "browser", "memory", "plugins", "settings"];
+export const PAGES: Page[] = ["terminal", "history", "browser", "memory", "plugins", "settings"];
 export const PAGE_LABELS: Record<Page, string> = {
   terminal: "Terminal",
-  archive: "Archive",
-  activity: "Activity",
+  // One page for what the device recorded: sessions AND runs (round 31's merge).
+  history: "History",
   browser: "Browser",
   memory: "Memory",
   plugins: "Plugins",

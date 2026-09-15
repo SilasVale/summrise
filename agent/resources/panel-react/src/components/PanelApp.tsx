@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
 import { GettingStarted } from "./GettingStarted";
+import { HistoryPage } from "./HistoryPage";
 import { IconRail } from "./IconRail";
 import { Shell, type Page } from "./Shell";
 import { GETTING_STARTED_KEY, GETTING_STARTED_VERSION, shouldShowGuide } from "../lib/gettingStarted";
@@ -22,8 +23,6 @@ import {
 } from "../hooks/useAttention";
 import { MonitorAlerts } from "./MonitorAlerts";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
-import { ArchivePage } from "./ArchivePage";
-import { ActivityPage } from "./ActivityPage";
 import { BrowserPage } from "./BrowserPage";
 import { MemoryPage } from "./MemoryPage";
 import { PluginsPage } from "./PluginsPage";
@@ -219,8 +218,7 @@ export function PanelApp(props: Props) {
             {/* The device speaking about a watched target (see MonitorAlerts): above the page, never
                 over it, and gone on its own. */}
             <MonitorAlerts alerts={monitorAlerts} />
-            {page === "archive" && <ArchivePage sessions={props.sessions} />}
-            {page === "activity" && <ActivityPage />}
+            {page === "history" && <HistoryPage sessions={props.sessions} />}
             {page === "browser" && <BrowserPage token={props.token} />}
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={props.plugins} />}

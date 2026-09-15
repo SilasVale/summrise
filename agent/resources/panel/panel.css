@@ -4460,6 +4460,21 @@ button.dtab-close:hover { opacity: 1; }
 }
 .gs-reopen { flex: 1; font: 400 11.5px/1.5 var(--font); color: var(--chrome-ink-dim); }
 
+/* ── HISTORY (sessions + runs, one page) ────────────────────────────────────────
+   The bar holds the scope switch and its caption. The caption is not decoration: the two halves
+   answer different questions ("what sessions exist" vs "what has this device been doing"), and a
+   segmented control alone does not say that. */
+.history-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.history-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--chrome-line);
+}
+.history-hint { font: 400 11.5px/1.4 var(--font); color: var(--chrome-ink-dim); }
+
 
 /* ============ dial.css ============ */
 /* ============================================================

@@ -487,7 +487,7 @@ describe("ArchivePage — honest absences on a row", () => {
 });
 
 describe("the archive is reachable from the rail", () => {
-  it("mounts on the panel density's Archive page — the one surface that works with NO session", async () => {
+  it("mounts on the panel density's History page — the one surface that works with NO session", async () => {
     device({
       sessions: [
         {
@@ -535,7 +535,8 @@ describe("the archive is reachable from the rail", () => {
         onConnConnect={vi.fn(() => Promise.resolve("s1"))}
       />,
     );
-    fireEvent.click(screen.getByTitle("Archive"));
+    // The rail has ONE history icon since the merge; the sessions half is its default tab.
+    fireEvent.click(screen.getByTitle("History"));
     expect(await screen.findByText("from-before-the-reload")).toBeTruthy();
     expect(document.querySelector(".archive-page")).toBeTruthy();
     expect(mockCallApi).toHaveBeenCalledWith("/api/sessions");

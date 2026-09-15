@@ -366,8 +366,9 @@ describe("ActivityPage — (c) absence is rendered as ABSENCE", () => {
     expect(container.querySelector(".activity-groups")).toBeNull();
     const empty = container.querySelector(".activity-empty")!;
     expect(empty.textContent!.length).toBeGreaterThan(0);
-    // The page still names itself; it does not vanish.
-    expect(screen.getByText("Activity")).toBeTruthy();
+    // The section still names itself; it does not vanish. It is called "Runs" since round 31 put it
+    // beside "Sessions" under one History page — the control and the heading must use one word.
+    expect(screen.getByText("Runs")).toBeTruthy();
   });
 
   it("never claims the AI is still running", async () => {
@@ -450,10 +451,13 @@ describe("ActivityPage — (d) the page works with ZERO sessions", () => {
     expect(
       within(canvas as HTMLElement).getByText("No sessions yet"),
     ).toBeTruthy();
-    // …and the rail offers Activity anyway.
-    const railBtn = screen.getByTitle("Activity");
+    // …and the rail offers History anyway (which holds this very view under its "Runs" tab).
+    const railBtn = screen.getByTitle("History");
     expect(railBtn.getAttribute("aria-current")).toBeNull();
     fireEvent.click(railBtn);
+    // The merged page opens on Sessions; the runs are one click away, and that click is part of
+    // what this test now proves (the merge must not hide the zero-session case).
+    fireEvent.click(await screen.findByRole("tab", { name: "Runs" }));
     await waitFor(() =>
       expect(document.querySelector(".activity-page")).not.toBeNull(),
     );

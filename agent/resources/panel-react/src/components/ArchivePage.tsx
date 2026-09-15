@@ -190,7 +190,7 @@ export function ArchivePage({ sessions }: {
   return (
     <section
       className="archive-page"
-      aria-label="Session archive"
+      aria-label="Recorded sessions"
       // Drives ONE stylesheet rule: with a trail open the page stops scrolling
       // and the trajectory renderer's own scroll region owns the pane (two
       // nested scrollers make the round list unreachable).
@@ -198,8 +198,10 @@ export function ArchivePage({ sessions }: {
     >
       <header className="archive-head">
         <div className="archive-head-line">
-          <h2 className="archive-title">Archive</h2>
-          <span className="archive-scope">this device · recorded sessions</span>
+          {/* The heading matches the switch that reveals it ("Sessions"), so the control and the
+              content use one word for one thing. It said "Archive" while the switch said
+              "Sessions" in the first draft of the merge. */}
+          <h2 className="archive-title">Sessions</h2>
         </div>
         <p className="archive-lede">
           Every session this device has written to disk, newest first. These files

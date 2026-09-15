@@ -183,8 +183,7 @@ export function ActivityPage({ pollMs }: { pollMs?: number }) {
     <section className="activity-page" aria-label="Activity">
       <header className="activity-head">
         <div className="activity-head-line">
-          <h2 className="activity-title">Activity</h2>
-          <span className="activity-scope">this device · every session · the browser</span>
+          <h2 className="activity-title">Runs</h2>
         </div>
         <p className="activity-lede">
           The device's merged timeline: terminal commands and browser actions on one

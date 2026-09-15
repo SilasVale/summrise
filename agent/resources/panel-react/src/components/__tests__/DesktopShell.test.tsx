@@ -102,19 +102,18 @@ describe("Shell", () => {
 });
 
 describe("DesktopShell", () => {
-  it("switches between all seven pages via the rail", () => {
+  it("switches between every page via the rail", () => {
     render(<DesktopShell {...baseProps} />);
     // Default page: Terminal (the header title marks the current page).
     expect(
       document.querySelector(".desktop-header-title")?.textContent,
     ).toContain("Terminal");
-    // Every page, archive and activity included: the desktop density must
-    // expose the same page set as the panel's rail (Shell.PAGES is the shared
-    // contract), and the archive page must mount here — the device's recorded
-    // sessions are the one thing reachable with no live session at all.
+    // Every page: the desktop density must expose the same page set as the panel's rail
+    // (Shell.PAGES is the shared contract), and HISTORY must mount here — the device's record is
+    // the one thing reachable with no live session at all. It is ONE page now (round 31 merged
+    // `archive` + `activity`), which is why this list is shorter than it was.
     for (const label of [
-      "Archive",
-      "Activity",
+      "History",
       "Browser",
       "Memory",
       "Plugins",

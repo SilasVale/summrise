@@ -7,28 +7,35 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Icon, BrandMark, type IconName } from "../Icon";
 
-const NAMES: IconName[] = [
-  "terminal",
-  "activity",
-  "browser",
-  "memory",
-  "plugins",
-  "settings",
-  "sessions",
-  "ssh",
-  "serial",
-  "plus",
-  "close",
-  "export",
-  "chevron",
-  "edit",
-  "fullscreen",
-  "search",
-  "arrow-up",
-  "arrow-down",
-  "sun",
-  "moon",
-];
+// THE LIST IS DERIVED FROM THE TYPE, NOT KEPT BESIDE IT. This was a hand-written `IconName[]`,
+// which is a copy that drifts: it still named `activity` after round 31 deleted the glyph (the
+// suite failed with "activity must have glyph content"), and it never named `help` at all — so the
+// glyph added for the rail's guide button was NOT covered by the very test that exists to require
+// every glyph to draw something. A `Record<IconName, true>` is complete by construction: adding a
+// name to the union without adding it here is a compile error.
+const NAMES = Object.keys({
+  terminal: true,
+  archive: true,
+  browser: true,
+  memory: true,
+  plugins: true,
+  settings: true,
+  sessions: true,
+  ssh: true,
+  serial: true,
+  plus: true,
+  close: true,
+  export: true,
+  chevron: true,
+  edit: true,
+  fullscreen: true,
+  search: true,
+  "arrow-up": true,
+  "arrow-down": true,
+  sun: true,
+  moon: true,
+  help: true,
+} satisfies Record<IconName, true>) as IconName[];
 
 describe("Icon", () => {
   it("every IconName renders a non-empty svg", () => {

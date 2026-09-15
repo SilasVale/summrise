@@ -26,9 +26,8 @@ import { VitalsDial } from "./VitalsDial";
 import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
-import { ArchivePage } from "./ArchivePage";
-import { ActivityPage } from "./ActivityPage";
 import { BrowserPage } from "./BrowserPage";
+import { HistoryPage } from "./HistoryPage";
 import { MemoryPage } from "./MemoryPage";
 import { PluginsPage } from "./PluginsPage";
 import { SettingsPage } from "./SettingsPage";
@@ -102,8 +101,7 @@ interface Props {
 
 const PAGE_TITLES: Record<Page, string> = {
   terminal: "Terminal",
-  archive: "Archive",
-  activity: "Activity",
+  history: "History",
   browser: "Browser",
   memory: "Memory",
   plugins: "Plugins",
@@ -443,8 +441,7 @@ export function DesktopShell({
             {/* The device speaking about a watched target (see MonitorAlerts): above the page, never
                 over it, and gone on its own. */}
             <MonitorAlerts alerts={monitorAlerts} />
-            {page === "archive" && <ArchivePage sessions={sessions} />}
-            {page === "activity" && <ActivityPage />}
+            {page === "history" && <HistoryPage sessions={sessions} />}
             {page === "browser" && <BrowserPage token={token} />}
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={plugins} />}
