@@ -280,7 +280,39 @@ pub fn save(data_dir: &Path, state: &RunState) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(path, render(state));
+    // ATOMICALLY, because this file is what tells the next start what happened to this one, and
+    // `fs::write` truncates before it writes: a power cut in that window (this box's own boot
+    // history contains `machine-restart` verdicts, so they happen) leaves an empty or half-written
+    // journal, and a half-written journal used to be indistinguishable from NO journal — which
+    // reports a FIRST RUN and hides the crash it should have reported.
+    //
+    // Safe against the concurrency precondition `jsonl::rewrite_atomically` documents (a rename
+    // orphans any append handle held from before): the journal has no append handle — the only
+    // writers are `begin` and `mark_deliberate_stop`, both single-shot, and both go through here.
+    let _ = crate::jsonl::rewrite_atomically(&path, &render(state));
+}
+
+/// WHAT THE JOURNAL SAYS, including "present but unreadable" — a state that is NOT the same as
+/// "no journal at all". Collapsing the two is how a torn write came to be reported as a first run.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Journal {
+    /// No journal on record: genuinely the first start (or one whose file was never written).
+    Absent,
+    /// The file is there and cannot be parsed. Whoever reads this must NOT invent a benign story.
+    Unreadable,
+    /// The previous run's state.
+    Ok(Box<RunState>),
+}
+
+/// Read the journal, distinguishing "absent" from "damaged".
+pub fn read_journal(data_dir: &Path) -> Journal {
+    match std::fs::read_to_string(state_path(data_dir)) {
+        Err(_) => Journal::Absent,
+        Ok(text) => match parse(&text) {
+            Some(state) => Journal::Ok(Box::new(state)),
+            None => Journal::Unreadable,
+        },
+    }
 }
 
 /// Where the last boot's verdict is kept so the HTTP surface can report it.
@@ -538,15 +570,34 @@ pub fn recent_boots(data_dir: &Path, limit: usize) -> Vec<serde_json::Value> {
 /// description is returned rather than logged so the binary's own `log_line` (which knows
 /// where stdout-less output belongs) stays the only writer.
 pub fn begin(data_dir: &Path) -> (Option<RunState>, String) {
-    let previous = load(data_dir);
+    let journal = read_journal(data_dir);
     let now = now_secs();
     // The host's boot time is read HERE, once, and handed to both halves of the verdict — the
     // sentence logged to `startup.log` and the kind persisted for `/api/status`. Reading it in
     // two places is how the reboot case would come to be classified one way and described
     // another.
     let boot = machine_boot_secs();
-    let kind = classify(previous.as_ref(), now, boot);
-    let line = describe_previous(previous.as_ref(), now, boot);
+    // A JOURNAL WE CANNOT READ IS NOT A FIRST RUN. It is "cannot tell", and the conservative answer
+    // for a device that cannot tell is a crash with the reason attached — never a benign story
+    // invented from a damaged file (the same rule `machine_boot_secs` follows when the host cannot
+    // answer).
+    let unreadable = journal == Journal::Unreadable;
+    let previous = match journal {
+        Journal::Ok(state) => Some(*state),
+        Journal::Absent | Journal::Unreadable => None,
+    };
+    let kind = if unreadable {
+        BootKind::Crashed
+    } else {
+        classify(previous.as_ref(), now, boot)
+    };
+    let line = if unreadable {
+        "run journal: PRESENT BUT UNREADABLE (a torn write, or a file something else truncated) — \
+         reporting a crash rather than inventing a first run"
+            .to_string()
+    } else {
+        describe_previous(previous.as_ref(), now, boot)
+    };
     // Also persist it for the HTTP surface — see `verdict_path`. The KIND rides along, computed
     // here rather than re-derived by whoever reads the file.
     save_verdict(data_dir, kind, &line);
@@ -718,6 +769,110 @@ mod tests {
         assert_eq!(
             classify(Some(&unmarked), now, Some(1000 + 24425 + 61)),
             BootKind::MachineRestart
+        );
+    }
+
+    /// A JOURNAL WE CANNOT READ IS NOT A FIRST RUN — and it must not be read as one, because
+    /// `FirstRun` is the benign story a damaged file would otherwise tell: a torn write after a
+    /// power cut would hide the crash that caused it. Three states, three answers.
+    #[test]
+    fn a_damaged_journal_reports_a_crash_not_a_first_run() {
+        let d = dir("damaged");
+        assert_eq!(
+            read_journal(&d),
+            Journal::Absent,
+            "no file is genuinely absent"
+        );
+        assert_eq!(classify(None, 100, None), BootKind::FirstRun);
+
+        // THE TWO TEARS THAT MATTER, both produced by a truncating write interrupted:
+        //   * an EMPTY file (the write got as far as truncating),
+        //   * a torn HEAD (the first line never completed).
+        // A torn TAIL is deliberately NOT in this list: it parses (the missing `last` falls back to
+        // `started`, `exited` stays false) and lands on the alarming verdict anyway, which is the
+        // right answer for "it did not say goodbye".
+        std::fs::create_dir_all(d.join("logs")).expect("logs dir");
+        std::fs::write(state_path(&d), "").expect("write an empty journal");
+        assert_eq!(
+            read_journal(&d),
+            Journal::Unreadable,
+            "an empty file is not a first run"
+        );
+        std::fs::write(state_path(&d), "star").expect("write a torn head");
+        assert_eq!(
+            read_journal(&d),
+            Journal::Unreadable,
+            "a torn head is not a first run"
+        );
+
+        // …and `begin` reports it as a crash, with the reason in the line the operator reads.
+        let (_prev, line) = begin(&d);
+        assert!(line.contains("UNREADABLE"), "{line}");
+        assert_eq!(
+            last_boot(&d).and_then(|b| b.kind),
+            Some(BootKind::Crashed),
+            "a device that cannot read its own journal must not claim a clean history"
+        );
+
+        // …and a torn TAIL keeps the old, alarming reading rather than becoming "unreadable".
+        std::fs::write(state_path(&d), "started=100\nlast=").expect("write a torn tail");
+        assert!(
+            matches!(read_journal(&d), Journal::Ok(_)),
+            "a torn tail still parses"
+        );
+        let (prev, _line) = begin(&d);
+        assert_eq!(
+            prev.map(|p| p.exited),
+            Some(false),
+            "and it did not exit cleanly"
+        );
+    }
+
+    /// THE WRITE IS ATOMIC, and this test can tell: with the directory unwritable the temp file
+    /// cannot be created, so an atomic save FAILS and leaves the previous journal untouched —
+    /// while a truncating `fs::write` would happily rewrite the existing file in place (the
+    /// directory permission does not stop that) and destroy it. That difference is the whole
+    /// reason for the change, and it is invisible unless the test looks for it.
+    #[test]
+    #[cfg(unix)]
+    fn a_failed_save_leaves_the_previous_journal_intact() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir("atomic");
+        let good = RunState {
+            started: 7,
+            last: 9,
+            exited: true,
+            reason: Some("stop".into()),
+        };
+        save(&d, &good);
+        let before = std::fs::read_to_string(state_path(&d)).expect("journal");
+
+        // Make the DIRECTORY read-only: the target file stays writable (truncate-and-write would
+        // succeed and lose the old content), but creating the temp file cannot.
+        let logs = d.join("logs");
+        let original = std::fs::metadata(&logs).expect("dir").permissions();
+        std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+
+        let other = RunState {
+            started: 1,
+            last: 2,
+            exited: false,
+            reason: None,
+        };
+        save(&d, &other);
+
+        let after = std::fs::read_to_string(state_path(&d)).expect("journal survives");
+        assert_eq!(
+            before, after,
+            "a save that could not be completed must not have changed the journal"
+        );
+
+        std::fs::set_permissions(&logs, original).expect("restore");
+        // …and the next successful save lands normally (the temp file never became the journal).
+        save(&d, &other);
+        assert_eq!(
+            parse(&std::fs::read_to_string(state_path(&d)).expect("journal")).map(|s| s.started),
+            Some(1)
         );
     }
 
