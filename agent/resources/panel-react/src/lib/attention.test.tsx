@@ -108,22 +108,26 @@ describe("the tab title and the badge", () => {
     // The first version returned a simplified drawing of its own, which read as a different, wrong
     // icon the moment anything needed attention (the operator noticed immediately). The artwork must
     // survive byte-for-byte; only a disc is added.
-    const artwork = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><defs><linearGradient id='s'><stop stop-color='%23f59f00'/></linearGradient></defs><rect width='48' height='48' rx='11' fill='url(%23s)'/><path fill='%23fff' d='M14 41Q26 16 44 41Z'/></svg>`;
+    // THE REAL ENCODING, copied from the device's own panel (`data:image/svg+xml,%3Csvg …%3C/svg%3E`).
+    // The first fixture was an unencoded SVG — a guess — and the code searched for a literal `<svg`
+    // in a href that never contains one, so the badge silently never appeared while this test passed.
+    const artwork = `%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='s'%3E%3Cstop stop-color='%23f59f00'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='url(%23s)'/%3E%3Cpath fill='%23fff' d='M14 41Q26 16 44 41Z'/%3E%3C/svg%3E`;
     const base = `data:image/svg+xml,${artwork}`;
     // Nothing to badge: the base comes back untouched (and an empty href stays empty).
     expect(badgeIcon(0, false, base)).toBe(base);
     expect(badgeIcon(0, false, undefined)).toBe("");
     const one = badgeIcon(1, false, base);
     // THE ARTWORK IS INTACT — the gradient, the mountain, the rounding are all still there.
-    expect(one).toContain("<linearGradient id='s'>");
+    expect(one).toContain("%3ClinearGradient id='s'%3E");
     expect(one).toContain("M14 41Q26 16 44 41Z");
     expect(one).toContain("rx='11'");
-    // …with the disc (and the count) inserted before the closing tag.
+    // …with the disc (and the count) inserted before the closing tag, in the same encoding.
     expect(one.indexOf("circle cx='37'")).toBeGreaterThan(one.indexOf("M14 41Q26 16 44 41Z"));
-    expect(one.indexOf("circle cx='37'")).toBeLessThan(one.indexOf("</svg>"));
-    expect(decodeURIComponent(one)).toContain(">1</text>");
+    expect(one.indexOf("circle cx='37'")).toBeLessThan(one.indexOf("%3C/svg%3E"));
+    expect(one).toContain("1%3C/text%3E");
+    expect(decodeURIComponent(one)).toContain("</text>");
     // Past nine the number is illegible at 16 px, so the badge is a plain disc.
-    expect(decodeURIComponent(badgeIcon(12, false, base))).not.toContain("</text>");
+    expect(badgeIcon(12, false, base)).not.toContain("text");
     // An urgent item changes the disc, so the shape carries it as well as the title's ⚠.
     expect(badgeIcon(1, true, base)).not.toBe(one);
     // An icon that is not an inline SVG is left alone rather than replaced by something invented.

@@ -119,18 +119,26 @@ export function titleFor(items: AttentionItem[], base: string = BASE_TITLE): str
 export function badgeIcon(count: number, urgent: boolean, baseHref?: string): string {
     const base = baseHref ?? "";
     if (count <= 0 || !base) return base;
-    // `data:image/svg+xml,<svg …>` — the panel's icon is inlined, so this is a string edit.
-    const marker = base.indexOf("<svg");
-    const close = base.lastIndexOf("</svg>");
-    if (marker < 0 || close < 0) return base;
+    // THE REAL HREF IS PERCENT-ENCODED (`data:image/svg+xml,%3Csvg …%3C/svg%3E`), so the markers
+    // must be looked for in BOTH spellings: the first version searched for a literal `<svg`, never
+    // found one in the encoded href, and silently returned the base — the artwork was preserved and
+    // the badge never appeared (found on d1 by asking the panel what its icon actually was; the
+    // test's fixture was an unencoded SVG, i.e. a guess).
+    const encoded = base.includes("%3Csvg") || base.includes("%3csvg");
+    const close = encoded ? Math.max(base.lastIndexOf("%3C/svg%3E"), base.lastIndexOf("%3c/svg%3e")) : base.lastIndexOf("</svg>");
+    const marker = encoded ? Math.max(base.indexOf("%3Csvg"), base.indexOf("%3csvg")) : base.indexOf("<svg");
+    if (marker < 0 || close < marker) return base;
     const fill = urgent ? "%23d9480f" : "%23e03131";
     const label = count > 9 ? "" : String(count);
-    const text = label
-        ? `<text x='37' y='43' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'>${label}</text>`
-        : "";
-    const badge = `%3Ccircle cx='37' cy='11' r='11' fill='${fill}'/%3E${text ? "" : ""}`;
+    const lt = encoded ? "%3C" : "<";
+    const gt = encoded ? "%3E" : ">";
+    const badge =
+        `${lt}circle cx='37' cy='11' r='11' fill='${fill}'/${gt}` +
+        (label
+            ? `${lt}text x='37' y='43' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'${gt}${label}${lt}/text${gt}`
+            : "");
     // Inserted just before the closing tag: on top of the artwork, with the artwork intact.
-    return base.slice(0, close) + badge + (text ? encodeURIComponent(text) : "") + base.slice(close);
+    return base.slice(0, close) + badge + base.slice(close);
 }
 
 /** The one-line summary the settings card and any tooltip use. */
