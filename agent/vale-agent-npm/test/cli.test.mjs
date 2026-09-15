@@ -1506,10 +1506,18 @@ test("stop and restart mark the run as deliberate before killing it", () => {
   // `vale restart` reads as "crashed" whenever the revival is slower than the heartbeat window.
   // This pins the WIRING (the helper is in the device route; a helper test cannot see a call site).
   const shipped = readFileSync(new URL("../bin/vale.js", import.meta.url), "utf8");
-  const marks = shipped.split("markDeliberateStop()").length - 1;
-  // 1 definition + 2 call sites (stop, restart).
-  assert.equal(marks, 3, "stop and restart must both mark the run before ending it");
+  // ASSERT THE CALL SHAPES, not an occurrence count: counting broke the moment a third caller
+  // appeared, and a count cannot tell a call site from a comment.
+  assert.equal(
+    (shipped.match(/markDeliberateStop\(\);/g) || []).length,
+    2,
+    "stop and restart must both mark the run before ending it",
+  );
   assert.match(shipped, /\/api\/run\/mark-exit/);
+  // …and the UPDATE path marks its own swap with the reason that makes the next start say
+  // "replaced" instead of "crashed" (its timing cannot be told from a crash: the gaps overlap).
+  assert.match(shipped, /markDeliberateStop\("update"\)/, "vale update must mark its swap as deliberate");
+  assert.match(shipped, /reason/, "the marker carries the reason the verdict depends on");
 });
 
 

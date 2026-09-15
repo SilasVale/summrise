@@ -363,7 +363,6 @@ echo "sha256: $SHA"
 if [ "$WITH_INSTALLER" -eq 0 ]; then
   retire_installers "$ASSET_DIR"
 fi
-fi
 
 echo "== last-5-per-minor prune (round-309) =="
 # Keep the newest 5 of EACH major.minor line + the latest alias (the policy

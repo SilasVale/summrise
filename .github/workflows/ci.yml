@@ -335,6 +335,11 @@ jobs:
         run: node scripts/test/token-contract-check.mjs
       # Smoke-helper guards: assert_want_sha256 (shared pre-publish sha gate,
       # twin of the worker's SHA256_RE) — same convention, zero new tooling.
+      # A shell script that does not PARSE is a script that cannot run — and the gates below
+      # exercise test suites, not the release path. Round 28 shipped two commits with an orphan
+      # `fi` in publish-release.sh and found out only when a publish was attempted.
+      - name: every shell script parses
+        run: bash scripts/test/script-syntax.bash
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —

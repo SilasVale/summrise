@@ -1362,8 +1362,12 @@ export function rollbackVersionOk(v: string): boolean {
  * BEST-EFFORT BY DESIGN: it runs BEFORE the kill, and a device whose agent is already gone must
  * still be stoppable. A failure is a WARNING, never a refusal to stop.
  */
-function markDeliberateStop(): void {
-  const r = deviceApi("POST", "/api/run/mark-exit", {});
+function markDeliberateStop(reason: "stop" | "update" = "stop"): void {
+  // THE REASON DECIDES THE VERDICT. "update" makes the next start report `replaced` (the swap was
+  // deliberate and normal) while "stop" reports `clean-exit`. Neither can be inferred from timing:
+  // d1's boot history shows an update swap with a 61 s heartbeat gap while the boot task revives a
+  // real crash within ~60 s — the durations overlap, so an unmarked update lands as a CRASH.
+  const r = deviceApi("POST", "/api/run/mark-exit", { reason });
   if (!r.ok) {
     console.error(`  (note: could not mark this stop as deliberate -- ${r.error}; the next start may report a crash)`);
     return;
@@ -2145,6 +2149,12 @@ const commands = {
         toVersion || "unknown",
       ).join("; "),
     );
+    // MARK THE SWAP AS DELIBERATE, at the same instant as the receipt and for the same reason:
+    // past this point the agent is killed from outside and writes no goodbye of its own, so the
+    // next start has to GUESS — and the guess is wrong whenever the swap is slow (d1 measured a
+    // 61 s gap, the boot task revives a crash in ~60 s, so the two overlap and genuine updates were
+    // filed as CRASHES). With the mark, the next start reads `reason=update` and reports `replaced`.
+    markDeliberateStop("update");
     if (!receipt || receipt.status !== 0 || receipt.error) {
       console.error(
         "update: WARNING -- could not write the receipt to vale-update.log (" +

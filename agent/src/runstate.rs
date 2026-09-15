@@ -27,6 +27,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// mid-flight is distinguishable from one that exited on purpose.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunState {
+    /// WHY the run ended, when whoever ended it said so (`mark_deliberate_stop`). `None` on a
+    /// journal written by a build that did not record one, or by a run that has not ended.
+    pub reason: Option<String>,
     /// Unix seconds when this run started.
     pub started: u64,
     /// Unix seconds of the most recent heartbeat.
@@ -82,12 +85,15 @@ pub fn parse(text: &str) -> Option<RunState> {
     let mut started = None;
     let mut last = None;
     let mut exited = false;
+    let mut reason: Option<String> = None;
     for line in text.lines() {
         let (k, v) = line.split_once('=')?;
         match k.trim() {
             "started" => started = v.trim().parse::<u64>().ok(),
             "last" => last = v.trim().parse::<u64>().ok(),
             "exited" => exited = v.trim() == "1",
+            // Older journals have no `reason` line; an unknown line is ignored either way.
+            "reason" => reason = Some(v.trim().to_string()).filter(|r| !r.is_empty()),
             _ => {}
         }
     }
@@ -95,17 +101,23 @@ pub fn parse(text: &str) -> Option<RunState> {
         started: started?,
         last: last.or(started)?,
         exited,
+        reason,
     })
 }
 
 /// Render the state in the format [`parse`] reads.
 pub fn render(state: &RunState) -> String {
-    format!(
+    let mut out = format!(
         "started={}\nlast={}\nexited={}\n",
         state.started,
         state.last,
         if state.exited { 1 } else { 0 }
-    )
+    );
+    // Only written when there IS a reason: an empty line would be state that says nothing.
+    if let Some(reason) = state.reason.as_deref().filter(|r| !r.is_empty()) {
+        out.push_str(&format!("reason={reason}\n"));
+    }
+    out
 }
 
 /// WHICH of the five things happened to the previous run — the machine-readable half of the line
@@ -172,7 +184,17 @@ impl BootKind {
 pub fn classify(previous: Option<&RunState>, now: u64, boot_secs: Option<u64>) -> BootKind {
     match previous {
         None => BootKind::FirstRun,
-        Some(prev) if prev.exited => BootKind::CleanExit,
+        // A MARKED END IS NOT GUESSED FROM A CLOCK. `reason=update` means the update flow itself
+        // said "I am replacing this run", so the verdict is `replaced` no matter how long the swap
+        // took — and it must be, because the two durations OVERLAP: measured on d1, an update swap
+        // left a 61 s heartbeat gap (round 27's boot history) while a crash is revived by the boot
+        // task's 60 s repetition, so "how stale was the heartbeat" cannot tell them apart at all.
+        // The old rule silently filed genuine updates as CRASHES whenever the box was a second
+        // slow, which is the product blaming itself for doing what it was told.
+        Some(prev) if prev.exited => match prev.reason.as_deref() {
+            Some("update") => BootKind::Replaced,
+            _ => BootKind::CleanExit,
+        },
         Some(prev) => {
             let since = now.saturating_sub(prev.last);
             if boot_secs.is_some_and(|boot| boot > prev.last) {
@@ -538,6 +560,7 @@ pub fn begin(data_dir: &Path) -> (Option<RunState>, String) {
             started: now,
             last: now,
             exited: false,
+            reason: None,
         },
     );
     (previous, line)
@@ -551,6 +574,7 @@ pub fn beat(data_dir: &Path, started: u64) {
             started,
             last: now_secs(),
             exited: false,
+            reason: None,
         },
     );
 }
@@ -563,6 +587,7 @@ pub fn mark_exited(data_dir: &Path, started: u64) {
             started,
             last: now_secs(),
             exited: true,
+            reason: None,
         },
     );
 }
@@ -577,7 +602,7 @@ pub fn mark_exited(data_dir: &Path, started: u64) {
 ///
 /// Returns whether anything changed: marking an already-marked run, or marking when no run is on
 /// record, is a no-op rather than an error (a supervisor racing a dying agent must not fail).
-pub fn mark_deliberate_stop(data_dir: &Path) -> bool {
+pub fn mark_deliberate_stop(data_dir: &Path, reason: &str) -> bool {
     let Some(mut state) = load(data_dir) else {
         return false;
     };
@@ -585,6 +610,9 @@ pub fn mark_deliberate_stop(data_dir: &Path) -> bool {
         return false;
     }
     state.exited = true;
+    // THE REASON IS THE VERDICT: "update" makes the next start report `replaced`, anything else
+    // `clean-exit` (see classify for why timing cannot decide it).
+    state.reason = Some(reason.trim().to_string()).filter(|r| !r.is_empty());
     // The heartbeat is refreshed too: `last` is what tells a later start whether the process was
     // alive a moment ago, and a deliberate stop IS the last thing it did.
     state.last = now_secs();
@@ -611,7 +639,7 @@ mod tests {
     fn a_deliberate_stop_marks_the_run_and_only_once() {
         let d = dir("deliberate");
         // No journal: nothing to mark, and no crash either.
-        assert!(!mark_deliberate_stop(&d));
+        assert!(!mark_deliberate_stop(&d, "stop"));
 
         save(
             &d,
@@ -619,9 +647,13 @@ mod tests {
                 started: 111,
                 last: 222,
                 exited: false,
+                reason: None,
             },
         );
-        assert!(mark_deliberate_stop(&d), "an unfinished run must be marked");
+        assert!(
+            mark_deliberate_stop(&d, "stop"),
+            "an unfinished run must be marked"
+        );
         let after = load(&d).expect("journal");
         assert!(after.exited);
         assert_eq!(after.started, 111, "the run's identity is untouched");
@@ -629,7 +661,7 @@ mod tests {
 
         // Already marked: a second call changes nothing (a supervisor may race the agent's own
         // shutdown, and a race must not fail).
-        assert!(!mark_deliberate_stop(&d));
+        assert!(!mark_deliberate_stop(&d, "stop"));
 
         // …and the verdict a next start would reach is CleanExit, not Crashed.
         assert_eq!(
@@ -639,12 +671,91 @@ mod tests {
         );
     }
 
+    /// AN UPDATE SWAP IS NOT A CRASH, and it cannot be told from one by a clock: measured on d1
+    /// (2026-09-15 boot history) a real `vale update` left a **61 s** heartbeat gap while the boot
+    /// task revives a genuine crash within ~60 s — the two durations OVERLAP, which is why the old
+    /// time-based rule filed updates as crashes whenever the box was a second slow. The update flow
+    /// marks its own swap (`reason=update`) and the verdict follows the MARK, not the clock.
+    #[test]
+    fn a_marked_update_reads_as_replaced_not_crashed() {
+        let marked = |reason: Option<&str>| RunState {
+            started: 1000,
+            last: 1000 + 24425,
+            exited: true,
+            reason: reason.map(str::to_string),
+        };
+        // 61 s later — the exact gap that used to be classified as `crashed`.
+        let now = 1000 + 24425 + 61;
+        assert_eq!(
+            classify(Some(&marked(Some("update"))), now, None),
+            BootKind::Replaced,
+            "a marked update is a replacement however slow the swap was"
+        );
+        // A deliberate stop stays a clean exit…
+        assert_eq!(
+            classify(Some(&marked(Some("stop"))), now, None),
+            BootKind::CleanExit
+        );
+        // …and a journal written before reasons existed keeps the old, conservative reading.
+        assert_eq!(
+            classify(Some(&marked(None)), now, None),
+            BootKind::CleanExit
+        );
+        // AN UNMARKED DEATH IS STILL A GUESS, and it must stay the alarming one when nothing took
+        // over: the same 61 s gap with no marker reads as a crash.
+        let unmarked = RunState {
+            started: 1000,
+            last: 1000 + 24425,
+            exited: false,
+            reason: None,
+        };
+        assert_eq!(
+            classify(Some(&unmarked), now, None),
+            BootKind::Crashed,
+            "no marker, nothing took over at once: still a crash"
+        );
+        // …and a machine reboot outranks both (the host went down with the process).
+        assert_eq!(
+            classify(Some(&unmarked), now, Some(1000 + 24425 + 61)),
+            BootKind::MachineRestart
+        );
+    }
+
+    /// The reason survives a trip through the journal, and an old journal (no `reason=` line) still
+    /// parses — a field added to a file that devices already have must not brick the verdict.
+    #[test]
+    fn the_journal_carries_the_reason_and_tolerates_its_absence() {
+        let s = RunState {
+            started: 1,
+            last: 2,
+            exited: true,
+            reason: Some("update".into()),
+        };
+        let text = render(&s);
+        assert!(text.contains("reason=update"), "{text}");
+        assert_eq!(parse(&text).and_then(|p| p.reason), Some("update".into()));
+        // A journal from before this field existed: parsed, with no reason to report.
+        let old = "started=1\nlast=2\nexited=1\n";
+        let parsed = parse(old).expect("an old journal still parses");
+        assert!(parsed.exited);
+        assert_eq!(parsed.reason, None);
+        // An empty reason is not written, so the file never says nothing.
+        let bare = RunState {
+            started: 1,
+            last: 2,
+            exited: true,
+            reason: Some(String::new()),
+        };
+        assert!(!render(&bare).contains("reason="));
+    }
+
     #[test]
     fn roundtrip_is_stable() {
         let s = RunState {
             started: 100,
             last: 250,
             exited: true,
+            reason: None,
         };
         assert_eq!(parse(&render(&s)), Some(s));
     }
@@ -676,6 +787,7 @@ mod tests {
             started: 100,
             last: 400,
             exited: true,
+            reason: None,
         };
         let line = describe_previous(Some(&prev), 500, None);
         assert!(line.contains("exited cleanly"), "{line}");
@@ -690,6 +802,7 @@ mod tests {
             started: 1_000,
             last: 1_061,
             exited: false,
+            reason: None,
         };
         let line = describe_previous(Some(&prev), 9_000, None);
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
@@ -710,6 +823,7 @@ mod tests {
             started: 100_000,
             last: 131_985, // heartbeating until 6 s before the new process began
             exited: false,
+            reason: None,
         };
         let line = describe_previous(Some(&swapped), 131_991, None);
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
@@ -722,6 +836,7 @@ mod tests {
             started: 100_000,
             last: 131_985,
             exited: false,
+            reason: None,
         };
         let line = describe_previous(Some(&crashed), 135_585, None);
         assert!(line.contains("DID NOT EXIT CLEANLY"), "{line}");
@@ -741,22 +856,26 @@ mod tests {
             started: 100_000,
             last: 131_985, // 6 s before the new process began — d1's real update numbers
             exited: false,
+            reason: None,
         };
         let crashed = RunState {
             started: 100_000,
             last: 131_985,
             exited: false,
+            reason: None,
         };
         let clean = RunState {
             started: 100,
             last: 400,
             exited: true,
+            reason: None,
         };
         // A run that ended WITH the host: the machine booted after its last heartbeat.
         let rebooted = RunState {
             started: 100_000,
             last: 131_985,
             exited: false,
+            reason: None,
         };
         // A named case rather than a five-field tuple array: the tuple type was the only thing
         // clippy had to say about this test, and the case IS the concept being tested.
@@ -844,6 +963,7 @@ mod tests {
             started: 100_000,
             last: 131_985, // the last beat before the machine went down
             exited: false,
+            reason: None,
         };
         let now = 135_585; // the agent came back 3600 s later, at boot
         assert_eq!(

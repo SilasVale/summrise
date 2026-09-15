@@ -811,10 +811,24 @@ pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> 
             ("GET", "/api/update") => api_update(state).await,
             // REACHABILITY — the watched targets, each with its probe series and summary.
             ("GET", "/api/monitors") => crate::monitor::snapshot(),
-            // A supervisor that is about to kill this process says so FIRST, so the next start
-            // reads "stopped on purpose" instead of "crashed" (see runstate::mark_deliberate_stop).
+            // A supervisor that is about to kill this process says so FIRST — and says WHY, because
+            // "stopped on purpose" and "replaced by an update" are different verdicts for the next
+            // start, and the clock cannot tell them apart (the two durations overlap; see
+            // runstate::classify). `reason` defaults to "stop".
             ("POST", "/api/run/mark-exit") => {
-                serde_json::json!({"ok": true, "marked": crate::runstate::mark_deliberate_stop(&crate::paths::data_dir())})
+                let reason = serde_json::from_str::<serde_json::Value>(if body_str.is_empty() {
+                    "{}"
+                } else {
+                    body_str
+                })
+                .ok()
+                .and_then(|v| v.get("reason").and_then(|r| r.as_str()).map(str::to_string))
+                .unwrap_or_else(|| "stop".to_string());
+                serde_json::json!({
+                    "ok": true,
+                    "reason": reason,
+                    "marked": crate::runstate::mark_deliberate_stop(&crate::paths::data_dir(), &reason),
+                })
             }
             ("POST", "/api/monitors/add") => api_monitor_add(body_str),
             ("POST", "/api/monitors/remove") => api_monitor_remove(body_str),
@@ -3175,6 +3189,7 @@ mod tests {
             started: now - 500,
             last: now - 100,
             exited: false,
+            reason: None,
         };
         record_boot(
             &crate::paths::data_dir(),
