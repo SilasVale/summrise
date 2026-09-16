@@ -203,9 +203,9 @@ export default function Overview() {
 
       {/* ── first run: what to do next, said once and only when it is true ── */}
       {firstRun && (
-        <Card className="ov-firstrun" title={t("overview.firstRun")}>
+        <Card title={t("overview.firstRun")}>
           {noKeys && (
-            <p className="ov-firstrun-line">
+            <p>
               {t("overview.firstRunKeys")}{" "}
               <Link to="/keys">
                 {t("nav.keys")} →
@@ -213,7 +213,7 @@ export default function Overview() {
             </p>
           )}
           {noDevices && (
-            <p className="ov-firstrun-line">
+            <p>
               {t("overview.firstRunDevices")}{" "}
               <Link to="/devices">
                 {t("nav.devices")} →

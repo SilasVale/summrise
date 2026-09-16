@@ -21,6 +21,19 @@
 //   unlike the panel's, where the first hover run found a dark-theme button at 1.94 (round 84).
 // NOT covered: the Electron-only shell, and any state the fixtures cannot produce (the login pass is
 // the only 401 path here).
+//
+// MEASURED BY HAND, NOT YET BY THIS TOOL (round 88): every class on screen, checked against the
+// browser's own parsed selectors. 221 classes are styled; three were not —
+//   ov-firstrun, ov-firstrun-line   class names in Overview.tsx that NO stylesheet ever defined
+//                                   (they arrived with the first-run card and were never styled);
+//                                   pruned from the markup, where they had never done anything.
+//   stat-off                        the Overview's default tone, and DELIBERATELY unstyled:
+//                                   .stat-card::before already paints the faint bar that "off" means.
+// The pass was written into this file and then REMOVED: its emitted form split class names on the
+// letter "s" when it reached the device, so its report listed "btn btn-" and "rail-clu" as unstyled.
+// The browser gave the right answer when asked by hand; a check whose output I could not trust does
+// not ship. Whoever picks this up should report the STYLED count beside the unstyled list, so an
+// empty read can never look like a clean page.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
