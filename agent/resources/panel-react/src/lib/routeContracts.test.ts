@@ -25,6 +25,8 @@ const COVERED: Record<string, string> = {
   "/api/vitals/history": "agent/tests/fixtures/vitals-series.json (metrics.rs + useVitalsSeries.fixture.test.ts)",
   "/api/sessions": "agent/src/session_log.rs + useSessionArchive's own tests (parse + failure states)",
   "/api/spec": "agent/spec-tools.json (the spec snapshot test pins every device tool)",
+  "/api/monitors":
+    "monitorsPayload.test.ts pins the row shape the hook reads — a target whole (id, host, port, summary.upPct/upNow), transitions as at_ms/up/lasted_ms, a probe that did not answer keeping a NULL latency, and the push frame that feeds the alert strip. This entry said 'unpinned' until round 108, which is what a coverage list does when nobody re-reads it.",
   "/api/settings":
     "agent/tests/fixtures/settings.json (settings_get_shape asserts the REAL response's key set against it)",
   "/api/status":
@@ -33,7 +35,7 @@ const COVERED: Record<string, string> = {
 
 /** Routes with NO shape contract yet, each with the reason — the honest gap list. */
 const UNPINNED: Record<string, string> = {
-  "/api/monitors": "the monitor list's row shape is unpinned; the monitor UI is the newest surface here",
+
   "/api/operation":
     "the ENVELOPE is pinned by the device's own test (`the_operation_route_carries_the_envelope_the_panel_reads`, gated on the terminal feature because the route answers Internal without it): events and runs are arrays and cursor_ms is a number. THE RECORD SHAPES NEED NO PIN, and round 107 checked rather than assumed: `OperationEvent` marks every field optional because the feed MERGES two producers (the terminal audit trail and the browser actions), so tolerance is the design, not a gap. What is not tolerant is the merge, and that is already pinned at the hook level — `useOperationRuns.test.ts` covers the cursor (`since_ms` re-sends the record ON the cursor, and double-counting it would inflate every number on the strip), accumulation, no-rewind, failure tolerance, and the no-churn case by OBJECT IDENTITY (`expect(result.current).toBe(first)`), which is the render-skipping contract the merge's early return exists for.",
   "/api/logs": "a text body, not a fielded one — nothing to rename",
