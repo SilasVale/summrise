@@ -22,13 +22,25 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = readFileSync(path.join(ROOT, "src", "i18n.ts"), "utf8");
 
 function keysOf(block) {
-  return new Set([...block.matchAll(/^\s*"([^"]+)":/gm)].map((m) => m[1]));
+  // BOTH SPELLINGS. The dictionaries write most keys as `"models.count": "…"` and at least one as
+  // `loading: "加载中…"` — an identifier key is legal JavaScript and the old pattern required quotes,
+  // so `loading` was invisible to this test. That is the exact failure the test guards against: an
+  // unquoted key added to zh and not to en would have passed, and t() falls back to Chinese, so the
+  // English console would render Chinese.
+  const quoted = [...block.matchAll(/^\s*"([^"]+)":/gm)].map((m) => m[1]);
+  const bare = [...block.matchAll(/^\s*([A-Za-z_][\w]*)\s*:/gm)].map((m) => m[1]);
+  return new Set([...quoted, ...bare]);
 }
 
-const zhStart = SRC.indexOf("  zh: {");
-const enStart = SRC.indexOf("  en: {");
-assert.ok(zhStart >= 0 && enStart > zhStart, "could not locate the zh/en dictionary blocks");
-const zh = keysOf(SRC.slice(zhStart, enStart));
+const zhLabel = SRC.indexOf("  zh: {");
+const enLabel = SRC.indexOf("  en: {");
+assert.ok(zhLabel >= 0 && enLabel > zhLabel, "could not locate the zh/en dictionary blocks");
+// Start AFTER each label's brace: the label line itself (`  zh: {`) is an identifier followed by a
+// colon, so a parser that now accepts identifier keys would otherwise count "zh" and "en" as
+// translation keys and report a one-key gap — which is exactly what it did the first time.
+const zhStart = SRC.indexOf("{", zhLabel) + 1;
+const enStart = SRC.indexOf("{", enLabel) + 1;
+const zh = keysOf(SRC.slice(zhStart, enLabel));
 const en = keysOf(SRC.slice(enStart));
 
 test("the dictionary parser actually read both languages", () => {
