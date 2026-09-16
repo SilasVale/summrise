@@ -101,8 +101,12 @@ elif which == "name":
 elif which == "title-only":
     r["names"][0]["titleOnly"] = ["button.search"]
 elif which == "reflow":
+    # NOT a tab scroller: the panel's exemption sets aside the 320px scroll only when every offending
+    # scroller IS a tab child, so a genuine one must still fail. (Planting it on the fixture's tab
+    # strip proved nothing — that is the artifact itself.)
     r["reflow"][0]["docScrollsSideways"] = True
     r["reflow"][0]["docScrollWidth"] = 514
+    r["reflow"][0]["sideScrollers"] = ["div.card 100<300"]
 elif which == "focus":
     r["focus"] = [{"density": "panel", "theme": "light", "missing": 3}]
 else:
@@ -205,6 +209,25 @@ if node "$EXT" --judge "$TMP/ext-two-h1.json" >/dev/null 2>&1; then
   bad "the extension judge PASSED a two-h1 report — the exact defect it was written for"
 else
   ok "the extension judge fails a two-h1 report"
+fi
+
+# …and the exemption itself is narrow: the SAME defect reported from a tab scroller is set aside,
+# because that is the harness artifact the panel adapter documents.
+python3 - "$TMP/clean.json" "$TMP/reflow-artifact.json" <<'PY3'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["reflow"][0]["docScrollsSideways"] = True
+r["reflow"][0]["docScrollWidth"] = 514
+json.dump(r, open(sys.argv[2], "w"))
+PY3
+if node "$TOOL" --judge "$TMP/reflow-artifact.json" > "$TMP/reflow-artifact.out" 2>&1; then
+  if grep -q "set aside" "$TMP/reflow-artifact.out"; then
+    ok "the tab-scroller 320px artifact is set aside WITH its reason printed"
+  else
+    bad "the artifact was suppressed silently — an exemption nobody can see is a hidden failure"
+  fi
+else
+  bad "the tab-scroller 320px artifact was treated as a defect (the exemption is too narrow now)"
 fi
 
 echo "panel-design-sweep: $PASS ok, $FAILED failed"

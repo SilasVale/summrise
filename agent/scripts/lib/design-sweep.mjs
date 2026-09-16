@@ -105,9 +105,15 @@ const REFLOW = \`(() => ({
 }))()\`;
 `;
 
-/** The judge: one implementation of "is this report a defect", whatever UI produced it. */
+/** The judge: one implementation of "is this report a defect", whatever UI produced it.
+ *
+ *  `opts.ignore` is a list of `{ match: RegExp, reason: string }` for findings this HARNESS cannot
+ *  judge — never for findings that are inconvenient. Each suppression is printed with its reason, so
+ *  a reader sees what was set aside and why rather than a clean line that hides it.
+ */
 export function judgeReport(report, opts = {}) {
   const findings = [];
+  const suppressed = [];
   for (const s of report.surfaces) {
     const where = s.width ? `${s.page}@${s.width}px` : s.page;
     if (s.h1Count !== 1 || !s.firstIsH1) findings.push(`${where}: h1 count ${s.h1Count}, first-is-h1 ${s.firstIsH1}`);
@@ -130,11 +136,26 @@ export function judgeReport(report, opts = {}) {
     findings.push(`${f.page}: ${f.missing} Tab stop(s) with no visible focus ring`);
   }
   for (const r of report.reflow || []) {
-    if (r.docScrollsSideways) findings.push(`reflow @${r.width}px: the document scrolls sideways (${r.docScrollWidth} > ${r.viewport})`);
+    if (r.docScrollsSideways) {
+      findings.push({ text: `reflow @${r.width}px: the document scrolls sideways (${r.docScrollWidth} > ${r.viewport})`, entry: r });
+    }
     // A toolbar-style scroller is WCAG 1.4.10's own exception; reported, not failed.
     if (r.sideScrollers.length) console.log(`note: scrollers at ${r.width}px (allowed for toolbars) — ${r.sideScrollers.join("; ")}`);
   }
-  return findings;
+  const kept = [];
+  for (const f of findings) {
+    const text = typeof f === "string" ? f : f.text;
+    const entry = typeof f === "string" ? null : f.entry;
+    // An exemption may look at the REPORT ENTRY as well as the finding's text. The panel's tab-strip
+    // artifact is only an artifact when the offending scrollers are tab children — a rule matching
+    // the text alone would also hide a genuine 320px reflow defect, and the sweep's own gate caught
+    // exactly that when the first version of this exemption was written.
+    const rule = (opts.ignore || []).find((i) => (i.test ? i.test(text, entry) : i.match.test(text)));
+    if (rule) suppressed.push({ finding: text, reason: rule.reason });
+    else kept.push(text);
+  }
+  for (const s of suppressed) console.log(`note: set aside (${s.reason}) — ${s.finding}`);
+  return kept;
 }
 
 /** How a sweep reports its result, so three tools read the same way. */
