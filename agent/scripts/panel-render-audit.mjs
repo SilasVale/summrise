@@ -132,13 +132,13 @@ function buildHarness() {
   // which is the one an operator stares at during a release. ?busy=1 is that state.
   //
   // OPEN, RECORDED RATHER THAN GUESSED (round 110): with this fixture served, the card's HEADING
-  // renders ("Agent update") and ITS BODY DOES NOT — `.update-current`, `.update-latest` and the action
-  // button are all absent in both states and both themes, while the route answers with `current`,
-  // `latest` and `update_available: true`. Three candidates, none established: the fixture does not
-  // reach `useUpdateStatus` (a different route or a second call), the section needs a prop the harness
-  // does not supply (`runningRelease` comes from /api/status's `release`, which the status fixture
+  // renders ("Agent update") and ITS BODY DOES NOT — .update-current, .update-latest and the action
+  // button are all absent in both states and both themes, while the route answers with current,
+  // latest and update_available: true. Three candidates, none established: the fixture does not
+  // reach useUpdateStatus (a different route or a second call), the section needs a prop the harness
+  // does not supply (runningRelease comes from /api/status's release, which the status fixture
   // DOES set), or the body is behind a condition my payload does not meet. Settle it by instrumenting
-  // the request first — `window.fetch` logging showed the other cards' routes plainly — before probing
+  // the request first — window.fetch logging showed the other cards' routes plainly — before probing
   // the DOM again. The earlier .monitor-chip lesson applies: an empty selector means the fixture or the
   // probe, and it took a fetch log to tell which.
   if (u.indexOf('/api/update') >= 0) {
