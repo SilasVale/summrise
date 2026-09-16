@@ -225,25 +225,30 @@ export function failures(rows) {
   return rows.filter((r) => r.cr !== null && !r.inactive && r.cr < (r.need ?? aaThreshold(r.size, r.weight)));
 }
 
-// ── WHAT THIS INSTRUMENT CANNOT SEE: GRAPHIC CONTRAST (round 123, recorded after trying) ───────────
+// ── WHAT THIS INSTRUMENT CANNOT SEE: GRAPHIC CONTRAST (rounds 123-124, recorded after two attempts) ──
 //
 // WCAG 1.4.11 asks 3:1 of a non-text element that carries meaning — a status dot, a chip's border, a
-// warning triangle — and this probe is BLIND to all of them, because its loop requires the element to
-// own a text node. That is why the two graphic defects this suite has found (the flapping chip's border
-// in round 109, the boot triangle in round 121) were both discovered BY HAND.
+// warning triangle — and this probe is BLIND to all of them, because its loop requires the element to own
+// a text node. That is why the two graphic defects this suite has found (the flapping chip's border in
+// round 109, the boot triangle in round 121) were both discovered BY HAND.
 //
-// I built the pass in round 123, ran it, and DELETED IT: 38 rows, 31 of them false failures reading
-// cr: 1 for elements whose paint is not where the pass looked. The dots this UI uses are painted by
-// THREE mechanisms a computed-style read of the element does not reach:
-//   * box-shadow (a spread shadow IS the dot),
-//   * ::before/::after pseudo-elements — getComputedStyle(el, '::before') is available and unused,
-//   * SVG fill/stroke, which I excluded outright rather than measure wrongly.
-// A pass that reports 31 defects that are not defects is worse than no pass, and this file has a rule
-// about that. WHAT A CORRECT VERSION NEEDS, so the next attempt starts here rather than at the start:
-// resolve the painter per pseudo-element as well as per element, treat a box-shadow's colour as paint
-// when the shadow has no offset and a non-zero spread (the dot idiom), read fill/stroke for SVG, and —
-// FIRST, before believing any number — point it at one element whose contrast is already known by hand.
-
+// TWO ATTEMPTS, BOTH DELETED AFTER MEASURING THEM:
+//   * round 123 looked for the painter in one place and reported 31 false failures reading cr: 1, for
+//     dots painted by box-shadow, ::before/::after and SVG fill/stroke;
+//   * round 124 resolved all three mechanisms, and its VALIDATION against a known element failed: on the
+//     boot triangle the probe reads **7.03** where the tested maths, applied to the surface stack read
+//     off the page (--warn-ink #92400e on the chip's opaque #f4f4f5), gives **6.45**. So its SURFACE
+//     resolution is wrong for a mark sitting inside an opaque chip — it reads through to the chrome
+//     behind it. That is the concrete thing to fix, and the comparison above is the test to fix it against.
+//
+// THE RULE THAT CAUGHT IT, worth more than either attempt: validate a new instrument against ONE element
+// whose value is known — and derive that reference from colours READ OFF THE PAGE, not from an assumed
+// surface. Round 121's hand figure was computed against a guessed background; it happened to be right for
+// the light theme and I would not have known if it had not been.
+//
+// WHAT A CORRECT VERSION STILL NEEDS: painter resolution (all three mechanisms, as round 124 had it) AND
+// a surface walk that stops at the first OPAQUE ancestor background rather than reading past it. Then
+// re-run this exact comparison before reading any other row.
 /** Rows inside an INACTIVE control. WCAG 1.4.3 exempts them, so `failures()`
  *  excludes them — but they are reported, not hidden. */
 export function inactive(rows) {

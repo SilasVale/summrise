@@ -192,4 +192,21 @@ t("a malformed hex is null, not a colour", () => {
   assert(parseColour("#gggggg") === null, "not hex at all");
 });
 
+// ── THE EMITTED SOURCE MUST COMPILE (round 124) ─────────────────────────────────────────────────
+// The module can import cleanly while the string it hands the browser is broken: PROBE_SOURCE is a
+// template literal, so a single backslash in a regex collapses on the way out. Round 123 shipped exactly
+// that and only found it when the device refused to evaluate the probe; round 124 hit it twice more
+// (\d became d, \) became )). Importing the module proves nothing about what the browser runs — this
+// compiles the EMITTED string, which is the artifact that matters.
+t("the emitted probe compiles as JavaScript — the artifact, not the module", () => {
+  new Function(PROBE_SOURCE);
+});
+t("the emitted probe keeps its regex escapes (a collapsed one changes the match, not the parse)", () => {
+  // A doubled backslash in the module becomes a single one in the emitted string. If the doubling is
+  // forgotten the regex STILL PARSES — it just matches something else — so this checks the content of
+  // the artifact, not that it compiles. The selector builder splits a class list on whitespace.
+  assert.ok(PROBE_SOURCE.includes("split(/\\s+/)"), "the class-list split lost its \\s escape");
+  assert.ok(!PROBE_SOURCE.includes("split(/s+/)"), "a collapsed \\s reached the emitted source");
+});
+
 console.log(`contrast-probe: all ${n} checks passed`);
