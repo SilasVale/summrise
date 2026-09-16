@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import worker from "../src/index.ts";
 import { issueSessionToken, SESSION_COOKIE } from "../src/auth.ts";
 import { __clearCaches, maskKey } from "../src/store.ts";
-import { makeEnv as makeBaseEnv, withFetch } from "./helpers.mjs";
+import { makeEnv as makeBaseEnv, withFetch, skewClock } from "./helpers.mjs";
 
 const ADMIN_PW = "test-admin-password";
 
@@ -227,11 +227,10 @@ test("register-keys: expired-but-unreaped KV entries are filtered from the list"
 // clock past it (store.cache.test.mjs's Date.now pattern) so tests stay
 // order-independent about what the previous test cached.
 function travelMs(ms) {
-  const real = Date.now;
-  Date.now = () => real() + ms;
-  return () => {
-    Date.now = real;
-  };
+  // The shared helper, so this idiom lives in one place — see its header for why these tests move the
+  // clock at all.
+  const clock = skewClock(ms);
+  return () => clock.restore();
 }
 
 test("install-cmd: upstream version flows through", async () => {

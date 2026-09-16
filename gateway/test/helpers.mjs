@@ -20,6 +20,52 @@ import { __clearCaches } from "../src/store.ts";
  * Call count is read via `withFetch.calls` INSIDE the callback (the counter is
  * live while fn() runs; it's reset on every withFetch entry).
  */
+/** FREEZE Date.now, and hand back the controls to move or restore it.
+ *
+ *  WHY THIS IS SHARED. Four tests grew their own version of it — one an offset skew, one a fixed value
+ *  with try/finally, one a fixed value it then advanced by hand — and they drifted, which is the same
+ *  reason the focus pass was centralised in round 136. This covers all three uses.
+ *
+ *  WHY ANY TEST NEEDS IT. A rate limiter that buckets by wall-clock minute
+ *  (`auth.ts`: `Math.floor(Date.now() / 60000)`) RESETS its counter when the clock crosses a boundary, so
+ *  a test that makes eleven rapid attempts fails if the boundary happens to land inside its ~600ms window
+ *  — about one run in a hundred. That is precisely how "11th rapid attempt 429s" failed once in CI and
+ *  passed on an identical re-run (rounds 143-144). Pinning the minute makes such a test about the gate's
+ *  behaviour instead of about when the machine happened to run it. `advance()` is for the other half:
+ *  crossing a boundary ON PURPOSE, so the reset itself can be asserted rather than described.
+ *
+ *  USE IT IN A finally. `node --test` gives each FILE its own process, so a leak cannot reach another
+ *  file, but a leak inside a file makes every later test in it depend on the time of day. */
+export function freezeClock(at = Date.now()) {
+  const real = Date.now;
+  let current = at;
+  Date.now = () => current;
+  return {
+    at,
+    advance(ms) {
+      current += ms;
+    },
+    restore() {
+      Date.now = real;
+    },
+  };
+}
+
+/** SKEW the clock by an offset while the REAL clock keeps moving — for "everything looks N minutes old",
+ *  where freezing would also stop the thing under test from progressing. Same controls, same finally. */
+export function skewClock(ms) {
+  const real = Date.now;
+  Date.now = () => real() + ms;
+  return {
+    advance() {
+      /* the real clock already advances; kept so both helpers return the same shape */
+    },
+    restore() {
+      Date.now = real;
+    },
+  };
+}
+
 export async function withFetch(handler, fn) {
   const real = globalThis.fetch;
   withFetch.calls = 0;

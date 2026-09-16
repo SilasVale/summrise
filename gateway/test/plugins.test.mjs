@@ -12,7 +12,7 @@ import {
   setAdminPassword,
   maskKey,
 } from "../src/store.ts";
-import { makeEnv as makeBaseEnv } from "./helpers.mjs";
+import { makeEnv as makeBaseEnv, freezeClock } from "./helpers.mjs";
 
 // Full worker fetch: pair/claim + ws-ticket are public (no admin session) —
 // the extension has no session cookie. Asserted by behavior, not source order.
@@ -812,9 +812,7 @@ test("login: unknown user 401s (timing-burn), 11th rapid attempt 429s", async ()
   // is how this test failed once in CI and passed on an identical re-run (round 143). Pinning the minute
   // makes it about the gate's behaviour instead of about how fast the machine happens to run it.
   // `node --test` gives each FILE its own process, so patching the global here cannot reach another test.
-  const realNow = Date.now;
-  const frozenMinute = realNow();
-  Date.now = () => frozenMinute;
+  const clock = freezeClock();
   try {
     for (let i = 0; i < 10; i++) {
       const r = await login();
@@ -826,7 +824,7 @@ test("login: unknown user 401s (timing-burn), 11th rapid attempt 429s", async ()
     }
     assert.equal((await login()).status, 429, "11th rapid attempt trips the burst gate");
   } finally {
-    Date.now = realNow;
+    clock.restore();
   }
 });
 
@@ -851,23 +849,21 @@ test("the login burst gate's window is a wall-clock MINUTE, and it rolls at the 
       }),
       env,
     );
-  const realNow = Date.now;
   // Ten seconds before the boundary, then across it. Only the test's own clock moves.
-  let clock = Math.floor(realNow() / 60000) * 60000 + 50000;
-  Date.now = () => clock;
+  const clock = freezeClock(Math.floor(Date.now() / 60000) * 60000 + 50000);
   try {
     for (let i = 0; i < 10; i++) {
       assert.equal((await login()).status, 401, `attempt ${i + 1} is a plain auth failure`);
     }
     assert.equal((await login()).status, 429, "the 11th inside the same minute is limited");
-    clock += 20000; // over the boundary: a new minute, a new bucket
+    clock.advance(20000); // over the boundary: a new minute, a new bucket
     assert.equal(
       (await login()).status,
       401,
       "the counter RESET at the minute boundary — the same attempt that was just limited is allowed again",
     );
   } finally {
-    Date.now = realNow;
+    clock.restore();
   }
 });
 
