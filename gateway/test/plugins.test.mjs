@@ -5,7 +5,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
-import { getPluginByToken, removePluginLink, __clearCaches, setAdminPassword, maskKey } from "../src/store.ts";
+import {
+  getPluginByToken,
+  removePluginLink,
+  __clearCaches,
+  setAdminPassword,
+  maskKey,
+} from "../src/store.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
 // Full worker fetch: pair/claim + ws-ticket are public (no admin session) —
@@ -19,7 +25,11 @@ function makeEnv() {
 }
 
 async function apiFetch(env, path, init = {}) {
-  const req = new Request(`https://x${path}`, { method: "POST", headers: { "content-type": "application/json" }, ...init });
+  const req = new Request(`https://x${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    ...init,
+  });
   return worker.fetch(req, env);
 }
 
@@ -31,9 +41,12 @@ function env() {
 test("plugin link: get/remove (KV-seeded)", async () => {
   const e = env();
   __clearCaches();
-  await e.KEYS.put("plugins:v1", JSON.stringify({
-    "tok": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-  }));
+  await e.KEYS.put(
+    "plugins:v1",
+    JSON.stringify({
+      tok: { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
+    }),
+  );
   const link = await getPluginByToken(e, "tok");
   assert.equal(link.device, "d1");
   assert.ok(link.createdAt);
@@ -48,9 +61,12 @@ test("plugin link: get/remove (KV-seeded)", async () => {
 test("plugin link: expires after 30 days, getPluginByToken drops it", async () => {
   const e = env();
   __clearCaches();
-  await e.KEYS.put("plugins:v1", JSON.stringify({
-    "tok-exp": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-  }));
+  await e.KEYS.put(
+    "plugins:v1",
+    JSON.stringify({
+      "tok-exp": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
+    }),
+  );
   const realNow = Date.now;
   try {
     assert.equal((await getPluginByToken(e, "tok-exp")).device, "d1");
@@ -68,7 +84,10 @@ import { issueSessionToken, SESSION_COOKIE } from "../src/auth.ts";
 
 test("plugins/status: no cookie → 401 (R83 gate)", async () => {
   const env = makeEnv();
-  const req = new Request("https://x/api/plugins/status", { method: "GET", headers: { "content-type": "application/json" } });
+  const req = new Request("https://x/api/plugins/status", {
+    method: "GET",
+    headers: { "content-type": "application/json" },
+  });
   const res = await worker.fetch(req, env);
   assert.equal(res.status, 401);
 });
@@ -77,7 +96,10 @@ test("plugins/status: revoked cookie → 401 (R88 blacklist)", async () => {
   const env = makeEnv();
   // Blacklist a fake session cookie the way logout does (sess-revoked:<cookie>).
   await env.KEYS.put("sess-revoked:fake-cookie", "1", { expirationTtl: 3600 });
-  const req = new Request("https://x/api/plugins/status", { method: "GET", headers: { "content-type": "application/json", cookie: "ag_session=fake-cookie" } });
+  const req = new Request("https://x/api/plugins/status", {
+    method: "GET",
+    headers: { "content-type": "application/json", cookie: "ag_session=fake-cookie" },
+  });
   const res = await worker.fetch(req, env);
   assert.equal(res.status, 401);
 });
@@ -85,7 +107,10 @@ test("plugins/status: revoked cookie → 401 (R88 blacklist)", async () => {
 test("plugins/status: valid admin session → 200 (R83 gate)", async () => {
   const env = makeEnv();
   const cookie = await issueSessionToken("pw", "admin", "admin");
-  const req = new Request("https://x/api/plugins/status", { method: "GET", headers: { "content-type": "application/json", cookie: `ag_session=${cookie}` } });
+  const req = new Request("https://x/api/plugins/status", {
+    method: "GET",
+    headers: { "content-type": "application/json", cookie: `ag_session=${cookie}` },
+  });
   const res = await worker.fetch(req, env);
   assert.equal(res.status, 200);
 });
@@ -94,7 +119,15 @@ test("plugins/status: valid admin session → 200 (R83 gate)", async () => {
 
 function makeResetEnv() {
   return makeBaseEnv({
-    users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "ADMIN_KEY_123" } },
+    users: {
+      admin: {
+        id: "admin",
+        username: "admin",
+        role: "admin",
+        enabled: true,
+        token: "ADMIN_KEY_123",
+      },
+    },
     kv: { _admin_seeded: "1", "auth:admin_password": "oldsalt:oldhash" },
     // Fail-closed issuance: login refuses without SESSION_SECRET.
     extra: { SESSION_SECRET: "test-session-secret-0123456789abcdef" },
@@ -104,28 +137,38 @@ function makeResetEnv() {
 test("reset-password: wrong adminKey → 403", async () => {
   __clearCaches();
   const env = makeResetEnv();
-  const res = await apiFetch(env, "/api/auth/reset-password", { body: JSON.stringify({ adminKey: "WRONG", newPassword: "newpass123" }) });
+  const res = await apiFetch(env, "/api/auth/reset-password", {
+    body: JSON.stringify({ adminKey: "WRONG", newPassword: "newpass123" }),
+  });
   assert.equal(res.status, 403);
 });
 
 test("reset-password: correct adminKey → 200, login with new pw works, old rejected", async () => {
   __clearCaches();
   const env = makeResetEnv();
-  const res = await apiFetch(env, "/api/auth/reset-password", { body: JSON.stringify({ adminKey: "ADMIN_KEY_123", newPassword: "newpass123" }) });
+  const res = await apiFetch(env, "/api/auth/reset-password", {
+    body: JSON.stringify({ adminKey: "ADMIN_KEY_123", newPassword: "newpass123" }),
+  });
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.ok, true);
 
-  const login = await apiFetch(env, "/api/auth/login", { body: JSON.stringify({ username: "admin", password: "newpass123" }) });
+  const login = await apiFetch(env, "/api/auth/login", {
+    body: JSON.stringify({ username: "admin", password: "newpass123" }),
+  });
   assert.equal(login.status, 200);
-  const old = await apiFetch(env, "/api/auth/login", { body: JSON.stringify({ username: "admin", password: "oldpass" }) });
+  const old = await apiFetch(env, "/api/auth/login", {
+    body: JSON.stringify({ username: "admin", password: "oldpass" }),
+  });
   assert.equal(old.status, 401);
 });
 
 test("reset-password: too-short new password → 400", async () => {
   __clearCaches();
   const env = makeResetEnv();
-  const res = await apiFetch(env, "/api/auth/reset-password", { body: JSON.stringify({ adminKey: "ADMIN_KEY_123", newPassword: "short" }) });
+  const res = await apiFetch(env, "/api/auth/reset-password", {
+    body: JSON.stringify({ adminKey: "ADMIN_KEY_123", newPassword: "short" }),
+  });
   assert.equal(res.status, 400);
 });
 
@@ -136,10 +179,16 @@ test("reset-password: 30 attempts then 429 (per-IP rate limit)", async () => {
   const env = makeResetEnv();
   const headers = { "content-type": "application/json", "cf-connecting-ip": "192.0.2.99" };
   for (let i = 0; i < 30; i++) {
-    const r = await apiFetch(env, "/api/auth/reset-password", { headers, body: JSON.stringify({}) });
+    const r = await apiFetch(env, "/api/auth/reset-password", {
+      headers,
+      body: JSON.stringify({}),
+    });
     assert.equal(r.status, 400, `attempt ${i + 1} passes the gate`);
   }
-  assert.equal((await apiFetch(env, "/api/auth/reset-password", { headers, body: JSON.stringify({}) })).status, 429);
+  assert.equal(
+    (await apiFetch(env, "/api/auth/reset-password", { headers, body: JSON.stringify({}) })).status,
+    429,
+  );
 });
 
 // SESSION_SECRET fail-closed issuance: correct credentials but no signing
@@ -150,7 +199,9 @@ test("login without SESSION_SECRET → 500, no session issued (fail-closed)", as
   const env = makeResetEnv();
   delete env.SESSION_SECRET;
   await setAdminPassword(env, "newpass123");
-  const login = await apiFetch(env, "/api/auth/login", { body: JSON.stringify({ username: "admin", password: "newpass123" }) });
+  const login = await apiFetch(env, "/api/auth/login", {
+    body: JSON.stringify({ username: "admin", password: "newpass123" }),
+  });
   assert.equal(login.status, 500);
   assert.ok(!String(login.headers.get("set-cookie") || "").includes("ag_session="));
 });
@@ -162,7 +213,10 @@ test("pre-rotation password-signed cookie still verifies with SESSION_SECRET set
   const env = makeEnv();
   env.SESSION_SECRET = "test-session-secret-0123456789abcdef";
   const cookie = await issueSessionToken("pw", "admin", "admin"); // old key = stored admin password
-  const req = new Request("https://x/api/plugins/status", { method: "GET", headers: { "content-type": "application/json", cookie: `ag_session=${cookie}` } });
+  const req = new Request("https://x/api/plugins/status", {
+    method: "GET",
+    headers: { "content-type": "application/json", cookie: `ag_session=${cookie}` },
+  });
   const res = await worker.fetch(req, env);
   assert.equal(res.status, 200);
 });
@@ -176,14 +230,19 @@ test("OpenRouter usage: authenticated request normalizes account data", async ()
   let called;
   globalThis.fetch = async (url, init) => {
     called = { url, init };
-    return new Response(JSON.stringify({ data: {
-      label: "admin@example.com",
-      usage: 1.25,
-      limit: 10,
-      is_free_tier: false,
-      rate_limit: { limit: 200, interval: "1s" },
-      unrelated: "must not leak",
-    } }), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        data: {
+          label: "admin@example.com",
+          usage: 1.25,
+          limit: 10,
+          is_free_tier: false,
+          rate_limit: { limit: 200, interval: "1s" },
+          unrelated: "must not leak",
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
   };
   try {
     const req = new Request("https://x/api/me/keys/usage", {
@@ -213,7 +272,9 @@ test("OpenRouter usage: authenticated request normalizes account data", async ()
 test("OpenRouter usage: no session → 401 and invalid provider → 400", async () => {
   __clearCaches();
   const env = makeEnv();
-  const unauth = await apiFetch(env, "/api/me/keys/usage", { body: JSON.stringify({ name: "OPENROUTER_API_KEY" }) });
+  const unauth = await apiFetch(env, "/api/me/keys/usage", {
+    body: JSON.stringify({ name: "OPENROUTER_API_KEY" }),
+  });
   assert.equal(unauth.status, 401);
   const cookie = await issueSessionToken("pw", "admin", "admin");
   const req = new Request("https://x/api/me/keys/usage", {
@@ -229,20 +290,30 @@ test("OpenRouter usage: missing key and upstream failure are safe", async () => 
   __clearCaches();
   const env = makeEnv();
   const cookie = await issueSessionToken("pw", "admin", "admin");
-  const request = () => new Request("https://x/api/me/keys/usage", {
-    method: "POST",
-    headers: { cookie: `ag_session=${cookie}`, "content-type": "application/json" },
-    body: JSON.stringify({ name: "OPENROUTER_API_KEY" }),
-  });
+  const request = () =>
+    new Request("https://x/api/me/keys/usage", {
+      method: "POST",
+      headers: { cookie: `ag_session=${cookie}`, "content-type": "application/json" },
+      body: JSON.stringify({ name: "OPENROUTER_API_KEY" }),
+    });
   const missing = await worker.fetch(request(), env);
-  assert.deepEqual(await missing.json(), { ok: false, name: "OPENROUTER_API_KEY", detail: "Key not configured" });
+  assert.deepEqual(await missing.json(), {
+    ok: false,
+    name: "OPENROUTER_API_KEY",
+    detail: "Key not configured",
+  });
   await env.KEYS.put("ukeys:admin", JSON.stringify({ OPENROUTER_API_KEY: "or-secret" }));
   __clearCaches();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("provider secret", { status: 429 });
   try {
     const failed = await worker.fetch(request(), env);
-    assert.deepEqual(await failed.json(), { ok: false, name: "OPENROUTER_API_KEY", status: 429, detail: "Upstream 429" });
+    assert.deepEqual(await failed.json(), {
+      ok: false,
+      name: "OPENROUTER_API_KEY",
+      status: 429,
+      detail: "Upstream 429",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -254,15 +325,21 @@ test("plugin link: revoke never resurrects or wipes fresh-KV links (stale-cache 
   const e = env();
   __clearCaches();
   // Prime the isolate cache with only tokA ...
-  await e.KEYS.put("plugins:v1", JSON.stringify({
-    "tokA": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-  }));
+  await e.KEYS.put(
+    "plugins:v1",
+    JSON.stringify({
+      tokA: { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
+    }),
+  );
   assert.equal((await getPluginByToken(e, "tokA")).device, "d1");
   // ... then another isolate pairs tokB straight to KV (cache now stale).
-  await e.KEYS.put("plugins:v1", JSON.stringify({
-    "tokA": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-    "tokB": { device: "d2", createdAt: 2, expiresAt: Date.now() + 86400000 * 30 },
-  }));
+  await e.KEYS.put(
+    "plugins:v1",
+    JSON.stringify({
+      tokA: { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
+      tokB: { device: "d2", createdAt: 2, expiresAt: Date.now() + 86400000 * 30 },
+    }),
+  );
   // Revoking tokA must NOT wipe tokB (old code rewrote the cached blob).
   await removePluginLink(e, "tokA");
   assert.equal(await getPluginByToken(e, "tokA"), null);
@@ -284,7 +361,9 @@ test("keys reveal: session-gated, name-validated, full value only when configure
   __clearCaches();
   const env = makeEnv();
   // No session → 401 (fail-closed: this endpoint returns a real credential).
-  const unauth = await apiFetch(env, "/api/me/keys/reveal", { body: JSON.stringify({ name: "DEEPSEEK_API_KEY" }) });
+  const unauth = await apiFetch(env, "/api/me/keys/reveal", {
+    body: JSON.stringify({ name: "DEEPSEEK_API_KEY" }),
+  });
   assert.equal(unauth.status, 401);
 
   const cookie = await issueSessionToken("pw", "admin", "admin");
@@ -304,11 +383,18 @@ test("keys reveal: session-gated, name-validated, full value only when configure
   assert.equal(missing.status, 404);
 
   // Configured → the FULL value, not the mask.
-  await env.KEYS.put("ukeys:admin", JSON.stringify({ DEEPSEEK_API_KEY: "sk-full-secret-abcdef123456" }));
+  await env.KEYS.put(
+    "ukeys:admin",
+    JSON.stringify({ DEEPSEEK_API_KEY: "sk-full-secret-abcdef123456" }),
+  );
   __clearCaches();
   const ok = await worker.fetch(req("DEEPSEEK_API_KEY"), env);
   assert.equal(ok.status, 200);
-  assert.deepEqual(await ok.json(), { ok: true, name: "DEEPSEEK_API_KEY", value: "sk-full-secret-abcdef123456" });
+  assert.deepEqual(await ok.json(), {
+    ok: true,
+    name: "DEEPSEEK_API_KEY",
+    value: "sk-full-secret-abcdef123456",
+  });
 });
 
 // ── GET /api/admin/users: gateway tokens masked, never raw ──
@@ -319,8 +405,21 @@ test("admin/users: user tokens are masked, raw values never leave the server", a
   __clearCaches();
   const env = makeBaseEnv({
     users: {
-      admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "ADMIN_RAW_TOKEN_1234567890" },
-      bob: { id: "bob", username: "bob", role: "user", enabled: true, token: "BOB_RAW_TOKEN_1234567890", relayToken: "BOB_RELAY_RAW_1234567890" },
+      admin: {
+        id: "admin",
+        username: "admin",
+        role: "admin",
+        enabled: true,
+        token: "ADMIN_RAW_TOKEN_1234567890",
+      },
+      bob: {
+        id: "bob",
+        username: "bob",
+        role: "user",
+        enabled: true,
+        token: "BOB_RAW_TOKEN_1234567890",
+        relayToken: "BOB_RELAY_RAW_1234567890",
+      },
     },
     kv: {
       _admin_seeded: "1",
@@ -331,7 +430,9 @@ test("admin/users: user tokens are masked, raw values never leave the server", a
   });
   const cookie = await issueSessionToken("pw", "admin", "admin");
   const res = await worker.fetch(
-    new Request("https://x/api/admin/users", { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } }),
+    new Request("https://x/api/admin/users", {
+      headers: { cookie: `${SESSION_COOKIE}=${cookie}` },
+    }),
     env,
   );
   assert.equal(res.status, 200);
@@ -343,7 +444,11 @@ test("admin/users: user tokens are masked, raw values never leave the server", a
   const byId = Object.fromEntries(body.users.map((u) => [u.id, u]));
   assert.equal(byId.admin.token, maskKey("ADMIN_RAW_TOKEN_1234567890"));
   assert.equal(byId.bob.token, maskKey("BOB_RAW_TOKEN_1234567890"));
-  assert.equal(byId.bob.relayToken, maskKey("BOB_RELAY_RAW_1234567890"), "relay presence masked, never raw");
+  assert.equal(
+    byId.bob.relayToken,
+    maskKey("BOB_RELAY_RAW_1234567890"),
+    "relay presence masked, never raw",
+  );
 });
 
 // ── Admin ops remainder (round-424: cf-token shape/masking, invite issue,
@@ -367,22 +472,37 @@ test("admin/cf-token: invalid shape 400, valid roundtrips masked, empty clears",
   __clearCaches();
   const env = adminEnv();
   const h = { cookie: await adminCookie(), "content-type": "application/json" };
-  const put = (token) => worker.fetch(
-    new Request("https://x/api/admin/cloudflare-token", { method: "PUT", headers: h, body: JSON.stringify({ token }) }),
-    env,
-  );
+  const put = (token) =>
+    worker.fetch(
+      new Request("https://x/api/admin/cloudflare-token", {
+        method: "PUT",
+        headers: h,
+        body: JSON.stringify({ token }),
+      }),
+      env,
+    );
   assert.equal((await put("short")).status, 400);
   assert.equal((await put("bad chars!!")).status, 400);
   const good = "CFTOKEN_abcdef1234567890";
   assert.deepEqual(await (await put(good)).json(), { ok: true });
-  const got = await worker.fetch(new Request("https://x/api/admin/cloudflare-token", { headers: { cookie: await adminCookie() } }), env);
+  const got = await worker.fetch(
+    new Request("https://x/api/admin/cloudflare-token", {
+      headers: { cookie: await adminCookie() },
+    }),
+    env,
+  );
   const body = await got.json();
   assert.equal(body.configured, true);
   assert.equal(body.masked, maskKey(good));
   assert.ok(!JSON.stringify(body).includes(good), "raw CF token must not leak");
   assert.deepEqual(await (await put("")).json(), { ok: true });
   __clearCaches();
-  const cleared = await worker.fetch(new Request("https://x/api/admin/cloudflare-token", { headers: { cookie: await adminCookie() } }), env);
+  const cleared = await worker.fetch(
+    new Request("https://x/api/admin/cloudflare-token", {
+      headers: { cookie: await adminCookie() },
+    }),
+    env,
+  );
   assert.equal((await cleared.json()).configured, false);
 });
 
@@ -390,23 +510,34 @@ test("admin/invite: issues a code; gates apply", async () => {
   __clearCaches();
   const env = adminEnv();
   const h = { cookie: await adminCookie(), "content-type": "application/json" };
-  const res = await worker.fetch(new Request("https://x/api/admin/invite", { method: "POST", headers: h }), env);
+  const res = await worker.fetch(
+    new Request("https://x/api/admin/invite", { method: "POST", headers: h }),
+    env,
+  );
   assert.equal(res.status, 200);
   const { ok, code } = await res.json();
   assert.equal(ok, true);
   assert.ok(typeof code === "string" && code.length > 0, "invite code must be non-empty");
   // no session → 401
-  assert.equal((await worker.fetch(new Request("https://x/api/admin/invite", { method: "POST" }), env)).status, 401);
+  assert.equal(
+    (await worker.fetch(new Request("https://x/api/admin/invite", { method: "POST" }), env)).status,
+    401,
+  );
 });
 
 test("admin/users/{id}/enabled: malformed id 400, admin untouchable, bob flips", async () => {
   __clearCaches();
   const env = adminEnv();
   const cookie = await adminCookie();
-  const put = (id, enabled) => worker.fetch(
-    new Request(`https://x/api/admin/users/${id}/enabled`, { method: "PUT", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ enabled }) }),
-    env,
-  );
+  const put = (id, enabled) =>
+    worker.fetch(
+      new Request(`https://x/api/admin/users/${id}/enabled`, {
+        method: "PUT",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      }),
+      env,
+    );
   assert.equal((await put("admin", false)).status, 400);
   assert.equal((await put("%zz", false)).status, 400);
   const off = await put("bob", false);
@@ -423,10 +554,13 @@ test("plugin link: expired get sweeps the KV record (not just null)", async () =
   assert.equal(PLUGIN_LINK_TTL_MS, 30 * 24 * 60 * 60 * 1000);
   const e = env();
   __clearCaches();
-  await e.KEYS.put("plugins:v1", JSON.stringify({
-    "tok-old": { device: "d1", createdAt: 1, expiresAt: Date.now() - 1000 },
-    "tok-live": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 },
-  }));
+  await e.KEYS.put(
+    "plugins:v1",
+    JSON.stringify({
+      "tok-old": { device: "d1", createdAt: 1, expiresAt: Date.now() - 1000 },
+      "tok-live": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 },
+    }),
+  );
   assert.equal(await getPluginByToken(e, "tok-old"), null);
   const raw = JSON.parse(await e.KEYS.get("plugins:v1"));
   assert.equal(raw["tok-old"], undefined, "expired link must be deleted from KV");
@@ -436,9 +570,12 @@ test("plugin link: expired get sweeps the KV record (not just null)", async () =
 test("plugin link: legacy record without expiresAt sweeps as expired (round-122)", async () => {
   const e = env();
   __clearCaches();
-  await e.KEYS.put("plugins:v1", JSON.stringify({
-    "tok-legacy": { device: "d1", createdAt: 1 },
-  }));
+  await e.KEYS.put(
+    "plugins:v1",
+    JSON.stringify({
+      "tok-legacy": { device: "d1", createdAt: 1 },
+    }),
+  );
   assert.equal(await getPluginByToken(e, "tok-legacy"), null);
   const raw = JSON.parse(await e.KEYS.get("plugins:v1"));
   assert.equal(raw["tok-legacy"], undefined, "legacy link must not grant permanent control");
@@ -481,18 +618,25 @@ function env_scrub(e) {
 test("me/keys PUT: 401 without session, 400 unknown name / empty value", async () => {
   __clearCaches();
   const env = makeEnv();
-  const unauth = await worker.fetch(new Request("https://x/api/me/keys", {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "OPENROUTER_API_KEY", value: "x" }),
-  }), env);
+  const unauth = await worker.fetch(
+    new Request("https://x/api/me/keys", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "OPENROUTER_API_KEY", value: "x" }),
+    }),
+    env,
+  );
   assert.equal(unauth.status, 401);
   const cookie = await issueSessionToken("pw", "admin", "admin");
-  const put = (body) => worker.fetch(new Request("https://x/api/me/keys", {
-    method: "PUT",
-    headers: { cookie: `ag_session=${cookie}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), env);
+  const put = (body) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys", {
+        method: "PUT",
+        headers: { cookie: `ag_session=${cookie}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
   assert.equal((await put({ name: "NOPE_KEY", value: "x" })).status, 400);
   assert.equal((await put({ name: "OPENROUTER_API_KEY", value: "   " })).status, 400);
   assert.equal((await put({ name: "OPENROUTER_API_KEY" })).status, 400);
@@ -502,12 +646,19 @@ test("me/keys PUT: saves trimmed, echoes masked, reveal reads back full", async 
   __clearCaches();
   const env = makeEnv();
   const cookie = await issueSessionToken("pw", "admin", "admin");
-  const authed = (path, method, body) => worker.fetch(new Request(`https://x${path}`, {
-    method,
-    headers: { cookie: `ag_session=${cookie}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), env);
-  const res = await authed("/api/me/keys", "PUT", { name: "OPENROUTER_API_KEY", value: "  or-secret-value  " });
+  const authed = (path, method, body) =>
+    worker.fetch(
+      new Request(`https://x${path}`, {
+        method,
+        headers: { cookie: `ag_session=${cookie}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  const res = await authed("/api/me/keys", "PUT", {
+    name: "OPENROUTER_API_KEY",
+    value: "  or-secret-value  ",
+  });
   assert.equal(res.status, 200);
   const j = await res.json();
   assert.equal(j.ok, true);
@@ -532,9 +683,13 @@ function regEnv() {
 }
 
 async function mintInvite(env, adminH) {
-  const r = await worker.fetch(new Request("https://x/api/admin/invite", {
-    method: "POST", headers: adminH,
-  }), env);
+  const r = await worker.fetch(
+    new Request("https://x/api/admin/invite", {
+      method: "POST",
+      headers: adminH,
+    }),
+    env,
+  );
   assert.equal(r.status, 200);
   return (await r.json()).code;
 }
@@ -542,44 +697,72 @@ async function mintInvite(env, adminH) {
 test("register: invite → 200 with session cookie; new creds log in", async () => {
   __clearCaches();
   const env = regEnv();
-  const adminH = { cookie: `ag_session=${await issueSessionToken("pw", "admin", "admin")}`, "content-type": "application/json" };
+  const adminH = {
+    cookie: `ag_session=${await issueSessionToken("pw", "admin", "admin")}`,
+    "content-type": "application/json",
+  };
   const code = await mintInvite(env, adminH);
-  const res = await worker.fetch(new Request("https://x/api/auth/register", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: "cara", password: "s3cret-long", inviteCode: code }),
-  }), env);
+  const res = await worker.fetch(
+    new Request("https://x/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "cara", password: "s3cret-long", inviteCode: code }),
+    }),
+    env,
+  );
   assert.equal(res.status, 200);
   const j = await res.json();
   assert.equal(j.username, "cara");
   assert.equal(j.role, "user");
   assert.ok(j.token, "new user gets a device token");
   assert.ok(String(res.headers.get("set-cookie") || "").includes("ag_session="));
-  const login = await worker.fetch(new Request("https://x/api/auth/login", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: "cara", password: "s3cret-long" }),
-  }), env);
+  const login = await worker.fetch(
+    new Request("https://x/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "cara", password: "s3cret-long" }),
+    }),
+    env,
+  );
   assert.equal(login.status, 200);
 });
 
 test("register: bad invite / short password / duplicate name → 400; no secret → 500", async () => {
   __clearCaches();
   const env = regEnv();
-  const reg = (body) => worker.fetch(new Request("https://x/api/auth/register", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), env);
-  assert.equal((await reg({ username: "dave", password: "s3cret-long", inviteCode: "WRONG" })).status, 400);
-  const adminH = { cookie: `ag_session=${await issueSessionToken("pw", "admin", "admin")}`, "content-type": "application/json" };
+  const reg = (body) =>
+    worker.fetch(
+      new Request("https://x/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  assert.equal(
+    (await reg({ username: "dave", password: "s3cret-long", inviteCode: "WRONG" })).status,
+    400,
+  );
+  const adminH = {
+    cookie: `ag_session=${await issueSessionToken("pw", "admin", "admin")}`,
+    "content-type": "application/json",
+  };
   const code = await mintInvite(env, adminH);
   assert.equal((await reg({ username: "erin", password: "short", inviteCode: code })).status, 400);
-  assert.equal((await reg({ username: "frank", password: "s3cret-long", inviteCode: code })).status, 200);
-  assert.equal((await reg({ username: "frank", password: "s3cret-long", inviteCode: code })).status, 400);
+  assert.equal(
+    (await reg({ username: "frank", password: "s3cret-long", inviteCode: code })).status,
+    200,
+  );
+  assert.equal(
+    (await reg({ username: "frank", password: "s3cret-long", inviteCode: code })).status,
+    400,
+  );
   delete env.SESSION_SECRET;
   const code2 = await mintInvite(env, adminH);
-  assert.equal((await reg({ username: "gail", password: "s3cret-long", inviteCode: code2 })).status, 500);
+  assert.equal(
+    (await reg({ username: "gail", password: "s3cret-long", inviteCode: code2 })).status,
+    500,
+  );
 });
 
 // round-451 (coverage-driven): the auth/register rate-limit 429 arm had
@@ -589,14 +772,18 @@ test("register: bad invite / short password / duplicate name → 400; no secret 
 test("register: 30 attempts then 429 (per-IP rate limit)", async () => {
   __clearCaches();
   const env = regEnv();
-  const reg = () => worker.fetch(new Request("https://x/api/auth/register", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "cf-connecting-ip": "198.51.100.77",
-    },
-    body: JSON.stringify({ username: "mallory", password: "s3cret-long", inviteCode: "WRONG" }),
-  }), env);
+  const reg = () =>
+    worker.fetch(
+      new Request("https://x/api/auth/register", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "cf-connecting-ip": "198.51.100.77",
+        },
+        body: JSON.stringify({ username: "mallory", password: "s3cret-long", inviteCode: "WRONG" }),
+      }),
+      env,
+    );
   for (let i = 0; i < 30; i++) {
     assert.equal((await reg()).status, 400, `attempt ${i + 1} passes the gate`);
   }
@@ -610,21 +797,80 @@ test("register: 30 attempts then 429 (per-IP rate limit)", async () => {
 test("login: unknown user 401s (timing-burn), 11th rapid attempt 429s", async () => {
   __clearCaches();
   const env = regEnv();
-  const login = () => worker.fetch(new Request("https://x/api/auth/login", {
-    method: "POST",
-    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.44" },
-    body: JSON.stringify({ username: "ghost", password: "whatever-long" }),
-  }), env);
-  for (let i = 0; i < 10; i++) {
-    const r = await login();
-    assert.equal(r.status, 401, `attempt ${i + 1} is a plain auth failure`);
-    assert.ok((await r.json()).error.message.includes("Incorrect username"), "no user-exists oracle");
+  const login = () =>
+    worker.fetch(
+      new Request("https://x/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.44" },
+        body: JSON.stringify({ username: "ghost", password: "whatever-long" }),
+      }),
+      env,
+    );
+  // THE CLOCK IS FROZEN FOR THE SEQUENCE, and this is the point of the test rather than a convenience.
+  // The burst gate buckets by MINUTE — `auth.ts`: `login:${callerIp}:${Math.floor(Date.now() / 60000)}` —
+  // so eleven attempts that straddle a minute boundary reset the counter and the 11th does NOT 429. That
+  // is how this test failed once in CI and passed on an identical re-run (round 143). Pinning the minute
+  // makes it about the gate's behaviour instead of about how fast the machine happens to run it.
+  // `node --test` gives each FILE its own process, so patching the global here cannot reach another test.
+  const realNow = Date.now;
+  const frozenMinute = realNow();
+  Date.now = () => frozenMinute;
+  try {
+    for (let i = 0; i < 10; i++) {
+      const r = await login();
+      assert.equal(r.status, 401, `attempt ${i + 1} is a plain auth failure`);
+      assert.ok(
+        (await r.json()).error.message.includes("Incorrect username"),
+        "no user-exists oracle",
+      );
+    }
+    assert.equal((await login()).status, 429, "11th rapid attempt trips the burst gate");
+  } finally {
+    Date.now = realNow;
   }
-  assert.equal((await login()).status, 429, "11th rapid attempt trips the burst gate");
 });
 
 // round-454 (coverage-driven): GET /api/me had ZERO success-path pins,
 // and the logout malformed-cookie catch arm was unpinned.
+// THE MECHANISM THE BURST TEST DEPENDS ON, pinned deliberately. The gate buckets by MINUTE
+// (`auth.ts`: `login:${callerIp}:${Math.floor(Date.now() / 60000)}`), so its count RESETS when the wall
+// clock crosses a boundary — which is why the test above failed once in CI and passed on an identical
+// re-run (round 143), and why it cannot be reproduced on demand: the window it runs in is ~600ms, so the
+// boundary lands inside it about one run in a hundred. This test crosses the boundary ON PURPOSE, with a
+// clock it controls, so the behaviour that caused the flake is asserted instead of being described.
+test("the login burst gate's window is a wall-clock MINUTE, and it rolls at the boundary", async () => {
+  __clearCaches();
+  const env = regEnv();
+  const ip = "203.0.113.99";
+  const login = () =>
+    worker.fetch(
+      new Request("https://x/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify({ username: "ghost", password: "whatever-long" }),
+      }),
+      env,
+    );
+  const realNow = Date.now;
+  // Ten seconds before the boundary, then across it. Only the test's own clock moves.
+  let clock = Math.floor(realNow() / 60000) * 60000 + 50000;
+  Date.now = () => clock;
+  try {
+    for (let i = 0; i < 10; i++) {
+      assert.equal((await login()).status, 401, `attempt ${i + 1} is a plain auth failure`);
+    }
+    assert.equal((await login()).status, 429, "the 11th inside the same minute is limited");
+    clock += 20000; // over the boundary: a new minute, a new bucket
+    assert.equal(
+      (await login()).status,
+      401,
+      "the counter RESET at the minute boundary — the same attempt that was just limited is allowed again",
+    );
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test("me: 401 unauth; authed returns identity + key status", async () => {
   __clearCaches();
   const env = meEnv();
@@ -645,10 +891,13 @@ test("me: 401 unauth; authed returns identity + key status", async () => {
 test("logout: malformed cookie still 200s and clears the cookie", async () => {
   __clearCaches();
   const env = meEnv();
-  const res = await worker.fetch(new Request("https://x/api/auth/logout", {
-    method: "POST",
-    headers: { cookie: "ag_session=not-a-jwt" },
-  }), env);
+  const res = await worker.fetch(
+    new Request("https://x/api/auth/logout", {
+      method: "POST",
+      headers: { cookie: "ag_session=not-a-jwt" },
+    }),
+    env,
+  );
   assert.equal(res.status, 200);
   assert.ok(String(res.headers.get("set-cookie") || "").includes("ag_session=;"), "cookie cleared");
 });
@@ -658,16 +907,23 @@ test("logout: malformed cookie still 200s and clears the cookie", async () => {
 test("logout: 30 logouts then 429 that still clears the cookie", async () => {
   __clearCaches();
   const env = meEnv();
-  const out = () => worker.fetch(new Request("https://x/api/auth/logout", {
-    method: "POST",
-    headers: { cookie: "ag_session=not-a-jwt", "cf-connecting-ip": "192.0.2.77" },
-  }), env);
+  const out = () =>
+    worker.fetch(
+      new Request("https://x/api/auth/logout", {
+        method: "POST",
+        headers: { cookie: "ag_session=not-a-jwt", "cf-connecting-ip": "192.0.2.77" },
+      }),
+      env,
+    );
   for (let i = 0; i < 30; i++) {
     assert.equal((await out()).status, 200, `attempt ${i + 1} passes the gate`);
   }
   const limited = await out();
   assert.equal(limited.status, 429);
-  assert.ok(String(limited.headers.get("set-cookie") || "").includes("ag_session=;"), "429 still clears the cookie");
+  assert.ok(
+    String(limited.headers.get("set-cookie") || "").includes("ag_session=;"),
+    "429 still clears the cookie",
+  );
 });
 // round-442 (coverage-driven): the logout blacklist write had ZERO direct
 // pins — only its verify side was tested. Round-122 (*1000 ms-unit bug)
@@ -677,20 +933,32 @@ test("logout: session cookie lands on the sess-revoked blacklist with a capped T
   const env = regEnv();
   const cookie = await issueSessionToken("test-session-secret-0123456789abcdef", "admin", "admin");
   const before = Math.floor(Date.now() / 1000);
-  const res = await worker.fetch(new Request("https://x/api/auth/logout", {
-    method: "POST",
-    headers: { cookie: `ag_session=${cookie}` },
-  }), env);
+  const res = await worker.fetch(
+    new Request("https://x/api/auth/logout", {
+      method: "POST",
+      headers: { cookie: `ag_session=${cookie}` },
+    }),
+    env,
+  );
   assert.equal(res.status, 200);
-  assert.ok(String(res.headers.get("set-cookie") || "").includes("ag_session=;"), "client cookie cleared");
+  assert.ok(
+    String(res.headers.get("set-cookie") || "").includes("ag_session=;"),
+    "client cookie cleared",
+  );
   const rec = `sess-revoked:${cookie}`;
   assert.equal(await env.KEYS.get(rec), "1");
   const exp = env._expiry.get(rec);
-  assert.ok(exp && exp - before <= 86400 && exp - before > 86000, `TTL capped at 24h, got ${exp - before}s`);
+  assert.ok(
+    exp && exp - before <= 86400 && exp - before > 86000,
+    `TTL capped at 24h, got ${exp - before}s`,
+  );
   // And the blacklisted cookie now dies on a gated route.
-  const gated = await worker.fetch(new Request("https://x/api/plugins/status", {
-    headers: { cookie: `ag_session=${cookie}` },
-  }), env);
+  const gated = await worker.fetch(
+    new Request("https://x/api/plugins/status", {
+      headers: { cookie: `ag_session=${cookie}` },
+    }),
+    env,
+  );
   assert.equal(gated.status, 401);
 });
 
@@ -706,11 +974,18 @@ function meEnv() {
   });
 }
 
-const meReq = (env, cookie, path, method, body) => worker.fetch(new Request(`https://x${path}`, {
-  method,
-  headers: { ...(cookie ? { cookie: `ag_session=${cookie}` } : {}), "content-type": "application/json" },
-  body: body === undefined ? undefined : JSON.stringify(body),
-}), env);
+const meReq = (env, cookie, path, method, body) =>
+  worker.fetch(
+    new Request(`https://x${path}`, {
+      method,
+      headers: {
+        ...(cookie ? { cookie: `ag_session=${cookie}` } : {}),
+        "content-type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+    env,
+  );
 
 test("usproxy: 401 unauth, 403 non-admin, admin toggle roundtrips", async () => {
   __clearCaches();
@@ -719,11 +994,21 @@ test("usproxy: 401 unauth, 403 non-admin, admin toggle roundtrips", async () => 
   const admin = await issueSessionToken("pw", "admin", "admin");
   const bob = await issueSessionToken("pw", "bob", "user");
   assert.equal((await meReq(env, bob, "/api/me/usproxy", "PUT", { enabled: true })).status, 403);
-  assert.deepEqual(await (await meReq(env, admin, "/api/me/usproxy", "GET")).json(), { enabled: false });
-  assert.deepEqual(await (await meReq(env, admin, "/api/me/usproxy", "PUT", { enabled: true })).json(), { ok: true, enabled: true });
-  assert.deepEqual(await (await meReq(env, admin, "/api/me/usproxy", "GET")).json(), { enabled: true });
+  assert.deepEqual(await (await meReq(env, admin, "/api/me/usproxy", "GET")).json(), {
+    enabled: false,
+  });
+  assert.deepEqual(
+    await (await meReq(env, admin, "/api/me/usproxy", "PUT", { enabled: true })).json(),
+    { ok: true, enabled: true },
+  );
+  assert.deepEqual(await (await meReq(env, admin, "/api/me/usproxy", "GET")).json(), {
+    enabled: true,
+  });
   // round-94 end-to-end: explicit OFF persists (not env-bounce).
-  assert.deepEqual(await (await meReq(env, admin, "/api/me/usproxy", "PUT", { enabled: false })).json(), { ok: true, enabled: false });
+  assert.deepEqual(
+    await (await meReq(env, admin, "/api/me/usproxy", "PUT", { enabled: false })).json(),
+    { ok: true, enabled: false },
+  );
   assert.equal(await env.KEYS.get("settings:US_PROXY"), "0");
 });
 
@@ -757,7 +1042,9 @@ test("token/regenerate: throwing token-list still rotates (sweep is best-effort)
   __clearCaches();
   const env = meEnv();
   const realList = env.KEYS.list.bind(env.KEYS);
-  env.KEYS.list = async () => { throw new Error("kv down"); };
+  env.KEYS.list = async () => {
+    throw new Error("kv down");
+  };
   try {
     const bob = await issueSessionToken("pw", "bob", "user");
     const res = await meReq(env, bob, "/api/me/token/regenerate", "POST", {});
@@ -790,7 +1077,10 @@ test("getAdminPassword: migrates ADMIN_PASSWORD to a hashed KV record", async ()
   const v = await getAdminPassword(env);
   assert.match(v, /^legacy:[0-9a-f]+$/);
   assert.equal(await env.KEYS.get("auth:admin_password"), v, "migrated hash persisted");
-  assert.ok(!String(await env.KEYS.get("auth:admin_password")).includes("migpw"), "never plaintext");
+  assert.ok(
+    !String(await env.KEYS.get("auth:admin_password")).includes("migpw"),
+    "never plaintext",
+  );
 });
 
 // round-444 (coverage-driven): DELETE /api/me/keys had ZERO route pins
@@ -798,10 +1088,14 @@ test("getAdminPassword: migrates ADMIN_PASSWORD to a hashed KV record", async ()
 test("me/keys DELETE: 401 unauth, 400 unknown name, deletes by query param", async () => {
   __clearCaches();
   const env = meEnv();
-  const del = (cookie, qs) => worker.fetch(new Request(`https://x/api/me/keys${qs}`, {
-    method: "DELETE",
-    headers: { ...(cookie ? { cookie: `ag_session=${cookie}` } : {}) },
-  }), env);
+  const del = (cookie, qs) =>
+    worker.fetch(
+      new Request(`https://x/api/me/keys${qs}`, {
+        method: "DELETE",
+        headers: { ...(cookie ? { cookie: `ag_session=${cookie}` } : {}) },
+      }),
+      env,
+    );
   assert.equal((await del(null, "?name=OPENROUTER_API_KEY")).status, 401);
   const bob = await issueSessionToken("pw", "bob", "user");
   assert.equal((await del(bob, "?name=NOPE_KEY")).status, 400);
@@ -816,28 +1110,47 @@ test("me/keys DELETE: 401 unauth, 400 unknown name, deletes by query param", asy
 test("me/keys/test: 401/400 gates, missing key, provider ok/fail shapes", async () => {
   __clearCaches();
   const env = meEnv();
-  const post = (cookie, body) => worker.fetch(new Request("https://x/api/me/keys/test", {
-    method: "POST",
-    headers: { ...(cookie ? { cookie: `ag_session=${cookie}` } : {}), "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), env);
+  const post = (cookie, body) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/test", {
+        method: "POST",
+        headers: {
+          ...(cookie ? { cookie: `ag_session=${cookie}` } : {}),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
   assert.equal((await post(null, { name: "DEEPSEEK_API_KEY" })).status, 401);
   const bob = await issueSessionToken("pw", "bob", "user");
   assert.equal((await post(bob, { name: "NOPE_KEY" })).status, 400);
-  assert.deepEqual(await (await post(bob, { name: "DEEPSEEK_API_KEY" })).json(),
-    { ok: false, name: "DEEPSEEK_API_KEY", detail: "Key not configured" });
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ DEEPSEEK_API_KEY: "ds-k", AMD_API_KEY: "amd-k" }));
+  assert.deepEqual(await (await post(bob, { name: "DEEPSEEK_API_KEY" })).json(), {
+    ok: false,
+    name: "DEEPSEEK_API_KEY",
+    detail: "Key not configured",
+  });
+  await env.KEYS.put(
+    "ukeys:bob",
+    JSON.stringify({ DEEPSEEK_API_KEY: "ds-k", AMD_API_KEY: "amd-k" }),
+  );
   __clearCaches();
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
     if (u.includes("api.deepseek.com")) return new Response("{}", { status: 200 });
-    if (u.includes("radeon")) return new Response(JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] }), { status: 200 });
+    if (u.includes("radeon"))
+      return new Response(JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] }), { status: 200 });
     return new Response("no", { status: 401 });
   };
   try {
     const ds = await (await post(bob, { name: "DEEPSEEK_API_KEY" })).json();
-    assert.deepEqual(ds, { ok: true, name: "DEEPSEEK_API_KEY", status: 200, detail: "DeepSeek auth OK" });
+    assert.deepEqual(ds, {
+      ok: true,
+      name: "DEEPSEEK_API_KEY",
+      status: 200,
+      detail: "DeepSeek auth OK",
+    });
     const amd = await (await post(bob, { name: "AMD_API_KEY" })).json();
     assert.equal(amd.ok, true);
     assert.ok(amd.detail.includes("2 models: m1, m2"), `model list surfaced: ${amd.detail}`);
@@ -854,13 +1167,18 @@ test("me/keys/test: og SSE arm ok on first data chunk, fail without it; throw is
   const bob = await issueSessionToken("pw", "bob", "user");
   await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENCODE_GO_API_KEY: "og-k" }));
   __clearCaches();
-  const post = (body) => worker.fetch(new Request("https://x/api/me/keys/test", {
-    method: "POST",
-    headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), env);
+  const post = (body) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/test", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
   const real = globalThis.fetch;
-  const sse = (chunk) => new Response(chunk, { status: 200, headers: { "content-type": "text/event-stream" } });
+  const sse = (chunk) =>
+    new Response(chunk, { status: 200, headers: { "content-type": "text/event-stream" } });
   globalThis.fetch = async () => sse('data: {"x":1}\n\n');
   try {
     const ok = await (await post({ name: "OPENCODE_GO_API_KEY" })).json();
@@ -869,7 +1187,7 @@ test("me/keys/test: og SSE arm ok on first data chunk, fail without it; throw is
   } finally {
     globalThis.fetch = real;
   }
-  globalThis.fetch = async () => sse(': comment only\n\n');
+  globalThis.fetch = async () => sse(": comment only\n\n");
   try {
     const bad = await (await post({ name: "OPENCODE_GO_API_KEY" })).json();
     assert.equal(bad.ok, false);
@@ -877,7 +1195,9 @@ test("me/keys/test: og SSE arm ok on first data chunk, fail without it; throw is
   } finally {
     globalThis.fetch = real;
   }
-  globalThis.fetch = async () => { throw new Error("boom"); };
+  globalThis.fetch = async () => {
+    throw new Error("boom");
+  };
   try {
     const err = await (await post({ name: "OPENCODE_GO_API_KEY" })).json();
     assert.equal(err.ok, false);
@@ -892,7 +1212,10 @@ test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effectiv
   __clearCaches();
   const env = meEnv();
   assert.equal((await meReq(env, null, "/api/me/route", "GET")).status, 401);
-  assert.equal((await meReq(env, null, "/api/me/route", "PUT", { model: "og/deepseek-v4.1-flash" })).status, 401);
+  assert.equal(
+    (await meReq(env, null, "/api/me/route", "PUT", { model: "og/deepseek-v4.1-flash" })).status,
+    401,
+  );
   const bob = await issueSessionToken("pw", "bob", "user");
   const fresh = await (await meReq(env, bob, "/api/me/route", "GET")).json();
   assert.equal(fresh.model, null);
@@ -901,8 +1224,15 @@ test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effectiv
   // user with no stored route resolves to the usable-fallback chain's
   // terminal default — the old "null (no resolver wiring)" assertion pinned
   // the pre-fix ordering bug.
-  assert.equal(fresh.effective, "cm/deepseek/deepseek-v4.1-flash", "keyless no-route user falls back to the default model");
-  assert.equal((await meReq(env, bob, "/api/me/route", "PUT", { model: "nope/model" })).status, 400);
+  assert.equal(
+    fresh.effective,
+    "cm/deepseek/deepseek-v4.1-flash",
+    "keyless no-route user falls back to the default model",
+  );
+  assert.equal(
+    (await meReq(env, bob, "/api/me/route", "PUT", { model: "nope/model" })).status,
+    400,
+  );
   const put = await meReq(env, bob, "/api/me/route", "PUT", { model: "og/deepseek-v4.1-flash" });
   assert.deepEqual(await put.json(), { ok: true, model: "og/deepseek-v4.1-flash" });
   // Effective resolves the STORED route only when it is usable for this
@@ -910,11 +1240,19 @@ test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effectiv
   // never route to a keyless channel). First without the key: fallback.
   const after = await (await meReq(env, bob, "/api/me/route", "GET")).json();
   assert.equal(after.model, "og/deepseek-v4.1-flash");
-  assert.equal(after.effective, "cm/deepseek/deepseek-v4.1-flash", "keyless user's stored og route is unusable → default fallback");
+  assert.equal(
+    after.effective,
+    "cm/deepseek/deepseek-v4.1-flash",
+    "keyless user's stored og route is unusable → default fallback",
+  );
   await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENCODE_GO_API_KEY: "og-k" }));
   __clearCaches();
   const withKey = await (await meReq(env, bob, "/api/me/route", "GET")).json();
-  assert.equal(withKey.effective, "og/deepseek-v4.1-flash", "usable stored route mirrors as effective");
+  assert.equal(
+    withKey.effective,
+    "og/deepseek-v4.1-flash",
+    "usable stored route mirrors as effective",
+  );
   const clear = await meReq(env, bob, "/api/me/route", "PUT", { model: null });
   assert.deepEqual(await clear.json(), { ok: true, model: null });
 });
@@ -924,14 +1262,23 @@ test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effectiv
 // the locked re-read races corrupt.
 test("plugin link: corrupt fresh read inside the sweep lock returns null, never throws", async () => {
   __clearCaches();
-  const expired = JSON.stringify({ "tok-r": { device: "d1", createdAt: 1, expiresAt: Date.now() - 1000 } });
+  const expired = JSON.stringify({
+    "tok-r": { device: "d1", createdAt: 1, expiresAt: Date.now() - 1000 },
+  });
   let gets = 0;
   const kv = new Map([["plugins:v1", expired]]);
   const env = {
     KEYS: {
-      async get(k) { gets++; return gets === 1 ? kv.get(k) ?? null : "corrupt{{{Leeroy"; },
-      async put(k, v) { kv.set(k, v); },
-      async delete(k) { kv.delete(k); },
+      async get(k) {
+        gets++;
+        return gets === 1 ? (kv.get(k) ?? null) : "corrupt{{{Leeroy";
+      },
+      async put(k, v) {
+        kv.set(k, v);
+      },
+      async delete(k) {
+        kv.delete(k);
+      },
     },
   };
   assert.equal(await getPluginByToken(env, "tok-r"), null);
@@ -945,15 +1292,25 @@ test("me/keys/test: cmd/gmi/nv/qwen probes shape ok and upstream failures", asyn
   __clearCaches();
   const env = meEnv();
   const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put("ukeys:bob", JSON.stringify({
-    CMD_API_KEY: "cm-k", GMI_API_KEY: "gmi-k", NVAPI_KEY: "nv-k", QWEN_API_KEY: "qw-k",
-  }));
+  await env.KEYS.put(
+    "ukeys:bob",
+    JSON.stringify({
+      CMD_API_KEY: "cm-k",
+      GMI_API_KEY: "gmi-k",
+      NVAPI_KEY: "nv-k",
+      QWEN_API_KEY: "qw-k",
+    }),
+  );
   __clearCaches();
-  const post = (name) => worker.fetch(new Request("https://x/api/me/keys/test", {
-    method: "POST",
-    headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-    body: JSON.stringify({ name }),
-  }), env);
+  const post = (name) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/test", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+      env,
+    );
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -964,14 +1321,30 @@ test("me/keys/test: cmd/gmi/nv/qwen probes shape ok and upstream failures", asyn
     return new Response("{}", { status: 500 });
   };
   try {
-    assert.deepEqual(await (await post("CMD_API_KEY")).json(),
-      { ok: true, name: "CMD_API_KEY", status: 200, detail: "Command Code auth OK" });
-    assert.deepEqual(await (await post("GMI_API_KEY")).json(),
-      { ok: false, name: "GMI_API_KEY", status: 401, detail: "Upstream 401" });
-    assert.deepEqual(await (await post("NVAPI_KEY")).json(),
-      { ok: true, name: "NVAPI_KEY", status: 200, detail: "NVIDIA NIM auth OK" });
-    assert.deepEqual(await (await post("QWEN_API_KEY")).json(),
-      { ok: true, name: "QWEN_API_KEY", status: 200, detail: "Qwen MaaS auth OK" });
+    assert.deepEqual(await (await post("CMD_API_KEY")).json(), {
+      ok: true,
+      name: "CMD_API_KEY",
+      status: 200,
+      detail: "Command Code auth OK",
+    });
+    assert.deepEqual(await (await post("GMI_API_KEY")).json(), {
+      ok: false,
+      name: "GMI_API_KEY",
+      status: 401,
+      detail: "Upstream 401",
+    });
+    assert.deepEqual(await (await post("NVAPI_KEY")).json(), {
+      ok: true,
+      name: "NVAPI_KEY",
+      status: 200,
+      detail: "NVIDIA NIM auth OK",
+    });
+    assert.deepEqual(await (await post("QWEN_API_KEY")).json(), {
+      ok: true,
+      name: "QWEN_API_KEY",
+      status: 200,
+      detail: "Qwen MaaS auth OK",
+    });
   } finally {
     globalThis.fetch = real;
   }
@@ -983,13 +1356,20 @@ test("me/keys/test: openrouter probe ok/fail; og non-ok is safe", async () => {
   __clearCaches();
   const env = meEnv();
   const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENROUTER_API_KEY: "or-k", OPENCODE_GO_API_KEY: "og-k" }));
+  await env.KEYS.put(
+    "ukeys:bob",
+    JSON.stringify({ OPENROUTER_API_KEY: "or-k", OPENCODE_GO_API_KEY: "og-k" }),
+  );
   __clearCaches();
-  const post = (name) => worker.fetch(new Request("https://x/api/me/keys/test", {
-    method: "POST",
-    headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-    body: JSON.stringify({ name }),
-  }), env);
+  const post = (name) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/test", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+      env,
+    );
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -997,17 +1377,29 @@ test("me/keys/test: openrouter probe ok/fail; og non-ok is safe", async () => {
     return new Response("no", { status: 401 });
   };
   try {
-    assert.deepEqual(await (await post("OPENROUTER_API_KEY")).json(),
-      { ok: true, name: "OPENROUTER_API_KEY", status: 200, detail: "OpenRouter auth OK" });
-    assert.deepEqual(await (await post("OPENCODE_GO_API_KEY")).json(),
-      { ok: false, name: "OPENCODE_GO_API_KEY", status: 401, detail: "Upstream 401" });
+    assert.deepEqual(await (await post("OPENROUTER_API_KEY")).json(), {
+      ok: true,
+      name: "OPENROUTER_API_KEY",
+      status: 200,
+      detail: "OpenRouter auth OK",
+    });
+    assert.deepEqual(await (await post("OPENCODE_GO_API_KEY")).json(), {
+      ok: false,
+      name: "OPENCODE_GO_API_KEY",
+      status: 401,
+      detail: "Upstream 401",
+    });
   } finally {
     globalThis.fetch = real;
   }
   globalThis.fetch = async () => new Response("{}", { status: 500 });
   try {
-    assert.deepEqual(await (await post("OPENROUTER_API_KEY")).json(),
-      { ok: false, name: "OPENROUTER_API_KEY", status: 500, detail: "Upstream 500" });
+    assert.deepEqual(await (await post("OPENROUTER_API_KEY")).json(), {
+      ok: false,
+      name: "OPENROUTER_API_KEY",
+      status: 500,
+      detail: "Upstream 500",
+    });
   } finally {
     globalThis.fetch = real;
   }
@@ -1020,14 +1412,23 @@ test("me/keys/usage: throwing upstream is safe (Usage query failed)", async () =
   await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENROUTER_API_KEY: "or-k" }));
   __clearCaches();
   const real = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error("down"); };
+  globalThis.fetch = async () => {
+    throw new Error("down");
+  };
   try {
-    const res = await worker.fetch(new Request("https://x/api/me/keys/usage", {
-      method: "POST",
-      headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-      body: JSON.stringify({ name: "OPENROUTER_API_KEY" }),
-    }), env);
-    assert.deepEqual(await res.json(), { ok: false, name: "OPENROUTER_API_KEY", detail: "Usage query failed" });
+    const res = await worker.fetch(
+      new Request("https://x/api/me/keys/usage", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify({ name: "OPENROUTER_API_KEY" }),
+      }),
+      env,
+    );
+    assert.deepEqual(await res.json(), {
+      ok: false,
+      name: "OPENROUTER_API_KEY",
+      detail: "Usage query failed",
+    });
   } finally {
     globalThis.fetch = real;
   }
@@ -1039,39 +1440,67 @@ test("me/keys/usage: amd maps spend caps, og maps windows", async () => {
   __clearCaches();
   const env = meEnv();
   const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ AMD_API_KEY: "amd-k", OPENCODE_GO_API_KEY: "og-k" }));
+  await env.KEYS.put(
+    "ukeys:bob",
+    JSON.stringify({ AMD_API_KEY: "amd-k", OPENCODE_GO_API_KEY: "og-k" }),
+  );
   __clearCaches();
-  const usage = (name) => worker.fetch(new Request("https://x/api/me/keys/usage", {
-    method: "POST",
-    headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-    body: JSON.stringify({ name }),
-  }), env);
+  const usage = (name) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/usage", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+      env,
+    );
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
-    if (u.includes("radeon")) return new Response(JSON.stringify({
-      daily_cost_used_usd: 0.5, daily_cost_limit_usd: 2, rpm_limit: 60,
-      daily_reset_at: "2026-09-07T00:00:00Z", organization_id: "org1",
-      all_time: { requests: 10, total_tokens: 5000 },
-    }), { status: 200, headers: { "content-type": "application/json" } });
-    return new Response(JSON.stringify({
-      used: 3, limit: 100, balance: 97, plan: "pro",
-      windows: {
-        "5h": { used: 1, limit: 20, remaining: 19, reset_at: "t1", junk: true },
-        weekly: { used: 2, limit: 50 },
-      },
-    }), { status: 200, headers: { "content-type": "application/json" } });
+    if (u.includes("radeon"))
+      return new Response(
+        JSON.stringify({
+          daily_cost_used_usd: 0.5,
+          daily_cost_limit_usd: 2,
+          rpm_limit: 60,
+          daily_reset_at: "2026-09-07T00:00:00Z",
+          organization_id: "org1",
+          all_time: { requests: 10, total_tokens: 5000 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    return new Response(
+      JSON.stringify({
+        used: 3,
+        limit: 100,
+        balance: 97,
+        plan: "pro",
+        windows: {
+          "5h": { used: 1, limit: 20, remaining: 19, reset_at: "t1", junk: true },
+          weekly: { used: 2, limit: 50 },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
   };
   try {
     assert.deepEqual(await (await usage("AMD_API_KEY")).json(), {
-      ok: true, name: "AMD_API_KEY", status: 200,
-      usage: 0.5, limit: 2,
+      ok: true,
+      name: "AMD_API_KEY",
+      status: 200,
+      usage: 0.5,
+      limit: 2,
       rateLimit: { limit: 60, interval: "minute", reset: "2026-09-07T00:00:00Z" },
       label: "org1 · 10 req · 5000 tok",
     });
     assert.deepEqual(await (await usage("OPENCODE_GO_API_KEY")).json(), {
-      ok: true, name: "OPENCODE_GO_API_KEY", status: 200,
-      usage: 3, limit: 100, balance: 97, label: "pro",
+      ok: true,
+      name: "OPENCODE_GO_API_KEY",
+      status: 200,
+      usage: 3,
+      limit: 100,
+      balance: 97,
+      label: "pro",
       windows: {
         "5h": { used: 1, limit: 20, remaining: 19, resetAt: "t1" },
         weekly: { used: 2, limit: 50 },
@@ -1088,32 +1517,55 @@ test("me/keys/usage: amd/og throw is safe; amd test tolerates non-JSON", async (
   __clearCaches();
   const env = meEnv();
   const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ AMD_API_KEY: "amd-k", OPENCODE_GO_API_KEY: "og-k" }));
+  await env.KEYS.put(
+    "ukeys:bob",
+    JSON.stringify({ AMD_API_KEY: "amd-k", OPENCODE_GO_API_KEY: "og-k" }),
+  );
   __clearCaches();
-  const usage = (name) => worker.fetch(new Request("https://x/api/me/keys/usage", {
-    method: "POST",
-    headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-    body: JSON.stringify({ name }),
-  }), env);
-  const test = (name) => worker.fetch(new Request("https://x/api/me/keys/test", {
-    method: "POST",
-    headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-    body: JSON.stringify({ name }),
-  }), env);
+  const usage = (name) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/usage", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+      env,
+    );
+  const test = (name) =>
+    worker.fetch(
+      new Request("https://x/api/me/keys/test", {
+        method: "POST",
+        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+      env,
+    );
   const real = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error("down"); };
+  globalThis.fetch = async () => {
+    throw new Error("down");
+  };
   try {
-    assert.deepEqual(await (await usage("AMD_API_KEY")).json(),
-      { ok: false, name: "AMD_API_KEY", detail: "Usage query failed" });
-    assert.deepEqual(await (await usage("OPENCODE_GO_API_KEY")).json(),
-      { ok: false, name: "OPENCODE_GO_API_KEY", detail: "Usage query failed" });
+    assert.deepEqual(await (await usage("AMD_API_KEY")).json(), {
+      ok: false,
+      name: "AMD_API_KEY",
+      detail: "Usage query failed",
+    });
+    assert.deepEqual(await (await usage("OPENCODE_GO_API_KEY")).json(), {
+      ok: false,
+      name: "OPENCODE_GO_API_KEY",
+      detail: "Usage query failed",
+    });
   } finally {
     globalThis.fetch = real;
   }
   globalThis.fetch = async () => new Response("not json", { status: 200 });
   try {
-    assert.deepEqual(await (await test("AMD_API_KEY")).json(),
-      { ok: true, name: "AMD_API_KEY", status: 200, detail: "AMD Radeon Cloud auth OK (0 models: )" });
+    assert.deepEqual(await (await test("AMD_API_KEY")).json(), {
+      ok: true,
+      name: "AMD_API_KEY",
+      status: 200,
+      detail: "AMD Radeon Cloud auth OK (0 models: )",
+    });
   } finally {
     globalThis.fetch = real;
   }
