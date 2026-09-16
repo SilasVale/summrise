@@ -1792,23 +1792,15 @@ body[data-theme="dark"] .note.tip {
   padding: 4px 10px;
 }
 
-/* ── Model catalogue admin: add form, per-chip remove {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+/* ── Model catalogue admin ────────────────────────────────────────────────
+   THE COMMENTS IN THIS BLOCK WERE UNTERMINATED. A CSS comment runs to the NEXT closing marker, so
+   the rule below — .model-add .form-input — sat inside one and had NEVER APPLIED, while every
+   instrument that reads this sheet as text saw it and judged it live. A browser and a regex
+   disagreed and only the browser was rendering. Repaired in round 87 and now guarded by
+   scripts/test/stylesheet-hygiene.mjs. */
 .model-add .form-input {
   flex: 0 1 auto;
   min-width: 0;
-}
-
-
-
-/* A chip keeps its own shape; the remove control sits beside it {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 
 

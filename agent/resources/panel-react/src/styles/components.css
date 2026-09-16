@@ -198,7 +198,7 @@
   letter-spacing: -0.01em;
   color: var(--ink);
 }
-/* --chrome-ink-dim, not --muted: --muted on --surface-chip measured 4.40 in the
+/* --chrome-ink-dim, not --muted. The --muted variant measured 4.40 on --surface-chip in the
    running app — just under AA, and a near miss is still a miss. The other three
    count chips (.cmd-stream-count, .traj-count, .plug-count) carry the IDENTICAL
    token pair, so the same measurement applies to them; all four moved together
