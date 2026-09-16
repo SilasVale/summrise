@@ -243,4 +243,90 @@ describe("colour pairs declared in one rule", () => {
         failures.join("\n  "),
     ).toEqual([]);
   });
+
+  // ── THE MARKS: A FILL IS A GRAPHIC, AND WCAG ASKS 3:1 OF IT (round 130) ────────────────────────
+  //
+  // WHY THIS EXISTS. Rounds 126-127 fixed ten marks across the panel — .monitor-mark, .waiting-mark,
+  // .rail-dot[data-state=waiting], .cmd-dot[data-state=warn] and the three session dots — every one of
+  // which had been painting itself with a FILL token (--state-warn, --accent) that measures 2.53-2.96
+  // on the dark chrome. They were found by the rendered graphics probe and verified on the page, which
+  // is the right way to FIND such a defect and the wrong way to KEEP it fixed: nothing in CI would
+  // notice a regression, because the pair sweep above only judges rules that declare BOTH `color` and
+  // `background`, and a mark declares only the second.
+  //
+  // So they are listed here with the surface each one actually lands on, judged at 3:1 — the same
+  // manual-pair idiom round 86 introduced for #modal-status.error, and for the same reason: the sweep
+  // cannot reach these, and "the sweep cannot reach it" is not a reason to leave a colour unmeasured.
+  //
+  // The dark chip surface is TRANSLUCENT (rgba(255,255,255,0.07) over the chrome), so it is composited
+  // rather than read — the same treatment the wash gets above.
+  it("every state mark is painted by an INK token, and clears 3:1 where it lands", () => {
+    const css = builtCss();
+    // The rule body for an EXACT selector: "sel {" with the space, so `.monitor-mark` cannot match
+    // `.monitor-mark.is-flapping {` by prefix. `blockOf` lives in approvalSurfaces.test.ts and is not
+    // exported, so this stays local rather than reaching across files for it.
+    const blockOf = (cssText: string, sel: string): string | null => {
+      const i = cssText.indexOf(sel + " {");
+      if (i < 0) return null;
+      const j = cssText.indexOf("}", i);
+      return j < 0 ? null : cssText.slice(i, j + 1);
+    };
+    const resolve = (tokens: Record<string, string>, name: string): string => {
+      const raw = tokens[name] ?? "";
+      const asVar = /^var\((--[a-z0-9-]+)\)$/.exec(raw.trim());
+      const inner = asVar && asVar[1];
+      return inner ? (tokens[inner] ?? raw) : raw;
+    };
+    // The RULES, not a hand-picked pair: a token-pair check passes happily while the rule itself goes
+    // back to a fill colour — which is exactly what the first version of this test did, and what a
+    // mutation proved. Each rule is read from the built sheet, so a regression fails here.
+    const marks: Array<[string, string]> = [
+      [".boot-mark", "--surface-chip"],
+      [".monitor-mark", "--surface-chip"],
+      [".waiting-mark", "--surface-chip"],
+      ['.rail-dot[data-state="waiting"]', "--chrome-bg-2"],
+      ['.cmd-dot[data-state="warn"]', "--chrome-bg-2"],
+      [".side-dot", "--chrome-bg-2"],
+      [".tab-dot", "--chrome-bg-2"],
+    ];
+    // A FILL token is not a mark's colour. These are the ones that measured 2.53-2.96 on the dark
+    // chrome before rounds 126-127; --warn-ink and --accent-ink are the tokens meant for graphics.
+    const FILLS = ["--state-warn", "--state-ok", "--state-fail", "--state-running", "--accent", "--success", "--danger"];
+    const light = tokensIn(css, ":root");
+    const dark = { ...light, ...tokensIn(css, 'body[data-theme="dark"]') };
+    const failures: string[] = [];
+    let checked = 0;
+    for (const [selector, surfaceName] of marks) {
+      const block = blockOf(css, selector);
+      expect(block, `${selector} missing from the built sheet`).not.toBeNull();
+      // A mark paints with a background OR a border: .boot-mark is a TRIANGLE, drawn entirely by its
+      // bottom border, and has no background at all. Either is a token; both are checked the same way.
+      // background, or ANY border property — .boot-mark writes `border-bottom: 7px solid var(--warn-ink)`,
+      // a shorthand with the token inside it, which a `border-*-color` pattern misses entirely.
+      const paint = /(?:background|border(?:-[a-z]+)*):[^;]*var\((--[a-z0-9-]+)\)/.exec(block!);
+      expect(paint, `${selector} must paint from a token`).not.toBeNull();
+      const token = paint![1];
+      if (FILLS.includes(token)) {
+        failures.push(`${selector} paints itself with the FILL ${token}`);
+      }
+      for (const [theme, tokens] of [["light", light], ["dark", dark]] as Array<[string, Record<string, string>]>) {
+        const ink = parseColour(resolve(tokens, token));
+        const surface = parseColour(resolve(tokens, surfaceName));
+        expect(ink && surface, `${selector}: ${token} and ${surfaceName} must resolve`).toBeTruthy();
+        const surf = surface as NonNullable<typeof surface>;
+        const inkColour = ink as NonNullable<typeof ink>;
+        const base = parseColour(resolve(tokens, "--chrome-bg-2"));
+        const layer = (surf.a ?? 1) < 1 && base ? compositeStack([surf, base]) : surf;
+        const ratio = contrastRatio(inkColour, layer);
+        checked++;
+        if (ratio < 3.0) failures.push(`${selector} [${theme}] ${token} on ${surfaceName} = ${ratio.toFixed(2)} (needs 3)`);
+      }
+    }
+    expect(checked, "this check must actually measure something").toBe(marks.length * 2);
+    expect(
+      failures,
+      `${failures.length} mark(s) wrong — a FILL token is not a mark's colour, and 3:1 is the bar:\n  ` +
+        failures.join("\n  "),
+    ).toEqual([]);
+  });
 });
