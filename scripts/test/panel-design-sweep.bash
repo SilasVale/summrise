@@ -130,7 +130,7 @@ else
   bad "console --emit failed: $(head -3 "$TMP/csweep.err")"
 fi
 for helper in "const SURFACE" "const NAMES" "const API" "const PAGES"; do
-  if grep -q "$helper" "$TMP/csweep.js"; then
+  if grep -qF "$helper" "$TMP/csweep.js"; then
     ok "the console sweep defines: $helper"
   else
     bad "the console sweep USES but does not define: $helper (it would report nothing)"
@@ -165,6 +165,47 @@ PY2
     ok "the console judge fails a planted '$axis' defect"
   fi
 done
+
+# ── 5. the EXTENSION sweep (third adapter of the same core) ───────────────────────────────────
+EXT=agent/scripts/extension-design-sweep.mjs
+if node "$EXT" --emit > "$TMP/esweep.js" 2>"$TMP/esweep.err" && [ -s "$TMP/esweep.js" ] && node --check "$TMP/esweep.js"; then
+  ok "extension --emit writes a script that parses"
+else
+  bad "extension --emit failed: $(head -3 "$TMP/esweep.err")"
+fi
+# the selector is INLINED by pageChecks() rather than referenced, so the check is for the
+# substituted form — asserting the identifier would pass while the page-side reference broke
+# (which is exactly how the first version of the shared core shipped broken).
+for helper in "const SURFACE" "const NAMES" "const SHIM" "\"body\" + ' *'"; do
+  if grep -qF "$helper" "$TMP/esweep.js"; then
+    ok "the extension sweep defines: $helper"
+  else
+    bad "the extension sweep USES but does not define: $helper"
+  fi
+done
+cat > "$TMP/ext-clean.json" <<'JSON'
+{
+  "rows": [{"cr": 16.4, "need": 4.5, "size": 17, "sel": "h1", "text": "Vale Code Links", "page": "options", "width": 900}],
+  "surfaces": [{"page": "options", "width": 900, "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 0, "over": [], "clipped": [], "slivers": []}],
+  "names": [{"page": "options", "checked": 4, "unnamed": [], "titleOnly": []}]
+}
+JSON
+if node "$EXT" --judge "$TMP/ext-clean.json" >/dev/null 2>&1; then
+  ok "a clean extension report passes (no nav is correct for an options page)"
+else
+  bad "a clean extension report was rejected"
+fi
+python3 - "$TMP/ext-clean.json" "$TMP/ext-two-h1.json" <<'PY2'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["surfaces"][0]["h1Count"] = 2
+json.dump(r, open(sys.argv[2], "w"))
+PY2
+if node "$EXT" --judge "$TMP/ext-two-h1.json" >/dev/null 2>&1; then
+  bad "the extension judge PASSED a two-h1 report — the exact defect it was written for"
+else
+  ok "the extension judge fails a two-h1 report"
+fi
 
 echo "panel-design-sweep: $PASS ok, $FAILED failed"
 [ "$FAILED" -eq 0 ]
