@@ -28,7 +28,10 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const HARNESS = process.env.VALE_HARNESS || "C:\\ProgramData\\Vale\\pwout\\panel-harness.html";
+// THE EMITTER'S OWN OUTPUT, which is the half this file can see. The device copy at
+// C:\ProgramData\Vale\pwout\panel-harness.html is the CALLER's to check, after the download — mixing
+// the two here made the function fail on Linux for a file only the device has.
+const EMITTED = "/tmp/panel-render-audit/panel-harness.html";
 const EMITTER = "agent/scripts/panel-render-audit.mjs";
 
 export function bootHarness() {
@@ -42,9 +45,9 @@ export function bootHarness() {
   if (code !== 2) {
     return { ok: false, why: `the emitter exited ${code} — it did not write a harness (a stray backtick in the emitted template is the usual cause)` };
   }
-  const html = readFileSync(HARNESS, "utf8");
+  const html = readFileSync(EMITTED, "utf8");
   if (html.length < 200_000) {
-    return { ok: false, why: `the harness on the device is only ${html.length} bytes — the download did not land` };
+    return { ok: false, why: `the emitted harness is only ${html.length} bytes — that is not an app bundle` };
   }
   return { ok: true, bytes: html.length };
 }

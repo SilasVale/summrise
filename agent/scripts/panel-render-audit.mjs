@@ -117,6 +117,10 @@ function buildHarness() {
 // and the rest of this stub is silently dropped by the parser (measured: round 41, three times,
 // twice in comments that were explaining something else). Quote identifiers with 'single quotes'.
 (function(){
+  var realFetch = window.fetch.bind(window);
+  window.fetch = function(url, init){
+    var u = String(url);
+    if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
   var P = new URLSearchParams(location.search);
   var THEME = P.get('theme') || 'light', MODE = P.get('mode') || 'pending';
   try { localStorage.setItem('vale-theme', THEME); } catch(e){}
@@ -210,6 +214,38 @@ function buildHarness() {
   // THE MONITORS SURFACE, WHICH HAD NEVER BEEN RENDERED. /api/monitors was served by nothing, so the
   // alert strip and the monitor card had only ever been measured in their empty state — the same gap
   // rounds 69 and 78 found on two other surfaces, and both times it was real. Round 100.
+  // THE DEVICE AREA, POPULATED (round 114). Three cards the panel has only ever rendered EMPTY: the
+  // catch-all answers {ok:true} for any unrouted path, so /api/status, /api/vitals/history and
+  // /api/boots each produced a card with nothing in it — through every sweep, including the rounds that
+  // built fixtures for their shapes and never served them here. The data below is the shape those
+  // fixtures pin, which is the point: status keys with the conditional fields present, vitals samples
+  // OLDEST FIRST with ts_ms in milliseconds, and boot records NEWEST FIRST with the kind vocabulary.
+  if (u.indexOf('/api/status') >= 0) {
+    return Promise.resolve(J({
+      ok: true, version: '1.2.433', port: 18080, uptime_secs: 5412, live_sessions: 3, serial_ports: ['COM4'],
+      release: '1.2.433', cpu_pct: 12.5, mem_pct: 41.7, mem_total_mb: 16384, pending_approvals: 1,
+      last_boot: '2026-09-13 04:12:03 +08:00 - unexpected exit', last_boot_kind: 'crashed',
+    }));
+  }
+  if (u.indexOf('/api/vitals/history') >= 0) {
+    var samples = [];
+    for (var i = 0; i < 40; i++) {
+      samples.push({
+        ts_ms: 1789000000000 + i * 30000,
+        cpu_pct: Math.round((8 + 30 * Math.abs(Math.sin(i / 4))) * 10) / 10,
+        mem_pct: Math.round((38 + 6 * Math.abs(Math.cos(i / 6))) * 10) / 10,
+        mem_total_mb: 16384,
+      });
+    }
+    return Promise.resolve(J({ interval_secs: 30, span_secs: 1200, samples: samples }));
+  }
+  if (u.indexOf('/api/boots') >= 0) {
+    return Promise.resolve(J({ boots: [
+      { ts_ms: 1789000000000, kind: 'crashed', detail: '2026-09-13 04:12:03 +08:00 - unexpected exit', uptime_secs: 5412, gap_secs: 1, release: '1.2.433' },
+      { ts_ms: 1788900000000, kind: 'replaced', detail: '2026-09-12 09:00:00 +08:00 - replaced by vale update', uptime_secs: 0, gap_secs: 1, release: '1.2.433' },
+      { ts_ms: 1788800000000, kind: 'first-run', detail: '2026-09-11 08:00:00 +08:00 - first run', release: null },
+    ] }));
+  }
   if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {
     var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };
     // THE ENVELOPE MATTERS: the hook requires ok === true and treats anything else as a FAILED read
@@ -258,6 +294,13 @@ function buildHarness() {
     }
     return Promise.resolve(J({ sessions: rows }));
   }
+  // THE FUNCTION HEADER. Round 112's "move the block inside the stub" edit deleted these three lines
+  // along with the misplaced fixture — the block between its two comment markers INCLUDED the opening
+  // of window.fetch — so from then on every fixture below sat at the stub's top level, u and init
+  // did not exist, and the emitted script threw before it could serve anything. The app fell back to the
+  // connect screen, and four rounds of measurements described a page that never ran. If this header is
+  // ever missing again, the emitted stub will not parse: check it with the boot check in
+  // agent/scripts/harness-boot-check.mjs before believing any number.
     var body = (init && init.body) ? String(init.body) : '';
     // Double backslash: this is inside a template literal, where a single \/ collapses to / and the
     // emitted regex becomes /^.*/api// — "Invalid regular expression flags", which killed the WHOLE
