@@ -134,22 +134,31 @@ function buildHarness() {
   // nothing, so the card only ever showed its empty "unknown" face — including the APPLYING state,
   // which is the one an operator stares at during a release. ?busy=1 is that state.
   //
-  // OPEN, AND THE INSTRUMENT WAS THE PROBLEM (rounds 110-111). The card renders its heading and then
-  // the FAILURE branch: "The device did not answer, so its update state could not be read." Three
-  // things are now known:
-  //   * round 110's fixture was written and then DELETED by a comment-spanning edit that replaced
-  //     everything between two markers, code included — restored above. A "narrow the note" edit is
-  //     not a comment edit when the code sits between the markers.
-  //   * ok:true IS required by the hook (if (j?.ok !== true) setFailed(true)) and the device sends it
-  //     in both branches of update_status. It is supplied here.
-  //   * MY PROBE TECHNIQUE WAS INVALID, which is the important one. Fetching the route from the page
-  //     and printing the body returned HTML for /api/update AND for /api/status — and /api/status
-  //     demonstrably works in the app, since the whole vitals strip renders from it. So a raw in-page
-  //     fetch does NOT go through this harness's stub, and anything I concluded from that probe about
-  //     what the app receives is worthless. Two rounds of reasoning rested partly on it.
-  // NEXT STEP, and it is not another DOM probe: instrument what the HOOK receives (wrap callApi, or log
-  // inside useUpdateStatus), which is the only view that decides anything. Do not trust a page-level
-  // fetch to speak for the app.
+  // SOLVED, AND THE ANSWER WAS SCOPE (round 112). The card renders both of its states now:
+  //
+  //   available  running 1.2.403 | 1.2.433 available | [Update to 1.2.433]   data-available=yes
+  //              measured 16.69 light / 14 dark for the version line, 7.45 / 7.08 for the latest, and
+  //              the action button 4.83 light / 6.71 dark — all above AA
+  //   applying   running 1.2.403 | latest is 1.2.403 | "An update is already in flight on this device
+  //              — a second one would race it."   data-available=no, NO BUTTON (absent, not disabled)
+  //              measured 16.69 / 14 and 7.66 / 6.54
+  //
+  // WHAT WAS ACTUALLY WRONG, after three rounds: this block sat OUTSIDE window.fetch — inserted above
+  // it, where u does not exist — so it threw "u is not defined" while the stub was being DEFINED, and
+  // the route was never served. The card's message, "The device did not answer, so its update state
+  // could not be read", was literally true the whole time. I read it as a bug report about the card.
+  //
+  // TWO INSTRUMENT LESSONS, both paid for here:
+  //   * a page-level fetch does NOT speak for the app. Probing the route that way returned HTML for
+  //     /api/update AND /api/status, and /api/status demonstrably works — so the probe was measuring
+  //     the page.route handler, not the stub.
+  //   * A HARNESS EDIT NEEDS A BOOT CHECK. node --check and a successful emit only prove the FILE
+  //     parses; they say nothing about the inlined script. A stub that throws at definition time leaves
+  //     a page that renders its fallback, and every measurement afterwards describes a page that never
+  //     ran. Assert pageErrors is empty and #root has children BEFORE believing any number below.
+  //
+  // A "narrow the note" edit also deleted this block once (round 111), between two comment markers.
+  // When editing between markers, read what sits between them.
   if (u.indexOf('/api/update') >= 0) {
     var busy = P.get('busy') === '1';
     // ok:true IS REQUIRED BY THE HOOK. Every hook that reads through callApi checks it first, and a
@@ -168,52 +177,7 @@ function buildHarness() {
       error: null,
     }));
   }
-  // ?fail=1 — the device is DOWN: every API call rejects, which is what a page shows an operator
-  // when the agent is not running. No sweep had ever produced this state.
-  var FAIL = P.get('fail') === '1';
-  // ?held=1 — A PERSON HOLDS THE KEYBOARD. The AI is refused on this session while it is set, so the
-  // panel's job is to make that state unmistakable; no sweep had ever rendered it (the fixture
-  // always said false).
-  if (P.get('held') === '1') SESSION = Object.assign({}, SESSION, {held_by_human: true});
-  if (MODE === 'relaxed') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 600000 }) });
-  if (MODE === 'expired') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 0 }) });
-  // ?sessions=N — MEASURE THE TAB STRIP AT A REALISTIC WIDTH. The operator's own panel carried
-  // ELEVEN tabs, and a strip with one tab says nothing about overflow, truncation or whether the
-  // close affordance survives a crowd. Default 1 so every existing check keeps its baseline.
-  var WANT = parseInt(P.get('sessions') || '1', 10);
-  var SESSIONS = [SESSION];
-  for (var i = 1; i < WANT; i++) {
-    SESSIONS.push(Object.assign({}, SESSION, {
-      // IDLE TIME, as the device reports it since round 37 (terminal_list.idle_ms). No backticks
-      // here: this is INSIDE a template literal, and one would end the stub — the same trap the
-      // contrast probe's own header documents.
-      // The first session stays active; the rest are silent for hours — the state the
-      // panel's "nobody is using these" offer exists for. A fixture with no idle data
-      // cannot show that offer at all.
-      idle_ms: i * 20 * 60 * 1000,
-      id: 'term-audit-' + i,
-      label: i % 3 === 0 ? 'stc@192.168.1.1' : (i % 3 === 1 ? 'serial:COM4' : 'pwsh'),
-      kind: i % 3 === 0 ? 'ssh' : (i % 3 === 1 ? 'serial' : 'pty'),
-      pending_approval: null,
-      goal: '',
-    }));
-  }
-  var J = function(o){ return new Response(JSON.stringify(o), {status:200, headers:{'content-type':'application/json'}}); };
-  // WHAT THE PANEL ACTUALLY CALLED. A reader watching Playwright's network events sees NOTHING —
-  // this stub answers in-page, so the only witness to "did that button really close seven sessions"
-  // is the stub itself. (Round 41: the first version of this verification reported closeCalls: 0
-  // and the action HAD run; the counter was looking at the wrong layer. No backticks in this
-  // file's stub comments — see the warning at the top of the template.)
-  window.__calls = [];
-  // Recorded entries are 'tools/terminal_close {json}'; match the NAME ANYWHERE, not by equality —
-  // the first version compared the whole string to the bare name, so a run that closed seven
-  // sessions reported zero and the product looked broken while the counter was.
-  window.__callCount = function(name){ return window.__calls.filter(function(c){ return c.indexOf(name) >= 0; }).length; };
-  window.__callBody = function(name){ return window.__calls.filter(function(c){ return c.indexOf(name) >= 0; }); };
-  var realFetch = window.fetch.bind(window);
-  window.fetch = function(url, init){
-    var u = String(url);
-    if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
+
   // THE PLUGINS PAGE, POPULATED. /api/spec and /api/plugins/status were never stubbed, so every
   // sweep before round 78 rendered that page in its "inventory could not be read" state and the
   // populated cards — names, descriptions, tool counts, the playwright block — had never been
