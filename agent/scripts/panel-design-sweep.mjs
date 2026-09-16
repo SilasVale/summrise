@@ -37,6 +37,18 @@
 //     here (no search over the archive, no paging). That is a boundary someone chose and wrote down,
 //     not a defect: 750 sessions are unreachable from the UI, by decision.
 //
+//   * THE PAGES WITH CONTENT (rounds 69 and 78). The stub answers unknown `/api/*` with a bare `{}`,
+//     so three surfaces had only ever been measured EMPTY or, worse, in an ERROR state: the History
+//     page (fixed in 69 with `?rows=N`), the Plugins page (which rendered "inventory could not be
+//     read" in EVERY sweep until round 78, because /api/spec and /api/plugins/status were never
+//     served) and the Memory page (which reads through the tool route). All three are populated now,
+//     and all three measure clean:
+//         history   50-row window of 800, flat DOM, no long tasks
+//         plugins   4 cards with tool counts, 132 rows, 0 under AA
+//         memory    3 entries with tags, 82 rows, 0 under AA
+//     The lesson is the one this file keeps re-learning: an unserved route is not an empty page, it
+//     is an UNMEASURED page, and the difference is invisible in the results.
+//
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
 //     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page

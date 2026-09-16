@@ -173,6 +173,35 @@ function buildHarness() {
   window.fetch = function(url, init){
     var u = String(url);
     if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
+  // THE PLUGINS PAGE, POPULATED. /api/spec and /api/plugins/status were never stubbed, so every
+  // sweep before round 78 rendered that page in its "inventory could not be read" state and the
+  // populated cards — names, descriptions, tool counts, the playwright block — had never been
+  // measured at all. Round 69's lesson, applied to the pages it did not cover.
+  if (u.indexOf('/api/spec') >= 0) {
+    return Promise.resolve(J({ plugins: [
+      { name: 'terminal', displayName: 'Terminal', description: 'PTY, SSH and serial sessions with a durable audit trail.', tools: [{ name: 'terminal_execute' }, { name: 'terminal_list' }, { name: 'terminal_read' }, { name: 'terminal_write' }, { name: 'terminal_open' }, { name: 'terminal_close' }] },
+      { name: 'system', displayName: 'System', description: 'Files, processes, services and the registry.', tools: [{ name: 'system_file_read' }, { name: 'system_file_write' }, { name: 'system_process_list' }] },
+      { name: 'memory', displayName: 'Memory', description: 'What the AI has been asked to remember on this device.', tools: [{ name: 'memory_set' }, { name: 'memory_list' }] },
+      { name: 'runs', displayName: 'Runs', description: 'Long-running commands and their progress.', tools: [] },
+    ] }));
+  }
+  if (u.indexOf('/api/plugins/status') >= 0) {
+    return Promise.resolve(J({ ok: true, playwright: {
+      version: '1.56.0', core: '1.56.0', installed: true, browser: 'chromium-1187',
+      ready: true, downloads: [{ name: 'chromium', state: 'ready' }],
+    } }));
+  }
+  // THE MEMORY PAGE, POPULATED. It reads through the TOOL route (POST /api/tools/memory_list,
+  // answered by callTool), which the stub also never served — so this page, like the plugins one,
+  // had only ever been rendered empty. Same lesson, same round. (No backticks in here: this text
+  // lives INSIDE the emitted template literal, and a stray one ends it — the sixth time.)
+  if (u.indexOf('/api/tools/memory_list') >= 0) {
+    return Promise.resolve(J({ ok: true, result: { results: [
+      { id: 'mem-1', title: 'Router admin host', content: 'The NP3081G router answers on 192.168.1.1 with SSH user stc.', tags: ['network', 'router'], namespace: 'default', source: 'chat', created_at: 1789000000, updated_at: 1789000000 },
+      { id: 'mem-2', title: 'Build box toolchain', content: 'The Windows exe is cross-compiled with cargo xwin; the toolchain is pinned in rust-toolchain.toml.', tags: ['build'], namespace: 'default', source: 'chat', created_at: 1788990000, updated_at: 1788990000 },
+      { id: 'mem-3', title: 'Serial console framing', content: 'COM4 runs 115200 8N1 for the ONT console.', tags: ['serial', 'ont'], namespace: 'default', source: 'auto', created_at: 1788980000, updated_at: 1788980000 },
+    ] } }));
+  }
   // ?rows=N — the ARCHIVE with content, at scale. Every sweep until round 69 answered /api/sessions
   // with a bare {} (the stub's generic branch), so the History page has only ever been measured
   // EMPTY: the page's cost with a device that has recorded hundreds of sessions was unknown.
