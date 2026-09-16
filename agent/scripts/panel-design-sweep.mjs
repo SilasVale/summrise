@@ -89,6 +89,24 @@
 //        NOTE: top-level await is NOT valid there — wrap any driver in an async IIFE.
 //     4. upload that report, curl it down, and judge it locally with THIS adapter's waivers — a bare
 //        judgeReport(report, {}) reports the div.tabrow artifacts as findings, which is what they are not.
+//   * THE STATE TOKENS AS GRAPHICS, AUDITED (round 122). The probe measures TEXT, so a border or a mark
+//     has no row at all — and the two real graphic defects this session found (the flapping chip's border,
+//     the boot triangle) were both found BY HAND. Round 122 grepped every `color:`/`border*:` declaration
+//     that uses a state FILL token (thirteen of them) and measured the ones that render:
+//       .monitor-row[data-state=up]   border --state-ok   light 3.45   passes 3:1, margin thin
+//       .monitor-row[data-state=down] border --state-warn light 5.02 / dark 3.20   PASSES, thinly
+//       .monitor-mark.is-flapping     border --warn-ink   light 6.45 / dark 8.76   (round 109's fix)
+//       .notify-state.is-denied       border --danger-on-soft  ~7.2                 passes
+//     The down row was HARDENED to --warn-ink anyway (7.09 / 9.99): 3.20 passes, but it is the same fill
+//     token that produced six real defects, and consistency here is cheaper than another hunt. Recorded as
+//     a hardening, NOT as a fixed defect — it was passing.
+//   * THE DOWN MONITOR STATE HAD STOPPED RENDERING (round 122): round 114 flipped the fixture's target up
+//     to reach the flapping chip, and DOWN takes precedence, so the down row and its chip were gone and
+//     nothing measured them. `?monitor=down` flips it back; the default still shows flapping.
+//   * WHAT THE INSTRUMENT STILL CANNOT SEE: graphic contrast, at all. If a border or a mark is wrong, the
+//     probe is silent and only a hand-written computed-style read finds it. That is the next instrument to
+//     build, and until it exists this list is the only place these numbers live.
+//
 //   * THE "up" LABEL WAS 3.33 (round 118). With the Device area finally rendering, the probe caught
 //     `span.monitor-state.up` at 3.33 in the light theme — `--state-ok`, the sixth time a state-dot FILL
 //     token has been used as text (the flapping chip's --state-warn was the fifth). The panel already had

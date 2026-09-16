@@ -1754,7 +1754,13 @@ h3 { font-size: var(--fs-base); }
   border-radius: var(--radius-xs);
 }
 .monitor-row[data-state="up"] { border-left-color: var(--state-ok); }
-.monitor-row[data-state="down"] { border-left-color: var(--state-warn); }
+/* --warn-ink, NOT --state-warn: the row's left edge is a GRAPHICAL OBJECT (3:1), and the fill token
+   gives ~2.6 on the dark card. Round 122 measured the down state on the rendered page — it had stopped
+   rendering at all in round 114, when the fixture flipped its target up to reach the flapping chip, and
+   nothing had measured its border since. SEVENTH instance of this class. The .up sibling uses
+   --state-ok, which measures 3.45 on the light card: it passes, with little margin, and is left alone
+   rather than churned. */
+.monitor-row[data-state="down"] { border-left-color: var(--warn-ink); }
 .monitor-head { display: flex; align-items: center; gap: var(--sp-2); }
 .monitor-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--chrome-ink-dim); }
 .monitor-dot.up { background: var(--state-ok); }

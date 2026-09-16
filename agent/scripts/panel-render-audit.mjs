@@ -279,6 +279,7 @@ function buildHarness() {
       { ts_ms: 1788800000000, kind: 'first-run', detail: '2026-09-11 08:00:00 +08:00 - first run', release: null },
     ] }));
   }
+  var DOWN = P.get('monitor') === 'down';
   if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {
     var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };
     // THE ENVELOPE MATTERS: the hook requires ok === true and treats anything else as a FAILED read
@@ -298,10 +299,12 @@ function buildHarness() {
       },
       {
         id: 'mon-ont', host: '192.168.1.1', port: 8000, path: '/status', expect: 'ONT', path_label: 'http',
-        // UP, so the FLAPPING chip can render: the component gives DOWN precedence over flapping, so a
-        // down target anywhere hides the flapping one entirely. Measured round 109 — the two states are
-        // mutually exclusive by design, which nobody had rendered before.
-        summary: { probes: 240, up: 239, down: 1, up_pct: 99.6, up_now: true, since_ms: 1789002000000, drops: 5,
+        // UP BY DEFAULT, so the FLAPPING chip can render: the component gives DOWN precedence over
+        // flapping, so a down target anywhere hides the flapping one entirely (measured round 109 — the
+        // two states are mutually exclusive by design). ?monitor=down flips this one back, because
+        // round 122 found the consequence: the DOWN row's own border and its down chip had stopped
+        // rendering at all, so nothing measured them.
+        summary: { probes: 240, up: 239, down: 1, up_pct: 99.6, up_now: !DOWN, since_ms: 1789002000000, drops: DOWN ? 3 : 5,
                    latency: { min: 40, avg: 120, max: 900 }, last_status: 502, body_ok: false },
         transitions: [
           { at_ms: 1789002000000, up: false, lasted_ms: 900000 },
