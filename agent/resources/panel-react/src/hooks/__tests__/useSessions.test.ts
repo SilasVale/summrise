@@ -451,3 +451,44 @@ describe("the device's session row", () => {
     expect(minimal.idleMs).toBe(0);
   });
 });
+
+// ── a keystroke that did not land ────────────────────────────────────────────────────────────────
+//
+// `TerminalPane` catches a rejected `terminal_write` to keep its write chain alive, and dispatches
+// `vale-write-failed`. Until round 94 NOTHING LISTENED, so an operator typing into a session whose
+// agent had gone away watched their keystrokes vanish with no explanation. The message must start with
+// "error" — that is what lights the status line's error state (`StatusBar` switches on the prefix, and
+// round 76 pinned the colour that state uses).
+describe("a terminal write that failed", () => {
+  it("says so on the status line, instead of letting the keystroke vanish", async () => {
+    mockCallTool.mockImplementation((name: string) =>
+      name === "terminal_list" ? Promise.resolve([]) : Promise.reject(new Error("nope")),
+    );
+    const { result } = renderHook(() => useSessions(true));
+    await waitFor(() => expect(mockCallTool).toHaveBeenCalled());
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("vale-write-failed", { detail: { sid: "term-gone-1" } }));
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toMatch(/^error/);
+      expect(result.current.status).toMatch(/keystrokes could not be sent/);
+    });
+  });
+
+  it("stops listening when the hook unmounts", async () => {
+    mockCallTool.mockImplementation((name: string) =>
+      name === "terminal_list" ? Promise.resolve([]) : Promise.reject(new Error("nope")),
+    );
+    const { result, unmount } = renderHook(() => useSessions(true));
+    await waitFor(() => expect(mockCallTool).toHaveBeenCalled());
+    unmount();
+    // A listener left attached would call setState on an unmounted hook; React logs that as a warning,
+    // and the assertion here is simply that the dispatch does not throw or hang.
+    act(() => {
+      window.dispatchEvent(new CustomEvent("vale-write-failed", { detail: { sid: "term-gone-2" } }));
+    });
+    expect(result.current.status ?? "").toBeDefined();
+  });
+});

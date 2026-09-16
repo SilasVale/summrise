@@ -343,6 +343,17 @@ export function useSessions(connected: boolean) {
 
   const setStatus = useCallback((msg: string) => setStatusState(msg), []);
 
+  // A KEYSTROKE THAT DID NOT LAND must say so. `TerminalPane` dispatches `vale-write-failed` when a
+  // `terminal_write` rejects, and until round 94 NOTHING LISTENED: the panel swallowed the failure to
+  // keep its write chain alive, which is right, and then said nothing at all — so an operator typing
+  // into a session whose agent had gone away saw their keystrokes vanish with no explanation. The
+  // status line already carries failures ("open failed: …"), and this is one of them.
+  useEffect(() => {
+    const onWriteFailed = () => setStatusState("error: keystrokes could not be sent — this session may be gone");
+    window.addEventListener("vale-write-failed", onWriteFailed);
+    return () => window.removeEventListener("vale-write-failed", onWriteFailed);
+  }, []);
+
   const openSession = useCallback(async (kind: string, target: string, extra: Record<string, unknown> = {}) => {
     try {
       const sid = await callTool("terminal_open", { kind, target, rows: 30, cols: 120, ...extra });
