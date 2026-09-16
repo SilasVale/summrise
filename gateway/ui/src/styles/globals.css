@@ -1146,6 +1146,12 @@ pre code {
    Buttons
    ================================================================ */
 
+/* A PRESSED STATE — the console had NONE. 24 :hover rules and 0 :active, so every button in the fleet
+   console acknowledged a hover and stayed still under a press. Same idiom as the panel's. */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

@@ -1,8 +1,13 @@
 /* Vale extension options — Apple-style light, unified brand tokens. */
-:root{
+:root {
   /* Canonical names (match the Vale spec) with legacy aliases below. */
-  --bg:#f5f5f7; --surface:#fff; --line:rgba(0,0,0,0.08); --line-strong:rgba(0,0,0,0.14);
-  --accent:#0b7a6e; --accent-ink:#0b7a6e; --accent-soft:#e7f5f2; /* accent darkened for AA (5.22:1 on white) */
+  --bg: #f5f5f7;
+  --surface: #fff;
+  --line: rgba(0, 0, 0, 0.08);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --accent: #0b7a6e;
+  --accent-ink: #0b7a6e;
+  --accent-soft: #e7f5f2; /* accent darkened for AA (5.22:1 on white) */
   /* THE TWO TOKENS THE FOCUS RULES BELOW REFERENCE. They were never defined here, so `:focus-visible
      { outline: 2px solid var(--focus-ring) }` resolved to an INVALID COLOUR and the whole declaration
      was dropped — and the `input:focus` box-shadow referencing --focus-ring-soft went the same way.
@@ -12,41 +17,136 @@
      focus ring"; the values here are the panel's, so now it does. */
   --focus-ring: rgba(11, 122, 110, 0.65);
   --focus-ring-soft: rgba(11, 122, 110, 0.14);
-  --ink:#1d1d1f; --muted:#6e6e73; --faint:#6e6e73; /* faint darkened #86868b→#6e6e73 (5.07:1) */
-  --radius:14px; --radius-sm:10px; --radius-lg:20px;
-  --danger:#dc2626; --danger-soft:#fef2f2;
-  --surface-glass:rgba(255,255,255,.72);
-  --shadow-lg: 0 12px 32px rgba(0,0,0,0.12);
-  --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Inter,sans-serif;
+  --ink: #1d1d1f;
+  --muted: #6e6e73;
+  --faint: #6e6e73; /* faint darkened #86868b→#6e6e73 (5.07:1) */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-lg: 20px;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --surface-glass: rgba(255, 255, 255, 0.72);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --font:
+    -apple-system, "SF Pro Text", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Segoe UI", Inter, sans-serif;
   /* Legacy aliases */
-  --card:var(--surface); --border:var(--line); --border-strong:var(--line-strong);
-  --accent-hover:var(--accent-ink);
-  --text:var(--ink); --text2:var(--muted); --text3:var(--faint);
+  --card: var(--surface);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --accent-hover: var(--accent-ink);
+  --text: var(--ink);
+  --text2: var(--muted);
+  --text3: var(--faint);
 }
 /* Unified focus ring + slim scrollbar (round-54): every Vale surface uses
    the same teal keyboard-focus ring and 8px scrollbars. */
-:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-*::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: rgba(0,0,0,.16); border-radius: 4px; }
-*::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.28); }
-*::-webkit-scrollbar-track { background: transparent; }
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--font);font-size:14px;line-height:1.5;background:var(--bg);color:var(--text);
-  display:flex;justify-content:center;padding:48px 16px}
-.card{background:var(--surface-glass);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
-  border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px 28px;
-  width:100%;max-width:420px;display:flex;flex-direction:column;gap:10px;
-  box-shadow:var(--shadow-lg)}
-h1{font-size:17px;font-weight:650;letter-spacing:-0.01em}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px;
+}
+.card {
+  background: var(--surface-glass);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-lg);
+}
+h1 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
 /* The section heading that used to be a second h1 with an inline 16px: on the sheet, on the scale
    the page already has (17px title, 14px body, 13px label, 12px hint). */
-h2{margin-top:28px;font-size:16px;font-weight:650;letter-spacing:-0.01em}
-label{color:var(--text2);font-size:13px}
-input{font-family:inherit;font-size:14px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:8px 12px;background:var(--card)}
-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus-ring-soft)}
-.hint{color:var(--text3);font-size:12px}
-.row{display:flex;align-items:center;gap:10px;margin-top:4px}
-button{font-family:inherit;font-size:14px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);
-  color:#fff;border-radius:var(--radius-sm);padding:8px 18px}
-button:hover{background:var(--accent-hover)}
-.saved{color:var(--accent);font-size:13px}
+h2 {
+  margin-top: 28px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+label {
+  color: var(--text2);
+  font-size: 13px;
+}
+input {
+  font-family: inherit;
+  font-size: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  background: var(--card);
+}
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
+}
+.hint {
+  color: var(--text3);
+  font-size: 12px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+button {
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 8px 18px;
+}
+button:hover {
+  background: var(--accent-hover);
+}
+/* A PRESSED STATE: this page had a hover and nothing under a press, like the panel and console before
+   round 148. Same idiom as theirs, so the three UIs press the same way. */
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.saved {
+  color: var(--accent);
+  font-size: 13px;
+}

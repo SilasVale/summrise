@@ -4,6 +4,17 @@
    ============================================================ */
 
 /* ---------- buttons ---------- */
+/* A PRESSED STATE, WHICH NOTHING HAD. The panel carries 75 :hover rules and, before this, two :active
+   ones — both one-offs on specific buttons — so an ordinary .btn lit up on hover and did nothing at all
+   when pressed. On a device console that matters more than usual: a command can take seconds, and the only
+   confirmation the click registered is the button moving under the finger. The idiom is the one those two
+   one-offs already use, and the rule below is deliberately the only .btn:active rule, so the press reads
+   the same on every button in this UI.
+   THIS SHEET IS NOT PRETTIER-FORMATTED, and that is load-bearing: statePalette.test.ts and the strip tests
+   parse rule text out of the built CSS, and running prettier over this file reflows rules until they fail
+   (tried in round 148 — 5122 insertions, two tests red). One rule per line, hand-wrapped, is the format. */
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
 .btn {
   display: inline-flex;
   align-items: center;
