@@ -60,7 +60,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -95,6 +95,7 @@ function browserScript() {
 const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
+const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 ${MOTION}
 ${TIMING}
 (async () => {
@@ -105,7 +106,7 @@ ${TIMING}
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
-  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [] };
+  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [] };
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
       for (const mode_ of ['idle', 'relaxed']) {
@@ -154,6 +155,19 @@ ${TIMING}
       }
     }
   }
+  // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
+  // console uses, from the shared core, embedded with JSON.stringify (round 88 shipped one embedded
+  // in a template literal and the device received /s+/ where the source said /\s+/: the report listed
+  // "btn btn-" and "rail-clu", finding 38 styled classes where the browser sees 221).
+  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
+    await page.setViewportSize(vp);
+    await page.goto('http://vale.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1500);
+    report.unstyled.push({ page: density, ...(await page.evaluate(UNSTYLED)) });
+  }
+
   // HOVER, measured rather than assumed. Nothing had ever looked at it: the static pair sweep reads
   // base rules and every rendered pass measures the resting DOM, while the panel carries 73 :hover
   // rules. Each interactive element is hovered in turn and the page measured while it is hovered.
@@ -237,6 +251,25 @@ ${TIMING}
 function judge(file) {
   const report = JSON.parse(readFileSync(file, "utf8"));
   const findings = judgeReport(report, {
+    // CLASSES WITH NO MATCHING RULE THAT ARE NOT DEFECTS, each with the mechanism named. Measured
+    // round 90: the panel density renders 1123 styled classes and eleven such names, and ten of the
+    // eleven are xterm.js's own DOM — styled by a stylesheet it INJECTS AT RUNTIME, which a CSSOM
+    // walk cannot see (the same runtime injection that defeated the reduced-motion override in round
+    // 77). The last two are ours and also deliberate: `terminal` is a VIEW NAME on an element already
+    // carrying `.view`, and `serial` rides a [data-kind] attribute rule.
+    implicitStates: {
+      "xterm-viewport": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-screen": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-helpers": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-helper-textarea": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-scroll-area": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-char-measure-element": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-width-cache-measure-container": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "xterm-decoration-container": "xterm.js DOM, styled by the sheet it injects at runtime",
+      "composition-view": "xterm.js DOM (IME composition), styled by the sheet it injects at runtime",
+      terminal: "a VIEW NAME; the element's .view class does the styling",
+      serial: "a session-kind modifier; the element is painted by its [data-kind] rule",
+    },
     // THIS HARNESS'S OWN BLIND SPOT, named rather than filtered silently. `#tabs` measures ~0-185px
     // in a plain browser and 211px on the device, so the tab strip's children report as overflowing
     // containers here and nowhere else; and the 320px document scroll is the SAME artifact (round 50

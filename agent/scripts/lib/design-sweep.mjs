@@ -195,7 +195,12 @@ export function judgeReport(report, opts = {}) {
     for (const c of waived) console.log(`note: ${c} is unstyled by design — ${opts.implicitStates[c]}`);
     const live = all.filter((c) => !(opts.implicitStates || {})[c]);
     if (live.length) {
-      findings.push(`unstyled class(es) on ${u.page || "?"}: ${live.join(", ")} — rendered, with no rule to match`);
+      // THE WORDING MATTERS, and it took a round to get it right: a class with no matching rule is NOT
+      // an unstyled element. A base class styles it (`.view` on `view terminal`), or an ATTRIBUTE does
+      // (`tab-dot serial` is painted by a [data-kind] rule), or it is a deliberate test marker. What is
+      // true — and what is worth failing on — is narrower: this name is on screen and nothing matches
+      // it, so either it is an inert extra to prune or it needs a reason to stay.
+      findings.push(`class name(s) with no matching rule on ${u.page || "?"}: ${live.join(", ")} — on screen, matched by nothing`);
     }
     // A READ THAT FOUND NO STYLESHEETS PROVES NOTHING (round 88's collector reported 38 styled
     // classes where the browser sees 221, and its empty findings looked like a clean page).
