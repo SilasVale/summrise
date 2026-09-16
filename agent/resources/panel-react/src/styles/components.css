@@ -953,7 +953,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#status.error { color: #ff8787; }
+/* The status bar's chrome FLIPS with the theme, so this cannot be a fixed colour: #ff8787 measured
+   6.08 on the dark chrome and 1.96 on the light theme's — the same defect, on the same surface, that
+   round 62 fixed for #sse-status two rules above. --chrome-danger-ink is 4.63 / 6.08. */
+#status.error { color: var(--chrome-danger-ink); }
 /* --chrome-ink-dim, not -faint: -faint measured 2.33 on the status bar in light
    and 3.61 in dark, and this is the session count the operator reads at a glance. */
 #session-count {

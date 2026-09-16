@@ -115,6 +115,19 @@ describe("recessed content surfaces", () => {
     expect(checked, "the gradient check must actually measure something").toBeGreaterThanOrEqual(2);
   });
 
+  // THE HARD-CODED COLOURS THAT REMAIN, triaged in round 76 so the next round does not re-open them:
+  //   * `#fff` on `.goal-save`, `.approval-approve`, the primary modal/path buttons and
+  //     `.browser-ev-time` — white ON a coloured fill, which is what `--accent-fg` is for. Left as
+  //     literals because they sit on --accent fills that do not flip, so the text cannot fall out of
+  //     contrast with them; tokenising is tidiness, not a fix.
+  //   * `.browser-action-err { color: #e06c6c }` and the browser badges' rgba fills — the INKS were
+  //     tokenised in round 55 (--badge-*-ink) but their surfaces were not. This pane only mounts
+  //     inside the Electron shell (round 45: a plain browser renders an explanation page), so the
+  //     composite cannot be measured here. An unverifiable change to a colour that may already pass
+  //     is not an improvement, so it stands until it can be measured.
+  //   * modal scrims (rgba(24,24,27,0.44), rgba(28,28,30,0.45)) and the themed `body::before`
+  //     gradient stops — a scrim and a gradient stop are not text colours.
+
   it("no background is drawn from the raw neutral scale", () => {
     const css = builtCss();
     // The dark theme does NOT override --ds-neutral-*, so any background drawn
@@ -256,6 +269,12 @@ describe("recessed content surfaces", () => {
       // The status bar's "reconnecting…" is the one text that tells an operator the device is down;
       // it was #ff8787 (1.96 on the light theme's chrome) until round 62.
       ["#sse-status", "--chrome-danger-ink"],
+      // …and its sibling two rules above, which round 62 missed: `#status.error` carried the SAME
+      // hard-coded #ff8787 on the SAME flipping chrome. Fixed in round 76, and measured rendered at
+      // 4.96 (light) / 7.65 (dark). The state is reachable — StatusBar applies `.error` when a
+      // message starts with "error" or "open failed" — though the harness cannot produce a failing
+      // action, so the class was induced in the DOM and the RULE was what got measured.
+      ["#status.error", "--chrome-danger-ink"],
       ['.plug-tag[data-state="error"]', "--danger-on-soft"],
       ['.path-step-tag.s-fail', "--danger-on-soft"],
       ['.path-attention-tag.s-fail', "--danger-on-soft"],
