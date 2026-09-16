@@ -1300,7 +1300,10 @@ mod tests {
         let raw = include_str!("../tests/fixtures/boot-history.json");
         let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
         let records = fixture["boots"].as_array().expect("boots array");
-        assert!(records.len() >= 3, "the fixture must cover more than one boot");
+        assert!(
+            records.len() >= 3,
+            "the fixture must cover more than one boot"
+        );
 
         // What the device actually writes, from two real boots in a temp dir.
         let d = dir("fixture-shape");
@@ -1314,19 +1317,34 @@ mod tests {
         // release"), and `uptime_secs`/`gap_secs` are absent on an install's first run. So the check
         // is a DECLARED UNION, and both directions matter: the fixture may not invent a field, and the
         // device may not add one without this test — and the panel's parser — being told.
-        const WRITABLE: [&str; 6] = ["detail", "gap_secs", "kind", "ts_ms", "uptime_secs", "release"];
+        const WRITABLE: [&str; 6] = [
+            "detail",
+            "gap_secs",
+            "kind",
+            "ts_ms",
+            "uptime_secs",
+            "release",
+        ];
         let writable: std::collections::BTreeSet<&str> = WRITABLE.into_iter().collect();
         for r in records {
-            let keys: std::collections::BTreeSet<&str> =
-                r.as_object().expect("object").keys().map(|k| k.as_str()).collect();
+            let keys: std::collections::BTreeSet<&str> = r
+                .as_object()
+                .expect("object")
+                .keys()
+                .map(|k| k.as_str())
+                .collect();
             let unknown: Vec<&&str> = keys.difference(&writable).collect();
             assert!(
                 unknown.is_empty(),
                 "the fixture promises fields the device never writes: {unknown:?} — either the fixture is wrong or the device changed and the panel must be told"
             );
         }
-        let live_keys: std::collections::BTreeSet<&str> =
-            live[0].as_object().expect("object").keys().map(|k| k.as_str()).collect();
+        let live_keys: std::collections::BTreeSet<&str> = live[0]
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
         let new_on_device: Vec<&&str> = live_keys.difference(&writable).collect();
         assert!(
             new_on_device.is_empty(),
@@ -1342,14 +1360,25 @@ mod tests {
         );
         // And the stamps are milliseconds: a seconds stamp would place every boot in 1970.
         for r in records {
-            let ts = r["ts_ms"].as_u64().expect("every fixture record is stamped");
-            assert!(ts > 1_600_000_000_000, "unix milliseconds, not seconds: {ts}");
+            let ts = r["ts_ms"]
+                .as_u64()
+                .expect("every fixture record is stamped");
+            assert!(
+                ts > 1_600_000_000_000,
+                "unix milliseconds, not seconds: {ts}"
+            );
         }
         // NEWEST FIRST — what RestartHistoryCard's `slice(0, VISIBLE)` depends on.
-        let stamps: Vec<u64> = records.iter().map(|r| r["ts_ms"].as_u64().unwrap()).collect();
+        let stamps: Vec<u64> = records
+            .iter()
+            .map(|r| r["ts_ms"].as_u64().unwrap())
+            .collect();
         let mut sorted = stamps.clone();
         sorted.sort_unstable_by(|a, b| b.cmp(a));
-        assert_eq!(stamps, sorted, "the fixture must be newest-first, like the route: {stamps:?}");
+        assert_eq!(
+            stamps, sorted,
+            "the fixture must be newest-first, like the route: {stamps:?}"
+        );
         assert_eq!(
             live[0]["detail"].as_str(),
             Some(live[0]["detail"].as_str().unwrap()),
