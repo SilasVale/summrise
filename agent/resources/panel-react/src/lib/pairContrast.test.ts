@@ -34,8 +34,17 @@ function builtCss(): string {
   return readFileSync(path.join(HERE, "..", "..", "..", "panel", "panel.css"), "utf8");
 }
 
-/** The custom properties a theme block declares: `--name: value`. */
+/** The custom properties a theme block declares: `--name: value`.
+ *
+ *  COMMENTS ARE STRIPPED FIRST, and that is not tidiness. A comment that mentions a token in prose —
+ *  "--surface: code/output panes, log bodies…" — is indistinguishable from a declaration to a naive
+ *  pattern, and because the LAST match wins it silently replaced the real value: `--surface` resolved
+ *  to that sentence, `parseColour` returned null, and a pair measured NaN. Every pair this file
+ *  judges is judged from these values, so a prose line could change what the whole contract sees.
+ *  (Found in round 86 while pinning `--danger-on-soft`; the same helper is the one the main sweep
+ *  uses to resolve both sides of all 36 pairs.) */
 function tokensIn(css: string, selector: string): Record<string, string> {
+  css = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const m = css.match(
     new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([\\s\\S]*?)\\n\\}"),
   );
@@ -100,6 +109,64 @@ describe("colour pairs declared in one rule", () => {
     ".browser-ev-toggle.active":
       "a chip inside the evidence drawer, over the embedded browser surface rather than the page background",
   };
+
+  it("--danger-on-soft clears AA on every surface it lands on, including the ones it cannot reach", () => {
+    // ROUND 86. The pair sweep above only judges rules that declare BOTH `color` and `background`.
+    // `--danger-on-soft` is used as a TEXT colour in five rules and declares its own background in
+    // one, so the other four were unchecked — and one of them, `#modal-status.error`, cannot be
+    // RENDERED by the harness either: the connect modal only appears when the panel is disconnected,
+    // and the fixture keeps it connected even with every API call failing. Measured here instead,
+    // pair by pair, with the surfaces taken from the sheet:
+    //
+    //     modal surface     7.20 light / 7.26 dark      (the unreachable state)
+    //     danger-soft wash  6.38 light / 7.58 dark      (composited over the theme's --bg)
+    //     tab background    7.52 light / 7.01 dark      (.tab-close:hover)
+    //
+    // A state a harness cannot produce is not a reason to leave its colours unmeasured; it is a
+    // reason to measure them somewhere else.
+    const css = builtCss();
+    const light = tokensIn(css, ":root");
+    const dark = { ...light, ...tokensIn(css, 'body[data-theme="dark"]') };
+    const cases = [
+      ["#modal-status.error", "--danger-on-soft", "--surface"],
+      [".tab-close:hover", "--danger-on-soft", "--chrome-bg-2"],
+    ];
+    let checked = 0;
+    for (const [label, fgName, bgName] of cases) {
+      for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
+        const fg = parseColour(tokens[fgName]);
+        const bg = parseColour(tokens[bgName]);
+        expect(fg, `${label}: ${fgName} must resolve`).toBeTruthy();
+        expect(bg, `${label}: ${bgName} must resolve`).toBeTruthy();
+        held(label, theme, fg!, bg!);
+        checked++;
+      }
+    }
+    // The wash is translucent, so it is composited over the theme's page background — the same rule
+    // the main sweep uses, rather than a second reading of it.
+    // `--bg` is itself `var(--ds-neutral-50)` in the light theme, so one level of var() is resolved
+    // before compositing — an unresolved name parses to null and the maths would throw.
+    const resolve = (tokens: Record<string, string>, name: string): string => {
+      const raw = tokens[name] ?? "";
+      const asVar = /^var\((--[a-z0-9-]+)\)$/.exec(raw.trim());
+      return asVar ? (tokens[asVar[1]] ?? raw) : raw;
+    };
+    for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
+      const fg = parseColour(resolve(tokens, "--danger-on-soft"));
+      const stack = compositeStack([parseColour(resolve(tokens, "--danger-soft")), parseColour(resolve(tokens, "--bg"))]);
+      held(`--danger-soft wash (${theme})`, theme, fg!, stack);
+      checked++;
+    }
+    expect(checked, "this check must actually measure something").toBeGreaterThanOrEqual(6);
+
+    function held(label: string, theme: string, fg: ReturnType<typeof parseColour>, bg: ReturnType<typeof parseColour>) {
+      const ratio = contrastRatio(fg!, bg!);
+      expect(
+        ratio,
+        `${label} (${theme}): ${ratio.toFixed(2)} — needs 4.5`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 
   it("every one of them clears AA in both themes", () => {
     const css = builtCss();
