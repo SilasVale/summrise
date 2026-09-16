@@ -116,6 +116,19 @@ test("the lane classes the TS can emit are the ones the stylesheet defines", () 
   );
 });
 
+// MEASURED, AND DELIBERATELY NOT SCALED (round 81), so the next round does not re-derive it:
+//   * GAPS: 74 literal declarations across 14 values (4/6/8/10/12/14/16px …) and NO spacing tokens.
+//     The panel has a full --sp-* scale and a test that enforces it; the console never had one. But
+//     its values are already a tight even-numbered set, so a token layer would be a 74-declaration
+//     rewrite with no change on screen — the same call as the panel's 87 off-scale PADDINGS in round
+//     64. A scale earns its place when it fixes drift, not when it relabels agreement.
+//   * RADII: five tokens (10/10/20/20/999) and six small literals (2/3/4/5/6/12px) plus the shapes
+//     (50% x11, 22%). The small values are chip and bar radii the scale does not name; adding
+//     --radius-xs for them is tidiness, not a fix.
+//   * HALF-PIXELS: none anywhere.
+// What IS contracted here is the part with a failure mode: sizes that must follow a token, and lane
+// colours that must be declared.
+
 test("every channel colour comes from a --chan-* token", () => {
   // Each lane class must paint from its own token. A literal here is how one channel drifts: Qwen's
   // was #c2255c in two rules while og/ds/or all used tokens (fixed in round 79).
