@@ -15,33 +15,11 @@
 // Plain-browser contexts (no window.valeEmbedded) never mount this — they
 // keep the screenshot BrowserPane.
 import { useEffect, useRef, useState, useCallback } from "react";
+import { embeddedBridge } from "../lib/embeddedBridge";
 import { Icon } from "../ui/Icon";
 import { useAiActivityPulse } from "../hooks/useAiActivityPulse";
 import { EvidenceDrawer } from "./EvidenceDrawer";
 import { shouldAcceptNavPush } from "../lib/embeddedNav";
-
-interface EmbeddedNavState {
-  url: string;
-  canBack: boolean;
-  canFwd: boolean;
-  title: string;
-}
-interface EmbeddedBridge {
-  navigate: (url: string) => Promise<unknown>;
-  back: () => Promise<unknown>;
-  fwd: () => Promise<unknown>;
-  reload: () => Promise<unknown>;
-  zoom: (factor: number) => Promise<unknown>;
-  place: (bounds: { x: number; y: number; width: number; height: number } | null) => Promise<unknown>;
-  state: () => Promise<{ ok: boolean; url?: string; canBack?: boolean; canFwd?: boolean; visible?: boolean }>;
-  recover: () => Promise<unknown>;
-  onNav: (handler: (s: EmbeddedNavState) => void) => () => void;
-  onGone: (handler: (d: { reason: string; exitCode: number }) => void) => () => void;
-}
-
-function bridge(): EmbeddedBridge | null {
-  return (window as any).valeEmbedded as EmbeddedBridge | null || null;
-}
 
 const slotId = "vale-embedded-browser-slot";
 
@@ -96,7 +74,7 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
   // slot's getBoundingClientRect IS that space (the SPA fills the window).
   const reportBounds = useCallback(() => {
     const el = slotRef.current;
-    const b = bridge();
+    const b = embeddedBridge();
     if (!el || !b) return;
     const r = el.getBoundingClientRect();
     if (r.width < 50 || r.height < 50) { void b.place(null); return; }
@@ -107,7 +85,7 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
   // layout when the panel resizes. (Event-driven: no polling — the observer
   // fires only on actual layout changes.)
   useEffect(() => {
-    const b = bridge();
+    const b = embeddedBridge();
     if (!b) return;
     // Initial state + real-navigation subscription (round-247): the main
     // process pushes url/canBack/canFwd/title after EVERY actual navigation,
@@ -168,7 +146,7 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
   const recover = useCallback(() => {
     setGoneReason(null);
     setReady(false);
-    const b = bridge();
+    const b = embeddedBridge();
     if (!b) return;
     void b.recover().then(() => b.state()).then((s) => {
       if (s?.ok) {
@@ -181,7 +159,7 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
   }, []);
 
   const navigate = useCallback((fromSubmit?: boolean) => {
-    const b = bridge();
+    const b = embeddedBridge();
     if (!b) return;
     const raw = url.trim();
     if (/^(about|data):/i.test(raw) && raw.toLowerCase() !== "about:blank") {
@@ -207,14 +185,14 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
     // real URL (pushed by did-navigate) updates the bar and the view is
     // clickable right away, exactly like Chrome's address bar.
   }, [url]);
-  const goBack = useCallback(() => { void bridge()?.back(); }, []);
-  const goForward = useCallback(() => { void bridge()?.fwd(); }, []);
-  const reload = useCallback(() => { void bridge()?.reload(); }, []);
+  const goBack = useCallback(() => { void embeddedBridge()?.back(); }, []);
+  const goForward = useCallback(() => { void embeddedBridge()?.fwd(); }, []);
+  const reload = useCallback(() => { void embeddedBridge()?.reload(); }, []);
   // round-251: zoom selector → real webContents zoom factor (event-driven:
   // only fires on user change, no polling).
   const setZoom = useCallback((z: number) => {
     setZoomState(z);
-    void bridge()?.zoom(z / 100);
+    void embeddedBridge()?.zoom(z / 100);
   }, []);
 
   return (
