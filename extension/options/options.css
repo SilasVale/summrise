@@ -25,6 +25,9 @@
   --radius-lg: 20px;
   --danger: #dc2626;
   --danger-soft: #fef2f2;
+  /* THE READABLE RED. --danger is a FILL — it measures 4.44 on this page's background, under AA for the
+     12px text this sheet uses — and --danger-ink is the one for type, 6.00. Same split as the panel's. */
+  --danger-ink: #b3261e;
   --surface-glass: rgba(255, 255, 255, 0.72);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
   --font:
@@ -145,6 +148,17 @@ button:hover {
    round 148. Same idiom as theirs, so the three UIs press the same way. */
 button:active:not(:disabled) {
   transform: translateY(1px);
+}
+/* THE STATUS LINE CARRIES TWO DIFFERENT VERDICTS AND LOOKED THE SAME FOR BOTH. Measured round 149: the
+   refusal ("不是有效的 https:// 地址,未保存") and the confirmation ("已保存: …") were painted identically —
+   same colour, same weight — because #status had NO RULE AT ALL and inherited --muted from its parent. The
+   words differ, so the state was never colour-only; but an error and a confirmation that look alike tell
+   you nothing about whether your change was stored. */
+#status[data-state="ok"] {
+  color: var(--accent);
+}
+#status[data-state="error"] {
+  color: var(--danger-ink);
 }
 .saved {
   color: var(--accent);

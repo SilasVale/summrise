@@ -10,7 +10,10 @@
 const $ = (id) => document.getElementById(id);
 
 async function load() {
-  const st = await chrome.storage.local.get(["studioOrigin", "studioLinksEnabled"]);
+  const st = await chrome.storage.local.get([
+    "studioOrigin",
+    "studioLinksEnabled",
+  ]);
   $("studioOrigin").value = st.studioOrigin || DEFAULT_STUDIO_ORIGIN;
   // OPT-IN, matching the content script's predicate (round 134 flipped it from
   // opt-OUT to `=== true`; this line kept the old default, so a user who never
@@ -20,7 +23,10 @@ async function load() {
 }
 
 async function save() {
-  const raw = ($("studioOrigin").value.trim() || DEFAULT_STUDIO_ORIGIN).replace(/\/+$/, "");
+  const raw = ($("studioOrigin").value.trim() || DEFAULT_STUDIO_ORIGIN).replace(
+    /\/+$/,
+    "",
+  );
   const origin = httpsOrigin(raw);
   const el = $("status");
   if (!origin) {
@@ -29,7 +35,12 @@ async function save() {
     // never typed, under their name, and reported it as saved. The box keeps what
     // they wrote and the message says why it was not stored.
     el.textContent = "不是有效的 https:// 地址,未保存";
-    setTimeout(() => (el.textContent = ""), 4000);
+    // The refusal and the confirmation are different verdicts and must not look alike.
+    el.dataset.state = "error";
+    setTimeout(() => {
+      el.textContent = "";
+      delete el.dataset.state;
+    }, 4000);
     return;
   }
   await chrome.storage.local.set({
@@ -37,7 +48,11 @@ async function save() {
     studioLinksEnabled: $("studioLinksEnabled").checked,
   });
   el.textContent = `已保存: ${origin}`;
-  setTimeout(() => (el.textContent = ""), 2500);
+  el.dataset.state = "ok";
+  setTimeout(() => {
+    el.textContent = "";
+    delete el.dataset.state;
+  }, 2500);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
