@@ -6,6 +6,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { useSSE } from "../useSSE";
 import { initTransport } from "../../lib/api";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -113,6 +118,41 @@ describe("useSSE's frame handling", () => {
     const { unmount } = setup({ current: new Map([["term-a", cb]]) });
     await waitFor(() => expect(write).toHaveBeenCalled(), { timeout: 3000 });
     expect(write.mock.calls[0][1]).toBe(10);
+    unmount();
+  });
+
+  it("reads ONLY keys the device's frame actually carries", async () => {
+    // The other half of `agent/tests/fixtures/sse-frames.json`: the Rust test asserts the frame the
+    // device BUILDS has the keys the fixture promises, and this asserts the panel reads no key outside
+    // them. A rename on either side fails on one of the two, instead of the panel silently ignoring
+    // frames — which is how lost terminal output would present: no error, just missing bytes.
+    const fixture = JSON.parse(
+      readFileSync(path.resolve(HERE, "..", "..", "..", "..", "..", "tests", "fixtures", "sse-frames.json"), "utf8"),
+    );
+    const carried = new Set<string>();
+    for (const part of ["term_data", "control", "lagged", "initial"]) {
+      for (const k of fixture[part].keys) carried.add(k);
+    }
+    expect(carried.size, "the fixture must name the keys it knows").toBeGreaterThanOrEqual(7);
+
+    // What the parser reads off a frame, from its own source.
+    const source = readFileSync(path.resolve(HERE, "..", "useSSE.ts"), "utf8");
+    const reads = new Set([...source.matchAll(/frame\.([a-z_]+)/g)].map((m) => m[1]));
+    expect(reads.size).toBeGreaterThanOrEqual(4);
+    const unknown = [...reads].filter((k) => !carried.has(k));
+    expect(unknown, "the panel reads a frame key no fixture part declares").toEqual([]);
+
+    // And the terminal frame the fixture gives is one this parser actually accepts: the bytes land at
+    // the offset the frame carries, which is the contract that keeps a reconnect from duplicating.
+    vi.useRealTimers();
+    const ex = fixture.term_data.example;
+    globalThis.fetch = streamOf([`data: ${JSON.stringify(ex)}\n\n`]);
+    const write = vi.fn();
+    const cb = { getRendered: () => ex.start, write, setRendered: vi.fn() };
+    const { unmount } = setup({ current: new Map([[ex.session_id, cb]]) });
+    await waitFor(() => expect(write).toHaveBeenCalled(), { timeout: 3000 });
+    expect(write.mock.calls[0][1]).toBe(ex.start);
+    expect(Array.from(write.mock.calls[0][0] as Uint8Array)).toEqual(ex.data);
     unmount();
   });
 });

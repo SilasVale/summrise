@@ -3112,6 +3112,66 @@ mod tests {
         );
     }
 
+    /// THE TERMINAL STREAM'S FRAME KEYS, pinned from this end.
+    ///
+    /// `agent/tests/fixtures/sse-frames.json` is read here and by the panel's `useSSE` tests. The
+    /// panel reads a frame's fields SILENTLY — an unknown `session_id` is skipped, a missing `start`
+    /// means "append at the end" — so a rename produces lost terminal output rather than an error, on
+    /// the one surface where losing bytes is worst. This is the other half of that guarantee.
+    #[test]
+    fn a_terminal_frame_carries_the_keys_the_fixture_promises() {
+        let raw = include_str!("../../../tests/fixtures/sse-frames.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
+        let promised: std::collections::BTreeSet<&str> = fixture["term_data"]["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .filter_map(|k| k.as_str())
+            .collect();
+        assert!(
+            promised.len() >= 4,
+            "the fixture must name the whole frame: {promised:?}"
+        );
+
+        // Built the way the code builds it (sessions.rs, "Attach the start offset to the emitted
+        // frame"): the struct serialises, then `start` is inserted, then sse.rs adds `v`.
+        let out = TermOutput {
+            session_id: "term-abc123-7".into(),
+            data: b"hi\n".to_vec(),
+        };
+        let mut framed = serde_json::to_value(&out).expect("serialises");
+        framed
+            .as_object_mut()
+            .expect("object")
+            .insert("start".into(), serde_json::json!(4096));
+        framed
+            .as_object_mut()
+            .expect("object")
+            .insert("v".into(), serde_json::json!(1));
+
+        let keys: std::collections::BTreeSet<&str> = framed
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        assert_eq!(
+            keys, promised,
+            "the frame the device builds and the frame the fixture promises have drifted apart"
+        );
+        // The panel's three reads must be among them, or it is reading a key nobody sends.
+        for required in fixture["term_data"]["required_by_panel"]
+            .as_array()
+            .expect("required")
+        {
+            let k = required.as_str().expect("string");
+            assert!(
+                keys.contains(k),
+                "the panel reads `{k}`, which this frame does not carry"
+            );
+        }
+    }
+
     /// THE WIRE FORMAT, pinned from this end.
     ///
     /// `agent/tests/fixtures/session-row.json` is read by this test and by the panel's

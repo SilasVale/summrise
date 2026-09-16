@@ -1,0 +1,25 @@
+{
+  "_comment": "THE TERMINAL STREAM'S FRAME KEYS, read by BOTH sides. A frame is built in two places and neither is obvious from the other: `serde_json::to_value(&TermOutput)` in agent/src/plugins/terminal/tools/sessions.rs gives {session_id, data}, that same function INSERTS `start` (the frame's absolute byte offset), and agent/src/web/sse.rs adds `v` (the protocol-version anchor) to every frame before writing it. The panel reads three of the four in resources/panel-react/src/hooks/useSSE.ts, and reads them SILENTLY: a frame whose `session_id` is unknown is skipped, and `start` is what keeps a reconnect from duplicating output. A rename on either side therefore loses terminal output rather than raising an error, which is why the keys are written down here and asserted from both ends.",
+  "term_data": {
+    "keys": ["session_id", "data", "start", "v"],
+    "required_by_panel": ["session_id", "data", "start"],
+    "example": {"v": 1, "session_id": "term-abc123-7", "start": 4096, "data": [104, 105, 10]}
+  },
+  "control": {
+    "keys": ["v", "ev"],
+    "required_by_panel": ["ev"],
+    "example": { "v": 1, "ev": "sessions-changed" }
+  },
+  "lagged": {
+    "keys": ["v", "lagged"],
+    "required_by_panel": ["lagged"],
+    "note": "Cross-session by construction: it carries no session_id, and the panel marks every session for a gap backfill before re-reading the lost range.",
+    "example": { "v": 1, "lagged": true }
+  },
+  "initial": {
+    "keys": ["v", "epoch"],
+    "required_by_panel": [],
+    "note": "The stream's first frame, so a client can tell a fresh boot from a quiet one; the panel ignores it today.",
+    "example": { "v": 1, "epoch": 3 }
+  }
+}
