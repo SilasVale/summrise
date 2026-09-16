@@ -46,7 +46,15 @@ const API = {
   '/api/devices/install-cmd': { ok: true, version: '1.0.106', download: 'https://v.saisi.online/vale-agent-latest.tgz' },
   '/api/devices/register-keys': { keys: [{ code: 'abcd1234', expiresAt: now + 3600000 }] },
   '/api/plugins/status': { devices: { d1: { online: false, agent_up: true, tunnel_up: true, version: '1.0.106', checked_at: now, verdict: 'crashed' } } },
-  '/api/health': { channels: [{ prefix: 'og/', ok: true }] },
+  // ALL FOUR CHANNELS, because the lane rules are per-channel: with only 'og' in the fixture the
+  // three fills that do NOT flip with the theme never render, and a contrast fix for them could not
+  // be seen. Measured round 79 — the ink/fill pairing differs per lane on purpose.
+  '/api/health': { channels: [
+    { prefix: 'og/', ok: true },
+    { prefix: 'ds/', ok: true },
+    { prefix: 'or/', ok: false },
+    { prefix: 'qw/', ok: true },
+  ] },
   '/api/admin/providers': { providers: [{ prefix: 'my/', label: 'My Provider', baseURL: 'https://api.example.com', api: 'openai-completions', models: [{ id: 'llama-3' }], advertised: ['my/llama-3'], keyEnv: '', keyMasked: 'sk-9876', keyReady: true }], apis: [], filePrefixes: [] },
   '/api/admin/models': { models: [{ id: 'my/llama-3', label: 'llama-3' }] },
   '/api/admin/catalogue': { models: [{ id: 'my/llama-3', label: 'llama-3' }] },

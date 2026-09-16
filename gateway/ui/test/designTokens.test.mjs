@@ -84,56 +84,36 @@ test("the type scale the console uses is declared, and every token it uses exist
   assert.deepEqual(missing, [], "a font size references a token the sheet never declares");
 });
 
-test("every lane's LABEL is readable on the fill the sheet gives it", async () => {
-  // The measured half of the rule above: a token is only the first step. This pairs each lane's ink
-  // with its fill and does the contrast arithmetic, because the sheet's own history shows the trap —
-  // the `og` label was #fff on the dark theme's #ffa94d accent: 1.90, well under AA.
-  const { contrastRatio, parseColour } =
-    await import("../../../agent/scripts/lib/contrast-probe.mjs");
-  const tokenIn = (block, name) => {
-    const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;]+);`).exec(block);
-    return m ? m[1].trim() : null;
-  };
-  const lightBlock = /:root\s*\{([\s\S]*?)\n\}/.exec(bare)[1];
-  const darkBlock = [...bare.matchAll(/\[data-theme=["']?dark["']?\][^{]*\{([\s\S]*?)\n\}/g)]
-    .map((m) => m[1])
-    .join("\n");
-  assert.ok(darkBlock.length > 0, "the dark theme block must exist or half of this proves nothing");
-
-  // The four fills that do NOT flip, each with the constant ink the sheet gives them.
-  for (const name of ["--chan-ds", "--chan-or", "--chan-qw"]) {
-    const fill = tokenIn(lightBlock, name);
-    const ink = tokenIn(lightBlock, "--chan-fg");
-    assert.ok(fill && ink, `${name} and --chan-fg must be declared`);
-    const ratio = contrastRatio(parseColour(ink), parseColour(fill));
-    assert.ok(ratio >= 4.5, `${name} label: ${ink} on ${fill} = ${ratio.toFixed(2)}, needs 4.5`);
-  }
-  // The lane that DOES flip: its ink has to come from the same block as its fill.
-  for (const [theme, block] of [
-    ["light", lightBlock],
-    ["dark", darkBlock],
-  ]) {
-    const fill = tokenIn(block, "--accent") ?? tokenIn(lightBlock, "--accent");
-    const ink = tokenIn(block, "--accent-fg") ?? tokenIn(lightBlock, "--accent-fg");
-    const ratio = contrastRatio(parseColour(ink), parseColour(fill));
-    assert.ok(
-      ratio >= 4.5,
-      `og lane label (${theme}): ${ink} on ${fill} = ${ratio.toFixed(2)}, needs 4.5`,
-    );
-  }
-  // And the PAIRING itself, so a future lane cannot silently take the wrong ink.
+test("the lane classes the TS can emit are the ones the stylesheet defines", () => {
+  // A CROSS-LANGUAGE CONTRACT, and the reason this round exists. The stylesheet carries two lane
+  // families; `Models.tsx` maps a channel prefix to a class name. If the two lists drift, a channel
+  // renders with no colour at all — silently, because a missing class is not an error.
+  //
+  // It also records what round 79 actually found: I "fixed" the label ink of `.lane-port`, measuring
+  // it carefully (white on the dark accent: 1.90) — and then discovered NOTHING IN THE REPO EMITS
+  // `lane-port` OR `models-prefix`. Eighteen lines of dead CSS, and a fix that changed nothing on
+  // screen. They are pruned; this test now checks the family that IS rendered.
+  const tsx = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "views", "Models.tsx"),
+    "utf8",
+  );
+  const emitted = new Set([...tsx.matchAll(/return "(lane-[a-z]+)";/g)].map((m) => m[1]));
+  assert.ok(emitted.size >= 8, `expected the channel mapping, found ${emitted.size} classes`);
+  const defined = new Set([...bare.matchAll(/\.prov-lane\.(lane-[a-z]+)/g)].map((m) => m[1]));
+  // `lane-def` is emitted BY the mapping and defined BY the base rule, so it is exempt from the
+  // per-lane check — and the assertion below proves the base rule is really there, which is what
+  // earns the exemption (round 74's rule: an exemption list needs the thing it exempts verified).
+  const missing = [...emitted].filter((c) => !defined.has(c) && c !== "lane-def");
+  assert.deepEqual(missing, [], "a lane class the TS can emit has no rule in the stylesheet");
+  const unused = [...defined].filter((c) => !emitted.has(c));
+  assert.deepEqual(unused, [], "a lane rule nothing can emit is dead CSS");
+  // `lane-def` is the DEFAULT channel, so it is the base rule rather than a `.lane-def` rule —
+  // checked rather than assumed, or dropping the base would pass this contract silently.
   assert.match(
     bare,
-    /\.lane-port\s*\{[^}]*color\s*:\s*var\(--accent-fg\)/,
-    ".lane-port (the og lane) takes --accent-fg",
+    /\.prov-lane\s*\{[^}]*background\s*:\s*var\(--text-muted\)/,
+    "the default lane colour is the base .prov-lane rule",
   );
-  for (const lane of ["ds", "or", "qw", "def"]) {
-    assert.match(
-      bare,
-      new RegExp(`\\.lane-${lane}\\s+\\.lane-port[^{}]*\\{[^}]*var\\(--chan-fg\\)`),
-      `.lane-${lane} takes --chan-fg`,
-    );
-  }
 });
 
 test("every channel colour comes from a --chan-* token", () => {
@@ -149,8 +129,17 @@ test("every channel colour comes from a --chan-* token", () => {
     .map((d) => d[1].trim())
     .filter((v) => /#[0-9a-fA-F]{3,8}\b|\brgba?\(/.test(v));
   assert.deepEqual(literals, [], "a channel colour must come from var(--chan-*)");
-  const declared = new Set([...css.matchAll(/(--chan-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
-  for (const name of ["--chan-og", "--chan-ds", "--chan-or", "--chan-qw"]) {
-    assert.ok(declared.has(name), `${name} must be declared with the other channels`);
-  }
+  // And the live lanes paint from DECLARED tokens, whatever they are called: og/cm use --accent, qw
+  // --warning, nv --success, gmi/amd --error, the default --text-muted. (An earlier draft of this
+  // test demanded `--chan-qw`; the rendered family never used it — it was invented for a dead rule.)
+  const declared = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  const laneFills = [
+    ...bare.matchAll(/\.prov-lane\.lane-[a-z]+\s*\{[^}]*background\s*:\s*var\((--[a-z0-9-]+)\)/g),
+  ].map((m) => m[1]);
+  assert.ok(
+    laneFills.length >= 8,
+    `expected every channel to paint from a token, found ${laneFills.length}`,
+  );
+  const undeclared = laneFills.filter((t) => !declared.has(t));
+  assert.deepEqual(undeclared, [], "a lane paints from a token the sheet never declares");
 });
