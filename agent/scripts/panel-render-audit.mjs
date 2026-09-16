@@ -127,6 +127,32 @@ function buildHarness() {
   // expires_in_ms: 47000, which the gate reads as URGENT (under its one-minute threshold) — so the
   // alarmed state was the only one any sweep had ever rendered. 'relaxed' is a question with time
   // left, 'expired' is the zero-second rule: the device has retired it and nothing can be answered.
+  // THE UPDATE CARD, WHICH HAD NEVER RENDERED A STATE AT ALL (round 110). /api/update was served by
+  // nothing, so the card only ever showed its empty "unknown" face — including the APPLYING state,
+  // which is the one an operator stares at during a release. ?busy=1 is that state.
+  //
+  // OPEN, RECORDED RATHER THAN GUESSED (round 110): with this fixture served, the card's HEADING
+  // renders ("Agent update") and ITS BODY DOES NOT — `.update-current`, `.update-latest` and the action
+  // button are all absent in both states and both themes, while the route answers with `current`,
+  // `latest` and `update_available: true`. Three candidates, none established: the fixture does not
+  // reach `useUpdateStatus` (a different route or a second call), the section needs a prop the harness
+  // does not supply (`runningRelease` comes from /api/status's `release`, which the status fixture
+  // DOES set), or the body is behind a condition my payload does not meet. Settle it by instrumenting
+  // the request first — `window.fetch` logging showed the other cards' routes plainly — before probing
+  // the DOM again. The earlier .monitor-chip lesson applies: an empty selector means the fixture or the
+  // probe, and it took a fetch log to tell which.
+  if (u.indexOf('/api/update') >= 0) {
+    var busy = P.get('busy') === '1';
+    return Promise.resolve(J({
+      current: '1.2.403',
+      channel: 'stable',
+      latest: busy ? '1.2.403' : '1.2.433',
+      update_available: !busy,
+      pinned_to: null,
+      busy: busy,
+      error: null,
+    }));
+  }
   // ?fail=1 — the device is DOWN: every API call rejects, which is what a page shows an operator
   // when the agent is not running. No sweep had ever produced this state.
   var FAIL = P.get('fail') === '1';
