@@ -204,4 +204,27 @@ describe("the design scale", () => {
     ).toEqual([]);
     expect(sizes.has("11.5"), "11.5px folded into --fs-xs (11px) in the scale pass").toBe(false);
   });
+
+  it("every font-size is a TOKEN, not a number that happens to match one", () => {
+    // The test above checks that sizes are on the scale — which a literal passes, and that is the
+    // gap this closes. `font-size: 12px` and `font-size: var(--fs-sm)` render identically TODAY and
+    // diverge the moment someone re-scales the token: the literal stays behind, silently, and the
+    // only thing that would notice is a person looking at two sizes that should have matched.
+    // Measured in round 75: three literals (`12px`) in the whole sheet, all in .hint/.error/mono
+    // chip; they are tokens now, so the rule holds with no exemptions.
+    const css = builtCss();
+    const literal = [...valuesOf(css, "font-size"), ...valuesOf(css, "font")].filter(
+      (v) => !/var\(--fs-/.test(v) && /\d/.test(v),
+    );
+    expect(
+      literal,
+      "a font size written as a number cannot follow its token; use var(--fs-*)",
+    ).toEqual([]);
+  });
+
+  // AND THE LINE-HEIGHTS, measured while I was here (round 75): twelve rules use `line-height: 1`
+  // and the rest use 1.45 / 1.5 / 1.55 / 1.6 — five values inside a 0.15 band, i.e. differences of
+  // under a pixel at the sizes they apply to. A scale here would be churn with no visible effect,
+  // so there is deliberately none. Recorded because "why is this not consistent?" is the question
+  // this file exists to answer.
 });

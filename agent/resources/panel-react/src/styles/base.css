@@ -119,19 +119,19 @@ code {
   padding: 1px 6px;
   border-radius: var(--radius-xs);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .muted {
   color: var(--muted);
 }
 .hint {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 .error {
   color: var(--danger-on-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* ── HIDDEN TEXT, ONE NAME ──────────────────────────────────────────────────────

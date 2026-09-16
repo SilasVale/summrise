@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
-  font: 600 13px var(--font);
+  font: 600 var(--fs-base) var(--font);
   padding: 6px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line-strong);
@@ -451,7 +451,7 @@
   border: none;
   background: transparent;
   color: var(--chrome-ink-dim);
-  font: 600 11px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   line-height: 1;
   padding: 5px 10px;
   border-radius: var(--radius-pill);
@@ -474,7 +474,7 @@
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
   background: var(--surface);
-  font: 600 11px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   line-height: 1;
   cursor: pointer;
   color: var(--chrome-ink-dim);
@@ -519,13 +519,13 @@
   border: none;
   background: none;
   outline: none;
-  font: 12px var(--font);
+  font: var(--fs-sm) var(--font);
   color: var(--ink);
   padding: 3px 2px;
 }
 .goal-save, .goal-clear {
   flex: none;
-  font: 600 11px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   padding: 3px 9px;
   border-radius: var(--radius-pill);
   cursor: pointer;
@@ -628,7 +628,7 @@
    reader who cannot separate the two colours. */
 .path-plan-step.open { border-style: dashed; }
 .path-plan-n {
-  font: 600 10px var(--font-mono);
+  font: 600 var(--fs-2xs) var(--font-mono);
   color: var(--chrome-ink);
 }
 .path-plan-text { overflow-wrap: anywhere; }
@@ -636,7 +636,7 @@
    that measured 4.40 and was fixed for the count chips last round. Reintroduced
    here from habit, and caught by measuring rather than by remembering. */
 .path-plan-count {
-  font: 600 10px var(--font-mono);
+  font: 600 var(--fs-2xs) var(--font-mono);
   color: var(--chrome-ink-dim);
 }
 .path-plan-count[data-zero="yes"] { color: var(--danger-on-soft); }
@@ -646,7 +646,7 @@
    nothing — it only says some work was handed off and is still going. */
 .path-summary-bg {
   margin-left: 6px;
-  font: 400 11px var(--font);
+  font: 400 var(--fs-xs) var(--font);
   color: var(--chrome-ink-dim);
 }
 .path-plan-offplan {
@@ -654,7 +654,7 @@
   gap: var(--sp-2);
   align-items: baseline;
   margin: 6px 0 0;
-  font: 400 11px var(--font);
+  font: 400 var(--fs-xs) var(--font);
   color: var(--danger-on-soft);
 }
 
@@ -692,7 +692,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  font: 600 11px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   line-height: 1;
   padding: 5px 10px;
   border-radius: var(--radius-pill);
@@ -750,7 +750,7 @@
 }
 .approval-left {
   margin-left: auto;
-  font: 600 11px var(--font-mono);
+  font: 600 var(--fs-xs) var(--font-mono);
   color: var(--warn-ink);
 }
 .approval-left.urgent { color: var(--danger-on-soft); }
@@ -833,7 +833,7 @@
 /* --chrome-ink-dim, not --muted: this word is WHAT RUNS UNSKED, and --muted on
    the chip surface measured 4.31 in light — under AA for an 11px mono label. */
 .approval-grant code {
-  font: 11px var(--font-mono);
+  font: var(--fs-xs) var(--font-mono);
   color: var(--chrome-ink-dim);
 }
 /* The revoke control is an ACTION, not decoration: it takes a permission away.
@@ -843,7 +843,7 @@
   border: none;
   background: none;
   cursor: pointer;
-  font: 600 12px var(--font);
+  font: 600 var(--fs-sm) var(--font);
   line-height: 1;
   padding: 2px 4px;
   border-radius: var(--radius-pill);
@@ -888,7 +888,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  font: 600 11px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   line-height: 1;
   padding: 5px 10px;
   border-radius: var(--radius-pill);
@@ -1037,7 +1037,7 @@
    card still separates "replaced by an update" from "crashed". */
 .restart-summary {
   margin: 4px 0 8px;
-  font: 400 12px var(--font);
+  font: 400 var(--fs-sm) var(--font);
   color: var(--chrome-ink);
 }
 .restart-summary.has-crashes { color: var(--danger-on-soft); }
@@ -1055,7 +1055,7 @@
   align-items: baseline;
   padding: 3px 0 3px 8px;
   border-left: 2px solid var(--surface-chip);
-  font: 400 12px var(--font-mono);
+  font: 400 var(--fs-sm) var(--font-mono);
   color: var(--chrome-ink);
 }
 /* A crash is marked by the BAR, not only by the ink — see the block comment. */
@@ -1097,7 +1097,7 @@
    printed beside it, and the ink for a series is the same family the dial uses. */
 .health-verdict {
   margin: 4px 0 10px;
-  font: 400 12px var(--font);
+  font: 400 var(--fs-sm) var(--font);
   color: var(--chrome-ink);
 }
 .health-verdict.is-load { color: var(--danger-on-soft); }
@@ -1111,7 +1111,7 @@
 .health-series-name {
   flex: none;
   width: 34px;
-  font: 400 11px var(--font-mono);
+  font: 400 var(--fs-xs) var(--font-mono);
   color: var(--chrome-ink-dim);
 }
 .spark { flex: none; display: inline-flex; align-items: center; }
@@ -1123,12 +1123,12 @@
   stroke-linejoin: round;
 }
 .health-series[data-series="mem"] .spark-line { stroke: var(--chrome-ink-dim); }
-.spark-empty .spark-none { font: 400 11px var(--font); color: var(--chrome-ink-dim); }
+.spark-empty .spark-none { font: 400 var(--fs-xs) var(--font); color: var(--chrome-ink-dim); }
 .health-series-stats {
   display: flex;
   gap: var(--sp-2);
   min-width: 0;
-  font: 400 11px var(--font-mono);
+  font: 400 var(--fs-xs) var(--font-mono);
   color: var(--chrome-ink-dim);
 }
 .health-stat-total { margin-left: auto; }
@@ -1144,14 +1144,14 @@
   gap: var(--sp-2);
   align-items: baseline;
   margin: 4px 0 8px;
-  font: 400 12px var(--font-mono);
+  font: 400 var(--fs-sm) var(--font-mono);
   color: var(--chrome-ink);
 }
 .update-latest[data-available="yes"] { color: var(--danger-on-soft); }
 .update-latest[data-available="no"] { color: var(--chrome-ink-dim); }
 .update-warn {
   margin: 6px 0;
-  font: 400 12px var(--font);
+  font: 400 var(--fs-sm) var(--font);
   color: var(--chrome-ink);
 }
 /* A pin and a busy marker are not faults; an unreachable channel is not a fault
@@ -1171,7 +1171,7 @@
 .update-note { font-size: var(--fs-sm); }
 .update-state {
   margin: 8px 0 0;
-  font: 400 12px var(--font-mono);
+  font: 400 var(--fs-sm) var(--font-mono);
   color: var(--chrome-ink-dim);
 }
 .update-state.is-error { color: var(--danger-on-soft); }
@@ -1198,14 +1198,14 @@
 .monitor-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--chrome-ink-dim); }
 .monitor-dot.up { background: var(--state-ok); }
 .monitor-dot.down { background: var(--state-warn); border-radius: var(--radius-xs); transform: rotate(45deg); }
-.monitor-name { font: 400 12px var(--font-mono); color: var(--chrome-ink); }
-.monitor-state { font: 400 12px var(--font); color: var(--chrome-ink-dim); }
+.monitor-name { font: 400 var(--fs-sm) var(--font-mono); color: var(--chrome-ink); }
+.monitor-state { font: 400 var(--fs-sm) var(--font); color: var(--chrome-ink-dim); }
 .monitor-state.up { color: var(--state-ok); }
 .monitor-state.down { color: var(--danger-on-soft); }
 .monitor-btn { margin-left: auto; }
 .monitor-btn + .monitor-btn { margin-left: 0; }
 .monitor-body { display: flex; align-items: center; gap: var(--sp-2); }
-.monitor-facts { display: flex; gap: var(--sp-2); font: 400 11px var(--font-mono); color: var(--chrome-ink-dim); }
+.monitor-facts { display: flex; gap: var(--sp-2); font: 400 var(--fs-xs) var(--font-mono); color: var(--chrome-ink-dim); }
 .monitor-fact-down { color: var(--danger-on-soft); }
 /* WRAPS AT NARROW WIDTHS. The row holds five controls (host, port, optional path, optional expected
    text, watch) and none of them can shrink below a usable input width, so at a 720px viewport it
@@ -1217,7 +1217,7 @@
    about one service, and hiding the number would make the verdict unfalsifiable. A 5xx is the
    only case that gets the warn ink, because that is the one the verdict already calls down. */
 .monitor-status {
-  font: 400 11px var(--font-mono);
+  font: 400 var(--fs-xs) var(--font-mono);
   padding: 0 6px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
@@ -1230,10 +1230,10 @@
   border-radius: var(--radius-xs);
   background: var(--chrome-bg-2);
   color: var(--chrome-ink);
-  font: 400 12px var(--font-mono);
+  font: 400 var(--fs-sm) var(--font-mono);
 }
 .monitor-port { width: 64px; }
-.monitor-error { margin: 6px 0 0; font: 400 12px var(--font); color: var(--danger-on-soft); }
+.monitor-error { margin: 6px 0 0; font: 400 var(--fs-sm) var(--font); color: var(--danger-on-soft); }
 /* The strip chip: a diamond mark, its own silhouette beside the waiting chip's square
    and the boot chip's triangle. */
 .monitor-chip {
@@ -1269,7 +1269,7 @@
    "never asked" and "refused permanently" is the whole point of the row. */
 .notify-row { display: flex; align-items: center; gap: var(--sp-2); margin: 6px 0; flex-wrap: wrap; }
 .notify-state {
-  font: 400 11px var(--font-mono);
+  font: 400 var(--fs-xs) var(--font-mono);
   padding: 1px 7px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
@@ -1307,7 +1307,7 @@
 .monitor-alert .monitor-mark.is-up { background: transparent; border: 1.5px solid var(--state-ok); }
 /* The outage log inside a target's row: the chart's facts, in words with clock times. */
 .monitor-log { margin: 2px 0 0; padding: 0 0 0 2px; list-style: none; display: flex; flex-direction: column; gap: var(--sp-0-5); }
-.monitor-log li { display: flex; gap: var(--sp-2); font: 400 11px var(--font-mono); color: var(--chrome-ink-dim); }
+.monitor-log li { display: flex; gap: var(--sp-2); font: 400 var(--fs-xs) var(--font-mono); color: var(--chrome-ink-dim); }
 .monitor-log li.is-down .monitor-log-what { color: var(--danger-on-soft); }
 .monitor-log-time { color: var(--chrome-ink); opacity: 0.75; }
 
@@ -1382,14 +1382,14 @@
 .modal-card input, .modal-card select {
   width: 100%; padding: 8px 12px;
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
-  font: 13px var(--font-mono); box-sizing: border-box; background: var(--surface);
+  font: var(--fs-base) var(--font-mono); box-sizing: border-box; background: var(--surface);
   outline: none;
 }
 .modal-card input:focus, .modal-card select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring-soft); }
 .modal-actions { display: flex; gap: var(--sp-2); margin-top: 18px; }
 .modal-actions button {
   flex: 1; padding: 8px 0; border-radius: var(--radius-sm);
-  font: 600 13px var(--font); cursor: pointer; border: 1px solid var(--line-strong);
+  font: 600 var(--fs-base) var(--font); cursor: pointer; border: 1px solid var(--line-strong);
   background: var(--surface); color: var(--muted);
 }
 .modal-actions button:hover { color: var(--ink); border-color: var(--faint); }
@@ -1458,7 +1458,7 @@
 .cmd-name {
   flex: 1;
   min-width: 0;
-  font: 12px var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1533,7 +1533,7 @@
   padding: 8px 10px;
   border-top: 1px solid var(--line);
   background: var(--surface-recessed);
-  font: 11px/1.5 var(--font-mono);
+  font: var(--fs-xs)/1.5 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 140px;
@@ -1631,7 +1631,7 @@
 }
 .details-cmd {
   margin: 0;
-  font: 12px/1.5 var(--font-mono);
+  font: var(--fs-sm)/1.5 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1670,7 +1670,7 @@
   border-radius: var(--radius-sm2);
   background: var(--surface-recessed);
   padding: 8px 10px;
-  font: 11px/1.6 var(--font-mono);
+  font: var(--fs-xs)/1.6 var(--font-mono);
 }
 .details-json-row { display: flex; gap: var(--sp-2); }
 .details-json-key { flex: none; color: var(--accent-on-soft); }
@@ -1681,7 +1681,7 @@
   border-radius: var(--radius-sm2);
   background: var(--surface-recessed);
   padding: 8px 10px;
-  font: 11px/1.5 var(--font-mono);
+  font: var(--fs-xs)/1.5 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 340px;
@@ -1717,7 +1717,7 @@
   flex: 1;
   max-width: 240px;
   margin-left: auto;
-  font: 12px var(--font);
+  font: var(--fs-sm) var(--font);
   color: var(--ink);
   background: var(--surface-recessed);
   border: 1px solid var(--line-strong);
@@ -1794,7 +1794,7 @@
 .traj-round-cmd {
   flex: 1;
   min-width: 0;
-  font: 12px var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1863,12 +1863,12 @@
 .traj-ev-content { min-width: 0; padding: 1px 0 6px; }
 .traj-ev-out {
   margin: 0;
-  font: 11px/1.5 var(--font-mono);
+  font: var(--fs-xs)/1.5 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .traj-ev-end { font-size: var(--fs-xs); color: var(--muted); }
-.traj-ev-code { font: 600 11px var(--font-mono); }
+.traj-ev-code { font: 600 var(--fs-xs) var(--font-mono); }
 .traj-ev-code[data-state="ok"] { color: var(--accent-on-soft); }
 .traj-ev-code[data-state="fail"] { color: var(--danger-on-soft); }
 
@@ -1883,7 +1883,7 @@
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
   background: var(--surface-chip);
-  font: 600 11px var(--font);
+  font: 600 var(--fs-xs) var(--font);
   color: var(--chrome-ink-dim);
 }
 .traj-ev-gov[data-action="armed"], .traj-ev-gov[data-action="disarmed"] {
@@ -1902,7 +1902,7 @@
 /* The SUBJECT — the command decided or the word granted. Mono, because it is
    literal text the operator may need to match against a command. */
 .traj-ev-gov-sub {
-  font: 11px var(--font-mono);
+  font: var(--fs-xs) var(--font-mono);
   color: var(--chrome-ink);
   overflow-wrap: anywhere;
 }
@@ -2112,7 +2112,7 @@
 }
 .plug-log-line {
   margin: 0;
-  font: 11px/1.6 var(--font-mono);
+  font: var(--fs-xs)/1.6 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--ink);
@@ -2662,7 +2662,7 @@
 .connect-fam-label { flex: none; width: 84px; color: var(--ink); font-weight: var(--fw-semi); }
 .connect-fam-n {
   flex: none; min-width: 24px; text-align: right;
-  font: 600 12px var(--font-mono); color: var(--accent-on-soft);
+  font: 600 var(--fs-sm) var(--font-mono); color: var(--accent-on-soft);
 }
 .connect-fam-blurb { color: var(--muted); }
 .connect-tabs { display: flex; gap: var(--sp-1); margin-bottom: 9px; flex-wrap: wrap; }
@@ -2864,7 +2864,7 @@
 }
 .path-recipe-input {
   width: 100%; box-sizing: border-box;
-  font: 12px var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
   padding: 5px 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm2);
@@ -2973,7 +2973,7 @@
 
 .run-row-label { font-size: var(--fs-sm); font-weight: var(--fw-semi); color: var(--ink); overflow-wrap: anywhere; }
 /* The raw id IS the name of an unregistered run — the only true one it has. */
-.run-row-id { font: 11px var(--font-mono); color: var(--warn-ink); overflow-wrap: anywhere; }
+.run-row-id { font: var(--fs-xs) var(--font-mono); color: var(--warn-ink); overflow-wrap: anywhere; }
 /* An explicit marker, never a blank: a blank reads as a label that failed to
    load, which is a claim about the data that is not true. */
 .run-row-unlabeled { font-size: var(--fs-sm); font-style: italic; color: var(--muted); }
@@ -3117,7 +3117,7 @@
 .activity-row-ts { color: var(--muted); }
 
 .activity-row-what {
-  margin: 3px 0 0; font: 12px var(--font-mono); color: var(--ink);
+  margin: 3px 0 0; font: var(--fs-sm) var(--font-mono); color: var(--ink);
   overflow-wrap: anywhere; white-space: pre-wrap;
 }
 .activity-row-kindnote { margin: 3px 0 0; font-size: var(--fs-sm); color: var(--muted); }
@@ -3196,7 +3196,7 @@
   outline: none;
   background: transparent;
   color: var(--chrome-ink);
-  font: 12px var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
 }
 .term-searchbar button, .term-fontbar button {
   border: none;
@@ -3306,7 +3306,7 @@
   margin-bottom: 6px;
 }
 .app-crash-card h1 { font-size: var(--fs-xl); margin: 0 0 4px; font-weight: var(--fw-semi); }
-.app-crash-card .btn { margin-top: 10px; background: var(--accent); color: #fff; border: none; padding: 8px 22px; border-radius: var(--radius-sm); font: 600 13px var(--font); cursor: pointer; }
+.app-crash-card .btn { margin-top: 10px; background: var(--accent); color: #fff; border: none; padding: 8px 22px; border-radius: var(--radius-sm); font: 600 var(--fs-base) var(--font); cursor: pointer; }
 .app-crash-card .btn:hover { background: var(--accent-ink); }
 
 /* ── round-161 shell layout: status bar is a BOTTOM bar ── */
@@ -3333,7 +3333,7 @@
   border: 1px solid var(--accent);
   border-radius: var(--radius-xs);
   padding: 2px 6px;
-  font: 12px var(--font);
+  font: var(--fs-sm) var(--font);
   color: var(--ink);
   background: var(--surface);
   outline: none;
@@ -3653,7 +3653,7 @@ button.dtab-close:hover { opacity: 1; }
 }
 .archive-back:hover { text-decoration: underline; }
 .archive-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.archive-trail-sid { font: 12px var(--font-mono); font-weight: var(--fw-semi); color: var(--ink); }
+.archive-trail-sid { font: var(--fs-sm) var(--font-mono); font-weight: var(--fw-semi); color: var(--ink); }
 .archive-trail-when { margin-left: auto; font: var(--fs-2xs) var(--font-mono); color: var(--muted); }
 .archive-trail-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
@@ -3663,7 +3663,7 @@ button.dtab-close:hover { opacity: 1; }
    launched" from "nothing arrived" without resolving a hue. */
 .device-logs-verdict {
   margin: 4px 0 8px;
-  font: 400 12px var(--font);
+  font: 400 var(--fs-sm) var(--font);
   color: var(--chrome-ink);
 }
 .device-logs-verdict-ok { color: var(--state-ok); }
@@ -3671,11 +3671,11 @@ button.dtab-close:hover { opacity: 1; }
 .device-logs-verdict-quiet { color: var(--chrome-ink-dim); }
 .device-logs-receipt {
   margin: 0 0 8px;
-  font: 400 11px var(--font-mono);
+  font: 400 var(--fs-xs) var(--font-mono);
   color: var(--chrome-ink-dim);
   overflow-wrap: anywhere;
 }
-.device-logs-dir { font: 400 11px var(--font-mono); overflow-wrap: anywhere; }
+.device-logs-dir { font: 400 var(--fs-xs) var(--font-mono); overflow-wrap: anywhere; }
 .device-logs-list { display: flex; flex-direction: column; gap: var(--sp-1); }
 .device-logs-toggle {
   display: flex;
@@ -3687,11 +3687,11 @@ button.dtab-close:hover { opacity: 1; }
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--chrome-ink);
-  font: 400 12px var(--font-mono);
+  font: 400 var(--fs-sm) var(--font-mono);
   text-align: left;
   cursor: pointer;
 }
-.device-logs-absent { font: 400 11px var(--font); color: var(--chrome-ink-dim); }
+.device-logs-absent { font: 400 var(--fs-xs) var(--font); color: var(--chrome-ink-dim); }
 .device-logs-tail {
   max-height: 260px;
   margin: 4px 0 0;
@@ -3700,7 +3700,7 @@ button.dtab-close:hover { opacity: 1; }
   border-radius: var(--radius-xs);
   background: var(--surface-chip);
   color: var(--chrome-ink);
-  font: 400 11px var(--font-mono);
+  font: 400 var(--fs-xs) var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3713,7 +3713,7 @@ button.dtab-close:hover { opacity: 1; }
   padding: 6px 8px;
   border: 1px dashed var(--surface-chip);
   border-radius: var(--radius-xs);
-  font: 400 11px var(--font);
+  font: 400 var(--fs-xs) var(--font);
   color: var(--chrome-ink-dim);
 }
 
@@ -3725,10 +3725,10 @@ button.dtab-close:hover { opacity: 1; }
   gap: var(--sp-2);
   align-items: baseline;
   margin: 2px 0 0;
-  font: 400 10px var(--font);
+  font: 400 var(--fs-2xs) var(--font);
   color: var(--chrome-ink-dim);
 }
-.path-step-run-id { font: 400 10px var(--font-mono); overflow-wrap: anywhere; }
+.path-step-run-id { font: 400 var(--fs-2xs) var(--font-mono); overflow-wrap: anywhere; }
 
 /* A trail that could not be read is NOT an empty one. The tone is the fail
    family's, muted rather than alarming: it asks the operator to retry, not to
@@ -3740,7 +3740,7 @@ button.dtab-close:hover { opacity: 1; }
    never rendered, which left every failure without a visible reason. */
 .browser-action-detail {
   margin: 2px 0 4px;
-  font: 11px var(--font-mono);
+  font: var(--fs-xs) var(--font-mono);
   color: var(--state-fail);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -3839,7 +3839,7 @@ button.dtab-close:hover { opacity: 1; }
 }
 .gs-body { min-width: 0; padding-top: 1px; }
 .gs-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
-.gs-line h3 { margin: 0; font: 600 14px/1.3 var(--font); color: var(--ink); }
+.gs-line h3 { margin: 0; font: 600 var(--fs-md)/1.3 var(--font); color: var(--ink); }
 /* The chip is the ACTION: click it and you are on that page. Where it cannot navigate it is a
    plain label, not a button that does nothing. */
 .gs-where {
@@ -3850,7 +3850,7 @@ button.dtab-close:hover { opacity: 1; }
   border: 1px solid var(--chrome-line);
   border-radius: var(--radius-pill);
   background: none;
-  font: 600 11px/1.6 var(--font);
+  font: 600 var(--fs-xs)/1.6 var(--font);
   color: var(--chrome-ink-dim);
   cursor: pointer;
 }
@@ -3859,7 +3859,7 @@ button.dtab-close:hover { opacity: 1; }
 .gs-where.static { cursor: default; }
 /* Points RIGHT: the chip NAVIGATES, and the first version rotated the glyph to point up, which reads as a collapse control rather than "go there" (seen in the card's own screenshot). */
 .gs-where svg { width: 11px; height: 11px; }
-.gs-body p { margin: 4px 0 0; font: 400 13px/1.55 var(--font); color: var(--chrome-ink-dim); max-width: 56ch; }
+.gs-body p { margin: 4px 0 0; font: 400 var(--fs-base)/1.55 var(--font); color: var(--chrome-ink-dim); max-width: 56ch; }
 /* The exact thing to type, set apart: monospace, on a recessed surface, never bolded into prose. */
 /* A CLICK path, in prose: deliberately NOT the mono command style, because nothing here can be
    typed. */
@@ -3876,7 +3876,7 @@ button.dtab-close:hover { opacity: 1; }
      apply — the token contract flags that as a dead fallback, and it describes a design that is
      gone. (Written as an EXAMPLE of the pattern first, which the CSS builder reads as a real
      reference to an undefined variable and refuses: the gate was right.) */
-  font: 500 12px/1.6 var(--font-mono);
+  font: 500 var(--fs-sm)/1.6 var(--font-mono);
   color: var(--ink);
 }
 
