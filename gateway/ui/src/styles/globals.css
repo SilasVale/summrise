@@ -550,7 +550,14 @@ pre code {
   height: 36px;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(135deg, #f59f00 0%, #e8590c 100%);
+  /* BOTH STOPS MOVED, AND THE MEASUREMENT SAYS WHY. The console's first design measurement (round
+     55) put white on the old amber gradient at **2.13** against its brightest stop. Darkening only
+     the INK does not work either: #4a2a00 clears the bright stop and measures 3.62 on the darker one
+     — no single ink clears a pair that straddles the middle. So the gradient moved into the range
+     where white is legible on every stop: #c2410c (5.18) → #9a3412 (7.31). The disc is a deeper
+     orange and the letter is readable, which is the trade the numbers chose.
+     `test/gradient-text-contrast.test.mjs` checks EVERY stop, so a future tweak to one end fails. */
+  background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
   color: #fff;
   font: 700 13px var(--ds-font-family);
   display: grid;
