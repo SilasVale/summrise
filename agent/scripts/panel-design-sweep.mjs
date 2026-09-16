@@ -341,13 +341,27 @@ ${TIMING}
   // the stylesheet cannot answer this — a media query adds no specificity, so the answer depends on
   // cascade order, selector scope and xterm's runtime-injected sheet.
   for (const [density, path_] of wants("motion") ? [['panel', '/panel/'], ['desktop', '/desktop/']] : []) {
-    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize(density === 'panel' ? { width: 1280, height: 860 } : { width: 1440, height: 900 });
+    // MEASURE IT TWICE, because "nothing animates under reduce" is only evidence if SOMETHING animates
+    // without it. The old report carried one number, so a page with no transitions at all and a page
+    // whose transitions were correctly suppressed both read as "animating: []" — the same vacuity this
+    // suite keeps finding in its own checks. Normal first, then the same page with the preference set.
+    await page.emulateMedia({ reducedMotion: null });
     await page.goto('http://vale.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1600);
-    report.motion.push({ density, ...(await page.evaluate(MOTION)) });
+    const normal = await page.evaluate(MOTION);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1200);
+    const reduced = await page.evaluate(MOTION);
+    report.motion.push({
+      density,
+      normal: normal.animating.length,
+      reduced: reduced.animating.length,
+      stillAnimating: reduced.animating.slice(0, 6),
+    });
   }
   await page.emulateMedia({ reducedMotion: null });
 

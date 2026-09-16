@@ -186,8 +186,19 @@ export function judgeReport(report, opts = {}) {
   // cascade order, then selector scope, then specificity, then an id, because xterm.js injects its
   // stylesheet at runtime and no equal-specificity rule of ours can win.
   for (const m of report.motion || []) {
-    if (m.animating && m.animating.length) {
-      findings.push(`reduced motion (${m.density || "?"}): ${m.animating.length} element(s) still animate — ${m.animating.slice(0, 3).join("; ")}`);
+    // BOTH SHAPES: `animating` is the older single-number row, `stillAnimating` the newer one.
+    const still = m.stillAnimating || m.animating || [];
+    if (still.length) {
+      findings.push(`reduced motion (${m.density || "?"}): ${still.length} element(s) still animate — ${still.slice(0, 3).join("; ")}`);
+    }
+    // A CHECK THAT FOUND NOTHING TO SUPPRESS PROVES NOTHING. Round 134 added the second measurement: if
+    // nothing animates WITHOUT the preference either, then "nothing animates under reduce" says nothing
+    // about the rule — the page has no motion to honour, or the probe matched nothing at all.
+    if (typeof m.normal === "number" && m.normal === 0) {
+      findings.push(
+        `reduced motion (${m.density || "?"}): 0 elements animate WITHOUT the preference, so this result ` +
+          `proves nothing about prefers-reduced-motion — the check found nothing to suppress`,
+      );
     }
   }
   // HOVER IS A STATE, and until round 84 neither instrument looked at it: the static pair sweep reads
