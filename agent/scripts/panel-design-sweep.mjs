@@ -70,6 +70,17 @@
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
 //
+//   * THE TWO 1.16 tab-dot ROWS ARE AN INSTRUMENT ARTIFACT, ESTABLISHED BY REPRODUCTION (round 143).
+//     Round 142's fresh 2012-row sweep returned three findings: two `span.tab-dot` rows at 1.16 in the
+//     panel/dark density, `paint rgb(217,72,15) (background)` against the active tab's `rgb(198,67,16)`,
+//     and one more. THE PAGE IS RIGHT: three separate renders of that exact state — the sweep's own
+//     `?theme=dark&mode=idle&sessions=4` at both 1500ms and 2500ms — show the active dot carrying its ring,
+//     `rgb(255, 255, 255) 0px 0px 0px 1px`, and an active tab present. So the row was captured in a state
+//     the page does not reach at any timing I can reproduce.
+//     WHAT TO DO IF IT RECURS: the row already carries `paint` and `surface` (which is why the no-ring
+//     state is provable at all), but not WHETHER the element was inside `.active` when it was captured.
+//     That field is the next step, and I tried to add it here and gave up after three failed edits to the
+//     emitted-template escaping — the fix is a context field on the graphics row, not another reproduction.
 //   * THE WHOLE PAGE SWEEP, ON A HARNESS THAT FINALLY HAS CONTENT (round 120). Six pages — Terminal,
 //     History, Browser, Memory, Plugins, Settings — 48 surfaces, 1796 text nodes, 48 name checks, and
 //     the judge returns ZERO findings with ZERO unmeasurable rows. The two div.tabrow overflow items are
