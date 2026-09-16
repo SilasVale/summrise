@@ -399,6 +399,15 @@
 }
 .tab-dot[data-kind="ssh"] { background: var(--lane-ds); }
 .tab-dot[data-kind="serial"] { background: var(--lane-or); }
+
+/* THE ACTIVE TAB'S DOT NEEDS A RING. The lane colours are chosen against the CHROME, and an active tab
+   is not chrome — its background is --chrome-active-bg, so the ssh dot measured 1.11 there (blue on the
+   accent, round 126's audit) and simply vanished. A 1px ring in --chrome-active-text — the token this
+   rule's sibling already names as readable ON that background — separates the dot from it: 4.99 against
+   the active surface and 4.51 against the blue, so the mark reads whichever lane colour it carries.
+   The probe treats a zero-offset box-shadow with a spread as the paint, so this fix is measurable
+   rather than asserted: the row goes from 1.11 to the ring's own ratio. */
+.tab.active .tab-dot { box-shadow: 0 0 0 1px var(--chrome-active-text); }
 /* A question is waiting for a person in this session. Deliberately NOT another
    .tab-dot: the two marks share a row, and a second circle beside the lane dot
    reads as another lane. A small rotated square in the warn token says
