@@ -135,11 +135,20 @@ function buildHarness() {
   // served properly; anything fed by a push is not. window.__calls records what the app requested, and
   // reading it is the fastest way to tell the two apart: 4 calls now reach the stub, where the count was
   // 0 while the fetch header was missing.
-  var SESSIONS = [
-    Object.assign({}, SESSION, { id: 'term-audit-0' }),
-    Object.assign({}, SESSION, { id: 'term-audit-1', label: 'serial:COM4', kind: 'serial', held_by_human: false, pending_approval: null, approval_required: false }),
-    Object.assign({}, SESSION, { id: 'term-audit-2', label: 'stc@192.168.1.1', kind: 'ssh', held_by_human: false, pending_approval: null }),
+  // ?sessions=N — and ZERO IS THE POINT. This list was a fixed three, so the panel's EMPTY state (a fresh
+  // install, a device with nothing open) could not be rendered at all, and therefore had never been
+  // measured by anything. That is the same shape as rounds 148-149's findings: a real state no sweep
+  // visits. The three seeds below reproduce the old list exactly when no parameter is given.
+  var liveCount = P.has('sessions') ? Math.max(0, parseInt(P.get('sessions'), 10) || 0) : 3;
+  var SESSION_SEEDS = [
+    {},
+    { label: 'serial:COM4', kind: 'serial', held_by_human: false, pending_approval: null, approval_required: false },
+    { label: 'stc@192.168.1.1', kind: 'ssh', held_by_human: false, pending_approval: null },
   ];
+  var SESSIONS = [];
+  for (var si = 0; si < liveCount; si++) {
+    SESSIONS.push(Object.assign({}, SESSION, SESSION_SEEDS[si % 3], { id: 'term-audit-' + si }));
+  }
   // RESTORED WITH THE HEADER (round 115): the same round-112 edit that deleted the fetch function's
   // opening also deleted these two lines, so the header referenced an undeclared FAIL and the counter
   // every measurement reads was never created. The emitted stub threw "FAIL is not defined" on the
@@ -252,7 +261,7 @@ function buildHarness() {
   // OLDEST FIRST with ts_ms in milliseconds, and boot records NEWEST FIRST with the kind vocabulary.
   if (u.indexOf('/api/status') >= 0) {
     return Promise.resolve(J({
-      ok: true, version: '1.2.433', port: 18080, uptime_secs: 5412, live_sessions: 3, serial_ports: ['COM4'],
+      ok: true, version: '1.2.433', port: 18080, uptime_secs: 5412, live_sessions: liveCount, serial_ports: ['COM4'],
       release: '1.2.433', cpu_pct: 12.5, mem_pct: 41.7, mem_total_mb: 16384, pending_approvals: 1,
       last_boot: '2026-09-13 04:12:03 +08:00 - unexpected exit', last_boot_kind: 'crashed',
     }));
