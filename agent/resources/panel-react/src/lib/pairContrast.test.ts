@@ -288,6 +288,14 @@ describe("colour pairs declared in one rule", () => {
       ['.cmd-dot[data-state="warn"]', "--chrome-bg-2"],
       [".side-dot", "--chrome-bg-2"],
       [".tab-dot", "--chrome-bg-2"],
+      // AND THE ONES THE FIRST LIST MISSED. Rounds 126-127 fixed ten rules; this guard started with
+      // seven, so three of the fixes it exists to protect were not protected by it. Found by comparing
+      // the list against the sheet rather than by trusting the list.
+      ['.desktop-rail-status[data-state="waiting"] .dot', "--chrome-bg-2"],
+      [".tab-wait", "--chrome-bg-2"],
+      [".monitor-alert .monitor-mark", "--surface-chip"],
+      ['#approval-arm .ag-dot[data-state="armed"]', "--surface"],
+      [".monitor-dot.down", "--surface-chip"],
     ];
     // A FILL token is not a mark's colour. These are the ones that measured 2.53-2.96 on the dark
     // chrome before rounds 126-127; --warn-ink and --accent-ink are the tokens meant for graphics.
