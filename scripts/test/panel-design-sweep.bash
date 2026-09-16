@@ -148,7 +148,7 @@ if node "$CONSOLE" --judge "$TMP/console-clean.json" >/dev/null 2>&1; then
 else
   bad "a clean console report was rejected"
 fi
-for axis in contrast name geometry; do
+for axis in contrast name geometry focus; do
   python3 - "$TMP/console-clean.json" "$TMP/console-$axis.json" "$axis" <<'PY2'
 import json, sys
 src, dst, which = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -156,6 +156,7 @@ r = json.load(open(src))
 if which == "contrast": r["rows"][0]["cr"] = 2.1
 elif which == "name": r["names"][0]["unnamed"] = ["input.form-input"]
 elif which == "geometry": r["surfaces"][0]["over"] = ["div.card 100<200"]
+elif which == "focus": r["focus"] = [{"page": "devices", "missing": 2}]
 json.dump(r, open(dst, "w"))
 PY2
   if node "$CONSOLE" --judge "$TMP/console-$axis.json" >/dev/null 2>&1; then

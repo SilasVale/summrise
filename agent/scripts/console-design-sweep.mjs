@@ -83,8 +83,14 @@ const PAGES = [
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
+  // Flipped at the end: the LOGIN page is the first thing every operator sees, and it is the one
+  // console surface that exists only when /api/me says 401 — so it needs its own pass, not a fixture.
+  const auth = { signedIn: true };
   await page.route('https://ai.saisi.online/**', (route) => {
     const p = new URL(route.request().url()).pathname;
+    if (auth.signedIn === false && p === '/api/me') {
+      return route.fulfill({ status: 401, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ type: 'error', error: { message: 'unauthorized' } }) });
+    }
     if (p.startsWith('/api/')) {
       const body = API[p] === undefined ? {} : API[p];
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(body) });
@@ -96,16 +102,49 @@ const PAGES = [
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
+  // THREE WIDTHS. 1440 is the desktop the console is built for; 900 and 720 are a laptop window and
+  // a split screen, where the panel's own sweep found a real defect (a settings row overflowing its
+  // container by 38px) that no wide-viewport pass could see.
+  const report = { rows: [], surfaces: [], names: [], focus: [] };
+  for (const width of [1440, 900, 720]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const [label, hash] of PAGES) {
+      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(1800);
+      const rows = await page.evaluate(PROBE);
+      for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
+      report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE)) });
+      if (width === 1440) {
+        report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+        // FOCUS RINGS BY REAL TAB PRESSES: inspecting the CSS of focusable elements cannot tell
+        // whether focus LANDS somewhere visible, which is why this project presses Tab instead.
+        await page.evaluate(() => document.body.focus());
+        let noRing = 0;
+        for (let i = 0; i < 16; i++) {
+          await page.keyboard.press('Tab');
+          const ok = await page.evaluate(() => {
+            const el = document.activeElement;
+            if (!el || el === document.body) return true;
+            const st = getComputedStyle(el);
+            return (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
+          });
+          if (!ok) noRing++;
+        }
+        if (noRing) report.focus.push({ page: label, missing: noRing });
+      }
+    }
+  }
+  // THE LOGIN PAGE (unauthenticated): /api/me answers 401 and the console shows its sign-in screen.
+  auth.signedIn = false;
   await page.setViewportSize({ width: 1440, height: 900 });
-  const report = { rows: [], surfaces: [], names: [] };
-  for (const [label, hash] of PAGES) {
-    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
-    await page.evaluate((h) => { location.hash = h; }, hash);
-    await page.waitForTimeout(2000);
+  await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+  await page.waitForTimeout(1800);
+  {
     const rows = await page.evaluate(PROBE);
-    for (const r of rows) report.rows.push({ ...r, page: label, density: 'console', theme: 'light' });
-    report.surfaces.push({ page: label, ...(await page.evaluate(SURFACE)) });
-    report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+    for (const r of rows) report.rows.push({ ...r, page: 'login', width: 1440, density: 'console', theme: 'light' });
+    report.surfaces.push({ page: 'login', width: 1440, ...(await page.evaluate(SURFACE)) });
+    report.names.push({ page: 'login', ...(await page.evaluate(NAMES)) });
   }
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console-sweep.json', JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
@@ -190,12 +229,22 @@ function judge(file) {
     );
   }
   for (const s of report.surfaces) {
-    if (s.h1Count !== 1 || !s.firstIsH1) findings.push(`${s.page}: h1 count ${s.h1Count}, first-is-h1 ${s.firstIsH1}`);
-    if (s.skipped) findings.push(`${s.page}: ${s.skipped} skipped heading level(s)`);
-    if (s.mains !== 1 || s.navs !== 1) findings.push(`${s.page}: ${s.mains} main, ${s.navs} nav`);
+    const where = s.width ? `${s.page}@${s.width}px` : s.page;
+    if (s.h1Count !== 1 || !s.firstIsH1) findings.push(`${where}: h1 count ${s.h1Count}, first-is-h1 ${s.firstIsH1}`);
+    if (s.skipped) findings.push(`${where}: ${s.skipped} skipped heading level(s)`);
+    // ONE MAIN EVERYWHERE; a NAV only where there is somewhere to navigate. The login gate has no
+    // navigation — demanding one there was this judge's own false positive, found the first time it
+    // measured that page. What must never happen is TWO of either (a nested main, a second rail).
+    if (s.mains !== 1) findings.push(`${where}: ${s.mains} main landmark(s), expected exactly 1`);
+    const expectNav = s.page !== "login";
+    if (expectNav && s.navs !== 1) findings.push(`${where}: ${s.navs} nav landmark(s), expected exactly 1`);
+    if (s.navs > 1) findings.push(`${where}: ${s.navs} nav landmarks — a page has one navigation`);
     for (const [kind, list] of [["overflow", s.over], ["clipping", s.clipped], ["sliver", s.slivers]]) {
-      if (list && list.length) findings.push(`${s.page}: ${kind} — ${list.join("; ")}`);
+      if (list && list.length) findings.push(`${where}: ${kind} — ${list.join("; ")}`);
     }
+  }
+  for (const f of report.focus || []) {
+    findings.push(`${f.page}: ${f.missing} Tab stop(s) with no visible focus ring`);
   }
   for (const n of report.names) {
     if (n.unnamed.length) findings.push(`${n.page}: ${n.unnamed.length} control(s) with NO accessible name — ${n.unnamed.join(", ")}`);
@@ -203,7 +252,7 @@ function judge(file) {
   }
   const blind = unmeasurable(report.rows);
   console.log(
-    `console: ${report.rows.length} text nodes · ${report.surfaces.length} pages · ${report.names.length} name checks` +
+    `console: ${report.rows.length} text nodes · ${report.surfaces.length} page/width surfaces · ${report.names.length} name checks` +
       (blind.length ? ` · ${blind.length} unmeasurable` : ""),
   );
   if (!findings.length) {
