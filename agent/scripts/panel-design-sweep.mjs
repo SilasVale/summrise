@@ -70,6 +70,17 @@
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
 //
+//   * THE "up" LABEL WAS 3.33 (round 118). With the Device area finally rendering, the probe caught
+//     `span.monitor-state.up` at 3.33 in the light theme — `--state-ok`, the sixth time a state-dot FILL
+//     token has been used as text (the flapping chip's --state-warn was the fifth). The panel already had
+//     the right token: --success-text is #1e7a33 light / #69db7c dark. Re-measured on the rendered page:
+//     5.22 light / 9.89 dark in the panel density, 5.36 / 9.39 on desktop. Its .down sibling always used
+//     a text token (--danger-on-soft, 7.27), which is why only one half of the pair ever failed.
+//   * OPEN, UNVERIFIED, do not chase blind: the same sweep reports `button.btn.btn-ghost` at 2.11-2.44
+//     in BOTH themes and densities. I have not identified which button that is or why — a ghost button is
+//     transparent, and resolving what is behind it is exactly where a contrast probe goes wrong. Find the
+//     element first (its text and its DOM position), then judge it.
+//
 //   * THE DEVICE AREA, POPULATED AT LAST (round 117). /api/status, /api/vitals/history and /api/boots
 //     were answered by the catch-all {ok:true} in every sweep this harness has ever produced, so the
 //     Device health card had only ever been measured EMPTY. With real fixtures it reads:

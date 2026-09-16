@@ -1756,7 +1756,13 @@ h3 { font-size: var(--fs-base); }
 .monitor-dot.down { background: var(--state-warn); border-radius: var(--radius-xs); transform: rotate(45deg); }
 .monitor-name { font: 400 var(--fs-sm) var(--font-mono); color: var(--chrome-ink); }
 .monitor-state { font: 400 var(--fs-sm) var(--font); color: var(--chrome-ink-dim); }
-.monitor-state.up { color: var(--state-ok); }
+/* --success-text, NOT --state-ok. `--state-ok` is the state-dot FILL: it resolves to --success
+   (#2f9e44), which measures 3.33 on the settings card in the light theme — under AA for text. This is
+   the sixth time a fill token has been used as text (the flapping chip's --state-warn was the fifth),
+   and the panel already has the right token: --success-text is #1e7a33 in light and #69db7c in dark,
+   5.02 and 9.65 on their surfaces. The .down sibling beside it always used a text token
+   (--danger-on-soft, 7.27), which is why only one half of the pair ever failed. */
+.monitor-state.up { color: var(--success-text); }
 .monitor-state.down { color: var(--danger-on-soft); }
 .monitor-btn { margin-left: auto; }
 .monitor-btn + .monitor-btn { margin-left: 0; }
