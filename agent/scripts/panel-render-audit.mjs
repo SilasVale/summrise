@@ -147,6 +147,13 @@ function buildHarness() {
   var FAIL = P.get('fail') === '1';
   window.__calls = [];
   var realFetch = window.fetch.bind(window);
+  // THE RESPONSE HELPER, which every fixture guard below calls and which the same edit deleted. Without
+  // it every guard threw "J is not defined" on the first request: the app's calls failed, the cards said
+  // "unavailable" and "reconnecting", and window.__calls still grew because the counter pushes BEFORE the
+  // guards run — which is why the count looked healthy while nothing was ever served.
+  function J(obj) {
+    return new Response(JSON.stringify(obj), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
   window.fetch = function(url, init){
     var u = String(url);
     if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
