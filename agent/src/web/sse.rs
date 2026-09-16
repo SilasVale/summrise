@@ -245,8 +245,13 @@ pub(crate) async fn sse_term_stream(state: Arc<AppState>, guard: SseConnectionGu
             serde_json::to_string(&obj).unwrap_or_default()
         )
     };
-    // Loss-tolerant stream; a lagged frame is ignored client-side (it has no
-    // session_id). Keep the connection alive.
+    // Loss-tolerant stream. The lagged frame carries NO session_id — the broadcast is cross-session —
+    // and the client does NOT ignore it: the panel marks EVERY session's rendered offset as needing a
+    // gap backfill, then uses the next frame's `start` (the true lower bound) to re-read exactly the
+    // dropped range (rounds 100 and 103 in `useSSE.ts`). This comment used to claim the frame was
+    // "ignored client-side", which was wrong, and wrong in the direction that matters: someone reading
+    // it could delete the client's recovery path as dead code. The shape here and the handling there
+    // are pinned together by `useSSE`'s tests, which feed this exact frame.
     let lagged = |_n: u64| "data: {\"v\":1,\"lagged\":true}\n\n".to_string();
 
     let (tx, mpsc_rx) = mpsc::channel::<Result<Bytes, Infallible>>(128);
