@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, focusPass } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -30,6 +30,7 @@ const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("body")}
 const focusPass = ${focusPass.toString()};
+const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 // The page's only chrome API. Fixed values: the sweep measures the PAGE, not the storage layer.
 // storage.empty is flipped by the sweep: a fresh install has NO stored values, so the page must
 // fall back to its defaults (DEFAULT_STUDIO_ORIGIN, links off) rather than rendering blanks.
@@ -49,7 +50,7 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], unstyled: [] };
   // TWO STORAGE STATES. Empty storage is the state a NEW INSTALL is in — the origin falls back to
   // DEFAULT_STUDIO_ORIGIN and the links toggle starts off — and it is a different page to look at
   // than the configured one. Measured by hand in round 63; repeated here so it stays measured.
@@ -67,6 +68,9 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
       // had no focus measurement at all — while the panel and the console both had one (and had drifted
       // from each other). One shared implementation now.
       report.focus.push(await focusPass(page, 14, { page: empty ? 'options-fresh' : 'options', width }));
+      // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a prune causes. The third UI had no
+      // such check while the panel and console both did; same shared collector, embedded the same way.
+      report.unstyled.push({ page: empty ? 'options-fresh' : 'options', width, ...(await page.evaluate(UNSTYLED)) });
     }
   }
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\ext-sweep.json', JSON.stringify(report));
@@ -80,7 +84,10 @@ function judge(file) {
   // The options page has no navigation in EITHER storage state, so both page names are listed —
   // the first version named only "options" and the judge failed the fresh-install pass, which is
   // exactly what an exemption that drifts out of step should do.
-  const findings = judgeReport(report, { navless: ["options", "options-fresh"] });
+  // unstyledFloor: 2 — this page is THREE controls styled by element and id selectors; its sheet defines
+  // four classes, so the judge's 100 floor would report a false alarm on every run. Two means the
+  // collector read at least something real, which is what the floor is for.
+  const findings = judgeReport(report, { navless: ["options", "options-fresh"], unstyledFloor: 2 });
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}@${r.width}px ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }

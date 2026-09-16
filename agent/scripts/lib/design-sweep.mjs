@@ -338,8 +338,12 @@ export function judgeReport(report, opts = {}) {
     // THE THRESHOLD IS THE MEASURED FAILURE, not a guess: the console's pages have 221 styled classes
     // and round 88's broken collector reported 38 — so a floor of 20 would not have caught it. 100 is
     // below every real page in either UI and above every broken read seen so far.
-    if (typeof u.styledClasses === "number" && u.styledClasses < 100) {
-      findings.push(`unstyled check on ${u.page || "?"}: only ${u.styledClasses} styled classes found — the collector read almost nothing, so its silence means nothing`);
+    // THE FLOOR IS PER-UI, because a page can be legitimately small. The extension's options page is
+    // three controls styled by element and id selectors, and its sheet defines FOUR classes — a floor of
+    // 100 would report "the collector read almost nothing" forever, which is the false alarm this
+    // parameter removes. The panel and console keep the strict default.
+    if (typeof u.styledClasses === "number" && u.styledClasses < (opts.unstyledFloor ?? 100)) {
+      findings.push(`unstyled check on ${u.page || "?"}: only ${u.styledClasses} styled classes found (floor ${opts.unstyledFloor ?? 100}) — the collector read almost nothing, so its silence means nothing`);
     }
   }
   for (const h of report.hover || []) {
