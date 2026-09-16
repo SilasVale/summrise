@@ -161,6 +161,31 @@ audit_release_asset() {
     return 1
   fi
 
+  # MODES COME FROM THE ARCHIVE LISTING, NOT FROM THE EXTRACTED FILES. `stat` on an extracted tree is
+  # what the umask can reach — even with `tar -p`, and even for DIRECTORIES — which is how this case
+  # failed on CI while passing on the machine that wrote it (twice: rounds 102 and 124). `tar tzvf`
+  # prints the mode STORED in the archive, so the environment cannot influence the reading at all.
+  # The extraction above is still used, for CONTENT.
+  # MODES COME FROM THE ARCHIVE LISTING, NOT FROM THE EXTRACTED FILES. `stat` on an extracted tree is
+  # what the umask can reach — even with `tar -p`, and even for DIRECTORIES — which is how this case
+  # failed on CI while passing on the machine that wrote it (twice: rounds 102 and 124). `tar tzvf`
+  # prints the mode STORED in the archive, so the environment cannot influence the reading at all.
+  # Built as a TEXT listing and compared with diff, the same shape as the content comparison above: an
+  # associative array fought the input (empty and dotted names gave "bad array subscript") and this is
+  # simpler besides. A listing that cannot be taken yields an empty side, and the diff below then FAILS
+  # rather than quietly matching — which is what case 3 of the suite exists to check.
+  local modes_cdn modes_gh
+  # The path is printed the way the CONTENT listing prints it ("./a.txt"), because that is what an
+  # operator diffs against — the suite checks the message names it.
+  mode_list() { tar tzvf "$1" 2>/dev/null | awk '{ m=$1; $1=$2=$3=$4=$5=""; sub(/^ +/, ""); sub(/^\.\//,""); sub(/^[^/]*\//,""); print m, "./" $0 }' | sort; }
+  modes_cdn="$(mode_list "$work/cdn.tgz")" || { echo "::error::release audit: cannot list the CDN tarball's modes" >&2; return 1; }
+  modes_gh="$(mode_list "$work/gh.tgz")"  || { echo "::error::release audit: cannot list the GitHub tarball's modes" >&2; return 1; }
+  if [[ -z "$modes_cdn" || "$modes_cdn" != "$modes_gh" ]]; then
+    echo "::error::release audit FAILED: the two tarballs' FILE MODES differ (or a listing could not be taken)" >&2
+    diff <(printf '%s\n' "$modes_cdn") <(printf '%s\n' "$modes_gh") | sed 's/^/  /' >&2
+    return 1
+  fi
+
   local f a b drifted=0 exe_cdn="" exe_gh="" mode_drift=()
   while IFS= read -r f; do
     a="$(sha256sum "$work/cdn/package/$f" | cut -d' ' -f1)"
@@ -173,12 +198,7 @@ audit_release_asset() {
     # live pair: 3 differing bytes out of 17,774,080, all of them README.md's mode
     # field plus its header checksum; every sha256 identical, the 17.5 MB exe
     # included.
-    local ma mb
-    ma="$(stat -c '%a' "$work/cdn/package/$f")"
-    mb="$(stat -c '%a' "$work/gh/package/$f")"
-    if [[ "$ma" != "$mb" ]]; then
-      mode_drift+=("$f (CDN $ma vs GH $mb)")
-    fi
+    # Modes were compared in full, above, from the archive listings.
     if [[ "$a" != "$b" ]]; then
       if [[ "$f" == "./vale-agent.exe" ]]; then
         # The one file a different toolchain legitimately changes.
