@@ -9,9 +9,20 @@
 // TWO MODES, because the browser lives on a device (the console MCP owns it) while the judging needs
 // the tested maths that lives here:
 //
-//   node agent/scripts/panel-design-sweep.mjs --emit > /tmp/sweep.js
-//     writes the complete `browser_run_script` payload; run it on the device, save the JSON.
-//   node agent/scripts/panel-design-sweep.mjs --judge <report.json>
+//   node agent/scripts/panel-design-sweep.mjs --emit --passes=pages,hover > /tmp/sweep.js
+//     writes the `browser_run_script` payload; run it on the device, save the JSON.
+//   node agent/scripts/panel-design-sweep.mjs --judge <report.json> --expect=pages,hover
+//     judges it, refusing a report that is missing any pass the caller said it wanted.
+//
+// RUN IT IN PASSES, and say which ones. The full sweep (pages, hover, motion, reflow, unstyled) grew
+// past the caller's own timeout in round 90 — which made it a check that could not complete, i.e. one
+// that would quietly stop running. `--passes` fixes that, and `--expect` is the half that matters: a
+// partial run that found nothing reads exactly like a clean full one unless the caller declares what
+// it asked for. Measured round 92: `--passes=unstyled` completes in seconds and reports 1123 styled
+// classes per density; `--passes=pages` is the heavy one (1356 rows, 48 surfaces) and completes too.
+//
+// DEFAULT IS EVERYTHING, which still exceeds the timeout — the default is for the emit to stay
+// honest, not to be run in one call.
 //     judges that report and exits non-zero on any finding.
 //
 // The harness must exist on the device first: `node agent/scripts/panel-render-audit.mjs` emits it.
