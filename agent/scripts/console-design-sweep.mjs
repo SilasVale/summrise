@@ -37,7 +37,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -46,6 +46,7 @@ function browserScript() {
 const path = require('path');
 const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
+const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 ${pageChecks("#root")}
 const now = Date.now();
 // The console's own render-smoke fixtures (gateway/ui/*-render-smoke.mjs), so the browser renders the
@@ -113,7 +114,7 @@ const auth = { signedIn: true };
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [] };
   for (const width of [1440, 900, 720]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
@@ -125,6 +126,11 @@ const auth = { signedIn: true };
       report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE)) });
       if (width === 1440) {
         report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+        // Rendered classes with no matching rule — the mirror of dead CSS, and the failure a prune
+        // causes. The browser's parsed selectors are the authority (rounds 79-80 removed 300+ lines
+        // from this sheet). The styled count travels with the list as the tripwire. (No backticks in
+        // here: this text is inside the emitted template, and the ninth stray one shut --emit down.)
+        report.unstyled.push({ page: label, ...(await page.evaluate(UNSTYLED)) });
         // HOVER, the state round 84 added for the panel — where its first run found a dark-theme
         // button at 1.94. The console has its own 24 :hover rules and a different token set, and had
         // never been measured hovering. One element per control family, at the widest viewport only,
@@ -186,7 +192,12 @@ const auth = { signedIn: true };
 
 function judge(file) {
   const report = JSON.parse(readFileSync(file, "utf8"));
-  const findings = judgeReport(report, { navless: ["login"] });
+  const findings = judgeReport(report, {
+    navless: ["login"],
+    implicitStates: {
+      "stat-off": "the Overview's default tone: the base .stat-card::before already paints the faint bar that off means",
+    },
+  });
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}${r.width ? "@" + r.width + "px" : ""} ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }

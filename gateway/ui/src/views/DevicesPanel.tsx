@@ -456,7 +456,7 @@ export default function DevicesPanel() {
             <span className="muted-small">{t("devices.regkeyHint")}</span>
             {regKeys && regKeys.length > 0 && (
               <button
-                className="btn btn-ghost btn-mini regkeys-clear"
+                className="btn btn-ghost btn-mini"
                 onClick={handleRevokeAll}
               >
                 {t("devices.revokeAll")}

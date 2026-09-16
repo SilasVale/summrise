@@ -105,6 +105,41 @@ const REFLOW = \`(() => ({
 }))()\`;
 `;
 
+/** Every class on screen that no parsed rule styles — asked of the BROWSER (CSSOM), not of the
+ *  stylesheet read as text.
+ *
+ *  WHY IT LIVES HERE AND NOT IN AN ADAPTER: round 88 wrote this inline in the console sweep's emitted
+ *  template, and on the device the pattern `/\\s+/` arrived as `/s+/` — so class names were split on
+ *  the letter "s" and the report listed "btn btn-" and "rail-clu" as unstyled, with 38 classes found
+ *  where the browser sees 221. A string that is embedded in another string needs escaping that a
+ *  template literal does not give it; `JSON.stringify` does, which is why the contrast probe has been
+ *  shipped this way all along.
+ *
+ *  `styledClasses` is returned BESIDE the list on purpose: a read that found no stylesheets proves
+ *  nothing, and a caller must be able to tell that apart from a page with nothing to report. */
+export const UNSTYLED_SOURCE = `(() => {
+  const styled = new Set();
+  const collect = (rules) => {
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      if (r.selectorText) {
+        const m = r.selectorText.match(/\\.([A-Za-z_][\\w-]*)/g);
+        if (m) for (const s of m) styled.add(s.slice(1));
+      }
+      if (r.cssRules && r.cssRules.length) collect(r.cssRules);
+    }
+  };
+  for (let i = 0; i < document.styleSheets.length; i++) {
+    try { collect(document.styleSheets[i].cssRules); } catch (e) {}
+  }
+  const unstyled = new Map();
+  for (const el of document.querySelectorAll('#root *')) {
+    const cls = typeof el.className === 'string' ? el.className : '';
+    for (const c of cls.split(/\\s+/).filter(Boolean)) if (!styled.has(c)) unstyled.set(c, el.tagName.toLowerCase());
+  }
+  return { styledClasses: styled.size, classes: [...unstyled.keys()].sort(), tags: Object.fromEntries(unstyled) };
+})()`;
+
 /** The judge: one implementation of "is this report a defect", whatever UI produced it.
  *
  *  `opts.ignore` is a list of `{ match: RegExp, reason: string }` for findings this HARNESS cannot
@@ -150,6 +185,27 @@ export function judgeReport(report, opts = {}) {
   // base rules, and the rendered passes measure the RESTING DOM. The panel carries 73 :hover rules —
   // exactly where a designer reaches for a lighter accent. Measured: 31 interactive elements, 24
   // hoverable in the harness, 0 under AA in either theme.
+  // A CLASS THE PAGE RENDERS THAT NO RULE STYLES — the mirror of dead CSS, and the failure a prune
+  // causes. Round 88 found three by hand; this is the same question, asked by the browser (CSSOM)
+  // on every sweep. `opts.implicitStates` names classes that are unstyled ON PURPOSE because a base
+  // rule already produces their appearance, each with the reason printed rather than hidden.
+  for (const u of report.unstyled || []) {
+    const all = u.classes || [];
+    const waived = all.filter((c) => (opts.implicitStates || {})[c]);
+    for (const c of waived) console.log(`note: ${c} is unstyled by design — ${opts.implicitStates[c]}`);
+    const live = all.filter((c) => !(opts.implicitStates || {})[c]);
+    if (live.length) {
+      findings.push(`unstyled class(es) on ${u.page || "?"}: ${live.join(", ")} — rendered, with no rule to match`);
+    }
+    // A READ THAT FOUND NO STYLESHEETS PROVES NOTHING (round 88's collector reported 38 styled
+    // classes where the browser sees 221, and its empty findings looked like a clean page).
+    // THE THRESHOLD IS THE MEASURED FAILURE, not a guess: the console's pages have 221 styled classes
+    // and round 88's broken collector reported 38 — so a floor of 20 would not have caught it. 100 is
+    // below every real page in either UI and above every broken read seen so far.
+    if (typeof u.styledClasses === "number" && u.styledClasses < 100) {
+      findings.push(`unstyled check on ${u.page || "?"}: only ${u.styledClasses} styled classes found — the collector read almost nothing, so its silence means nothing`);
+    }
+  }
   for (const h of report.hover || []) {
     if (h.underAA && h.underAA.length) {
       findings.push(`hover (${h.density || "?"}/${h.theme || "?"}): ${h.underAA.length} element(s) below AA while hovered — ${h.underAA.slice(0, 3).join("; ")}`);

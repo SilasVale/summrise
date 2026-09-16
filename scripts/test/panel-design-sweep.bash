@@ -261,5 +261,29 @@ else
   ok "the judge fails a report whose hovered element is below AA"
 fi
 
+# UNSTYLED CLASSES (rounds 88-89): the mirror of dead CSS. A report showing a class the page renders
+# that no rule matches must fail — the failure a too-eager prune causes. And a report whose collector
+# read almost no stylesheets must fail too: round 88's version reported 38 styled classes where the
+# browser sees 221, and its silence looked exactly like a clean page.
+python3 - "$TMP/clean.json" "$TMP/unstyled.json" "$TMP/thin.json" <<'PY3'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["unstyled"] = [{"page": "devices", "styledClasses": 221, "classes": ["regkeys-clear"]}]
+json.dump(r, open(sys.argv[2], "w"))
+thin = json.load(open(sys.argv[1]))
+thin["unstyled"] = [{"page": "devices", "styledClasses": 38, "classes": []}]
+json.dump(thin, open(sys.argv[3], "w"))
+PY3
+if node "$TOOL" --judge "$TMP/unstyled.json" > "$TMP/unstyled.out" 2>&1; then
+  bad "the judge PASSED a report with a class no rule styles"
+else
+  ok "the judge fails a report with an unstyled class"
+fi
+if node "$TOOL" --judge "$TMP/thin.json" > "$TMP/thin.out" 2>&1; then
+  bad "the judge PASSED a report whose collector read almost nothing"
+else
+  ok "the judge fails an unstyled report that read almost no stylesheets"
+fi
+
 echo "panel-design-sweep: $PASS ok, $FAILED failed"
 [ "$FAILED" -eq 0 ]
