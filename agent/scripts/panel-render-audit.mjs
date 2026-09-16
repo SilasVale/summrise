@@ -117,16 +117,39 @@ function buildHarness() {
 // and the rest of this stub is silently dropped by the parser (measured: round 41, three times,
 // twice in comments that were explaining something else). Quote identifiers with 'single quotes'.
 (function(){
-  var realFetch = window.fetch.bind(window);
-  window.fetch = function(url, init){
-    var u = String(url);
-    if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
   var P = new URLSearchParams(location.search);
   var THEME = P.get('theme') || 'light', MODE = P.get('mode') || 'pending';
   try { localStorage.setItem('vale-theme', THEME); } catch(e){}
   window.__PANEL_TOKEN__ = 'audit-token';
   var SID = ${JSON.stringify(SID)}, SESSION = ${JSON.stringify(SESSION)}, EVENTS = ${JSON.stringify(EVENTS)};
   if (MODE === 'idle') SESSION = Object.assign({}, SESSION, {pending_approval: null});
+  // THE SESSION ROWS (restored round 115 — the same deleted block took this as well, so the stub
+  // answered terminal_list with an undefined result and the panel showed "Sessions unavailable —
+  // reconnecting" no matter what else was fixed). Same shape as the single SESSION row above, which is
+  // the shape agent/tests/fixtures/session-row.json pins from both ends.
+  // WHAT THE HARNESS STILL DOES NOT DO, measured round 115 and worth knowing before reading any
+  // measurement made with it: window.EventSource below is a NO-OP (its addEventListener does nothing),
+  // so the panel's SSE stream NEVER opens. Every SSE-driven surface therefore renders its
+  // "Connection lost - reconnecting" state, and has in every sweep this harness has ever produced.
+  // That is the harness, not the product. The HTTP surfaces (cards, settings, update, monitors) are
+  // served properly; anything fed by a push is not. window.__calls records what the app requested, and
+  // reading it is the fastest way to tell the two apart: 4 calls now reach the stub, where the count was
+  // 0 while the fetch header was missing.
+  var SESSIONS = [
+    Object.assign({}, SESSION, { id: 'term-audit-0' }),
+    Object.assign({}, SESSION, { id: 'term-audit-1', label: 'serial:COM4', kind: 'serial', held_by_human: false, pending_approval: null, approval_required: false }),
+    Object.assign({}, SESSION, { id: 'term-audit-2', label: 'stc@192.168.1.1', kind: 'ssh', held_by_human: false, pending_approval: null }),
+  ];
+  // RESTORED WITH THE HEADER (round 115): the same round-112 edit that deleted the fetch function's
+  // opening also deleted these two lines, so the header referenced an undeclared FAIL and the counter
+  // every measurement reads was never created. The emitted stub threw "FAIL is not defined" on the
+  // first request, which is why the app showed "reconnecting" and why window.__calls was undefined.
+  var FAIL = P.get('fail') === '1';
+  window.__calls = [];
+  var realFetch = window.fetch.bind(window);
+  window.fetch = function(url, init){
+    var u = String(url);
+    if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
   // THE APPROVAL CLOCK, three states a person actually sees (round 46). The default fixture carries
   // expires_in_ms: 47000, which the gate reads as URGENT (under its one-minute threshold) — so the
   // alarmed state was the only one any sweep had ever rendered. 'relaxed' is a question with time
