@@ -83,7 +83,7 @@
    channel that still works with colour vision deficiencies and in greyscale;
    animation is not a channel here at all (prefers-reduced-motion). */
 .rail-dot[data-state="waiting"] {
-  background: var(--state-warn);
+  background: var(--warn-ink);
   /* NOT a corner style: a rotated square, and the 2px only takes the point off the diamond. The
      scale test exempts this selector by name rather than letting any future `2px` through. */
   border-radius: 2px;
@@ -176,7 +176,7 @@
 /* Same waiting state as .rail-dot — same diamond, same warn token, so the two
    densities cannot drift on what "a question is waiting" looks like. */
 .desktop-rail-status[data-state="waiting"] .dot {
-  background: var(--state-warn);
+  background: var(--warn-ink);
   border-radius: 2px;
   transform: rotate(45deg);
   box-shadow: 0 0 0 2.5px var(--state-warn-soft);
@@ -405,7 +405,7 @@
   width: 6px; height: 6px;
   margin-left: 5px;
   vertical-align: 1px;
-  background: var(--state-warn);
+  background: var(--warn-ink);
   border-radius: var(--radius-xs);
   transform: rotate(45deg);
 }
@@ -993,10 +993,17 @@
   font-size: var(--fs-sm);
   white-space: nowrap;
 }
+/* --warn-ink, NOT --state-warn: a MARK IS A GRAPHIC (WCAG 1.4.11, 3:1) and the fill token is not
+   built for that. Round 126 measured them with the instrument rounds 123-125 finally got working:
+   .monitor-mark and .waiting-mark read 2.63 on the dark card and 2.92 in the panel density, .ag-dot
+   2.53, .rail-dot 2.63. The flapping variant and the boot triangle were fixed earlier (rounds 109, 121)
+   because those two were found BY HAND; these were invisible until the probe could see graphics at all.
+   Every one of these rules paints a dot or a mark — the fill token stays where a WASH is wanted
+   (--state-warn-soft) and where a dot is deliberately decorative. */
 .waiting-mark {
   flex: none;
   width: 6px; height: 6px;
-  background: var(--state-warn);
+  background: var(--warn-ink);
   border-radius: var(--radius-xs);
   transform: rotate(45deg);
 }
@@ -1211,7 +1218,7 @@
 .monitor-head { display: flex; align-items: center; gap: var(--sp-2); }
 .monitor-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--chrome-ink-dim); }
 .monitor-dot.up { background: var(--state-ok); }
-.monitor-dot.down { background: var(--state-warn); border-radius: var(--radius-xs); transform: rotate(45deg); }
+.monitor-dot.down { background: var(--warn-ink); border-radius: var(--radius-xs); transform: rotate(45deg); }
 .monitor-name { font: 400 var(--fs-sm) var(--font-mono); color: var(--chrome-ink); }
 .monitor-state { font: 400 var(--fs-sm) var(--font); color: var(--chrome-ink-dim); }
 /* --success-text, NOT --state-ok. `--state-ok` is the state-dot FILL: it resolves to --success
@@ -1272,7 +1279,7 @@
 .monitor-mark {
   flex: none;
   width: 7px; height: 7px;
-  background: var(--state-warn);
+  background: var(--warn-ink);
   border-radius: var(--radius-xs);
   transform: rotate(45deg);
 }
@@ -1329,7 +1336,7 @@
 }
 .monitor-alert.is-up { border-left-color: var(--state-ok); }
 .monitor-alert.is-down .monitor-alert-text strong { color: var(--danger-on-soft); }
-.monitor-alert .monitor-mark { background: var(--state-warn); }
+.monitor-alert .monitor-mark { background: var(--warn-ink); }
 .monitor-alert .monitor-mark.is-up { background: transparent; border: 1.5px solid var(--state-ok); }
 /* The outage log inside a target's row: the chart's facts, in words with clock times. */
 .monitor-log { margin: 2px 0 0; padding: 0 0 0 2px; list-style: none; display: flex; flex-direction: column; gap: var(--sp-0-5); }
@@ -1469,7 +1476,7 @@
   box-shadow: 0 0 0 2.5px var(--state-fail-soft);
 }
 .cmd-dot[data-state="warn"] {
-  background: var(--state-warn);
+  background: var(--warn-ink);
   box-shadow: 0 0 0 2.5px var(--state-warn-soft);
 }
 .cmd-dot[data-state="muted"] {
@@ -1880,7 +1887,7 @@
   background: var(--state-fail);
   box-shadow: 0 0 0 2px var(--state-fail-soft);
 }
-.traj-ev-dot[data-state="warn"] { background: var(--state-warn); }
+.traj-ev-dot[data-state="warn"] { background: var(--warn-ink); }
 .traj-ev-dot[data-state="running"] {
   background: var(--state-running);
   box-shadow: 0 0 0 2px var(--state-running-soft);
@@ -2033,7 +2040,7 @@
    five-state contract — same defect, same fix. The halo is what makes
    "ongoing" survive prefers-reduced-motion, which switches the pulse off. */
 .plug-dot[data-state="success"] { background: var(--state-ok); }
-.plug-dot[data-state="warn"] { background: var(--state-warn); }
+.plug-dot[data-state="warn"] { background: var(--warn-ink); }
 .plug-dot[data-state="error"] {
   background: var(--state-fail);
   box-shadow: 0 0 0 2.5px var(--state-fail-soft);

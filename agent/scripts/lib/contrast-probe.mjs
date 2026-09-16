@@ -264,6 +264,15 @@ export const PROBE_SOURCE = `(() => {
     if (SKIP && el.closest(SKIP)) continue;
     if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
     if ([...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+    // NOT EVERY SMALL PAINTED THING IS A MARK, and two false-positive classes were measured before this
+    // line was written (round 126's first full audit: 47 "failures", mostly noise):
+    //   * SVG. An icon's <path> inherits fill: black and its real colour comes from the <svg> above it,
+    //     so every decorative glyph reported cr ~1. SVG is excluded, and that is a stated LIMIT: a
+    //     sparkline's stroke is not measured by this instrument.
+    //   * CONTROLS. A .btn-mini is 26px tall and passed the mark test, then compared its soft background
+    //     with the card behind it. A control is judged by its TEXT, in the loop above.
+    if (el instanceof SVGElement || el.closest('svg')) continue;
+    if (/^(BUTTON|A|INPUT|SELECT|TEXTAREA|LABEL)$/.test(el.tagName)) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 3 || r.height < 3) continue;
     if (Math.min(r.width, r.height) > 24) continue;
@@ -273,7 +282,11 @@ export const PROBE_SOURCE = `(() => {
     const key = 'g|' + cls + '|' + Math.round(r.width) + 'x' + Math.round(r.height);
     if (seen.has(key)) continue; seen.add(key);
     const inactive = !!(el.disabled || el.closest('[disabled]') || el.closest('[aria-disabled="true"]'));
-    const bg = effBg(el);
+    // THE SURFACE IS WHAT THE MARK SITS ON — the PARENT's resolved background, never the element's own.
+    // Calling effBg(el) compared a dot's background with itself and reported cr: 1 for every dot in the
+    // UI (76 rows on the first full audit). For a border-drawn mark the parent is still right: the
+    // element's own background, if any, is transparent in that idiom.
+    const bg = el.parentElement ? effBg(el.parentElement) : effBg(el);
     const surface = bg.colour;
     const painter = painterOf(el, st);
     if (!painter) continue;
@@ -324,6 +337,21 @@ export function failures(rows) {
 // TWO ATTEMPTS, BOTH DELETED AFTER MEASURING THEM:
 //   * round 123 looked for the painter in one place and reported 31 false failures reading cr: 1, for
 //     dots painted by box-shadow, ::before/::after and SVG fill/stroke;
+//   * round 126 ran it across all six pages, both densities and themes (74 marks) and it FOUND A REAL
+//     DEFECT: .monitor-mark, .waiting-mark, .rail-dot[data-state=waiting] and .cmd-dot[data-state=warn]
+//     painted themselves with --state-warn, the fill token, which measures 2.63 on the dark card and
+//     2.92 in the panel density against the 3:1 a graphic needs. FIXED to --warn-ink; re-measured on the
+//     rendered page at 6.45 / 9.13 / 8.23. The flapping variant and the boot triangle had been fixed
+//     earlier (rounds 109, 121) because those two were found BY HAND; the rest were invisible until this
+//     instrument existed. Failures across the audit: 18 -> 10.
+//   * STILL FAILING, RECORDED RATHER THAN CHASED, with the evidence the rows carry:
+//       span.ag-dot / span.side-dot / span.tab-dot   rgb(191,58,10) on dark   2.53-2.96   <- the ACCENT
+//         used as a state dot. A real candidate, and a different token from the one just fixed.
+//       span.tab-dot.ssh                             blue on the ACTIVE tab's orange   1.11
+//         a state collision: the dot's colour and the surface it lands on are both state-bearing.
+//       span.approval-grant (x4)                     a 1px border, 1.19-1.27          <- NEEDS A RULE,
+//         not a fix: "any visible border is meaningful" is false, and a chip outline is decoration. The
+//         pass needs a meaningfulness test before its count can be read as a defect list.
 //   * round 124 resolved all three mechanisms, and its VALIDATION against a known element failed: on the
 //     boot triangle the probe reads **7.03** where the tested maths, applied to the surface stack read
 //     off the page (--warn-ink #92400e on the chip's opaque #f4f4f5), gives **6.45**. So its SURFACE
