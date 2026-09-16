@@ -35,7 +35,7 @@ const COVERED: Record<string, string> = {
 const UNPINNED: Record<string, string> = {
   "/api/monitors": "the monitor list's row shape is unpinned; the monitor UI is the newest surface here",
   "/api/operation":
-    "the ENVELOPE is pinned by the device's own test (`the_operation_route_carries_the_envelope_the_panel_reads`, gated on the terminal feature because the route answers Internal without it): events and runs are arrays and cursor_ms is a number, which is what the panel reads. The RECORD shapes inside events/runs are still unpinned — consumed field by field in the panel's merge, and that is the next piece of work.",
+    "the ENVELOPE is pinned by the device's own test (`the_operation_route_carries_the_envelope_the_panel_reads`, gated on the terminal feature because the route answers Internal without it): events and runs are arrays and cursor_ms is a number. THE RECORD SHAPES NEED NO PIN, and round 107 checked rather than assumed: `OperationEvent` marks every field optional because the feed MERGES two producers (the terminal audit trail and the browser actions), so tolerance is the design, not a gap. What is not tolerant is the merge, and that is already pinned at the hook level — `useOperationRuns.test.ts` covers the cursor (`since_ms` re-sends the record ON the cursor, and double-counting it would inflate every number on the strip), accumulation, no-rewind, failure tolerance, and the no-churn case by OBJECT IDENTITY (`expect(result.current).toBe(first)`), which is the render-skipping contract the merge's early return exists for.",
   "/api/logs": "a text body, not a fielded one — nothing to rename",
 
   "/api/update": "read by UpdateCard; the update path is exercised end to end on a device instead",
