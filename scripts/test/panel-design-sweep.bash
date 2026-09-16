@@ -119,5 +119,51 @@ for axis in contrast h1 skip landmark geometry clipping sliver name title-only r
   fi
 done
 
+# ── 4. the CONSOLE sweep, same contract ───────────────────────────────────────────────────────
+# Its emitted script referenced helpers it never defined when it was first written (the placeholder
+# was in the .replace() call and not in the template), which PARSES and cannot run — so presence is
+# checked explicitly, not just syntax.
+CONSOLE=agent/scripts/console-design-sweep.mjs
+if node "$CONSOLE" --emit > "$TMP/csweep.js" 2>"$TMP/csweep.err" && node --check "$TMP/csweep.js"; then
+  ok "console --emit writes a script that parses"
+else
+  bad "console --emit failed: $(head -3 "$TMP/csweep.err")"
+fi
+for helper in "const SURFACE" "const NAMES" "const API" "const PAGES"; do
+  if grep -q "$helper" "$TMP/csweep.js"; then
+    ok "the console sweep defines: $helper"
+  else
+    bad "the console sweep USES but does not define: $helper (it would report nothing)"
+  fi
+done
+cat > "$TMP/console-clean.json" <<'JSON'
+{
+  "rows": [{"cr": 7.0, "need": 4.5, "size": 13, "sel": "span.ok", "text": "x", "page": "overview"}],
+  "surfaces": [{"page": "overview", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}],
+  "names": [{"page": "overview", "checked": 5, "unnamed": [], "titleOnly": []}]
+}
+JSON
+if node "$CONSOLE" --judge "$TMP/console-clean.json" >/dev/null 2>&1; then
+  ok "a clean console report passes"
+else
+  bad "a clean console report was rejected"
+fi
+for axis in contrast name geometry; do
+  python3 - "$TMP/console-clean.json" "$TMP/console-$axis.json" "$axis" <<'PY2'
+import json, sys
+src, dst, which = sys.argv[1], sys.argv[2], sys.argv[3]
+r = json.load(open(src))
+if which == "contrast": r["rows"][0]["cr"] = 2.1
+elif which == "name": r["names"][0]["unnamed"] = ["input.form-input"]
+elif which == "geometry": r["surfaces"][0]["over"] = ["div.card 100<200"]
+json.dump(r, open(dst, "w"))
+PY2
+  if node "$CONSOLE" --judge "$TMP/console-$axis.json" >/dev/null 2>&1; then
+    bad "the console judge PASSED a report with a planted '$axis' defect"
+  else
+    ok "the console judge fails a planted '$axis' defect"
+  fi
+done
+
 echo "panel-design-sweep: $PASS ok, $FAILED failed"
 [ "$FAILED" -eq 0 ]

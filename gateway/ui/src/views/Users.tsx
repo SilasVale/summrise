@@ -104,6 +104,11 @@ export default function Users() {
           <input
             className="form-input"
             type="password"
+            /* A PLACEHOLDER IS NOT A NAME. Measured by the console's design sweep (round 56): this
+               field — the admin password, no less — was the only control in the whole console with
+               NO accessible name at all, because a password input has nothing else to be named by.
+               The same string as the placeholder, as a label, so the field is announced. */
+            aria-label={t("adminpw.placeholder")}
             placeholder={t("adminpw.placeholder")}
             autoComplete="new-password"
             value={newPw}
