@@ -308,15 +308,11 @@ body[data-theme="dark"] {
    Reset & base
    ================================================================ */
 
-*,
-*::before,
-*::after {
+*, *::before, *::after {
   box-sizing: border-box;
 }
 
-html,
-body,
-#root {
+html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -379,20 +375,14 @@ body[data-theme="dark"]::before {
   background: transparent;
 }
 
-h1,
-h2,
-h3,
-h4 {
+h1, h2, h3, h4 {
   margin: 0;
   font-weight: var(--fw-semi);
 }
 p {
   margin: 0;
 }
-button,
-input,
-select,
-textarea {
+button, input, select, textarea {
   font-family: inherit;
   font-size: inherit;
 }
@@ -569,14 +559,7 @@ pre code {
 .rail-avatar:hover {
   transform: scale(1.06);
 }
-.rail-status {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-top: 6px;
-  background: var(--success);
-  box-shadow: 0 0 6px rgba(47, 158, 68, 0.55);
-}
+
 
 /* identity popover — anchored to the rail avatar, floats over content */
 .user-pop {
@@ -657,8 +640,7 @@ pre code {
   margin-bottom: 16px;
   align-items: stretch;
 }
-@media (max-width: 1080px) {
-  .ov-hero {
+@media (max-width: 1080px) {.ov-hero {
     grid-template-columns: 1fr;
   }
 }
@@ -668,8 +650,7 @@ pre code {
   grid-auto-rows: 1fr;
   gap: 14px;
 }
-@media (max-width: 560px) {
-  .stat-band {
+@media (max-width: 560px) {.stat-band {
     grid-template-columns: 1fr;
   }
 }
@@ -679,32 +660,9 @@ pre code {
 .ov-token .token {
   max-width: 100%;
 }
-.ov-keychips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.kchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font: 600 11px var(--ds-font-family);
-  letter-spacing: 0.03em;
-  color: var(--text-secondary);
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-}
-.kchip-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
+
+
+
 .kchip.on {
   color: var(--text);
   border-color: var(--border-strong);
@@ -719,8 +677,7 @@ pre code {
   gap: 14px;
   align-items: start;
 }
-@media (max-width: 900px) {
-  .ov-cols {
+@media (max-width: 900px) {.ov-cols {
     grid-template-columns: 1fr;
   }
 }
@@ -770,8 +727,7 @@ pre code {
   gap: 14px;
   margin-bottom: 16px;
 }
-@media (max-width: 980px) {
-  .stat-grid {
+@media (max-width: 980px) {.stat-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
@@ -1094,8 +1050,7 @@ pre code {
 }
 
 /* Neutral chip with a small state dot — for INFORMATIONAL listings (key
-   configured?, channel up?). Keeps saturated green/red for real alerts,
-   so a healthy console doesn't paint the whole page green. */
+   configured?, channel up?). Keeps saturated green/red for real alerts, so a healthy console doesn't paint the whole page green. */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1280,8 +1235,7 @@ pre code {
 }
 
 /* Legacy bare-class aliases (btn-primary without .btn) */
-button.btn-primary,
-a.btn-primary {
+button.btn-primary, a.btn-primary {
   border-radius: var(--radius-pill);
 }
 
@@ -1337,15 +1291,9 @@ a.btn-primary {
   flex-wrap: wrap;
 }
 
-.code-block {
-  position: relative;
-}
 
-.code-copy {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-}
+
+
 
 /* ================================================================
    Lists (users / devices)
@@ -1411,59 +1359,15 @@ a.btn-primary {
   justify-content: flex-end;
 }
 
-/* Legacy aliases */
-.users-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.user-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-}
-.user-main {
-  flex: 1;
-  min-width: 0;
-}
-.u-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.u-name {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-semi);
-  color: var(--text);
-}
-.u-sub {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  font-family: var(--ds-font-family-code);
-  margin-top: 2px;
-}
-.user-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
 
-/* ================================================================
-   Route lanes
-   ================================================================ */
 
-.switchboard {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+
+
+
+
+
+
+
 
 .lane {
   display: flex;
@@ -1488,57 +1392,20 @@ a.btn-primary {
 
 
 
-.lane-body {
-  flex: 1;
-  min-width: 0;
-}
 
-.lane-backend {
-  font-size: var(--fs-base);
-  font-weight: var(--fw-semi);
-  color: var(--text);
-  font-family: var(--ds-font-family-code);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.lane-desc {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  margin-top: 1px;
-}
 
-.lane-models {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
 
-.model-tag {
-  font-family: var(--ds-font-family-code);
-  font-size: var(--fs-xs);
-  padding: 2px 8px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-pill);
-  color: var(--text-secondary);
-}
 
-.channel-group {
-  margin-bottom: 18px;
-}
-.channel-group:last-child {
-  margin-bottom: 0;
-}
 
-.channel-label {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semi);
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 7px;
-}
+
+
+
+
+
+
+
+
 
 /* ================================================================
    Key cards
@@ -1580,18 +1447,7 @@ a.btn-primary {
   margin-top: 2px;
 }
 
-.key-card-value {
-  font-family: var(--ds-font-family-code);
-  font-size: var(--fs-base);
-  color: var(--text-secondary);
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 
 .key-card-actions {
   display: flex;
@@ -1627,11 +1483,7 @@ a.btn-primary {
   margin-bottom: 14px;
 }
 
-.form-label {
-  font-size: var(--fs-base);
-  font-weight: var(--fw-medium);
-  color: var(--text-secondary);
-}
+
 
 .form-input {
   padding: 10px 12px;
@@ -1666,38 +1518,12 @@ a.btn-primary {
   flex: 1;
 }
 
-.key-edit-row {
-  /* legacy alias */
-}
-.key-edit-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 4px;
-}
-.key-edit-row input,
-.device-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 9px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-  color: var(--text);
-  font-size: var(--fs-base);
-}
-.key-edit-row input:focus,
-.device-form input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
-}
 
-.device-form {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+
+
+
+
+
 
 .form-msg {
   font-size: var(--fs-base);
@@ -1718,10 +1544,7 @@ a.btn-primary {
   background: var(--success-bg);
   color: var(--success-text);
 }
-.form-message-error {
-  background: var(--error-bg);
-  color: var(--error-text);
-}
+
 
 .muted {
   color: var(--text-secondary);
@@ -1729,12 +1552,7 @@ a.btn-primary {
   line-height: 20px;
 }
 
-.install-flow-btns {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
+
 
 /* ── Notes / callouts ── */
 .note {
@@ -1870,20 +1688,7 @@ body[data-theme="dark"] .note.tip {
   }
 }
 
-.auth-logo {
-  width: 46px;
-  height: 46px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: var(--fw-bold);
-  font-size: var(--fs-xl);
-  box-shadow: 0 4px 16px var(--accent-shadow);
-  flex-shrink: 0;
-}
+
 
 .auth-brand h1 {
   font-size: var(--fs-xl);
@@ -1987,8 +1792,7 @@ body[data-theme="dark"] .note.tip {
   padding: 4px 10px;
 }
 
-/* ── Model catalogue admin: add form, per-chip remove, re-enable strip ── */
-.model-add {
+/* ── Model catalogue admin: add form, per-chip remove {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1998,50 +1802,17 @@ body[data-theme="dark"] .note.tip {
   flex: 0 1 auto;
   min-width: 0;
 }
-.model-add-prefix {
-  max-width: 240px;
-}
-.model-add-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--fs-base);
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.models-hint {
-  margin-top: 10px;
-  font-size: var(--fs-base);
-  color: var(--text-secondary);
-}
-/* A chip keeps its own shape; the remove control sits beside it, not on it. */
-.model-chip-wrap {
+
+
+
+/* A chip keeps its own shape; the remove control sits beside it {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
-.model-chip-x {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  /* TEXT weight: this glyph is 13px, so it needs 4.5:1 — `--error`, which is the
-     MARK weight for the lanes below, would not do here. */
-  color: var(--error-text);
-  font-size: var(--fs-base);
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-}
-.model-chip-x:hover:not(:disabled) {
-  border-color: var(--error);
-  background: var(--error-bg);
-}
-.model-chip-x:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+
+
+
 /* A disabled model is shown struck through rather than hidden — it is the only
    place the operator can see what they switched off. */
 .model-chip.off {
@@ -2053,17 +1824,11 @@ body[data-theme="dark"] .note.tip {
 /* ── Models view ──────────────────────────────────────────────────────────
    The catalogue `/api/admin/public` has always returned and the console never
    rendered. Every colour here is a token, and the TEXT ones are the text weights
-   added in round 46 — a channel that is down is not a dot, it is a word. */
-.models-card {
+   added in round 46 — a channel that is down is not a dot {
   margin-bottom: 14px;
 }
 
-.models-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
+
 
 /* The channel's identity. The lane hue rides a LEFT BORDER, not the text: a border
    is a mark, so it can stay vivid while the label keeps a readable ink. */
@@ -2080,20 +1845,10 @@ body[data-theme="dark"] .note.tip {
   border-left-color: var(--error);
 }
 
-.models-backend {
-  font-weight: var(--fw-semi);
-  color: var(--text);
-}
-.models-n {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
 
-.models-health {
-  margin-left: auto;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semi);
-}
+
+
+
 .models-health.ok {
   color: var(--success-text);
 }
@@ -2106,49 +1861,21 @@ body[data-theme="dark"] .note.tip {
   font-weight: var(--fw-medium);
 }
 
-.models-desc {
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
-}
 
-.models-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 
-.model-chip {
-  font: 500 11.5px var(--ds-font-family-code);
-  padding: 3px 9px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    border-color var(--ds-dur) var(--ds-ease),
-    color var(--ds-dur) var(--ds-ease);
-}
-.model-chip:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent-on-soft);
-}
+
+
+
+
 .model-chip.current {
   background: var(--accent-light);
   border-color: var(--accent);
   color: var(--accent-on-soft);
   font-weight: var(--fw-semi);
 }
-.model-chip:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
 
-.models-failed {
-  color: var(--error-text);
-}
+
+
 
 .lang-btn {
   border: 1px solid var(--border-strong);
@@ -2204,20 +1931,7 @@ body[data-theme="dark"] .note.tip {
   font-weight: var(--fw-semi);
 }
 
-.modal-code {
-  font-family: var(--ds-font-family-code);
-  font-size: var(--fs-xl);
-  font-weight: var(--fw-semi);
-  text-align: center;
-  padding: 22px;
-  background: var(--bg-secondary);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-lg);
-  margin-bottom: 14px;
-  word-break: break-all;
-  letter-spacing: 3px;
-  color: var(--accent);
-}
+
 
 .modal-actions {
   display: flex;
@@ -2246,8 +1960,7 @@ body[data-theme="dark"] .note.tip {
   animation: toast-in 0.2s var(--ds-ease);
 }
 
-.toast.err,
-.toast.error {
+.toast.err, .toast.error {
   background: var(--error);
   color: #fff;
 }
@@ -2307,17 +2020,11 @@ body[data-theme="dark"] .note.tip {
   font-family: var(--ds-font-family-code);
   font-variant-numeric: tabular-nums;
 }
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 .hidden {
   display: none !important;
 }
-.spacer {
-  flex: 1;
-}
+
 .mt-8 {
   margin-top: 8px;
 }
@@ -2605,37 +2312,30 @@ body[data-theme="dark"] .note.tip {
   }
 }
 
-@media (max-width: 768px) {
-  .app {
+@media (max-width: 768px) {.app {
     display: block;
   }
-  .sidebar {
-    position: fixed;
-    left: calc(-1 * var(--sidebar-width));
-    z-index: 100;
-    transition: left var(--ds-dur) var(--ds-ease);
-    box-shadow: var(--shadow-lg);
-  }
-  .sidebar.open {
+
+.sidebar.open {
     left: 0;
   }
-  .sidebar-link.active::before {
+.sidebar-link.active::before {
     display: none;
   }
-  .page-header {
+.page-header {
     flex-direction: column;
   }
-  .token-row {
+.token-row {
     flex-wrap: wrap;
   }
-  .lane {
+.lane {
     flex-wrap: wrap;
   }
-  .list-row {
+.list-row {
     flex-direction: column;
     align-items: flex-start;
   }
-  .list-actions {
+.list-actions {
     justify-content: flex-start;
   }
 }
@@ -2643,8 +2343,7 @@ body[data-theme="dark"] .note.tip {
 /* ================================================================
    Providers — the Models page as a provider list.
    The layout DSH uses for the same job: one ROW per provider with a
-   credential dot and an Edit, the model list inside that row's editor,
-   and adding as a trailing dashed placeholder instead of a form that
+   credential dot and an Edit, the model list inside that row's editor, and adding as a trailing dashed placeholder instead of a form that
    owns the top of the page. The provider (prefix + endpoint + protocol
    + credential) OWNS its models; that shape is why the list reads this
    way rather than as flat chips.
@@ -2949,8 +2648,7 @@ body[data-theme="dark"] .note.tip {
   gap: 8px;
 }
 
-/* The configuration document — an escape hatch, so it reads as a document: monospace,
-   scrollable, and never the tallest thing on the page. */
+/* The configuration document — an escape hatch, so it reads as a document: monospace, scrollable, and never the tallest thing on the page. */
 .config-doc {
   max-height: 46vh;
   overflow: auto;
