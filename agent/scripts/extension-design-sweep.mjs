@@ -30,7 +30,10 @@ const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("body")}
 // The page's only chrome API. Fixed values: the sweep measures the PAGE, not the storage layer.
-const SHIM = "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v={studioOrigin:'https://vscode.saisi.online',studioLinksEnabled:true};if(cb)cb(v);return Promise.resolve(v);},set:(v,cb)=>{if(cb)cb();return Promise.resolve();}}}};</script>";
+// storage.empty is flipped by the sweep: a fresh install has NO stored values, so the page must
+// fall back to its defaults (DEFAULT_STUDIO_ORIGIN, links off) rather than rendering blanks.
+const storage = { empty: false };
+const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=storage.empty?{}:{studioOrigin:'https://vscode.saisi.online',studioLinksEnabled:true};if(cb)cb(v);return Promise.resolve(v);},set:(v,cb)=>{if(cb)cb();return Promise.resolve();}}}};</script>";
 
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
@@ -41,19 +44,25 @@ const SHIM = "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v={studi
     if (!fs.existsSync(full)) return route.fulfill({ status: 404, body: 'not found' });
     const ext = path.extname(full);
     let body = fs.readFileSync(full);
-    if (ext === '.html') body = Buffer.from(fs.readFileSync(full, 'utf8').replace('<head>', '<head>' + SHIM));
+    if (ext === '.html') body = Buffer.from(fs.readFileSync(full, 'utf8').replace('<head>', '<head>' + shim()));
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
   const report = { rows: [], surfaces: [], names: [], focus: [] };
-  for (const width of [900, 600, 360]) {
-    await page.setViewportSize({ width, height: 800 });
-    await page.goto('http://vale-ext.test/options/options.html?cb=' + Date.now(), { waitUntil: 'load' });
-    await page.waitForTimeout(800);
-    const rows = await page.evaluate(PROBE);
-    for (const r of rows) report.rows.push({ ...r, page: 'options', width, density: 'extension', theme: 'light' });
-    report.surfaces.push({ page: 'options', width, ...(await page.evaluate(SURFACE)) });
-    if (width === 900) report.names.push({ page: 'options', ...(await page.evaluate(NAMES)) });
+  // TWO STORAGE STATES. Empty storage is the state a NEW INSTALL is in — the origin falls back to
+  // DEFAULT_STUDIO_ORIGIN and the links toggle starts off — and it is a different page to look at
+  // than the configured one. Measured by hand in round 63; repeated here so it stays measured.
+  for (const empty of [false, true]) {
+    storage.empty = empty;
+    for (const width of [900, 600, 360]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('http://vale-ext.test/options/options.html?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.waitForTimeout(800);
+      const rows = await page.evaluate(PROBE);
+      for (const r of rows) report.rows.push({ ...r, page: empty ? 'options-fresh' : 'options', width, density: 'extension', theme: 'light' });
+      report.surfaces.push({ page: empty ? 'options-fresh' : 'options', width, ...(await page.evaluate(SURFACE)) });
+      if (width === 900) report.names.push({ page: empty ? 'options-fresh' : 'options', ...(await page.evaluate(NAMES)) });
+    }
   }
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\ext-sweep.json', JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
@@ -63,7 +72,10 @@ const SHIM = "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v={studi
 
 function judge(file) {
   const report = JSON.parse(readFileSync(file, "utf8"));
-  const findings = judgeReport(report, { navless: ["options"] }); // the options page has no navigation
+  // The options page has no navigation in EITHER storage state, so both page names are listed —
+  // the first version named only "options" and the judge failed the fresh-install pass, which is
+  // exactly what an exemption that drifts out of step should do.
+  const findings = judgeReport(report, { navless: ["options", "options-fresh"] });
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}@${r.width}px ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }

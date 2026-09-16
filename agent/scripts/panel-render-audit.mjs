@@ -130,6 +130,10 @@ function buildHarness() {
   // ?fail=1 — the device is DOWN: every API call rejects, which is what a page shows an operator
   // when the agent is not running. No sweep had ever produced this state.
   var FAIL = P.get('fail') === '1';
+  // ?held=1 — A PERSON HOLDS THE KEYBOARD. The AI is refused on this session while it is set, so the
+  // panel's job is to make that state unmistakable; no sweep had ever rendered it (the fixture
+  // always said false).
+  if (P.get('held') === '1') SESSION = Object.assign({}, SESSION, {held_by_human: true});
   if (MODE === 'relaxed') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 600000 }) });
   if (MODE === 'expired') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 0 }) });
   // ?sessions=N — MEASURE THE TAB STRIP AT A REALISTIC WIDTH. The operator's own panel carried

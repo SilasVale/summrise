@@ -180,7 +180,9 @@ fi
 # the selector is INLINED by pageChecks() rather than referenced, so the check is for the
 # substituted form — asserting the identifier would pass while the page-side reference broke
 # (which is exactly how the first version of the shared core shipped broken).
-for helper in "const SURFACE" "const NAMES" "const SHIM" "\"body\" + ' *'"; do
+# the storage shim became a FUNCTION (so the fresh-install pass can flip it), hence "const shim"
+# and the storage flag rather than the old SHIM constant.
+for helper in "const SURFACE" "const NAMES" "const shim" "storage.empty" "\"body\" + ' *'"; do
   if grep -qF "$helper" "$TMP/esweep.js"; then
     ok "the extension sweep defines: $helper"
   else
