@@ -127,23 +127,38 @@ function buildHarness() {
   // expires_in_ms: 47000, which the gate reads as URGENT (under its one-minute threshold) — so the
   // alarmed state was the only one any sweep had ever rendered. 'relaxed' is a question with time
   // left, 'expired' is the zero-second rule: the device has retired it and nothing can be answered.
+  // EVERY FIXTURE BELOW NEEDS ok:true — see the note on the update card's envelope. Written here
+  // because this is where fixtures are added, and the omission has cost three rounds.
+  //
   // THE UPDATE CARD, WHICH HAD NEVER RENDERED A STATE AT ALL (round 110). /api/update was served by
   // nothing, so the card only ever showed its empty "unknown" face — including the APPLYING state,
   // which is the one an operator stares at during a release. ?busy=1 is that state.
   //
-  // OPEN, RECORDED RATHER THAN GUESSED (round 110): with this fixture served, the card's HEADING
-  // renders ("Agent update") and ITS BODY DOES NOT — .update-current, .update-latest and the action
-  // button are all absent in both states and both themes, while the route answers with current,
-  // latest and update_available: true. Three candidates, none established: the fixture does not
-  // reach useUpdateStatus (a different route or a second call), the section needs a prop the harness
-  // does not supply (runningRelease comes from /api/status's release, which the status fixture
-  // DOES set), or the body is behind a condition my payload does not meet. Settle it by instrumenting
-  // the request first — window.fetch logging showed the other cards' routes plainly — before probing
-  // the DOM again. The earlier .monitor-chip lesson applies: an empty selector means the fixture or the
-  // probe, and it took a fetch log to tell which.
+  // OPEN, AND THE INSTRUMENT WAS THE PROBLEM (rounds 110-111). The card renders its heading and then
+  // the FAILURE branch: "The device did not answer, so its update state could not be read." Three
+  // things are now known:
+  //   * round 110's fixture was written and then DELETED by a comment-spanning edit that replaced
+  //     everything between two markers, code included — restored above. A "narrow the note" edit is
+  //     not a comment edit when the code sits between the markers.
+  //   * ok:true IS required by the hook (if (j?.ok !== true) setFailed(true)) and the device sends it
+  //     in both branches of update_status. It is supplied here.
+  //   * MY PROBE TECHNIQUE WAS INVALID, which is the important one. Fetching the route from the page
+  //     and printing the body returned HTML for /api/update AND for /api/status — and /api/status
+  //     demonstrably works in the app, since the whole vitals strip renders from it. So a raw in-page
+  //     fetch does NOT go through this harness's stub, and anything I concluded from that probe about
+  //     what the app receives is worthless. Two rounds of reasoning rested partly on it.
+  // NEXT STEP, and it is not another DOM probe: instrument what the HOOK receives (wrap callApi, or log
+  // inside useUpdateStatus), which is the only view that decides anything. Do not trust a page-level
+  // fetch to speak for the app.
   if (u.indexOf('/api/update') >= 0) {
     var busy = P.get('busy') === '1';
+    // ok:true IS REQUIRED BY THE HOOK. Every hook that reads through callApi checks it first, and a
+    // fixture without it produces the card's failure face while the payload looks right. (The three
+    // rounds this cost were NOT this, though — they were the code block below being deleted by a
+    // comment-spanning edit. Keep the guard and the payload together, and never edit between two
+    // comment markers without checking what sits between them.)
     return Promise.resolve(J({
+      ok: true,
       current: '1.2.403',
       channel: 'stable',
       latest: busy ? '1.2.403' : '1.2.433',
