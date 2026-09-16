@@ -200,15 +200,17 @@ describe("discrete state palette", () => {
     // drops these selectors from the reduced-motion block, the premise
     // changes — and that should be a deliberate decision, not a silent one.
     const css = builtCss();
-    const media = css.match(
-      /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/,
-    );
-    expect(media, "the prefers-reduced-motion block is gone").not.toBeNull();
+    // EVERY reduced-motion block, not the first one. Round 77 moved the main block to the END of the
+    // cascade — a media query adds no specificity, so it only wins where it comes after the rules it
+    // overrides, and the desktop sheet is concatenated last — which left this regex matching the one
+    // small `.gs-card` block and failing. The PREMISE is what matters here ("the state dots are
+    // covered"); which block covers them is the stylesheet's business, not this test's.
+    const blocks = [...css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g)].map((m) => m[1]);
+    expect(blocks.length, "the prefers-reduced-motion block is gone").toBeGreaterThan(0);
+    const media = blocks.join("\n");
     for (const sel of [".cmd-dot", ".traj-ev-dot", ".plug-dot"]) {
-      expect(media![1], `${sel} must still honour reduced motion`).toContain(sel);
+      expect(media, `${sel} must still honour reduced motion`).toContain(sel);
     }
-    expect(media![1], "the block must actually disable animation").toMatch(
-      /animation\s*:\s*none/,
-    );
+    expect(media, "the blocks must actually disable animation").toMatch(/animation\s*:\s*none/);
   });
 });
