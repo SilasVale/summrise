@@ -135,6 +135,20 @@ function buildHarness() {
   // served properly; anything fed by a push is not. window.__calls records what the app requested, and
   // reading it is the fastest way to tell the two apart: 4 calls now reach the stub, where the count was
   // 0 while the fetch header was missing.
+  //
+  // WHAT THE PANEL SHOWS BECAUSE OF IT, traced to the line (round 154): PanelApp defines connected as
+  // props.sseState === "connected" — the SSE state, NOT the boot connection — and the sidebar message
+  // "Sessions unavailable — reconnecting…" is therefore CORRECT for this harness rather than a bug. The
+  // app does not use EventSource at all: useSSE fetches /api/events/term and reads a stream, flipping to
+  // connected on any complete frame, even an empty one.
+  //
+  // AN ATTEMPT TO OPEN THAT STREAM WAS MADE AND REVERTED, with both failures recorded so the next try
+  // starts ahead: serving one empty frame from /api/events/term put the app on the CONNECT SCREEN
+  // (connForm true, 5 text rows) whether the stream never ended or ended right after the frame. The cause
+  // was not found. THE CHEAP NEXT STEP IS window.__calls — it records every request the app makes, so
+  // diffing that list between this harness and one carrying the SSE branch names the request that broke —
+  // which was not captured while the branch was in. The reason to try is worth it: with the stream shut,
+  // every panel measurement this harness has ever produced was taken in a reconnecting state.
   // ?sessions=N — and ZERO IS THE POINT. This list was a fixed three, so the panel's EMPTY state (a fresh
   // install, a device with nothing open) could not be rendered at all, and therefore had never been
   // measured by anything. That is the same shape as rounds 148-149's findings: a real state no sweep
@@ -366,6 +380,10 @@ function buildHarness() {
 })();`;
 
   if (/<\/script/i.test(stub)) throw new Error("the stub contains a closing script tag — it would cut the fixture short");
+  // AND NO BACKTICKS, which the header above asks for and nothing enforced: a backtick in this template
+  // ends the literal and the file stops parsing. Round 154 wrote two of them into a comment ABOUT the
+  // other trap. The check is one line and would have caught all of them.
+  if (stub.includes("`")) throw new Error("the stub contains a backtick — it would end the emitted template early");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Vale Agent</title>
 <style>${css}</style></head><body><div id="root"></div>
