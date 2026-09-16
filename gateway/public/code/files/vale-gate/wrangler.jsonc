@@ -66,8 +66,14 @@
     //     chat/completions passthrough (which does NO pre-describing) read a
     //     240x80 PNG back verbatim on 2026-09-10, so the upstream model sees
     //     images natively.
+    //   - qw/deepseek-v4.1-flash — the same V4.1 Flash on the Aliyun token
+    //     plan (2026-09-16): an image_url request through the compatible-mode
+    //     passthrough read a 320x100 PNG's text verbatim and reported
+    //     image_tokens. Listed by ADVERTISED id; its wire name
+    //     (deepseek-v4.1-flash) is deliberately NOT listed — a bare entry
+    //     would also cover any future channel serving that same slug.
     // The amd/ vision-exp entry left with the amd/ catalog (no V4.1 upstream).
-    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash"
+    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash"
   }
   // Vale Gate — unified AI gateway + device console. Custom domains are added
   // in the dashboard (custom_domains API is OAuth-only).

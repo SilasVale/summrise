@@ -599,6 +599,38 @@ test("qw/qwen3.8-flash /v1/chat/completions → Qwen compatible-mode endpoint wi
   assert.equal(res.status, 200);
 });
 
+test("qw/deepseek-v4.1-flash /v1/chat/completions → same wire slug upstream (no remap)", async () => {
+  // The Aliyun token plan serves DeepSeek V4.1 Flash under a version-carrying
+  // slug, so the prefix-stripped id IS the wire name — the opposite of
+  // og/deepseek-v4.1-flash, whose zen/go lane is the version-less
+  // `deepseek-flash`. Pinned because a stray `wire` facet here would be
+  // silently ignored (only og/ wires are consulted) and the request would
+  // reach the upstream as the wrong model.
+  __clearCaches();
+  const { env, token } = gwEnv({ keys: { QWEN_API_KEY: "sk-qw" } });
+  let seen;
+  const res = await withFetch(async (url, init) => {
+    seen = { url, init };
+    return new Response(JSON.stringify({
+      id: "chatcmpl-2", object: "chat.completion",
+      choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }, () => post(env, token, {
+    model: "qw/deepseek-v4.1-flash",
+    max_tokens: 8,
+    stream: false,
+    messages: [{ role: "user", content: "hi" }],
+  }, "/v1/chat/completions"));
+  assert.equal(seen.url, "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions");
+  const auth = seen.init.headers.get
+    ? seen.init.headers.get("authorization")
+    : seen.init.headers.Authorization;
+  assert.equal(auth, "Bearer sk-qw");
+  assert.equal(JSON.parse(seen.init.body).model, "deepseek-v4.1-flash");
+  assert.equal(res.status, 200);
+});
+
 test("qw/qwen3.8-flash /v1/messages → Anthropic /apps/anthropic endpoint (passthrough)", async () => {
   __clearCaches();
   const { env, token } = gwEnv({ keys: { QWEN_API_KEY: "sk-qw" } });

@@ -85,6 +85,7 @@ test("the advertised ORDER is pinned (it is the /v1/models response)", () => {
     "or/stealth/ox-alpha",
     "qw/qwen3.8-max-preview",
     "qw/qwen3.8-flash",
+    "qw/deepseek-v4.1-flash",
     "cm/meituan/LongCat-2.0:free",
     "cm/poolside/laguna-s-2.1-free",
     "cm/deepseek/deepseek-v4.1-flash",

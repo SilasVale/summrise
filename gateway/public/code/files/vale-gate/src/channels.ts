@@ -227,6 +227,23 @@ export const MODEL_REGISTRY: ModelSpec[] = [
   // ── qw/ — Qwen ──────────────────────────────────────────────────────────
   { id: "qw/qwen3.8-max-preview", ownedBy: "qwen", probe: true },
   { id: "qw/qwen3.8-flash", ownedBy: "qwen", probe: true },
+  // DeepSeek V4.1 Flash on the same Aliyun token plan (registered 2026-09-16).
+  // The upstream slug carries the version exactly as the ADVERTISED name does,
+  // so the prefix-stripped id CROSSES THE WIRE UNCHANGED: no `wire` facet is
+  // set, and none could be (`wire` is consulted for og/ alone — see the
+  // og/-only test). This is the difference from og/deepseek-v4.1-flash, whose
+  // zen/go lane slug is the version-less `deepseek-flash`.
+  //
+  // Every facet below was measured against the live upstream through this
+  // worker before the record was written: both /v1/chat/completions
+  // (compatible-mode) and /v1/messages (apps/anthropic) answer 200 with
+  // thinking blocks; an image_url request reads a 320x100 PNG's text verbatim
+  // and reports usage.image_tokens, so VISION_CAPABLE_MODELS gains the id
+  // (wrangler.jsonc) rather than letting the gateway describe the picture
+  // away; and `reasoning_effort` accepts minimal|low|medium|high|xhigh|max|
+  // ultra while `none` is a 400 — which is why the qw/ spelling of this model
+  // keeps the channel's existing off→max convention in DSH.
+  { id: "qw/deepseek-v4.1-flash", ownedBy: "qwen", probe: true },
   // ── cm/ — Command Code (GOAT plan) ──────────────────────────────────────
   { id: "cm/meituan/LongCat-2.0:free", ownedBy: "command-code", probe: true },
   { id: "cm/poolside/laguna-s-2.1-free", ownedBy: "command-code", probe: true },
@@ -515,6 +532,7 @@ export const RESERVED_PREFIXES: string[] = [
 export const HEALTH_CHANNELS: { id: string; model: string }[] = [
   { id: "qw", model: "qw/qwen3.8-max-preview" },
   { id: "qw", model: "qw/qwen3.8-flash" },
+  { id: "qw", model: "qw/deepseek-v4.1-flash" },
   { id: "og", model: "og/deepseek-v4.1-flash" },
   // More og/ route cards: gpt-5.6-luna (auto-routes via the OpenRouter US
   // exit — translate.ts remaps it), mimo, ox-alpha. Duplicate ids are safe
