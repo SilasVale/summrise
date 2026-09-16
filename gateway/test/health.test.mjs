@@ -9,6 +9,7 @@ import { HEALTH_CHANNELS } from "../src/channels.ts";
 import { USER_KEY_NAMES } from "../src/store.ts";
 import { resolveAutoModel } from "../src/plugins/translate.ts";
 import { __clearDegradedCache } from "../src/reliability.ts";
+import { freezeClock, skewClock } from "./helpers.mjs";
 
 // The in-isolate breaker cache is shared across tests in this file — clear it
 // before each so a test that flipped open/closed doesn't poison the next.
@@ -387,18 +388,17 @@ function kvEnv() {
 
 test("probeRateLimited: 前 60 次放行, 第 61 次限流, 换时间桶后放行", async () => {
   const now = 1785000000000;
-  const realDateNow = Date.now;
-  Date.now = () => now;
+  const clock = freezeClock(now);
   const { env } = kvEnv();
   try {
     for (let i = 0; i < PROBE_RATE_LIMIT; i++) {
       assert.equal(await probeRateLimited(env), false, `call ${i + 1} should pass`);
     }
     assert.equal(await probeRateLimited(env), true); // the 61st request is rate-limited
-    Date.now = () => now + PROBE_WINDOW_MS; // next window
+    clock.advance(PROBE_WINDOW_MS); // next window
     assert.equal(await probeRateLimited(env), false);
   } finally {
-    Date.now = realDateNow;
+    clock.restore();
   }
 });
 
@@ -408,8 +408,7 @@ test("probeRateLimited: 前 60 次放行, 第 61 次限流, 换时间桶后放�
 // per isolate) would be invisible. Assert the key is written with the count.
 test("probeRateLimited: writes bucket back to KV (F2 coverage)", async () => {
   const now = 1785000000000;
-  const realDateNow = Date.now;
-  Date.now = () => now;
+  const clock = freezeClock(now);
   const { env, kv } = kvEnv();
   try {
     // Use a unique IP to get a fresh bucket (the module-level __probeRate
@@ -425,7 +424,7 @@ test("probeRateLimited: writes bucket back to KV (F2 coverage)", async () => {
     assert.equal(await probeRateLimited(env, req), false);
     assert.equal(await env.KEYS.get("probe-rate:203.0.113.5:" + Math.floor(now / 60000)), "1", "subsequent calls must not write KV");
   } finally {
-    Date.now = realDateNow;
+    clock.restore();
   }
 });
 
@@ -740,12 +739,11 @@ test("createIpRateLimiter: new window resets the budget", async () => {
   const req = new Request("https://x/api", { headers: { "cf-connecting-ip": "7.7.7.7" } });
   assert.equal(await lim(req), false);
   assert.equal(await lim(req), true);
-  const realNow = Date.now;
+  const clock = skewClock(61_000);
   try {
-    Date.now = () => realNow() + 61_000;
     assert.equal(await lim(req), false, "next window starts fresh");
   } finally {
-    Date.now = realNow;
+    clock.restore();
   }
 });
 

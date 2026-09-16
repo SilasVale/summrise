@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { handleGateway } from "../src/index.ts";
 import { scanTopLevelModel, rawWithModel, estimateTokens, rawWithTopLevelField, rawWithDeepSeekProvider, rawWithOxAlphaReasoningDefault } from "../src/body-scan.ts";
 import { __clearCaches } from "../src/store.ts";
+import { freezeClock } from "./helpers.mjs";
 
 let uidSeq = 0;
 function gwEnv({ keys = {}, breakerOpen = false, trips = null, timeout = 30, usProxy = false, usProxyBase } = {}) {
@@ -1865,8 +1866,7 @@ test("rawWithDeepSeekProvider / rawWithOxAlphaReasoningDefault shapes", () => {
 // each test uses a unique token (gwEnv's uid) for a clean bucket.
 test("chat/completions: per-token limiter trips at ~60/min (F1 coverage)", async () => {
   const now = 1785000000000;
-  const realDateNow = Date.now;
-  Date.now = () => now;
+  const clock = freezeClock(now);
   const { env, token } = gwEnv();
   try {
     await withFetch(
@@ -1885,7 +1885,7 @@ test("chat/completions: per-token limiter trips at ~60/min (F1 coverage)", async
       },
     );
   } finally {
-    Date.now = realDateNow;
+    clock.restore();
   }
 });
 
