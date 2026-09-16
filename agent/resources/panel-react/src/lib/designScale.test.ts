@@ -222,6 +222,34 @@ describe("the design scale", () => {
     ).toEqual([]);
   });
 
+  it("the type scale keeps its floor and its ORDER", () => {
+    // MEASURED ON SCREEN FIRST (round 132), across six pages, both densities and themes: 1596 text rows
+    // whose sizes are 10px x84, 11px x436, 12px x494, 13px x398, 14px x32, 17px x152. So the rendered
+    // scale is exactly the token scale minus --fs-xl (22px), which belongs to hero numbers and empty
+    // states that this harness does not produce — and the FLOOR is 10px, used by three selectors only,
+    // all of them labels: .goal-label, .instrument-identity, .instrument-label. That matches the token's
+    // own comment ("micro labels, badge counts, dot-with-text") rather than merely permitting it.
+    //
+    // The tests above pin that sizes are TOKENS; this one pins what the tokens may BE. Nothing stopped
+    // --fs-2xs from becoming 9px, and 9px labels are the kind of change that reads as harmless in a diff
+    // and is unreadable on the device.
+    const css = builtCss();
+    const scale = [...css.matchAll(/--fs-([a-z0-9]+):\s*([0-9.]+)px/g)].map((m) => ({ name: m[1], px: Number(m[2]) }));
+    expect(scale.length, "the --fs-* scale must be findable in the built sheet").toBeGreaterThanOrEqual(6);
+    const floor = Math.min(...scale.map((t) => t.px));
+    expect(floor, `the smallest type is ${floor}px — 10px is the measured floor; below it nothing is readable`).toBe(10);
+    // A scale that is not ordered is a pile of numbers. The names are the order: 2xs < xs < sm < base
+    // < md < lg < xl. Asserted against the NAMES rather than the values, so renaming a token to dodge
+    // the check fails too.
+    const ORDER = ["2xs", "xs", "sm", "base", "md", "lg", "xl"];
+    const present = ORDER.filter((n) => scale.some((t) => t.name === n));
+    const px = present.map((n) => scale.find((t) => t.name === n)!.px);
+    expect(px, `the scale must increase with its names: ${present.join(" < ")} -> ${px.join(", ")}`).toEqual(
+      [...px].sort((a, b) => a - b),
+    );
+    expect(new Set(px).size, "two tokens resolving to one size is a scale with a redundant step").toBe(px.length);
+  });
+
   // AND THE LINE-HEIGHTS, measured while I was here (round 75): twelve rules use `line-height: 1`
   // and the rest use 1.45 / 1.5 / 1.55 / 1.6 — five values inside a 0.15 band, i.e. differences of
   // under a pixel at the sizes they apply to. A scale here would be churn with no visible effect,
