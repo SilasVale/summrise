@@ -58,6 +58,7 @@ assumed:
 | `scripts/test/scan-dups-check.py` | stop recognising `*_test.rs` files | exit 1, names the file |
 | `scripts/test/model-drift-check.mjs` | remove the normaliser's bracket-suffix strip | exit 1, prints the un-normalised id |
 | `scripts/test/css-vars-check.mjs` | delete a `--token` definition its own sheet references | exit 1, names the token and says the declaration is dropped |
+| `scripts/test/harness-fixture-check.mjs` | change the harness fixture's session-count default from 3 | exit 1, and its own self-test fails first if the pattern goes stale |
 
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail

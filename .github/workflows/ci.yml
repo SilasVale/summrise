@@ -361,6 +361,12 @@ jobs:
       # definition is a string with no counterpart, which a check is good at.
       - name: css custom properties resolve (panel, console, extension)
         run: node scripts/test/css-vars-check.mjs
+      # THE HARNESS FIXTURES ARE PART OF THE INSTRUMENT, and a fixture that cannot express a state hides
+      # that state from every sweep that uses it. Round 150's example: the live session list was a fixed
+      # three, so the panel's EMPTY state had no surface at all. This checks the EMITTED harness, and
+      # self-tests each check against a deliberately broken copy. Needs no device and no browser.
+      - name: harness fixtures can express their states
+        run: node scripts/test/harness-fixture-check.mjs
       # Smoke-helper guards: assert_want_sha256 (shared pre-publish sha gate,
       # twin of the worker's SHA256_RE) — same convention, zero new tooling.
       # A shell script that does not PARSE is a script that cannot run — and the gates below
