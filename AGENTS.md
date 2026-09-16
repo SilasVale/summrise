@@ -48,6 +48,8 @@ guards and watch what happens. Audited by mutation (round 65); the rest are assu
 | `scripts/test/release-lib.bash` | prune keeps 4 instead of 5 per minor | exit 1, actual/expected listed |
 | `scripts/test/smoke-index.bash` | read the versioned installer instead of the versionless alias | exit 1 |
 | `scripts/test/smoke-helpers.bash` | accept a truncated sha256 | exit 1, prints the offending value |
+| `scripts/test/release-audit.bash` | stop recording mode drift | exit 1 |
+| `scripts/test/publish-release.bash` | disable the stale-exe refusal | exit 1 — **after this round ADDED the case that does it** |
 
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail
@@ -56,8 +58,18 @@ expected and `smoke-helpers` prints the value it rejected, while `smoke-index` s
 advertised installer passes" — accurate, and less use to whoever hits it. Left alone deliberately:
 a terse message is not a defect, and churning it buys nothing measurable.)
 
-Not yet audited: `build-pins.bash`, `e2e-only-check.mjs`, `model-drift-check.mjs`, `publish-release.bash`,
-`release-audit.bash`, `scan-dups-check.py`, `contrast-probe-check.mjs`, `script-syntax.bash`.
+Not yet audited: `build-pins.bash`, `e2e-only-check.mjs`, `model-drift-check.mjs`,
+`scan-dups-check.py`, `contrast-probe-check.mjs`, `script-syntax.bash`.
+
+TWO THINGS THE AUDIT TAUGHT ABOUT AUDITING (round 67):
+  * a gate that asserts a CLEAN WORKTREE rejects a mutation before it can prove anything — so
+    `publish-release.bash` can only be mutation-tested by committing the mutation temporarily and
+    resetting afterwards. My first attempt read its failure ("the refusal modified the tree") as a
+    verdict about the refusal; it was the cleanliness check, and only the committed-mutation run
+    showed the truth: the gate passed with the refusal disabled, i.e. the check had NO coverage;
+  * a mutation can have SIDE EFFECTS. With the refusal disabled the script walked past it and packed
+    a tgz, which the gate's own side-effect check caught. The artifacts were removed; the lesson is
+    that "break the guard and see" can also break something, so look for what the run left behind.
 
 THE METHOD HAS A TRAP, hit while auditing the snapshot: a mutation must actually reach the guarded
 artifact. Inserting `probe_param` at the top level of a tool's JSON instead of inside `properties`

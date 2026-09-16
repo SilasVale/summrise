@@ -35,6 +35,48 @@ dirty=$(git status --porcelain --untracked-files=no | head -5)
 stray=$(find index/public/vale-agent -name 'vale-agent-*.tgz' -newermt '-2 minutes' 2>/dev/null | head -3)
 [ -z "$stray" ] && ok "no tgz was packed by the refusals" || bad "packed during a refusal: $stray"
 
+# 4. THE STALE-EXE REFUSAL (round 67). Found by MUTATION, not by reading: with the refusal's
+#    `[ "$EXE_TS" -lt "$SRC_TS" ]` turned into `if false`, this whole file still exited 0. The check
+#    that stopped three publishes in a single session had no coverage here at all — it was proven in
+#    production and nowhere else, which is exactly the kind of guard a refactor can delete quietly.
+#
+#    The setup moves the STAGED exe's mtime into the past rather than committing anything: the gate
+#    asserts a clean worktree a few lines above, so a mutation (or a fixture) that dirties the tree
+#    is rejected before it can prove anything.
+#    The setup CREATES the exe when a checkout has none: it is git-ignored build output
+#    (`.gitignore: agent/vale-agent-npm/*.exe`), so the pack-chain job — "npm artifact gates, NO exe",
+#    by its own name — has no such file, and the first version of this case failed there with "the
+#    staged exe is missing". A missing fixture it needs is this case's business to supply, not a
+#    reason to skip: only the MTIME matters to the check under test.
+#    BOTH exes, because the script's refusals are ordered and BOTH paths are git-ignored build output
+#    that a fresh checkout lacks — the pack-chain job has neither. The first draft supplied only the
+#    staged one and CI refused on the cross-compile output before ever reaching the check under test;
+#    the second would have skipped, which is how a case stops running without anyone noticing.
+EXE="agent/vale-agent-npm/vale-agent.exe"
+BUILD_EXE="agent/target/x86_64-pc-windows-msvc/release/vale-agent.exe"
+CREATED_STAGED=0
+CREATED_BUILD=0
+if [ ! -f "$EXE" ]; then : > "$EXE"; CREATED_STAGED=1; fi
+if [ ! -f "$BUILD_EXE" ]; then mkdir -p "$(dirname "$BUILD_EXE")"; : > "$BUILD_EXE"; CREATED_BUILD=1; fi
+SAVED_MTIME=$(stat -c %Y "$EXE")
+touch -d '2020-01-01' "$EXE"
+# The cross-compile output too: it is an INPUT to the check under test, and a 2020 mtime on one side
+# is what the refusal compares.
+SAVED_BUILD_MTIME=$(stat -c %Y "$BUILD_EXE")
+touch -d '2020-01-01' "$BUILD_EXE"
+# The REAL version: with a bogus one the script refuses on the version gate first and this case
+# would prove nothing about the exe check (measured — that is exactly what the first draft did).
+WANT_VERSION=$(python3 -c "import json;print(json.load(open('agent/vale-agent-npm/package.json'))['version'])")
+out=$(bash scripts/publish-release.sh "$WANT_VERSION" 2>&1); rc=$?
+touch -d "@$SAVED_BUILD_MTIME" "$BUILD_EXE"
+[ "$CREATED_BUILD" = "1" ] && rm -f "$BUILD_EXE"
+if [ "$CREATED_STAGED" = "1" ]; then rm -f "$EXE"; else touch -d "@$SAVED_MTIME" "$EXE"; fi
+if [ "$rc" -ne 0 ] && grep -q 'predates the newest exe-input commit' <<<"$out"; then
+  ok "a stale staged exe is refused, and the message names the reason"
+else
+  bad "stale exe: rc=$rc out=$(head -c 200 <<<"$out")"
+fi
+
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
 
