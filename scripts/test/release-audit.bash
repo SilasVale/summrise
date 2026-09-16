@@ -38,6 +38,12 @@ mk_tgz() { # mk_tgz <out.tgz> <top> <mode> [content]
   local out="$1" top="$2" mode="$3" content="${4:-hello}"
   local d; d="$(mktemp -d)"
   mkdir -p "$d/$top"
+  # THE DIRECTORY MODE IS PART OF WHAT THIS TEST CONTROLS, and it was the one thing it left to the
+  # environment. The audit compares every entry's mode, directories included, so a umask of 0022 here
+  # (0755) and 0002 on CI (0775) made case 2 — "identical trees must PASS" — fail there and pass here,
+  # with nothing in the diff to look at. The file modes below were always explicit; now the directory
+  # is too.
+  chmod 755 "$d/$top"
   printf '%s\n' "$content" > "$d/$top/a.txt"
   chmod "$mode" "$d/$top/a.txt"
   printf 'exe\n' > "$d/$top/vale-agent.exe"; chmod 644 "$d/$top/vale-agent.exe"
