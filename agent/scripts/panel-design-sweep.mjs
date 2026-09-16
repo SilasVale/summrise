@@ -70,6 +70,17 @@
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
 //
+//   * THE DEVICE AREA, POPULATED AT LAST (round 117). /api/status, /api/vitals/history and /api/boots
+//     were answered by the catch-all {ok:true} in every sweep this harness has ever produced, so the
+//     Device health card had only ever been measured EMPTY. With real fixtures it reads:
+//       "No sustained load in this window: CPU high 38%, memory high 44%. CPU avg 26% low 8% high 38%
+//        Mem avg 42% low 38% high 44% 16.0 GB 40 readings over 20m - one every 30s"
+//     - four sparklines at 132x28, the span arithmetic correct for 40 samples at 30 s, the memory total
+//     showing 16.0 GB, the boot verdict "crashed" from last_boot_kind, and the two monitor rows beside
+//     it. Both densities and both themes, no page errors. The CARD also carries a verdict sentence
+//     ("No sustained load in this window") rather than only numbers, which is the design touch worth
+//     keeping when this area is next touched.
+//
 //   * THE MONITOR CHIPS, BOTH STATES (round 109). The harness fixture now produces a FLAPPING target
 //     (up now, 5 drops — the device's own UNSTABLE_DROPS is 2), because the component gives DOWN
 //     precedence: `if (down.length === 0) { …flapping… }`, so a down target anywhere hides the flapping

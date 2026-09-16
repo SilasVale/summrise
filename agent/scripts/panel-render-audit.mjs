@@ -267,7 +267,10 @@ function buildHarness() {
         mem_total_mb: 16384,
       });
     }
-    return Promise.resolve(J({ interval_secs: 30, span_secs: 1200, samples: samples }));
+    // ok:true AGAIN — the fourth fixture here to omit it, and the harness note above has warned about it
+    // since round 101. useVitalsSeries checks j?.ok !== true first and renders "The device did not
+    // answer, so its vitals could not be read" otherwise, which reads like a product bug and is not one.
+    return Promise.resolve(J({ ok: true, interval_secs: 30, span_secs: 1200, samples: samples }));
   }
   if (u.indexOf('/api/boots') >= 0) {
     return Promise.resolve(J({ boots: [
