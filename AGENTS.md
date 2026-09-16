@@ -92,6 +92,17 @@ Every time the fix was the same: prove the mutation altered the thing under test
 conclusion about the guard. A "toothless gate" finding is a claim about the gate, and it is worth
 exactly as much as the mutation behind it.
 
+### An "untested surface" scan that found nothing (round 70)
+
+Worth recording so it is not re-run: scanning the agent crate for `pub fn`s whose names never appear
+in test code lists 65, and every one I checked is a GLUE wrapper around a tested core —
+`retention_sweep` → `retention_sweep_in`, `close_abandoned_runs` → `runs::abandon_open_runs`. The
+wrappers resolve real `DataDir` paths, so calling them from tests would mutate the developer's own
+data; the files say so explicitly ("Deliberately NOT wired into `AppState::new`... those are
+constructed by tests"). The apparent gap is deliberate testability design, and the scan's method was
+also unreliable in the other direction: its `#[test]` extraction missed real call sites, so its count
+is an upper bound, not a finding. Read the module before believing the count.
+
 ## Release — npm is the only channel
 
 ```bash
