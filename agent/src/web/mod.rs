@@ -2941,6 +2941,69 @@ mod tests {
     ///
     /// The second half is round 256's: the sentence alone forces the panel to match English, so the
     /// kind rides beside it — and this asserts the pair on the SAME response.
+    /// THE STATUS PAYLOAD'S KEYS, checked against the shared fixture.
+    ///
+    /// `agent/tests/fixtures/status.json` is read by this test and by the panel's `useAgentVitals`
+    /// tests. `/api/status` is the FIRST call the panel makes, and it reads the fields silently: a
+    /// renamed `uptime_secs` is a blank strip, a renamed `last_boot_kind` is an "unrecorded" verdict.
+    /// This asserts the REAL response's keys — not a reconstruction — so a rename or a field that
+    /// stops being sent fails here rather than on an operator's screen.
+    #[tokio::test]
+    async fn status_carries_the_keys_the_fixture_promises() {
+        let raw = include_str!("../../tests/fixtures/status.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
+        let stable: std::collections::BTreeSet<&str> = fixture["stable_keys"]
+            .as_array()
+            .expect("stable_keys")
+            .iter()
+            .filter_map(|k| k.as_str())
+            .collect();
+        let conditional: std::collections::BTreeSet<&str> = fixture["conditional_keys"]
+            .as_object()
+            .expect("conditional_keys")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+
+        let v = json_body(handle_request(req("GET", "/api/status"), state()).await).await;
+        let keys: std::collections::BTreeSet<&str> = v
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+
+        // THE STABLE KEYS ARE ALWAYS THERE. The conditional ones are not asserted for presence: by
+        // definition they may be absent, and a fresh test state has no boot verdict, no vitals sample
+        // and nothing waiting for approval — which is exactly the steady state a healthy device is in.
+        // Their NAMES are still pinned, by the undeclared check below, and the PAIRING rule
+        // (`last_boot` with `last_boot_kind`) is the sibling test's job: it writes a verdict first and
+        // asserts both halves on the same response.
+        for k in stable.iter() {
+            assert!(
+                keys.contains(k),
+                "the fixture promises `{k}` as stable; the response has {keys:?}"
+            );
+        }
+        // A conditional key that IS present must be one the fixture declares — otherwise the contract
+        // is describing a payload that no longer exists.
+        for k in conditional.iter().filter(|k| keys.contains(**k)) {
+            assert!(
+                conditional.contains(k),
+                "`{k}` is on the response but the fixture calls it unknown"
+            );
+        }
+        // And nothing on the response is unknown to the fixture: a NEW field must be added there (and
+        // to the panel's required list if it reads it), or the contract has stopped describing reality.
+        let declared: std::collections::BTreeSet<&str> =
+            stable.union(&conditional).copied().collect();
+        let undeclared: Vec<&&str> = keys.difference(&declared).collect();
+        assert!(
+            undeclared.is_empty(),
+            "the response carries fields the fixture does not declare: {undeclared:?}"
+        );
+    }
+
     #[tokio::test]
     async fn status_carries_the_previous_boot_verdict() {
         let _live_dir = lock_data_dir().await;

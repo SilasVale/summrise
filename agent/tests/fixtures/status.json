@@ -1,0 +1,31 @@
+{
+  "_comment": "WHAT GET /api/status RETURNS, read by BOTH sides. Written in agent/src/web/mod.rs (`api_status`) and read in the panel by useAgentVitals.ts (vitals strip, uptime, boot verdict) and ConnectCard.tsx. It is the FIRST call the panel makes, and its fields are read silently: a renamed `uptime_secs` shows as a blank strip, a renamed `last_boot_kind` shows as an unrecorded verdict. Rounds 93-97 pinned four other boundaries this way; round 98's coverage list named this route as the next candidate, and round 99 is it.",
+  "stable_keys": ["ok", "version", "port", "uptime_secs", "live_sessions", "serial_ports"],
+  "conditional_keys": {
+    "pending_approvals": "inserted only when non-zero — the device's own comment explains why: built inside json! it would be present as null on every response, and a consumer could not tell 'nothing waiting' from 'an older agent that never sends this'",
+    "release": "present only when the device knows which release it came up on",
+    "last_boot": "present only when a previous run left a verdict, and ALWAYS with last_boot_kind",
+    "last_boot_kind": "the same verdict as data, for consumers that must not parse a sentence",
+    "cpu_pct": "present only when the sampler has a reading — the device's comment: other hosts return None, so the fields are omitted and the endpoint shape stays additive",
+    "mem_pct": "same as cpu_pct; the pair arrives together from `metrics::latest()`",
+    "mem_total_mb": "the third vitals field, and the one the PANEL DOES NOT READ: it rides this endpoint for the other consumers the device names (the Electron tray's health poll, the console's fleet card). Declared here because an undeclared field on the response is how this contract would stop describing reality — which is precisely what this check caught on its first run."
+  },
+  "pairing": {
+    "last_boot + last_boot_kind": "the sentence and the data travel together; parseLastBoot drops a kind with no sentence rather than rendering a bare word, so sending one without the other is a field the panel silently discards"
+  },
+  "required_by_panel": ["uptime_secs", "cpu_pct", "mem_pct", "version", "release", "last_boot", "last_boot_kind"],
+  "example": {
+    "ok": true,
+    "version": "1.2.433",
+    "port": 18080,
+    "uptime_secs": 5412,
+    "live_sessions": 3,
+    "serial_ports": ["COM4"],
+    "release": "1.2.433",
+    "cpu_pct": 12.5,
+    "mem_pct": 41.7,
+    "pending_approvals": 1,
+    "last_boot": "2026-09-13 04:12:03 +08:00 — unexpected exit",
+    "last_boot_kind": "crashed"
+  }
+}

@@ -25,12 +25,12 @@ const COVERED: Record<string, string> = {
   "/api/vitals/history": "agent/tests/fixtures/vitals-series.json (metrics.rs + useVitalsSeries.fixture.test.ts)",
   "/api/sessions": "agent/src/session_log.rs + useSessionArchive's own tests (parse + failure states)",
   "/api/spec": "agent/spec-tools.json (the spec snapshot test pins every device tool)",
+  "/api/status":
+    "agent/tests/fixtures/status.json (api_status's own test asserts the REAL response against it, and statusPayload.fixture.test.ts reads the same file)",
 };
 
 /** Routes with NO shape contract yet, each with the reason — the honest gap list. */
 const UNPINNED: Record<string, string> = {
-  "/api/status":
-    "the panel reads identity, version and last_boot off it. Nothing pins those names, and a rename would show as 'unknown' rather than as an error. NEXT CANDIDATE: it is the first call the panel makes.",
   "/api/monitors": "the monitor list's row shape is unpinned; the monitor UI is the newest surface here",
   "/api/operation": "the activity/run records are parsed defensively and were measured rendered (round 69), not contracted",
   "/api/logs": "a text body, not a fielded one — nothing to rename",
