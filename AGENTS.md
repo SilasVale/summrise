@@ -45,10 +45,19 @@ guards and watch what happens. Audited by mutation (round 65); the rest are assu
 | `agent/tests/fixtures/session-row.json` | rename `idle_ms` to `idleMs` | device + panel fail |
 | `agent/tests/fixtures/embedded-bridge.json` | rename `fwd` to `forward` | shell + panel fail |
 | `scripts/test/panel-design-sweep.bash` | plant a defect per axis in a report | one check per axis |
+| `scripts/test/release-lib.bash` | prune keeps 4 instead of 5 per minor | exit 1, actual/expected listed |
+| `scripts/test/smoke-index.bash` | read the versioned installer instead of the versionless alias | exit 1 |
+| `scripts/test/smoke-helpers.bash` | accept a truncated sha256 | exit 1, prints the offending value |
+
+The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
+release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail
+when their subject breaks. (Failure messages differ in usefulness: `release-lib` prints actual vs
+expected and `smoke-helpers` prints the value it rejected, while `smoke-index` says only "an
+advertised installer passes" — accurate, and less use to whoever hits it. Left alone deliberately:
+a terse message is not a defect, and churning it buys nothing measurable.)
 
 Not yet audited: `build-pins.bash`, `e2e-only-check.mjs`, `model-drift-check.mjs`, `publish-release.bash`,
-`release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `smoke-helpers.bash`, `smoke-index.bash`,
-`contrast-probe-check.mjs`, `script-syntax.bash`.
+`release-audit.bash`, `scan-dups-check.py`, `contrast-probe-check.mjs`, `script-syntax.bash`.
 
 THE METHOD HAS A TRAP, hit while auditing the snapshot: a mutation must actually reach the guarded
 artifact. Inserting `probe_param` at the top level of a tool's JSON instead of inside `properties`
