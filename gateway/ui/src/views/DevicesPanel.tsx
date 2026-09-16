@@ -602,8 +602,11 @@ function DeviceFormModal({ device, tokenPh, onClose, onSave }: {
         />
       </div>
       <div className="form-group">
-        <label>{t("devices.hostPh")}</label>
+        {/* A <label> BESIDE an input names nothing: without htmlFor it is a caption, and the field
+            is announced as an unlabelled edit box. Both fields in this modal were like that. */}
+        <label htmlFor="device-host">{t("devices.hostPh")}</label>
         <input
+          id="device-host"
           className="form-input"
           value={hostname}
           onChange={(e) => setHostname(e.target.value)}
@@ -612,8 +615,9 @@ function DeviceFormModal({ device, tokenPh, onClose, onSave }: {
         />
       </div>
       <div className="form-group">
-        <label>{tokenPh}</label>
+        <label htmlFor="device-token">{tokenPh}</label>
         <input
+          id="device-token"
           className="form-input"
           type="password"
           value={token}
