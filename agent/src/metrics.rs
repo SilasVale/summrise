@@ -35,6 +35,79 @@ pub struct Sample {
     pub mem_total_mb: Option<u64>,
 }
 
+/// THE VITALS SERIES' SHAPE AND ORDER, pinned from this end.
+///
+/// `agent/tests/fixtures/vitals-series.json` is read here and by the panel's `useVitalsSeries` tests.
+/// Two promises travel in it and both are load-bearing on the panel side: the samples go straight into
+/// the chart, and `samples[samples.length - 1]` is read as the NEWEST reading's total memory. A reverse
+/// here would silently label the oldest reading as current — the same defect the boot-history fixture
+/// pins on its own series.
+#[cfg(test)]
+mod fixture_tests {
+    use super::Sample;
+
+    #[test]
+    fn a_vitals_sample_carries_the_keys_and_order_the_fixture_promises() {
+        let raw = include_str!("../tests/fixtures/vitals-series.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
+        let promised: std::collections::BTreeSet<&str> = fixture["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .filter_map(|k| k.as_str())
+            .collect();
+
+        let sample = Sample {
+            ts_ms: 1_789_000_000_000,
+            cpu_pct: Some(4.5),
+            mem_pct: Some(38.2),
+            mem_total_mb: Some(16_384),
+        };
+        let value = serde_json::to_value(sample).expect("serialises");
+        let keys: std::collections::BTreeSet<&str> = value
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        assert_eq!(
+            keys, promised,
+            "the sample the device serialises and the fixture promises have drifted apart"
+        );
+
+        // OLDEST FIRST, and the example must demonstrate it: the panel reads the LAST entry as the
+        // newest, so an example in the wrong order would be a fixture that teaches the wrong thing.
+        let samples = fixture["example"]["samples"].as_array().expect("samples");
+        assert!(
+            samples.len() >= 3,
+            "an order promise needs more than one point"
+        );
+        let stamps: Vec<u64> = samples
+            .iter()
+            .map(|s| s["ts_ms"].as_u64().expect("stamped"))
+            .collect();
+        let mut sorted = stamps.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            stamps, sorted,
+            "the example must be oldest-first: {stamps:?}"
+        );
+        assert!(
+            stamps[0] > 1_600_000_000_000,
+            "unix milliseconds, not seconds: {}",
+            stamps[0]
+        );
+        // And the panel's required key is one this struct actually writes.
+        for required in fixture["required_by_panel"].as_array().expect("required") {
+            let k = required.as_str().expect("string");
+            assert!(
+                keys.contains(k),
+                "the panel needs `{k}`, which this sample does not carry"
+            );
+        }
+    }
+}
+
 /// How often the sampler reads. 30 s is chosen against the CPU delta it produces: long
 /// enough that one busy second does not move the reading, short enough that a load spike
 /// and its recovery are both visible, and cheap enough (two kernel32 calls) to run for

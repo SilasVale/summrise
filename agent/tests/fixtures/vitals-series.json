@@ -1,0 +1,16 @@
+{
+  "_comment": "THE VITALS SERIES' SHAPE AND ORDER, read by BOTH sides. Written by agent/src/metrics.rs (`VitalsSample`) and served by `api_vitals_history` in agent/src/web/mod.rs, whose doc comment says 'the agent's own CPU/memory series, OLDEST FIRST'. The panel reads it in resources/panel-react/src/hooks/useVitalsSeries.ts and draws it in DeviceHealthCard and LoadChip. TWO PROMISES TRAVEL HERE, and both are load-bearing: the ORDER (the samples go straight into the chart, and `samples[samples.length - 1]` is read as the NEWEST reading's total memory — a reverse at the device would silently label the oldest reading as current), and the KEYS (the panel drops a sample with no ts_ms, and a renamed cpu_pct/mem_pct would flatten the chart to empty rather than erroring). The panel's defences against a body it cannot use belong to its own tests, not here.",
+  "keys": ["ts_ms", "cpu_pct", "mem_pct", "mem_total_mb"],
+  "required_by_panel": ["ts_ms"],
+  "order": "oldest first",
+  "envelope_keys": ["samples", "interval_secs", "span_secs"],
+  "example": {
+    "interval_secs": 30,
+    "span_secs": 3600,
+    "samples": [
+      { "ts_ms": 1789000000000, "cpu_pct": 4.5, "mem_pct": 38.2, "mem_total_mb": 16384 },
+      { "ts_ms": 1789000030000, "cpu_pct": 61.0, "mem_pct": 41.7, "mem_total_mb": 16384 },
+      { "ts_ms": 1789000060000, "cpu_pct": 2.25, "mem_pct": 39.9, "mem_total_mb": 16384 }
+    ]
+  }
+}
