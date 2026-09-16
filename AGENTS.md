@@ -31,6 +31,30 @@ cd gateway && npm test                           # gateway (own prettier gate)
 
 Green tests are the bar for a release.
 
+### Which gates have been PROVEN to bite
+
+A gate that cannot fail is worse than no gate, and the only way to know is to break the thing it
+guards and watch what happens. Audited by mutation (round 65); the rest are assumed, not proven:
+
+| gate | mutation that must fail it | result |
+|---|---|---|
+| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side | exit 1 |
+| `cargo test --features terminal,keyring spec_snapshot` | add a parameter inside a device tool's `properties` | exit 101, snapshot diff |
+| `scripts/test/panel-audit-skip-check.mjs` | make the audit `exit(0)` on a skip | exit 1, names the distinction |
+| `agent/tests/fixtures/approval-grants.json` | rename a member the panel mirror reads | both sides fail |
+| `agent/tests/fixtures/session-row.json` | rename `idle_ms` to `idleMs` | device + panel fail |
+| `agent/tests/fixtures/embedded-bridge.json` | rename `fwd` to `forward` | shell + panel fail |
+| `scripts/test/panel-design-sweep.bash` | plant a defect per axis in a report | one check per axis |
+
+Not yet audited: `build-pins.bash`, `e2e-only-check.mjs`, `model-drift-check.mjs`, `publish-release.bash`,
+`release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `smoke-helpers.bash`, `smoke-index.bash`,
+`contrast-probe-check.mjs`, `script-syntax.bash`.
+
+THE METHOD HAS A TRAP, hit while auditing the snapshot: a mutation must actually reach the guarded
+artifact. Inserting `probe_param` at the top level of a tool's JSON instead of inside `properties`
+changed nothing the snapshot reads, so the gate "passed" and proved nothing. Verify the mutation
+changed the thing under test before concluding a gate is toothless.
+
 ## Release — npm is the only channel
 
 ```bash
