@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, focusPass } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -29,6 +29,7 @@ const path = require('path');
 const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("body")}
+const focusPass = ${focusPass.toString()};
 // The page's only chrome API. Fixed values: the sweep measures the PAGE, not the storage layer.
 // storage.empty is flipped by the sweep: a fresh install has NO stored values, so the page must
 // fall back to its defaults (DEFAULT_STUDIO_ORIGIN, links off) rather than rendering blanks.
@@ -62,6 +63,10 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
       for (const r of rows) report.rows.push({ ...r, page: empty ? 'options-fresh' : 'options', width, density: 'extension', theme: 'light' });
       report.surfaces.push({ page: empty ? 'options-fresh' : 'options', width, ...(await page.evaluate(SURFACE)) });
       if (width === 900) report.names.push({ page: empty ? 'options-fresh' : 'options', ...(await page.evaluate(NAMES)) });
+      // THE THIRD UI FOCUS RINGS. report.focus was declared here and never filled, so the extension
+      // had no focus measurement at all — while the panel and the console both had one (and had drifted
+      // from each other). One shared implementation now.
+      report.focus.push(await focusPass(page, 14, { page: empty ? 'options-fresh' : 'options', width }));
     }
   }
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\ext-sweep.json', JSON.stringify(report));

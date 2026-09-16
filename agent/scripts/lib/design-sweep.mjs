@@ -146,6 +146,85 @@ export const UNSTYLED_SOURCE = `(() => {
  *  judge — never for findings that are inconvenient. Each suppression is printed with its reason, so
  *  a reader sees what was set aside and why rather than a clean line that hides it.
  */
+/** THE FOCUS PROBE, in one place. It was written in the panel adapter, copied into the console's, and
+ *  the copy kept the panel's two defects for two rounds after the panel's were fixed (rounds 133-135) —
+ *  a strong check whose twin was stale. It is a shared source now, so the next fix lands once. The
+ *  caller supplies the presses count and the navigation; this does the loop and the verdict.
+ *
+ *  Escaping to the body is COUNTED, not passed: a page with nothing focusable would otherwise report a
+ *  clean sheet indistinguishable from a page with good rings. `judgeReport` fails a row that landed on
+ *  nothing. */
+export const FOCUS_SOURCE = `(() => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return 'escaped';
+  const st = getComputedStyle(el);
+  const visible = (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
+  return visible ? 'ok' : 'no-ring';
+})()`;
+
+/** THE FOCUS PASS, in one place, inlined into every adapter's emitted script by `.toString()` — the same
+ *  trick PROBE_SOURCE uses. The loop is the part that drifted when it was copied: the panel's counted
+ *  nothing and treated focus escaping to the body as a pass, and the console's copy kept both defects for
+ *  two rounds after the panel's were fixed (rounds 133-135). It runs ON THE DEVICE because a Tab press
+ *  must be a real one — a synthetic KeyboardEvent does not move focus. */
+export async function focusPass(page, presses, label = {}) {
+  await page.evaluate(() => document.body.focus());
+  let landed = 0;
+  let escaped = 0;
+  let missing = 0;
+  for (let i = 0; i < presses; i++) {
+    await page.keyboard.press("Tab");
+    const verdict = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return "escaped";
+      const st = getComputedStyle(el);
+      const visible =
+        (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== "none") ||
+        (st.boxShadow && st.boxShadow !== "none");
+      return visible ? "ok" : "no-ring";
+    });
+    if (verdict === "ok") landed++;
+    else if (verdict === "escaped") escaped++;
+    else missing++;
+  }
+  return { ...label, pressed: presses, landed, escaped, missing };
+}
+
+/** THE MOTION MEASUREMENT, both states in order. A single reduced-motion number is vacuous — it looks
+ *  the same whether the page honours the preference or has no motion at all (round 134). `render`
+ *  re-renders the page and is supplied by the adapter. */
+export async function motionPass(page, render, label = {}) {
+  const count = async () => {
+    const list = await page.evaluate(() => {
+      const animating = [];
+      for (const el of document.querySelectorAll("*")) {
+        const st = getComputedStyle(el);
+        const dur = parseFloat(st.transitionDuration) > 0 ? st.transitionDuration : null;
+        const anim =
+          st.animationName && st.animationName !== "none"
+            ? st.animationName + " x" + st.animationIterationCount
+            : null;
+        if (!dur && !anim) continue;
+        const key =
+          typeof el.className === "string" && el.className
+            ? "." + el.className.trim().split(/\s+/).join(".")
+            : el.tagName.toLowerCase();
+        animating.push(key + (dur ? " trans=" + dur : "") + (anim ? " anim=" + anim : ""));
+      }
+      return [...new Set(animating)];
+    });
+    return list;
+  };
+  await page.emulateMedia({ reducedMotion: null });
+  await render();
+  const normal = await count();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await render();
+  const reduced = await count();
+  await page.emulateMedia({ reducedMotion: null });
+  return { ...label, normal: normal.length, reduced: reduced.length, stillAnimating: reduced.slice(0, 6) };
+}
+
 export function judgeReport(report, opts = {}) {
   const findings = [];
   const suppressed = [];

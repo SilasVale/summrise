@@ -152,7 +152,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -192,6 +192,8 @@ const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
+const focusPass = ${focusPass.toString()};
+const motionPass = ${motionPass.toString()};
 ${MOTION}
 ${TIMING}
 (async () => {
@@ -230,30 +232,10 @@ ${TIMING}
         await page.waitForTimeout(1200);
         report.timing.push({ density, theme, mode: mode_, toFirstRowMs: toFirstRow, ...(await page.evaluate(TIMING)) });
 
-        // FOCUS RINGS BY REAL TAB PRESSES: inspecting the CSS of focusable elements cannot tell
-        // whether focus LANDS somewhere visible.
-        await page.evaluate(() => document.body.focus());
-        let noRing = 0, landed = 0, escaped = 0;
-        const PRESSES = 14;
-        for (let i = 0; i < PRESSES; i++) {
-          await page.keyboard.press('Tab');
-          const verdict = await page.evaluate(() => {
-            const el = document.activeElement;
-            // FOCUS ESCAPING TO THE BODY IS NOT A PASS. The old check returned "ok" for
-            // el === document.body, so a page with one focusable element scored 1 landing and 13
-            // passes, and the report could not tell that from 14 good ones. Counted separately now.
-            if (!el || el === document.body) return 'escaped';
-            const st = getComputedStyle(el);
-            const visible = (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
-            return visible ? 'ok' : 'no-ring';
-          });
-          if (verdict === 'ok') landed++;
-          else if (verdict === 'escaped') escaped++;
-          else noRing++;
-        }
-        // A SUMMARY ROW EVEN WHEN CLEAN, so the report says how much it actually did. "A sweep that read
-        // nothing is not a sweep that found nothing" — the same floor the colour pair sweep carries.
-        report.focus.push({ density, theme, pressed: PRESSES, landed, escaped, missing: noRing });
+        // FOCUS RINGS BY REAL TAB PRESSES, in ONE implementation shared with the console and the
+        // extension (lib/design-sweep.mjs). It was copied between adapters once and the copies
+        // drifted for two rounds; the loop lives in the core now.
+        report.focus.push(await focusPass(page, 14, { density, theme }));
 
         const rail = await page.evaluate(() => {
           const r = document.querySelector('#icon-rail, .desktop-rail');
