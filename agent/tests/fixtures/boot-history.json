@@ -1,0 +1,28 @@
+{
+  "_comment": "What GET /api/boots returns, read by BOTH sides. Written by agent/src/runstate.rs (`recent_boots`) and served by agent/src/web/mod.rs (`api_boots`); read by resources/panel-react/src/hooks/useBootHistory.ts and drawn by RestartHistoryCard. THREE PROMISES TRAVEL IN THIS FILE, and each is asserted from both ends rather than assumed: records are NEWEST FIRST (the card renders the first VISIBLE entries as the latest, so a reverse here would show the OLDEST restarts as the newest); the first run of an install has NO uptime_secs and NO gap_secs — absent, never zero, because 'ran 0s' is a claim about a run that never existed; and ts_ms is unix MILLISECONDS, the unit every panel clock uses. The panel's defences against a body it cannot use — a record with no stamp, a kind it does not know — are its own test's business and are NOT in here, so this file stays exactly what the device emits.",
+  "summary": { "window_secs": 86400, "boots": 3, "crashes": 1 },
+  "boots": [
+    {
+      "ts_ms": 1789003600000,
+      "kind": "crashed",
+      "detail": "2026-09-13 04:12:03 +08:00 — unexpected exit",
+      "uptime_secs": 5412,
+      "gap_secs": 18,
+      "release": "1.2.403"
+    },
+    {
+      "ts_ms": 1788998100000,
+      "kind": "replaced",
+      "detail": "2026-09-13 02:41:51 +08:00",
+      "uptime_secs": 0,
+      "gap_secs": 1,
+      "release": "1.2.403"
+    },
+    {
+      "ts_ms": 1788998099000,
+      "kind": "first-run",
+      "detail": "2026-09-13 02:41:50 +08:00",
+      "release": null
+    }
+  ]
+}
