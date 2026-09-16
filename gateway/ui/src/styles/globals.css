@@ -709,15 +709,21 @@ pre code {
 .ov-keyrow:last-child {
   border-bottom: none;
 }
+/* LEDS ARE GRAPHICS, and WCAG 1.4.11 asks 3:1 of them. These three indicators painted themselves with
+   --text-faint (#a1a1aa, 2.56 on white) and --success (#2f9e44) — the console's first graphics-contrast
+   audit (round 141, once the shared probe could see non-text elements) measured 2.33-2.54 for the off
+   state and 2.98 for a hovered on state. The tokens meant for this already existed: --text-muted for the
+   inactive dot (4.83 light / 3.75 dark) and --success-text for the lit one (5.40 / 10.54). Same fix, same
+   reason as the panel's marks in rounds 126-127. */
 .ov-keyled {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--text-faint);
+  background: var(--text-muted);
   flex-shrink: 0;
 }
 .ov-keyled.on {
-  background: var(--success);
+  background: var(--success-text);
 }
 .ov-keyname {
   font-weight: var(--fw-semi);
@@ -842,11 +848,11 @@ pre code {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--text-faint);
+  background: var(--text-muted);
   flex-shrink: 0;
 }
 .dev-mini-led.on {
-  background: var(--success);
+  background: var(--success-text);
   box-shadow: 0 0 6px rgba(47, 158, 68, 0.55);
 }
 .dev-mini-name {
@@ -2044,11 +2050,11 @@ body[data-theme="dark"] .note.tip {
   flex-shrink: 0;
 }
 .dev-led.on {
-  background: var(--success);
+  background: var(--success-text);
   box-shadow: 0 0 0 3px var(--success-bg);
 }
 .dev-led.off {
-  background: var(--text-faint);
+  background: var(--text-muted);
 }
 .dev-name {
   font-size: var(--fs-md);
