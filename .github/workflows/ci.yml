@@ -354,6 +354,13 @@ jobs:
       # stylesheets.
       - name: token contract (console vs panel)
         run: node scripts/test/token-contract-check.mjs
+      # EVERY var(--token) MUST RESOLVE, in all three UIs. An undefined custom property does not fall
+      # back — it makes the whole declaration invalid at computed-value time, silently. That is how the
+      # extension's keyboard focus ring was invisible on every control (round 137): the rule looked
+      # correct, the page looked fine, and only a rendered focus measurement found it. A missing
+      # definition is a string with no counterpart, which a check is good at.
+      - name: css custom properties resolve (panel, console, extension)
+        run: node scripts/test/css-vars-check.mjs
       # Smoke-helper guards: assert_want_sha256 (shared pre-publish sha gate,
       # twin of the worker's SHA256_RE) — same convention, zero new tooling.
       # A shell script that does not PARSE is a script that cannot run — and the gates below
