@@ -1282,12 +1282,13 @@ test("delivery drift: counts patches within a minor, refuses a count across one"
 
 // ── the contract list's ROW 1, which had no instrument ──────────────────────────
 //
-// `docs/agents/iteration-loop.md` carries a four-row contract list headed "check before
-// touching a promise". Its FIRST row is the one with the widest blast radius:
-//
-//   | published tgz + devices in the field | CLI verbs/args, install layout, boot-task
-//     arguments | rename or remove a verb/arg | dual-accept + rollback point + device
-//     regression |
+// THE PROMISE, stated here because its original home is gone: a published tgz is installed on
+// devices in the field, so the CLI's VERBS, ARGS, install layout and boot-task arguments are a
+// device-facing contract — renaming or removing one needs dual-accept, a rollback point and a
+// device regression, not just a doc edit. (This used to cite a four-row contract list in
+// `docs/agents/iteration-loop.md`; that file was pruned with the iteration journal in 2bb98183 and
+// this citation was left pointing at nothing. The rule outlives the document, so it is written
+// out rather than referenced.)
 //
 // Round 253 measured how that promise is kept: **this file's 36 tests cover HELPERS and
 // PowerShell generators** (`busyIsFresh`, `writeReleaseMarker`, `uninstallVersionPs`,
@@ -1335,10 +1336,9 @@ test("every CLI verb the root guide promises is one the CLI prints", () => {
     missing,
     [],
     `these verbs are promised by the root guide but the CLI does not print them: ${missing.join(", ")}. ` +
-      `The contract list in docs/agents/iteration-loop.md names this as a promise to published tgz ` +
-      `holders and "devices in the field", with the break being "rename or remove a verb/arg" — so a ` +
-      `verb disappearing is a device-breaking change that needs dual-accept, a rollback point and a ` +
-      `device regression, not just a doc edit. CLI printed: ${out.split("\n")[0]}`,
+      `A published tgz lives on devices in the field, so the verb list is a device-facing promise: ` +
+      `a verb disappearing needs dual-accept, a rollback point and a device regression, not just a ` +
+      `doc edit. CLI printed: ${out.split("\n")[0]}`,
   );
 });
 
