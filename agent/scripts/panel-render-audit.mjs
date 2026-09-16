@@ -202,6 +202,31 @@ function buildHarness() {
       { id: 'mem-3', title: 'Serial console framing', content: 'COM4 runs 115200 8N1 for the ONT console.', tags: ['serial', 'ont'], namespace: 'default', source: 'auto', created_at: 1788980000, updated_at: 1788980000 },
     ] } }));
   }
+  // THE MONITORS SURFACE, WHICH HAD NEVER BEEN RENDERED. /api/monitors was served by nothing, so the
+  // alert strip and the monitor card had only ever been measured in their empty state — the same gap
+  // rounds 69 and 78 found on two other surfaces, and both times it was real. Round 100.
+  if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {
+    var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };
+    return Promise.resolve(J({ targets: [
+      {
+        id: 'mon-router', host: '192.168.1.1', port: 22, path: null, expect: null,
+        summary: { probes: 240, up: 239, down: 1, up_pct: 99.6, up_now: true, since_ms: 1789000000000, drops: 1,
+                   latency: { min: 3, avg: 11, max: 88 }, last_status: null, body_ok: null },
+        transitions: [{ at_ms: 1788990000000, up: false, lasted_ms: 300000 }],
+        series: [probe(0, true, 9), probe(1, true, 12), probe(2, true, 8)],
+      },
+      {
+        id: 'mon-ont', host: '192.168.1.1', port: 8000, path: '/status', expect: 'ONT', path_label: 'http',
+        summary: { probes: 240, up: 180, down: 60, up_pct: 75.0, up_now: false, since_ms: 1789002000000, drops: 3,
+                   latency: { min: 40, avg: 120, max: 900 }, last_status: 502, body_ok: false },
+        transitions: [
+          { at_ms: 1789002000000, up: false, lasted_ms: 900000 },
+          { at_ms: 1788995000000, up: true, lasted_ms: 600000 },
+        ],
+        series: [probe(0, true, 120), probe(1, false, null), probe(2, false, null)],
+      },
+    ] }));
+  }
   // ?rows=N — the ARCHIVE with content, at scale. Every sweep until round 69 answered /api/sessions
   // with a bare {} (the stub's generic branch), so the History page has only ever been measured
   // EMPTY: the page's cost with a device that has recorded hundreds of sessions was unknown.
