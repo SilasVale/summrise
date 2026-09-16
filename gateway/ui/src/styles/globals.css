@@ -308,11 +308,15 @@ body[data-theme="dark"] {
    Reset & base
    ================================================================ */
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -375,14 +379,20 @@ body[data-theme="dark"]::before {
   background: transparent;
 }
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   margin: 0;
   font-weight: var(--fw-semi);
 }
 p {
   margin: 0;
 }
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
   font-family: inherit;
   font-size: inherit;
 }
@@ -560,7 +570,6 @@ pre code {
   transform: scale(1.06);
 }
 
-
 /* identity popover — anchored to the rail avatar, floats over content */
 .user-pop {
   position: fixed;
@@ -640,7 +649,8 @@ pre code {
   margin-bottom: 16px;
   align-items: stretch;
 }
-@media (max-width: 1080px) {.ov-hero {
+@media (max-width: 1080px) {
+  .ov-hero {
     grid-template-columns: 1fr;
   }
 }
@@ -650,7 +660,8 @@ pre code {
   grid-auto-rows: 1fr;
   gap: 14px;
 }
-@media (max-width: 560px) {.stat-band {
+@media (max-width: 560px) {
+  .stat-band {
     grid-template-columns: 1fr;
   }
 }
@@ -660,8 +671,6 @@ pre code {
 .ov-token .token {
   max-width: 100%;
 }
-
-
 
 .kchip.on {
   color: var(--text);
@@ -677,7 +686,8 @@ pre code {
   gap: 14px;
   align-items: start;
 }
-@media (max-width: 900px) {.ov-cols {
+@media (max-width: 900px) {
+  .ov-cols {
     grid-template-columns: 1fr;
   }
 }
@@ -727,7 +737,8 @@ pre code {
   gap: 14px;
   margin-bottom: 16px;
 }
-@media (max-width: 980px) {.stat-grid {
+@media (max-width: 980px) {
+  .stat-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
@@ -1235,7 +1246,8 @@ pre code {
 }
 
 /* Legacy bare-class aliases (btn-primary without .btn) */
-button.btn-primary, a.btn-primary {
+button.btn-primary,
+a.btn-primary {
   border-radius: var(--radius-pill);
 }
 
@@ -1290,10 +1302,6 @@ button.btn-primary, a.btn-primary {
   margin-top: 12px;
   flex-wrap: wrap;
 }
-
-
-
-
 
 /* ================================================================
    Lists (users / devices)
@@ -1359,16 +1367,6 @@ button.btn-primary, a.btn-primary {
   justify-content: flex-end;
 }
 
-
-
-
-
-
-
-
-
-
-
 .lane {
   display: flex;
   align-items: center;
@@ -1389,23 +1387,6 @@ button.btn-primary, a.btn-primary {
   border-color: var(--accent);
   background: var(--accent-light);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /* ================================================================
    Key cards
@@ -1447,8 +1428,6 @@ button.btn-primary, a.btn-primary {
   margin-top: 2px;
 }
 
-
-
 .key-card-actions {
   display: flex;
   gap: 6px;
@@ -1483,8 +1462,6 @@ button.btn-primary, a.btn-primary {
   margin-bottom: 14px;
 }
 
-
-
 .form-input {
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
@@ -1518,13 +1495,6 @@ button.btn-primary, a.btn-primary {
   flex: 1;
 }
 
-
-
-
-
-
-
-
 .form-msg {
   font-size: var(--fs-base);
   margin-top: 10px;
@@ -1545,14 +1515,11 @@ button.btn-primary, a.btn-primary {
   color: var(--success-text);
 }
 
-
 .muted {
   color: var(--text-secondary);
   font-size: var(--fs-base);
   line-height: 20px;
 }
-
-
 
 /* ── Notes / callouts ── */
 .note {
@@ -1688,8 +1655,6 @@ body[data-theme="dark"] .note.tip {
   }
 }
 
-
-
 .auth-brand h1 {
   font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
@@ -1803,8 +1768,6 @@ body[data-theme="dark"] .note.tip {
   min-width: 0;
 }
 
-
-
 /* A disabled model is shown struck through rather than hidden — it is the only
    place the operator can see what they switched off. */
 .model-chip.off {
@@ -1837,10 +1800,6 @@ body[data-theme="dark"] .note.tip {
   border-left-color: var(--error);
 }
 
-
-
-
-
 .models-health.ok {
   color: var(--success-text);
 }
@@ -1853,21 +1812,12 @@ body[data-theme="dark"] .note.tip {
   font-weight: var(--fw-medium);
 }
 
-
-
-
-
-
-
 .model-chip.current {
   background: var(--accent-light);
   border-color: var(--accent);
   color: var(--accent-on-soft);
   font-weight: var(--fw-semi);
 }
-
-
-
 
 .lang-btn {
   border: 1px solid var(--border-strong);
@@ -1923,8 +1873,6 @@ body[data-theme="dark"] .note.tip {
   font-weight: var(--fw-semi);
 }
 
-
-
 .modal-actions {
   display: flex;
   gap: 8px;
@@ -1952,7 +1900,8 @@ body[data-theme="dark"] .note.tip {
   animation: toast-in 0.2s var(--ds-ease);
 }
 
-.toast.err, .toast.error {
+.toast.err,
+.toast.error {
   background: var(--error);
   color: #fff;
 }
@@ -2304,30 +2253,31 @@ body[data-theme="dark"] .note.tip {
   }
 }
 
-@media (max-width: 768px) {.app {
+@media (max-width: 768px) {
+  .app {
     display: block;
   }
 
-.sidebar.open {
+  .sidebar.open {
     left: 0;
   }
-.sidebar-link.active::before {
+  .sidebar-link.active::before {
     display: none;
   }
-.page-header {
+  .page-header {
     flex-direction: column;
   }
-.token-row {
+  .token-row {
     flex-wrap: wrap;
   }
-.lane {
+  .lane {
     flex-wrap: wrap;
   }
-.list-row {
+  .list-row {
     flex-direction: column;
     align-items: flex-start;
   }
-.list-actions {
+  .list-actions {
     justify-content: flex-start;
   }
 }
@@ -2382,14 +2332,30 @@ body[data-theme="dark"] .note.tip {
   border-radius: 2px;
   background: var(--text-muted);
 }
-.prov-lane.lane-og { background: var(--accent); }
-.prov-lane.lane-ds { background: var(--chan-ds); }
-.prov-lane.lane-or { background: var(--chan-or); }
-.prov-lane.lane-qw { background: var(--warning); }
-.prov-lane.lane-nv { background: var(--success); }
-.prov-lane.lane-gmi { background: var(--error); }
-.prov-lane.lane-cm { background: var(--accent); }
-.prov-lane.lane-amd { background: var(--error); }
+.prov-lane.lane-og {
+  background: var(--accent);
+}
+.prov-lane.lane-ds {
+  background: var(--chan-ds);
+}
+.prov-lane.lane-or {
+  background: var(--chan-or);
+}
+.prov-lane.lane-qw {
+  background: var(--warning);
+}
+.prov-lane.lane-nv {
+  background: var(--success);
+}
+.prov-lane.lane-gmi {
+  background: var(--error);
+}
+.prov-lane.lane-cm {
+  background: var(--accent);
+}
+.prov-lane.lane-amd {
+  background: var(--error);
+}
 .prov-name {
   font-size: var(--fs-md);
   font-weight: var(--fw-semi);
@@ -2483,7 +2449,9 @@ body[data-theme="dark"] .note.tip {
   align-items: center;
   flex-wrap: wrap;
 }
-.prov-addmodel .form-input { flex: 1 1 200px; }
+.prov-addmodel .form-input {
+  flex: 1 1 200px;
+}
 .prov-disabled {
   display: flex;
   align-items: center;
@@ -2506,7 +2474,9 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.prov-addrow { margin-top: 4px; }
+.prov-addrow {
+  margin-top: 4px;
+}
 /* A dashed placeholder, not a card: adding is the exception on this page. */
 .btn-dashed {
   width: 100%;
@@ -2518,7 +2488,9 @@ body[data-theme="dark"] .note.tip {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
-  transition: border-color var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease);
+  transition:
+    border-color var(--ds-dur) var(--ds-ease),
+    color var(--ds-dur) var(--ds-ease);
 }
 .btn-dashed:hover {
   border-color: var(--accent);
@@ -2531,7 +2503,9 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid transparent;
   color: var(--error-text);
 }
-.btn-danger-text:hover:not(:disabled) { background: var(--error-bg); }
+.btn-danger-text:hover:not(:disabled) {
+  background: var(--error-bg);
+}
 .prov-newform {
   margin-top: 10px;
   padding: 14px;
@@ -2558,7 +2532,11 @@ body[data-theme="dark"] .note.tip {
   text-transform: uppercase;
   color: var(--text-secondary);
 }
-.prov-newgrid label em { text-transform: none; letter-spacing: 0; font-style: normal; }
+.prov-newgrid label em {
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: normal;
+}
 /* ── probe: what the upstream serves vs what we advertise ──────────────────── */
 .prov-probe {
   display: flex;
@@ -2660,4 +2638,23 @@ body[data-theme="dark"] .note.tip {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+}
+
+/* ── REDUCED MOTION ────────────────────────────────────────────────────────────────────────────────
+   The console did NOT honour this, and nothing had measured it: the panel has had a block since its own
+   motion pass was wired, and the console's copy of that pass was never wired at all (round 136 recorded
+   the gap, round 139 closed it). Its first run measured the truth —
+
+       normal 16 -> reduced 16     .rail-btn.active, .rail-btn, .rail-avatar, .btn.btn-secondary…
+
+   — every animating element still animating under the preference.
+
+   ONE DECLARATION FIXES ALL OF THEM. Every transition in this sheet takes its duration from --ds-dur, so
+   zeroing the token inside the media query stops them together, and no selector list can drift out of
+   date as new ones are added. The STATE is untouched: colours, borders and layout are what carry meaning
+   here, which is the same rule the panel's block follows. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-dur: 0s;
+  }
 }

@@ -116,7 +116,7 @@ const auth = { signedIn: true };
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [] };
   for (const width of [1440, 900, 720]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
@@ -169,6 +169,20 @@ const auth = { signedIn: true };
       }
     }
   }
+  // REDUCED MOTION, both states, on the console's own overview page. The panel has had this since round
+  // 134 and the console had nothing: the gap was recorded in round 136 when the pass was shared and left
+  // unwired. render re-loads the page and re-applies the route, because the preference only takes
+  // effect on a fresh style resolution.
+  for (const width of [1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const render = async () => {
+      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.evaluate((h) => { location.hash = h; }, '#/');
+      await page.waitForTimeout(1400);
+    };
+    report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
+  }
+
   auth.signedIn = false;
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
