@@ -166,6 +166,17 @@
   --chan-og: var(--accent);
   --chan-ds: #4f6bed;
   --chan-or: #7048e8;
+  /* QWEN'S CHANNEL COLOUR WAS THE ONE WRITTEN AS A LITERAL, twice: the lane port and the model
+     prefix border both spelled #c2255c while their siblings used var(--chan-*). Same value, so
+     nothing moved — but a channel's colour belongs here with the other channels', where a theme can
+     reach it and where the next channel is added by copying its neighbour. */
+  --chan-qw: #c2255c;
+  /* THE INK FOR A CHANNEL FILL. The channel colours are mid-tone in BOTH themes, so their label is
+     white in both — measured against every fill: ds 4.51, or 5.55, qw 5.66, and the default lane's
+     --text-muted 4.83. NOT --accent-fg, which flips to #2b1a09 for the dark theme's light accent and
+     measures 2.96-3.71 on these. The `og` lane is the one that uses --accent, and it is the one that
+     takes --accent-fg (white 5.49 in light, #2b1a09 8.80 in dark — white there was 1.90). */
+  --chan-fg: #ffffff;
 
   /* ---- type scale ----
      SEVEN STEPS, reached by normalising NINETY-NINE declarations. The sheet carried
@@ -1497,7 +1508,7 @@ a.btn-primary {
   font-family: var(--ds-font-family-code);
   font-weight: var(--fw-bold);
   font-size: var(--fs-sm);
-  color: #fff;
+  color: var(--accent-fg);
   text-transform: uppercase;
 }
 
@@ -1511,10 +1522,18 @@ a.btn-primary {
   background: var(--chan-or);
 }
 .lane-qw .lane-port {
-  background: #c2255c;
+  background: var(--chan-qw);
 }
 .lane-def .lane-port {
   background: var(--text-muted);
+}
+/* The four fills that do not flip take the constant ink; the base rule above takes --accent-fg,
+   because the og lane's fill IS --accent and that one does flip. */
+.lane-ds .lane-port,
+.lane-or .lane-port,
+.lane-qw .lane-port,
+.lane-def .lane-port {
+  color: var(--chan-fg);
 }
 
 .lane-body {
@@ -2114,7 +2133,7 @@ body[data-theme="dark"] .note.tip {
   border-left-color: var(--chan-or);
 }
 .models-prefix.lane-qw {
-  border-left-color: #c2255c;
+  border-left-color: var(--chan-qw);
 }
 .models-prefix.lane-nv {
   border-left-color: var(--success);
@@ -2740,14 +2759,30 @@ body[data-theme="dark"] .note.tip {
   border-radius: 2px;
   background: var(--text-muted);
 }
-.prov-lane.lane-og { background: var(--accent); }
-.prov-lane.lane-ds { background: var(--chan-ds); }
-.prov-lane.lane-or { background: var(--chan-or); }
-.prov-lane.lane-qw { background: var(--warning); }
-.prov-lane.lane-nv { background: var(--success); }
-.prov-lane.lane-gmi { background: var(--error); }
-.prov-lane.lane-cm { background: var(--accent); }
-.prov-lane.lane-amd { background: var(--error); }
+.prov-lane.lane-og {
+  background: var(--accent);
+}
+.prov-lane.lane-ds {
+  background: var(--chan-ds);
+}
+.prov-lane.lane-or {
+  background: var(--chan-or);
+}
+.prov-lane.lane-qw {
+  background: var(--warning);
+}
+.prov-lane.lane-nv {
+  background: var(--success);
+}
+.prov-lane.lane-gmi {
+  background: var(--error);
+}
+.prov-lane.lane-cm {
+  background: var(--accent);
+}
+.prov-lane.lane-amd {
+  background: var(--error);
+}
 .prov-name {
   font-size: var(--fs-md);
   font-weight: var(--fw-semi);
@@ -2841,7 +2876,9 @@ body[data-theme="dark"] .note.tip {
   align-items: center;
   flex-wrap: wrap;
 }
-.prov-addmodel .form-input { flex: 1 1 200px; }
+.prov-addmodel .form-input {
+  flex: 1 1 200px;
+}
 .prov-disabled {
   display: flex;
   align-items: center;
@@ -2864,7 +2901,9 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.prov-addrow { margin-top: 4px; }
+.prov-addrow {
+  margin-top: 4px;
+}
 /* A dashed placeholder, not a card: adding is the exception on this page. */
 .btn-dashed {
   width: 100%;
@@ -2876,7 +2915,9 @@ body[data-theme="dark"] .note.tip {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
-  transition: border-color var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease);
+  transition:
+    border-color var(--ds-dur) var(--ds-ease),
+    color var(--ds-dur) var(--ds-ease);
 }
 .btn-dashed:hover {
   border-color: var(--accent);
@@ -2889,7 +2930,9 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid transparent;
   color: var(--error-text);
 }
-.btn-danger-text:hover:not(:disabled) { background: var(--error-bg); }
+.btn-danger-text:hover:not(:disabled) {
+  background: var(--error-bg);
+}
 .prov-newform {
   margin-top: 10px;
   padding: 14px;
@@ -2916,7 +2959,11 @@ body[data-theme="dark"] .note.tip {
   text-transform: uppercase;
   color: var(--text-secondary);
 }
-.prov-newgrid label em { text-transform: none; letter-spacing: 0; font-style: normal; }
+.prov-newgrid label em {
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: normal;
+}
 /* ── probe: what the upstream serves vs what we advertise ──────────────────── */
 .prov-probe {
   display: flex;
