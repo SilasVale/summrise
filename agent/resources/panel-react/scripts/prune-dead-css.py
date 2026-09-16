@@ -25,9 +25,21 @@ import pathlib
 import re
 import sys
 
+# WHICH UI. The panel by default, so the existing caller is untouched; `--root` points it at another
+# frontend with the same shape (src/styles/*.css + src/**/*.tsx|ts). The console needed the same
+# question answered in round 80 and got the same tool rather than a second implementation — the
+# runtime-assembled-class logic below is the part that is easy to get wrong, and two copies of it
+# would drift.
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 STYLES = ROOT / "src" / "styles"
 SRC = ROOT / "src"
+
+
+def point_at(root: pathlib.Path) -> None:
+    global ROOT, STYLES, SRC
+    ROOT = root.resolve()
+    STYLES = ROOT / "src" / "styles"
+    SRC = ROOT / "src"
 
 
 def referenced_names():
@@ -114,7 +126,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--json", action="store_true", help="machine-readable summary (the ratchet test)")
+    ap.add_argument("--root", default=None, help="the UI to inspect (default: this panel)")
     args = ap.parse_args()
+    if args.root:
+        point_at(ROOT.parent.parent.parent.parent / args.root if False else pathlib.Path(args.root))
 
     names, prefixes = referenced_names()
     declared = set()
