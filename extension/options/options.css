@@ -29,6 +29,9 @@ body{font-family:var(--font);font-size:14px;line-height:1.5;background:var(--bg)
   width:100%;max-width:420px;display:flex;flex-direction:column;gap:10px;
   box-shadow:var(--shadow-lg)}
 h1{font-size:17px;font-weight:650;letter-spacing:-0.01em}
+/* The section heading that used to be a second h1 with an inline 16px: on the sheet, on the scale
+   the page already has (17px title, 14px body, 13px label, 12px hint). */
+h2{margin-top:28px;font-size:16px;font-weight:650;letter-spacing:-0.01em}
 label{color:var(--text2);font-size:13px}
 input{font-family:inherit;font-size:14px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:8px 12px;background:var(--card)}
 input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--focus-ring-soft)}

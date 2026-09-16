@@ -9,7 +9,10 @@
 <body>
 <main class="card">
   <h1>Vale Code Links</h1>
-  <h1 style="margin-top:28px;font-size:16px">DSH 路径改写 → code-server</h1>
+  <!-- h2, NOT a second h1 (measured by the options page's first render, round 58): two h1s on one
+       page tell a screen reader there are two top-level subjects, and the section's spacing and size
+       were an inline style — the one place this page used a style attribute. -->
+  <h2>DSH 路径改写 → code-server</h2>
   <label for="studioOrigin">code-server origin</label>
   <input id="studioOrigin" type="url" placeholder="https://vscode.saisi.online" spellcheck="false">
   <label class="chk"><input id="studioLinksEnabled" type="checkbox" checked> 在 DSH 页面把文件路径改成 code-server 目录链接</label>

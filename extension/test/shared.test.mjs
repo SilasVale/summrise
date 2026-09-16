@@ -8,6 +8,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const { DEFAULT_STUDIO_ORIGIN, httpsOrigin, resolveDir, studioFolderUrl, extractPathJobs } = require("../shared.js");
@@ -218,4 +220,26 @@ test("content/studio-links.js: examined means the NODE, and in-place edits are s
     /if \(mu\.type === "characterData"\)/,
     "a characterData mutation must be handled, not ignored",
   );
+});
+
+// ── THE OPTIONS PAGE'S OWN RULES (round 58) ───────────────────────────────────────────────────
+//
+// The options page had never been rendered, and its first render found two defects: TWO h1s (the
+// page title and a section heading), and the section's spacing/size carried as an inline style.
+// Neither is visible to a syntax check, and the extension's suite has no DOM — so this pins the
+// source, while the device-side sweep remains the authority for what actually paints.
+const OPTIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "options");
+
+test("the options page names itself once", () => {
+  const html = readFileSync(path.join(OPTIONS_DIR, "options.html"), "utf8");
+  const h1s = [...html.matchAll(/<h1[ >]/g)].length;
+  assert.equal(h1s, 1, `options.html has ${h1s} h1 elements — a page has ONE top-level subject`);
+});
+
+test("the options page carries no inline styles", () => {
+  // Not pedantry: the sheet is where the page's scale lives (17/14/13/12), and a style attribute is
+  // how a page quietly grows a second one — the 16px section heading was exactly that.
+  const html = readFileSync(path.join(OPTIONS_DIR, "options.html"), "utf8");
+  const styled = [...html.matchAll(/<[a-z][^>]*\sstyle="/gi)].map((m) => m[0].slice(0, 40));
+  assert.deepEqual(styled, [], `inline style(s) found: ${styled.join(", ")}`);
 });
