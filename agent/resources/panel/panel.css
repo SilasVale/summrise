@@ -1815,8 +1815,14 @@ h3 { font-size: var(--fs-base); }
 /* FLAPPING is a shape of its own: a hollow diamond, so "unstable" and "down" are told apart
    without resolving a hue (this repo has an incident where two states differed by colour
    alone). The ink stays the warn colour; the silhouette carries the difference. */
-.monitor-chip.is-flapping { color: var(--state-warn); }
-.monitor-mark.is-flapping { background: transparent; border: 1.5px solid var(--state-warn); }
+/* --warn-ink, NOT --state-warn. `--state-warn` is a FILL colour for the state dots — it does not flip
+   with the theme, which is right for a dot on either chrome and wrong for text on a chip whose surface
+   does flip. Measured on the rendered chip (round 109): 4.57 light / 2.80 dark, the dark reading far
+   under AA — and the mark's 1.5px border under the 3:1 a graphical object needs. --warn-ink is
+   #92400e in light and #ffc078 in dark: 5.39 / 8.76 for the text, and the same for the border. Only
+   the FLAPPING state was affected; the down chip beside it uses a token that flips and always passed. */
+.monitor-chip.is-flapping { color: var(--warn-ink); }
+.monitor-mark.is-flapping { background: transparent; border: 1.5px solid var(--warn-ink); }
 
 /* ── Getting your attention (Settings) ───────────────────────────────────────
    The switch, the browser's actual answer, and what still works when the answer

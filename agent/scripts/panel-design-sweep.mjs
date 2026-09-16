@@ -70,6 +70,16 @@
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
 //
+//   * THE MONITOR CHIPS, BOTH STATES (round 109). The harness fixture now produces a FLAPPING target
+//     (up now, 5 drops — the device's own UNSTABLE_DROPS is 2), because the component gives DOWN
+//     precedence: `if (down.length === 0) { …flapping… }`, so a down target anywhere hides the flapping
+//     chip entirely and the two NEVER appear together. That precedence is a state property nobody had
+//     rendered, and it is why the flapping chip's dark-theme reading went unseen: the flapping chip
+//     measured 4.57 light / 2.80 dark, its colour (--state-warn) being a FILL token that does not flip
+//     while the chip's surface does. Fixed to --warn-ink and re-measured on the rendered chip: 6.45
+//     light / 9.13 panel-dark / 8.23 desktop-dark. The DOWN chip was measured in the same round and was
+//     always fine — 6.84 light / 6.34 dark, from a token that flips.
+//
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
 //     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page

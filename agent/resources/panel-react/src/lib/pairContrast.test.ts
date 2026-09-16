@@ -103,6 +103,14 @@ describe("colour pairs declared in one rule", () => {
     // These three are NOT exempt any more: the earlier note claimed they sat over a screenshot
     // thumbnail, and that was simply wrong — `.browser-action` paints `--chrome-bg-3`, so the wash
     // composites over a chrome surface. Their base is named and measured like any other pair.
+    // .monitor-chip.is-flapping is judged by the RENDERED sweep, not here, and that is a limitation
+    // worth naming rather than papering over: its colour and its surface are declared in different
+    // rules (the documented blind spot above), and both sides go through another var() — --state-warn
+    // resolves to --warn, --surface-chip to --ds-neutral-100 — so a static pair here resolves to
+    // nothing and is skipped. I added the entry, mutated the token back, and watched the test pass:
+    // coverage that cannot fail. Removed, with the reason. The rendered sweep measures it on every run
+    // because the harness fixture now produces a flapping target, and it measured 2.80 in dark before
+    // round 109's fix and 9.13 after.
     ".browser-action-badge.ok": "--chrome-bg-3",
     ".browser-action-badge.err": "--chrome-bg-3",
     ".browser-action-badge.run": "--chrome-bg-3",
