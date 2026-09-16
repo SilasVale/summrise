@@ -168,7 +168,16 @@ export function judgeReport(report, opts = {}) {
     if (n.titleOnly.length) findings.push(`${where}: ${n.titleOnly.length} control(s) named only by title — ${n.titleOnly.join(", ")}`);
   }
   for (const f of report.focus || []) {
-    findings.push(`${f.page}: ${f.missing} Tab stop(s) with no visible focus ring`);
+    if (f.missing) findings.push(`${f.page ? f.page + ': ' : ''}${f.missing} Tab stop(s) with no visible focus ring`);
+    // A RUN THAT LANDED NOWHERE IS NOT A PASSING RUN. Focus escaping to the body used to count as "ok",
+    // so a page with nothing focusable reported a clean sheet — the same "a skip reads as a pass" defect
+    // the colour sweep bans. A row that says it pressed keys and landed on nothing is a finding.
+    if (f.pressed > 0 && f.landed === 0) {
+      findings.push(
+        `${f.density || ''}${f.theme ? '/' + f.theme : ''}: focus landed on nothing in ${f.pressed} Tab press(es) ` +
+          `(${f.escaped} escaped to the body) — that is a report of no focusable targets, not of good focus rings`,
+      );
+    }
   }
   // REDUCED MOTION IS A CONTRACT, NOT A COURTESY. `motion` entries come from a render with the
   // preference EMULATED: anything still carrying a transition or an infinite animation under it is a

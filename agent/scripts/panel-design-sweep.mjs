@@ -213,7 +213,13 @@ ${TIMING}
   const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
-      for (const mode_ of wants("pages") ? ['idle', 'relaxed'] : []) {
+      // THE PAGE MUST BE RENDERED FOR *EITHER* PASS. The focus block below lives in this loop, so
+      // --passes=focus used to run it ZERO times: the mode list was empty, no page was loaded, no Tab
+      // was pressed, and the report came back focus: [] — clean, and clean because nothing ran. The
+      // full sweep hid it, since all includes pages. Same defect as the ones this suite keeps
+      // finding in its own checks, this time in the wiring between two of them.
+      const needsPage = wants("pages") || wants("focus") || wants("timing") || wants("hover");
+      for (const mode_ of needsPage ? (wants("pages") ? ['idle', 'relaxed'] : ['idle']) : []) {
         await page.setViewportSize(vp);
         const t0 = Date.now();
         await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=' + mode_ + '&sessions=4&cb=' + stamp, { waitUntil: 'load' });
@@ -227,18 +233,27 @@ ${TIMING}
         // FOCUS RINGS BY REAL TAB PRESSES: inspecting the CSS of focusable elements cannot tell
         // whether focus LANDS somewhere visible.
         await page.evaluate(() => document.body.focus());
-        let noRing = 0;
-        for (let i = 0; i < 14; i++) {
+        let noRing = 0, landed = 0, escaped = 0;
+        const PRESSES = 14;
+        for (let i = 0; i < PRESSES; i++) {
           await page.keyboard.press('Tab');
-          const ok = await page.evaluate(() => {
+          const verdict = await page.evaluate(() => {
             const el = document.activeElement;
-            if (!el || el === document.body) return true;
+            // FOCUS ESCAPING TO THE BODY IS NOT A PASS. The old check returned "ok" for
+            // el === document.body, so a page with one focusable element scored 1 landing and 13
+            // passes, and the report could not tell that from 14 good ones. Counted separately now.
+            if (!el || el === document.body) return 'escaped';
             const st = getComputedStyle(el);
-            return (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
+            const visible = (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
+            return visible ? 'ok' : 'no-ring';
           });
-          if (!ok) noRing++;
+          if (verdict === 'ok') landed++;
+          else if (verdict === 'escaped') escaped++;
+          else noRing++;
         }
-        if (noRing) report.focus.push({ density, theme, missing: noRing });
+        // A SUMMARY ROW EVEN WHEN CLEAN, so the report says how much it actually did. "A sweep that read
+        // nothing is not a sweep that found nothing" — the same floor the colour pair sweep carries.
+        report.focus.push({ density, theme, pressed: PRESSES, landed, escaped, missing: noRing });
 
         const rail = await page.evaluate(() => {
           const r = document.querySelector('#icon-rail, .desktop-rail');
