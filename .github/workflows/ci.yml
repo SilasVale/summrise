@@ -486,14 +486,18 @@ jobs:
       - name: Dry-run zen-us
         run: wrangler deploy --dry-run
         working-directory: proxies/zen-us-proxy
-      # 69 tests, and until round 231 NOTHING ran them: this job only syntax-checked
-      # the five handlers, so the suite that covers the vrelay relay — the process that
-      # serves THIS repository's git mirror — passed only when a human ran it. The
-      # ledger's "CI does not run these 54 tests" was read as a finding in round 226
-      # WITHOUT opening this file, retracted in 227, and is now true-by-accident about a
-      # different subject: `api-relay` is the one subsystem here with no test step.
-      # 54 vs the measured 69 is consistent with the suite having grown since that
-      # sentence was written — a hypothesis, not a claim.
+      # EVERY PROXY SUITE RUNS HERE, and that sentence had to be corrected twice.
+      #
+      # Round 231: the vrelay suite (the relay that serves THIS repository's git mirror) was
+      # only syntax-checked, so it passed only when a human ran it. Round 226 had read the
+      # ledger's "CI does not run these 54 tests" as a finding WITHOUT opening this file and
+      # retracted it in 227 — a lesson about claims, not about counts.
+      #
+      # Round 71: the paragraph that recorded all that ended by asserting "`api-relay` is the one
+      # subsystem here with no test step" — while the step that runs it sat three lines below, and
+      # while it quoted 69 tests for a job that now runs three suites. MEASURED (round 71):
+      # zen-go 15 + zen-us 13 + api-relay 70 = 98 tests, each suite with its own `node --test`
+      # step above. Any number here is a reading, not a rule: re-measure before quoting it.
       - name: Test api-relay
         run: node --test
         working-directory: proxies/api-relay
