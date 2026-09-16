@@ -16,6 +16,18 @@
 //
 // The harness must exist on the device first: `node agent/scripts/panel-render-audit.mjs` emits it.
 //
+// MEASURED AND FOUND CLEAN (rounds 61-64), so the next round does not re-investigate:
+//   * the chrome stack's vertical rhythm. Heights: evicted notice 26, goal bar 23, status bar 27 —
+//     differences of 1-2px, below the threshold where a person can see them.
+//   * the chrome stack's horizontal insets: notice text starts at 16px, status-bar text at 14px —
+//     2px apart, same verdict.
+//   * PADDINGS ARE NOT ON THE SPACING SCALE, and that is the codebase's norm rather than drift: 87
+//     distinct off-scale paddings (5px, 7px, 9px, 11px, 13px, 14px, 22px…) across the sheet. Adding
+//     a padding rule to the scale contract would flag ~87 values and mean a 1-2px rewrite of every
+//     component — change nobody could verify as an improvement, so the rule was NOT added. The
+//     properties that ARE contracted (radius, gap, type size) each had a handful of violations when
+//     their rules were written, which is why those rules were worth having.
+//
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
 //     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page
