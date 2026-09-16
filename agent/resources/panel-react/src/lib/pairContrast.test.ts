@@ -132,8 +132,9 @@ describe("colour pairs declared in one rule", () => {
       [".tab-close:hover", "--danger-on-soft", "--chrome-bg-2"],
     ];
     let checked = 0;
+    const THEMES: Array<[string, Record<string, string>]> = [["light", light], ["dark", dark]];
     for (const [label, fgName, bgName] of cases) {
-      for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
+      for (const [theme, tokens] of THEMES) {
         const fg = parseColour(tokens[fgName]);
         const bg = parseColour(tokens[bgName]);
         expect(fg, `${label}: ${fgName} must resolve`).toBeTruthy();
@@ -151,9 +152,12 @@ describe("colour pairs declared in one rule", () => {
       const asVar = /^var\((--[a-z0-9-]+)\)$/.exec(raw.trim());
       return asVar ? (tokens[asVar[1]] ?? raw) : raw;
     };
-    for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
+    for (const [theme, tokens] of THEMES) {
       const fg = parseColour(resolve(tokens, "--danger-on-soft"));
-      const stack = compositeStack([parseColour(resolve(tokens, "--danger-soft")), parseColour(resolve(tokens, "--bg"))]);
+      const wash = parseColour(resolve(tokens, "--danger-soft"));
+      const page = parseColour(resolve(tokens, "--bg"));
+      expect(wash && page, `${theme}: --danger-soft and --bg must both resolve`).toBeTruthy();
+      const stack = compositeStack([wash!, page!]);
       held(`--danger-soft wash (${theme})`, theme, fg!, stack);
       checked++;
     }
