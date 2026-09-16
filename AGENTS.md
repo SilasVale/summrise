@@ -103,6 +103,23 @@ constructed by tests"). The apparent gap is deliberate testability design, and t
 also unreliable in the other direction: its `#[test]` extraction missed real call sites, so its count
 is an upper bound, not a finding. Read the module before believing the count.
 
+### A dangling-citation scan is harder than it looks (round 73)
+
+Trying to find every cited path that does not exist, mechanically, took seven attempts and every one
+of them lied in a different direction:
+
+  * a GREEDY character class (`[\w./-]*`) let one match swallow the next citation on the same line,
+    so the scan reported ZERO dead citations while `docs/CHARTER.md` plainly had one;
+  * resolving paths only from the repository root turned every cwd-relative citation into a false
+    positive (`scripts/e2e/e2e.js` is `agent/scripts/e2e/e2e.js` when the step runs with
+    `working-directory: agent`; `scripts/build-css.mjs` is beside its `package.json`);
+  * tokenizing on whitespace then checking BOTH the root and the file's own directory still left
+    false positives, and package.json scripts I had run successfully minutes earlier appeared "dead".
+
+Each time, the direct check settled it: `ls` the path, run the command. The scan eventually produced a
+usable list, but only after it was made to demonstrate the one case known to be dead — do that FIRST,
+before believing any count it prints. What it found is recorded in `docs/agents/ideas.md` row 12.
+
 ## Release — npm is the only channel
 
 ```bash

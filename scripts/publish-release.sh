@@ -473,7 +473,7 @@ echo "        ./scripts/publish-release.sh --audit-only $VER     # (or rerun wit
 echo "      It demands every SOURCE-derived file be byte-identical and only tolerates"
 echo "      a differing vale-agent.exe (the two builders do not share a build env)."
 echo "  [4] OPTIONAL — collapse the two builders so the CDN serves the CI artifact"
-echo "      (then CDN == GitHub byte-for-byte; see agent/CLAUDE.md step 6):"
+echo "      (then CDN == GitHub byte-for-byte):"
 echo "        ./scripts/publish-cdn-from-ci.sh $VER"
 echo "  [5] keep-latest: delete the PREVIOUS release + tag via the API"
 echo "        (DELETE /repos/SilasVale/vale/releases/<id> and /git/refs/tags/<tag>;"
