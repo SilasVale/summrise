@@ -105,7 +105,7 @@ ${TIMING}
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
-  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [] };
+  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [] };
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
       for (const mode_ of ['idle', 'relaxed']) {
@@ -154,6 +154,55 @@ ${TIMING}
       }
     }
   }
+  // HOVER, measured rather than assumed. Nothing had ever looked at it: the static pair sweep reads
+  // base rules and every rendered pass measures the resting DOM, while the panel carries 73 :hover
+  // rules. Each interactive element is hovered in turn and the page measured while it is hovered.
+  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      const underAA = [];
+      // ONE PER FAMILY, not every instance. Re-running the whole-DOM probe after each hover costs a
+      // pass over ~400 nodes, and 31 elements x 4 combinations made the sweep exceed the caller's
+      // timeout twice. Hover styles are per-class, so the first element of each distinct class is the
+      // same measurement at a quarter of the cost.
+      const all = await page.$$('#root button, #root [role="button"], #root a');
+      const seenClass = new Set();
+      const handles = [];
+      for (const h of all) {
+        const key = await h.evaluate((el) => (typeof el.className === 'string' ? el.className : el.tagName));
+        if (seenClass.has(key)) continue;
+        seenClass.add(key);
+        handles.push(h);
+      }
+      for (const h of handles) {
+        // SKIP WHAT CANNOT BE HOVERED BEFORE ASKING. hover() waits out its timeout on a hidden or
+        // zero-size element, and 31 elements x 4 passes of that made this pass longer than the whole
+        // rest of the sweep (the first live run timed out at the call boundary, not in the page).
+        // (No backticks in this comment: it lives inside the emitted template — seventh time.)
+        const box = await h.boundingBox();
+        if (!box || box.width < 2 || box.height < 2) continue;
+        try {
+          await h.hover({ timeout: 400 });
+        } catch (e) {
+          continue;   // covered by something else in this viewport
+        }
+        await page.waitForTimeout(90);
+        for (const r of await page.evaluate(PROBE)) {
+          const need = r.need ?? 4.5;
+          if (r.cr !== null && !r.inactive && r.cr < need) {
+            underAA.push(r.sel + ' "' + String(r.text).slice(0, 16) + '" ' + r.cr + '<' + need);
+          }
+        }
+        await page.mouse.move(2, 2);
+      }
+      report.hover.push({ density, theme, interactive: handles.length, underAA: [...new Set(underAA)] });
+    }
+  }
+
   // REDUCED MOTION, measured rather than assumed: render both densities with the preference
   // EMULATED and ask the page which elements still have a running transition or animation. Reading
   // the stylesheet cannot answer this — a media query adds no specificity, so the answer depends on

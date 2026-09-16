@@ -203,7 +203,7 @@
 }
 /* Hover DARKENS. It used `--accent-ink` (#d9480f), which is LIGHTER than the new
    base — a hover that reduced contrast to 4.27. */
-.btn-new:hover { background: var(--accent-on-soft); }
+.btn-new:hover { background: var(--accent-solid-hover); }
 .btn-new:active { transform: translateY(1px); }
 .new-menu {
   position: absolute;

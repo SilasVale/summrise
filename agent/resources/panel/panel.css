@@ -83,6 +83,12 @@
      gives white 4.30 — under AA at button sizes — so a primary action button
      needs this rather than the accent itself. Measured 6.08. */
   --accent-solid: #b03a0a;
+  /* The HOVER shade of --accent-solid. The rule that needed it used --accent-on-soft instead, which is
+     an INK token ("the accent, readable ON a soft surface"): in the dark theme that is #ffa94d, so
+     white text measured **1.90** while the button was hovered. Only a hover-state measurement could
+     see it, and none existed until round 84. White on this is 6.78 — the same value the console uses
+     for its accent hover. Declared once: like --accent-solid, it does not flip. */
+  --accent-solid-hover: #a63308;
   --success-text: #1e7a33;
   --ink: var(--ds-neutral-900);
   --muted: var(--ds-neutral-500);
@@ -5083,7 +5089,7 @@ button.dtab-close:hover { opacity: 1; }
 }
 /* Hover DARKENS. It used `--accent-ink` (#d9480f), which is LIGHTER than the new
    base — a hover that reduced contrast to 4.27. */
-.btn-new:hover { background: var(--accent-on-soft); }
+.btn-new:hover { background: var(--accent-solid-hover); }
 .btn-new:active { transform: translateY(1px); }
 .new-menu {
   position: absolute;

@@ -247,5 +247,19 @@ else
   ok "the judge fails a report that still animates under reduced motion"
 fi
 
+# HOVER (round 84): a report showing an element below AA WHILE HOVERED must fail. Hover was the last
+# unmeasured state — no instrument looked at it before this round.
+python3 - "$TMP/clean.json" "$TMP/hover.json" <<'PY3'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["hover"] = [{"density": "panel", "theme": "light", "interactive": 31, "underAA": ['.btn-ghost "Cancel" 3.1<4.5']}]
+json.dump(r, open(sys.argv[2], "w"))
+PY3
+if node "$TOOL" --judge "$TMP/hover.json" > "$TMP/hover.out" 2>&1; then
+  bad "the judge PASSED a report with an element below AA while hovered"
+else
+  ok "the judge fails a report whose hovered element is below AA"
+fi
+
 echo "panel-design-sweep: $PASS ok, $FAILED failed"
 [ "$FAILED" -eq 0 ]

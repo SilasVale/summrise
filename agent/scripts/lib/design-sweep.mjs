@@ -146,6 +146,15 @@ export function judgeReport(report, opts = {}) {
       findings.push(`reduced motion (${m.density || "?"}): ${m.animating.length} element(s) still animate — ${m.animating.slice(0, 3).join("; ")}`);
     }
   }
+  // HOVER IS A STATE, and until round 84 neither instrument looked at it: the static pair sweep reads
+  // base rules, and the rendered passes measure the RESTING DOM. The panel carries 73 :hover rules —
+  // exactly where a designer reaches for a lighter accent. Measured: 31 interactive elements, 24
+  // hoverable in the harness, 0 under AA in either theme.
+  for (const h of report.hover || []) {
+    if (h.underAA && h.underAA.length) {
+      findings.push(`hover (${h.density || "?"}/${h.theme || "?"}): ${h.underAA.length} element(s) below AA while hovered — ${h.underAA.slice(0, 3).join("; ")}`);
+    }
+  }
   for (const r of report.reflow || []) {
     if (r.docScrollsSideways) {
       findings.push({ text: `reflow @${r.width}px: the document scrolls sideways (${r.docScrollWidth} > ${r.viewport})`, entry: r });
