@@ -162,18 +162,27 @@ const auth = { signedIn: true };
           report.hover.push({ page: label, width, density: 'console', theme: 'light', interactive: all.length, underAA: [...new Set(underAA)] });
         }
         await page.evaluate(() => document.body.focus());
-        let noRing = 0;
-        for (let i = 0; i < 16; i++) {
+        // THE SAME TWO DEFECTS THE PANEL'S PASS HAD (round 133), because this is a COPY of it and copies
+        // drift: focus escaping to the body counted as a pass, and only failures were reported, so a page
+        // with nothing focusable produced a clean sheet indistinguishable from a page with good rings.
+        let noRing = 0, landed = 0, escaped = 0;
+        const PRESSES = 16;
+        for (let i = 0; i < PRESSES; i++) {
           await page.keyboard.press('Tab');
-          const ok = await page.evaluate(() => {
+          const verdict = await page.evaluate(() => {
             const el = document.activeElement;
-            if (!el || el === document.body) return true;
+            if (!el || el === document.body) return 'escaped';
             const st = getComputedStyle(el);
-            return (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
+            const visible = (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
+            return visible ? 'ok' : 'no-ring';
           });
-          if (!ok) noRing++;
+          if (verdict === 'ok') landed++;
+          else if (verdict === 'escaped') escaped++;
+          else noRing++;
         }
-        if (noRing) report.focus.push({ page: label, missing: noRing });
+        // A row even when clean, so the report says how much it did — the floor the panel's pass gained
+        // in round 133 and this one was missing.
+        report.focus.push({ page: label, width, pressed: PRESSES, landed, escaped, missing: noRing });
       }
     }
   }
