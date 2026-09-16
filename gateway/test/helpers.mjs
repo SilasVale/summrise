@@ -34,6 +34,15 @@ import { __clearCaches } from "../src/store.ts";
  *  behaviour instead of about when the machine happened to run it. `advance()` is for the other half:
  *  crossing a boundary ON PURPOSE, so the reset itself can be asserted rather than described.
  *
+ *  THE WHOLE CLOCK AXIS WAS THEN AUDITED ACROSS ALL THREE SUITES (round 147), so it does not need doing
+ *  again: the GATEWAY had exactly two minute-bucketed gates (`auth.ts`'s login limiter — the one that
+ *  flaked — and `translate.ts`'s per-token limiter, which no test drives with rapid attempts), and the
+ *  register/logout rate-limit tests use KV counters that do not roll on the clock. The AGENT's rust tests
+ *  assert `uptime_secs` only against INJECTED values (0 and 400, never a measured elapsed time) and have
+ *  exactly one short sleep, which makes a NEGATIVE assertion — "the acquirer must still be waiting" —
+ *  stronger rather than flakier. The PANEL uses fake timers by default and `waitFor` with a deadline for
+ *  the eight places it needs the real clock, which is the right shape.
+ *
  *  USE IT IN A finally. `node --test` gives each FILE its own process, so a leak cannot reach another
  *  file, but a leak inside a file makes every later test in it depend on the time of day. */
 export function freezeClock(at = Date.now()) {
@@ -69,7 +78,10 @@ export function skewClock(ms) {
 export async function withFetch(handler, fn) {
   const real = globalThis.fetch;
   withFetch.calls = 0;
-  globalThis.fetch = async (...args) => { withFetch.calls++; return handler(...args); };
+  globalThis.fetch = async (...args) => {
+    withFetch.calls++;
+    return handler(...args);
+  };
   try {
     return await fn();
   } finally {
@@ -133,12 +145,18 @@ export function makeEnv({
   return {
     CONSOLE_HOST: "x",
     KEYS: {
-      async get(k) { return map.has(k) ? map.get(k) : null; },
+      async get(k) {
+        return map.has(k) ? map.get(k) : null;
+      },
       async put(k, v, opts) {
         map.set(k, v);
-        if (opts && opts.expirationTtl) expiry.set(k, Math.floor(Date.now() / 1000) + opts.expirationTtl);
+        if (opts && opts.expirationTtl)
+          expiry.set(k, Math.floor(Date.now() / 1000) + opts.expirationTtl);
       },
-      async delete(k) { map.delete(k); expiry.delete(k); },
+      async delete(k) {
+        map.delete(k);
+        expiry.delete(k);
+      },
       async list({ prefix } = {}) {
         const keys = [];
         for (const k of map.keys()) {
