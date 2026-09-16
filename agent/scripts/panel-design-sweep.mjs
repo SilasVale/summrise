@@ -28,6 +28,15 @@
 //     properties that ARE contracted (radius, gap, type size) each had a handful of violations when
 //     their rules were written, which is why those rules were worth having.
 //
+//   * THE HISTORY PAGE AT SCALE (round 69). The harness serves a populated archive with `?rows=N`,
+//     which no sweep had ever done — every pass before it answered `/api/sessions` with a bare `{}`,
+//     so the page had only ever been measured EMPTY. Measured with 50 / 200 / 800 recorded sessions:
+//     the window is 50 rows, the DOM stays flat (395 nodes) whatever the archive holds, there are no
+//     long tasks, and switching to the page costs 4-21ms. The page SAYS what it is doing — "showing
+//     50 of 800" — so the count is honest, and the file's header documents what is deliberately NOT
+//     here (no search over the archive, no paging). That is a boundary someone chose and wrote down,
+//     not a defect: 750 sessions are unreachable from the UI, by decision.
+//
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
 //     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page

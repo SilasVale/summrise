@@ -173,6 +173,22 @@ function buildHarness() {
   window.fetch = function(url, init){
     var u = String(url);
     if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
+  // ?rows=N — the ARCHIVE with content, at scale. Every sweep until round 69 answered /api/sessions
+  // with a bare {} (the stub's generic branch), so the History page has only ever been measured
+  // EMPTY: the page's cost with a device that has recorded hundreds of sessions was unknown.
+  if (u.indexOf('/api/sessions') >= 0) {
+    var want = parseInt(P.get('rows') || '0', 10);
+    var rows = [];
+    for (var r = 0; r < want; r++) {
+      rows.push({
+        id: 'term-arch-' + r,
+        kind: (r % 3 === 0) ? 'ssh' : (r % 3 === 1 ? 'serial' : 'pty'),
+        label: (r % 3 === 0) ? 'stc@192.168.1.1' : (r % 3 === 1 ? 'serial:COM4' : 'pwsh'),
+        state: { ended_ms: 1789000000000 - r * 60000, exit_code: (r % 7 === 0) ? 1 : 0 },
+      });
+    }
+    return Promise.resolve(J({ sessions: rows }));
+  }
     var body = (init && init.body) ? String(init.body) : '';
     // Double backslash: this is inside a template literal, where a single \/ collapses to / and the
     // emitted regex becomes /^.*/api// — "Invalid regular expression flags", which killed the WHOLE
