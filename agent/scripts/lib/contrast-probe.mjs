@@ -207,6 +207,95 @@ export const PROBE_SOURCE = `(() => {
       cr: bg.gradient ? gradientCr : contrastRatio(fg, bg.colour),
     });
   }
+  // ── GRAPHICS: BORDERS, MARKS AND DOTS (round 125) ────────────────────────────────────────────────
+  // WCAG 1.4.11 asks 3:1 of a non-text element that carries meaning. The text loop above cannot see one,
+  // because it requires the element to own a text node — which is why the two graphic defects this suite
+  // has found were both found by hand.
+  //
+  // THE ROW CARRIES ITS OWN EVIDENCE: paint and surface are the two colours the ratio came from, so a
+  // number that looks wrong explains itself instead of needing a separate investigation. Rounds 123 and
+  // 124 each cost a whole round to a row that said cr: 7.03 with nothing to say WHY.
+  //
+  // The painter is resolved in this order: a drawn border; the element's own background; a zero-offset
+  // BOX-SHADOW with a spread (the dot idiom — the shadow IS the mark); ::before/::after (the other dot
+  // idiom); SVG fill, then stroke.
+  const painterOf = (el, st) => {
+    const widths = [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth].map((w) => parseFloat(w) || 0);
+    const bcols = [st.borderTopColor, st.borderRightColor, st.borderBottomColor, st.borderLeftColor].map(parseColour);
+    // THE COLOUR MUST COME FROM A SIDE THAT HAS WIDTH. A zero-width border still REPORTS a colour — the
+    // inherited text colour — and taking the first coloured side picked it: the boot triangle read
+    // rgb(82,82,91) instead of its own #92400e, and the row's cr was wrong for two rounds. The row's own
+    // paint field is what exposed it, in one look, which is why it is there.
+    for (let i = 0; i < 4; i++) {
+      if (widths[i] >= 1 && bcols[i] && (bcols[i].a ?? 1) > 0.05) return { colour: bcols[i], from: 'border' };
+    }
+    const own = parseColour(st.backgroundColor);
+    if (own && (own.a ?? 1) > 0.05) return { colour: own, from: 'background' };
+    const shadow = (st.boxShadow || '').split(',')[0] || '';
+    if (shadow && shadow !== 'none') {
+      const parts = shadow.trim().split(/\\s+/);
+      const px = parts.filter((x) => /^-?[\\d.]+px$/.test(x)).map(parseFloat);
+      const col = parts.map(parseColour).filter(Boolean)[0];
+      if (col && (col.a ?? 1) > 0.05 && px.length >= 2 && px[0] === 0 && px[1] === 0) return { colour: col, from: 'box-shadow' };
+    }
+    for (const pseudo of ['::before', '::after']) {
+      const ps = getComputedStyle(el, pseudo);
+      if (!ps || ps.content === 'none' || ps.display === 'none') continue;
+      const pb = parseColour(ps.backgroundColor);
+      if (pb && (pb.a ?? 1) > 0.05) return { colour: pb, from: pseudo };
+      const pw = ['borderTopWidth', 'borderLeftWidth'].map((k) => parseFloat(ps[k]) || 0);
+      if (pw.some((w) => w >= 1)) {
+        const pc = [ps.borderTopColor, ps.borderLeftColor].map(parseColour).filter((x) => x && (x.a ?? 1) > 0.05)[0];
+        if (pc) return { colour: pc, from: pseudo };
+      }
+    }
+    if (el instanceof SVGElement) {
+      const f = parseColour(st.fill);
+      if (f && (f.a ?? 1) > 0.05) return { colour: f, from: 'fill' };
+      const sk = parseColour(st.stroke);
+      if (sk && (sk.a ?? 1) > 0.05) return { colour: sk, from: 'stroke' };
+    }
+    return null;
+  };
+
+  const rgbStr = (c) => c ? 'rgb(' + Math.round(c.r) + ', ' + Math.round(c.g) + ', ' + Math.round(c.b) + ')' : null;
+
+  for (const el of document.querySelectorAll('body *')) {
+    if (SKIP && el.closest(SKIP)) continue;
+    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+    if ([...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 3 || r.height < 3) continue;
+    if (Math.min(r.width, r.height) > 24) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) === 0) continue;
+    const cls = typeof el.className === 'string' ? el.className : '';
+    const key = 'g|' + cls + '|' + Math.round(r.width) + 'x' + Math.round(r.height);
+    if (seen.has(key)) continue; seen.add(key);
+    const inactive = !!(el.disabled || el.closest('[disabled]') || el.closest('[aria-disabled="true"]'));
+    const bg = effBg(el);
+    const surface = bg.colour;
+    const painter = painterOf(el, st);
+    if (!painter) continue;
+    const paint = painter.colour;
+    const a = paint.a ?? 1;
+    const composited = { r: paint.r * a + surface.r * (1 - a), g: paint.g * a + surface.g * (1 - a), b: paint.b * a + surface.b * (1 - a) };
+    rows.push({
+      sel: el.tagName.toLowerCase() + (cls ? '.' + cls.trim().split(/\\s+/).join('.') : ''),
+      text: '',
+      kind: 'graphic',
+      paint: rgbStr(composited) + ' (' + painter.from + ')',
+      surface: rgbStr(surface),
+      size: Math.min(r.width, r.height),
+      weight: '400',
+      need: 3.0,
+      inactive,
+      gradient: bg.gradient,
+      approx: false,
+      cr: contrastRatio(composited, surface),
+    });
+  }
+
   return rows;
 })()`;
 
@@ -251,6 +340,10 @@ export function failures(rows) {
 // re-run this exact comparison before reading any other row.
 /** Rows inside an INACTIVE control. WCAG 1.4.3 exempts them, so `failures()`
  *  excludes them — but they are reported, not hidden. */
+export function graphics(rows) {
+  return rows.filter((r) => r.kind === 'graphic');
+}
+
 export function inactive(rows) {
   return rows.filter((r) => r.inactive && r.cr !== null);
 }

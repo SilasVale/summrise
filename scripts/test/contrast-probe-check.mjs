@@ -209,4 +209,18 @@ t("the emitted probe keeps its regex escapes (a collapsed one changes the match,
   assert.ok(!PROBE_SOURCE.includes("split(/s+/)"), "a collapsed \\s reached the emitted source");
 });
 
+// ── GRAPHICS (round 125) ─────────────────────────────────────────────────────────────────────────
+// WCAG 1.4.11 asks 3:1 of a non-text element that carries meaning, and the text loop cannot see one. The
+// pass that collects them was built twice (rounds 123-124) and each time its own validation failed; what
+// made the third attempt work was putting the two colours the ratio came from ON THE ROW. Round 124 spent
+// a whole round on "cr: 7.03" with nothing to say why; round 125 read `paint rgb(82,82,91) (border)` and
+// saw the bug in one look — the painter was taking the colour of a ZERO-WIDTH border side.
+t("a graphic row carries the evidence its number came from", () => {
+  const row = { sel: "span.boot-mark.warn", text: "", kind: "graphic", paint: "rgb(146, 64, 14) (border)", surface: "rgb(244, 244, 245)", size: 7, weight: "400", need: 3.0, inactive: false, cr: 6.45 };
+  assert.equal(failures([row]).length, 0, "6.45 clears the 3:1 a graphic needs");
+  assert.equal(failures([{ ...row, cr: 2.9 }]).length, 1, "2.9 does not");
+  assert.ok(/rgb\(/.test(row.paint) && /rgb\(/.test(row.surface), "paint and surface must name real colours");
+  assert.ok(/\(border\)|\(background\)|\(fill\)|\(stroke\)|\(box-shadow\)|\(::/.test(row.paint), "the painter must say WHERE the colour came from");
+});
+
 console.log(`contrast-probe: all ${n} checks passed`);
