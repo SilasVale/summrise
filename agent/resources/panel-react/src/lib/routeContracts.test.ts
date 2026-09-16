@@ -34,7 +34,8 @@ const COVERED: Record<string, string> = {
 /** Routes with NO shape contract yet, each with the reason — the honest gap list. */
 const UNPINNED: Record<string, string> = {
   "/api/monitors": "the monitor list's row shape is unpinned; the monitor UI is the newest surface here",
-  "/api/operation": "the activity/run records are parsed defensively and were measured rendered (round 69), not contracted",
+  "/api/operation":
+    "MEASURED (round 105): the panel reads exactly three envelope keys — events, runs, cursor_ms — and the device sends all three, with the right types (two arrays and a number; a string cursor would make every poll re-request the same window). The RECORD shapes inside events/runs are still unpinned: they are consumed field by field in the panel's merge, which is the next piece of work. An attempt to pin the envelope with a device-side test was REVERTED rather than shipped: it collided with a feature-gated neighbour and I could not get it to pass and skip correctly in the time the round had, and a test I cannot verify does not ship.",
   "/api/logs": "a text body, not a fielded one — nothing to rename",
 
   "/api/update": "read by UpdateCard; the update path is exercised end to end on a device instead",
