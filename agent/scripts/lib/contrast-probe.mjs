@@ -345,10 +345,15 @@ export function failures(rows) {
 //     earlier (rounds 109, 121) because those two were found BY HAND; the rest were invisible until this
 //     instrument existed. Failures across the audit: 18 -> 10.
 //   * STILL FAILING, RECORDED RATHER THAN CHASED, with the evidence the rows carry:
-//       span.ag-dot / span.side-dot / span.tab-dot   rgb(191,58,10) on dark   2.53-2.96   <- the ACCENT
-//         used as a state dot. A real candidate, and a different token from the one just fixed.
+//       span.ag-dot / span.side-dot / span.tab-dot   rgb(191,58,10) on dark   2.53-2.96
+//         FIXED in round 127: --accent-ink, which the sheet's own note defines as "the accent for CHROME
+//         — icons, dots, borders", and which measures 3.78 dark / 4.26 light. Re-measured on the page:
+//         3.23-4.30 across the dots, all over 3:1. Failures across the audit: 10 -> 6.
 //       span.tab-dot.ssh                             blue on the ACTIVE tab's orange   1.11
 //         a state collision: the dot's colour and the surface it lands on are both state-bearing.
+//       span.dtab-dot                                rgb(161,161,170), 2.54           <- --chrome-ink-faint,
+//         which is DELIBERATELY faint by name. Decorative until someone says otherwise, which is a
+//         judgement this instrument cannot make.
 //       span.approval-grant (x4)                     a 1px border, 1.19-1.27          <- NEEDS A RULE,
 //         not a fix: "any visible border is meaningful" is false, and a chip outline is decoration. The
 //         pass needs a meaningfulness test before its count can be read as a defect list.
