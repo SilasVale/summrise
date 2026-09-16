@@ -13,6 +13,14 @@
 //
 // The checks and the judge are the shared core's; this file supplies the URL, the page list, the API
 // fixtures, the login pass (which exists only when /api/me answers 401) and the three widths.
+//
+// AXES COVERED, so nobody re-measures what is already known (round 85):
+//   contrast (resting) · contrast (HOVERED — the 24 :hover rules in the console's sheet) · geometry,
+//   clipping and slivers at 1440/900/720 · WCAG reflow · accessible names · keyboard focus rings.
+//   Hover measured clean on 2026-09-16: 6 pages, 128 interactive elements (13-38 each), 0 under AA —
+//   unlike the panel's, where the first hover run found a dark-theme button at 1.94 (round 84).
+// NOT covered: the Electron-only shell, and any state the fixtures cannot produce (the login pass is
+// the only 401 path here).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
@@ -92,7 +100,7 @@ const auth = { signedIn: true };
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [] };
   for (const width of [1440, 900, 720]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
@@ -104,6 +112,36 @@ const auth = { signedIn: true };
       report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE)) });
       if (width === 1440) {
         report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+        // HOVER, the state round 84 added for the panel — where its first run found a dark-theme
+        // button at 1.94. The console has its own 24 :hover rules and a different token set, and had
+        // never been measured hovering. One element per control family, at the widest viewport only,
+        // because hover styles are per-class and the cost is a full-DOM probe per hover.
+        {
+          const all = await page.$$('button, [role="button"], a');
+          const seenClass = new Set();
+          const underAA = [];
+          for (const h of all) {
+            const key = await h.evaluate((el) => (typeof el.className === 'string' ? el.className : el.tagName));
+            if (seenClass.has(key)) continue;
+            seenClass.add(key);
+            const box = await h.boundingBox();
+            if (!box || box.width < 2 || box.height < 2) continue;
+            try {
+              await h.hover({ timeout: 400 });
+            } catch (e) {
+              continue;
+            }
+            await page.waitForTimeout(90);
+            for (const r of await page.evaluate(PROBE)) {
+              const need = r.need ?? 4.5;
+              if (r.cr !== null && !r.inactive && r.cr < need) {
+                underAA.push(r.sel + ' "' + String(r.text).slice(0, 16) + '" ' + r.cr + '<' + need);
+              }
+            }
+            await page.mouse.move(2, 2);
+          }
+          report.hover.push({ page: label, width, density: 'console', theme: 'light', interactive: all.length, underAA: [...new Set(underAA)] });
+        }
         await page.evaluate(() => document.body.focus());
         let noRing = 0;
         for (let i = 0; i < 16; i++) {
