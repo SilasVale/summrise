@@ -53,6 +53,7 @@ fi
 # ── 2. a clean report passes ──────────────────────────────────────────────────────────────────
 cat > "$TMP/clean.json" <<'JSON'
 {
+  "passes": "all",
   "rows": [
     {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
   ],
@@ -283,6 +284,27 @@ if node "$TOOL" --judge "$TMP/thin.json" > "$TMP/thin.out" 2>&1; then
   bad "the judge PASSED a report whose collector read almost nothing"
 else
   ok "the judge fails an unstyled report that read almost no stylesheets"
+fi
+
+# PARTIAL REPORTS (round 91). The sweep outgrew its caller's timeout, so it runs in passes — and a
+# partial run reporting "nothing found" would read exactly like a clean full one. Both directions are
+# pinned: a partial report must FAIL against the default expectation, and must PASS when the caller
+# declares that it only asked for those passes.
+python3 - "$TMP/clean.json" "$TMP/partial.json" <<'PY3'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["passes"] = "pages,hover"
+json.dump(r, open(sys.argv[2], "w"))
+PY3
+if node "$TOOL" --judge "$TMP/partial.json" > "$TMP/partial.out" 2>&1; then
+  bad "the judge PASSED a partial report against the default expectation"
+else
+  ok "the judge refuses a partial report that claims nothing was wrong"
+fi
+if node "$TOOL" --judge "$TMP/partial.json" --expect=pages > "$TMP/partial2.out" 2>&1; then
+  ok "the judge accepts a partial report the caller declared"
+else
+  bad "the judge refused a partial report the caller declared: $(head -c 200 "$TMP/partial2.out")"
 fi
 
 echo "panel-design-sweep: $PASS ok, $FAILED failed"

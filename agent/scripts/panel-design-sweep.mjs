@@ -63,6 +63,10 @@ import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
+/** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
+ *  so the judge can refuse a partial one — the same rule as the audit's exit codes: a run that did not
+ *  measure something must not look like a run that measured it and found nothing. */
+const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "--passes=all").slice("--passes=".length);
 
 /** The panel's own extra: what still animates when the user has asked for less motion. */
 const MOTION = `
@@ -106,10 +110,18 @@ ${TIMING}
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
-  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [] };
+  const report = {
+    // WHICH PASSES RAN, recorded in the report itself. The sweep outgrew its caller's timeout in round
+    // 90 (a check that cannot complete is a check that will quietly stop running), so passes are
+    // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
+    // with the data and the judge refuses a report that does not say it covered everything.
+    passes: ${JSON.stringify(PASSES)},
+    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [],
+  };
+  const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
-      for (const mode_ of ['idle', 'relaxed']) {
+      for (const mode_ of wants("pages") ? ['idle', 'relaxed'] : []) {
         await page.setViewportSize(vp);
         const t0 = Date.now();
         await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=' + mode_ + '&sessions=4&cb=' + stamp, { waitUntil: 'load' });
@@ -159,7 +171,7 @@ ${TIMING}
   // console uses, from the shared core, embedded with JSON.stringify (round 88 shipped one embedded
   // in a template literal and the device received /s+/ where the source said /\s+/: the report listed
   // "btn btn-" and "rail-clu", finding 38 styled classes where the browser sees 221).
-  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
+  for (const [density, path_, vp] of wants("unstyled") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     await page.setViewportSize(vp);
     await page.goto('http://vale.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
@@ -171,7 +183,7 @@ ${TIMING}
   // HOVER, measured rather than assumed. Nothing had ever looked at it: the static pair sweep reads
   // base rules and every rendered pass measures the resting DOM, while the panel carries 73 :hover
   // rules. Each interactive element is hovered in turn and the page measured while it is hovered.
-  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
+  for (const [density, path_, vp] of wants("hover") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
       await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
@@ -221,7 +233,7 @@ ${TIMING}
   // EMULATED and ask the page which elements still have a running transition or animation. Reading
   // the stylesheet cannot answer this — a media query adds no specificity, so the answer depends on
   // cascade order, selector scope and xterm's runtime-injected sheet.
-  for (const [density, path_] of [['panel', '/panel/'], ['desktop', '/desktop/']]) {
+  for (const [density, path_] of wants("motion") ? [['panel', '/panel/'], ['desktop', '/desktop/']] : []) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize(density === 'panel' ? { width: 1280, height: 860 } : { width: 1440, height: 900 });
     await page.goto('http://vale.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
@@ -234,7 +246,7 @@ ${TIMING}
 
   // Reflow at the two widths WCAG 1.4.10 names, panel density only: the desktop density needs the
   // width it has, and its tab strip is the standard's own toolbar exception.
-  for (const width of [640, 320]) {
+  for (const width of wants("reflow") ? [640, 320] : []) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto('http://vale.test/panel/?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
@@ -250,7 +262,15 @@ ${TIMING}
 
 function judge(file) {
   const report = JSON.parse(readFileSync(file, "utf8"));
-  const findings = judgeReport(report, {
+  // WHAT THIS REPORT WAS SUPPOSED TO COVER. The sweep outgrew its caller's timeout, so it can be run
+  // in passes — and a partial run that reported "nothing found" would read exactly like a clean full
+  // one. The caller states its expectation; the judge fails when the report is missing any of it.
+  const expect = (process.argv.find((a) => a.startsWith("--expect=")) || "--expect=all").slice("--expect=".length);
+  const missing = expect === "all"
+    ? (report.passes === "all" ? [] : [`the run measured only "${report.passes}"`])
+    : expect.split(",").map((x) => x.trim()).filter((x) => !(report.passes === "all" || (report.passes || "").split(",").map((y) => y.trim()).includes(x)));
+  const coverage = missing.map((m) => `INCOMPLETE REPORT — ${m}; the absences below prove nothing`);
+  const findings = [...coverage, ...judgeReport(report, {
     // CLASSES WITH NO MATCHING RULE THAT ARE NOT DEFECTS, each with the mechanism named. Measured
     // round 90: the panel density renders 1123 styled classes and eleven such names, and ten of the
     // eleven are xterm.js's own DOM — styled by a stylesheet it INJECTS AT RUNTIME, which a CSSOM
@@ -286,11 +306,12 @@ function judge(file) {
         reason: "the 320px document scroll comes from tab children inside #tabs — a harness artifact",
       },
     ],
-  });
+  })];
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.density}/${r.page} ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }
   console.log(reportSummary("panel", report));
+  if (coverage.length) console.error(`\n${coverage.join("\n")}`);
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
   if (!findings.length) {
     console.log("panel design sweep OK: nothing above found a defect");
