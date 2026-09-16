@@ -1,0 +1,17 @@
+{
+  "_comment": "WHAT GET /api/settings RETURNS, read by BOTH sides. Written by the settings handler in agent/src/web/mod.rs (the json! that ends with the memory_* group) and read in the panel by SettingsPage.tsx. THE RISK HERE IS NOT A BLANK CARD, it is a silent WRITE: every field the panel reads is typeof-guarded and falls back to a default, so a renamed `buffer_mb` would leave the input showing the default and the next Save would persist THAT back to the device — a settings page quietly overwriting a setting it can no longer read. The device sends ten keys and the panel reads seven; `ok`, `memory_entries` and `memory_bytes` ride here for other consumers.",
+  "keys": ["ok", "buffer_mb", "console_url", "tunnel_configured", "tunnel_running", "memory_max_entries", "memory_max_bytes_mb", "memory_retention_days", "memory_entries", "memory_bytes"],
+  "required_by_panel": ["buffer_mb", "console_url", "tunnel_configured", "tunnel_running", "memory_max_entries", "memory_max_bytes_mb", "memory_retention_days"],
+  "example": {
+    "ok": true,
+    "buffer_mb": 8,
+    "console_url": "https://ai.saisi.online",
+    "tunnel_configured": true,
+    "tunnel_running": true,
+    "memory_max_entries": 5000,
+    "memory_max_bytes_mb": 64,
+    "memory_retention_days": 90,
+    "memory_entries": 128,
+    "memory_bytes": 1048576
+  }
+}

@@ -5633,6 +5633,37 @@ mod tests {
             v["console_url"].is_null(),
             "unbound config must read back null: {v}"
         );
+        // AND THE KEY SET, against the fixture the panel is checked against. The shape assertions
+        // above cover the fields someone thought to name; this covers the ones nobody did. The risk on
+        // THIS route is not a blank card but a silent WRITE: SettingsPage reads each field behind a
+        // typeof guard and falls back to a default, so a renamed `buffer_mb` shows the default and the
+        // next Save persists it back.
+        let raw = include_str!("../../tests/fixtures/settings.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
+        let promised: std::collections::BTreeSet<&str> = fixture["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .filter_map(|k| k.as_str())
+            .collect();
+        let keys: std::collections::BTreeSet<&str> = v
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        let undeclared: Vec<&&str> = keys.difference(&promised).collect();
+        assert!(
+            undeclared.is_empty(),
+            "the response carries fields the fixture does not declare: {undeclared:?}"
+        );
+        for k in fixture["required_by_panel"].as_array().expect("required") {
+            let k = k.as_str().expect("string");
+            assert!(
+                keys.contains(k),
+                "the panel reads `{k}`, which this response does not carry: {keys:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(cfg_path.parent().unwrap());
     }
 

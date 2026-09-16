@@ -25,6 +25,8 @@ const COVERED: Record<string, string> = {
   "/api/vitals/history": "agent/tests/fixtures/vitals-series.json (metrics.rs + useVitalsSeries.fixture.test.ts)",
   "/api/sessions": "agent/src/session_log.rs + useSessionArchive's own tests (parse + failure states)",
   "/api/spec": "agent/spec-tools.json (the spec snapshot test pins every device tool)",
+  "/api/settings":
+    "agent/tests/fixtures/settings.json (settings_get_shape asserts the REAL response's key set against it)",
   "/api/status":
     "agent/tests/fixtures/status.json (api_status's own test asserts the REAL response against it, and statusPayload.fixture.test.ts reads the same file)",
 };
@@ -34,7 +36,7 @@ const UNPINNED: Record<string, string> = {
   "/api/monitors": "the monitor list's row shape is unpinned; the monitor UI is the newest surface here",
   "/api/operation": "the activity/run records are parsed defensively and were measured rendered (round 69), not contracted",
   "/api/logs": "a text body, not a fielded one — nothing to rename",
-  "/api/settings": "the settings payload is read field by field in SettingsPage, unpinned",
+
   "/api/update": "read by UpdateCard; the update path is exercised end to end on a device instead",
   "/api/plugins/status": "read defensively by usePlugins (its own tests cover 'a body it cannot use')",
   "/api/gateway/connect": "a POST whose response the page reports verbatim",
