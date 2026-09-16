@@ -1486,6 +1486,8 @@ a.btn-primary {
   background: var(--accent-light);
 }
 
+
+
 .lane-body {
   flex: 1;
   min-width: 0;
@@ -2063,7 +2065,113 @@ body[data-theme="dark"] .note.tip {
   margin-bottom: 6px;
 }
 
- position: fixed;
+/* The channel's identity. The lane hue rides a LEFT BORDER, not the text: a border
+   is a mark, so it can stay vivid while the label keeps a readable ink. */
+.models-prefix.lane-nv {
+  border-left-color: var(--success);
+}
+.models-prefix.lane-gmi {
+  border-left-color: var(--warning);
+}
+.models-prefix.lane-cm {
+  border-left-color: var(--info);
+}
+.models-prefix.lane-amd {
+  border-left-color: var(--error);
+}
+
+.models-backend {
+  font-weight: var(--fw-semi);
+  color: var(--text);
+}
+.models-n {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.models-health {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+}
+.models-health.ok {
+  color: var(--success-text);
+}
+.models-health.bad {
+  color: var(--error-text);
+}
+/* Not probed is NOT the same as down, and must not borrow the colour of either. */
+.models-health.unknown {
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+
+.models-desc {
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.models-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-chip {
+  font: 500 11.5px var(--ds-font-family-code);
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color var(--ds-dur) var(--ds-ease),
+    color var(--ds-dur) var(--ds-ease);
+}
+.model-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-on-soft);
+}
+.model-chip.current {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent-on-soft);
+  font-weight: var(--fw-semi);
+}
+.model-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.models-failed {
+  color: var(--error-text);
+}
+
+.lang-btn {
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: all var(--ds-dur) var(--ds-ease);
+}
+.lang-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+/* ================================================================
+   Modal
+   ================================================================ */
+
+.modal-overlay {
+  position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(3px);
@@ -2583,30 +2691,14 @@ body[data-theme="dark"] .note.tip {
   border-radius: 2px;
   background: var(--text-muted);
 }
-.prov-lane.lane-og {
-  background: var(--accent);
-}
-.prov-lane.lane-ds {
-  background: var(--chan-ds);
-}
-.prov-lane.lane-or {
-  background: var(--chan-or);
-}
-.prov-lane.lane-qw {
-  background: var(--warning);
-}
-.prov-lane.lane-nv {
-  background: var(--success);
-}
-.prov-lane.lane-gmi {
-  background: var(--error);
-}
-.prov-lane.lane-cm {
-  background: var(--accent);
-}
-.prov-lane.lane-amd {
-  background: var(--error);
-}
+.prov-lane.lane-og { background: var(--accent); }
+.prov-lane.lane-ds { background: var(--chan-ds); }
+.prov-lane.lane-or { background: var(--chan-or); }
+.prov-lane.lane-qw { background: var(--warning); }
+.prov-lane.lane-nv { background: var(--success); }
+.prov-lane.lane-gmi { background: var(--error); }
+.prov-lane.lane-cm { background: var(--accent); }
+.prov-lane.lane-amd { background: var(--error); }
 .prov-name {
   font-size: var(--fs-md);
   font-weight: var(--fw-semi);
@@ -2700,9 +2792,7 @@ body[data-theme="dark"] .note.tip {
   align-items: center;
   flex-wrap: wrap;
 }
-.prov-addmodel .form-input {
-  flex: 1 1 200px;
-}
+.prov-addmodel .form-input { flex: 1 1 200px; }
 .prov-disabled {
   display: flex;
   align-items: center;
@@ -2725,9 +2815,7 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.prov-addrow {
-  margin-top: 4px;
-}
+.prov-addrow { margin-top: 4px; }
 /* A dashed placeholder, not a card: adding is the exception on this page. */
 .btn-dashed {
   width: 100%;
@@ -2739,9 +2827,7 @@ body[data-theme="dark"] .note.tip {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
-  transition:
-    border-color var(--ds-dur) var(--ds-ease),
-    color var(--ds-dur) var(--ds-ease);
+  transition: border-color var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease);
 }
 .btn-dashed:hover {
   border-color: var(--accent);
@@ -2754,9 +2840,7 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid transparent;
   color: var(--error-text);
 }
-.btn-danger-text:hover:not(:disabled) {
-  background: var(--error-bg);
-}
+.btn-danger-text:hover:not(:disabled) { background: var(--error-bg); }
 .prov-newform {
   margin-top: 10px;
   padding: 14px;
@@ -2783,11 +2867,7 @@ body[data-theme="dark"] .note.tip {
   text-transform: uppercase;
   color: var(--text-secondary);
 }
-.prov-newgrid label em {
-  text-transform: none;
-  letter-spacing: 0;
-  font-style: normal;
-}
+.prov-newgrid label em { text-transform: none; letter-spacing: 0; font-style: normal; }
 /* ── probe: what the upstream serves vs what we advertise ──────────────────── */
 .prov-probe {
   display: flex;
