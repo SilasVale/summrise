@@ -260,6 +260,14 @@ jobs:
             echo "== $g"
             bash "$g"
           done
+      # THE OTHER HOSTILE CONDITIONS, MEASURED (round 104) so they are not re-derived: all eight bash
+      # gates pass under TZ=Asia/Shanghai with LC_ALL=en_US.UTF-8, and all eight pass with an
+      # unreachable proxy (http_proxy/https_proxy/ALL_PROXY pointed at a dead port). The second is by
+      # design — the release-path gates stub `curl` as a shell function, which is why they can drive the
+      # real comparison with no network at all. Only the umask had a real defect in it, and the defect
+      # was a FALSE PASS: mode drift the audit could not see on a machine whose umask was tight enough.
+      # No guard is added for the three clean conditions, on purpose: they are structurally prevented by
+      # code that is already tested, and a check that cannot fail is not worth its runtime.
       # The installer-ALIAS arm of the index smoke (round 126): a tgz-only
       # manifest used to make the smoke check NOTHING about the alias and still
       # print "ok", while the alias served a three-release-old installer. `curl`
