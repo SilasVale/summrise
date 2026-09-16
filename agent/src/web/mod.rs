@@ -3886,6 +3886,43 @@ mod tests {
     /// The unit pins prove the merge function; this proves the ROUTE reaches it
     /// with the right directories and the right auth — a route with the wrong
     /// dir or the wrong guard would leave every other test green.
+    /// THE OPERATION ROUTE'S ENVELOPE, pinned from this end.
+    ///
+    /// `useOperationRuns` reads exactly three keys off `/api/operation` — `events`, `runs` and
+    /// `cursor_ms` — and reads them defensively: a missing `events` is an empty page rather than an
+    /// error, and a `cursor_ms` that is not a number leaves the panel's cursor where it was, so every
+    /// poll re-requests the same window for ever. Neither failure looks like a failure.
+    ///
+    /// GATED ON THE FEATURE, which is what round 105's attempt got wrong: the route answers Internal
+    /// without the terminal backend, so a test that asserts a 200 here must not run without it. Unlike
+    /// its neighbour below it needs no PTY, so it does not carry the `not(windows)` half.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn the_operation_route_carries_the_envelope_the_panel_reads() {
+        let resp = handle_request(req("GET", "/api/operation"), state()).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = json_body(resp).await;
+        let keys: std::collections::BTreeSet<&str> = v
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        for k in ["events", "runs", "cursor_ms"] {
+            assert!(
+                keys.contains(k),
+                "the panel reads `{k}`; the response has {keys:?}"
+            );
+        }
+        assert!(v["events"].is_array(), "events must be a list: {v}");
+        assert!(v["runs"].is_array(), "runs must be a list: {v}");
+        assert!(
+            v["cursor_ms"].is_number(),
+            "cursor_ms must be a number — the panel keeps its own cursor and a string here would \
+             leave every poll re-requesting the same window: {v}"
+        );
+    }
+
     #[cfg(all(feature = "terminal", not(target_os = "windows")))]
     #[tokio::test]
     async fn the_operation_route_merges_terminal_and_browser_records() {
