@@ -34,7 +34,8 @@ Green tests are the bar for a release.
 ### Which gates have been PROVEN to bite
 
 A gate that cannot fail is worse than no gate, and the only way to know is to break the thing it
-guards and watch what happens. Audited by mutation (round 65); the rest are assumed, not proven:
+guards and watch what happens. Every gate below was audited that way (rounds 65-68) — none of them is
+assumed:
 
 | gate | mutation that must fail it | result |
 |---|---|---|
@@ -49,7 +50,13 @@ guards and watch what happens. Audited by mutation (round 65); the rest are assu
 | `scripts/test/smoke-index.bash` | read the versioned installer instead of the versionless alias | exit 1 |
 | `scripts/test/smoke-helpers.bash` | accept a truncated sha256 | exit 1, prints the offending value |
 | `scripts/test/release-audit.bash` | stop recording mode drift | exit 1 |
-| `scripts/test/publish-release.bash` | disable the stale-exe refusal | exit 1 — **after this round ADDED the case that does it** |
+| `scripts/test/publish-release.bash` | disable the stale-exe refusal | exit 1 — **after round 67 ADDED the case that does it** |
+| `scripts/test/build-pins.bash` | bump rust-toolchain's channel alone | exit 1, names the workflow literal |
+| `scripts/test/script-syntax.bash` | append an orphan `fi` to a shell script | exit 1, with file and line |
+| `scripts/test/contrast-probe-check.mjs` | remove the probe's hex handling | exit 1, "both spellings must parse" |
+| `scripts/test/e2e-only-check.mjs` | make the zero-selection guard exit 0 | exit 1, "reported success having run nothing" |
+| `scripts/test/scan-dups-check.py` | stop recognising `*_test.rs` files | exit 1, names the file |
+| `scripts/test/model-drift-check.mjs` | remove the normaliser's bracket-suffix strip | exit 1, prints the un-normalised id |
 
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail
@@ -58,8 +65,9 @@ expected and `smoke-helpers` prints the value it rejected, while `smoke-index` s
 advertised installer passes" — accurate, and less use to whoever hits it. Left alone deliberately:
 a terse message is not a defect, and churning it buys nothing measurable.)
 
-Not yet audited: `build-pins.bash`, `e2e-only-check.mjs`, `model-drift-check.mjs`,
-`scan-dups-check.py`, `contrast-probe-check.mjs`, `script-syntax.bash`.
+**Every gate in `scripts/test/` is now audited** (rounds 65-68). A new one should be added to this
+table with the mutation that proves it — an unaudited gate is an assumption, and this table is where
+that stops being invisible.
 
 TWO THINGS THE AUDIT TAUGHT ABOUT AUDITING (round 67):
   * a gate that asserts a CLEAN WORKTREE rejects a mutation before it can prove anything — so
@@ -71,10 +79,18 @@ TWO THINGS THE AUDIT TAUGHT ABOUT AUDITING (round 67):
     a tgz, which the gate's own side-effect check caught. The artifacts were removed; the lesson is
     that "break the guard and see" can also break something, so look for what the run left behind.
 
-THE METHOD HAS A TRAP, hit while auditing the snapshot: a mutation must actually reach the guarded
-artifact. Inserting `probe_param` at the top level of a tool's JSON instead of inside `properties`
-changed nothing the snapshot reads, so the gate "passed" and proved nothing. Verify the mutation
-changed the thing under test before concluding a gate is toothless.
+THE METHOD HAS A TRAP, and it caught THREE mutations:
+
+  * round 65: `probe_param` inserted at the top level of a tool's JSON instead of inside `properties`
+    changed nothing the snapshot reads, so the gate "passed" and proved nothing about the gate;
+  * round 68, twice: the zero-selection guard's MESSAGE was deleted while its `process.exit(2)`
+    stayed, so the guard still fired and the gate rightly passed; and a "remove `.toLowerCase()`"
+    edit matched nothing because the normaliser has no `toLowerCase`. Changing the narration — or
+    changing nothing at all — is not changing the behaviour.
+
+Every time the fix was the same: prove the mutation altered the thing under test before drawing a
+conclusion about the guard. A "toothless gate" finding is a claim about the gate, and it is worth
+exactly as much as the mutation behind it.
 
 ## Release — npm is the only channel
 
