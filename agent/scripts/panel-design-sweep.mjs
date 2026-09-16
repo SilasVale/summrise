@@ -267,25 +267,27 @@ ${TIMING}
       }
     }
   }
-  // THE EMPTY STATE, as a surface of its own. Round 150 made it RENDERABLE (?sessions=N, with zero as
-  // the point — the live list had been a fixed three, so a fresh install had NO surface at all), and a
-  // one-off measurement is not a guard. Placed as a top-level pass rather than inside the pages loop: that
-  // loop's body is a template literal with four levels of nesting, which is where round 151 lost four
-  // attempts. (Round 152 found the real cause, and it was NOT the braces: the comment I inserted contained
-  // BACKTICKS around the parameter name, which ended the emitted template literal early. The brace
-  // arithmetic was fine all along — the twenty-first instance of this suite's oldest trap, and the reason
-  // the rule is "no backticks in anything that ships inside a template".) One render, not a seventh axis —
-  // the state does not differ by theme or density in any way the other surfaces do not already cover.
+
+  // THE EMPTY STATE, desktop density — the only one of the two that can be measured here.
+  //
+  // Round 152 added this for the PANEL density and measured it "clean". Round 153 looked at what that
+  // surface actually rendered and found it was not the empty state at all: the rail said "Sessions
+  // unavailable — reconnecting…", because in the panel harness the rail receives connected=false, while the
+  // DESKTOP harness renders the real thing ("No sessions yet"). The contrast was clean in both cases, which
+  // is exactly why the label mattered — a surface that measures the wrong state passes for the best reason.
+  // The panel block was PRUNED rather than left in place with a caveat.
+  //
+  // One render, top level, no nesting arithmetic: this is the state a fresh install sees.
   if (wants("pages")) {
-    await page.setViewportSize({ width: 1280, height: 860 });
-    await page.goto('http://vale.test/panel/?theme=light&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('http://vale.test/desktop/?theme=light&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(1600);
+    await page.waitForTimeout(2000);
     const rows = await page.evaluate(PROBE);
-    for (const row of rows) report.rows.push({ ...row, density: 'panel', theme: 'light', mode: 'relaxed', page: 'Terminal-empty' });
-    report.surfaces.push({ density: 'panel', theme: 'light', mode: 'relaxed', page: 'Terminal-empty', ...(await page.evaluate(SURFACE)) });
-    report.names.push({ density: 'panel', theme: 'light', mode: 'relaxed', page: 'Terminal-empty', ...(await page.evaluate(NAMES)) });
+    for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme: 'light', mode: 'relaxed', page: 'Desktop-empty' });
+    report.surfaces.push({ density: 'desktop', theme: 'light', mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(SURFACE)) });
+    report.names.push({ density: 'desktop', theme: 'light', mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES)) });
   }
 
   // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
