@@ -229,15 +229,30 @@ export const PROBE_SOURCE = `(() => {
     for (let i = 0; i < 4; i++) {
       if (widths[i] >= 1 && bcols[i] && (bcols[i].a ?? 1) > 0.05) return { colour: bcols[i], from: 'border' };
     }
-    const own = parseColour(st.backgroundColor);
-    if (own && (own.a ?? 1) > 0.05) return { colour: own, from: 'background' };
+    // A RING COMES BEFORE THE FILL. A zero-offset box-shadow WITH A SPREAD is drawn around the element,
+    // so it is the OUTERMOST visible edge — and once it is drawn, the fill's ratio against the surface
+    // stops being what a viewer sees. Round 128 added exactly such a ring to the active tab's lane dot
+    // (the dot was 1.11 against the accent and invisible) and this pass went on reading the fill, so the
+    // row stayed a false positive. Preferring the ring makes it report 4.99, the ratio that decides
+    // whether the mark is visible at all. The spread test is what separates a RING from a plain drop
+    // shadow: a shadow with no spread does not draw an edge around the element.
     const shadow = (st.boxShadow || '').split(',')[0] || '';
     if (shadow && shadow !== 'none') {
-      const parts = shadow.trim().split(/\\s+/);
-      const px = parts.filter((x) => /^-?[\\d.]+px$/.test(x)).map(parseFloat);
-      const col = parts.map(parseColour).filter(Boolean)[0];
-      if (col && (col.a ?? 1) > 0.05 && px.length >= 2 && px[0] === 0 && px[1] === 0) return { colour: col, from: 'box-shadow' };
+      // THE COLOUR IS NOT A WHITESPACE TOKEN. getComputedStyle serialises a box-shadow with the colour
+      // FIRST — "rgba(255, 255, 255, 1) 0px 0px 0px 1px" — so splitting on spaces tears it into
+      // "rgba(255," / "255," / "255," / "1)", none of which parses, and the branch could never fire. It
+      // was inherited from the original shadow code and only mattered once a ring existed to look for
+      // (round 128's active-tab dot): the row stayed a false positive at 1.11 while the probe insisted
+      // it had checked. Pull the colour out with a pattern, and take the lengths from the px tokens.
+      const colourText = /rgba?\([^)]*\)|#[0-9a-f]{3,8}/i.exec(shadow);
+      const col = colourText ? parseColour(colourText[0]) : null;
+      const px = shadow.trim().split(/\\s+/).filter((x) => /^-?[\\d.]+px$/.test(x)).map(parseFloat);
+      if (col && (col.a ?? 1) > 0.05 && px.length >= 2 && px[0] === 0 && px[1] === 0 && (px[3] ?? 0) > 0) {
+        return { colour: col, from: 'ring' };
+      }
     }
+    const own = parseColour(st.backgroundColor);
+    if (own && (own.a ?? 1) > 0.05) return { colour: own, from: 'background' };
     for (const pseudo of ['::before', '::after']) {
       const ps = getComputedStyle(el, pseudo);
       if (!ps || ps.content === 'none' || ps.display === 'none') continue;
@@ -344,6 +359,18 @@ export function failures(rows) {
 //     rendered page at 6.45 / 9.13 / 8.23. The flapping variant and the boot triangle had been fixed
 //     earlier (rounds 109, 121) because those two were found BY HAND; the rest were invisible until this
 //     instrument existed. Failures across the audit: 18 -> 10.
+//   * RINGS ARE READ NOW, and the reason they were not is worth keeping (round 129). getComputedStyle
+//     serialises a box-shadow with the COLOUR FIRST — "rgb(255, 255, 255) 0px 0px 0px 1px" — so the old
+//     code, which split the value on whitespace and parsed each token, tore the colour into
+//     "rgba(255," / "255," / "255," / "1)" and never found one. Every box-shadow branch had been dead
+//     since it was written; it only mattered once there was a ring to look for. The colour now comes out
+//     with a pattern and the lengths from the px tokens, and a ring (zero offset, non-zero spread) is
+//     preferred over the fill because it is the OUTERMOST visible edge.
+//     VERIFIED on the page: the active tab's dot reports rgb(255, 255, 255) 0px 0px 0px 1px, an inactive
+//     one reports none — which also confirms round 128's ring is really applied.
+//   * THE AUDIT'S OWN ARTIFACT: its tab-dot.ssh row still reads 1.11, because the loop CLICKS EVERY TAB
+//     in turn and the row is captured while a different one is active. The dot is only on the accent when
+//     its own tab is active. Judge that state by activating that tab, not by reading the sweep's row.
 //   * STILL FAILING, RECORDED RATHER THAN CHASED, with the evidence the rows carry:
 //       span.ag-dot / span.side-dot / span.tab-dot   rgb(191,58,10) on dark   2.53-2.96
 //         FIXED in round 127: --accent-ink, which the sheet's own note defines as "the accent for CHROME

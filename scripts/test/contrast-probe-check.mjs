@@ -220,7 +220,7 @@ t("a graphic row carries the evidence its number came from", () => {
   assert.equal(failures([row]).length, 0, "6.45 clears the 3:1 a graphic needs");
   assert.equal(failures([{ ...row, cr: 2.9 }]).length, 1, "2.9 does not");
   assert.ok(/rgb\(/.test(row.paint) && /rgb\(/.test(row.surface), "paint and surface must name real colours");
-  assert.ok(/\(border\)|\(background\)|\(fill\)|\(stroke\)|\(box-shadow\)|\(::/.test(row.paint), "the painter must say WHERE the colour came from");
+  assert.ok(/\(border\)|\(background\)|\(fill\)|\(stroke\)|\(ring\)|\(::/.test(row.paint), "the painter must say WHERE the colour came from");
 });
 
 console.log(`contrast-probe: all ${n} checks passed`);
