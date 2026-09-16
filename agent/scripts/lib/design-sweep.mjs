@@ -172,22 +172,54 @@ export async function focusPass(page, presses, label = {}) {
   let landed = 0;
   let escaped = 0;
   let missing = 0;
+  // AND WHICH ONES. A count alone leaves the next reader to re-derive the finding — round 136 got
+  // "missing: 11" from the extension and could not tell a real defect from a broken probe. The offenders
+  // name themselves instead, in the same tag.class form the rest of the suite uses.
+  const missingOn = [];
+  // THE FIRST OFFENDER'S COMPUTED STYLES, so a surprising count explains itself. Round 136 got
+  // "missing: 11" from the extension and could not tell a real defect from a misreading; the extension's
+  // sheet DOES carry a :focus-visible ring and an input:focus box-shadow, so the next reader needs the
+  // numbers, not another guess.
+  let evidence = null;
   for (let i = 0; i < presses; i++) {
     await page.keyboard.press("Tab");
     const verdict = await page.evaluate(() => {
       const el = document.activeElement;
-      if (!el || el === document.body) return "escaped";
+      const name = (e) => {
+        const cls = typeof e.className === "string" && e.className ? "." + e.className.trim().split(/\s+/).join(".") : "";
+        return e.tagName.toLowerCase() + cls + (e.id ? "#" + e.id : "");
+      };
+      if (!el || el === document.body) return { verdict: "escaped", where: "body" };
       const st = getComputedStyle(el);
       const visible =
         (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== "none") ||
         (st.boxShadow && st.boxShadow !== "none");
-      return visible ? "ok" : "no-ring";
+      return {
+        verdict: visible ? "ok" : "no-ring",
+        where: name(el),
+        outline: st.outlineStyle + " " + st.outlineWidth + " " + st.outlineColor,
+        boxShadow: String(st.boxShadow).slice(0, 60),
+        focusVisible: el.matches(":focus-visible"),
+        ringToken: getComputedStyle(document.documentElement).getPropertyValue("--focus-ring").trim() || "(undefined)",
+      };
     });
-    if (verdict === "ok") landed++;
-    else if (verdict === "escaped") escaped++;
-    else missing++;
+    if (verdict.verdict === "ok") landed++;
+    else if (verdict.verdict === "escaped") escaped++;
+    else {
+      missing++;
+      if (missingOn.length < 8) missingOn.push(verdict.where);
+      if (!evidence) evidence = verdict;
+    }
   }
-  return { ...label, pressed: presses, landed, escaped, missing };
+  return {
+    ...label,
+    pressed: presses,
+    landed,
+    escaped,
+    missing,
+    ...(missingOn.length ? { missingOn } : {}),
+    ...(evidence ? { why: { where: evidence.where, outline: evidence.outline, boxShadow: evidence.boxShadow, focusVisible: evidence.focusVisible, ringToken: evidence.ringToken } } : {}),
+  };
 }
 
 /** THE MOTION MEASUREMENT, both states in order. A single reduced-motion number is vacuous — it looks
