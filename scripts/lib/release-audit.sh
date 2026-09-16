@@ -128,8 +128,13 @@ audit_release_asset() {
   # 3. Whole-tarball hashes differ. That is EXPECTED (exe toolchain) — but only
   #    if every source-derived file still matches. Compare file by file.
   mkdir -p "$work/cdn" "$work/gh"
-  tar xzf "$work/cdn.tgz" -C "$work/cdn" || { echo "::error::release audit: CDN tgz is not a readable tarball" >&2; return 1; }
-  tar xzf "$work/gh.tgz"  -C "$work/gh"  || { echo "::error::release audit: GitHub asset is not a readable tarball" >&2; return 1; }
+  # `-p`, AND IT IS THE WHOLE POINT OF THIS AUDIT. tar applies the UMASK to extracted files unless
+  # told to preserve their permissions, so on a machine with umask 077 both trees come out 0600 — the
+  # modes then "match" perfectly, the comparison passes, and mode drift is invisible. That is precisely
+  # the defect this audit was written for (a 600-vs-644 difference that survived twenty consecutive
+  # releases under the words "packaging metadata"). Found by running the gates under a hostile umask.
+  tar xzpf "$work/cdn.tgz" -C "$work/cdn" || { echo "::error::release audit: CDN tgz is not a readable tarball" >&2; return 1; }
+  tar xzpf "$work/gh.tgz"  -C "$work/gh"  || { echo "::error::release audit: GitHub asset is not a readable tarball" >&2; return 1; }
 
   # Same file LIST first — a missing/extra file is drift regardless of content.
   #

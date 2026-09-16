@@ -247,6 +247,19 @@ jobs:
       # PATH), so nothing about the comparison is re-implemented in the test.
       - name: release-audit regression checks
         run: bash scripts/test/release-audit.bash
+      # THE SAME CHECKS UNDER A HOSTILE UMASK. tar applies the umask to extracted files unless told to
+      # preserve permissions, so on a machine with umask 077 the audit's two trees both came out 0600 —
+      # the modes "matched" perfectly and MODE DRIFT WAS INVISIBLE, which is the exact defect the audit
+      # exists to catch. It passed on the developer's box (umask 0002) and on CI (0022) and would have
+      # failed only where nobody was looking. Every bash gate runs under 077 here; they must all still
+      # pass, because a gate whose verdict depends on the machine it runs on is not a gate.
+      - name: every bash gate under a hostile umask
+        run: |
+          umask 077
+          for g in scripts/test/*.bash; do
+            echo "== $g"
+            bash "$g"
+          done
       # The installer-ALIAS arm of the index smoke (round 126): a tgz-only
       # manifest used to make the smoke check NOTHING about the alias and still
       # print "ok", while the alias served a three-release-old installer. `curl`
