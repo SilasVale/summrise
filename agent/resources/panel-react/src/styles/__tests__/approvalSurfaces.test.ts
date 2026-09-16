@@ -110,9 +110,12 @@ describe("waiting badges", () => {
     expect(working, '.rail-dot[data-state="working"] missing').not.toBeNull();
     expect(idle, '.rail-dot[data-state="idle"] missing').not.toBeNull();
 
-    // --state-warn and --state-running share one orange band at 8px, so colour
-    // cannot carry waiting-vs-working on its own.
-    expect(waiting!).toContain("var(--state-warn)");
+    // The COLOUR here is --warn-ink, not the --state-warn fill this used to pin: the fill measures
+    // 2.63 on the dark card against the 3:1 a mark needs (round 126, measured with the graphics pass
+    // rounds 123-125 built), while --warn-ink gives 6.45 light / 8.23 dark. The lesson of this test
+    // still holds and is why it is asserted WITH the shape below: colour alone cannot carry
+    // waiting-vs-working, because it shares a band with --state-running at 8px.
+    expect(waiting!).toContain("var(--warn-ink)");
     expect(waiting!).toMatch(/rotate\(45deg\)/);
     // Distinguishable with animation removed (and this rule has no animation to
     // begin with — pinned so that stays true).
@@ -126,7 +129,7 @@ describe("waiting badges", () => {
     const desktop = blockOf(css, '.desktop-rail-status[data-state="waiting"] .dot');
     expect(desktop, "the desktop rail has no waiting state — the two densities would drift")
       .not.toBeNull();
-    expect(desktop!).toContain("var(--state-warn)");
+    expect(desktop!).toContain("var(--warn-ink)");
     expect(desktop!).toMatch(/rotate\(45deg\)/);
     expectNoRawHex(desktop!, '.desktop-rail-status[data-state="waiting"] .dot');
   });
@@ -141,7 +144,7 @@ describe("waiting badges", () => {
     expect(lane).toMatch(/border-radius:\s*50%/);
     expect(wait!).toMatch(/rotate\(45deg\)/);
     expect(withoutAnimation(wait!)).not.toEqual(withoutAnimation(lane));
-    expect(wait!).toContain("var(--state-warn)");
+    expect(wait!).toContain("var(--warn-ink)");
     expectNoRawHex(wait!, ".tab-wait");
   });
 
@@ -153,7 +156,7 @@ describe("waiting badges", () => {
     expect(mark, ".waiting-mark missing").not.toBeNull();
     expect(chip!).toContain("var(--surface-chip)");
     expect(chip!).toContain("color: var(--chrome-ink-dim)");
-    expect(mark!).toContain("var(--state-warn)");
+    expect(mark!).toContain("var(--warn-ink)");
     expect(mark!).toMatch(/rotate\(45deg\)/);
     expectNoRawHex(chip!, ".waiting-chip");
     expectNoRawHex(mark!, ".waiting-mark");
