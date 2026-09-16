@@ -127,6 +127,9 @@ function buildHarness() {
   // expires_in_ms: 47000, which the gate reads as URGENT (under its one-minute threshold) — so the
   // alarmed state was the only one any sweep had ever rendered. 'relaxed' is a question with time
   // left, 'expired' is the zero-second rule: the device has retired it and nothing can be answered.
+  // ?fail=1 — the device is DOWN: every API call rejects, which is what a page shows an operator
+  // when the agent is not running. No sweep had ever produced this state.
+  var FAIL = P.get('fail') === '1';
   if (MODE === 'relaxed') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 600000 }) });
   if (MODE === 'expired') SESSION = Object.assign({}, SESSION, { pending_approval: Object.assign({}, SESSION.pending_approval, { expires_in_ms: 0 }) });
   // ?sessions=N — MEASURE THE TAB STRIP AT A REALISTIC WIDTH. The operator's own panel carried
@@ -165,6 +168,7 @@ function buildHarness() {
   var realFetch = window.fetch.bind(window);
   window.fetch = function(url, init){
     var u = String(url);
+    if (FAIL && u.indexOf('/api/') >= 0) return Promise.reject(new TypeError('Failed to fetch'));
     var body = (init && init.body) ? String(init.body) : '';
     // Double backslash: this is inside a template literal, where a single \/ collapses to / and the
     // emitted regex becomes /^.*/api// — "Invalid regular expression flags", which killed the WHOLE

@@ -965,7 +965,10 @@
 #session-count.hidden { display: none; }
 #sse-status {
   margin-left: auto;
-  color: #ff8787;
+  /* A TOKEN, not #ff8787: the status bar's chrome is light in the light theme and dark in the dark
+     one, so the hard-coded red measured 1.96 there and 6.08 in the dark — inverted, like every
+     hard-coded colour on a surface that flips. */
+  color: var(--chrome-danger-ink);
   font-size: var(--fs-sm);
   white-space: nowrap;
 }

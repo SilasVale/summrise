@@ -28,12 +28,19 @@ export function ContextRail({
   onActivate,
   onNewSession,
   plugins,
+  connected,
 }: {
   page: Page;
   sessions: Session[];
   activeSid: string | null;
   onActivate: (sid: string) => void;
   onNewSession: (kind: "pty" | "ssh" | "serial" | "browser") => void;
+  /** Whether the device is reachable. An EMPTY list means two different things — "you have no
+   *  sessions" and "I cannot see your sessions" — and only one of them is true when the agent is
+   *  down. Measured in round 62 by rendering the panel with every API call failing (a state no
+   *  sweep had ever produced): the rail said "No sessions yet" while the workspace beside it said
+   *  "Connection lost — reconnecting…". */
+  connected: boolean;
   plugins: ReturnType<typeof usePlugins>;
 }) {
   const [labels, setLabels] = useState<Map<string, string>>(new Map());
@@ -179,7 +186,11 @@ export function ContextRail({
         </div>
       </div>
       <div className="side-list">
-        {rows.length === 0 && <p className="side-empty">No sessions yet</p>}
+        {rows.length === 0 && (
+          <p className="side-empty">
+            {connected ? "No sessions yet" : "Sessions unavailable — reconnecting…"}
+          </p>
+        )}
         {rows.map((s) => (
           <div
             key={s.sid}

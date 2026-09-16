@@ -173,6 +173,7 @@ export function PanelApp(props: Props) {
               onActivate={props.onActivate}
               onNewSession={props.onNewSession}
               plugins={props.plugins}
+              connected={connected}
             />
           ) : undefined
         }

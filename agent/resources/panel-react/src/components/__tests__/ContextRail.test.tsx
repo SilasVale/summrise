@@ -51,6 +51,7 @@ const props = (
   activeSid: "s1" as string | null,
   onActivate: vi.fn(),
   onNewSession: vi.fn(),
+  connected: true,
   plugins: plugins(),
   ...over,
 });
@@ -186,5 +187,20 @@ describe("ContextRail", () => {
     expect(screen.getByText("shell")).toBeTruthy();
     expect(document.querySelector(".side-count")?.textContent).toBe("2");
     expect(screen.queryByText("+1 hidden")).toBeNull();
+  });
+});
+// AN EMPTY LIST MEANS TWO THINGS. Measured in round 62 by rendering the panel with every API call
+// failing — a state no sweep had produced: the rail said "No sessions yet" while the workspace beside
+// it said "Connection lost — reconnecting…". One of those is false, and it is the one in the rail.
+describe("ContextRail when the device is unreachable", () => {
+  it("says it cannot see the sessions, not that there are none", () => {
+    const { container } = render(<ContextRail {...props({ sessions: [], connected: false })} />);
+    expect(container.textContent).toContain("unavailable");
+    expect(container.textContent).not.toContain("No sessions yet");
+  });
+
+  it("still says 'No sessions yet' when the device says the list is empty", () => {
+    const { container } = render(<ContextRail {...props({ sessions: [], connected: true })} />);
+    expect(container.textContent).toContain("No sessions yet");
   });
 });

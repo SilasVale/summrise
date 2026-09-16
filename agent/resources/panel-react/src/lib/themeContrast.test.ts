@@ -27,6 +27,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { contrastRatio, parseColour } from "../../../../scripts/lib/contrast-probe.mjs";
 
 function builtCss(): string {
   return readFileSync(
@@ -67,6 +68,51 @@ describe("recessed content surfaces", () => {
         "cannot follow the dark --bg. Removing this line reintroduces " +
         "near-white text on a near-white background (measured contrast 1.12).",
     ).toMatch(/--surface-recessed\s*:/);
+  });
+
+  it("every rule that paints text on a GRADIENT clears AA against every stop", () => {
+    // The static pair sweep skips gradients BY DESIGN (a gradient is not one colour), so this is the
+    // only static check that can see them — and the rendered probe is what actually found the two
+    // defects here: the "V" empty-mark at 2.13 and, before this test existed, the console avatar at
+    // the same number with the same amber pair. The mark also carries white at --fs-xl BOLD, which is
+    // just under WCAG's 18.66px large-text threshold, so 4.5 applies rather than 3.0 — a size bump
+    // would NOT have saved it.
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    // Both theme blocks, so a var() in a gradient resolves whichever theme declares it.
+    const tokens: Record<string, string> = {};
+    for (const block of [blockOf(css, ":root"), blockOf(css, 'body[data-theme="dark"]')]) {
+      for (const d of block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) tokens[d[1]] = d[2].trim();
+    }
+    const stopsOf = (rule: string) => {
+      const grad = /linear-gradient\([^)]*?\)/.exec(rule) ?? /linear-gradient\(([\s\S]*?)\);/.exec(rule);
+      const raw = grad ? grad[0] : "";
+      return [...raw.matchAll(/var\((--[\w-]+)\)|#[0-9a-fA-F]{3,8}/g)].map((m) =>
+        m[1] ? (tokens[m[1]] ?? "") : m[0],
+      ).filter(Boolean);
+    };
+    const bare = css;
+    let checked = 0;
+    for (const m of bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const body = m[2];
+      if (!/linear-gradient/.test(body)) continue;
+      const colour = /(?:^|;)\s*color\s*:\s*([^;]+);/.exec(body);
+      if (!colour) continue;
+      const fg = parseColour(colour[1].trim());
+      if (!fg) continue;
+      for (const stop of stopsOf(body)) {
+        const bg = parseColour(stop);
+        if (!bg) continue;
+        checked++;
+        const ratio = contrastRatio(fg, bg);
+        expect(
+          ratio,
+          `${m[1].trim().split("\n").pop()}: ${colour[1].trim()} on ${stop} = ${ratio.toFixed(2)}, needs 4.5`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    // THE MEASURED NUMBER, not a guess: one rule (`.empty-mark`) x two stops. A floor of "more than
+    // two" failed on the honest implementation.
+    expect(checked, "the gradient check must actually measure something").toBeGreaterThanOrEqual(2);
   });
 
   it("no background is drawn from the raw neutral scale", () => {
@@ -207,6 +253,9 @@ describe("recessed content surfaces", () => {
       ['.browser-action-badge.ok', "--badge-ok-ink"],
       ['.browser-action-badge.err', "--badge-err-ink"],
       ['.browser-action-badge.run', "--badge-run-ink"],
+      // The status bar's "reconnecting…" is the one text that tells an operator the device is down;
+      // it was #ff8787 (1.96 on the light theme's chrome) until round 62.
+      ["#sse-status", "--chrome-danger-ink"],
       ['.plug-tag[data-state="error"]', "--danger-on-soft"],
       ['.path-step-tag.s-fail', "--danger-on-soft"],
       ['.path-attention-tag.s-fail', "--danger-on-soft"],
