@@ -207,7 +207,11 @@ function buildHarness() {
   // rounds 69 and 78 found on two other surfaces, and both times it was real. Round 100.
   if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {
     var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };
-    return Promise.resolve(J({ targets: [
+    // THE ENVELOPE MATTERS: the hook requires ok === true and treats anything else as a FAILED read
+    // — which is what made this surface render nothing in round 100, with the payload looking
+    // perfectly good to me. The device sends it (monitor.rs, snapshot). (No backticks: this text lives
+    // inside the emitted template, and the tenth stray one shut --emit down.)
+    return Promise.resolve(J({ ok: true, targets: [
       {
         id: 'mon-router', host: '192.168.1.1', port: 22, path: null, expect: null,
         summary: { probes: 240, up: 239, down: 1, up_pct: 99.6, up_now: true, since_ms: 1789000000000, drops: 1,

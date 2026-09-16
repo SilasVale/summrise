@@ -60,6 +60,16 @@
 //     The lesson is the one this file keeps re-learning: an unserved route is not an empty page, it
 //     is an UNMEASURED page, and the difference is invisible in the results.
 //
+//   * THE MONITORS SURFACE, MEASURED AT LAST (round 101). It had never been rendered: `/api/monitors`
+//     was served by nothing, so the card and the alert strip had only ever been seen empty. It is built
+//     well. With a fixture in the device's real shape — `{ok: true, targets: […]}` and transitions of
+//     `{at_ms, up, lasted_ms}` — the Settings card shows both targets with their `up`/`down` states, the
+//     502, and 99 probe rows measuring clean. The ALERT STRIP is event-driven: it renders on the
+//     device's `vale-monitor-change` push and nothing else, so a down target on screen with no push
+//     shows no strip — which looks like a defect and is not one. Dispatched, it reads
+//     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
+//     aria-live="polite", and measures 15.31 light / 11.42 dark.
+//
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
 //     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page

@@ -17,7 +17,7 @@
 // card is fed by props the panel density does not pass, or something else gates it. That is a measured
 // observation, not a diagnosis, and it is the first thing to check next time this surface is measured.
 import { describe, it, expect } from "vitest";
-import { parseMonitors } from "../useMonitors";
+import { parseMonitorChange, parseMonitors } from "../useMonitors";
 
 /** One target in the shape the hook reads — `summary`, `transitions` and `series` as it parses them. */
 const target = (over: Record<string, unknown> = {}) => ({
@@ -91,5 +91,62 @@ describe("parseMonitors", () => {
     for (const junk of [null, undefined, 42, "text", {}, { targets: "nope" }]) {
       expect(parseMonitors(junk).targets).toEqual([]);
     }
+  });
+});
+
+// ── THE PUSH THAT FEEDS THE ALERT STRIP ──────────────────────────────────────────────────────────
+//
+// `useMonitorAlerts` renders nothing until the DEVICE pushes a state change over the SSE stream — the
+// `vale-monitor-change` event round 94's vocabulary contract pins as one of the four the device emits.
+// That is why the strip measured empty in this round's first pass with a down target on screen: no
+// push, no strip. Not a defect, and worth stating because it looks exactly like one.
+//
+// Measured once the frame is dispatched (round 101): the strip says
+// "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
+// aria-live="polite" (announced without interrupting), and measures 15.31 light / 11.42 dark.
+describe("parseMonitorChange — the frame the device pushes", () => {
+  const frame = {
+    ev: "monitor-change",
+    id: "mon-ont",
+    host: "192.168.1.1",
+    port: 8000,
+    up: false,
+    lasted_ms: 900_000,
+    at_ms: 1_789_002_000_000,
+    status: 502,
+  };
+
+  it("reads a real change, keyed so a repeat replaces rather than repeats", () => {
+    const alert = parseMonitorChange(frame);
+    expect(alert).not.toBeNull();
+    expect(alert!.host).toBe("192.168.1.1");
+    expect(alert!.port).toBe(8000);
+    expect(alert!.up).toBe(false);
+    expect(alert!.lastedMs).toBe(900_000);
+    expect(alert!.status).toBe(502);
+    // The key is id + timestamp, so the same transition arriving twice does not stack in the strip.
+    expect(alert!.key).toBe("mon-ont:1789002000000");
+    expect(parseMonitorChange(frame)!.key).toBe(alert!.key);
+  });
+
+  it("refuses a frame that is not this event, or that cannot be placed in time", () => {
+    // The `ev` guard is what keeps one window event from being handled by the wrong listener — and a
+    // frame with no stamp cannot be keyed, so it is dropped rather than shown twice.
+    expect(parseMonitorChange({ ...frame, ev: "sessions-changed" })).toBeNull();
+    expect(parseMonitorChange({ ...frame, at_ms: undefined })).toBeNull();
+    expect(parseMonitorChange({ ...frame, id: "" })).toBeNull();
+    expect(parseMonitorChange(null)).toBeNull();
+  });
+
+  it("keeps an unknown port or status absent rather than inventing one", () => {
+    const bare = parseMonitorChange({ ev: "monitor-change", id: "m1", at_ms: 1_789_000_000_000 });
+    expect(bare!.port, "a missing port is 0 only because the alert renders host:port").toBe(0);
+    expect(bare!.status, "no HTTP status is null, not 200").toBeNull();
+    // AND AN ABSENT HOST IS THE EMPTY STRING, not null: this file's `str` helper returns "" where the
+    // boot-history hook's returns null. I asserted null and was wrong — the alert then renders as
+    // ":8000", which the DEVICE never produces (it always sends host from the monitor row), so the
+    // default is defensive rather than reachable. Recorded because the two helpers disagree and the
+    // difference is invisible until a test makes you look.
+    expect(bare!.host).toBe("");
   });
 });
