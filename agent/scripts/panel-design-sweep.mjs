@@ -52,6 +52,22 @@ import { pageChecks, judgeReport, reportSummary } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
+/** The panel's own extra: what still animates when the user has asked for less motion. */
+const MOTION = `
+const MOTION = \`(() => {
+  const animating = [];
+  for (const el of document.querySelectorAll('#root *')) {
+    const st = getComputedStyle(el);
+    const dur = parseFloat(st.transitionDuration) > 0 ? st.transitionDuration : null;
+    const anim = st.animationName && st.animationName !== 'none' ? st.animationName + ' x' + st.animationIterationCount : null;
+    if (!dur && !anim) continue;
+    const key = typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/).join('.') : el.tagName.toLowerCase();
+    animating.push(key + (dur ? ' trans=' + dur : '') + (anim ? ' anim=' + anim : ''));
+  }
+  return { animating: [...new Set(animating)] };
+})()\`;
+`;
+
 /** The panel's own extra: boot and interaction timing (the other UIs do not measure it). */
 const TIMING = `
 const TIMING = \`(() => {
@@ -67,6 +83,7 @@ function browserScript() {
 const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
+${MOTION}
 ${TIMING}
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
@@ -76,7 +93,7 @@ ${TIMING}
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
-  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [] };
+  const report = { rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [] };
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
       for (const mode_ of ['idle', 'relaxed']) {
@@ -125,6 +142,21 @@ ${TIMING}
       }
     }
   }
+  // REDUCED MOTION, measured rather than assumed: render both densities with the preference
+  // EMULATED and ask the page which elements still have a running transition or animation. Reading
+  // the stylesheet cannot answer this — a media query adds no specificity, so the answer depends on
+  // cascade order, selector scope and xterm's runtime-injected sheet.
+  for (const [density, path_] of [['panel', '/panel/'], ['desktop', '/desktop/']]) {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize(density === 'panel' ? { width: 1280, height: 860 } : { width: 1440, height: 900 });
+    await page.goto('http://vale.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1600);
+    report.motion.push({ density, ...(await page.evaluate(MOTION)) });
+  }
+  await page.emulateMedia({ reducedMotion: null });
+
   // Reflow at the two widths WCAG 1.4.10 names, panel density only: the desktop density needs the
   // width it has, and its tab strip is the standard's own toolbar exception.
   for (const width of [640, 320]) {

@@ -232,5 +232,20 @@ else
   bad "the tab-scroller 320px artifact was treated as a defect (the exemption is too narrow now)"
 fi
 
+# REDUCED MOTION (round 77): a report showing anything still animating under the preference must
+# fail. Planted rather than assumed — the rule lives in the shared judge, so a report is the only
+# input needed to prove it bites.
+python3 - "$TMP/clean.json" "$TMP/motion.json" <<'PY3'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["motion"] = [{"density": "desktop", "animating": [".dtab trans=0.12s", ".xterm-cursor.xterm-cursor-blink anim=blink_block_1 xinfinite"]}]
+json.dump(r, open(sys.argv[2], "w"))
+PY3
+if node "$TOOL" --judge "$TMP/motion.json" > "$TMP/motion.out" 2>&1; then
+  bad "the judge PASSED a report with elements still animating under prefers-reduced-motion"
+else
+  ok "the judge fails a report that still animates under reduced motion"
+fi
+
 echo "panel-design-sweep: $PASS ok, $FAILED failed"
 [ "$FAILED" -eq 0 ]

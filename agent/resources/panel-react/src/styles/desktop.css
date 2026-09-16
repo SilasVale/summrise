@@ -348,3 +348,71 @@
   font-weight: var(--fw-semi);
   box-shadow: var(--shadow);
 }
+
+/* ---------- reduced motion — LAST IN THE CASCADE ----------
+   A media query adds NO specificity, so this block only wins where it comes after the rule it
+   overrides. It used to sit in components.css, which is concatenated THIRD of six: every selector
+   declared later — the whole desktop sheet, plus .term-fontbar and .view-switch-btn below it in the
+   same file — kept its transition under the preference. Measured in round 77: putting it last took
+   the panel density from 13 animating elements to 1 and the desktop density from 10 to 8, and the
+   remainder were exactly the ones declared after it.
+   THE SELECTOR LIST IS MEASURED, NOT REMEMBERED. Round 77 rendered both densities with the
+   preference EMULATED and asked the page which elements still had a running transition or
+   animation. The panel density was honoured (26 elements with motion -> 6); the DESKTOP density was
+   not (19 -> 19), because its selectors were never added here - `desktop.css` declares transitions
+   for .desktop-rail-btn, .dtab, .dtab-close, .btn-new, and the shared .view-switch-btn and
+   .term-fontbar were never listed either. A transition that is not listed is a preference that is
+   not honoured, which is the same failure the comment at the end of this block records. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-dot,
+  .tab,
+  .term-fontbar,
+  .view-switch-btn,
+  .btn-new,
+  .desktop-rail-btn,
+  .dtab,
+  .dtab-close,
+  /* The terminal's text cursor blinks forever, and it is XTERM'S OWN stylesheet, so it is ours to
+     override: a blinking cursor is a known vestibular trigger, and nothing is lost by stopping it -
+     the block cursor still marks the position, which is the same rule the rest of this sheet
+     follows (state survives reduced motion). */
+  /* The scoped form has ONE MORE class than the block's bare selectors, so the bare name never won:
+     `.desktop-view-switch .view-switch-btn` is 0,2,0 against this block's 0,1,0. */
+  .desktop-view-switch .view-switch-btn,
+  /* And the cursor: `#term-container` is the PANEL density's element. The desktop shell mounts its
+     terminal elsewhere, so that override never matched there — the bare class catches both, and it
+     wins because this sheet is concatenated after xterm's own stylesheet. */
+  /* xterm's own rule is `.xterm-cursor.xterm-cursor-blink` — TWO classes — so a single-class
+     override loses on specificity whatever the order. Matched here, and it catches every container. */
+  /* ID-SCOPED, because xterm.js INJECTS its stylesheet at runtime — after ours in document order —
+     so no equal-specificity rule of ours can win whatever the order, and two classes were still not
+     enough (measured: the desktop density kept blinking with `.xterm-cursor.xterm-cursor-blink`).
+     `#root` is the mount point in BOTH densities, and an id outranks any number of classes. */
+  #root .xterm-cursor.xterm-cursor-blink,
+  .xterm-cursor.xterm-cursor-blink,
+  .xterm-cursor,
+  #term-container .xterm-cursor,
+  .rail-btn,
+  .side-row,
+  .side-nav-btn,
+  .side-action,
+  .details-close,
+  .cmd-card,
+  .cmd-btn,
+  .cmd-dot,
+  .plug-dot,
+  .plug-btn,
+  .plug-search,
+  .view-switch-btn,
+  .traj-search,
+  .traj-earlier,
+  .traj-round,
+  .traj-round-head,
+  .traj-chev,
+  .traj-ev-dot,
+  /* The instrument's arcs ease to a new reading; under reduced motion they jump,
+     which is exactly as informative and costs nothing. Listed explicitly because an
+     un-listed transition is how the state palette once ended up with three dots that
+     differed ONLY by animation (round-161). */
+  .dial-arc { transition: none; animation: none; }
+}

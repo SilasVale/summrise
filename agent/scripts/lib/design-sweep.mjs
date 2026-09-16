@@ -135,6 +135,17 @@ export function judgeReport(report, opts = {}) {
   for (const f of report.focus || []) {
     findings.push(`${f.page}: ${f.missing} Tab stop(s) with no visible focus ring`);
   }
+  // REDUCED MOTION IS A CONTRACT, NOT A COURTESY. `motion` entries come from a render with the
+  // preference EMULATED: anything still carrying a transition or an infinite animation under it is a
+  // finding. Measured round 77 — the panel density honoured the preference and the desktop density
+  // did not (19 elements with motion, 19 after), and the fix took four rounds of cause-finding:
+  // cascade order, then selector scope, then specificity, then an id, because xterm.js injects its
+  // stylesheet at runtime and no equal-specificity rule of ours can win.
+  for (const m of report.motion || []) {
+    if (m.animating && m.animating.length) {
+      findings.push(`reduced motion (${m.density || "?"}): ${m.animating.length} element(s) still animate — ${m.animating.slice(0, 3).join("; ")}`);
+    }
+  }
   for (const r of report.reflow || []) {
     if (r.docScrollsSideways) {
       findings.push({ text: `reflow @${r.width}px: the document scrolls sideways (${r.docScrollWidth} > ${r.viewport})`, entry: r });
