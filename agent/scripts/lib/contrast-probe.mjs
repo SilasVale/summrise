@@ -213,7 +213,14 @@ export const PROBE_SOURCE = `(() => {
 /** Rows that fail their own AA bar. Takes the probe's rows; pure.
  *  Rows the probe could not measure (`gradient: true`, `cr: null`) are EXCLUDED —
  *  they are not passes and they are not failures, and `unmeasurable()` counts them
- *  so a caller can print the number instead of letting a skip read as a pass. */
+ *  so a caller can print the number instead of letting a skip read as a pass.
+ *
+ *  USE THESE, DO NOT RE-IMPLEMENT THE COMPARISON. Round 119 recorded an "open contrast defect" on a
+ *  ghost button after filtering rows by hand with `r.cr < r.need` — which drops the `inactive` waiver and
+ *  flagged a DISABLED control ("Notifications unavailable", opacity 0.45) that WCAG exempts and this
+ *  file already excludes. The real sweep never reported it: `failures()` below does the filtering, the
+ *  judge kept 41/41 green, and the false item existed only in my ad-hoc reader. An ad-hoc reader that
+ *  forgets one field invents defects, and then they have to be hunted down. */
 export function failures(rows) {
   return rows.filter((r) => r.cr !== null && !r.inactive && r.cr < (r.need ?? aaThreshold(r.size, r.weight)));
 }

@@ -76,10 +76,12 @@
 //     the right token: --success-text is #1e7a33 light / #69db7c dark. Re-measured on the rendered page:
 //     5.22 light / 9.89 dark in the panel density, 5.36 / 9.39 on desktop. Its .down sibling always used
 //     a text token (--danger-on-soft, 7.27), which is why only one half of the pair ever failed.
-//   * OPEN, UNVERIFIED, do not chase blind: the same sweep reports `button.btn.btn-ghost` at 2.11-2.44
-//     in BOTH themes and densities. I have not identified which button that is or why — a ghost button is
-//     transparent, and resolving what is behind it is exactly where a contrast probe goes wrong. Find the
-//     element first (its text and its DOM position), then judge it.
+//   * THE `btn-ghost` "OPEN ITEM" FROM ROUND 118 WAS MINE, NOT THE PANEL'S (closed in round 119). The
+//     element is "Notifications unavailable" with `disabled: true` and opacity 0.45 — an INACTIVE control,
+//     which WCAG 1.4.3 exempts and which this suite has always waived: the probe sets `inactive`, the
+//     judge filters on it, and the real sweep kept 41/41 green. The false item came from an ad-hoc reader
+//     that filtered rows with `cr < need` and dropped the waiver. `contrast-probe.mjs` now says so at the
+//     helpers: use `failures()`/`inactive()`, never a hand-rolled comparison.
 //
 //   * THE DEVICE AREA, POPULATED AT LAST (round 117). /api/status, /api/vitals/history and /api/boots
 //     were answered by the catch-all {ok:true} in every sweep this harness has ever produced, so the
