@@ -112,7 +112,11 @@
   background: var(--lane-ds);
   flex: none;
 }
-.dtab-dot[data-kind="pty"] { background: var(--chrome-ink-faint); }
+/* --chrome-ink-dim, NOT --chrome-ink-faint: this dot is a LANE INDICATOR, the same mark as its ssh and
+   serial siblings two lines down (--lane-ds 4.51, --lane-or 3.19), so it is a graphic carrying meaning and
+   3:1 applies. The faint token measures 2.56 on white (2.29-2.82 measured on the rendered page, round 142,
+   and recorded as an open question in round 126). --chrome-ink-dim gives 7.73. */
+.dtab-dot[data-kind="pty"] { background: var(--chrome-ink-dim); }
 .dtab-dot[data-kind="ssh"] { background: var(--lane-ds); }
 .dtab-dot[data-kind="serial"] { background: var(--lane-or); }
 .dtab-name {
