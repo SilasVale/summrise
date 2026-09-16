@@ -70,6 +70,25 @@
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
 //
+//   * THE WHOLE PAGE SWEEP, ON A HARNESS THAT FINALLY HAS CONTENT (round 120). Six pages — Terminal,
+//     History, Browser, Memory, Plugins, Settings — 48 surfaces, 1796 text nodes, 48 name checks, and
+//     the judge returns ZERO findings with ZERO unmeasurable rows. The two div.tabrow overflow items are
+//     the documented harness artifact and are printed as notes, not silently dropped. Before round 117
+//     every card on those pages rendered empty, so a green sweep said much less than it looked like it did.
+//
+//   HOW TO RUN IT (reconstructed in round 120; it takes several steps and the next round should not have
+//   to rediscover them):
+//     1. locally:  node agent/scripts/panel-design-sweep.mjs --emit --passes=pages > /tmp/sweep-pages.js
+//     2. upload it (curl -T to the relay) and system_file_download it to C:\ProgramData\Vale\pwout\
+//     3. on the device, run it in-process — it drives the browser itself:
+//          const code = fs.readFileSync(SRC, 'utf8');
+//          new Function('require','module','exports','__dirname','__filename','process','console','Buffer',
+//                       'setTimeout','clearTimeout', code)(require, {exports:{}}, {}, dir, SRC, process,
+//                       console, Buffer, setTimeout, clearTimeout);
+//        It prints its summary and rewrites C:\ProgramData\Vale\pwout\design-sweep.json (~390 KB).
+//        NOTE: top-level await is NOT valid there — wrap any driver in an async IIFE.
+//     4. upload that report, curl it down, and judge it locally with THIS adapter's waivers — a bare
+//        judgeReport(report, {}) reports the div.tabrow artifacts as findings, which is what they are not.
 //   * THE "up" LABEL WAS 3.33 (round 118). With the Device area finally rendering, the probe caught
 //     `span.monitor-state.up` at 3.33 in the light theme — `--state-ok`, the sixth time a state-dot FILL
 //     token has been used as text (the flapping chip's --state-warn was the fifth). The panel already had
