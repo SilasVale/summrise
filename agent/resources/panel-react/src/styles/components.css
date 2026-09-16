@@ -1019,12 +1019,17 @@
   font-size: var(--fs-sm);
   white-space: nowrap;
 }
+/* --warn-ink, NOT --state-warn: the triangle is a GRAPHICAL OBJECT (WCAG 1.4.11, 3:1), and the fill
+   token gives 2.80 on the dark chip surface — measured round 121, the same token that failed on the
+   flapping chip's border in round 109. --warn-ink is #92400e light / #ffc078 dark: 6.45 and 8.76.
+   The triangle is the DEFAULT state (a warn verdict); .boot-mark.info below is the exception, and the
+   `warn` class the component also emits has no rule of its own because this one paints it. */
 .boot-mark {
   flex: none;
   width: 0; height: 0;
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-bottom: 7px solid var(--state-warn);
+  border-bottom: 7px solid var(--warn-ink);
 }
 .boot-mark.info {
   width: 6px; height: 6px;

@@ -363,6 +363,8 @@ function judge(file) {
       "composition-view": "xterm.js DOM (IME composition), styled by the sheet it injects at runtime",
       terminal: "a VIEW NAME; the element's .view class does the styling",
       serial: "a session-kind modifier; the element is painted by its [data-kind] rule",
+      warn:
+        "the boot chip's tone modifier. The BASE rule paints it — .boot-mark is the warn triangle and .boot-mark.info is the exception — so the name needs no rule of its own. Round 121 followed it anyway, and found a real defect behind it: the triangle used --state-warn, which measures 2.80 on the dark chip surface against the 3:1 a graphic needs. Fixed to --warn-ink (6.45 / 8.76).",
     },
     // THIS HARNESS'S OWN BLIND SPOT, named rather than filtered silently. `#tabs` measures ~0-185px
     // in a plain browser and 211px on the device, so the tab strip's children report as overflowing
