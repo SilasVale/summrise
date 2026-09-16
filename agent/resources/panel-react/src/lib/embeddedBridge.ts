@@ -80,9 +80,31 @@ type MissingFromManifest = Exclude<keyof EmbeddedBridge, (typeof EMBEDDED_MEMBER
 const _complete: MissingFromManifest extends never ? true : never = true;
 void _complete;
 
+/** RUNTIME MANIFESTS for the other two bridges, with the same two-way type check as above. */
+export const BROWSER_MEMBERS = ["open", "close", "list"] as const satisfies readonly (keyof ValeBrowserBridge)[];
+type MissingBrowser = Exclude<keyof ValeBrowserBridge, (typeof BROWSER_MEMBERS)[number]>;
+const _browserComplete: MissingBrowser extends never ? true : never = true;
+void _browserComplete;
+
+export const DESKTOP_MEMBERS = ["getAutoLaunch", "setAutoLaunch", "onCommand"] as const satisfies readonly (keyof ValeDesktopBridge)[];
+type MissingDesktop = Exclude<keyof ValeDesktopBridge, (typeof DESKTOP_MEMBERS)[number]>;
+const _desktopComplete: MissingDesktop extends never ? true : never = true;
+void _desktopComplete;
+
 /** The bridge, or null in a plain browser. */
 export function embeddedBridge(): EmbeddedBridge | null {
   return ((window as unknown as { valeEmbedded?: EmbeddedBridge }).valeEmbedded ?? null) as EmbeddedBridge | null;
+}
+
+/** Browser-session windows, or null in a plain browser.
+ *
+ *  THIS ACCESSOR EXISTS BECAUSE App.tsx REACHED THROUGH `(window as any)`. It called
+ *  `bridge.open("about:blank")` with no type at all, so a renamed member in the preload would not
+ *  have failed anything — it would have fallen through to the local-control fallback, or produced
+ *  "Browser sessions need the Vale desktop app" on a machine that HAS the desktop app. The shape was
+ *  already written here (`ValeBrowserBridge`); nothing used it. */
+export function browserBridge(): ValeBrowserBridge | null {
+  return ((window as unknown as { valeBrowser?: ValeBrowserBridge }).valeBrowser ?? null) as ValeBrowserBridge | null;
 }
 
 /** The desktop bridge (auto-launch + menu commands), or null in a plain browser. */

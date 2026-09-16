@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EMBEDDED_MEMBERS } from "../embeddedBridge";
+import { BROWSER_MEMBERS, DESKTOP_MEMBERS, EMBEDDED_MEMBERS } from "../embeddedBridge";
 
 describe("the Electron bridge", () => {
   it("exposes exactly the members the preload exposes", () => {
@@ -22,9 +22,13 @@ describe("the Electron bridge", () => {
         "utf8",
       ),
     ) as { bridges: Record<string, string[]> };
+    // ALL THREE bridges, not just the embedded one. The other two had no manifest until a round-54
+    // audit of my own work asked who uses ValeBrowserBridge — nobody did, because App.tsx reached
+    // through `(window as any).valeBrowser`. A type with no consumer cannot be checked, and a rename
+    // would have surfaced as "Browser sessions need the Vale desktop app" on a machine that has it.
     expect([...EMBEDDED_MEMBERS].sort()).toEqual([...fixture.bridges.valeEmbedded].sort());
-    // The other two bridges are consumed by other components; the fixture lists them so the shell's
-    // half of this contract covers them too, and a third bridge cannot appear unnoticed.
+    expect([...BROWSER_MEMBERS].sort()).toEqual([...fixture.bridges.valeBrowser].sort());
+    expect([...DESKTOP_MEMBERS].sort()).toEqual([...fixture.bridges.valeDesktop].sort());
     expect(Object.keys(fixture.bridges).sort()).toEqual(["valeBrowser", "valeDesktop", "valeEmbedded"]);
   });
 });

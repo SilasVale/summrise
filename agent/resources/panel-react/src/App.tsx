@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { initTransport } from "./lib/api";
 import { computeBoot } from "./lib/boot";
+import { browserBridge } from "./lib/embeddedBridge";
 import { useSessions } from "./hooks/useSessions";
 import { useCommandEvents } from "./hooks/useCommandEvents";
 import { useSSE } from "./hooks/useSSE";
@@ -59,7 +60,7 @@ export function App() {
   // no CORS. Fall back to the shell's local control endpoint (127.0.0.1:9444)
   // when the SPA runs in a plain browser, and explain when neither exists.
   const openBrowserSession = async () => {
-    const bridge = (window as any).valeBrowser;
+    const bridge = browserBridge();
     if (bridge?.open) {
       try {
         await bridge.open("about:blank");
