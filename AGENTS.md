@@ -83,6 +83,27 @@ assumed:
 | `scripts/test/retired-colours-check.mjs` | put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page) | exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate |
 | `scripts/test/sweep-judges.bash` | plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck` |
 
+### What the sweeps report when they are clean (measured round 31 of the standing goal)
+
+Worth having, because "clean" without numbers is what makes the next person re-run it. Run on the DEVICE against a
+freshly delivered harness, after the mark-language work of rounds 24-27 and the `command_running` wire change of
+rounds 28-30:
+
+    --passes=unstyled   panel 1126 styled classes · 0 unreadable sheets · the only unstyled names reported are
+                        xterm.js's own DOM (`xterm-viewport`, `xterm-screen`, …), which the sheet injects at runtime
+    --passes=motion     panel   normal 14 · reduced 0 · stillAnimating []
+                        desktop normal 11 · reduced 0 · stillAnimating []
+    --judge             "panel design sweep OK: nothing above found a defect" for both
+
+`--passes=motion` reports TWO numbers per density and the pair is the point: 14 animations exist, and ZERO of them
+run for a user who asked for reduced motion. A single number here would be unreadable — 0 with 0 animations is a
+pass for the wrong reason, which is exactly the "a scan that read nothing is not a clean scan" trap.
+
+AND `--passes=pages` DOES NOT FIT IN ONE MCP CALL. It is the heavy pass (1356 rows, 48 surfaces) and it exceeded the
+caller's cap twice before finishing; the report on the device was still the previous run's. The pass selection DOES
+reach the emitted script (`passes: "unstyled"` + a `wants()` gate per pass), so the small passes are the way to check
+a change interactively — the heavy one belongs in CI, where it already runs.
+
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail
 when their subject breaks. (Failure messages differ in usefulness: `release-lib` prints actual vs
