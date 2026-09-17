@@ -4,6 +4,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { DesktopShell } from "../DesktopShell";
+import { StripMore } from "../TabBar";
 import { Shell } from "../Shell";
 import type { Session } from "../../hooks/useSessions";
 import { callApi } from "../../lib/api";
@@ -147,8 +148,9 @@ describe("DesktopShell", () => {
       container.querySelector("#desktop-term-container")?.className,
       "the terminal container must be hidden while the trajectory view is active",
     ).toBe("hidden");
-    // And the header switch reflects the SAME value rather than the shell's own idea
-    // of the view (`role="tab"` + `aria-selected`, per ViewSwitch).
+    // And the view switch reflects the SAME value rather than the shell's own idea of the view
+    // (`role="tab"` + `aria-selected`, per ViewSwitch). It lives in the terminal CONTROL BAR since round
+    // 169, not in the header row — this query deliberately does not care WHERE, only that the value is read.
     const selected = [
       ...container.querySelectorAll('.desktop-view-switch [role="tab"]'),
     ]
@@ -241,5 +243,42 @@ describe("DesktopShell", () => {
     expect(
       document.querySelector(".desktop-status-msg")?.textContent,
     ).not.toContain("MEM");
+  });
+
+  it("desktop strip: repeated labels are disambiguated, like the panel's", () => {
+    // ROUND 170'S DEFECT, PINNED. The label disambiguation went into TabBar (round 167) and the desktop
+    // renders its OWN tabs, so a rendered page showed `d1, serial:COM4, d1, …` — the same defect the
+    // operator reported, still on screen in this density. Two sessions with one label is the whole test.
+    const two = sessions();
+    const dup = { ...two[0], sid: "s2", active: false };
+    render(<DesktopShell {...baseProps} sessions={[two[0], dup]} />);
+    const names = [...document.querySelectorAll(".dtab-name")].map((e) => e.textContent);
+    expect(names.length).toBeGreaterThan(1);
+    expect(new Set(names).size, `labels must be distinguishable, got ${JSON.stringify(names)}`).toBe(names.length);
+  });
+
+  it("desktop strip: the fade flag is NOT always on when the tabs fit", () => {
+    // THE SILENT BREAK. `useStripOverflow` began returning { overflowing, hidden } in round 168; this file
+    // kept using it as a boolean, so the flag became permanently truthy and the fade would never go away.
+    // TypeScript does not error on truthiness and no test mounted this strip — this is that test. In jsdom
+    // nothing is laid out, so scrollWidth === clientWidth and the honest answer is "no overflow".
+    render(<DesktopShell {...baseProps} />);
+    expect(document.querySelector(".desktop-tabs")?.getAttribute("data-more")).toBeNull();
+  });
+
+  it("desktop strip: does NOT carry the view switch (it is a session control)", () => {
+    // Round 169's decision, guarded in the OTHER strip as well — the panel's TabBar test covers its own.
+    const { container } = render(<DesktopShell {...baseProps} />);
+    expect(container.querySelector(".desktop-tabs .desktop-view-switch")).toBeNull();
+  });
+
+  it("StripMore: says how many, and says nothing at zero", () => {
+    // The chip's own contract, since jsdom cannot lay out a strip for the hook to count.
+    const { container, rerender } = render(<StripMore n={3} />);
+    expect(container.textContent).toBe("+3");
+    rerender(<StripMore n={0} />);
+    expect(container.textContent).toBe("");
+    rerender(<StripMore n={1} />);
+    expect(container.querySelector(".tab-more")?.getAttribute("title")).toMatch(/1 more session —/);
   });
 });
