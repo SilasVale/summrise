@@ -79,6 +79,14 @@
 #session-control:active:not(:disabled),
 .app-crash-card .btn:active:not(:disabled) { transform: translateY(1px); }
 
+/* THE ACTIVE TAB ANSWERS A PRESS TOO (round 51). Inactive tabs take the background below and it renders —
+   `rgba(157,157,157,0.12)` measured with the mouse down. The ACTIVE tab took nothing: `.tab.active` and `.tab:active`
+   are both (0,2,0), so whichever rule the sheet puts later wins, and the active tab you press to re-focus it was the
+   one control in the panel with no rendered press state at all. A TRANSFORM cannot be overridden by a background
+   rule, which is why every other control's press is one — and it is what the objective asks for: transform and
+   opacity, on the event. */
+.tab:active:not(.closed) { transform: translateY(1px); }
+
 .side-row:active,
 .tab:active,
 .tab.closed:active,
