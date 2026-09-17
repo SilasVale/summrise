@@ -5,6 +5,16 @@
   --surface: #fff;
   --line: rgba(0, 0, 0, 0.08);
   --line-strong: rgba(0, 0, 0, 0.14);
+  /* THE SAME SPACING SCALE AS THE PANEL AND THE CONSOLE (round 232), which completes it across all three
+     UIs. This page had NO spacing tokens — six of its declarations used the scale's values as literals (4px,
+     8px x2, 12px, 16px, 24px) and six used values between the steps (10px x2, 18px, 28px x2, 48px). Naming
+     the six moves no pixel: they are exactly what the tokens expand to. */
+  --sp-0-5: 2px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
   --accent: #0b7a6e;
   --accent-ink: #0b7a6e;
   --accent-soft: #e7f5f2; /* accent darkened for AA (5.22:1 on white) */
@@ -75,7 +85,7 @@ body {
   color: var(--text);
   display: flex;
   justify-content: center;
-  padding: 48px 16px;
+  padding: 48px var(--sp-4);
 }
 .card {
   background: var(--surface-glass);
@@ -83,7 +93,7 @@ body {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px 28px;
+  padding: var(--sp-5) 28px;
   width: 100%;
   max-width: 420px;
   display: flex;
@@ -113,7 +123,7 @@ input {
   font-size: 14px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   background: var(--card);
 }
 input:focus {
@@ -129,7 +139,7 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: var(--sp-1);
 }
 button {
   font-family: inherit;
@@ -139,7 +149,7 @@ button {
   background: var(--accent);
   color: #fff;
   border-radius: var(--radius-sm);
-  padding: 8px 18px;
+  padding: var(--sp-2) 18px;
 }
 button:hover {
   background: var(--accent-hover);

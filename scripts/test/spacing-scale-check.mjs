@@ -61,9 +61,10 @@ const UIS = [
   {
     name: "extension",
     sheets: () => ["extension/options/options.css"].filter(existsSync),
-    tokenUses: 0,
+    // Round 232 gave it the scale: six on-scale literals became tokens with no pixel moved.
+    tokenUses: 6,
     offScaleUses: 6,
-    onScaleLiterals: 6,
+    onScaleLiterals: 0,
   },
 ];
 
