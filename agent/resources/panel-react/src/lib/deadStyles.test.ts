@@ -39,4 +39,30 @@ describe("the stylesheet", () => {
     ).toEqual([]);
     expect(report.rules).toBe(0);
   });
+
+  // ── AND THE CONSOLE, WHICH HAD NO RATCHET AT ALL (round 22 of the standing goal) ──────────────────────────
+  // The tool has taken `--root` since round 80, so the console's sheet could always be ASKED the question — but
+  // nothing asked it on every run, and the difference showed: the console had eight unreferenced classes sitting
+  // inside rules kept alive by a live arm, and a 35-line `.chip` family whose only renderer had been deleted
+  // (found by hand in round 21, one round after the component went). This is the same ratchet the panel has had
+  // for its own sheet, pointed at the other UI.
+  it("has nothing left that no component can render, in the CONSOLE too", () => {
+    const out = execFileSync(
+      "python3",
+      [path.join(ROOT, "scripts", "prune-dead-css.py"), "--root", path.join(ROOT, "..", "..", "..", "gateway", "ui"), "--json"],
+      { cwd: ROOT, encoding: "utf8" },
+    );
+    const line = out.split("\n").reverse().find((l) => l.trim().startsWith("{"));
+    expect(line, `no JSON from the pruner for the console:\n${out}`).toBeTruthy();
+    const report = JSON.parse(line!) as { wouldRemove: string[]; rules: number; lines: number; left: string[] };
+    // The console's eight remaining names sit inside SHARED rules (a comma list with a live arm), which the tool
+    // deliberately does not touch — so the ratchet is on what it CAN remove, and on that number not growing.
+    expect(
+      report.wouldRemove,
+      `dead CSS in the console — run: python3 agent/resources/panel-react/scripts/prune-dead-css.py --root gateway/ui --write`,
+    ).toEqual([]);
+    expect(report.rules).toBe(0);
+    expect(report.left.length, `console classes in shared rules grew to ${report.left.length}: ${report.left.join(", ")}`)
+      .toBeLessThanOrEqual(8);
+  });
 });

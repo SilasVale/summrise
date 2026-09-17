@@ -15,6 +15,25 @@ HOW IT DECIDES. Conservative on purpose:
   * `@media` blocks are recursed into and kept, even if they end up empty (an empty media block is
     harmless and its removal is not this script's business).
 
+A CASE IT CAN SEE BUT MUST NOT REMOVE (measured round 22 of the standing goal). A class can be unreferenced
+while the rule that names it is kept alive by a LIVE class in the same comma list — `.model-add .form-input`,
+`.sidebar.open`, `.kchip.on .kchip-dot`. Those selectors can never match (a compound needs every class it names,
+and a descendant needs its ancestor), and the tool reports them under "still declared inside shared rules". THREE
+ATTEMPTS TO REMOVE THEM WERE MADE AND ALL THREE CORRUPTED A SHEET, which is why it still does not:
+
+  1. "any dead class kills the part" rewrote documentation into code: `classes_in` scanned the raw prelude, so the
+     console's header comment — `layout .app/.sidebar/.content` — counted as three dead classes on whatever rule
+     followed it. `:root`, `*`, `html, body, #root` and the h1-h4 block deleted themselves;
+  2. splitting the prelude into comment + selector fixed that but rejoined EVERY kept prelude with ", ", collapsing
+     every multi-line selector list: a valid prune produced an 827-line diff across two UIs;
+  3. re-emitting only the preludes that changed fixed THAT, and then a prelude carrying TWO comments had its second
+     one absorbed into the selector — `/* … a channel that is down is not a dot {` — which the stylesheet-hygiene
+     gate caught, not the tool.
+
+The rule is right and the three failure modes are now known; what is missing is a prelude parser that models
+comments positionally. Until then the safe answer is the one the tool already gives, and the ratchet in
+`src/lib/deadStyles.test.ts` holds the count.
+
 Run with `--write` to apply; without it, it only reports. It is a one-shot tool, not a gate — the
 gate is the ratchet in `src/lib/deadStyles.test.ts`, which fails when a NEW unreferenced class
 appears.
