@@ -114,6 +114,12 @@ elif which == "theme-lie":
     # A REPORT THAT DESCRIBES A PAGE IT DID NOT RENDER: navigated as dark, rendered light. This is exactly
     # what round 175 shipped by accident, and the check reads the theme off the PAGE to catch it.
     r["themeChecks"] = [{"page": "Terminal-fail-dark", "intended": "dark", "stored": "light", "attr": "", "bodyBackground": "rgb(250, 250, 250)"}]
+elif which == "harness-stale":
+    # A FIXTURE OLDER THAN THE BUILD INVALIDATES EVERY MEASUREMENT IN THE REPORT (round 189: a delivered
+    # harness two generations old collapsed the tab strip to 17px and the sweep called it a live defect).
+    r["harnessBuild"] = "100000-deadbeef0000"
+    r["expectedHarnessBuild"] = "212274-0517495785a2"
+    r["harnessStale"] = True
 elif which == "paint-drift":
     # THE PIXELS OVERRULING THE STYLE CHECK must be VISIBLE, not silent. It was 18 of 18 in round 186 while
     # the style verdict called every console ring missing; the count is a note rather than a finding, so the
@@ -143,7 +149,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie; do
+for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"

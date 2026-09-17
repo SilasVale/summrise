@@ -421,6 +421,16 @@ export function judgeReport(report, opts = {}) {
   // that looked like a live defect, and a waiver hid it. The stamp travels in the report and is printed
   // here, so a reader can see at a glance that the fixture is older than the build it should match.
   if (report.harnessBuild) console.log(`note: harness build ${report.harnessBuild}`);
+  // AND WHEN IT IS NOT THE BUILD THE SWEEP EXPECTED, THE WHOLE REPORT IS SUSPECT. Round 189 measured a
+  // delivered harness two generations old: its inlined CSS collapsed the tab strip to 17px and the sweep
+  // reported overflow that looked exactly like a live regression. A finding is the right weight — nothing
+  // below can be trusted until the fixture is regenerated.
+  if (report.harnessStale) {
+    findings.push(
+      `the harness is build ${report.harnessBuild} but this sweep was emitted against ${report.expectedHarnessBuild} — ` +
+        `every measurement below is of a stale fixture`,
+    );
+  }
   const paintTotal = (report.focus || []).reduce((a, f) => a + (f.paintConfirmed || 0), 0);
   const pressedTotal = (report.focus || []).reduce((a, f) => a + (f.pressed || 0), 0);
   if (paintTotal) {

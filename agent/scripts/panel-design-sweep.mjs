@@ -200,6 +200,11 @@ const TIMING = \`(() => {
 function browserScript() {
   const script = `const fs = require('fs');
 const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
+// THE BUILD THIS SWEEP WAS EMITTED AGAINST. The audit stamps every harness with the stylesheet it
+// inlined; baking the expectation here turns round 189's note into a check. A delivered fixture that
+// predates a CSS fix otherwise reports findings that look live — a 17px tab strip against a 962px build —
+// and nothing in the report distinguishes them from a regression.
+const EXPECTED_HARNESS_BUILD = "212274-0517495785a2";
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
@@ -217,12 +222,17 @@ ${TIMING}
   // generates the file; without it a delivered copy that predates a CSS fix reports findings that look real
   // (round 189: a 17px tab strip against a 962px build) and nothing distinguishes them from a live defect.
   const harnessBuild = (/<meta name="vale-harness-build" content="([^"]+)"/.exec(html) || [])[1] || "(unstamped — an older generation)";
+  // A STALE FIXTURE INVALIDATES EVERY MEASUREMENT BELOW IT, so this is a finding rather than a note. The
+  // stamp is unknown only for harnesses generated before round 189, which are stale by definition.
+  const harnessStale = harnessBuild !== EXPECTED_HARNESS_BUILD;
   const stamp = Date.now();
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
   const report = {
     harnessBuild,
+    expectedHarnessBuild: EXPECTED_HARNESS_BUILD,
+    ...(harnessStale ? { harnessStale: true } : {}),
     // WHICH PASSES RAN, recorded in the report itself. The sweep outgrew its caller's timeout in round
     // 90 (a check that cannot complete is a check that will quietly stop running), so passes are
     // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
