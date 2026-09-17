@@ -37,7 +37,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -48,6 +48,7 @@ const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
+const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const motionPass = ${motionPass.toString()};
 ${pageChecks("#root")}
 const now = Date.now();
@@ -123,7 +124,7 @@ const empty = { fleet: false };
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [] };
   for (const width of [1440, 900, 720]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
@@ -190,6 +191,16 @@ const empty = { fleet: false };
     report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
   }
 
+  // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
+  // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
+  for (const [label, hash] of [['overview', '#/'], ['devices', '#/devices']]) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+    await page.evaluate((h) => { location.hash = h; }, hash);
+    await page.waitForTimeout(1500);
+    report.targets.push({ page: label, ...(await page.evaluate(TARGETS)) });
+  }
+
   // THE EMPTY FLEET, as surfaces of its own. Two pages have a meaningful empty form — Devices and Keys —
   // and neither had ever been rendered without content. Same recipe as the panel's empty state: a top-level
   // pass, one render each, recorded like any other surface.
@@ -229,6 +240,13 @@ function judge(file) {
       "stat-off": "the Overview's default tone: the base .stat-card::before already paints the faint bar that off means",
     },
   });
+  for (const t of report.targets || []) {
+    for (const u of t.distinct || []) {
+      if (!u.passesBySpacing) {
+        findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+      }
+    }
+  }
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}${r.width ? "@" + r.width + "px" : ""} ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }

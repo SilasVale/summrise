@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE, contrastRatio, parseColour } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -31,6 +31,7 @@ const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("body")}
 const focusPass = ${focusPass.toString()};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
+const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 // The page's only chrome API. Fixed values: the sweep measures the PAGE, not the storage layer.
 // storage.empty is flipped by the sweep: a fresh install has NO stored values, so the page must
 // fall back to its defaults (DEFAULT_STUDIO_ORIGIN, links off) rather than rendering blanks.
@@ -50,7 +51,7 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], unstyled: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], unstyled: [], targets: [] };
   // TWO STORAGE STATES. Empty storage is the state a NEW INSTALL is in — the origin falls back to
   // DEFAULT_STUDIO_ORIGIN and the links toggle starts off — and it is a different page to look at
   // than the configured one. Measured by hand in round 63; repeated here so it stays measured.
@@ -71,6 +72,8 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
       // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a prune causes. The third UI had no
       // such check while the panel and console both did; same shared collector, embedded the same way.
       report.unstyled.push({ page: empty ? 'options-fresh' : 'options', width, ...(await page.evaluate(UNSTYLED)) });
+      // TARGET SIZE, WCAG 2.5.8 — the third home for the check round 162 added, so all three UIs are covered.
+      if (width === 900) report.targets.push({ page: empty ? 'options-fresh' : 'options', ...(await page.evaluate(TARGETS)) });
     }
   }
   // THE TWO TRANSIENT MESSAGE TONES, MEASURED ON EVERY RUN. Round 149 found that the refusal and the
@@ -148,6 +151,13 @@ function judge(file) {
   // half; the defect round 149 actually fixed was that the refusal and the confirmation were painted the
   // same colour, so the UI could not tell you whether your change was stored. A guard that only checks
   // contrast would pass a regression straight back to that state.
+  for (const t of report.targets || []) {
+    for (const u of t.distinct || []) {
+      if (!u.passesBySpacing) {
+        findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+      }
+    }
+  }
   const MSG_OPAQUE = (c) => !!c && !/rgba\(0, 0, 0, 0\)/.test(c);
   const msgs = (report.messages || []).map((m) => {
     const need = m.size >= 18 ? 3 : 4.5;
