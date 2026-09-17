@@ -44,7 +44,12 @@ const mode = process.argv[2];
 function browserScript() {
   const script = `const fs = require('fs');
 const path = require('path');
-const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
+// WHERE IT READS THE BUILT UI IS OVERRIDABLE, so the same sweep runs on the device (the default, exactly
+// as before) or in CI against the repository's own build with nothing delivered in between — which is
+// what makes the design checks continuous rather than remembered (rounds 204, 219). The panel's sweep
+// has taken its paths from the environment since round 204; these two follow it.
+const ROOT = process.env.VALE_SWEEP_ROOT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
+const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console-sweep.json';
 
 // THE ENTRY THIS SWEEP WAS EMITTED AGAINST. Both UIs are measured from a DELIVERED copy of their
 // build, and nothing said which generation it was: round 184 found the console's directory holding eight
@@ -310,7 +315,7 @@ const empty = { fleet: false };
   report.surfaces.push({ page: 'login', width: 1440, ...(await page.evaluate(SURFACE)) });
   report.names.push({ page: 'login', ...(await page.evaluate(NAMES)) });
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
-  fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console-sweep.json', JSON.stringify(report));
+  fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
