@@ -29,6 +29,17 @@ import {
 } from "../../agent/scripts/lib/contrast-probe.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+// THE SPACING SCALE IS SHARED BY ALL THREE (round 233). The colour contract below compares two sides on
+// purpose: the extension is Apple-gray/teal where the panel is zinc/orange, and whether that divergence is
+// deliberate is a brand question, not something a gate should decide. The SPACING, though, is identical
+// everywhere by measurement — the panel's six steps, adopted by the console in round 223 and by the extension
+// in round 232 — so it is exactly the kind of shared vocabulary this file exists to keep honest.
+const SPACING_SIDES = [
+  ["panel", "agent/resources/panel-react/src/styles/tokens.css"],
+  ["console", "gateway/ui/src/styles/globals.css"],
+  ["extension", "extension/options/options.css"],
+];
+const SPACING_STEPS = ["--sp-0-5", "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5"];
 const CONSOLE = "gateway/ui/src/styles/globals.css";
 const PANEL = "agent/resources/panel-react/src/styles/tokens.css";
 // The THIRD surface. It has its own namespace, but the names it DOES share must mean
@@ -466,3 +477,31 @@ if (failures) {
 console.log(
   "token contract: the console and the panel agree on every shared token name.",
 );
+
+// ── the spacing scale, across all three ────────────────────────────────────────────────────────────────────
+{
+  const seen = new Map();
+  const problems = [];
+  for (const [name, file] of SPACING_SIDES) {
+    const text = readFileSync(`${ROOT}${file}`, "utf8");
+    for (const step of SPACING_STEPS) {
+      const m = new RegExp(`${step}\\s*:\\s*([^;]+);`).exec(text);
+      if (!m) { problems.push(`${name} does not define ${step}`); continue; }
+      const value = m[1].trim();
+      if (!seen.has(step)) seen.set(step, {});
+      seen.get(step)[name] = value;
+    }
+  }
+  for (const [step, bySide] of seen) {
+    const values = new Set(Object.values(bySide));
+    if (values.size > 1) {
+      problems.push(`${step} differs: ` + Object.entries(bySide).map(([k, v]) => `${k}=${v}`).join(" "));
+    }
+  }
+  if (problems.length) {
+    console.error("token contract: the SPACING SCALE is not shared —");
+    for (const p of problems) console.error("  " + p);
+    process.exit(1);
+  }
+  console.log(`token contract: the spacing scale is identical in all ${SPACING_SIDES.length} UIs (${SPACING_STEPS.length} steps).`);
+}

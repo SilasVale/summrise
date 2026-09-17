@@ -1,4 +1,12 @@
-/* Vale extension options — Apple-style light, unified brand tokens. */
+/* Vale extension options — Apple-style light.
+   WHAT IS SHARED AND WHAT IS NOT, measured in round 233 because this line used to say "unified brand tokens"
+   and implied it had been checked. The SPACING SCALE is shared with the panel and the console, value for value
+   (--sp-0-5/1/2/3/4/5 = 2/4/8/12/16/24px), and scripts/test/token-contract-check.mjs now holds all three to it.
+   The COLOUR VOCABULARY IS NOT: the accent is teal (#0b7a6e) where the panel's is orange (#bf3a0a), the neutrals
+   are Apple's gray scale where the panel's are zinc, and the font stack prefers Inter where the panel's prefers
+   Roboto. Whether that is a deliberate divergence or drift is a brand decision nobody has recorded — it is
+   raised in docs/agents/ideas.md rather than settled here. */
+
 :root {
   /* Canonical names (match the Vale spec) with legacy aliases below. */
   --bg: #f5f5f7;

@@ -53,7 +53,7 @@ assumed:
 
 | gate | mutation that must fail it | result |
 |---|---|---|
-| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side | exit 1 |
+| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side (colour, or the spacing scale in ANY of the three UIs) | exit 1 — "--sp-2 differs: panel=8px console=8px extension=9px"; the spacing block names all three sides |
 | `cargo test --features terminal,keyring spec_snapshot` | add a parameter inside a device tool's `properties` | exit 101, snapshot diff |
 | `scripts/test/panel-audit-skip-check.mjs` | make the audit `exit(0)` on a skip | exit 1, names the distinction |
 | `agent/tests/fixtures/approval-grants.json` | rename a member the panel mirror reads | both sides fail |
