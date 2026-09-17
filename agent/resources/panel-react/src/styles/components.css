@@ -419,6 +419,12 @@
    The probe treats a zero-offset box-shadow with a spread as the paint, so this fix is measurable
    rather than asserted: the row goes from 1.11 to the ring's own ratio. */
 .tab.active .tab-dot { box-shadow: 0 0 0 1px var(--chrome-active-text); }
+
+/* HOW MANY SESSIONS THE STRIP IS HIDING. The fade said "there is more" and stopped there, so a reader
+   knew they were missing something without knowing what (round 168: sixteen sessions, ten of them named
+   pwsh, two tabs visible). The chip sits at the strip's end, where the hidden ones would start. */
+.tab-more { flex: none; align-self: center; padding: 1px 6px; margin-left: 2px; border-radius: var(--radius-pill); background: var(--surface-chip); color: var(--chrome-ink-dim); font: 600 var(--fs-2xs) var(--font); }
+.tab-more:hover { color: var(--chrome-ink); }
 /* A question is waiting for a person in this session. Deliberately NOT another
    .tab-dot: the two marks share a row, and a second circle beside the lane dot
    reads as another lane. A small rotated square in the warn token says

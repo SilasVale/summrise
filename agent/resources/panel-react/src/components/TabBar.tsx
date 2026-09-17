@@ -30,7 +30,9 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
   const tabsRef = useActiveTabVisible(activeSid, sessions.length);
   // The strip hides sessions behind its right edge at any realistic width; say so, and say it only
   // when it is true (see the hook for the measurement that made this necessary).
-  const more = useStripOverflow(tabsRef, sessions.length);
+  // `hidden` is HOW MANY the strip is keeping out of sight — the same measurement that decides the fade,
+  // reported instead of discarded. The strip said "there is more" and never how much (round 168).
+  const { overflowing: more, hidden } = useStripOverflow(tabsRef, sessions.length);
   // TEN TABS, ONE LABEL. Measured on the live device (2026-09-17): 16 sessions, 10 of them labelled
   // `pwsh`, so the strip rendered ten identical tabs truncated to `pws…` — no way to tell which session
   // was which, in the ONLY surface this density offers for reaching them. The first keeps the bare label
@@ -129,6 +131,14 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
           </div>
           );
         })}
+        {/* HOW MANY, NOT JUST "MORE". aria-hidden because the count is a visual affordance for the strip
+            itself: a screen reader reaching the tab list already gets every tab, including the hidden
+            ones. The title carries the same information for a pointer. */}
+        {hidden > 0 && (
+          <span className="tab-more" title={`${hidden} more session${hidden === 1 ? "" : "s"} — scroll the strip`} aria-hidden="true">
+            +{hidden}
+          </span>
+        )}
       </div>
       {/* round-admin-ui Task 5: per-session view switch (dsh segmented pill) —
           shown only while a session is active. Session-tab behavior above is

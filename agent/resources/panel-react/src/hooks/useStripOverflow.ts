@@ -16,12 +16,23 @@
 import { useEffect, useState } from "react";
 
 /**
+ * THE COUNT, NOT JUST THE FACT. Round 168 measured the live device again: 16 sessions, ten of them
+ * labelled `pwsh`, and the strip says "there is more" without ever saying HOW MUCH more — so the reader
+ * knows they are missing something and not what. The count was measured here all along and thrown away.
+ *
+ * A TAB IS HIDDEN WHEN IT IS NOT FULLY VISIBLE, which with a scrolling strip means off either edge, not
+ * only the right one. `scrollWidth > clientWidth` tells you the strip overflows; only the children's rects
+ * tell you by how many.
+ *
  * @param ref      the scrolling strip
  * @param revision any value that changes when the CONTENT does (a session count, a list length)
- * @returns        true when the strip is hiding content to its right
+ * @returns        { overflowing, hidden } — whether it hides anything, and how many children it hides
  */
-export function useStripOverflow(ref: React.RefObject<HTMLElement | null>, revision: unknown): boolean {
-  const [overflowing, setOverflowing] = useState(false);
+export function useStripOverflow(
+  ref: React.RefObject<HTMLElement | null>,
+  revision: unknown,
+): { overflowing: boolean; hidden: number } {
+  const [state, setState] = useState({ overflowing: false, hidden: 0 });
 
   useEffect(() => {
     const el = ref.current;
@@ -29,7 +40,19 @@ export function useStripOverflow(ref: React.RefObject<HTMLElement | null>, revis
     // A tolerance of one pixel: sub-pixel layout makes `scrollWidth` exceed `clientWidth` by a
     // fraction on strips that fit exactly, and a fade that appears on a strip with nothing hidden
     // is worse than no fade.
-    const measure = () => setOverflowing(el.scrollWidth > el.clientWidth + 1);
+    const measure = () => {
+      const overflowing = el.scrollWidth > el.clientWidth + 1;
+      // jsdom has no layout: every rect is 0x0, so this counts nothing there and the hook's tests drive
+      // the boolean. On a real engine the children carry real boxes and the count is real.
+      const box = el.getBoundingClientRect();
+      let hidden = 0;
+      for (const child of Array.from(el.children)) {
+        const r = child.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue; // not laid out — say nothing rather than guess
+        if (r.left < box.left - 1 || r.right > box.right + 1) hidden += 1;
+      }
+      setState((prev) => (prev.overflowing === overflowing && prev.hidden === hidden ? prev : { overflowing, hidden }));
+    };
     measure();
     // `scroll` matters because the fade must go away once the last tab is reached — the strip is no
     // longer hiding anything at that moment.
@@ -44,5 +67,5 @@ export function useStripOverflow(ref: React.RefObject<HTMLElement | null>, revis
     };
   }, [ref, revision]);
 
-  return overflowing;
+  return state;
 }

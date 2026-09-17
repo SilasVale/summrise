@@ -9,7 +9,7 @@
 // as getters on the element and the hook re-measures on a resize event. That is the honest way to
 // test a measurement in this environment (the alternative is asserting nothing).
 import { describe, it, expect } from "vitest";
-import { render, act } from "@testing-library/react";
+import { render, renderHook, act } from "@testing-library/react";
 import { useRef } from "react";
 import { useStripOverflow } from "../useStripOverflow";
 
@@ -22,9 +22,9 @@ function Probe({ scrollWidth, clientWidth }: { scrollWidth: number; clientWidth:
     Object.defineProperty(el, "scrollWidth", { configurable: true, get: () => scrollWidth });
     Object.defineProperty(el, "clientWidth", { configurable: true, get: () => clientWidth });
   };
-  const more = useStripOverflow(ref, `${scrollWidth}:${clientWidth}`);
+  const { overflowing, hidden } = useStripOverflow(ref, `${scrollWidth}:${clientWidth}`);
   return (
-    <div ref={attach} data-testid="strip" data-more={more ? "1" : undefined}>
+    <div ref={attach} data-testid="strip" data-more={overflowing ? "1" : undefined} data-hidden={hidden}>
       <span>tab</span>
     </div>
   );
@@ -57,8 +57,8 @@ describe("useStripOverflow", () => {
     Object.defineProperty(el, "clientWidth", { configurable: true, get: () => cw });
     const ref = { current: el } as React.RefObject<HTMLElement | null>;
     const Probe2 = () => {
-      const more = useStripOverflow(ref, 0);
-      return <div data-testid="s" data-more={more ? "1" : undefined} />;
+      const { overflowing } = useStripOverflow(ref, 0);
+      return <div data-testid="s" data-more={overflowing ? "1" : undefined} />;
     };
     const { getByTestId } = render(<Probe2 />);
     expect(getByTestId("s").getAttribute("data-more")).toBeNull();
@@ -67,5 +67,28 @@ describe("useStripOverflow", () => {
       window.dispatchEvent(new Event("resize"));
     });
     expect(getByTestId("s").getAttribute("data-more")).toBe("1");
+  });
+
+  it("counts how many tabs are hidden, on either edge", () => {
+    // THE COUNT IS THE NEW HALF (round 168). jsdom lays nothing out, so the container and its children
+    // get stubbed rects: a viewport of 0..100 with two tabs inside it and two outside — one past the
+    // right edge and one before the left, because a SCROLLED strip hides tabs on both sides and
+    // counting only the right would under-report exactly when the reader has scrolled.
+    const el = document.createElement("div");
+    Object.defineProperty(el, "scrollWidth", { configurable: true, get: () => 400 });
+    Object.defineProperty(el, "clientWidth", { configurable: true, get: () => 100 });
+    el.getBoundingClientRect = () => ({ left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const rect = (l: number, r: number, w: number) =>
+      ({ left: l, right: r, top: 0, bottom: 20, width: w, height: 20, x: l, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const boxes = [rect(-40, -10, 30), rect(0, 40, 40), rect(60, 90, 30), rect(110, 150, 40)];
+    boxes.forEach((b) => {
+      const child = document.createElement("span");
+      child.getBoundingClientRect = () => b;
+      el.appendChild(child);
+    });
+    const ref = { current: el } as React.RefObject<HTMLElement | null>;
+    const { result } = renderHook(() => useStripOverflow(ref, 4));
+    expect(result.current.overflowing).toBe(true);
+    expect(result.current.hidden).toBe(2);
   });
 });
