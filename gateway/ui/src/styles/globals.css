@@ -2717,6 +2717,21 @@ body[data-theme="dark"] .note.tip {
   :root {
     --ds-dur: 0s;
   }
+  /* A DURATION TOKEN DOES NOT REACH AN ANIMATION (round 13 of the standing goal). `--ds-dur: 0s` silences every
+     transition written with the token — and NOT ONE of the four `animation:` declarations in this sheet, each of
+     which carries its own literal duration. So a user who asked for reduced motion still got a shimmer, a
+     spinner and two entrances. The panel silences each of its animations BY NAME; this sheet now does the same,
+     which is also what makes the difference checkable.
+
+     THE SPINNER KEEPS ITS GLYPH. "Loading" is a STATE, and someone who asked for no motion still needs to see
+     it: stopped, this is a ring with an accent arc — the very shape that was moving. What goes is the motion,
+     not the signal. */
+  .user-pop,
+  .toast,
+  .skeleton-card,
+  .loading-spinner {
+    animation: none;
+  }
 }
 
 /* CARDS MAY NOT BE WIDER THAN THEIR GRID CELL (round 224). The overflows the sweep found at 320px are all of

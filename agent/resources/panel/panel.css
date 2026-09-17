@@ -4620,6 +4620,24 @@ button.dtab-close:hover { opacity: 1; }
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+@media (prefers-reduced-motion: reduce) {
+  /* SEVEN ANIMATIONS THAT COULD NOT BE TURNED OFF (round 13 of the standing goal). The panel silenced five of its
+     twelve by name and these seven ran regardless — found by `scripts/test/motion-check.mjs`, which was written
+     after the CONSOLE was found relying on a `--ds-dur: 0s` token that no `animation:` reads. The panel was the
+     model for that fix and turned out to be incomplete in the same way.
+     WHAT SURVIVES: every one of these is a STATE, and the state stays. `.mem-busy` is a glyph with
+     title="loading" in the accent colour, stopped; the AI dot and the live indicator keep their colour and
+     shape; the drawer and the menu are simply OPEN rather than sliding. What goes is the movement, never the
+     signal — the same rule the mark language follows when a waiting mark keeps its diamond and loses nothing. */
+  .browser-ai-dot,
+  .mem-busy,
+  .browser-ev-live,
+  .browser-ev-toggle.flash,
+  #drawer,
+  .new-menu,
+  .desktop-status.flash { animation: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {.gs-card { animation: none; }
 }
 

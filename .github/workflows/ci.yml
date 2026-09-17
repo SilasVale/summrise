@@ -327,6 +327,12 @@ jobs:
       # lane or a token definition — and a clean result nothing enforced is one commit from not being true.
       - name: state colour only lands on state
         run: node scripts/test/state-colour-check.mjs
+      # NOTHING ANIMATES FOR SOMEONE WHO ASKED FOR NO MOTION. The console set `--ds-dur: 0s` and believed it was
+      # covered: that token reaches every transition written with it and NOT ONE of the four `animation:`
+      # declarations, each of which carries its own duration. The panel was the model for that fix and turned out
+      # to have seven of its own twelve unsilenced (round 13 of the standing goal).
+      - name: motion can be turned off
+        run: node scripts/test/motion-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077
