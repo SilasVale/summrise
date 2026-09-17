@@ -236,20 +236,24 @@ export const PROBE_SOURCE = `(() => {
     // row stayed a false positive. Preferring the ring makes it report 4.99, the ratio that decides
     // whether the mark is visible at all. The spread test is what separates a RING from a plain drop
     // shadow: a shadow with no spread does not draw an edge around the element.
-    const shadow = (st.boxShadow || '').split(',')[0] || '';
-    if (shadow && shadow !== 'none') {
-      // THE COLOUR IS NOT A WHITESPACE TOKEN. getComputedStyle serialises a box-shadow with the colour
-      // FIRST — "rgba(255, 255, 255, 1) 0px 0px 0px 1px" — so splitting on spaces tears it into
-      // "rgba(255," / "255," / "255," / "1)", none of which parses, and the branch could never fire. It
-      // was inherited from the original shadow code and only mattered once a ring existed to look for
-      // (round 128's active-tab dot): the row stayed a false positive at 1.11 while the probe insisted
-      // it had checked. Pull the colour out with a pattern, and take the lengths from the px tokens.
-      const colourText = /rgba?\([^)]*\)|#[0-9a-f]{3,8}/i.exec(shadow);
-      const col = colourText ? parseColour(colourText[0]) : null;
-      const px = shadow.trim().split(/\\s+/).filter((x) => /^-?[\\d.]+px$/.test(x)).map(parseFloat);
-      if (col && (col.a ?? 1) > 0.05 && px.length >= 2 && px[0] === 0 && px[1] === 0 && (px[3] ?? 0) > 0) {
-        return { colour: col, from: 'ring' };
-      }
+    // THE RING IS MATCHED DIRECTLY, BECAUSE SPLITTING THE SHADOW ON COMMAS TEARS ITS COLOUR APART.
+    // (st.boxShadow || '').split(',')[0] looks harmless and is not: rgb(255, 255, 255) CONTAINS commas,
+    // so the first fragment of the active tab dot's shadow is "rgb(255" — no closing paren, no parse, no ring.
+    // MEASURED (round 208): that dot's box-shadow has THREE comma-separated shadows and the first fragment is
+    // literally "rgb(255", so this branch had never fired since round 128 despite its comment claiming the
+    // row reported 4.99. The pattern below searches the WHOLE value for the ring idiom — a colour followed by
+    // a zero-offset, zero-blur, spread shadow — which is what "drawn around the element" means, and which no
+    // comma or whitespace inside the colour can defeat.
+    //
+    // THE BACKSLASHES ARE DOUBLED ON PURPOSE. This source lives in a TEMPLATE LITERAL, and a template
+    // eats an unknown escape: \( becomes (, \s becomes s. The first version of this pattern emitted
+    // /...s+0pxs+.../ and would have been dead on arrival for exactly the reason the line above
+    // describes. Verified by reading the EMITTED text, not the module's string.
+    const shadow = st.boxShadow || '';
+    const ring = /(rgba?\\([^)]*\\)|#[0-9a-f]{3,8})\\s+0px\\s+0px\\s+0px\\s+([\\d.]+)px/i.exec(shadow);
+    if (ring) {
+      const col = parseColour(ring[1]);
+      if (col && (col.a ?? 1) > 0.05 && parseFloat(ring[2]) > 0) return { colour: col, from: 'ring' };
     }
     const own = parseColour(st.backgroundColor);
     if (own && (own.a ?? 1) > 0.05) return { colour: own, from: 'background' };
