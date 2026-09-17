@@ -96,6 +96,17 @@ has "and name the file" "$out" "./a.txt"
 mk_tgz "$WORK/gh.tgz"   package 644
 mk_tgz "$WORK/cdn.tgz"  package 644
 out="$(run_audit "$WORK/gh.tgz" "$WORK/cdn.tgz" 2>&1)" && rc=0 || rc=$?
+# WHY THIS GATE HAS FLAKED THREE TIMES, DIAGNOSED IN ROUND 206 AND NOT YET FIXED. The failure is always:
+# "every file's content AND mode match, yet the two tarballs' BYTES differ" — content and modes equal, bytes
+# not. Two identical trees in different BYTES means the CONTAINER differs, and gzip writes an MTIME into its
+# header: the fixture packs its two archives a second apart, so a second boundary makes them differ while
+# everything the audit can name stays equal. That fits every observation — rounds 177, 181 and 206, green on a
+# re-run each time, never reproducible locally, because a second boundary cannot be reproduced on demand.
+# The fix is a reproducible archive (`tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner` piped
+# through `gzip -n`), which was attempted here and REVERTED: normalising the container also normalised the
+# file modes this gate exists to compare, so case 1 stopped failing. Doing it properly means keeping the mode
+# difference intact while removing the timestamp, which is a round of its own rather than a rushed edit.
+#
 # PRINT THE AUDIT'S OWN OUTPUT WHEN THIS ONE FAILS, exactly as case 1 does. This check failed once on CI
 # (2026-09-17) and passed on an identical re-run with NO LOCAL REPRODUCTION in between — and because only
 # the failure branch above echoed anything, the log said "must PASS" and nothing else. The fixture's modes
