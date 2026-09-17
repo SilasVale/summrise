@@ -610,7 +610,12 @@ function judge(file) {
       // This surfaced only after round 156 made the SSE stream open: before that the rail dots never entered
       // the working state at all, so the halo had never been measured.
       match: /^div\.rail-dot$/,
-      reason: "the working state's halo is emphasis, not the signal — the dot's fill carries the state",
+      // MEASURED, NOT ASSERTED (round 202). "The fill carries the state" was an assertion for fifty rounds:
+      // the probe prefers a ring over a fill, so the only row this mark produced measured the HALO at 2.33 and
+      // the fill was never measured at all. Computed with the tested maths: --accent #bf3a0a on the rail
+      // rgb(31,31,31) is EXACTLY 3.00:1 — the WCAG non-text threshold with zero margin — and the panel gate
+      // now holds it there, failing on a mutation to #8a2a07 at 1.90.
+      reason: "the working state's halo is emphasis, not the signal — the dot's FILL carries the state and measures 3.00:1, which the panel gate holds",
     },
     {
       match: /^span\.approval-grant$/,

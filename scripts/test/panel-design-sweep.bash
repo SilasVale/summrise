@@ -202,6 +202,32 @@ else
   bad "the drift note is missing or incomplete: $(grep -c overruled "$TMP/paint-drift.out") match(es)"
 fi
 
+# ── 3d. the RAIL DOT's fill clears 3:1, with no margin to spare ─────────────────────────────────
+# The sweep's DECORATIVE waiver says the working dot's halo is emphasis and "the dot's fill carries the
+# state". That was an ASSERTION for fifty rounds: the probe prefers a ring over a fill when both exist, so the
+# only row this mark produced measured the HALO at 2.33, and the fill was never measured at all. Round 202
+# computed it: --accent #bf3a0a on the rail #1f1f1f is EXACTLY 3.00, the WCAG non-text threshold, with zero
+# margin. That is worth a gate, because a one-step token change or a rail recolour puts it under.
+TOKENS=agent/resources/panel-react/src/styles/tokens.css
+if [ -f "$TOKENS" ]; then
+  ACCENT="$(grep -m1 -oE '\-\-accent: *#[0-9a-fA-F]{3,8}' "$TOKENS" | grep -oE '#[0-9a-fA-F]{3,8}')"
+  if [ -n "$ACCENT" ]; then
+    RATIO="$(node --input-type=module -e "
+      import { contrastRatio, parseColour } from './agent/scripts/lib/contrast-probe.mjs';
+      console.log(contrastRatio(parseColour('$ACCENT'), parseColour('rgb(31, 31, 31)')).toFixed(2));
+    " 2>/dev/null)"
+    if [ -n "$RATIO" ] && node -e "process.exit(parseFloat('$RATIO') >= 3 ? 0 : 1)"; then
+      ok "the rail dot's fill (--accent $ACCENT on the rail) measures $RATIO:1, at or above 3"
+    else
+      bad "the rail dot's fill measures $RATIO:1 — under the 3:1 a graphic needs (the waiver assumes it clears)"
+    fi
+  else
+    bad "could not read --accent from $TOKENS"
+  fi
+else
+  bad "tokens.css not found at $TOKENS"
+fi
+
 # ── 4. the CONSOLE sweep, same contract ───────────────────────────────────────────────────────
 # Its emitted script referenced helpers it never defined when it was first written (the placeholder
 # was in the .replace() call and not in the template), which PARSES and cannot run — so presence is
