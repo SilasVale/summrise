@@ -18,9 +18,25 @@
 # machine whose cache already holds a different build than playwright-core resolves, VALE_CHROMIUM_PATH points
 # at it (see the helper). Everything else — the harness, the probe, the judge — comes from this checkout.
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+# ONE LEVEL UP: this script is scripts/design-sweep-ci.bash. It lived in scripts/test/ until round 213 moved it,
+# and the two-level `cd` came with it — which put every path OUTSIDE the repository
+# ("Cannot find module '/home/runner/work/vale/agent/scripts/panel-render-audit.mjs'"). A moved file takes its
+# relative paths with it; that is what the first CI run after the move reported.
+cd "$(dirname "$0")/.."
 
 TMP="$(mktemp -d)"
+
+# THE FAILURE NAMES ITSELF. Round 213 parked this job on "MODULE_NOT_FOUND resolving playwright-core" from a
+# job that had just run npm ci in that directory, with `requireStack: []` — which points at the FIRST require
+# rather than at the helper's own import, and left two candidates to guess between. So print the facts the
+# failure depends on: the helper exists, and playwright-core resolves FROM THE HELPER'S OWN DIRECTORY.
+echo "── environment ──"
+echo "helper:   $HELPER"
+if [ -f "$HELPER" ]; then ls -l "$HELPER" | awk '{print "          " $5 " bytes"}'; else echo "          MISSING"; fi
+echo "node:     $(node --version)"
+( cd "$(dirname "$HELPER")" && node -e "console.log('resolves: ' + require.resolve('playwright-core'))" ) \
+  || echo "          playwright-core DOES NOT RESOLVE from $(dirname "$HELPER")"
+
 trap 'rm -rf "$TMP"' EXIT
 
 HELPER="$PWD/agent/resources/panel-react/scripts/local-browser.mjs"
@@ -43,17 +59,6 @@ node agent/scripts/panel-design-sweep.mjs --emit --passes=all > "$TMP/sweep.js"
 node --check "$TMP/sweep.js"
 
 # The sweep takes its paths and its browser from the environment, so it needs no knowledge of where it runs.
-# THE FAILURE NAMES ITSELF. Round 213 parked this job on "MODULE_NOT_FOUND resolving playwright-core" from a
-# job that had just run npm ci in that directory, with `requireStack: []` — which points at the FIRST require
-# rather than at the helper's own import, and left two candidates to guess between. So print the facts the
-# failure depends on: the helper exists, and playwright-core resolves FROM THE HELPER'S OWN DIRECTORY.
-echo "── environment ──"
-echo "helper:   $HELPER"
-if [ -f "$HELPER" ]; then ls -l "$HELPER" | awk '{print "          " $5 " bytes"}'; else echo "          MISSING"; fi
-echo "node:     $(node --version)"
-( cd "$(dirname "$HELPER")" && node -e "console.log('resolves: ' + require.resolve('playwright-core'))" ) \
-  || echo "          playwright-core DOES NOT RESOLVE from $(dirname "$HELPER")"
-
 echo "── running ──"
 VALE_PANEL_HARNESS="$TMP/panel-harness.html" \
 VALE_SWEEP_REPORT="$TMP/design-sweep.json" \
