@@ -2695,3 +2695,12 @@ body[data-theme="dark"] .note.tip {
     --ds-dur: 0s;
   }
 }
+
+/* CARDS MAY NOT BE WIDER THAN THEIR GRID CELL (round 224). The overflows the sweep found at 320px are all of
+   one kind: a grid or flex item whose min-width is `auto` refuses to shrink below its content's intrinsic
+   width, so a long key name or a card header pushes the card past its cell. `min-width: 0` lets the box
+   shrink; `overflow-wrap: anywhere` lets the long token break instead of setting the width floor. Both are
+   no-ops where the content already fits — which is every width above these — so nothing moves where the design
+   already worked, the same property round 223's spacing scale had. */
+.cards > *, .dev-grid > *, .card, .dev-card, .key-card { min-width: 0; }
+.key-card-top, .dev-card-head, .card-header, .key-card code, .dev-card code { min-width: 0; overflow-wrap: anywhere; }
