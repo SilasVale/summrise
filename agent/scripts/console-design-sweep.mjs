@@ -147,6 +147,33 @@ const empty = { fleet: false };
     for (const r of rows) report.rows.push({ ...r, page: label + '-dark', width: 1440, density: 'console', theme: 'dark' });
     report.surfaces.push({ page: label + '-dark', width: 1440, ...(await page.evaluate(SURFACE)) });
     report.names.push({ page: label + '-dark', ...(await page.evaluate(NAMES)) });
+    // A FALSE POSITIVE WORTH REMEMBERING. While deciding whether this pass was needed I probed the page by
+    // hand and got 4.3 for the active rail button — under AA, apparently a defect. The tested probe finds it
+    // fine: the hand-rolled comparison read `rgba(217, 72, 15, 0.9)` as opaque and ignored what it composites
+    // over, which is the ONE thing `compositeStack` exists to get right. The real maths is a few lines away in
+    // lib/contrast-probe.mjs. Every exploratory probe of a colour should call it, because that is exactly the
+    // moment the shortcut looks harmless.
+    // HOVER IN DARK, on ONE page. The light hover pass found a dark-theme button at 1.94 when the PANEL
+    // first ran it (round 84) — a hover colour that only exists in one theme is exactly what a
+    // single-theme pass cannot see. One page rather than six: hover styles are per-class, the overview
+    // carries the console's whole control vocabulary, and a full-DOM probe per hover per page would cost
+    // six times what the question is worth.
+    if (label === 'overview') {
+      const all = await page.$$('button, [role="button"], a');
+      const seenClass = new Set();
+      const underAA = [];
+      for (const h of all) {
+        const key = await h.evaluate((el) => (typeof el.className === 'string' ? el.className : el.tagName));
+        if (seenClass.has(key)) continue;
+        seenClass.add(key);
+        await h.hover();
+        await page.waitForTimeout(40);
+        for (const r of await page.evaluate(PROBE)) {
+          if (r.kind !== 'graphic' && !r.inactive && r.cr < r.need) underAA.push(r.sel + ' ' + r.cr + '<' + r.need);
+        }
+      }
+      report.hover.push({ page: 'overview-dark', width: 1440, density: 'console', theme: 'dark', interactive: all.length, underAA: [...new Set(underAA)] });
+    }
   }
   await page.evaluate(() => { try { localStorage.setItem('vale-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
 
