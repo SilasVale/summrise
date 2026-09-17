@@ -15,7 +15,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  padding: 14px 16px 16px;
+  padding: 14px var(--sp-4) var(--sp-4);
   background:
     radial-gradient(1200px 500px at 85% -10%, color-mix(in srgb, var(--accent-soft) 60%, transparent), transparent 60%);
   overflow: hidden;
@@ -27,7 +27,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: 8px 14px;
+  padding: var(--sp-2) 14px;
   min-height: 46px;
   /* Glass, and the rim is doing the work the tint cannot: on a warm paper field a
      translucent white pane and an opaque one differ by only a few percent of
@@ -81,7 +81,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 5px 8px 5px 10px;
+  padding: 5px var(--sp-2) 5px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -161,7 +161,7 @@
   border: 1px solid var(--line);
 }
 .desktop-view-switch .view-switch-btn {
-  padding: 4px 10px;
+  padding: var(--sp-1) 10px;
   border: none;
   border-radius: var(--radius-sm2);
   background: transparent;
@@ -189,7 +189,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: 6px 12px;
+  padding: 6px var(--sp-3);
   border: none;
   border-radius: var(--radius-sm);
   /* White on --accent-solid, NOT on --accent, for the same reason `components.css`
@@ -328,7 +328,7 @@
    grouped at the right edge instead of being spread apart across the footer. */
 .desktop-status .waiting-chip { margin-left: auto; }
 .desktop-status .boot-chip { margin-left: auto; }
-.desktop-status .boot-chip ~ .waiting-chip { margin-left: 8px; }
+.desktop-status .boot-chip ~ .waiting-chip { margin-left: var(--sp-2); }
 /* stage-l: native-menu "Show Status" flashes the strip to draw the eye. */
 .desktop-status.flash { animation: desktop-status-flash 1.2s ease-out; }
 @keyframes desktop-status-flash {

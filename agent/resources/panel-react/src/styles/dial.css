@@ -15,7 +15,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-right: 4px;
+  margin-right: var(--sp-1);
 }
 .instrument-reading {
   display: inline-flex;

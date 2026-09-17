@@ -37,8 +37,13 @@ const UIS = [
     name: "panel",
     sheets: () => readdirSync("agent/resources/panel-react/src/styles").filter((f) => f.endsWith(".css")).sort()
       .map((f) => join("agent/resources/panel-react/src/styles", f)),
-    tokenUses: 151,
+    tokenUses: 385,
     offScaleUses: 305,
+    // ZERO, and this number was INVISIBLE for 230 rounds. The check counted token uses and OFF-scale
+    // literals, so a value already ON the scale -- `padding: 8px` where `var(--sp-2)` exists -- fell into
+    // neither and could accumulate forever. It did: 234 of them, in the panel alone. Round 223 converted the
+    // console's and never looked here; round 231 converted these and added the count that finds the next.
+    onScaleLiterals: 0,
   },
   {
     name: "console",
@@ -47,6 +52,7 @@ const UIS = [
     // 86 token uses as of round 223: the console adopted the panel's scale, and every one of those 86 was
     // already a literal with that exact value, so NO PIXEL MOVED. The ratchet is tightened to hold it.
     tokenUses: 86,
+    onScaleLiterals: 0,
     // 136, NOT the 194 an ad-hoc scan reported: that scan swept gateway/public/style.css as well, which round
     // 209 established is DEAD (nothing links it). A baseline has to come from the instrument that will enforce
     // it — taken from the ad-hoc number, this ratchet allowed 58 new literals and a planted 13px passed it.
@@ -57,6 +63,7 @@ const UIS = [
     sheets: () => ["extension/options/options.css"].filter(existsSync),
     tokenUses: 0,
     offScaleUses: 6,
+    onScaleLiterals: 6,
   },
 ];
 
@@ -65,6 +72,7 @@ const lines = [];
 for (const ui of UIS) {
   let tokenUses = 0;
   let offScaleUses = 0;
+  let onScaleLiterals = 0;
   const offenders = [];
   for (const file of ui.sheets()) {
     const css = readFileSync(file, "utf8");
@@ -73,7 +81,8 @@ for (const ui of UIS) {
       tokenUses += [...value.matchAll(/var\(--[a-z0-9-]+\)/g)].length;
       for (const px of value.matchAll(/(-?\d+(?:\.\d+)?)px/g)) {
         const n = Number(px[1]);
-        if (n === 0 || SCALE.has(n)) continue;
+        if (n === 0) continue;
+        if (SCALE.has(n)) { onScaleLiterals++; continue; }
         offScaleUses++;
         if (offenders.length < 3) offenders.push(file.split("/").pop() + ": " + value.slice(0, 28));
       }
@@ -84,6 +93,10 @@ for (const ui of UIS) {
   }
   if (tokenUses < ui.tokenUses) {
     failures.push(ui.name + ": token uses fell from " + ui.tokenUses + " to " + tokenUses);
+  }
+  if (onScaleLiterals > (ui.onScaleLiterals ?? 0)) {
+    failures.push(ui.name + ": on-scale literals rose from " + (ui.onScaleLiterals ?? 0) + " to " + onScaleLiterals +
+      " — a value that HAS a token was written out by hand, which is how 234 of them accumulated unnoticed");
   }
   lines.push(ui.name + " " + tokenUses + " token / " + offScaleUses + " off-scale");
 }

@@ -30,7 +30,7 @@
   flex-direction: column;
   align-items: center;
   gap: var(--sp-1);
-  padding: 10px 0 12px;
+  padding: 10px 0 var(--sp-3);
   /* midnight cockpit: the rail is the same dark chrome as the desktop rail */
   background: color-mix(in srgb, var(--chrome-bg) 88%, transparent);
   border-right: 1px solid var(--chrome-line);
@@ -87,9 +87,9 @@
   padding: 0;
   border: none;
 }
-#canvas-top .tab { padding: 4px 8px; font-size: var(--fs-sm); }
+#canvas-top .tab { padding: var(--sp-1) var(--sp-2); font-size: var(--fs-sm); }
 #cmd-toggle {
-  padding: 4px 10px;
+  padding: var(--sp-1) 10px;
   font-size: var(--fs-sm);
   border: 1px solid var(--chrome-line);
   border-radius: var(--radius-sm2);
@@ -143,7 +143,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semi);
@@ -156,13 +156,13 @@
   font-size: var(--fs-base);
   cursor: pointer;
   border-radius: var(--radius-xs);
-  padding: 2px 6px;
+  padding: var(--sp-0-5) 6px;
 }
 #drawer-head button:hover { color: var(--ink); background: var(--line-soft); }
 #drawer-inner .cmd-list { flex: 1; min-height: 0; overflow-y: auto; }
 #drawer-inner .details-header {
   flex: none;
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--line);
 }
 #drawer-inner .details-body {
@@ -210,7 +210,7 @@
 
 .desktop-tabs-row .tabrow { flex: 1; border: none; padding: 0; }
 .desktop-tabs-row .tabrow #tabs { overflow-x: auto; }
-.desktop-new { display: flex; gap: var(--sp-1); padding: 0 8px 4px; }
+.desktop-new { display: flex; gap: var(--sp-1); padding: 0 var(--sp-2) var(--sp-1); }
 #desktop-term-container {
   flex: 1 1 0;
   min-height: 0;
@@ -241,12 +241,12 @@
   padding: 32px 40px 28px;
 }
 #conn-form .conn-brand { margin-bottom: 6px; }
-#conn-form h1 { font-size: var(--fs-xl); margin: 0 0 12px; font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+#conn-form h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-3); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
 #conn-form label { font-size: var(--fs-sm); color: var(--muted); margin-top: 10px; }
 #conn-form input {
   width: 320px;
   max-width: 90%;
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   font: var(--fs-base) var(--font-mono);
@@ -257,7 +257,7 @@
 #conn-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring-soft); }
 #conn-form button {
   margin-top: 14px;
-  padding: 8px 28px;
+  padding: var(--sp-2) 28px;
   border-radius: var(--radius-sm);
   border: none;
   background: var(--accent);
