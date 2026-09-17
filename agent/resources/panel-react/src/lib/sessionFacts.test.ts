@@ -48,6 +48,25 @@ const ALLOWED = new Map([
 ]);
 
 describe("session state", () => {
+  it("names its refresh cadence once, and lists every trigger that exists", () => {
+    // ROUND 50, AND THE SAME SHAPE AS THE TWO CHECKS BEFORE IT IN THE CONSOLE. `useSessions` carries a round-163 comment
+    // that lists what refreshes the session list. Round 245 added a 30-second background sweep and documented it AT
+    // THE INTERVAL — and the list, forty lines above, quietly became incomplete. Nothing was false; something was
+    // missing, which is how a reader deciding whether a refresh will arrive gets misled.
+    const hook = readFileSync(path.join(SRC, "..", "hooks", "useSessions.ts"), "utf8");
+    // the cadence is a named constant, used by the interval and by nothing else as a literal
+    const named = /const SESSIONS_SWEEP_MS = ([0-9_]+);/.exec(hook);
+    expect(named, "SESSIONS_SWEEP_MS is gone — the cadence is a literal again").toBeTruthy();
+    expect(hook).toContain("}, SESSIONS_SWEEP_MS);");
+    expect(
+      /setInterval\([\s\S]{0,40}?,\s*[0-9_]+\s*\)/.test(hook),
+      "a setInterval in useSessions has a bare number again — the cadence lives in SESSIONS_SWEEP_MS",
+    ).toBe(false);
+    // and the comment above the effect lists the sweep among the triggers
+    const list = hook.slice(hook.indexOf("round-163"), hook.indexOf("round-163") + 900);
+    expect(list, "the refresh contract no longer names the background sweep").toContain("SESSIONS_SWEEP_MS");
+  });
+
   it("is read from the MODEL, never recomputed in a component", () => {
     const offenders: string[] = [];
     let scanned = 0;

@@ -155,6 +155,10 @@ const runtimes = new Map<string, SessionRuntime>();
 // P1-4: export downloads at most this many 1 MiB pages (see exportSession).
 const MAX_EXPORT_PAGES = 16;
 
+/** How often the panel re-lists sessions with no event to prompt it. Named once: this was a bare 30_000 inside the
+ *  effect plus a "30 s" in two comments, which is how one number becomes three that can disagree. */
+const SESSIONS_SWEEP_MS = 30_000;
+
 export function useSessions(connected: boolean) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSid, setActiveSid] = useState<string | null>(null);
@@ -167,8 +171,13 @@ export function useSessions(connected: boolean) {
 
   // round-163: the 3s terminal_list POLL is gone. The list refreshes on:
   // connect (initial), an agent-pushed `sessions-changed` SSE event (emitted
-  // by terminal_open/close), and tab refocus. During an SSE outage the UI
-  // shows "reconnecting" anyway; the refocus sweep covers stale gaps.
+  // by terminal_open/close), tab refocus, and A SLOW BACKGROUND SWEEP
+  // (SESSIONS_SWEEP_MS below).
+  //
+  // THE FOURTH WAS MISSING FROM THIS LIST UNTIL ROUND 50, and the way it went missing is the point: round 163 wrote
+  // three triggers and was RIGHT, round 245 added the sweep and documented it at the interval itself — and this list,
+  // forty lines above, quietly became incomplete. A reader deciding whether a refresh would arrive would have
+  // believed it. During an SSE outage the UI shows "reconnecting" anyway; the sweep is what covers the gaps.
   useEffect(() => {
     if (!connected) return;
     const tick = async () => {
@@ -284,7 +293,7 @@ export function useSessions(connected: boolean) {
     const onChange = () => { tick(); };
     window.addEventListener("vale-sessions-changed", onChange);
     document.addEventListener("visibilitychange", onChange);
-    // round-245 (HIGH-1): a slow background sweep (30 s) that ONLY ADDS live
+    // round-245 (HIGH-1): a slow background sweep (SESSIONS_SWEEP_MS) that ONLY ADDS live
     // sessions the panel has never seen — the safety net when both the
     // event-driven refetch AND its retry failed. It must never tombstone
     // (tombstoning is the event path's job, where the agent's close emit
@@ -315,7 +324,7 @@ export function useSessions(connected: boolean) {
           return next;
         });
       } catch { /* transient — next sweep */ }
-    }, 30_000);
+    }, SESSIONS_SWEEP_MS);
   return () => {
     window.removeEventListener("vale-sessions-changed", onChange);
     document.removeEventListener("visibilitychange", onChange);
