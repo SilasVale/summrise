@@ -18,7 +18,7 @@
 // fixed values.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
+import { failures, unmeasurable, PROBE_SOURCE, contrastRatio, parseColour } from "./lib/contrast-probe.mjs";
 import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
@@ -73,6 +73,59 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
       report.unstyled.push({ page: empty ? 'options-fresh' : 'options', width, ...(await page.evaluate(UNSTYLED)) });
     }
   }
+  // THE TWO TRANSIENT MESSAGE TONES, MEASURED ON EVERY RUN. Round 149 found that the refusal and the
+  // confirmation were painted identically because #status had no rule at all, and fixed it with
+  // data-state="error" / "ok". That fix was measured ONCE and swept by nothing — every sweep renders the
+  // page at rest, and #status is empty until you press Save. Same rule as rounds 151-152: a one-off
+  // measurement is not a guard. Both states are driven here with the page's own controls, and the colour
+  // is compared with the probe's maths rather than by eye.
+  const messageRows = [];
+  for (const [label, origin] of [['refusal', 'not a url at all'], ['saved', 'https://studio.example']]) {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await page.goto('http://vale-ext.test/options/options.html?cb=' + Date.now(), { waitUntil: 'load' });
+    await page.waitForTimeout(500);
+    await page.fill('#studioOrigin', origin);
+    await page.click('#save');
+    await page.waitForTimeout(250);
+    const seen = await page.evaluate(() => {
+      const el = document.getElementById('status');
+      const cs = getComputedStyle(el);
+      const host = el.parentElement ? getComputedStyle(el.parentElement) : null;
+      return {
+        state: el.dataset.state || '',
+        text: el.textContent.slice(0, 30),
+        color: cs.color,
+        size: parseFloat(cs.fontSize),
+        // A TRANSPARENT SURFACE IS NOT A SURFACE, and it is a truthy string: rgba(0, 0, 0, 0) sailed past
+        // the || and would have been judged as transparent BLACK. Measured on the device, caught before it
+        // produced a number.
+        surface: (() => {
+          const own = host ? host.backgroundColor : '';
+          const opaque = (c) => c && !/rgba\(0, 0, 0, 0\)/.test(c);
+          if (opaque(own)) return own;
+          let el = document.getElementById('status').parentElement;
+          while (el) {
+            const bg = getComputedStyle(el).backgroundColor;
+            if (opaque(bg)) return bg;
+            el = el.parentElement;
+          }
+          return getComputedStyle(document.body).backgroundColor;
+        })(),
+        // AND THE PAGE'S OWN BACKGROUND, recorded separately. The walk above has returned a transparent
+        // value in every run so far despite the body reporting rgb(245, 245, 247) when asked directly, and
+        // rather than spend a fourth edit on why, both values are recorded and the JUDGE picks: it is the
+        // side that owns the maths, and it can prefer an opaque value without guessing which one is right.
+        bodyBg: getComputedStyle(document.body).backgroundColor,
+      };
+    });
+    messageRows.push({ label, ...seen });
+  }
+  // RAW VALUES ONLY. The maths lives in lib/contrast-probe.mjs and the emitted script runs on the DEVICE,
+  // where an imported function does not exist — the judge below computes the ratios, exactly as it does for
+  // every contrast row. (First version of this pass called contrastRatio here and died with
+  // "contrastRatio is not defined" on the device.)
+  report.messages = messageRows;
+
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\ext-sweep.json', JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
   await close();
@@ -91,8 +144,39 @@ function judge(file) {
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}@${r.width}px ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }
+  // THE MESSAGE STATES ARE JUDGED, not merely recorded — and on BOTH counts. The contrast is the easy
+  // half; the defect round 149 actually fixed was that the refusal and the confirmation were painted the
+  // same colour, so the UI could not tell you whether your change was stored. A guard that only checks
+  // contrast would pass a regression straight back to that state.
+  const MSG_OPAQUE = (c) => !!c && !/rgba\(0, 0, 0, 0\)/.test(c);
+  const msgs = (report.messages || []).map((m) => {
+    const need = m.size >= 18 ? 3 : 4.5;
+    // Prefer whichever surface is actually opaque; the page records both because a transparent string is
+    // truthy and would otherwise be judged as transparent black.
+    const surface = MSG_OPAQUE(m.surface) ? m.surface : MSG_OPAQUE(m.bodyBg) ? m.bodyBg : m.surface;
+    let cr = null;
+    try {
+      cr = Number(contrastRatio(parseColour(m.color), parseColour(surface)).toFixed(2));
+    } catch {
+      cr = null;
+    }
+    return { ...m, surface, need, cr };
+  });
+  for (const m of msgs) {
+    if (m.cr === null) findings.unshift(`message ${m.label}: unmeasurable (${m.color} on ${m.surface})`);
+    else if (m.cr < m.need) findings.unshift(`message ${m.label}: contrast ${m.cr} < ${m.need} ("${m.text}")`);
+    if (!m.state) findings.unshift(`message ${m.label}: no data-state, so no tone is applied ("${m.text}")`);
+  }
+  if (msgs.length === 2 && msgs[0].color === msgs[1].color) {
+    findings.unshift(`the refusal and the confirmation are painted the same colour (${msgs[0].color}) — the round-149 defect, back`);
+  }
   console.log(reportSummary("extension", report));
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
+  // SAID OUT LOUD ON EVERY RUN, because a measurement nobody sees is a measurement nobody trusts. These two
+  // states are transient and would otherwise be invisible in a report full of resting-page rows.
+  if (msgs.length) {
+    console.log(`note: ${msgs.length} transient message state(s): ` + msgs.map((m) => `${m.label} ${m.state} ${m.cr} (needs ${m.need})`).join(' · '));
+  }
   if (!findings.length) {
     console.log("extension design sweep OK: nothing above found a defect");
     return 0;
