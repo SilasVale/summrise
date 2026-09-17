@@ -6,7 +6,12 @@
  * contrast measurement moves"). So this layer is:
  *   * a FIXED canvas at z-index 0, below `#root` at z-index 1, with `pointer-events: none`,
  *     so it can never intercept a click or enter the layout;
- *   * drawn at low alpha from the `--aura-*` palette, so the worst case is a slight tint
+ *   * drawn at low alpha from colours the page resolves for it — the three names below are
+ *     RETIRED (round 235): `--aura-*` was removed in the rebrand, globals.css records that it
+ *     "used to sit in this slot", and these readers were left behind. `pick` falls back when a
+ *     token reads empty, so the particles quietly draw the PRE-REBRAND hues (190 cyan, 280
+ *     violet, 330 pink) instead of the brand's. Choosing the replacement is a design decision,
+ *     recorded in docs/agents/ideas.md — the fallbacks stay until it is made.
  *     behind existing surfaces rather than a new contrast pair to measure.
  *
  * IT RESPECTS `prefers-reduced-motion` BY NOT RUNNING AT ALL. A decorative animation that
