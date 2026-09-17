@@ -1005,6 +1005,13 @@
 #statusbar {
   flex: none;
   display: flex;
+  /* WRAP, so the narrow end stops scrolling SIDEWAYS. Measured at a 640px viewport (round 215): this row is
+     nowrap, its content needs 858px, and because body/#root/#app-shell are all `overflow-x: visible` the whole
+     DOCUMENT scrolled 218px — a WCAG 1.4.10 (reflow) failure, reported by the sweep and never noticed because
+     nothing had rendered the panel this narrow with the fixture's own content. #canvas-top has wrapped for the
+     same reason since round 46; the status bar was simply never measured there. No row-gap is added: the
+     children already carry their own horizontal margins, and a gap would double them. */
+  flex-wrap: wrap;
   align-items: center;
   padding: 6px 16px;
   background: var(--chrome-bg);
@@ -3388,7 +3395,10 @@
 #icon-rail { flex-shrink: 0; }
 #statusbar {
   width: auto;
-  height: 26px;
+  /* MIN-height, not height: round 215 gave the bar `flex-wrap: wrap` so it stops forcing a sideways document
+     scroll at 640px, and a FIXED height would then clip the second row instead. Wrap and auto-height are one
+     decision. */
+  min-height: 26px;
   flex-direction: row;
   align-items: center;
   gap: var(--sp-2);
