@@ -359,6 +359,14 @@ body[data-theme="dark"]::before {
   z-index: 1;
 }
 
+/* A LAYERED !important IS THE LAST EXPLANATION STANDING, and it was tested the other way: this rule was
+   given !important in round 185 and the four failing buttons did not change. In the cascade, !important
+   INVERTS layer order — a LAYERED !important beats an UNLAYERED one — so a framework's layered
+   `outline: 0 !important` would win against this rule however this rule is written, and the fix is to put
+   this rule in a layer that comes later rather than to add weight here. Measured, not assumed: the
+   !important was shipped to a device build, loaded (the probe confirmed the rule carried it), and the
+   computed outline stayed "solid 0px". Reverted rather than left in place, because it changes nothing.
+   The full evidence trail is in console-design-sweep.mjs's header. */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

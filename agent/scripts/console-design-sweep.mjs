@@ -274,10 +274,26 @@ const empty = { fleet: false };
   //      loading index-D0W9u_N5.css from an earlier generation. Something between the HTML and the paint is
   //      picking an older asset, and the accumulated clutter is what made this hard to see.
   //
-  // NEXT STEP, concretely: measure with a FRESH browser context and an explicitly cleared cache, and if the
-  // page then loads the current sheet, the whole three-round mystery was a measurement reading a cached
-  // artifact. If it still loads the old one, the console's own startup is choosing it and the fix is in the
-  // app, not the harness.
+  // ROUND 185 SETTLED THE CACHING QUESTION AND TESTED THE OBVIOUS FIX. Measured with cache-busting URLs so
+  // no cached asset could be involved, against the current build:
+  //   * the current sheet loads (index-B3H-Yqtw.css, three outline rules, ours among them);
+  //   * the failing buttons match :focus-visible, --accent resolves, and their INLINE STYLE IS EMPTY;
+  //   * no constructed or adopted stylesheets exist, and no ancestor carries an outline;
+  //   * the computed outline is STILL "solid 0px", colour rgb(82, 82, 91) (currentColor), offset 0px.
+  // So the three earlier explanations — a stale bundle, a cached sheet, a pointer leak — were all artifacts
+  // of the measurement, and the defect survived every one of them.
+  //
+  // THE OBVIOUS FIX WAS TRIED AND FAILED, WHICH IS ITSELF THE FINDING: the rule was given !important, the
+  // build was delivered, the probe confirmed the loaded rule carried it — and the four buttons did not
+  // change. An unlayered author !important cannot lose to a normal declaration, so the winner must be a
+  // LAYERED !important: the cascade INVERTS layer order for important declarations, so a framework's
+  // layered "outline: 0 !important" beats this rule however it is written. Reverted, because an override
+  // that changes nothing does not earn its place.
+  //
+  // NEXT STEP, AND IT IS A BETTER INSTRUMENT, NOT ANOTHER GUESS: walk the sheets by CONSTRUCTOR NAME
+  // (CSSLayerBlockRule, CSSMediaRule, CSSSupportsRule) rather than by "has cssRules" — in modern Chrome
+  // EVERY rule has a truthy cssRules for CSS Nesting, which is what drowned the round-184 attempt — and
+  // look for rules setting outline inside a layer. Then put this rule in a layer that comes after it.
   // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
   // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
   for (const [label, hash] of [['overview', '#/'], ['devices', '#/devices']]) {
