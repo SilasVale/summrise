@@ -139,7 +139,28 @@ describe("TerminalWorkspace", () => {
       />,
     );
     expect(container.querySelector(".desktop-terminal")).toBeTruthy();
-    expect(screen.queryByRole("tablist")).toBeNull();
+    // THE SESSION TAB STRIP IS NOT HERE (that is the desktop header's job). Named rather than "any
+    // tablist": since round 169 the workspace DOES carry one — the per-session VIEW switch, which
+    // moved into the control bar so it stops competing with the tabs for width.
+    expect(screen.queryByRole("tablist", { name: /terminal sessions/i })).toBeNull();
+  });
+
+  it("carries the view switch in its control bar, not in the tab strip", () => {
+    // THE DESIGN DECISION, PINNED. The switch lived in the tab row in both densities and took the width
+    // the tabs need: round 36 measured that strip at 211px for 1777px of tabs, and round 168 found ten of
+    // sixteen tabs rendering as `pws…`. Here it sits with the other per-session controls, and the click
+    // still flips the view.
+    // Desktop density is CONTROLLED, so the switch reports through onControlledViewChange — the same
+    // contract the neighbouring test pins. Asserting onViewChange here was my mistake, not the code's.
+    const onControlledViewChange = vi.fn();
+    const { container } = render(
+      <TerminalWorkspace {...props({ density: "desktop", controlledView: "terminal", onControlledViewChange })} />,
+    );
+    const bar = container.querySelector(".desktop-term-bar");
+    expect(bar).toBeTruthy();
+    expect(bar!.querySelector(".desktop-view-switch")).toBeTruthy();
+    fireEvent.click(screen.getByText("Trajectory"));
+    expect(onControlledViewChange).toHaveBeenCalledWith("s1", "trajectory");
   });
 
   it("desktop honors the controlled view value", () => {

@@ -10,6 +10,7 @@ import { TerminalPane } from "./TerminalPane";
 import { TrajectoryView } from "./TrajectoryView";
 import { PathView } from "./PathView";
 import { SessionControl } from "./SessionControl";
+import { ViewSwitch } from "./ViewSwitch";
 import { ApprovalGate } from "./ApprovalGate";
 import { GoalBar } from "./GoalBar";
 import { DetailsPanel } from "./DetailsPanel";
@@ -131,9 +132,32 @@ export function TerminalWorkspace({
   // Control handoff — rendered in BOTH densities from this one place, because
   // both render this workspace and a per-density copy is how the two drifted
   // before (R131). Hidden until a session is active: there is nothing to hold.
+  const changeView = (v: SessionView) => {
+    if (!activeSid) return;
+    if (density === "desktop") {
+      onControlledViewChange?.(activeSid, v);
+      return;
+    }
+    // Both densities write through ONE wire now. The local copy this used to update
+    // was the reason the panel's own PathView button was inert.
+    onViewChange(activeSid, v);
+  };
+
   const control =
     activeSession && !activeSession.closed ? (
       <>
+        {/* THE VIEW SWITCH IS A SESSION CONTROL, so it belongs HERE — with the other per-session
+            controls, in the bar this workspace already renders in both densities from one place.
+            It used to sit in the TAB ROW (the desktop header, and inside TabBar for the panel), where
+            it competed for the width the tabs need: round 36 measured that strip at 211px for 1777px of
+            tabs, and round 168 found ten of sixteen tabs rendering as `pws…`. The switcher is worth its
+            space; it is not worth the tabs' space. The className is density-aware because the two
+            densities style it differently, and that difference is preserved rather than flattened. */}
+        <ViewSwitch
+          view={sessionView}
+          onChange={changeView}
+          className={density === "desktop" ? "desktop-view-switch" : "view-switch"}
+        />
         <SessionControl
           held={!!activeSession.heldByHuman}
           onSet={(human) => onSetControl(activeSession.sid, human)}
@@ -180,16 +204,6 @@ export function TerminalWorkspace({
     prevDetailsOpen.current = detailsOpen;
   }, [detailsOpen]);
 
-  const changeView = (v: SessionView) => {
-    if (!activeSid) return;
-    if (density === "desktop") {
-      onControlledViewChange?.(activeSid, v);
-      return;
-    }
-    // Both densities write through ONE wire now. The local copy this used to update
-    // was the reason the panel's own PathView button was inert.
-    onViewChange(activeSid, v);
-  };
 
   // Browserless-style connection banner: the SSE stream dropped — say so in
   // place instead of leaving the user typing into a frozen terminal.

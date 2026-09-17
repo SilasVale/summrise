@@ -92,14 +92,14 @@ describe("TabBar", () => {
     expect(screen.queryByTitle("Close session")).toBeNull();
   });
 
-  it("view switch renders only with an active session and flips views", () => {
-    const p = props();
-    const { rerender } = render(<TabBar {...p} />);
-    fireEvent.click(screen.getByText("Trajectory"));
-    expect(p.onViewChange).toHaveBeenCalledWith("trajectory");
-    rerender(<TabBar {...props({ activeSid: null })} />);
+  it("does NOT carry the view switch — it moved to the session control bar", () => {
+    // ROUND 169'S DESIGN DECISION, PINNED HERE SO IT CANNOT CREEP BACK. The switch used to render in
+    // this strip, competing for the width the tabs need: ten of sixteen tabs rendered as `pws…` on the
+    // live device. It now lives in the control bar TerminalWorkspace builds for both densities. If
+    // someone adds it back to the row, this fails and points at why.
+    render(<TabBar {...props()} />);
     expect(screen.queryByText("Trajectory")).toBeNull();
-    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(screen.queryByText("Path")).toBeNull();
   });
 });
 

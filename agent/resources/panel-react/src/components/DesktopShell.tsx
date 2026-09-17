@@ -39,7 +39,6 @@ import { SettingsPage } from "./SettingsPage";
 import { ConnModal } from "./ConnModal";
 import { Icon } from "../ui/Icon";
 import type { SessionView } from "./TabBar";
-import { ViewSwitch } from "./ViewSwitch";
 import { WaitingChip } from "./WaitingChip";
 import { BootChip } from "./BootChip";
 import { LoadChip } from "./LoadChip";
@@ -416,15 +415,11 @@ export function DesktopShell({
                   )}
                 </div>
 
-                {/* View switch for the ACTIVE session — shared with the panel
-                    density so the two cannot disagree on which views exist. */}
-                {activeSid && (
-                  <ViewSwitch
-                    view={activeView}
-                    onChange={(v) => changeView(activeSid, v)}
-                    className="desktop-view-switch"
-                  />
-                )}
+                {/* The view switch moved OUT of this row and into the session control bar, which
+                    TerminalWorkspace renders in both densities from one place. It was competing with
+                    the tabs for width: this header is the only way to reach a session in this density,
+                    and round 168 measured ten of sixteen tabs truncated to `pws…` beside it. */}
+
               </>
             )}
           </header>

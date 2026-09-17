@@ -4,7 +4,6 @@ import type { Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useStripOverflow } from "../hooks/useStripOverflow";
 import { Icon } from "../ui/Icon";
-import { ViewSwitch } from "./ViewSwitch";
 
 /** Per-session main-area view (round-admin-ui Task 5): the terminal pane +
  *  command card stream, the raw trajectory timeline, or the PATH — this
@@ -140,12 +139,9 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
           </span>
         )}
       </div>
-      {/* round-admin-ui Task 5: per-session view switch (dsh segmented pill) —
-          shown only while a session is active. Session-tab behavior above is
-          untouched. */}
-      {activeSid && (
-        <ViewSwitch view={view} onChange={onViewChange} className="view-switch" />
-      )}
+      {/* The per-session view switch used to render here (round-admin-ui Task 5). It moved to the
+          session control bar in TerminalWorkspace, which builds it once for BOTH densities — this strip
+          is the only way to reach a session, and the switch was taking the width the tabs need. */}
     </div>
   );
 }
