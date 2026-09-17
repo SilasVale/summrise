@@ -284,21 +284,14 @@ describe("colour pairs declared in one rule", () => {
       [".boot-mark", "--surface-chip"],
       [".monitor-mark", "--surface-chip"],
       [".waiting-mark", "--surface-chip"],
-      // THE SURFACE HERE IS DISPUTED, AND THE DISAGREEMENT IS THE FINDING (round 211). The sweep measures
-      // this dot's real parent background as rgb(31, 31, 31) in a LIGHT-theme render, where --chrome-bg-2 is
-      // #ffffff — and against that real surface the dot measures 2.32:1, under the 3:1 this check exists to
-      // enforce. Either the frame's light theme is not reaching the rail, or this mapping names the wrong
-      // token; the check passes either way, which is the part that matters. Do not "fix" it by choosing
-      // whichever surface makes the number pass.
-      ['.rail-dot[data-state="waiting"]', "--chrome-bg-2"],
+      // THE WAITING MARK IS ONE SHARED RULE NOW, so it is measured once for every place that draws it:
+      // `.mark[data-live="waiting"]` is the diamond on the rail, in the tab strip, in the side list and in
+      // the desktop rail. The four per-place selectors are gone from the list because they paint nothing —
+      // they only name their ink, and that indirection is checked by the test below.
+      ['.mark[data-live="waiting"]', "--chrome-bg-2"],
       ['.cmd-dot[data-state="warn"]', "--chrome-bg-2"],
-      [".side-dot", "--chrome-bg-2"],
-      [".tab-dot", "--chrome-bg-2"],
-      // AND THE ONES THE FIRST LIST MISSED. Rounds 126-127 fixed ten rules; this guard started with
-      // seven, so three of the fixes it exists to protect were not protected by it. Found by comparing
-      // the list against the sheet rather than by trusting the list.
-      ['.desktop-rail-status[data-state="waiting"] .dot', "--chrome-bg-2"],
-      [".tab-wait", "--chrome-bg-2"],
+      // THE ONES THAT NOW NAME AN INK RATHER THAN PAINTING ONE (.side-dot, .tab-dot, the desktop rail's dot)
+      // are in the next test, which measures every `--mark-ink` SOURCE against the chrome.
       [".monitor-alert .monitor-mark", "--surface-chip"],
       ['#approval-arm .ag-dot[data-state="armed"]', "--surface"],
       [".monitor-dot.down", "--surface-chip"],
@@ -342,5 +335,64 @@ describe("colour pairs declared in one rule", () => {
       `${failures.length} mark(s) wrong — a FILL token is not a mark's colour, and 3:1 is the bar:\n  ` +
         failures.join("\n  "),
     ).toEqual([]);
+  });
+
+
+  // ── THE INK INDIRECTION IS WHERE THE RISK MOVED ────────────────────────────────────────────────────────
+  // The silhouettes paint `var(--mark-ink)` so one shape can carry the state in four places, and each place
+  // names its own ink (a transport lane on a tab, the rail's own ink on the rail). That is the design — but
+  // it also means the shared rule can no longer be checked for a concrete token, and a FILL token could be
+  // laundered through it. So the SOURCES are measured: everything that assigns `--mark-ink` must assign an
+  // ink token, and that token must clear 3:1 on the chrome it lands on.
+  it("every --mark-ink source is an ink token that clears 3:1 on the chrome", () => {
+    const css = builtCss();
+    // EVERY DECLARATION IN THE SHEET, partitioned by whether it is in the dark scope — because the tokens
+    // this test resolves live in SEVERAL blocks (`--chrome-*` is its own, later in tokens.css) and
+    // `tokensIn(css, ":root")` returns the first block only. That is how the first version reported
+    // "--chrome-ink and --chrome-bg-2 must resolve" about two tokens that plainly exist.
+    const collect = (dark: boolean): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const inDark = /data-theme="dark"/.test(m[1]);
+        if (inDark !== dark) continue;
+        for (const d of m[2].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) out[d[1]] = d[2].trim();
+      }
+      return out;
+    };
+    const light = collect(false);
+    const dark = { ...light, ...collect(true) };
+    const FILLS = ["--state-warn", "--state-ok", "--state-fail", "--state-running", "--accent", "--success", "--danger"];
+
+    // every rule that assigns the mark ink, with the token it names
+    const sources: Array<[string, string]> = [];
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g);
+    for (const m of rules) {
+      const selector = m[1].trim().split("\n").pop()!.trim();
+      const decl = /--mark-ink:\s*var\((--[a-z0-9-]+)\)/.exec(m[2]);
+      if (decl) sources.push([selector, decl[1]]);
+    }
+    // A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN: the rail, three tab lanes and two side lanes is six.
+    expect(sources.length, `only ${sources.length} --mark-ink sources found — the scan is reading the wrong thing`)
+      .toBeGreaterThanOrEqual(5);
+
+    const failures: string[] = [];
+    for (const [selector, token] of sources) {
+      if (FILLS.includes(token)) failures.push(`${selector} names the FILL ${token}`);
+      for (const [theme, tokens] of [["light", light], ["dark", dark]] as Array<[string, Record<string, string>]>) {
+        // THE MODULE-LEVEL `resolve` TAKES A VALUE, not a token NAME — `resolve("--chrome-ink-dim", …)`
+        // returns the name unchanged and parses to null, which reads as "unmeasurable" rather than as the
+        // mistake it is. Look the declaration up first, then follow whatever chain it points at.
+        const declared = tokens[token];
+        const inkRaw = declared ? resolve(declared, tokens) : null;
+        const chromeDecl = tokens["--chrome-bg-2"];
+        const chromeRaw = chromeDecl ? resolve(chromeDecl, tokens) : null;
+        const ink = inkRaw ? parseColour(inkRaw) : null;
+        const chrome = chromeRaw ? parseColour(chromeRaw) : null;
+        expect(ink && chrome, `${selector}: ${token} and --chrome-bg-2 must resolve`).toBeTruthy();
+        const ratio = contrastRatio(ink!, chrome!);
+        if (ratio < 3.0) failures.push(`${selector} [${theme}] ${token} on the chrome = ${ratio.toFixed(2)} (needs 3)`);
+      }
+    }
+    expect(failures, failures.join("\n  ")).toEqual([]);
   });
 });

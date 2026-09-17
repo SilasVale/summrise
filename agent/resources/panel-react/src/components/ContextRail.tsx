@@ -9,6 +9,7 @@ import type { Session } from "../hooks/useSessions";
 import type { usePlugins } from "../hooks/usePlugins";
 import type { Page } from "./Shell";
 import { Icon } from "../ui/Icon";
+import { livenessOf } from "../lib/liveness";
 
 function relTime(ts: number): string {
   const sec = Math.max(0, (Date.now() - ts) / 1000);
@@ -208,7 +209,7 @@ export function ContextRail({
               }
             }}
           >
-            <span className="side-dot" data-kind={s.kind} />
+            <span className="mark side-dot" data-live={livenessOf({ reachable: !s.closed, pending: !!s.pendingApproval, active: false })} data-kind={s.kind} />
             {renaming === s.sid ? (
               <input
                 className="side-rename"

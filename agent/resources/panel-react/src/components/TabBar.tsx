@@ -4,6 +4,7 @@ import type { Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useStripOverflow } from "../hooks/useStripOverflow";
 import { disambiguateLabels } from "../lib/sessionLabels";
+import { livenessOf } from "../lib/liveness";
 import { Icon } from "../ui/Icon";
 
 /** Per-session main-area view (round-admin-ui Task 5): the terminal pane +
@@ -106,17 +107,14 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
             aria-selected={s.sid === activeSid}
             onClick={() => { if (!s.closed) onActivate(s.sid); }}
           >
-            {/* DATA-KIND ONLY. This also appended a bare "ssh" or "serial" class, and NO RULE HAS EVER MATCHED IT: the
-                stylesheet moved to [data-kind="ssh"] and left the class behind, so the sweep's unstyled scan
-                reported `class name(s) with no matching rule on panel: ssh` (round 214). The colouring comes
-                from the attribute; the class was a second, dead signal for the same fact. */}
-            <span className="tab-dot" data-kind={s.kind} />
+            {/* ONE MARK, TWO CHANNELS: the silhouette is the session's LIVENESS (lib/liveness.ts) and the lane
+                colour tints it. A waiting session used to need a SECOND element beside this dot, because the dot
+                could only carry a lane colour — so with sixteen tabs "which one is holding a question" was
+                readable only from the aria-label below. `active` is false on purpose: the panel's only activity
+                signal is DEVICE-wide (useDeviceActivity), and a halo on all sixteen tabs would say nothing. The
+                model takes a per-session signal the day one exists. */}
+            <span className="mark tab-dot" data-live={livenessOf({ reachable: !s.closed, pending: waiting, active: false })} data-kind={s.kind} />
             <span className="tab-name">{displayLabel[tabIndex]}</span>
-            {/* A SHAPE, not the existing .tab-dot (a circle): the two marks sit
-                in the same row, so a second circle would read as a second lane
-                dot. aria-hidden because the tab's own label already carries the
-                word for assistive tech. */}
-            {waiting && <span className="tab-wait" aria-hidden="true" />}
             <span
               className="tab-export"
               title="Export this session log"

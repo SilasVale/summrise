@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Icon, BrandMark, type IconName } from "../ui/Icon";
 import { getTheme, toggleTheme } from "../lib/theme";
 import { useDeviceActivity } from "../hooks/useDeviceActivity";
+import { deviceLiveness } from "../lib/liveness";
 import type { Page } from "./Shell";
 
 /** The page→icon contract for the rail, exported so the desktop header can draw
@@ -53,7 +54,9 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
   // order: no transport → off (nothing can be answered anyway), a question →
   // waiting, activity → working, else idle.
   const waiting = pendingCount > 0;
-  const state = !connected ? "off" : waiting ? "waiting" : working ? "working" : "idle";
+  // ONE MODEL, ONE PLACE. This was an inline ternary, which made it the panel's entire state model — and a
+  // second copy of it in another component is how two surfaces come to disagree about the same device.
+  const state = deviceLiveness({ connected, pendingCount, working });
   const label = !connected
     ? "disconnected"
     : waiting
@@ -107,17 +110,15 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
       )}
       {desktop ? (
         <>
-          {/* data-state drives the colour AND the shape in CSS (off / idle /
-              working / waiting) — the same vocabulary the panel dot uses, so
-              the two densities cannot drift apart. */}
-          <div className="desktop-rail-status" data-state={state} title={label}>
-            <span className="dot" />
+          {/* The shared `.mark` block draws the silhouette; the rail only places it. */}
+          <div className="desktop-rail-status" title={label}>
+            <span className="mark dot" data-live={state} />
           </div>
         </>
       ) : (
         <div className="rail-spacer" />
       )}
-      {!desktop && <div className="rail-dot" data-state={state} title={label} />}
+      {!desktop && <div className="mark rail-dot" data-live={state} title={label} />}
     </>
   );
 }

@@ -62,7 +62,7 @@ describe("IconRail", () => {
     // pane, so `terminal_execute` work showed nowhere at the device level.
     const { container } = render(<IconRail {...props()} />);
     const dot = () =>
-      container.querySelector(".rail-dot")!.getAttribute("data-state");
+      container.querySelector(".rail-dot")!.getAttribute("data-live");
     expect(dot()).toBe("idle");
     act(() => {
       window.dispatchEvent(
@@ -92,7 +92,7 @@ describe("IconRail — a decision waiting outranks device activity", () => {
       <IconRail {...props({ pendingCount: 1 })} />,
     );
     const dot = () =>
-      container.querySelector(".rail-dot")!.getAttribute("data-state");
+      container.querySelector(".rail-dot")!.getAttribute("data-live");
     expect(dot()).toBe("waiting");
     expect(screen.getByTitle("1 command waiting for your answer")).toBeTruthy();
 
@@ -130,8 +130,8 @@ describe("IconRail — a decision waiting outranks device activity", () => {
     );
     expect(
       container
-        .querySelector(".desktop-rail-status")!
-        .getAttribute("data-state"),
+        .querySelector(".desktop-rail-status .mark")!
+        .getAttribute("data-live"),
     ).toBe("waiting");
     expect(screen.getByTitle("1 command waiting for your answer")).toBeTruthy();
   });

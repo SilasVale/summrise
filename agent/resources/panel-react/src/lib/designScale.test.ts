@@ -51,8 +51,10 @@ describe("the design scale", () => {
     // A rotated square's radius is a shape, not a corner style; the brand SVG's is a percentage.
     // Exempted BY SELECTOR so a future stray `2px` cannot ride along on the exemption.
     const SHAPE_EXEMPT = [
-      '.rail-dot[data-state="waiting"]',
-      '.desktop-rail-status[data-state="waiting"] .dot',
+      // ONE SELECTOR NOW, NOT TWO: the panel dot and the desktop rail's dot used to state the diamond
+      // separately, and the silhouette moved into one shared rule (`.mark[data-live=…]`). The exemption is
+      // NARROWER than it was — the shared rule is the only place a 2px radius draws a waiting mark.
+      '.mark[data-live="waiting"]',
       '.rail-brand svg',
       '.desktop-rail-brand svg',
     ];

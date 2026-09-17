@@ -101,51 +101,44 @@ describe("the gate's screen-reader plumbing", () => {
 });
 
 describe("waiting badges", () => {
-  it("the rail's waiting dot is a different SHAPE, not just another colour", () => {
+  it("the waiting mark is a SHAPE, not just another colour — in every place that draws one", () => {
     const css = builtCss();
-    const waiting = blockOf(css, '.rail-dot[data-state="waiting"]');
-    const working = blockOf(css, '.rail-dot[data-state="working"]');
-    const idle = blockOf(css, '.rail-dot[data-state="idle"]');
-    expect(waiting, '.rail-dot[data-state="waiting"] missing').not.toBeNull();
-    expect(working, '.rail-dot[data-state="working"] missing').not.toBeNull();
-    expect(idle, '.rail-dot[data-state="idle"] missing').not.toBeNull();
-
-    // The COLOUR here is --warn-ink, not the --state-warn fill this used to pin: the fill measures
-    // 2.63 on the dark card against the 3:1 a mark needs (round 126, measured with the graphics pass
-    // rounds 123-125 built), while --warn-ink gives 6.45 light / 8.23 dark. The lesson of this test
-    // still holds and is why it is asserted WITH the shape below: colour alone cannot carry
-    // waiting-vs-working, because it shares a band with --state-running at 8px.
+    // ONE RULE DRAWS THE MARK NOW. Three tests used to live here — the panel dot, the desktop rail's dot and a
+    // second element in the tab strip — and each asserted its own copy of the diamond. They were asserting the
+    // same design three times, which is also how three copies come to disagree. `lib/liveness.ts` decides the
+    // state and `.mark[data-live=…]` draws it, so this is one assertion about the one rule every place uses.
+    const waiting = blockOf(css, '.mark[data-live="waiting"]');
+    const working = blockOf(css, '.mark[data-live="working"]');
+    const idle = blockOf(css, '.mark[data-live="idle"]');
+    const off = blockOf(css, '.mark[data-live="off"]');
+    for (const [name, block] of [["waiting", waiting], ["working", working], ["idle", idle], ["off", off]] as const) {
+      expect(block, `.mark[data-live="${name}"] missing — a state with no silhouette is a state nobody can see`)
+        .not.toBeNull();
+    }
+    // The COLOUR is --warn-ink, not the --state-warn fill this used to pin: the fill measures 2.63 on the dark
+    // card against the 3:1 a mark needs (round 126). Colour alone cannot carry waiting-vs-working — at this size
+    // they share a band — so the shape is asserted WITH it.
     expect(waiting!).toContain("var(--warn-ink)");
     expect(waiting!).toMatch(/rotate\(45deg\)/);
-    // Distinguishable with animation removed (and this rule has no animation to
-    // begin with — pinned so that stays true).
-    expect(withoutAnimation(waiting!)).not.toEqual(withoutAnimation(working!));
-    expect(withoutAnimation(waiting!)).not.toEqual(withoutAnimation(idle!));
-    expectNoRawHex(waiting!, '.rail-dot[data-state="waiting"]');
+    // FOUR STATES, FOUR SILHOUETTES, with animation removed: a user with prefers-reduced-motion must still be
+    // able to tell them apart. This is the whole claim of the mark language, in one line.
+    const shapes = [waiting!, working!, idle!, off!].map(withoutAnimation);
+    expect(new Set(shapes).size, `two states draw the same shape:\n${shapes.join("\n---\n")}`).toBe(4);
+    expectNoRawHex(waiting!, '.mark[data-live="waiting"]');
   });
 
-  it("the desktop rail carries the same waiting shape", () => {
+  it("the tab's mark carries the STATE, and the lane rides along as its ink", () => {
     const css = builtCss();
-    const desktop = blockOf(css, '.desktop-rail-status[data-state="waiting"] .dot');
-    expect(desktop, "the desktop rail has no waiting state — the two densities would drift")
-      .not.toBeNull();
-    expect(desktop!).toContain("var(--warn-ink)");
-    expect(desktop!).toMatch(/rotate\(45deg\)/);
-    expectNoRawHex(desktop!, '.desktop-rail-status[data-state="waiting"] .dot');
-  });
-
-  it("the tab's waiting mark is a distinct shape from the lane dot", () => {
-    const css = builtCss();
-    const lane = blockOf(css, ".tab-dot")!;
-    const wait = blockOf(css, ".tab-wait");
-    expect(wait, ".tab-wait missing").not.toBeNull();
-    // .tab-dot is already a circle; a second circle beside it reads as another
-    // lane, which is a different claim.
-    expect(lane).toMatch(/border-radius:\s*50%/);
-    expect(wait!).toMatch(/rotate\(45deg\)/);
-    expect(withoutAnimation(wait!)).not.toEqual(withoutAnimation(lane));
-    expect(wait!).toContain("var(--warn-ink)");
-    expectNoRawHex(wait!, ".tab-wait");
+    // The lane names the ink instead of painting the dot — one mark per session with two channels, which is
+    // what lets a waiting tab say so without a second element.
+    const lane = blockOf(css, ".tab-dot");
+    expect(lane, ".tab-dot missing").not.toBeNull();
+    expect(lane!).toContain("--mark-ink");
+    expect(blockOf(css, '.tab-dot[data-kind="ssh"]')).toContain("var(--lane-ds)");
+    expect(blockOf(css, '.tab-dot[data-kind="serial"]')).toContain("var(--lane-or)");
+    // AND THE SECOND ELEMENT IS GONE. `.tab-wait` used to sit beside the dot; if it comes back, a session
+    // holding a question draws two marks again and the strip stops answering "which one needs me" at a glance.
+    expect(blockOf(css, ".tab-wait"), ".tab-wait is back — the dot carries the state now").toBeNull();
   });
 
   it("the device-level chip uses the chip surface and a token mark", () => {

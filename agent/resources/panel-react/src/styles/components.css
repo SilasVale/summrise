@@ -77,40 +77,62 @@
    colour is NOT the only channel: idle is a filled dot, working carries the
    halo, offline is dimmed. That matters for the same reason it does on the
    command dots — prefers-reduced-motion removes the transition below. */
+/* ══ THE MARK LANGUAGE ══════════════════════════════════════════════════════════════════════════════════════
+   ONE SHAPE PER STATE, ONE STATE MODEL FOR EVERY ENTITY (lib/liveness.ts). Every mark in the panel carries
+   `class="mark"` and `data-live`, and the silhouette comes from here — not from four components each painting
+   its own dot. Colour is the SECOND channel and says something else (the transport lane on a tab, the rail's
+   own ink on the rail): the shape is the state, which is what survives greyscale, colour-vision deficiency and
+   `prefers-reduced-motion`, where an animation channel disappears entirely.
+
+   WHY THIS REPLACED THE OLD RULES. The rail said off/waiting/working/idle with a fill, the tab said
+   pty/ssh/serial with a fill, and a session that was waiting drew a SECOND element (.tab-wait) beside the lane
+   dot because the dot had no way to say it — sixteen tabs, and "which one is holding a question" was readable
+   only from an aria-label.
+
+   THE LOUDNESS ORDER IS THE URGENCY ORDER, and the old rules had it inverted: `idle` was a bright green FILL
+   while `waiting` was an ink diamond, so the quietest state was the loudest thing on the rail.
+
+       waiting  diamond, warn ink      a question DECAYS if unseen            loudest
+       working  solid, halo            work continues; the halo says so
+       idle     ring, mark ink         nothing needs you
+       off      DASHED ring            unreachable — the dash, not a fade: a fade drops under the 3:1 a graphic
+                                                                              needs                 quietest
+*/
+.mark { display: inline-block; flex: none; vertical-align: 1px; }
+.mark[data-live="idle"] {
+  border: 1.5px solid var(--mark-ink);
+  border-radius: 50%;
+  background: transparent;
+}
+.mark[data-live="working"] {
+  background: var(--mark-ink);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2.5px var(--mark-halo, var(--accent-soft));
+}
+.mark[data-live="waiting"] {
+  /* NOT a corner style: a rotated square, and the 2px only takes the point off the diamond. The scale test
+     exempts this selector by name rather than letting any future `2px` through. */
+  background: var(--warn-ink);
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 2.5px var(--state-warn-soft);
+}
+.mark[data-live="off"] {
+  border: 1.5px dashed var(--mark-ink);
+  border-radius: 50%;
+  background: transparent;
+}
+/* A mark with no liveness to report — the session card's holder dot answers a different question — still draws
+   as a plain mark rather than disappearing. */
+.mark:not([data-live]) { background: var(--mark-ink); border-radius: 50%; }
+
 .rail-dot {
+  --mark-ink: var(--rail-ink);
   width: 8px; height: 8px;
   border-radius: 50%;
   background: var(--chrome-ink-faint);
   transition: background 0.2s ease, box-shadow 0.2s ease;
 }
-.rail-dot[data-state="idle"] { background: var(--success); }
-.rail-dot[data-state="working"] {
-  background: var(--state-running);
-  box-shadow: 0 0 0 2.5px var(--state-running-soft);
-}
-/* WAITING (a decision is holding in some session) outranks working, and it is a
-   DIAMOND rather than a circle because the two states' tokens — --state-warn and
-   --state-running — sit in the same orange band at this size. Shape is the
-   channel that still works with colour vision deficiencies and in greyscale;
-   animation is not a channel here at all (prefers-reduced-motion). */
-.rail-dot[data-state="waiting"] {
-  /* MEASURED, AND NOT YET FIXED (round 210). This dot is the one that says a decision is holding — the state
-     that most needs to be seen — and it measures 2.32:1 against the rail, under the 3:1 a graphic needs and
-     BELOW the working dot's 3.00 that it OUTRANKS per the comment above.
-     The obvious fix was to paint it with --state-warn (a state token, 3.28 on the rail) and the panel's own
-     test refused it: "every state mark is painted by an INK token, and clears 3:1 where it lands — a FILL
-     token is not a mark's colour". That contract is right and this dot violates its OTHER half: --warn-ink is
-     the amber ink for a SOFT background, and on the dark rail it does not clear 3:1. The fix is an ink that
-     works where this mark lands, or a rule that admits a fill on a dark rail. Both are their own round; the
-     measurement is recorded here so it does not need rediscovering. */
-  background: var(--warn-ink);
-  /* NOT a corner style: a rotated square, and the 2px only takes the point off the diamond. The
-     scale test exempts this selector by name rather than letting any future `2px` through. */
-  border-radius: 2px;
-  transform: rotate(45deg);
-  box-shadow: 0 0 0 2.5px var(--state-warn-soft);
-}
-.rail-dot[data-state="off"] { background: var(--chrome-ink-faint); }
 .rail-brand {
   width: 30px; height: 30px;
   margin-bottom: 10px;
@@ -181,26 +203,10 @@
   background: var(--warn);
   box-shadow: 0 0 6px rgba(180, 83, 9, 0.7);
 }
-.desktop-rail-status[data-state="idle"] .dot {
-  background: var(--success);
-  box-shadow: 0 0 6px rgba(47, 191, 113, 0.7);
-}
-/* Working: the running state's colour + halo, matching .rail-dot so the two
-   densities read identically. Halo rather than glow-on-green because "working"
-   and "idle" must stay distinguishable without animation (see the state
-   palette note in tokens.css). */
-.desktop-rail-status[data-state="working"] .dot {
-  background: var(--state-running);
-  box-shadow: 0 0 0 2.5px var(--state-running-soft);
-}
-/* Same waiting state as .rail-dot — same diamond, same warn token, so the two
-   densities cannot drift on what "a question is waiting" looks like. */
-.desktop-rail-status[data-state="waiting"] .dot {
-  background: var(--warn-ink);
-  border-radius: 2px;
-  transform: rotate(45deg);
-  box-shadow: 0 0 0 2.5px var(--state-warn-soft);
-}
+/* The desktop rail's status dot draws the SAME silhouettes at a larger size — the shared `.mark` block does
+   the drawing, so the two densities cannot drift on what "a question is waiting" looks like. Before this, the
+   desktop copy re-stated the diamond and the halo by hand. */
+.desktop-rail-status .dot { --mark-ink: var(--rail-ink); }
 
 /* ---------- sidebar / context rail ---------- */
 .side-header {
@@ -294,13 +300,21 @@
    --chrome-active-ink): it was 3.27 on dark chrome and under AA AS TEXT. */
 .side-dot {
   flex: none;
+  --mark-ink: var(--accent-ink);
   width: 8px; height: 8px;
   border-radius: 50%;
   background: var(--accent-ink);
 }
-.side-dot[data-kind="ssh"] { background: var(--lane-ds); }
-.side-dot[data-kind="serial"] { background: var(--lane-or); }
-.side-row.closed .side-dot { background: var(--ds-neutral-300); }
+.side-dot[data-kind="ssh"] { --mark-ink: var(--lane-ds); }
+.side-dot[data-kind="serial"] { --mark-ink: var(--lane-or); }
+/* A CLOSED ROW'S MARK IS NOT FADED — IT IS DASHED. This painted --ds-neutral-300, a near-white grey, and
+   measured **1.48:1** on the chrome: invisible, on the one row whose whole point is that the session is gone.
+   It had never been measured, because the contrast contract listed `.side-dot` and `.side-dot`'s own block
+   paints the base ink — the override was in a rule nothing looked at. It was found the moment the contract
+   started walking `--mark-ink` to its SOURCES (round 245).
+   The state rides in the silhouette now: a closed session is `off` in the model, and `off` draws a DASHED ring.
+   So the ink stays legible and the shape says closed, which is the rule the whole mark language follows. */
+.side-row.closed .side-dot { --mark-ink: var(--chrome-ink-dim); }
 .side-label {
   flex: 1;
   min-width: 0;
@@ -423,11 +437,13 @@
   width: 7px; height: 7px;
   border-radius: 50%;
   margin-right: 6px;
-  vertical-align: 1px;
-  background: var(--accent-ink);   /* see the note on .side-dot: a dot is a graphic, 3:1 */
+  /* THE LANE IS THE COLOUR, THE STATE IS THE SHAPE. These three rules used to paint `background`, which meant a
+     waiting session had to render a second element beside the dot to say so. They set the mark's INK now, and
+     `.mark[data-live="waiting"]` overrides it — a question outranks which lane it arrived on. */
+  --mark-ink: var(--accent-ink);   /* see the note on .side-dot: a dot is a graphic, 3:1 */
 }
-.tab-dot[data-kind="ssh"] { background: var(--lane-ds); }
-.tab-dot[data-kind="serial"] { background: var(--lane-or); }
+.tab-dot[data-kind="ssh"] { --mark-ink: var(--lane-ds); }
+.tab-dot[data-kind="serial"] { --mark-ink: var(--lane-or); }
 
 /* THE ACTIVE TAB'S DOT NEEDS A RING. The lane colours are chosen against the CHROME, and an active tab
    is not chrome — its background is --chrome-active-bg, so the ssh dot measured 1.11 there (blue on the
@@ -443,22 +459,9 @@
    pwsh, two tabs visible). The chip sits at the strip's end, where the hidden ones would start. */
 .tab-more { flex: none; align-self: center; padding: 1px 6px; margin-left: var(--sp-0-5); border-radius: var(--radius-pill); background: var(--surface-chip); color: var(--chrome-ink-dim); font: 600 var(--fs-2xs) var(--font); }
 .tab-more:hover { color: var(--chrome-ink); }
-/* A question is waiting for a person in this session. Deliberately NOT another
-   .tab-dot: the two marks share a row, and a second circle beside the lane dot
-   reads as another lane. A small rotated square in the warn token says
-   "attention" in a shape that cannot be confused with the lane mark — and shape
-   carries the state, so it survives prefers-reduced-motion (colour alone does
-   not separate it from the accent dot at 7px). */
-.tab-wait {
-  display: inline-block;
-  flex: none;
-  width: 6px; height: 6px;
-  margin-left: 5px;
-  vertical-align: 1px;
-  background: var(--warn-ink);
-  border-radius: var(--radius-xs);
-  transform: rotate(45deg);
-}
+/* .tab-wait IS GONE. A session holding a question used to draw a diamond BESIDE the lane dot, because the
+   dot could only carry a lane colour. The dot carries `data-live` now, so the diamond IS the dot — one mark
+   per session instead of two, and the fact is legible from the strip instead of from an aria-label. */
 /* Capped like .dtab-name (R131). This one had NO limit at all, so a single
    session named after a long path could push every other tab out of reach —
    the panel's strip scrolled, but one tab could occupy the whole row. */

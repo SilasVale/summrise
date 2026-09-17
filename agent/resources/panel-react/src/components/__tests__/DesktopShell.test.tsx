@@ -167,14 +167,14 @@ describe("DesktopShell", () => {
     const { container } = render(<DesktopShell {...baseProps} />);
     const dot = () =>
       container
-        .querySelector(".desktop-rail-status")!
-        .getAttribute("data-state");
+        .querySelector(".desktop-rail-status .mark")!
+        .getAttribute("data-live");
     expect(dot()).toBe("idle");
     const { container: c2 } = render(
       <DesktopShell {...baseProps} sseState="down" />,
     );
     const dot2 = () =>
-      c2.querySelector(".desktop-rail-status")!.getAttribute("data-state");
+      c2.querySelector(".desktop-rail-status .mark")!.getAttribute("data-live");
     expect(dot2()).toBe("off");
   });
 

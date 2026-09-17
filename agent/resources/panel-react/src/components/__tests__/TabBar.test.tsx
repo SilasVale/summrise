@@ -118,11 +118,15 @@ describe("TabBar — a question waiting for a person", () => {
       ],
     });
     const { container } = render(<TabBar {...p} />);
-    // A SHAPE, not the lane dot: the strip's other marks are circles, so a
-    // second circle beside them would read as another lane.
-    expect(container.querySelectorAll(".tab-wait")).toHaveLength(1);
+    // THE DOT ITSELF CARRIES THE STATE NOW. A waiting session used to draw a SECOND element
+    // (.tab-wait) beside the lane dot, because the dot could only carry a lane colour — so with
+    // sixteen tabs the only way to find the one holding a question was to read its aria-label.
+    // There is one mark per session, and its `data-live` is the state; the lane colour rides along.
+    expect(container.querySelectorAll('.tab-dot[data-live="waiting"]')).toHaveLength(1);
     const tab = screen.getByTitle("gated — waiting for your approval");
-    expect(tab.querySelector(".tab-wait")).toBeTruthy();
+    expect(tab.querySelector('.tab-dot[data-live="waiting"]')).toBeTruthy();
+    // every other tab is idle, and none of them is waiting
+    expect(container.querySelectorAll('.tab-dot[data-live="idle"]')).toHaveLength(1);
     // ...and the word, for anyone who cannot see the mark.
     expect(tab.getAttribute("aria-label")).toBe(
       "gated — waiting for your approval",
@@ -143,7 +147,7 @@ describe("TabBar — a question waiting for a person", () => {
         })}
       />,
     );
-    expect(container.querySelector(".tab-wait")).toBeNull();
+    expect(container.querySelector('.tab-dot[data-live="waiting"]')).toBeNull();
     expect(screen.queryByTitle("armed — waiting for your approval")).toBeNull();
     expect(screen.getByTitle("s3")).toBeTruthy();
     expect(
@@ -167,13 +171,19 @@ describe("TabBar — a question waiting for a person", () => {
         })}
       />,
     );
-    expect(container.querySelector(".tab-wait")).toBeNull();
+    // A CLOSED tombstone is `off` in the model, not `waiting`: nothing can be answered on it even
+    // though the row still carries the question.
+    expect(container.querySelector('.tab-dot[data-live="waiting"]')).toBeNull();
+    expect(container.querySelector('.tab-dot[data-live="off"]')).toBeTruthy();
     expect(
       screen.getByTitle("gone — closed (its recorded trail is in Archive)"),
     ).toBeTruthy();
   });
 
-  it("shows no COUNT — one session holds at most one question", () => {
+  it("shows no COUNT — the mark is a state, not a tally", () => {
+    // The old mark was an empty element that could have grown a number. The state model has no
+    // count in it at all: one session holds at most one question, and the strip shows the session
+    // rather than a total. The device-wide total lives in the status bar and the tab title.
     const { container } = render(
       <TabBar
         {...props({
@@ -183,6 +193,7 @@ describe("TabBar — a question waiting for a person", () => {
         })}
       />,
     );
-    expect(container.querySelector(".tab-wait")!.textContent).toBe("");
+    const dot = container.querySelector('.tab-dot[data-live="waiting"]')!;
+    expect(dot.textContent).toBe("");
   });
 });

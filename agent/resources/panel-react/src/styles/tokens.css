@@ -190,6 +190,26 @@
   --rail-ink: var(--chrome-ink-dim);
   --rail-ink-strong: var(--chrome-ink);
 
+  /* ── THE MARK LANGUAGE'S TWO VARIABLES (lib/liveness.ts) ───────────────────────────────────────────────
+     Every mark draws its silhouette from ONE shared block (`.mark[data-live=…]` in components.css), so that
+     block paints with `--mark-ink` rather than a token of its own — and each PLACE names the ink it wants: a
+     transport lane on a tab, the rail's ink on the rail, the side list's lane on a sidebar row. These are the
+     DEFAULTS for anything that carries the mark class without naming one.
+
+     THEY ARE DECLARED HERE BECAUSE build-css REFUSES TO BUILD A SHEET THAT REFERENCES AN UNDEFINED VARIABLE,
+     and it was right to: the first version of this design referenced both and the build stopped with exit 1,
+     which is how the stale panel.css was found. A default also means the indirection cannot fail OPEN — a mark
+     with no ink named still draws as a neutral mark instead of vanishing.
+
+     BOTH RESOLVE PER THEME, because the tokens they point at are redefined in the dark block: no duplicate
+     dark declaration to drift. */
+  /* `--chrome-ink`, not `--chrome-ink-dim`: the dim ink is declared in the chrome block LATER in this file,
+     and a default that cannot be resolved from the same block is one the contrast contract cannot measure —
+     it reported "must resolve" and was right to. This one is per-theme (the dark block restates it), so the
+     indirection still follows the theme with no duplicated declaration. */
+  --mark-ink: var(--chrome-ink);
+  --mark-halo: var(--accent-soft);
+
   /* ---- geometry ---- */
   /* THE RADIUS SCALE, named after the values the UI already used rather than after a
      designer's ideal: an audit of the BUILT stylesheet found 12 distinct literals in use while
