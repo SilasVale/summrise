@@ -26,10 +26,12 @@ const BUILT_CSS = path.join(HERE, "..", "..", "..", "panel", "panel.css");
 
 /** The frozen list. Each entry is a class rendered in markup that no rule in the built sheet matches. */
 const KNOWN_UNSTYLED = [
-  "activity-row-dur", "archive-row-identity", "archive-row-kind", "device-logs-file", "dtab-confirm",
-  "health-stat", "monitor-expect", "monitor-fact", "path-step-run-label", "settings-input",
-  "settings-input-narrow", "settings-row-bar", "tab-confirm", "tab-confirm-hint", "traj-ev-kind",
-  "update-current",
+  // TRIAGED (round 249): `tab-confirm`, `dtab-confirm` and `tab-confirm-hint` left this list by getting rules —
+  // the two-step close had no layout of its own, so `close? [Close] [Cancel]` flowed inline inside a 30px strip.
+  // The thirteen below are still untriaged, which is what this ratchet is for.
+  "activity-row-dur", "archive-row-identity", "archive-row-kind", "device-logs-file", "health-stat",
+  "monitor-expect", "monitor-fact", "path-step-run-label", "settings-input", "settings-input-narrow",
+  "settings-row-bar", "traj-ev-kind", "update-current",
 ];
 
 function tsxFiles(dir: string, out: string[] = []): string[] {

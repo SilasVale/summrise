@@ -1121,6 +1121,28 @@ h3 { font-size: var(--fs-base); }
    pwsh, two tabs visible). The chip sits at the strip's end, where the hidden ones would start. */
 .tab-more { flex: none; align-self: center; padding: 1px 6px; margin-left: var(--sp-0-5); border-radius: var(--radius-pill); background: var(--surface-chip); color: var(--chrome-ink-dim); font: 600 var(--fs-2xs) var(--font); }
 .tab-more:hover { color: var(--chrome-ink); }
+
+/* ══ THE TWO-STEP CLOSE HAD NO LAYOUT OF ITS OWN (round 249) ═══════════════════════════════════════════════
+   Both densities render `close? [Close] [Cancel]` inside a bare <span>. The BUTTONS were styled; the thing
+   holding them was not, so they flowed inline in a strip that is 30px tall and capped in width — the confirm
+   row had no gap, no alignment and no promise about staying on one line. Found by triaging the sixteen classes
+   the markup ratchet froze; it is the same shape as `.tab-wait` (round 245): markup that renders and nothing
+   paints. */
+.tab-confirm, .dtab-confirm {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: var(--sp-1);
+}
+/* The hint is the DANGER context's word, so it uses the danger ink the memory page's confirm already uses —
+   one vocabulary for "this is the destructive branch", not two. */
+.tab-confirm-hint {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semi);
+  color: var(--danger-on-soft);
+  white-space: nowrap;
+}
 /* .tab-wait IS GONE. A session holding a question used to draw a diamond BESIDE the lane dot, because the
    dot could only carry a lane colour. The dot carries `data-live` now, so the diamond IS the dot — one mark
    per session instead of two, and the fact is legible from the strip instead of from an aria-label. */
