@@ -536,7 +536,10 @@
 /* HOW MANY SESSIONS THE STRIP IS HIDING. The fade said "there is more" and stopped there, so a reader
    knew they were missing something without knowing what (round 168: sixteen sessions, ten of them named
    pwsh, two tabs visible). The chip sits at the strip's end, where the hidden ones would start. */
-.tab-more { flex: none; align-self: center; padding: 1px 6px; margin-left: var(--sp-0-5); border-radius: var(--radius-pill); background: var(--surface-chip); color: var(--chrome-ink-dim); font: 600 var(--fs-2xs) var(--font); }
+/* --sp-0-5/--sp-2, NOT `1px 6px`: the scale has both steps, and a chip is exactly the kind of small box the
+   scale is for. The spacing ratchet caught the archive chip I copied from here (round 251), which is why BOTH
+   moved at once — two chips that look alike should be built alike. */
+.tab-more { flex: none; align-self: center; padding: var(--sp-0-5) var(--sp-2); margin-left: var(--sp-0-5); border-radius: var(--radius-pill); background: var(--surface-chip); color: var(--chrome-ink-dim); font: 600 var(--fs-2xs) var(--font); }
 .tab-more:hover { color: var(--chrome-ink); }
 
 /* ══ THE TWO-STEP CLOSE HAD NO LAYOUT OF ITS OWN (round 249) ═══════════════════════════════════════════════
@@ -972,9 +975,10 @@
 
    A ring rather than a spinner because it needs no markup, costs no layout, and is a graphic whose contrast the
    existing contracts already hold. */
-.approval-actions button[data-busy="1"],
-.approval-grant-x[data-busy="1"],
-#approval-arm[data-busy="1"] {
+/* ONE RULE, EVERY CONTROL. This started as three selectors naming the approval gate's buttons; it is an ATTRIBUTE
+   now, so any control that carries `data-busy` — written only by `lib/useAck.ts` — is painted by the same
+   declaration, and no component can invent its own pending look. */
+[data-busy="1"] {
   box-shadow: 0 0 0 2px var(--accent-ink);
   opacity: 1;
 }
@@ -3831,7 +3835,7 @@ button.dtab-close:hover { opacity: 1; }
    small piece of metadata. */
 .archive-row-kind {
   flex: none;
-  padding: 1px 6px;
+  padding: var(--sp-0-5) var(--sp-2);
   border-radius: var(--radius-pill);
   background: var(--surface-chip);
   color: var(--chrome-ink-dim);

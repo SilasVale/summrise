@@ -30,6 +30,7 @@
 // minute is announced exactly once through a separate polite `role="status"`.
 import { useEffect, useId, useLayoutEffect, useState } from "react";
 import type { PendingApproval } from "../hooks/useSessions";
+import { useAck } from "../lib/useAck";
 
 /** The last minute: seconds instead of minutes, danger ink, and the only
  *  announcement the gate ever makes. It used to be the last 10 s, which is
@@ -67,12 +68,11 @@ export function ApprovalGate({ armed, pending, grants, onArm, onDecide, onRevoke
   /** Revoke one word, or every one when omitted. */
   onRevoke: (grant?: string) => Promise<unknown>;
 }) {
-  // WHICH CONTROL IS BEING PROCESSED, not merely that one is. `busy` disabled every button and said nothing
-  // about which one the operator pressed, so on a slow device the only feedback was a row that had gone dim —
-  // indistinguishable from a click that never landed. The key travels with the request now, and the pressed
-  // control carries `aria-busy` and `data-busy` until the device answers (round 247).
-  const [busyOn, setBusyOn] = useState<string | null>(null);
-  const busy = busyOn !== null;
+  // ONE MECHANISM, SHARED (lib/useAck.ts). This component had the first version of the acknowledgement written
+  // inline (round 247); twelve other components still keep a bare boolean, so the fix lives in a hook they can
+  // all use. Same behaviour, one implementation — including the rule that the press is acknowledged on the EVENT
+  // and not on the reply.
+  const { busy, run: runAck, ack } = useAck();
   // The last moment we LOOKED at the clock. The deadline itself never moves, so
   // this is the only ticking state — no elapsed accumulator to double-count.
   const [now, setNow] = useState(() => Date.now());
@@ -129,25 +129,14 @@ export function ApprovalGate({ armed, pending, grants, onArm, onDecide, onRevoke
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  /**
-   * ACKNOWLEDGE ON THE EVENT, NOT ON THE REPLY. `setBusyOn` runs in the same tick as the click, so the pressed
-   * control shows that it heard before the request leaves — which is the half of "feedback" that does not depend
-   * on how slow the device is. The key names WHICH control, so the one that was pressed is the one that looks
-   * busy while its siblings step back.
-   */
+  /** Run `fn` as the acknowledgement of `key`; a failure keeps its own surface from reporting it. */
   const run = async (key: string, fn: () => Promise<unknown>) => {
-    setBusyOn(key);
     try {
-      await fn();
+      await runAck(key, fn);
     } catch {
-      // The hook already reported the message; this only keeps the control from
-      // looking like it worked.
-    } finally {
-      setBusyOn(null);
+      // The hook already reported the message; this only keeps the control from looking like it worked.
     }
   };
-  /** The two attributes a pending control carries: `aria-busy` for assistive tech, `data-busy` for the paint. */
-  const ack = (key: string) => ({ "aria-busy": busyOn === key || undefined, "data-busy": busyOn === key ? "1" : undefined });
 
   if (expired) {
     // THE ZERO-SECOND RULE. At 0 s the question is settled and nothing can be

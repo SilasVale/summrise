@@ -170,3 +170,33 @@ describe("MemoryPage accessible names", () => {
     }
   });
 });
+
+describe("the acknowledgement", () => {
+  it("names the control you pressed, and only that one, before the device answers", async () => {
+    // SEARCH NEVER RESOLVES, ON PURPOSE: the acknowledgement must fire on the event, so this test gives it
+    // nothing to wait for. Six controls on this page share one flag — Search, List, Export and the rest — and
+    // the point of the key is that the one you pressed is the one that says so.
+    render(<MemoryPage />);
+    expect(await screen.findByText("Deploy notes")).toBeTruthy();
+
+    vi.mocked(callTool).mockImplementation(
+      () => new Promise(() => {}) as Promise<never>,
+    );
+    // A QUERY FIRST, because Search with an empty box DELEGATES to List (`await load()`), so the busy key would
+    // honestly be "list" and this test would be asserting the wrong control. That delegation is a real behaviour
+    // worth knowing; it is not what is under test here.
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "deploy" } });
+    const search = screen.getByText("Search");
+    fireEvent.click(search);
+
+    // NO AWAIT: the state the click produced is already on screen.
+    expect(search.getAttribute("aria-busy"), "the pressed control must say it heard").toBe("true");
+    expect(search.getAttribute("data-busy")).toBe("1");
+    const list = screen.getByText("List");
+    const exp = screen.getByText("Export");
+    expect((list as HTMLButtonElement).disabled, "its siblings step back").toBe(true);
+    expect((exp as HTMLButtonElement).disabled).toBe(true);
+    expect(list.getAttribute("aria-busy"), "and none of them claims to be the busy one").toBeNull();
+    expect(exp.getAttribute("aria-busy")).toBeNull();
+  });
+});

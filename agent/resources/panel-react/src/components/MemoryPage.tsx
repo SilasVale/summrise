@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callTool } from "../lib/api";
 import { Icon } from "../ui/Icon";
+import { useAck } from "../lib/useAck";
 
 interface MemEntry {
   id: string;
@@ -34,7 +35,10 @@ export function MemoryPage() {
   const [namespace, setNamespace] = useState("");
   const [tag, setTag] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  // SIX CONTROLS SHARED ONE BOOLEAN: Search, List, Export and the rest all dimmed together, so a slow device
+  // gave no answer to "which one did I press?". The key names it now (lib/useAck.ts). The edit form keeps its own
+  // flag because it is a different area of the page with its own single control.
+  const { busy, ack, run } = useAck();
   const [exportText, setExportText] = useState("");
   const [toast, setToast] = useState("");
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -45,7 +49,7 @@ export function MemoryPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
   const [editTags, setEditTags] = useState("");
-  const [editBusy, setEditBusy] = useState(false);
+  const { busy: editBusy, ack: editAck, run: runEdit } = useAck();
   const loaded = useRef(false);
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -58,9 +62,9 @@ export function MemoryPage() {
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
   const load = useCallback(async () => {
-    setBusy(true);
-    setError("");
-    try {
+    await run("list", async () => {
+      setError("");
+      try {
       const params: Record<string, unknown> = {};
       if (namespace) params.namespace = namespace;
       if (tag) params.tag = tag;
@@ -68,12 +72,11 @@ export function MemoryPage() {
       const r = await callTool("memory_list", params);
       const rows = (r?.results || []) as MemEntry[];
       setEntries(rows);
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [namespace, tag]);
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+    });
+  }, [namespace, tag, run]);
 
   useEffect(() => {
     if (!loaded.current) {
@@ -83,9 +86,9 @@ export function MemoryPage() {
   }, [load]);
 
   const search = useCallback(async () => {
-    setBusy(true);
-    setError("");
-    try {
+    await run("search", async () => {
+      setError("");
+      try {
       if (query.trim()) {
         // round-161 bug fix: the tag filter is now passed to SEARCH too (it
         // used to be silently ignored unless you switched to List).
@@ -99,12 +102,11 @@ export function MemoryPage() {
       } else {
         await load();
       }
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [query, namespace, tag, load]);
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+    });
+  }, [query, namespace, tag, load, run]);
 
   const del = useCallback(
     async (id: string) => {
@@ -131,41 +133,40 @@ export function MemoryPage() {
 
   const saveEdit = useCallback(async () => {
     if (!editId) return;
-    setEditBusy(true);
-    try {
-      const tags = editTags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (editId === NEW_ID) {
-        // stage-n: create from the UI — memory_save was AI-only until now.
-        if (!editTitle.trim() || !editContent.trim()) {
-          setError("title and content are required");
-          return;
+    await runEdit("save", async () => {
+      try {
+        const tags = editTags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        if (editId === NEW_ID) {
+          // stage-n: create from the UI — memory_save was AI-only until now.
+          if (!editTitle.trim() || !editContent.trim()) {
+            setError("title and content are required");
+            return;
+          }
+          await callTool("memory_save", {
+            title: editTitle.trim(),
+            content: editContent,
+            tags,
+          });
+          toastMsg("entry created");
+        } else {
+          await callTool("memory_update", {
+            id: editId,
+            title: editTitle.trim(),
+            content: editContent,
+            tags,
+          });
+          toastMsg("saved");
         }
-        await callTool("memory_save", {
-          title: editTitle.trim(),
-          content: editContent,
-          tags,
-        });
-        toastMsg("entry created");
-      } else {
-        await callTool("memory_update", {
-          id: editId,
-          title: editTitle.trim(),
-          content: editContent,
-          tags,
-        });
-        toastMsg("saved");
+        setEditId(null);
+        load();
+      } catch (e: any) {
+        setError(e?.message || String(e));
       }
-      setEditId(null);
-      load();
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setEditBusy(false);
-    }
-  }, [editId, editTitle, editContent, editTags, load, toastMsg]);
+    });
+  }, [editId, editTitle, editContent, editTags, load, toastMsg, runEdit]);
 
   // stage-n: start a NEW entry — same inline form, empty fields.
   const startNew = useCallback(() => {
@@ -177,18 +178,15 @@ export function MemoryPage() {
   }, []);
 
   const doExport = useCallback(async () => {
-    // SPA audit LOW-5: the Export button's disabled={busy} was VACUOUS —
-    // doExport never set busy, so double-clicks ran two full exports.
-    setBusy(true);
-    try {
-      const r = await callTool("memory_export", namespace ? { namespace } : {});
-      setExportText(r?.export || "");
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [namespace]);
+    await run("export", async () => {
+      try {
+        const r = await callTool("memory_export", namespace ? { namespace } : {});
+        setExportText(r?.export || "");
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+    });
+  }, [namespace, run]);
 
   const copyExport = useCallback(async () => {
     try {
@@ -240,6 +238,7 @@ export function MemoryPage() {
           className="btn btn-ghost btn-mini"
           onClick={search}
           disabled={busy}
+          {...ack("search")}
         >
           Search
         </button>
@@ -247,6 +246,7 @@ export function MemoryPage() {
           className="btn btn-ghost btn-mini"
           onClick={load}
           disabled={busy}
+          {...ack("list")}
         >
           List
         </button>
@@ -254,6 +254,7 @@ export function MemoryPage() {
           className="btn btn-ghost btn-mini"
           onClick={doExport}
           disabled={busy}
+          {...ack("export")}
         >
           Export
         </button>
@@ -303,6 +304,7 @@ export function MemoryPage() {
                   className="btn btn-mini"
                   onClick={saveEdit}
                   disabled={editBusy}
+                  {...editAck("save")}
                 >
                   {editBusy ? "Saving…" : "Create"}
                 </button>
