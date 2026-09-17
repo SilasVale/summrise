@@ -59,6 +59,51 @@ const SURFACE = \`(() => {
     // (not white, black or grey) and big enough to be a surface rather than a dot. ONE is a page with something
     // to say; ZERO is a page that is all context, which is right for a form or a dashboard; TWO means nothing on
     // it is the focal point, because two things are asking to be looked at first.
+    // ── THE MARK LANGUAGE, AS THE BROWSER ACTUALLY PAINTS IT ────────────────────────────────────────────────
+    // The silhouettes are asserted against the SHEET by unit tests, and round 25 showed what that cannot see: a
+    // rule later in the cascade overrode '.plug-dot[error]''s diamond and left a stray halo around it. The sheet
+    // was right and the page was wrong. This reads the COMPUTED style of every state mark on the page, groups by
+    // family, and reports any family whose states share a shape.
+    //
+    // A FAMILY is a mark's class without its state qualifier ('.cmd-dot[data-state="fail"]' → '.cmd-dot'), and a
+    // STATE is whatever the element carries: 'data-state', 'data-live', or the second class. The signature is the
+    // geometry that survives colour blindness — radius, rotation, and whether it is a fill, a ring or a haloed
+    // fill — because colour is the SECOND channel and this check exists for the user who cannot read it.
+    marks: (() => {
+      const families = new Map();
+      for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+        const st = getComputedStyle(el);
+        if (st.display === 'none' || st.visibility === 'hidden') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
+        const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/) : [];
+        const state = el.getAttribute('data-state') || el.getAttribute('data-live');
+        // the family is the class the STATE rules hang off: with a data-attribute it is the first class, with a
+        // modifier class it is everything except the last one
+        const base = state ? cls[0] : cls.length > 1 ? cls.slice(0, -1).join('.') : null;
+        const which = state || (cls.length > 1 ? cls[cls.length - 1] : null);
+        if (!base || !which) continue;
+        if (!/\.(dot|dotcol|mark|led|chip|signal|state)$|(dot|led|mark)$/.test(base)) continue;
+        const bg = st.backgroundColor;
+        const filled = !!bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg);
+        const shadow = st.boxShadow;
+        const kind = /inset/.test(shadow) ? 'ring' : filled && shadow !== 'none' ? 'halo' : filled ? 'solid' : 'empty';
+        const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', kind].join('/');
+        const key = base;
+        if (!families.has(key)) families.set(key, new Map());
+        families.get(key).set(which, sig);
+      }
+      const collisions = [];
+      for (const [fam, states] of families) {
+        if (states.size < 2) continue;
+        const bySig = new Map();
+        for (const [state, sig] of states) {
+          if (bySig.has(sig)) collisions.push(fam + ': ' + bySig.get(sig) + ' and ' + state + ' paint identically (' + sig + ')');
+          else bySig.set(sig, state);
+        }
+      }
+      return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6) };
+    })(),
     loud: (() => {
       const parse = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
       const loud = [];
@@ -494,6 +539,12 @@ export function judgeReport(report, opts = {}) {
     }
     for (const [kind, list] of [["overflow", s.over], ["clipping", s.clipped], ["sliver", s.slivers]]) {
       if (list && list.length) findings.push(`${where}: ${kind} — ${list.join("; ")}`);
+    }
+    // THE MARK LANGUAGE AS PAINTED. A family whose two states render identically is colour-only wherever a cascade
+    // override or a missing rule made it so — the sheet can be right while the page is wrong, which is exactly how
+    // `.plug-dot[error]` kept a stray halo through a unit test that passed (round 25).
+    if (s.marks && (s.marks.collisions || []).length) {
+      findings.push(`${where}: states of one mark paint identically — ${s.marks.collisions.join("; ")}`);
     }
     // ONE FOCAL POINT, AT MOST. Two loud surfaces means neither is the thing the page is about; the ceiling is
     // one, and zero is allowed because a form or a dashboard is all context and should not shout. A page that
