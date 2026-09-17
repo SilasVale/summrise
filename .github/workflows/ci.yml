@@ -96,6 +96,30 @@ jobs:
         run: npm test
         working-directory: agent/resources/panel-react
 
+  # THE DESIGN SUITE, ON EVERY PUSH (round 213). The sweeps have only ever run when the loop remembered to
+  # run them, on a device, against DELIVERED copies — and rounds 184-212 found a console bundle two generations
+  # old, a harness carrying a reverted change, a probe reading a day-stale snapshot, and a guard that could not
+  # be satisfied after a rebuild. All four are properties of the delivery pipeline, not of the product. Here
+  # the same sweep runs against what this checkout BUILDS, with nothing delivered in between.
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: agent/resources/panel-react/package.json
+      - name: Install deps
+        working-directory: agent/resources/panel-react
+        run: npm ci --include=optional
+      - name: Build the panel (the sweep reads the built stylesheet)
+        working-directory: agent/resources/panel-react
+        run: npm run build
+      - name: Install a browser for the sweep
+        working-directory: agent/resources/panel-react
+        run: npx playwright install --with-deps chromium
+      - name: Design sweep (contrast, spacing, hierarchy, typography, states)
+        run: bash scripts/test/panel-design-ci.bash
+
   agent:
     name: agent (cargo test + clippy + fmt)
     runs-on: ubuntu-latest
