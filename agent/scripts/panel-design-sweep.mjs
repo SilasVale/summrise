@@ -347,6 +347,27 @@ ${TIMING}
   }
   }
 
+  // SIXTEEN SESSIONS, IN BOTH DENSITIES — the state the operator actually complained about. Rounds 169-172
+  // fixed ten identical pwsh labels, added the +N chip, moved the view switch out of the strip and cured a
+  // strip that had collapsed to 35px. EVERY SURFACE IN THIS SUITE RENDERS 0, 3 OR 4 SESSIONS, so none of that
+  // work has ever been drawn by a measuring run: a regression in the chip, or in the label disambiguation, or
+  // in the desktop strip's separate renderer, would be invisible. 16 is the operator's own count.
+  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=16&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(2000);
+      const rows = await page.evaluate(PROBE);
+      const name = (density === 'desktop' ? 'Desktop-16-sessions' : 'Terminal-16-sessions');
+      for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'overflow', page: name });
+      report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
+      report.surfaces.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(NAMES)) });
+    }
+  }
+
   // THE TWO REMAINING FIXTURE STATES, both hand-measured in earlier rounds and swept by nothing. Round 158
   // closed this gap for the message tones and round 159 for the busy card; these are the last two the
   // harness can express.
