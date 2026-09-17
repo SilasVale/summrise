@@ -234,6 +234,9 @@ export async function focusPass(page, presses, label = {}) {
   // HOW MANY THE PIXELS RESCUED FROM A WRONG VERDICT. Reported rather than hidden: a number that keeps
   // climbing means the computed-style check is drifting further from what the browser paints.
   let paintConfirmed = 0;
+  // HOW OFTEN THE CHECK COULD NOT LOOK. Separate from missing on purpose: see the catch below.
+  let unconfirmed = 0;
+  const unconfirmedOn = [];
   // AND WHICH ONES. A count alone leaves the next reader to re-derive the finding — round 136 got
   // "missing: 11" from the extension and could not tell a real defect from a broken probe. The offenders
   // name themselves instead, in the same tag.class form the rest of the suite uses.
@@ -282,6 +285,7 @@ export async function focusPass(page, presses, label = {}) {
       // indication, which is the WCAG 2.4.7 failure this check exists to find. Only candidates pay for the
       // two screenshots, so a clean page costs nothing.
       let painted = false;
+      let paintFailed = null;
       try {
         const box = await page.evaluate(() => {
           const e = document.activeElement;
@@ -295,10 +299,21 @@ export async function focusPass(page, presses, label = {}) {
           const withoutRing = await page.screenshot({ clip: box });
           painted = !withRing.equals(withoutRing);
         }
-      } catch (e) { painted = false; }
-      if (painted) {
+        paintFailed = null;
+      } catch (e) {
+        // A CHECK THAT COULD NOT LOOK MUST NOT REPORT A FINDING, and must not report a pass either. The
+        // first version set painted = false here, which turned a failed screenshot into "this control has no
+        // focus indication" — the same false-finding shape that cost six rounds before round 186. Null means
+        // UNCONFIRMED: counted separately, and treated by the judge as a failure of the CHECK, because a
+        // measurement that did not happen is not evidence of anything (rounds 133-134's rule).
+        paintFailed = String(e && e.message ? e.message : e).slice(0, 80);
+      }
+      if (painted === true) {
         landed++;
         paintConfirmed++;
+      } else if (painted === null) {
+        unconfirmed++;
+        if (unconfirmedOn.length < 5) unconfirmedOn.push(verdict.where);
       } else {
         missing++;
         if (missingOn.length < 8) missingOn.push(verdict.where);
@@ -313,6 +328,7 @@ export async function focusPass(page, presses, label = {}) {
     escaped,
     missing,
     ...(paintConfirmed ? { paintConfirmed } : {}),
+    ...(unconfirmed ? { unconfirmed, unconfirmedOn, ...(paintFailed ? { paintFailed } : {}) } : {}),
     ...(missingOn.length ? { missingOn } : {}),
     ...(evidence ? { why: { where: evidence.where, outline: evidence.outline, boxShadow: evidence.boxShadow, focusVisible: evidence.focusVisible, ringToken: evidence.ringToken } } : {}),
   };
@@ -497,6 +513,16 @@ export function judgeReport(report, opts = {}) {
     );
   }
   for (const f of report.focus || []) {
+    // A CHECK THAT COULD NOT LOOK IS NOT A PASS. The pixel confirmation can fail (an offscreen element, a
+    // clip the browser refuses), and the first version turned that into "no focus indication" — a false
+    // finding. It is now its own verdict, and it FAILS the run, because an unperformed measurement proves
+    // nothing either way.
+    if (f.unconfirmed) {
+      findings.push(
+        `${f.page ? f.page + ': ' : ''}${f.unconfirmed} focus candidate(s) could not be confirmed against the pixels` +
+          `${(f.unconfirmedOn || []).length ? ' — ' + f.unconfirmedOn.join(', ') : ''} — the check could not look, so it cannot say`,
+      );
+    }
     if (f.missing) findings.push(`${f.page ? f.page + ': ' : ''}${f.missing} Tab stop(s) with no visible focus ring`);
     // A RUN THAT LANDED NOWHERE IS NOT A PASSING RUN. Focus escaping to the body used to count as "ok",
     // so a page with nothing focusable reported a clean sheet — the same "a skip reads as a pass" defect

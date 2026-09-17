@@ -114,6 +114,11 @@ elif which == "theme-lie":
     # A REPORT THAT DESCRIBES A PAGE IT DID NOT RENDER: navigated as dark, rendered light. This is exactly
     # what round 175 shipped by accident, and the check reads the theme off the PAGE to catch it.
     r["themeChecks"] = [{"page": "Terminal-fail-dark", "intended": "dark", "stored": "light", "attr": "", "bodyBackground": "rgb(250, 250, 250)"}]
+elif which == "focus-unconfirmed":
+    # A CHECK THAT COULD NOT LOOK MUST NOT READ AS A PASS. The pixel confirmation's screenshot can fail; the
+    # first version turned that into "no focus indication", a false finding. It is now its own verdict and it
+    # FAILS the run, because an unperformed measurement proves nothing either way.
+    r["focus"] = [{"page": "Terminal", "pressed": 14, "landed": 14, "escaped": 0, "missing": 0, "unconfirmed": 2, "unconfirmedOn": ["button.btn", "a.link"], "paintFailed": "clip is outside the viewport"}]
 elif which == "harness-stale":
     # A FIXTURE OLDER THAN THE BUILD INVALIDATES EVERY MEASUREMENT IN THE REPORT (round 189: a delivered
     # harness two generations old collapsed the tab strip to 17px and the sweep called it a live defect).
@@ -149,7 +154,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale; do
+for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
