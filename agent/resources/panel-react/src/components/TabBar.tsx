@@ -106,7 +106,11 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
             aria-selected={s.sid === activeSid}
             onClick={() => { if (!s.closed) onActivate(s.sid); }}
           >
-            <span className={`tab-dot ${s.kind === "ssh" ? "ssh" : s.kind === "serial" ? "serial" : ""}`} data-kind={s.kind} />
+            {/* DATA-KIND ONLY. This also appended a bare "ssh" or "serial" class, and NO RULE HAS EVER MATCHED IT: the
+                stylesheet moved to [data-kind="ssh"] and left the class behind, so the sweep's unstyled scan
+                reported `class name(s) with no matching rule on panel: ssh` (round 214). The colouring comes
+                from the attribute; the class was a second, dead signal for the same fact. */}
+            <span className="tab-dot" data-kind={s.kind} />
             <span className="tab-name">{displayLabel[tabIndex]}</span>
             {/* A SHAPE, not the existing .tab-dot (a circle): the two marks sit
                 in the same row, so a second circle would read as a second lane
