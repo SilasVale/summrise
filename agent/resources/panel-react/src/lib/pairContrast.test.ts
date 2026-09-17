@@ -284,6 +284,12 @@ describe("colour pairs declared in one rule", () => {
       [".boot-mark", "--surface-chip"],
       [".monitor-mark", "--surface-chip"],
       [".waiting-mark", "--surface-chip"],
+      // THE SURFACE HERE IS DISPUTED, AND THE DISAGREEMENT IS THE FINDING (round 211). The sweep measures
+      // this dot's real parent background as rgb(31, 31, 31) in a LIGHT-theme render, where --chrome-bg-2 is
+      // #ffffff — and against that real surface the dot measures 2.32:1, under the 3:1 this check exists to
+      // enforce. Either the frame's light theme is not reaching the rail, or this mapping names the wrong
+      // token; the check passes either way, which is the part that matters. Do not "fix" it by choosing
+      // whichever surface makes the number pass.
       ['.rail-dot[data-state="waiting"]', "--chrome-bg-2"],
       ['.cmd-dot[data-state="warn"]', "--chrome-bg-2"],
       [".side-dot", "--chrome-bg-2"],

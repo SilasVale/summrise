@@ -140,7 +140,11 @@
   /* ---- round-161 semantic additions (previously hardcoded in css) ---- */
   --tag-ink: #0a6f64; /* memory tag chips (teal ink, light theme) */
   --terminal-bg: #131418; /* xterm + browser viewport (always dark) */
-  --rail-ink: #9a9aa0; /* desktop rail idle label (rail is always dark) */
+  /* NOT "the rail is always dark" — that was true until round 162 made the frame chrome LIGHT by default
+     (see --chrome-bg below) and it stayed in this comment for fifty rounds. The rail is dark in the dark
+     theme and light in the light one, like the rest of the frame. Corrected in round 211 after the sweep
+     and the pair-contrast test disagreed about which surface a rail mark sits on. */
+  --rail-ink: #9a9aa0;
   --rail-ink-strong: #ffffff;
 
   /* ---- round-162 frame chrome — LIGHT by default (user preference) ----
