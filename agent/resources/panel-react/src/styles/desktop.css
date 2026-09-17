@@ -209,6 +209,11 @@
    base — a hover that reduced contrast to 4.27. */
 .btn-new:hover { background: var(--accent-solid-hover); }
 .btn-new:active { transform: translateY(1px); }
+/* The desktop density's own chrome answers a press the same way the panel's does — see the press layer in
+   components.css for why there are two treatments and why `:not(:disabled)` is on the buttons. */
+.dtab:active,
+.dtab-close:active,
+button.dtab-close:active { transform: translateY(1px); }
 .new-menu {
   position: absolute;
   top: calc(100% + 6px);

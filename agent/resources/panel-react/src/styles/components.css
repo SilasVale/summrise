@@ -15,6 +15,81 @@
    (tried in round 148 — 5122 insertions, two tests red). One rule per line, hand-wrapped, is the format. */
 .btn:active:not(:disabled) { transform: translateY(1px); }
 
+/* ══ THE PRESS LAYER ═══════════════════════════════════════════════════════════════════════════════════════
+   MEASURED, THEN WRITTEN (round 246). The sheet carried **74 hover selectors and 3 press selectors**: the panel
+   answered a pointed-at cursor almost everywhere and a PRESSED one almost nowhere, so the feedback an operator
+   felt on a click was whatever the network did next. `scripts/test/feedback-check.mjs` now fails when a hover has
+   no press, which is what this block exists to satisfy — and it is one block rather than sixty rules because a
+   press should feel the same everywhere.
+
+   TWO TREATMENTS, and the choice is about the object, not the tag:
+     * A CONTROL SINKS 1px. It is a thing you push, and the sink is `transform`, which the compositor can do
+       without re-laying-out anything.
+     * A ROW OR A TAB STEPS. It is a surface you land on, and a 29px-tall row that jumps a pixel looks broken;
+       it deepens instead.
+   `:not(:disabled)` is on everything that can be disabled: a press on a dead control must do NOTHING, or the
+   interface lies about what is available. */
+.btn-ghost:active:not(:disabled),
+.btn-danger:active:not(:disabled),
+.rail-btn:active,
+.desktop-rail-btn:active,
+.side-unhide:active,
+.side-action:active,
+.side-action.archive:active,
+.side-add:active,
+.side-menu button:active,
+.tab-more:active,
+.tab-export:active:not(:disabled),
+.tab-close:active:not(:disabled),
+.view-switch-btn:active,
+.desktop-view-switch .view-switch-btn:active,
+.modal-actions button:active:not(:disabled),
+.cmd-btn:active:not(:disabled),
+.details-close:active,
+.traj-earlier:active,
+.traj-round:active,
+.traj-round-head:active,
+.plug-btn:active:not(:disabled),
+.plug-btn.danger:active:not(:disabled),
+.browser-action-script:active,
+.browser-nav:active:not(:disabled),
+.browser-ev-toggle:active,
+.connect-tab:active,
+.connect-actions button:active:not(:disabled),
+#conn-form button:active:not(:disabled),
+.new-menu button:active,
+.path-recipe-open:active,
+.path-recipe-actions button:active:not(:disabled),
+.path-recipe-actions button.primary:active:not(:disabled),
+.term-searchbar button:active,
+.term-fontbar button:active,
+.archive-more:active,
+.archive-back:active,
+.gs-close:active,
+.gs-where:active,
+.evicted-x:active,
+.idle-x:active,
+#cmd-toggle:active,
+#drawer-head button:active,
+.goal-clear:active:not(:disabled),
+#approval-arm:active:not(:disabled),
+.approval-refuse:active:not(:disabled),
+.approval-remember:active:not(:disabled),
+.approval-grant-x:active:not(:disabled),
+#session-control:active:not(:disabled),
+.app-crash-card .btn:active:not(:disabled) { transform: translateY(1px); }
+
+.side-row:active,
+.tab:active,
+.tab.closed:active,
+.cmd-card:active,
+.run-strip-head:active,
+.archive-row:active,
+.path-attention-row:active,
+.term-fontbar:active,
+#goal-bar.no-goal:active,
+#goal-bar.has-goal:active { background: var(--chrome-hover); }
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -107,7 +182,7 @@
 .mark[data-live="working"] {
   background: var(--mark-ink);
   border-radius: 50%;
-  box-shadow: 0 0 0 2.5px var(--mark-halo, var(--accent-soft));
+  box-shadow: 0 0 0 2.5px var(--mark-halo);
 }
 .mark[data-live="waiting"] {
   /* NOT a corner style: a rotated square, and the 2px only takes the point off the diamond. The scale test
@@ -420,7 +495,11 @@
   cursor: pointer;
   white-space: nowrap;
   font: inherit;
-  transition: all 0.15s ease;
+  /* NAMED, NOT `all`. `transition: all` animates every property that changes, including the ones that
+     re-lay-out — and a tab's hover changes colour and border, while its press changes background. Three
+     properties, stated, is both cheaper and honest about what moves (round 246; the feedback gate reports
+     `all` by name). */
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .tab:hover { color: var(--chrome-ink); border-color: var(--chrome-ink-faint); }
 .tab.closed { color: var(--chrome-ink-dim); text-decoration: line-through; }
