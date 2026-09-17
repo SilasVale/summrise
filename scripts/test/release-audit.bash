@@ -96,6 +96,12 @@ has "and name the file" "$out" "./a.txt"
 mk_tgz "$WORK/gh.tgz"   package 644
 mk_tgz "$WORK/cdn.tgz"  package 644
 out="$(run_audit "$WORK/gh.tgz" "$WORK/cdn.tgz" 2>&1)" && rc=0 || rc=$?
+# PRINT THE AUDIT'S OWN OUTPUT WHEN THIS ONE FAILS, exactly as case 1 does. This check failed once on CI
+# (2026-09-17) and passed on an identical re-run with NO LOCAL REPRODUCTION in between — and because only
+# the failure branch above echoed anything, the log said "must PASS" and nothing else. The fixture's modes
+# are all explicit (the directory since the umask fix above), so there is no known environment dependency
+# left in it; if this fires again, the audit's own words are the first thing anyone will need.
+if [ "$rc" != 0 ]; then echo "--- audit output ---"; echo "$out"; fi
 check "identical trees (modes included) must PASS" "$rc" "0"
 
 # --- 3. a listing that cannot be taken must NOT compare equal ---------------
