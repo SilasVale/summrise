@@ -42,6 +42,25 @@ import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, mot
 
 const mode = process.argv[2];
 
+// HOW TO RENDER THIS CONSOLE FROM HERE WITHOUT DELIVERING A DIRECTORY (round 17 of the standing goal). The sweep
+// below measures a DELIVERED build — `C:\ProgramData\Vale\pwout\console`, several files, one transfer each. For a
+// one-off look at a page there is a cheaper path, and it was used to verify the `.sig-dot` silhouettes on the real
+// console (ok = circle, err = a ROTATED diamond at 2px radius; inks 6.10 and 4.65 against their own cards):
+//
+//   1. `gateway/public/` holds the whole build. Emit ONE file: a JSON map of path -> contents for `index.html`,
+//      `style.css`, `favicon.svg`, `icons.svg` and everything in `assets/` (about 390 KB, one transfer).
+//   2. On the device, route `http://vale.test/**` by looking the pathname up in that map, with `/` and any
+//      extension-less path falling back to `/index.html` (it is an SPA) and a 404 for a missing FILE.
+//   3. Route `/api/**` ON THE SAME ORIGIN. The built console calls `/api/me`, not the deployed host — the sweep's
+//      own handler keys on `https://ai.saisi.online`, which is right for ITS delivery and wrong for this one.
+//
+//   TWO TRAPS, both of which cost an attempt here:
+//     * INLINING THE BUNDLE INTO THE HTML DOES NOT WORK. The bundle contains `</script>` and `<!--` sequences that
+//       end the script element early however carefully the closing tags are escaped — the page renders the source
+//       as text. Serve it as a FILE and let the browser fetch it as a module.
+//     * KEEP `type="module"`. The entry tag is `<script type="module" crossorigin src=...>`; dropping the attribute
+//       makes the ESM bundle a classic script and nothing mounts (`#root` stays empty with no error).
+//
 // COMPUTED AT EMIT TIME, NOT BAKED (round 223). Round 191 wrote the entry digest as a LITERAL, so
 // rebuilding the UI changed the file and made the check unsatisfiable — a fix for exactly this was made
 // for the panel harness in round 210 and NOT applied here, which is why the console sweep failed on the
