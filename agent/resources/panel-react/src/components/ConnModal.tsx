@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { callApi } from "../lib/api";
+import { useAck } from "../lib/useAck";
 
 // SSH / Serial connection modal (migrated from vanilla panel.js showModal/
 // connectModal). Includes the round-70 "Saved connections" dropdown that
@@ -11,7 +12,9 @@ export function ConnModal({ kind, onClose, onConnect }: {
 }) {
   const [saved, setSaved] = useState<any[]>([]);
   const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
+  // THE EARLY RETURNS USED TO CLEAR THE FLAG BY HAND, twice, and a third added later would have been a stuck
+  // button. `run` clears it on every path (lib/useAck.ts).
+  const { busy, ack, run } = useAck();
   // ssh fields
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
@@ -60,34 +63,33 @@ export function ConnModal({ kind, onClose, onConnect }: {
 
   async function connect() {
     if (busy) return;
-    setBusy(true);
-    try {
-      if (kind === "ssh") {
-        if (!host || !user) { setStatus("host + username required"); setBusy(false); return; }
-        const target = `${user}@${host}:${port}`;
-        // key_path set → public-key auth server-side; the password field
-        // doubles as the key passphrase.
-        const extra: Record<string, unknown> = { password: pass };
-        if (keyPath.trim()) extra.key_path = keyPath.trim();
-        await onConnect(target, extra);
-      } else {
-        if (!sport) { setStatus("port required"); setBusy(false); return; }
-        // round-102: replay the saved framing params (parity/data/stop) so a
-        // reconnect preserves the link config.
-        const extra: Record<string, unknown> = { ...savedParams.current };
-        delete extra.password; // never send credentials through here
-        if (autoReconnect) extra.auto_reconnect = true;
-        await onConnect(`${sport}?baud=${baud}`, extra);
+    await run("connect", async () => {
+      try {
+        if (kind === "ssh") {
+          if (!host || !user) { setStatus("host + username required"); return; }
+          const target = `${user}@${host}:${port}`;
+          // key_path set → public-key auth server-side; the password field
+          // doubles as the key passphrase.
+          const extra: Record<string, unknown> = { password: pass };
+          if (keyPath.trim()) extra.key_path = keyPath.trim();
+          await onConnect(target, extra);
+        } else {
+          if (!sport) { setStatus("port required"); return; }
+          // round-102: replay the saved framing params (parity/data/stop) so a
+          // reconnect preserves the link config.
+          const extra: Record<string, unknown> = { ...savedParams.current };
+          delete extra.password; // never send credentials through here
+          if (autoReconnect) extra.auto_reconnect = true;
+          await onConnect(`${sport}?baud=${baud}`, extra);
+        }
+        // P2-2: the password/passphrase must not linger in the form state
+        // after a successful connect (screen share / shoulder surf).
+        setPass("");
+        onClose();
+      } catch (e: any) {
+        setStatus(e.message || "connect failed");
       }
-      // P2-2: the password/passphrase must not linger in the form state
-      // after a successful connect (screen share / shoulder surf).
-      setPass("");
-      onClose();
-    } catch (e: any) {
-      setStatus(e.message || "connect failed");
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   // P2-2: dismissing the modal also wipes the password field — a cancelled
@@ -141,7 +143,7 @@ export function ConnModal({ kind, onClose, onConnect }: {
         )}
         <div className="modal-actions">
           <button onClick={close}>Cancel</button>
-          <button className="primary" onClick={connect} disabled={busy}>Connect</button>
+          <button className="primary" onClick={connect} disabled={busy} {...ack("connect")}>Connect</button>
         </div>
         <div id="modal-status" className={status.startsWith("host") || status.startsWith("port") ? "error" : ""}>{status}</div>
       </div>

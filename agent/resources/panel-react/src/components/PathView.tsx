@@ -59,6 +59,7 @@ import { useTrajectory } from "../hooks/useTrajectory";
 import { fmtDuration } from "./CommandCard";
 import { RunStrip } from "./RunStrip";
 import type { CommandEvent } from "../hooks/useCommandEvents";
+import { useAck } from "../lib/useAck";
 
 /** Compact duration for the summary line ("at least 1m 12s" when some steps
  *  have no measurable duration). */
@@ -107,7 +108,9 @@ export function PathView({
   // find and re-run it (see lib/recipe.ts for why that store).
   const [recipeOpen, setRecipeOpen] = useState(false);
   const [recipeName, setRecipeName] = useState("");
-  const [recipeBusy, setRecipeBusy] = useState(false);
+  // THREE CONTROLS, ONE FLAG: the recipe's Run, Copy and Save all dimmed together, so a slow device could not say
+  // which one was pressed. The key names it (lib/useAck.ts).
+  const { busy: recipeBusy, busyOn: recipeBusyOn, ack: recipeAck, run: runRecipe } = useAck();
   const [recipeMsg, setRecipeMsg] = useState<{
     kind: "ok" | "err";
     text: string;
@@ -171,33 +174,32 @@ export function PathView({
    *  about failure: a recipe the operator believes was saved but was not is
    *  worse than no recipe. */
   const saveRecipe = async () => {
-    setRecipeBusy(true);
-    setRecipeMsg(null);
-    try {
-      const draft = buildRecipe(path, {
-        name: recipeName,
-        sessionKind,
-        sessionLabel,
-        goal,
-      });
-      await callTool("memory_save", {
-        title: draft.title,
-        content: draft.content,
-        tags: draft.tags,
-      });
-      setRecipeOpen(false);
-      setRecipeMsg({
-        kind: "ok",
-        text: `Saved as "${draft.title}" — AI clients can find it with the "${RECIPE_TAG}" tag.`,
-      });
-    } catch (e) {
-      setRecipeMsg({
-        kind: "err",
-        text: `Could not save: ${(e as Error)?.message ?? String(e)}`,
-      });
-    } finally {
-      setRecipeBusy(false);
-    }
+    await runRecipe("save", async () => {
+      setRecipeMsg(null);
+      try {
+        const draft = buildRecipe(path, {
+          name: recipeName,
+          sessionKind,
+          sessionLabel,
+          goal,
+        });
+        await callTool("memory_save", {
+          title: draft.title,
+          content: draft.content,
+          tags: draft.tags,
+        });
+        setRecipeOpen(false);
+        setRecipeMsg({
+          kind: "ok",
+          text: `Saved as "${draft.title}" — AI clients can find it with the "${RECIPE_TAG}" tag.`,
+        });
+      } catch (e) {
+        setRecipeMsg({
+          kind: "err",
+          text: `Could not save: ${(e as Error)?.message ?? String(e)}`,
+        });
+      }
+    });
   };
 
   // Claims pointing at a step this plan does not have. Computed here rather than
@@ -365,18 +367,23 @@ export function PathView({
               </p>
             )}
             <div className="path-recipe-actions">
+              {/* THE LABEL FOLLOWS THE KEY, NOT THE FLAG. `recipeBusy ? "Saving…" : …` made SAVE report that it
+                  was saving whenever CANCEL was pressed — the same defect GoalBar had, on the third control group
+                  to be migrated. The only control that says "Saving…" is the one that is saving. */}
               <button
                 type="button"
                 className="primary"
                 onClick={saveRecipe}
                 disabled={recipeBusy}
+                {...recipeAck("save")}
               >
-                {recipeBusy ? "Saving…" : "Save to device memory"}
+                {recipeBusyOn === "save" ? "Saving…" : "Save to device memory"}
               </button>
               <button
                 type="button"
                 onClick={() => setRecipeOpen(false)}
                 disabled={recipeBusy}
+                {...recipeAck("cancel")}
               >
                 Cancel
               </button>

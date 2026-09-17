@@ -17,26 +17,24 @@
 // `terminal_list`, so another client taking the session shows up here too. The
 // button never flips locally before the server agrees.
 import { useState } from "react";
+import { useAck } from "../lib/useAck";
 
 export function SessionControl({ held, onSet }: {
   held: boolean;
   onSet: (human: boolean) => Promise<unknown>;
 }) {
-  const [busy, setBusy] = useState(false);
+  const { busy, ack, run } = useAck();
   const [failed, setFailed] = useState(false);
 
   const flip = async () => {
-    setBusy(true);
     setFailed(false);
     try {
-      await onSet(!held);
+      await run("flip", () => onSet(!held));
     } catch {
       // The hook already reported the message; this only keeps the button from
       // looking like it worked. It stays in the old state because the SERVER
       // never confirmed the change.
       setFailed(true);
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -53,7 +51,8 @@ export function SessionControl({ held, onSet }: {
           : "Take this session's keyboard so the AI stops issuing commands into it"
       }
       onClick={flip}
-    >
+      {...ack("flip")}
+      >
       <span className="sc-dot" data-state={held ? "human" : "ai"} />
       {busy ? "…" : held ? "Hand back" : "Take control"}
     </button>

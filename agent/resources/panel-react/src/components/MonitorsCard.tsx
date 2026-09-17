@@ -19,6 +19,7 @@
 import { useState } from "react";
 import { Sparkline } from "./Sparkline";
 import { fmtSince, type MonitorTarget, type Monitors } from "../hooks/useMonitors";
+import { useAck } from "../lib/useAck";
 
 /** A wall-clock stamp for the log — `18:41:07`. Local time, because the operator reading it is
  *  standing next to the device, and a log they cannot line up with their own clock is a log they
@@ -181,19 +182,21 @@ export function MonitorsCard({
   const [port, setPort] = useState("22");
   const [path, setPath] = useState("");
   const [expect, setExpect] = useState("");
-  const [busy, setBusy] = useState(false);
+  // THE FLAG CLEARS ON EVERY EXIT NOW. It was cleared on the line after the await — so a REJECTED add left the
+  // button disabled until the card was remounted, which is the one state an operator cannot recover from.
+  const { busy, ack, run } = useAck();
   const [error, setError] = useState("");
 
   async function submit() {
-    setBusy(true);
+    await run("add", async () => {
     setError("");
     const n = Number(port);
     const res = await onAdd(host, Number.isFinite(n) ? n : 0, path, expect);
-    setBusy(false);
     // The device's reason is shown VERBATIM: it is written for this form ("a host is required",
     // "a port is required…"), and paraphrasing it here would be a second, worse copy.
     if (res.ok) setHost("");
     else setError(res.error ?? "the device refused it");
+    });
   }
 
   const down = monitors.targets.filter((t) => t.summary.upNow === false).length;
@@ -274,7 +277,7 @@ export function MonitorsCard({
               onChange={(e) => setExpect(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
             />
-            <button type="button" className="btn" disabled={busy} onClick={() => void submit()}>
+            <button type="button" className="btn" disabled={busy} {...ack("add")} onClick={() => void submit()}>
               watch
             </button>
           </div>

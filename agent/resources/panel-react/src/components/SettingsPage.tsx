@@ -14,6 +14,7 @@ import { EMPTY_MONITORS } from "../hooks/useMonitors";
 import type { VitalsSeries } from "../hooks/useVitalsSeries";
 import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
 import { EMPTY_SERIES } from "../hooks/useVitalsSeries";
+import { useAck } from "../lib/useAck";
 
 // SettingsPage — device settings as a first-class page (both densities).
 // Cards: Connect an AI client (onboarding — first, because nothing else on this
@@ -87,13 +88,13 @@ export function SettingsPage({
   const [memBytesMb, setMemBytesMb] = useState("64");
   const [memRetention, setMemRetention] = useState("");
   const [memStatus, setMemStatus] = useState("");
-  const [memBusy, setMemBusy] = useState(false);
+  const { busy: memBusy, ack: memAck, run: runMem } = useAck();
 
   // Desktop-app card (Electron shell only): auto-launch on login.
   const desktopBridge = (window as any).valeDesktop;
   const [hasDesktopBridge] = useState(!!desktopBridge?.getAutoLaunch);
   const [autoLaunch, setAutoLaunchState] = useState(false);
-  const [autoLaunchBusy, setAutoLaunchBusy] = useState(false);
+  const { busy: autoLaunchBusy, ack: autoLaunchAck, run: runAutoLaunch } = useAck();
   const [autoLaunchStatus, setAutoLaunchStatus] = useState("");
 
   useEffect(() => {
@@ -106,14 +107,14 @@ export function SettingsPage({
 
   async function setAutoLaunch(enabled: boolean) {
     if (!desktopBridge?.setAutoLaunch) return;
-    setAutoLaunchBusy(true);
-    setAutoLaunchStatus("");
-    try {
-      const j = await desktopBridge.setAutoLaunch(enabled);
-      if (j?.ok) { setAutoLaunchState(!!j.enabled); setAutoLaunchStatus(j.enabled ? "enabled — Vale Desktop starts at login" : "disabled"); }
-      else setAutoLaunchStatus(j?.error || "failed");
-    } catch (e: any) { setAutoLaunchStatus(e?.message || "failed"); }
-    finally { setAutoLaunchBusy(false); }
+    await runAutoLaunch("autolaunch", async () => {
+      setAutoLaunchStatus("");
+      try {
+        const j = await desktopBridge.setAutoLaunch(enabled);
+        if (j?.ok) { setAutoLaunchState(!!j.enabled); setAutoLaunchStatus(j.enabled ? "enabled — Vale Desktop starts at login" : "disabled"); }
+        else setAutoLaunchStatus(j?.error || "failed");
+      } catch (e: any) { setAutoLaunchStatus(e?.message || "failed"); }
+    });
   }
 
   // Gateway card state
@@ -121,7 +122,12 @@ export function SettingsPage({
   const [gwKey, setGwKey] = useState("");
   const [gwTunnel, setGwTunnel] = useState(false);
   const [gwStatus, setGwStatus] = useState("");
-  const [gwBusy, setGwBusy] = useState(false);
+  // FOUR CONTROLS SHARE THIS ONE (the confirm, its Cancel, the trigger, and the Connect that owns the label).
+  // Unlike GoalBar and PathView, the label was never WRONG here: only `connectGateway` sets this flag, so
+  // "Connecting…" could only appear while a connect was actually in flight. What the hook adds is that the flag
+  // clears on EVERY exit — a throw used to skip the `finally`'s counterpart in the sibling handlers, which is
+  // the defect MonitorsCard demonstrably had.
+  const { busy: gwBusy, busyOn: gwBusyOn, ack: gwAck, run: runGw } = useAck();
   // P1-5: connecting spends a one-time reg-key + may provision a tunnel —
   // inline two-step confirm, copied from the memory_delete pattern
   // (MemoryPage): first click arms, second executes. Cancel disarms.
@@ -145,19 +151,19 @@ export function SettingsPage({
       .catch(() => setStatus("read failed"));
   }, []);
 
-  const [saveBusy, setSaveBusy] = useState(false);
+  const { busy: saveBusy, ack: saveAck, run: runSave } = useAck();
   async function save() {
     const mb = Number(bufferMb);
     if (!Number.isFinite(mb) || mb < 1 || mb > 64) { setStatus("enter 1-64"); return; }
     // SPA audit LOW-4: unguarded Save double-clicked duplicate PUTs with
     // racing status.
-    setSaveBusy(true);
-    try {
-      const j = await callApi("/api/settings", { method: "PUT", body: JSON.stringify({ buffer_mb: mb }) });
-      if (j && j.ok) setStatus("saved");
-      else setStatus("save failed");
-    } catch { setStatus("save failed"); }
-    finally { setSaveBusy(false); }
+    await runSave("save", async () => {
+      try {
+        const j = await callApi("/api/settings", { method: "PUT", body: JSON.stringify({ buffer_mb: mb }) });
+        if (j && j.ok) setStatus("saved");
+        else setStatus("save failed");
+      } catch { setStatus("save failed"); }
+    });
   }
 
   // Save memory capacity: entries + MiB required (>= 1); retention empty =
@@ -169,27 +175,27 @@ export function SettingsPage({
     if (!Number.isInteger(entries) || entries < 1) { setMemStatus("entries must be >= 1"); return; }
     if (!Number.isInteger(mb) || mb < 1) { setMemStatus("MiB must be >= 1"); return; }
     if (ret !== null && (!Number.isInteger(ret) || ret < 1)) { setMemStatus("retention must be empty or >= 1 day"); return; }
-    setMemBusy(true);
-    try {
-      const j = await callApi("/api/settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          memory_max_entries: entries,
-          memory_max_bytes_mb: mb,
-          memory_retention_days: ret,
-        }),
-      });
-      if (j && j.ok) setMemStatus("saved — applies immediately");
-      else setMemStatus("save failed");
-    } catch { setMemStatus("save failed"); }
-    finally { setMemBusy(false); }
+    await runMem("memory", async () => {
+      try {
+        const j = await callApi("/api/settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            memory_max_entries: entries,
+            memory_max_bytes_mb: mb,
+            memory_retention_days: ret,
+          }),
+        });
+        if (j && j.ok) setMemStatus("saved — applies immediately");
+        else setMemStatus("save failed");
+      } catch { setMemStatus("save failed"); }
+    });
   }
 
   // Save gateway config + register + optional tunnel, one click.
   async function connectGateway() {
     if (!gwUrl.trim()) { setGwStatus("gateway URL required"); return; }
     setGwConfirm(false);
-    setGwBusy(true);
+    await runGw("connect", async () => {
     setGwStatus("connecting…");
     try {
       const j = await callApi("/api/gateway/connect", {
@@ -214,9 +220,8 @@ export function SettingsPage({
       }
     } catch (e: any) {
       await gwFailure("connect failed", String(e?.message || "connect failed"));
-    } finally {
-      setGwBusy(false);
     }
+    });
   }
 
   // SPA audit MED-2: the key is SPENT server-side before the slow tunnel
@@ -304,13 +309,13 @@ export function SettingsPage({
             {gwConfirm ? (
               <>
                 <span className="mem-confirm-hint">save & connect?</span>
-                <button className="btn btn-danger btn-mini" onClick={connectGateway} disabled={gwBusy}>
-                  {gwBusy ? "Connecting…" : "Connect"}
+                <button className="btn btn-danger btn-mini" onClick={connectGateway} disabled={gwBusy} {...gwAck("connect")}>
+                  {gwBusyOn === "connect" ? "Connecting…" : "Connect"}
                 </button>
-                <button className="btn btn-ghost btn-mini" onClick={() => setGwConfirm(false)} disabled={gwBusy}>Cancel</button>
+                <button className="btn btn-ghost btn-mini" onClick={() => setGwConfirm(false)} disabled={gwBusy} {...gwAck("cancel")}>Cancel</button>
               </>
             ) : (
-              <button className="btn btn-ghost btn-mini" onClick={() => setGwConfirm(true)} disabled={gwBusy}>
+              <button className="btn btn-ghost btn-mini" onClick={() => setGwConfirm(true)} disabled={gwBusy} {...gwAck("arm")}>
                 Save & connect
               </button>
             )}
@@ -336,7 +341,7 @@ export function SettingsPage({
             onChange={(e) => setBufferMb(e.target.value)}
             aria-label="Session buffer MiB"
           />
-          <button className="btn btn-ghost btn-mini" onClick={save} disabled={saveBusy}>Save</button>
+          <button className="btn btn-ghost btn-mini" onClick={save} disabled={saveBusy} {...saveAck("save")}>Save</button>
         </div>
         {status && <p className="hint">{status}</p>}
       </div>
@@ -352,6 +357,7 @@ export function SettingsPage({
             type="checkbox"
             checked={autoLaunch}
             disabled={autoLaunchBusy || !hasDesktopBridge}
+            {...autoLaunchAck("autolaunch")}
             onChange={(e) => setAutoLaunch(e.target.checked)}
           />
           <span>Start on login{!hasDesktopBridge ? " (desktop app only)" : ""}</span>
@@ -397,7 +403,7 @@ export function SettingsPage({
             placeholder="retention days (empty = forever)"
             aria-label="Memory retention days"
           />
-          <button className="btn btn-ghost btn-mini" onClick={saveMemory} disabled={memBusy} aria-label="Save memory capacity">Save</button>
+          <button className="btn btn-ghost btn-mini" onClick={saveMemory} disabled={memBusy} {...memAck("memory")} aria-label="Save memory capacity">Save</button>
         </div>
         {memStatus && <p className="hint">{memStatus}</p>}
         {onOpenMemory && <button className="btn btn-ghost btn-mini" onClick={onOpenMemory}>Open Memory</button>}

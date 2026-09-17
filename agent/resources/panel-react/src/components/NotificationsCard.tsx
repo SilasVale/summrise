@@ -8,9 +8,10 @@
 // THE TEST BUTTON IS NOT DECORATION: a notification permission can be granted and the OS can still
 // be in Do Not Disturb, and the only way to find that out before you rely on it is to send one. It
 // is also the user gesture the browser requires, so the same click can be what asks for permission.
-import { useState } from "react";
+import {} from "react";
 import { permissionHint, type NotifyPermission } from "../lib/notify";
 import { attentionSummary, type AttentionItem } from "../lib/attention";
+import { useAck } from "../lib/useAck";
 
 export function NotificationsCard({
   permission,
@@ -24,7 +25,7 @@ export function NotificationsCard({
   onTest: () => void;
   attention: AttentionItem[];
 }) {
-  const [busy, setBusy] = useState(false);
+  const { busy, ack, run } = useAck();
   const on = permission === "granted";
   const blocked = permission === "denied" || permission === "unsupported";
 
@@ -42,11 +43,10 @@ export function NotificationsCard({
           className={`btn ${on ? "" : "btn-ghost"}`}
           aria-pressed={on}
           disabled={busy || blocked}
-          onClick={async () => {
-            setBusy(true);
+          {...ack("turn-on")}
+          onClick={() => void run("turn-on", async () => {
             if (permission === "default") await onRequest();
-            setBusy(false);
-          }}
+          })}
         >
           {on ? "Notifications on" : blocked ? "Notifications unavailable" : "Turn on notifications"}
         </button>
