@@ -382,37 +382,41 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
 
   var MAX_MOTES = 90, MAX_ALPHA = 0.5, motes = [], raf = 0;
 
-  function hueOf(name, fallback) {
-    var raw = getComputedStyle(document.body).getPropertyValue(name).trim();
+  /* THE MARK'S COLOURS, NOT ITS HUES (round 15 of the standing goal). This read a token, converted it to a HUE and
+     drew 'hsla(h 90% 62%)' — so the field was a re-saturated approximation of the palette and never the palette
+     itself. The panel's and the console's fields were the same shape and were fixed first; this is the third and
+     last copy. A mote carries the palette INDEX and resolves it per frame, so a switch of theme or token reaches
+     motes already in flight. */
+  function colourOf(name, fallback) {
+    var raw = getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
     var m = /^#([0-9a-f]{6})$/i.exec(raw);
-    if (!m) return fallback;
-    var n = parseInt(m[1], 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-    var max = Math.max(r, g, b), min = Math.min(r, g, b);
-    if (max === min) return fallback;
-    var h = max === r ? ((g - b) / (max - min)) * 60
-          : max === g ? (2 + (b - r) / (max - min)) * 60
-          : (4 + (r - g) / (max - min)) * 60;
-    return (h + 360) % 360;
+    if (m) { var n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+    var rgb = /^rgba?\(([^)]+)\)$/.exec(raw);
+    if (rgb) {
+      var p = rgb[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+      if (p.length >= 3) return [p[0], p[1], p[2]];
+    }
+    return [245, 159, 0];   /* the mark's own gold, never a colour the brand does not use */
   }
   function palette() {
-    return [hueOf('--brand-mark-a', 36), hueOf('--brand-mark-b', 22), hueOf('--brand-mark-c', 47)];
+    return [colourOf('--brand-mark-a', '#f59f00'), colourOf('--brand-mark-b', '#e8590c'), colourOf('--brand-mark-c', '#ffd43b')];
   }
 
-  var hues = palette();
+  var colours = palette();
   function resize() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     var w = window.innerWidth, h = window.innerHeight;
     canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
     canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    hues = palette();
+    colours = palette();
     var want = Math.min(MAX_MOTES, Math.round((w * h / 100000) * 5.5));
     while (motes.length > want) motes.pop();
     while (motes.length < want) {
       motes.push({ x: Math.random() * w, y: Math.random() * h,
         r: 0.6 + Math.random() * 1.9, vx: (Math.random() - 0.5) * 0.16,
         vy: -0.05 - Math.random() * 0.18,
-        hue: hues[Math.floor(Math.random() * hues.length)],
+        tone: Math.floor(Math.random() * colours.length),
         phase: Math.random() * Math.PI * 2 });
     }
   }
@@ -430,7 +434,8 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
       if (m.x < -8) m.x = w + 8; if (m.x > w + 8) m.x = -8;
       var tw = 0.55 + 0.45 * Math.sin(m.phase);
       ctx.beginPath();
-      ctx.fillStyle = 'hsla(' + m.hue + ' 90% 62% / ' + (MAX_ALPHA * tw * 0.35).toFixed(3) + ')';
+      var c = colours[m.tone] || colours[0];
+      ctx.fillStyle = 'rgba(' + c[0] + ', ' + c[1] + ', ' + c[2] + ', ' + (MAX_ALPHA * tw * 0.35).toFixed(3) + ')';
       ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
       ctx.fill();
     }

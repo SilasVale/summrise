@@ -333,6 +333,12 @@ jobs:
       # to have seven of its own twelve unsilenced (round 13 of the standing goal).
       - name: motion can be turned off
         run: node scripts/test/motion-check.mjs
+      # THREE COPIES OF ONE AMBIENT FIELD, held to one set of facts. The panel's and the console's are modules and
+      # the landing's is inline (that page has no bundler), so the code cannot be shared — the FACTS can be, and
+      # they had already drifted into the same two defects: a retired palette (`--aura-*`, read empty, falling back
+      # to cyan/violet/pink behind every surface) and drawing by HUE rather than by the token's colour.
+      - name: every copy of the particle field reads the brand as colours
+        run: node scripts/test/particles-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077
