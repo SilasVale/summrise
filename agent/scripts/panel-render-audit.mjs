@@ -175,7 +175,13 @@ function buildHarness() {
   // the active tab's accent fill at 1.00:1, which looks exactly like the round-9 defect and is not one.
   var SESSION_SEEDS = [
     {},
-    { label: 'serial:COM4', kind: 'serial', idle_ms: 45_000, held_by_human: false, pending_approval: null, approval_required: false },
+    // QUIET BUT BUSY, ON PURPOSE. command_running is the device's own answer — the execute wait-loop sets it
+    // around the command it is waiting for — and it is the ONLY way a SILENT command can read as working: this
+    // session has been quiet for 45s, well past the recency window, so a panel that shows it working is showing
+    // the device fact and not the inference. Without it in the fixture the state exists on the wire and nowhere a
+    // sweep can photograph it, which is the lesson round 9 learned about idle_ms. (No backticks in here: this
+    // text lives INSIDE the emitted template literal, and a stray one ends it — the 37th time.)
+    { label: 'serial:COM4', kind: 'serial', idle_ms: 45_000, command_running: true, held_by_human: false, pending_approval: null, approval_required: false },
     { label: 'stc@192.168.1.1', kind: 'ssh', idle_ms: 120_000, held_by_human: false, pending_approval: null },
   ];
   var SESSIONS = [];
