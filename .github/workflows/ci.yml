@@ -107,7 +107,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: agent/resources/panel-react/package.json
+          # THE SAME NODE AS THE PANEL JOB. The first version of this job named the panel's package.json as a
+          # node-version-file — which is not a version file — so `npm ci` ran on a different Node and failed
+          # with "Missing: esbuild@0.28.2 from lock file" (round 213).
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agent/resources/panel-react/package-lock.json
       - name: Install deps
         working-directory: agent/resources/panel-react
         run: npm ci --include=optional
