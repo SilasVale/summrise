@@ -647,13 +647,16 @@ h3 { font-size: var(--fs-base); }
    channel that still works with colour vision deficiencies and in greyscale;
    animation is not a channel here at all (prefers-reduced-motion). */
 .rail-dot[data-state="waiting"] {
-  /* --state-warn, NOT --warn-ink, and this is MEASURED (round 210). The waiting dot is the one that says a
-     decision is holding — the state that most needs to be seen — and it was drawn in the token meant for
-     amber TEXT on a soft background: #92400e measures 2.32 against the rail, under the 3:1 a graphic needs,
-     and BELOW the working dot's 3.00 that this one per the comment above OUTRANKS. The state token is the
-     semantically right one for a state indicator, and it measures 3.62 — above the working dot, as the
-     ranking requires. The same shape as round 209's sc-dot: the ink variant of a colour is not its mark. */
-  background: var(--state-warn);
+  /* MEASURED, AND NOT YET FIXED (round 210). This dot is the one that says a decision is holding — the state
+     that most needs to be seen — and it measures 2.32:1 against the rail, under the 3:1 a graphic needs and
+     BELOW the working dot's 3.00 that it OUTRANKS per the comment above.
+     The obvious fix was to paint it with --state-warn (a state token, 3.28 on the rail) and the panel's own
+     test refused it: "every state mark is painted by an INK token, and clears 3:1 where it lands — a FILL
+     token is not a mark's colour". That contract is right and this dot violates its OTHER half: --warn-ink is
+     the amber ink for a SOFT background, and on the dark rail it does not clear 3:1. The fix is an ink that
+     works where this mark lands, or a rule that admits a fill on a dark rail. Both are their own round; the
+     measurement is recorded here so it does not need rediscovering. */
+  background: var(--warn-ink);
   /* NOT a corner style: a rotated square, and the 2px only takes the point off the diamond. The
      scale test exempts this selector by name rather than letting any future `2px` through. */
   border-radius: 2px;
