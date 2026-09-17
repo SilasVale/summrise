@@ -29,7 +29,8 @@ interface Mote {
   r: number;
   vx: number;
   vy: number;
-  hue: number;
+  /** WHICH palette entry this mote wears — resolved per frame, so a theme switch reaches motes already in flight. */
+  tone: number;
   phase: number;
 }
 
@@ -66,35 +67,40 @@ export function startParticleField(): () => void {
   let raf = 0;
   let dpr = 1;
 
-  const readPalette = (): number[] => {
-    // The hues come from the SAME tokens the wash uses, so the field cannot drift from the
-    // palette — and a theme switch is picked up on the next resize by re-reading them.
+  const readPalette = (): Array<[number, number, number]> => {
+    // ══ THE FIELD WEARS THE BRAND (round 14 of the standing goal) ═════════════════════════════════════════════
+    // It read `--aura-1/3/4` — a palette the rebrand RETIRED — and fell back to 190 cyan, 280 violet and 330
+    // pink, so the ambient layer drawn behind EVERY surface was in the colours the brand had abandoned. This is
+    // the decision the operator's inbox recorded (docs/agents/ideas.md row 15): use the brand's own palette.
+    //
+    // AS COLOURS, NOT HUES. The old code turned a token into a hue and then drew it as `hsla(h 90% 62%)` — so a
+    // correct token would still not have been the colour on screen. A mote now carries the palette INDEX and
+    // resolves it per frame, which also means a theme switch recolours the motes already in flight instead of
+    // only the ones born after it.
     const cs = getComputedStyle(document.body);
-    const pick = (name: string, fallback: number): number => {
-      const raw = cs.getPropertyValue(name).trim();
-      const m = raw.match(/^#([0-9a-f]{6})$/i);
-      if (!m) return fallback;
-      const n = parseInt(m[1], 16);
-      const r = (n >> 16) & 255;
-      const g = (n >> 8) & 255;
-      const b = n & 255;
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      if (max === min) return fallback;
-      let h = 0;
-      if (max === r) h = ((g - b) / (max - min)) * 60;
-      else if (max === g) h = (2 + (b - r) / (max - min)) * 60;
-      else h = (4 + (r - g) / (max - min)) * 60;
-      return (h + 360) % 360;
+    const pick = (name: string, fallback: string): [number, number, number] => {
+      const raw = cs.getPropertyValue(name).trim() || fallback;
+      const hex = /^#([0-9a-f]{6})$/i.exec(raw);
+      if (hex) {
+        const n = parseInt(hex[1], 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      }
+      const rgb = /^rgba?\(([^)]+)\)$/.exec(raw);
+      if (rgb) {
+        const p = rgb[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+        if (p.length >= 3 && p.slice(0, 3).every((v) => !Number.isNaN(v))) return [p[0], p[1], p[2]];
+      }
+      // The brand's first stop, if a token is unreadable — never a colour the brand does not use.
+      return [0xc2, 0x41, 0x0c];
     };
     return [
-      pick("--aura-1", 190),
-      pick("--aura-3", 280),
-      pick("--aura-4", 330),
+      pick("--brand-grad-a", "#c2410c"),
+      pick("--brand-grad-b", "#9a3412"),
+      pick("--accent", "#bf3a0a"),
     ];
   };
 
-  let hues = readPalette();
+  let palette = readPalette();
 
   const resize = () => {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -105,7 +111,7 @@ export function startParticleField(): () => void {
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    hues = readPalette();
+    palette = readPalette();
 
     const want = Math.min(MAX_MOTES, Math.round(((w * h) / 100_000) * DENSITY * 10));
     while (motes.length > want) motes.pop();
@@ -116,7 +122,7 @@ export function startParticleField(): () => void {
         r: 0.6 + Math.random() * 1.9,
         vx: (Math.random() - 0.5) * 0.16,
         vy: -0.05 - Math.random() * 0.18,
-        hue: hues[Math.floor(Math.random() * hues.length)],
+        tone: Math.floor(Math.random() * palette.length),
         phase: Math.random() * Math.PI * 2,
       });
     }
@@ -142,7 +148,8 @@ export function startParticleField(): () => void {
       if (m.x > w + 8) m.x = -8;
       const twinkle = 0.55 + 0.45 * Math.sin(m.phase);
       ctx.beginPath();
-      ctx.fillStyle = `hsla(${m.hue} 90% 62% / ${(MAX_ALPHA * twinkle * 0.35).toFixed(3)})`;
+      const [r, g, b] = palette[m.tone] ?? palette[0];
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${(MAX_ALPHA * twinkle * 0.35).toFixed(3)})`;
       ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
       ctx.fill();
     }

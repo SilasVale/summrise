@@ -49,6 +49,14 @@
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
+  /* THE BRAND GRADIENT, WHICH THIS SHEET DID NOT HAVE. Its ambient particle field asked for `--brand-grad-a/b`,
+     read EMPTY, and fell back to 190 cyan / 280 violet / 330 pink — the pre-rebrand hues — so the layer behind
+     every console surface was drawn in colours the brand had abandoned. The panel had the tokens; the console
+     never did. Copied from the panel, because the token contract requires the two surfaces to agree.
+     Declared once and NOT restated in the dark block, which is also what the panel does: the pair carries white
+     text at 5.18 / 7.31 in both themes. */
+  --brand-grad-a: #c2410c;
+  --brand-grad-b: #9a3412;
   --accent: #bf3a0a; /* was #d9480f — white on it measured 4.30, and it as TEXT on #fafafa measured 4.12; both under AA. This is the value the palette already used for hover. */
   --accent-fg: #ffffff; /* the foreground ON --accent */
   --accent-light: #ffefe5;

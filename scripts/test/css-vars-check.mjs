@@ -130,14 +130,12 @@ const NOT_A_TOKEN = new Map([
   ["--ds-neutral", "a PREFIX: the text is `--ds-neutral-*`, naming a family rather than one property"],
 ]);
 
-// WAIVED, WITH REASONS, the same way the sweeps waive what they cannot judge. Each of these is a reader of a
-// token that no longer exists, and each falls back deliberately — re-choosing the hues it should use instead is
-// a DESIGN decision, recorded in the operator's inbox rather than guessed here.
-const WAIVED_RUNTIME = new Map([
-  ["--aura-1", "the particles' fallback is deliberate (pick(name, fallback)) and the replacement hue is a design decision"],
-  ["--aura-3", "same as --aura-1"],
-  ["--aura-4", "same as --aura-1"],
-]);
+// WAIVED, WITH REASONS, the same way the sweeps waive what they cannot judge. EMPTY, and the story of what left
+// it is the point: `--aura-1/3/4` sat here because the particle field read a palette the rebrand had retired and
+// the replacement was a DESIGN decision, recorded in the operator's inbox rather than guessed at. Round 14 of the
+// standing goal carried that decision out (the field wears `--brand-grad-a/b` and `--accent` now), so the waiver
+// is gone and a regression fails here like any other undefined token.
+const WAIVED_RUNTIME = new Map([]);
 {
   const dead = [];
   const found = new Set();

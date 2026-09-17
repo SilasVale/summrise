@@ -66,9 +66,9 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     /* Brand hues for the mote field: the SAME values the device panel declares, so
        the two surfaces draw from one palette. Warm on purpose — the field is
        sunlight in a room, not an aurora. */
-    --brand-grad-a: #f59f00;
-    --brand-grad-b: #e8590c;
-    --brand-grad-c: #ffd43b;
+    --brand-mark-a: #f59f00;
+    --brand-mark-b: #e8590c;
+    --brand-mark-c: #ffd43b;
     --glass-blur: 14px;
     --dsw-shadow-lv1: 0 1px 2px rgba(0,0,0,0.06);
     --dsw-shadow-lv2: 0 4px 12px rgba(0,0,0,0.08);
@@ -164,7 +164,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     display: block;
     width: 40px; height: 40px; border-radius: 10px;
     box-shadow: var(--dsw-shadow-lv1),
-                0 6px 22px -8px color-mix(in srgb, var(--brand-grad-c) 55%, transparent);
+                0 6px 22px -8px color-mix(in srgb, var(--brand-mark-c) 55%, transparent);
   }
   .brand-text { display: flex; flex-direction: column; gap: 2px; }
   .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--dsw-alias-label-primary); margin: 0; } /* margin: 0 IS LOAD-BEARING (round 240): this is an <h1> now, not a <div>, so the UA would add 0.67em above and below and move the whole aside. The class was written for a div; a heading needs it complete. */
@@ -366,7 +366,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
 /* Particle field — decorative, below every surface, and a NO-OP under
    'prefers-reduced-motion' (the static wash stays; a decorative animation that ignores that
    setting is an accessibility defect, and the honest fallback is no animation rather than a
-   slower one). Hues are read from the SAME --brand-grad-* tokens the mark is drawn
+   slower one). Hues are read from the SAME --brand-mark-* tokens the mark is drawn
    from, so the field cannot drift from the palette — and they are WARM: this is
    sunlight in a room, not an aurora. Alpha is kept low enough that the worst case is a tint
    behind existing surfaces, never a new contrast pair to measure.
@@ -395,7 +395,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     return (h + 360) % 360;
   }
   function palette() {
-    return [hueOf('--brand-grad-a', 36), hueOf('--brand-grad-b', 22), hueOf('--brand-grad-c', 47)];
+    return [hueOf('--brand-mark-a', 36), hueOf('--brand-mark-b', 22), hueOf('--brand-mark-c', 47)];
   }
 
   var hues = palette();

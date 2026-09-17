@@ -13,7 +13,7 @@ import { startParticleField } from "./particles";
  */
 
 function stubContext() {
-  const calls = { arc: 0, fill: 0, clearRect: 0 };
+  const calls = { arc: 0, fill: 0, clearRect: 0, fills: [] as string[] };
   const ctx = {
     setTransform: () => {},
     clearRect: () => {
@@ -25,6 +25,9 @@ function stubContext() {
     },
     fill: () => {
       calls.fill++;
+      // THE COLOUR MATTERS AS MUCH AS THE DRAW. A field that fills in the wrong palette is the defect this
+      // harness was extended for (round 14 of the standing goal).
+      calls.fills.push(String(ctx.fillStyle));
     },
     fillStyle: "",
   };
@@ -121,5 +124,28 @@ describe("startParticleField", () => {
     HTMLCanvasElement.prototype.getContext = vi.fn(() => null) as any;
     expect(() => startParticleField()).not.toThrow();
     expect(document.querySelector("canvas[data-vale-particles]")).toBeNull();
+  });
+});
+
+describe("the palette", () => {
+  it("paints the BRAND's colours, never the palette the rebrand retired", () => {
+    // The field read `--aura-1/3/4` — RETIRED — and fell back to 190 cyan, 280 violet and 330 pink, so the
+    // ambient layer drawn behind every surface wore the colours the brand had abandoned. It reads
+    // `--brand-grad-a/b` and `--accent` now, and as COLOURS: the old code turned a token into a hue and drew
+    // `hsla(h 90% 62%)`, so even a correct token would not have been the colour on screen.
+    const calls = stubContext();
+    document.body.style.setProperty("--brand-grad-a", "#c2410c");
+    document.body.style.setProperty("--brand-grad-b", "#9a3412");
+    document.body.style.setProperty("--accent", "#bf3a0a");
+    startParticleField();
+    pumpFrames(4);
+
+    expect(calls.fills.length, "the field must actually paint").toBeGreaterThan(0);
+    const brand = /^rgba\((194, 65, 12|154, 52, 18|191, 58, 10), /;
+    for (const fill of calls.fills) {
+      expect(fill, `"${fill}" is not one of the brand's colours`).toMatch(brand);
+    }
+    // AND NOT ONE HUE-DERIVED COLOUR, which is the shape the retired palette took.
+    expect(calls.fills.some((f) => f.startsWith("hsla(")), "the field is drawing by hue again").toBe(false);
   });
 });
