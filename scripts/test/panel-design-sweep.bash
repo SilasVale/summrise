@@ -118,6 +118,11 @@ elif which == "clipping":
     r["surfaces"][0]["clipped"] = ["span.label"]
 elif which == "sliver":
     r["surfaces"][0]["slivers"] = ["span.goal w=30"]
+elif which == "mark-ringfill":
+    # A MARK THAT IS A FILL **AND** A RING IS NEITHER — and it is NOT a collision, so the distinctness check passes
+    # it. That is how four broken `.plug-dot` arms survived every sweep until round 45: the probe reduced the mark to
+    # one kind and called a fill inside a ring a "ring".
+    r["surfaces"][0]["marks"] = {"families": [".plug-dot[warn]"], "collisions": [], "ringFill": [".plug-dot[warn]"]}
 elif which == "mark-collision":
     # TWO STATES OF ONE MARK PAINTING IDENTICALLY — the sheet can be right while the page is wrong (round 25's
     # `.plug-dot[error]` kept a stray halo through a unit test that passed).
@@ -190,7 +195,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted mark-collision name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"

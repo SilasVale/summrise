@@ -87,7 +87,11 @@ const SURFACE = \`(() => {
         const bg = st.backgroundColor;
         const filled = !!bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg);
         const shadow = st.boxShadow;
-        const kind = /inset/.test(shadow) ? 'ring' : filled && shadow !== 'none' ? 'halo' : filled ? 'solid' : 'empty';
+        // A FILL AND A RING AT ONCE IS ITS OWN KIND (round 46). Until now 'inset' won outright, so a mark that set a
+        // background and inherited an inset shadow computed as 'ring' — distinct from a solid, and therefore passing.
+        // That is how four broken plugin dots survived every sweep: the panel's own shape check had the same hole
+        // (round 45), the console's found it by mutation (round 44), and this probe reported them as clean rings.
+        const kind = inset && filled ? 'ring+fill' : inset ? 'ring' : filled && shadow !== 'none' ? 'halo' : filled ? 'solid' : 'empty';
         const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', kind].join('/');
         const key = base;
         if (!families.has(key)) families.set(key, new Map());
@@ -102,7 +106,11 @@ const SURFACE = \`(() => {
           else bySig.set(sig, state);
         }
       }
-      return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6) };
+      const ringFill = [];
+      for (const [fam, states] of families) {
+        for (const [state, sig] of states) if (sig.indexOf('ring+fill') >= 0) ringFill.push(fam + '[' + state + ']');
+      }
+      return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6), ringFill: ringFill.slice(0, 6) };
     })(),
     loud: (() => {
       const parse = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
@@ -543,6 +551,13 @@ export function judgeReport(report, opts = {}) {
     // THE MARK LANGUAGE AS PAINTED. A family whose two states render identically is colour-only wherever a cascade
     // override or a missing rule made it so — the sheet can be right while the page is wrong, which is exactly how
     // `.plug-dot[error]` kept a stray halo through a unit test that passed (round 25).
+    // A MARK THAT IS BOTH A FILL AND A RING IS NEITHER, and it is not a collision — no other state shares it, so the
+    // distinctness check above would pass it. The vocabulary is solid / ring / halo / empty; this is what a rule
+    // produces by accident when it sets a background and inherits an inset shadow, which is exactly the four
+    // .plug-dot arms of round 45. Rendered, not read: the probe reports the computed kind per state.
+    if (s.marks && (s.marks.ringFill || []).length) {
+      findings.push(`${where}: ${s.marks.ringFill.length} mark(s) are a FILL inside a RING — the vocabulary is solid / ring / halo / empty, and a mark that is two of them is neither: ${s.marks.ringFill.join("; ")}`);
+    }
     if (s.marks && (s.marks.collisions || []).length) {
       findings.push(`${where}: states of one mark paint identically — ${s.marks.collisions.join("; ")}`);
     }

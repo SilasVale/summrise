@@ -117,6 +117,22 @@ reverted the whole uncommitted round (the work was re-applied and backed up to /
 rendered check first read a STALE HARNESS — the panel had been rebuilt but `panel-harness.html` is a snapshot, so
 the browser kept showing the old sheet and the fix looked absent.
 
+THE RENDERED AXIS HAD THE SAME HOLE, WHICH IS WHY IT WATCHED (round 46). The core's `marks` probe — the one the
+surfaces pass carries on every page — reduced each mark to ONE kind too, so it reported those four arms as clean
+rings. It now computes `ring+fill`, and the judge FAILS on it, which needed a clause of its own: a fill inside a
+ring is NOT a collision (no other state shares it), so the distinctness check that already existed passed it by
+construction.
+
+    --passes=pages  probe: 8 families, 0 collisions, 0 ringFill, light and dark, across all six rail pages
+    self-test:      the judge fails a planted 'mark-ringfill' defect (46 ok, up from 45)
+
+WHY THE SAME RULE LIVES IN FOUR PLACES, for the next reader who wonders: each one reads a DIFFERENT artefact. The
+console gate reads its SOURCE sheet (`gateway/ui/dist` is a pruned build artifact), the panel's unit test reads the
+BUILT sheet, and the core probe reads the COMPUTED styles of a RENDERED page. A rule in only one of them would have
+missed two of the three copies of this defect — which is what happened: the console found it by mutation (round 44),
+the panel's unit test by mirroring the rule (round 45), and the rendered axis not at all until the probe was fixed
+(round 46).
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.
