@@ -400,6 +400,17 @@ export function judgeReport(report, opts = {}) {
       findings.push(`unstyled check on ${u.page || "?"}: only ${u.styledClasses} styled classes found (floor ${opts.unstyledFloor ?? 100}) — the collector read almost nothing, so its silence means nothing`);
     }
   }
+  // THE TYPE FLOOR, IN THE RENDERED PAGE. designScale.test.ts pins the SCALE — names, order, and a 10px floor
+  // — but a token being 10px and the rendered text being 10px are different claims, and only the second one
+  // is what a reader experiences. Round 164 looked at the rows every sweep already collects: the panel's
+  // smallest rendered size is 10 and the console's is 10.8, against 2035 and 590 text rows. Nothing was
+  // wrong; this is what keeps it that way, because a one-off look is not a guard.
+  for (const r of report.rows || []) {
+    if (r.kind === 'graphic') continue;
+    if (typeof r.size === 'number' && r.size > 0 && r.size < 10) {
+      findings.push(`type floor: ${r.sel} renders at ${r.size}px on ${r.page || '?'} — the scale's floor is 10px ("${String(r.text || '').slice(0, 24)}")`);
+    }
+  }
   for (const h of report.hover || []) {
     if (h.underAA && h.underAA.length) {
       findings.push(`hover (${h.density || "?"}/${h.theme || "?"}): ${h.underAA.length} element(s) below AA while hovered — ${h.underAA.slice(0, 3).join("; ")}`);

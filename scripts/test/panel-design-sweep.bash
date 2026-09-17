@@ -110,6 +110,10 @@ elif which == "reflow":
     r["reflow"][0]["sideScrollers"] = ["div.card 100<300"]
 elif which == "focus":
     r["focus"] = [{"density": "panel", "theme": "light", "missing": 3}]
+elif which == "type-floor":
+    # A ROW RENDERED BELOW THE SCALE'S FLOOR. designScale.test.ts pins the tokens; this is the claim that
+    # the RENDERED page honours them, and a judge that could not fail here would not be checking it.
+    r["rows"][0]["size"] = 9
 elif which == "motion":
     # AN ELEMENT THAT STILL ANIMATES under the preference: the defect this pass exists for.
     r["motion"] = [{"density": "panel", "normal": 19, "reduced": 3, "stillAnimating": [".btn fade x1", ".chip slide x1", ".tab scale x1"]}]
@@ -125,7 +129,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty; do
+for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
