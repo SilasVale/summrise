@@ -366,6 +366,17 @@ function buildHarness() {
     // stub (no token, no sessions, no counter) and looked from the outside like a broken product.
     window.__calls.push(u.replace(/^.*\\/api\\//, '') + ' ' + body);
     if (u.indexOf('/api/tools/terminal_list') >= 0)    return Promise.resolve(J({ok:true, result:SESSIONS}));
+    // DIAGNOSTIC BUILD (round 156): the SSE branch that broke the boot in round 154, back in place to have
+    // its page errors read rather than guessed at.
+    if (u.indexOf('/api/events/term') >= 0) {
+      var sseBody = new ReadableStream({
+        start: function (c) {
+          c.enqueue(new TextEncoder().encode('data:\\n\\n'));
+          c.close();
+        },
+      });
+      return Promise.resolve(new Response(sseBody, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+    }
     if (u.indexOf('/api/tools/terminal_history') >= 0) return Promise.resolve(J({ok:true, result:[]}));
     if (u.indexOf('/api/tools/terminal_read') >= 0)    return Promise.resolve(J({ok:true, result:{text:'ONT 0/1 online', start:0, end:14, evicted:false}}));
     if (u.indexOf('/api/tools/') >= 0)                 return Promise.resolve(J({ok:true, result:'OK'}));
@@ -384,6 +395,15 @@ function buildHarness() {
   // ends the literal and the file stops parsing. Round 154 wrote two of them into a comment ABOUT the
   // other trap. The check is one line and would have caught all of them.
   if (stub.includes("`")) throw new Error("the stub contains a backtick — it would end the emitted template early");
+  // AND IT MUST PARSE, which the backtick search above cannot tell you. Round 156 found why: an escape that
+  // a three-layer edit (shell, python, template) collapsed to a single backslash became a REAL NEWLINE
+  // inside a single-quoted string, the emitted stub was a syntax error, every request failed, and the app
+  // sat on the connect screen while the emitter reported success. One compile names it immediately.
+  try {
+    new Function(stub);
+  } catch (e) {
+    throw new Error("the emitted stub does not parse: " + e.message);
+  }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Vale Agent</title>
 <style>${css}</style></head><body><div id="root"></div>
