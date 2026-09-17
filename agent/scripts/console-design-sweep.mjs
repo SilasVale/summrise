@@ -379,13 +379,26 @@ const fail = { api: false };
     fail.api = false;
   }
 
+  // THE LOGIN PAGE, IN BOTH THEMES. It is the one surface an operator sees before anything else works, and it
+  // is a CARD — colour, type and a form — so a light-only render leaves a dark regression unmeasured. Round
+  // 229 checked every other pass in all three sweeps for the same thing and found this as the only one that
+  // both renders colour AND lacked a dark counterpart; the motion pass is light-only too and stays that way, because
+  // it asks whether animations are DISARMED rather than what colour anything is.
   auth.signedIn = false;
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
-  await page.waitForTimeout(1600);
-  for (const r of await page.evaluate(PROBE)) report.rows.push({ ...r, page: 'login', width: 1440, density: 'console', theme: 'light' });
-  report.surfaces.push({ page: 'login', width: 1440, ...(await page.evaluate(SURFACE)) });
-  report.names.push({ page: 'login', ...(await page.evaluate(NAMES)) });
+  for (const theme of ['light', 'dark']) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+    await page.evaluate((t) => {
+      try { localStorage.setItem('vale-theme', t); } catch (e) {}
+      document.body.setAttribute('data-theme', t);
+    }, theme);
+    await page.waitForTimeout(1600);
+    const name = 'login' + (theme === 'dark' ? '-dark' : '');
+    report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
+    for (const r of await page.evaluate(PROBE)) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
+    report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE)) });
+    report.names.push({ page: name, ...(await page.evaluate(NAMES)) });
+  }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
