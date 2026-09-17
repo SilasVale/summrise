@@ -199,7 +199,12 @@ const TIMING = \`(() => {
 
 function browserScript() {
   const script = `const fs = require('fs');
-const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
+// WHERE IT READS AND WRITES IS OVERRIDABLE, so the same sweep can run on the device (the defaults, exactly
+// as before) or on any machine with a browser — which is what makes a CI job possible at all. Round 204:
+// the design suite has only ever run when the loop remembered to run it, and a measured-and-verified
+// objective should not depend on that. Nothing else about a device run changes.
+const HARNESS = process.env.VALE_PANEL_HARNESS || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
+const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\design-sweep.json';
 // THE BUILD THIS SWEEP WAS EMITTED AGAINST. The audit stamps every harness with the stylesheet it
 // inlined; baking the expectation here turns round 189's note into a check. A delivered fixture that
 // predates a CSS fix otherwise reports findings that look live — a 17px tab strip against a 962px build —
@@ -529,7 +534,7 @@ ${TIMING}
     report.reflow.push({ width, ...(await page.evaluate(REFLOW)) });
   }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
-  fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\design-sweep.json', JSON.stringify(report));
+  fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length }));
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
