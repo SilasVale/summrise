@@ -370,32 +370,27 @@ function buildHarness() {
     // DIAGNOSTIC BUILD (round 156): the SSE branch that broke the boot in round 154, back in place to have
     // its page errors read rather than guessed at.
     if (u.indexOf('/api/events/term') >= 0) {
-      // ?activity=1 — A DEVICE THAT IS DOING SOMETHING. This pushes one SSE control frame, which the app
-      // turns into a window event (vale-playwright-changed).
+      // THE ACTIVITY FIXTURE IS GONE (round 194). It pushed one playwright-changed control frame, and its
+      // stated reason for existing was that it would "light something the day that pane is measurable". That
+      // day cannot come here: the frame has exactly one consumer, EmbeddedBrowserPane, which needs the
+      // Electron shell control server, and round 193 established that reaching it would take an app-level
+      // test seam or an Electron-side runner this repository does not have.
       //
-      // WHAT IT IS WORTH, measured rather than assumed: the frame ARRIVES (the event is dispatched in the
-      // active render and not in the quiet one) and NO HARNESS-RENDERED SURFACE CHANGES — 51 rows and 9
-      // graphics in both panel states, no activity marks in either desktop state. The consumer is
-      // EmbeddedBrowserPane, which is Electron-only and not rendered here. So this is a fixture for a
-      // surface that is not yet measured: it proves the control-frame path works end to end, and it will
-      // light something the day that pane is measurable. Kept for that reason, and labelled so nobody
-      // expects a sweep to show a difference.
+      // NOTHING EVER PASSED ?activity=1 — no sweep surface used it — so it was a branch no run exercised,
+      // kept for a consumer no run can render. What stays is the part the CONNECTED state needs: a stream
+      // that opens, sends one empty frame so the app sees traffic, and stays open.
       //
-      // Frames are escaped with raw strings and the parser guard below checks the result: this file has
-      // three escaping layers and one of them cost two rounds in 154-156.
-      var wantActivity = P.get('activity') === '1';
+      // The escaping notes stay because they are still true: this file has three escaping layers and one of
+      // them cost two rounds in 154-156.
+      // THE STREAM CLOSES AFTER ONE FRAME, and that is load-bearing: round 156 made the panel render
+      // CONNECTED with this exact shape, and round 194 found that a stream which stays open and sends a
+      // second frame at 900ms puts four "reconnecting" rows back into the report. This prune removes the
+      // ?activity=1 branch and NOTHING ELSE — a fixture change that alters behaviour is not a prune.
       var sseBody = new ReadableStream({
         start: function (c) {
           var enc = new TextEncoder();
           c.enqueue(enc.encode('data:\\n\\n'));
-          if (wantActivity) {
-            setTimeout(function () {
-              c.enqueue(enc.encode('data:{"ev":"playwright-changed"}\\n\\n'));
-              c.close();
-            }, 900);
-          } else {
-            c.close();
-          }
+          c.close();
         },
       });
       return Promise.resolve(new Response(sseBody, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
