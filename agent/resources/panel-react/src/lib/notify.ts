@@ -23,7 +23,7 @@
 
 export type NotifyPermission = "unsupported" | "default" | "granted" | "denied";
 
-export interface NotifyPayload {
+interface NotifyPayload {
   key: string;
   title: string;
   body: string;
@@ -36,9 +36,9 @@ export interface NotificationLike {
 }
 export type NotificationCtor = new (title: string, options?: { body?: string; tag?: string }) => NotificationLike;
 
-export const MIN_GAP_MS = 5_000;
-export const BURST = 3;
-export const BURST_WINDOW_MS = 60_000;
+const MIN_GAP_MS = 5_000;
+const BURST = 3;
+const BURST_WINDOW_MS = 60_000;
 
 /** The browser's answer, read defensively: a page in an insecure context has no `Notification` at
  *  all, and that is a STATE, not an error. */

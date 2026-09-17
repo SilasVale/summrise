@@ -339,6 +339,11 @@ jobs:
       # to cyan/violet/pink behind every surface) and drawing by HUE rather than by the token's colour.
       - name: every copy of the particle field reads the brand as colours
         run: node scripts/test/particles-check.mjs
+      # A MODULE'S PUBLIC SURFACE SHOULD BE WHAT SOMEBODY USES. Measured first: 67 + 9 exports were referenced
+      # nowhere. Twenty-four of the panel's were used INSIDE their own file (drop the keyword), and three were used
+      # nowhere at all — including the console's <StatusChip>, whose CSS family stayed behind for 35 lines.
+      - name: no export that nothing imports
+        run: node scripts/test/exports-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077

@@ -60,7 +60,7 @@ export const isCrash = (kind: BootKind | null): boolean => kind === "crashed";
  *  reopened for other work. */
 export const REPLACED_NOTICE_SECS = 300;
 
-export interface BootNotice {
+interface BootNotice {
   /** `warn` = a fault the operator may need to act on; `info` = news, then gone. */
   tone: "warn" | "info";
   /** The chip's text — short enough for the strip, never colour-only. */

@@ -31,7 +31,7 @@ export interface BootRecord {
   release: string | null;
 }
 
-export interface BootSummary {
+interface BootSummary {
   windowSecs: number;
   boots: number;
   crashes: number;

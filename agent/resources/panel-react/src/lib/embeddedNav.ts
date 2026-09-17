@@ -8,7 +8,7 @@
 // Rule: follow the push unless the user has UNSENT edits (focused AND the
 // value differs both from what it was at focus time and from the last
 // pushed URL).
-export interface NavPushMerge {
+interface NavPushMerge {
   editing: boolean;
   inputValue: string;
   valueAtFocus: string;

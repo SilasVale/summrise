@@ -32,7 +32,7 @@ import { useEffect, useRef, useState } from "react";
 import { callApi } from "../lib/api";
 import type { OperationEvent, RunBoundary } from "../lib/runs";
 
-export interface OperationSnapshot {
+interface OperationSnapshot {
   events: OperationEvent[];
   boundaries: RunBoundary[];
 }
@@ -41,7 +41,7 @@ export interface OperationSnapshot {
  *  low-frequency event (a client declares one, works, declares the end), so
  *  this is a freshness floor, not a stream: the panel's live views keep their
  *  own faster paths. */
-export const OPERATION_POLL_MS = 5000;
+const OPERATION_POLL_MS = 5000;
 
 /** Rows per request. Bounded so one poll cannot walk an unbounded log — the
  *  device caps the reply too, and this only has to be small enough to be cheap

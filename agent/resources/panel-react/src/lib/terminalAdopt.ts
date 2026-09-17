@@ -11,7 +11,7 @@
 
 export const MAX_ADOPT_PAGES = 64;
 
-export interface AdoptResponse {
+interface AdoptResponse {
   start?: number | string;
   end?: number | string;
   evicted?: boolean;

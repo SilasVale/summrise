@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi } from "../lib/api";
 
-export interface MonitorProbe {
+interface MonitorProbe {
   tsMs: number;
   ok: boolean;
   /** Connect time when the probe ANSWERED; null when it did not — a latency for a connection
@@ -16,7 +16,7 @@ export interface MonitorProbe {
   ms: number | null;
 }
 
-export interface MonitorSummary {
+interface MonitorSummary {
   probes: number;
   up: number;
   down: number;
@@ -38,7 +38,7 @@ export interface MonitorSummary {
 
 /** ONE STATE CHANGE, as the device records it: when it happened, which state took effect, and
  *  how long the state it ENDED had lasted (an outage, for a recovery). */
-export interface MonitorTransition {
+interface MonitorTransition {
   atMs: number;
   up: boolean;
   lastedMs: number;
@@ -263,7 +263,7 @@ export function parseMonitorChange(detail: unknown): MonitorAlert | null {
   };
 }
 
-export const MAX_ALERTS = 3;
+const MAX_ALERTS = 3;
 
 /** The alerts, newest first, expiring on their own. */
 export function useMonitorAlerts(ttlMs = 12_000): MonitorAlert[] {
@@ -305,7 +305,7 @@ export function unstableTargets(monitors: Monitors): MonitorTarget[] {
 
 /** The number of drops that makes a link unstable — mirrors `monitor::UNSTABLE_DROPS` on the
  *  device, which is where the count comes from; this constant only decides when to SPEAK. */
-export const UNSTABLE_DROPS = 2;
+const UNSTABLE_DROPS = 2;
 
 /** The targets that are DOWN right now, with how long they have been down. The strip's chip
  *  and the card's headline both read this — one rule, so they cannot disagree. */

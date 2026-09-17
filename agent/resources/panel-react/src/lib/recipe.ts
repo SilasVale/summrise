@@ -30,7 +30,7 @@ export const RECIPE_MARKER = "vale-recipe/v1";
 /** Tag every recipe carries, so `memory_search` with tags finds them. */
 export const RECIPE_TAG = "recipe";
 
-export interface RecipeDraft {
+interface RecipeDraft {
   /** Short title — becomes the memory entry title. */
   title: string;
   /** The entry body. */
@@ -47,7 +47,7 @@ export function suggestedTitle(path: SessionPath): string {
   return `Recipe: ${short} (${path.steps.length} steps)`;
 }
 
-export interface RecipeInput {
+interface RecipeInput {
   name: string;
   /** Which session this was walked on — shell kind and label, so a reader knows
    *  what the commands were run against. */

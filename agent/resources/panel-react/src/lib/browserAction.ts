@@ -1,5 +1,5 @@
 /** One browser action as the evidence feed records it. */
-export interface BrowserActionLike {
+interface BrowserActionLike {
   ts: number;
   duration_ms?: number;
   exit_code?: number | null;
@@ -11,9 +11,9 @@ export interface BrowserActionLike {
   run_id?: string | null;
 }
 
-export type ActionState = "ok" | "timeout" | "nocode" | "fail" | "unknown";
+type ActionState = "ok" | "timeout" | "nocode" | "fail" | "unknown";
 
-export interface ActionVerdict {
+interface ActionVerdict {
   state: ActionState;
   /** The badge's word. */
   label: string;

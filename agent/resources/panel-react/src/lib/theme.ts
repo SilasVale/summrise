@@ -14,7 +14,7 @@ export function getTheme(): Theme {
   return "light";
 }
 
-export function applyTheme(theme: Theme) {
+function applyTheme(theme: Theme) {
   document.body.dataset.theme = theme;
 }
 

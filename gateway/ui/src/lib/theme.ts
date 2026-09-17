@@ -18,11 +18,11 @@ export function getTheme(): Theme {
   return "light";
 }
 
-export function applyTheme(theme: Theme) {
+function applyTheme(theme: Theme) {
   document.body.dataset.theme = theme;
 }
 
-export function setTheme(theme: Theme) {
+function setTheme(theme: Theme) {
   try {
     localStorage.setItem(KEY, theme);
   } catch {

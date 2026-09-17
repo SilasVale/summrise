@@ -42,7 +42,7 @@ export const WORKING_MS = 8000;
  *  lights the device state too, not only the session being watched. And useSSE
  *  is mounted once in App.tsx, above both density branches, so the desktop shell
  *  and the panel receive the same events. */
-export const DEVICE_ACTIVITY_EVENTS = [
+const DEVICE_ACTIVITY_EVENTS = [
   "vale-term-output",
   "vale-browser-actions-changed",
   "vale-playwright-changed",

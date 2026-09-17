@@ -143,7 +143,7 @@ interface SessionRuntime {
 const runtimes = new Map<string, SessionRuntime>();
 
 // P1-4: export downloads at most this many 1 MiB pages (see exportSession).
-export const MAX_EXPORT_PAGES = 16;
+const MAX_EXPORT_PAGES = 16;
 
 export function useSessions(connected: boolean) {
   const [sessions, setSessions] = useState<Session[]>([]);

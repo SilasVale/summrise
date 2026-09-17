@@ -17,11 +17,6 @@ export class ApiError extends Error {
   }
 }
 
-export interface ApiResponse<T> {
-  ok: boolean;
-  data: T | null;
-  error?: { message: string };
-}
 
 
 /** A custom provider as the console sees it (server-reduced: never the raw key). */
@@ -79,7 +74,7 @@ export interface ProviderModelDraft {
 }
 
 /** What the add/edit form submits. Mirrors the server's parseProviderSpec. */
-export interface ProviderDraft {
+interface ProviderDraft {
   prefix: string;
   label?: string;
   baseURL: string;
@@ -135,7 +130,7 @@ export interface RouteInfo {
   models: string[];
 }
 
-export interface PublicRouteInfo {
+interface PublicRouteInfo {
   routes: RouteInfo[];
   /**
    * THE AUTHORITATIVE CATALOGUE, and the only list safe to SET A ROUTE FROM.
@@ -158,7 +153,7 @@ export interface HealthChannel {
   reason?: string;
 }
 
-export interface HealthResponse {
+interface HealthResponse {
   channels: HealthChannel[];
 }
 

@@ -93,11 +93,11 @@ export interface RunBoundary {
   outcome?: string | null;
 }
 
-export type RunState = "closed" | "open" | "unregistered" | "unattributed";
+type RunState = "closed" | "open" | "unregistered" | "unattributed";
 
 /** Which of the device's two feeds a row came from. Anything that is not the
  *  browser feed is the terminal audit trail — the only two producers there are. */
-export type ActivitySource = "terminal" | "browser";
+type ActivitySource = "terminal" | "browser";
 
 /** ONE record of the timeline, as a row a reader can render.
  *
@@ -174,7 +174,7 @@ export interface RunGroup {
   rows: ActivityRow[];
 }
 
-export interface OperationGroups {
+interface OperationGroups {
   /** Sorted by start time. */
   runs: RunGroup[];
   /** The events with no `run_id`, as their OWN group. `null` when there are

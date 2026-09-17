@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { parseEvicted, type EvictionNotice } from "../lib/evicted";
 
 /** Long enough to notice and read one line, short enough not to linger over the strip. */
-export const EVICTED_TTL_MS = 20_000;
+const EVICTED_TTL_MS = 20_000;
 
 export function useEvictedNotice(ttlMs: number = EVICTED_TTL_MS): EvictionNotice | null {
   const [notice, setNotice] = useState<EvictionNotice | null>(null);

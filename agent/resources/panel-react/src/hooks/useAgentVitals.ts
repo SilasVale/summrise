@@ -66,7 +66,7 @@ export function parseLastBoot(j: Record<string, unknown>): LastBoot | null {
   return { kind, detail };
 }
 
-export const EMPTY_VITALS: AgentVitals = {
+const EMPTY_VITALS: AgentVitals = {
   release: "",
   uptime: "",
   cpu: null,

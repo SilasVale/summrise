@@ -11,7 +11,6 @@ export function initTransport(host: string, tok: string, on401: () => void) {
   token = tok;
   onUnauthorizedCb = on401;
 }
-export function hasTransport() { return !!hostname && !!token; }
 export function getHost() { return hostname; }
 export function getToken() { return token; }
 

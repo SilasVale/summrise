@@ -18,7 +18,7 @@ export const GETTING_STARTED_VERSION = "1";
 /** The localStorage key. Versioned by VALUE, not by key, so one key is all that is ever written. */
 export const GETTING_STARTED_KEY = "valeGettingStarted";
 
-export interface Step {
+interface Step {
   /** Which page the step sends you to — must exist in PAGE_ICONS. */
   page: Page;
   /** The chip the reader looks for in the rail. Short: it is a label, not a sentence. */

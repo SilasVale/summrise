@@ -45,7 +45,7 @@ export interface CommandEvents {
   readState: SessionReadState;
 }
 
-export interface WorkspaceSession extends Session {
+interface WorkspaceSession extends Session {
   active: boolean;
 }
 

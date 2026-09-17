@@ -32,7 +32,7 @@ export interface UpdateStatus {
   error: string | null;
 }
 
-export const EMPTY_UPDATE: UpdateStatus = {
+const EMPTY_UPDATE: UpdateStatus = {
   current: "",
   channel: null,
   latest: null,

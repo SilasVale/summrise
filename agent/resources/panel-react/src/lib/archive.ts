@@ -31,7 +31,7 @@
  *  (`session_log::terminal_state_of`): kind/ts/reason/exit_code/status. Every
  *  field is optional on the wire, so every field is `null` when it is missing
  *  or of a type this panel cannot use. */
-export interface ArchiveLastEvent {
+interface ArchiveLastEvent {
   /** The audit event's own kind, e.g. "command/end" | "status" | "control". */
   kind: string;
   /** Unix SECONDS of the last recorded event (the audit log's unit). */

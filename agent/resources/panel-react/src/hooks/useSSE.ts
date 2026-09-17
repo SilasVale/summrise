@@ -14,7 +14,7 @@ import { callTool, getHost, getToken } from "../lib/api";
 //   which recreated the SSE effect every 3s poll — tearing down and
 //   re-establishing the stream, dropping frames in the gap)
 
-export type SseState = "connected" | "down" | "connecting";
+type SseState = "connected" | "down" | "connecting";
 
 // round-103: per-session gap backfill state — a lagged broadcast dropped
 // frames; the next frame's start is the true gap lower bound, so we backfill

@@ -49,7 +49,7 @@ export function Card({ title, description, headerExtra, noMargin, className, chi
 
 /* ── Badge ── */
 
-export type BadgeTone = "success" | "error" | "warning" | "info" | "muted";
+type BadgeTone = "success" | "error" | "warning" | "info" | "muted";
 
 export function Badge({ tone = "muted", dot, children }: { tone?: BadgeTone; dot?: boolean; children: ReactNode }) {
   return (
@@ -123,10 +123,4 @@ export function Modal({ title, onClose, children }: { title: ReactNode; onClose:
 
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
-}
-
-/* ── Status chip: neutral pill + small state dot (informational listings) ── */
-
-export function StatusChip({ state, children }: { state: "ok" | "warn" | "err" | "off"; children: ReactNode }) {
-  return <span className={`chip ${state}`}><span className="dot" />{children}</span>;
 }

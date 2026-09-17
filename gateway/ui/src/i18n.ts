@@ -764,10 +764,6 @@ function emitChange() {
   for (const l of listeners) l();
 }
 
-export function getLang(): Lang {
-  return lang;
-}
-
 export function setLang(next: Lang) {
   lang = next;
   try {

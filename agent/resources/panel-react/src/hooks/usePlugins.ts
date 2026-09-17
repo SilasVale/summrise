@@ -17,7 +17,7 @@ import { callApi } from "../lib/api";
 // failures — so the playwright card doubles as a startup log. All rendering
 // downstream is TEXT-ONLY (React text nodes, never innerHTML).
 
-export interface PlaywrightStatus {
+interface PlaywrightStatus {
   running: boolean;
   port?: number;
   /** WHEN THE INSTANCE STARTED — and the device OMITS THIS on its healthy
@@ -37,9 +37,9 @@ export interface PlaywrightStatus {
 }
 
 /** dsh StateDot states — success | warn | error | ongoing (design spec). */
-export type PluginState = "success" | "warn" | "error" | "ongoing";
+type PluginState = "success" | "warn" | "error" | "ongoing";
 
-export interface PluginRow {
+interface PluginRow {
   name: string;
   displayName: string;
   description: string;
@@ -52,7 +52,7 @@ export interface PluginRow {
   playwright?: PlaywrightStatus;
 }
 
-export interface LogLine {
+interface LogLine {
   ts: string;
   text: string;
   error: boolean;

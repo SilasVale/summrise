@@ -10,7 +10,7 @@
 // Validated, not trusted: a frame this build cannot use is null, never a notice about something
 // that did not happen (the same rule `parseMonitorChange` follows).
 
-export interface EvictedSession {
+interface EvictedSession {
   id: string;
   label: string;
   kind: string;

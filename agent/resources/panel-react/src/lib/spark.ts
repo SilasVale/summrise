@@ -26,9 +26,9 @@ export const LOAD_WINDOW_MS = 15 * 60_000;
 
 /** The severity word a sustained load earns. Shares the dial's vocabulary (75 % warn,
  *  90 % crit) so the panel cannot describe one reading two ways. */
-export type LoadTone = "warn" | "crit";
+type LoadTone = "warn" | "crit";
 
-export interface LoadNotice {
+interface LoadNotice {
   tone: LoadTone;
   /** Which series the notice is about. */
   metric: "cpu" | "mem";
@@ -48,7 +48,7 @@ const CRIT_PCT = 90;
 const SUSTAINED_FRACTION = 2 / 3;
 
 /** The readings' values, `null` where the device reported nothing. */
-export function seriesValues(samples: (number | null)[]): number[] {
+function seriesValues(samples: (number | null)[]): number[] {
   return samples.filter((v): v is number => typeof v === "number");
 }
 

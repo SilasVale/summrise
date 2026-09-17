@@ -4,7 +4,7 @@
 // The density difference is PURELY visibility; navigation and pages are shared.
 import type { ReactNode } from "react";
 
-export type Density = "panel" | "desktop";
+type Density = "panel" | "desktop";
 /** The pages, in rail order. `archive` sits directly under `terminal` because it
  *  is the terminal page's own history: the device's RECORDED sessions, openable
  *  after the session — or the agent — is gone. `activity` follows, because it is

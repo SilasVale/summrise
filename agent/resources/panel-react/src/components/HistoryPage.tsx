@@ -23,7 +23,7 @@ import type { Session } from "../hooks/useSessions";
 /** The two halves of the record. Names match the section headings they reveal: a control that says
  *  "Sessions" over a panel titled "Archive" makes the reader check whether they are the same
  *  thing. */
-export const HISTORY_SCOPES = [
+const HISTORY_SCOPES = [
   {
     id: "sessions",
     label: "Sessions",
@@ -38,7 +38,7 @@ export const HISTORY_SCOPES = [
   },
 ] as const;
 
-export type HistoryScope = (typeof HISTORY_SCOPES)[number]["id"];
+type HistoryScope = (typeof HISTORY_SCOPES)[number]["id"];
 
 export function HistoryPage({ sessions }: { sessions: Session[] }) {
   const [scope, setScope] = useState<HistoryScope>("sessions");

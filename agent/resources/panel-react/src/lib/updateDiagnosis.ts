@@ -24,7 +24,7 @@
 // PURE ON PURPOSE: no fetch, no React, no clock. The four-way logic is the part
 // worth testing, and every input is a string.
 
-export type UpdateVerdict =
+type UpdateVerdict =
   | "cli-swap-launched"
   | "cli-only"
   | "rust-swap"

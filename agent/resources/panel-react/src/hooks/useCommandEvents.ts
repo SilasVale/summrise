@@ -180,7 +180,7 @@ export type SessionReadState = "reading" | "ok" | "unreadable";
  * last good events instead of blanking the stream (same stance as
  * useSessions' poll). No polling while sid is null.
  */
-export function useSessionEventsWithState(
+function useSessionEventsWithState(
   sid: string | null,
   pollMs = 2000,
 ): { events: CommandEvent[]; readState: SessionReadState; firstSeq: number } {

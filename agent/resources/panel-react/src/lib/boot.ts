@@ -10,7 +10,7 @@ const LS_HOST = "valeHost";
 const LS_TOKEN = "valeToken";
 
 /** Resolved bootstrap values shared by every App state initializer. */
-export interface Boot {
+interface Boot {
   host: string;
   tok: string;
   connected: boolean;

@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export const PULSE_MS = 8000;
 
 /** Window events (dispatched by useSSE) that mean "the AI is operating". */
-export const AI_ACTIVITY_EVENTS = [
+const AI_ACTIVITY_EVENTS = [
   "vale-browser-actions-changed",
   "vale-playwright-changed",
 ] as const;

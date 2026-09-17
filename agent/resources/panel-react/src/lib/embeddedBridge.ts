@@ -24,7 +24,7 @@
  *  without guarding. Writing them optional here (my first attempt) silently weakened the type and
  *  broke the handler's call sites — the compiler caught it, which is the whole point of moving the
  *  shape out of the component and into a file something can check. */
-export interface EmbeddedNavState {
+interface EmbeddedNavState {
   url: string;
   canBack: boolean;
   canFwd: boolean;
@@ -32,7 +32,7 @@ export interface EmbeddedNavState {
 }
 
 /** The embedded REAL-browser view (absent in a plain browser). */
-export interface EmbeddedBridge {
+interface EmbeddedBridge {
   navigate: (url: string) => Promise<unknown>;
   back: () => Promise<unknown>;
   fwd: () => Promise<unknown>;
@@ -53,7 +53,7 @@ export interface ValeBrowserBridge {
 }
 
 /** Auto-launch settings and the native menu command bridge. */
-export interface ValeDesktopBridge {
+interface ValeDesktopBridge {
   getAutoLaunch: () => Promise<unknown>;
   setAutoLaunch: (enabled: boolean) => Promise<unknown>;
   onCommand: (handler: (cmd: string) => void) => () => void;

@@ -30,7 +30,7 @@ import { WORKING_MS } from "../hooks/useDeviceActivity";
 export type Liveness = "off" | "waiting" | "working" | "idle";
 
 /** The silhouette a state draws — the channel that survives colour loss. */
-export type Silhouette = "diamond" | "solid-halo" | "ring" | "dashed-ring";
+type Silhouette = "diamond" | "solid-halo" | "ring" | "dashed-ring";
 
 /** Ordered by URGENCY, and the order is the contract: a mark may only be louder than another if it
  *  outranks it. `waiting` beats `working` because a question DECAYS if it is not seen, while work

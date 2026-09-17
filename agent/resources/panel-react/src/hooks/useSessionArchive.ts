@@ -28,7 +28,7 @@ import { archiveEntries, type ArchiveEntry } from "../lib/archive";
 
 /** Mirrors SessionReadState in useCommandEvents — the same three words for the
  *  same three facts, so a reader of either surface meets one vocabulary. */
-export type ArchiveListState = "reading" | "ok" | "unreadable";
+type ArchiveListState = "reading" | "ok" | "unreadable";
 
 export function useSessionArchive(): { entries: ArchiveEntry[]; state: ArchiveListState } {
   const [entries, setEntries] = useState<ArchiveEntry[]>([]);

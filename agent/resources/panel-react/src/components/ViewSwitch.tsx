@@ -15,7 +15,7 @@ import type { SessionView } from "./TabBar";
 /** Label + tooltip per view, in display order. The tooltips carry the meaning,
  *  because "Trajectory" and "Path" are not self-explanatory next to each other:
  *  one is the raw audit timeline, the other is the same work summarised. */
-export const VIEW_LABELS: Array<{ id: SessionView; label: string; title: string }> = [
+const VIEW_LABELS: Array<{ id: SessionView; label: string; title: string }> = [
   {
     id: "terminal",
     label: "Terminal",

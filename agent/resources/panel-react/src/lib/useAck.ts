@@ -22,7 +22,7 @@
 // keys on (`.ack-busy` in the sheet), and `aria-busy` is what assistive tech announces.
 import { useCallback, useState } from "react";
 
-export interface Ack {
+interface Ack {
   /** The key of the control currently in flight, or null. */
   busyOn: string | null;
   /** True while ANY control in this component is in flight — what `disabled` wants. */

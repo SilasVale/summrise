@@ -35,25 +35,25 @@ import { useAck } from "../lib/useAck";
 /** The last minute: seconds instead of minutes, danger ink, and the only
  *  announcement the gate ever makes. It used to be the last 10 s, which is
  *  inside a human's reaction time for a decision this consequential. */
-export const URGENT_MS = 60_000;
+const URGENT_MS = 60_000;
 
 /** Tick once a second only where a second is the unit on screen. Before that,
  *  a 500 ms interval would recompute (and re-render the workspace) 1800 times
  *  per question to display a number that changes once a minute. */
-export const SLOW_TICK_MS = 30_000;
-export const FAST_TICK_MS = 1_000;
+const SLOW_TICK_MS = 30_000;
+const FAST_TICK_MS = 1_000;
 
 /** How a remaining budget reads to a person: whole MINUTES with a ceiling while
  *  there is more than a minute left ("15m", "2m", "1m" — never "14m" when the
  *  truth is closer to 15), whole SECONDS in the last minute. */
-export function formatRemaining(ms: number): string {
+function formatRemaining(ms: number): string {
   const secs = Math.max(0, Math.ceil(ms / 1000));
   return secs >= 60 ? `${Math.ceil(secs / 60)}m` : `${secs}s`;
 }
 
 /** The clock time the question retires, for the STATIC description. Fixed
  *  24-hour HH:MM so it cannot change as the seconds tick. */
-export function expiresAtClock(expiresAtMs: number): string {
+function expiresAtClock(expiresAtMs: number): string {
   const d = new Date(expiresAtMs);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }

@@ -37,7 +37,7 @@ export const PATH_STATES = ["running", "ok", "fail", "warn", "bg", "muted"] as c
 
 export type PathState = (typeof PATH_STATES)[number];
 
-export type Owner = "ai" | "human";
+type Owner = "ai" | "human";
 
 export interface PathStep {
   /** The round id it came from (`r-<seq>`), so a step can be traced back. */
@@ -110,7 +110,7 @@ export interface SessionPath {
 
 /** A session-level status before any command (e.g. "opened") forms the
  *  preamble round; it is context, not a step along the path. */
-export const PREAMBLE_ID = "r-pre";
+const PREAMBLE_ID = "r-pre";
 
 /**
  * Who was driving at a given moment, from the session's `control` events.
@@ -125,7 +125,7 @@ export const PREAMBLE_ID = "r-pre";
  * trail means: the header documents the audit as the record of device control,
  * and a session with no handoff was the agent's throughout.
  */
-export function ownershipTimeline(
+function ownershipTimeline(
   events: CommandEvent[],
 ): Array<{ ts: number; holder: Owner }> {
   return events

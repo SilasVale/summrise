@@ -12,8 +12,8 @@
 import { actionVerdict } from "../lib/browserAction";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface Shot { name: string; mtime_ms: number }
-export interface BrowserAction {
+interface Shot { name: string; mtime_ms: number }
+interface BrowserAction {
   ts: number; duration_ms?: number; exit_code?: number | null; timed_out?: boolean;
   script?: string; screenshots?: string[]; stdout_tail?: string; stderr_tail?: string;
 }

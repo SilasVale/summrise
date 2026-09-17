@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { callApi } from "../lib/api";
 
-export interface VitalsSample {
+interface VitalsSample {
   tsMs: number;
   cpu: number | null;
   mem: number | null;
