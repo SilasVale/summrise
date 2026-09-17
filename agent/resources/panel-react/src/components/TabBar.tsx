@@ -4,7 +4,7 @@ import type { Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useStripOverflow } from "../hooks/useStripOverflow";
 import { disambiguateLabels } from "../lib/sessionLabels";
-import { livenessOf } from "../lib/liveness";
+import { sessionLiveness } from "../lib/liveness";
 import { Icon } from "../ui/Icon";
 
 /** Per-session main-area view (round-admin-ui Task 5): the terminal pane +
@@ -113,7 +113,7 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
                 readable only from the aria-label below. `active` is false on purpose: the panel's only activity
                 signal is DEVICE-wide (useDeviceActivity), and a halo on all sixteen tabs would say nothing. The
                 model takes a per-session signal the day one exists. */}
-            <span className="mark tab-dot" data-live={livenessOf({ reachable: !s.closed, pending: waiting, active: false })} data-kind={s.kind} />
+            <span className="mark tab-dot" data-live={sessionLiveness(s)} data-kind={s.kind} />
             <span className="tab-name">{displayLabel[tabIndex]}</span>
             <span
               className="tab-export"

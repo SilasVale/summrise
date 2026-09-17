@@ -1,3 +1,4 @@
+import { WORKING_MS } from "../hooks/useDeviceActivity";
 // liveness.ts — ONE state per entity, and ONE SHAPE per state.
 //
 // WHY THIS EXISTS. The panel said "how is this thing doing" in four places, each with its own
@@ -71,13 +72,40 @@ export function deviceLiveness(input: { connected: boolean; pendingCount: number
 
 /** A session. `reachable` follows the device because a session lives on it; a CLOSED session is not
  *  liveness at all, so it degrades to `off` rather than pretending to be idle. */
-export function sessionLiveness(
-  session: { pendingApproval: unknown; closed?: boolean },
-  device: { connected: boolean; working: boolean },
-): Liveness {
+/**
+ * IS THE **SESSION** WORKING — not "is the device busy".
+ *
+ * THE FACT WAS ON THE WIRE AND UNUSED. `terminal_list` reports `idle_ms` per session (the agent's own
+ * `last_output.elapsed()`, round 37), the panel types it as `idleMs` — and every surface passed `active: false` to
+ * `livenessOf`, with a comment explaining that the only activity signal was DEVICE-wide and a halo on all sixteen
+ * tabs would say nothing. That was true of the signal being used and false of the one available: the device has
+ * known, per session and all along, when that session last produced output.
+ *
+ * IT IS A RECENCY SIGNAL, NOT "A COMMAND IS RUNNING", and the distinction is the same one `useDeviceActivity`
+ * documents: a long command that prints nothing for a while will read as idle here. The panel says "produced
+ * output recently" because that is what it can honestly say.
+ *
+ * THE WINDOW IS `WORKING_MS`, the same number the device-wide signal uses — imported rather than restated, so the
+ * two cannot drift into disagreeing about what "recently" means.
+ */
+export function sessionActive(session: { idleMs?: number }): boolean {
+  return typeof session.idleMs === "number" && session.idleMs < WORKING_MS;
+}
+
+/**
+ * ONE DERIVATION FOR EVERY SURFACE. The tab strip, the context list and the desktop strip each used to build this
+ * inline — three copies of the same three lines, two of which passed `active: false` — which is how they come to
+ * disagree. Nothing about a session's own mark needs the device: connectivity is the RAIL's fact and lives on the
+ * rail's mark, so a disconnected device does not make every session "off" (which is what a CLOSED session means).
+ */
+export function sessionLiveness(session: {
+  pendingApproval?: unknown;
+  closed?: boolean;
+  idleMs?: number;
+}): Liveness {
   return livenessOf({
-    reachable: device.connected && !session.closed,
+    reachable: !session.closed,
     pending: !!session.pendingApproval,
-    active: device.working,
+    active: sessionActive(session),
   });
 }

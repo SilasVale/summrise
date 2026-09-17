@@ -378,13 +378,19 @@ describe("colour pairs declared in one rule", () => {
     const failures: string[] = [];
     for (const [selector, token] of sources) {
       if (FILLS.includes(token)) failures.push(`${selector} names the FILL ${token}`);
+      // WHICH SURFACE THIS INK ACTUALLY LANDS ON. Default is the chrome, and the ACTIVE TAB is the exception that
+      // hid a real defect for as long as it did: in dark the active tab is filled with the accent and a working
+      // mark is accent-filled too, measuring **1.00:1** — the dot against its own background. This check measured
+      // every source against `--chrome-bg-2` and so could not see it, and neither could the sweep. Found by
+      // rendering the working state for the first time (round 9 of the standing goal).
+      const surface = selector.includes(".tab.active") ? "--chrome-active-bg" : "--chrome-bg-2";
       for (const [theme, tokens] of [["light", light], ["dark", dark]] as Array<[string, Record<string, string>]>) {
         // THE MODULE-LEVEL `resolve` TAKES A VALUE, not a token NAME — `resolve("--chrome-ink-dim", …)`
         // returns the name unchanged and parses to null, which reads as "unmeasurable" rather than as the
         // mistake it is. Look the declaration up first, then follow whatever chain it points at.
         const declared = tokens[token];
         const inkRaw = declared ? resolve(declared, tokens) : null;
-        const chromeDecl = tokens["--chrome-bg-2"];
+        const chromeDecl = tokens[surface];
         const chromeRaw = chromeDecl ? resolve(chromeDecl, tokens) : null;
         const ink = inkRaw ? parseColour(inkRaw) : null;
         const chrome = chromeRaw ? parseColour(chromeRaw) : null;

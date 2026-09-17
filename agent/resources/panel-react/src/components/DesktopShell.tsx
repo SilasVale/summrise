@@ -16,7 +16,7 @@ import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { idleSessions } from "../lib/idleSessions";
-import { livenessOf } from "../lib/liveness";
+import { sessionLiveness } from "../lib/liveness";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
@@ -319,7 +319,7 @@ export function DesktopShell({
                             see it.) */}
                         <span
                           className="mark dtab-dot"
-                          data-live={livenessOf({ reachable: !s.closed, pending: waiting, active: false })}
+                          data-live={sessionLiveness(s)}
                           data-kind={s.kind}
                         />
                         <span className="dtab-name">{shown}</span>

@@ -14,7 +14,10 @@ const session = (over: Partial<Session> = {}): Session => ({
   closed: false,
   savedOnly: false,
   active: true,
-  idleMs: 0, firstSeenAt: Date.now(),
+  // A QUIET SESSION BY DEFAULT, because `idleMs: 0` means "this session produced output within the window" — which
+  // is `working`, correctly, once the model reads the device's own per-session fact. The old default silently
+  // claimed every fixture session was active (round 9 of the standing goal).
+  idleMs: 60_000, firstSeenAt: Date.now(),
   closedAt: null,
   heldByHuman: false,
   approvalRequired: false,
@@ -178,6 +181,20 @@ describe("TabBar — a question waiting for a person", () => {
     expect(
       screen.getByTitle("gone — closed (its recorded trail is in Archive)"),
     ).toBeTruthy();
+  });
+
+  it("wears the halo on the session that is producing output, and only that one", () => {
+    // THE FACT THE DEVICE ALREADY HAD. `idle_ms` is the agent's own `last_output.elapsed()` per session; the panel
+    // typed it and ignored it, passing `active: false` everywhere because the only signal in use was DEVICE-wide.
+    // Two sessions: the one that just printed is `working`, the quiet one is not.
+    const { container } = render(
+      <TabBar {...props({ sessions: [session({ sid: "s1", label: "busy", idleMs: 400 }), session({ sid: "s2", label: "quiet", idleMs: 90_000 })] })} />,
+    );
+    expect(container.querySelectorAll('.tab-dot[data-live="working"]')).toHaveLength(1);
+    expect(container.querySelectorAll('.tab-dot[data-live="idle"]')).toHaveLength(1);
+    // the title of a plain tab is its SID (only a closed or waiting tab is titled by its label)
+    expect(screen.getByTitle("s1").querySelector('.tab-dot')!.getAttribute("data-live")).toBe("working");
+    expect(screen.getByTitle("s2").querySelector('.tab-dot')!.getAttribute("data-live")).toBe("idle");
   });
 
   it("shows no COUNT — the mark is a state, not a tally", () => {

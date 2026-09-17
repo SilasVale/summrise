@@ -69,6 +69,12 @@ const EVENTS = [
 
 const SESSION = {
   id: SID, kind: "pty", label: "d1", status: "live", bytes: 512,
+  // `idle_ms` IS THE PER-SESSION FACT THE MARK LANGUAGE READS (lib/liveness.ts): the agent's own
+  // `last_output.elapsed()`, and a session inside the window is WORKING — the halo. THE FIXTURE HAD NO SUCH FIELD
+  // AT ALL, so every sweep this harness ever produced photographed a panel where no session could be working:
+  // the marquee silhouette of the whole language was invisible to the gate that checks silhouette coverage.
+  // 900 ms here, and the quiet seeds below, so the strip carries one halo and two rings.
+  idle_ms: 900,
   held_by_human: false, approval_required: true, approval_grants: ["display"],
   goal: "provision the ONU at 0/1 on VLAN 100, then save the config",
   pending_approval: {
@@ -157,8 +163,8 @@ function buildHarness() {
   var liveCount = P.has('sessions') ? Math.max(0, parseInt(P.get('sessions'), 10) || 0) : 3;
   var SESSION_SEEDS = [
     {},
-    { label: 'serial:COM4', kind: 'serial', held_by_human: false, pending_approval: null, approval_required: false },
-    { label: 'stc@192.168.1.1', kind: 'ssh', held_by_human: false, pending_approval: null },
+    { label: 'serial:COM4', kind: 'serial', idle_ms: 45_000, held_by_human: false, pending_approval: null, approval_required: false },
+    { label: 'stc@192.168.1.1', kind: 'ssh', idle_ms: 120_000, held_by_human: false, pending_approval: null },
   ];
   var SESSIONS = [];
   for (var si = 0; si < liveCount; si++) {

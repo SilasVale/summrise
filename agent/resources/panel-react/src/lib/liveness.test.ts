@@ -16,8 +16,10 @@ import {
   livenessOf,
   deviceLiveness,
   sessionLiveness,
+  sessionActive,
   type Liveness,
 } from "./liveness";
+import { WORKING_MS } from "../hooks/useDeviceActivity";
 
 const STATES = Object.keys(URGENCY) as Liveness[];
 
@@ -58,10 +60,33 @@ describe("the liveness model", () => {
   });
 
   it("does not claim liveness for a session that cannot answer", () => {
-    const device = { connected: true, working: true };
-    expect(sessionLiveness({ pendingApproval: null, closed: true }, device)).toBe("off");
-    expect(sessionLiveness({ pendingApproval: null }, { connected: false, working: true })).toBe("off");
-    expect(sessionLiveness({ pendingApproval: { command: "x" } }, device)).toBe("waiting");
-    expect(sessionLiveness({ pendingApproval: null }, device)).toBe("working");
+    expect(sessionLiveness({ pendingApproval: null, closed: true, idleMs: 10 })).toBe("off");
+    expect(sessionLiveness({ pendingApproval: { command: "x" }, idleMs: 60_000 })).toBe("waiting");
+    expect(sessionLiveness({ pendingApproval: null, idleMs: 60_000 })).toBe("idle");
   });
+
+  // ── THE DEVICE'S OWN FACT, PER SESSION (round 9 of the standing goal) ─────────────────────────────────────
+  it("reads the session's OWN idle time, not the device's mood", () => {
+    // `idle_ms` is the agent's `last_output.elapsed()`: the one per-session fact on the wire, and it sat unused
+    // while every surface passed `active: false` and explained that only a DEVICE-wide signal existed.
+    expect(sessionActive({ idleMs: 0 })).toBe(true);
+    expect(sessionActive({ idleMs: WORKING_MS - 1 })).toBe(true);
+    expect(sessionActive({ idleMs: WORKING_MS })).toBe(false);
+    expect(sessionActive({ idleMs: 60_000 })).toBe(false);
+    // A session row without the field (an older device, a stripped fixture) must NOT read as working.
+    expect(sessionActive({})).toBe(false);
+    expect(sessionActive({ idleMs: undefined })).toBe(false);
+  });
+
+  it("does not smear one busy session over the others", () => {
+    // THE BUG THIS REPLACES: `sessionLiveness` took the DEVICE's `working` flag, so a command in one tab would
+    // draw a halo on all sixteen — which is why the surfaces stopped calling it and hard-coded `active: false`
+    // instead. Two sessions, one working: exactly one halo.
+    const quiet = sessionLiveness({ pendingApproval: null, idleMs: 90_000 });
+    const busy = sessionLiveness({ pendingApproval: null, idleMs: 500 });
+    expect(busy).toBe("working");
+    expect(quiet).toBe("idle");
+    expect(busy).not.toBe(quiet);
+  });
+;
 });

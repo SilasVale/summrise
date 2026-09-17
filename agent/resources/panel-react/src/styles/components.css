@@ -531,7 +531,19 @@
    the active surface and 4.51 against the blue, so the mark reads whichever lane colour it carries.
    The probe treats a zero-offset box-shadow with a spread as the paint, so this fix is measurable
    rather than asserted: the row goes from 1.11 to the ring's own ratio. */
-.tab.active .tab-dot { box-shadow: 0 0 0 1px var(--chrome-active-text); }
+/* THE ACTIVE TAB'S MARK USED TO BE INVISIBLE IN DARK, AND A RING HID IT.
+   Measured on the rendered panel (round 9 of the standing goal, the first render that could show a WORKING
+   session at all): in dark the active tab is filled `rgba(217,72,15,0.9)` and a working mark is filled
+   `rgb(217,72,15)` — **1.00:1, the dot against its own background**. The 1px `--chrome-active-text` ring was
+   compensating for that, and because `.tab.active .tab-dot` out-specifies `.mark[data-live="working"]` it also
+   REPLACED the working halo — so the state channel vanished on the one tab the operator was looking at.
+
+   The mark draws in THE ACTIVE TAB'S OWN TEXT INK now, which by construction reads on that background and does so
+   in BOTH themes — `--accent-fg` was tried first and is white in both, so it measured 4.30 in dark and
+   **1.12 in light**, where the active tab is a pale accent tint rather than an accent fill. The ring is gone: the
+   halo belongs to the state (`.mark[data-live=…]`), and "this is the tab you are on" is already said three times
+   over by the tab's background, its text colour and `aria-selected`. */
+.tab.active .tab-dot { --mark-ink: var(--chrome-active-text); }
 
 /* HOW MANY SESSIONS THE STRIP IS HIDING. The fade said "there is more" and stopped there, so a reader
    knew they were missing something without knowing what (round 168: sixteen sessions, ten of them named
