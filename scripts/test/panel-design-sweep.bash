@@ -110,6 +110,11 @@ elif which == "reflow":
     r["reflow"][0]["sideScrollers"] = ["div.card 100<300"]
 elif which == "focus":
     r["focus"] = [{"density": "panel", "theme": "light", "missing": 3}]
+elif which == "blind":
+    # A REPORT THAT COULD NOT MEASURE MOST OF ITS ROWS. Every entry with cr None is excluded from judgement,
+    # so without a floor this exits 0 while having judged almost nothing.
+    for row in r["rows"]:
+        row["cr"] = None
 elif which == "type-floor":
     # A ROW RENDERED BELOW THE SCALE'S FLOOR. designScale.test.ts pins the tokens; this is the claim that
     # the RENDERED page honours them, and a judge that could not fail here would not be checking it.
@@ -129,7 +134,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor; do
+for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"

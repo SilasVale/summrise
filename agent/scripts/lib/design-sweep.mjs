@@ -411,6 +411,25 @@ export function judgeReport(report, opts = {}) {
       findings.push(`type floor: ${r.sel} renders at ${r.size}px on ${r.page || '?'} — the scale's floor is 10px ("${String(r.text || '').slice(0, 24)}")`);
     }
   }
+  // A SCAN THAT COULD NOT READ MOST OF THE PAGE IS NOT A CLEAN SCAN. Rows the probe cannot measure are
+  // excluded from judgement — correctly, since guessing at them is how a probe starts lying — but until
+  // round 165 they appeared ONLY as a number in the summary line, so a report that had stopped measuring
+  // anything would still exit 0 with "nothing above found a defect". That is the same vacuity this suite has
+  // found in its own checks five times over, and the same rule it already applies to the unstyled scan: a
+  // floor, stated with the number that failed it.
+  //
+  // Both live reports are at 0.0% (the panel's 496 gradient-surfaced rows are measured against their stops,
+  // not skipped), so the floor is not a nuisance today — it is what would catch the day it is not.
+  {
+    const all = (report.rows || []).length;
+    const blind = (report.rows || []).filter((r) => r.cr === null || r.cr === undefined || Number.isNaN(r.cr)).length;
+    const floor = opts.unmeasurableFloor ?? 0.1;
+    if (all > 0 && blind / all > floor) {
+      findings.push(
+        `only ${all - blind} of ${all} rows could be measured (${((blind / all) * 100).toFixed(1)}% unmeasurable, floor ${(floor * 100).toFixed(0)}%) — the absences below prove nothing`,
+      );
+    }
+  }
   for (const h of report.hover || []) {
     if (h.underAA && h.underAA.length) {
       findings.push(`hover (${h.density || "?"}/${h.theme || "?"}): ${h.underAA.length} element(s) below AA while hovered — ${h.underAA.slice(0, 3).join("; ")}`);
