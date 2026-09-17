@@ -17,12 +17,24 @@
 // unit-tested in extension/test/), and anything the chrome APIs do for real — the shim answers with
 // fixed values.
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE, contrastRatio, parseColour } from "./lib/contrast-probe.mjs";
 import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE, TARGETS_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
+// COMPUTED AT EMIT TIME, NOT BAKED (round 223). Round 191 wrote the entry digest as a LITERAL, so
+// rebuilding the UI changed the file and made the check unsatisfiable — a fix for exactly this was made
+// for the panel harness in round 210 and NOT applied here, which is why the console sweep failed on the
+// first rebuild after that. The value is computed in the module (where the repository is) and only its
+// result is inlined into the emitted script.
+const ENTRY_STAMP = (() => {
+  try {
+    const b = readFileSync(new URL("../../extension/options/options.html", import.meta.url));
+    return { bytes: b.length, sha: createHash("sha256").update(b).digest("hex").slice(0, 12) };
+  } catch (e) { return { bytes: -1, sha: "(unreadable)" }; }
+})();
 function browserScript() {
   const script = `const fs = require('fs');
 const path = require('path');
@@ -38,7 +50,7 @@ const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\
 // files from four generations, and round 189 lost an afternoon to a stale PANEL harness whose collapsed
 // tab strip read as a live regression. The panel's harness now stamps itself; these two carry the entry's
 // digest instead, because a stale delivery always shows up in the file that names everything else.
-const EXPECTED_ENTRY = {"bytes": 3596, "sha": "0647992fe70c"}\;
+const EXPECTED_ENTRY = ${JSON.stringify(ENTRY_STAMP)};
 // DERIVED FROM ROOT, NOT BAKED. Round 191 wrote this as the device path, so when round 219 made ROOT
 // overridable the check kept looking at C:\ProgramData\Vale while the sweep served the repository — and
 // CI reported ENOENT for a file that was right there. A check that names a location must follow the same
