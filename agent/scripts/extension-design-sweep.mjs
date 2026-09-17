@@ -188,7 +188,11 @@ function judge(file) {
   // unstyledFloor: 2 — this page is THREE controls styled by element and id selectors; its sheet defines
   // four classes, so the judge's 100 floor would report a false alarm on every run. Two means the
   // collector read at least something real, which is what the floor is for.
-  const findings = judgeReport(report, { navless: ["options", "options-fresh"], unstyledFloor: 2 });
+  // ONE NAME, NOT TWO (round 230). This said ["options", "options-fresh"] — the same page before and after the
+  // first render, listed as two strings. With `navless` matching a PREFIX since round 229, the family root
+  // covers both, and listing the instance beside the root is how the family gets forgotten: the console's
+  // `login` waiver missed `login-dark` for exactly that reason.
+  const findings = judgeReport(report, { navless: ["options"], unstyledFloor: 2 });
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}@${r.width}px ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }
