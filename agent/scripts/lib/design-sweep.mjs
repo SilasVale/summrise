@@ -428,6 +428,12 @@ export function judgeReport(report, opts = {}) {
   // A DELIVERED COPY OLDER THAN THE BUILD MEASURES SOMETHING NOBODY CAN NAME. Same weight as a stale panel
   // harness, and the same evidence-free failure mode: a UI whose CSS has moved on reports findings that look
   // live. The check travels with every console and extension report.
+  // AND WHEN IT IS CURRENT, SAY SO. The panel prints its harness generation on every run, so a reader always
+  // knows which artifact was measured; the console and the extension were silent about it unless something
+  // was wrong. Provenance that only appears in a failure is provenance nobody can check.
+  if (report.entryCheck && !report.entryCheck.stale && !report.entryCheck.error) {
+    console.log(`note: delivered entry ${report.entryCheck.bytes} bytes / sha ${report.entryCheck.sha} — matches the build`);
+  }
   if (report.entryCheck && report.entryCheck.stale) {
     const e = report.entryCheck;
     findings.push(

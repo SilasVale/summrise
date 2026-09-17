@@ -104,6 +104,15 @@ write_ext "$TMP/ext-stale.json" "r['entryCheck'] = {'bytes': 1, 'sha': 'deadbeef
 write_ext "$TMP/ext-unreadable.json" "r['entryCheck'] = {'error': 'ENOENT', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': True}"
 [ "$(judge "$EXT" "$TMP/ext-unreadable.json")" = "1" ] && ok "extension: an unreadable entry fails too, naming the expected digest" || bad "extension: an unreadable entry was NOT a finding"
 
+# A CURRENT ENTRY MUST SAY SO — provenance that only appears on failure cannot be checked.
+write_ext "$TMP/ext-current.json" "r['entryCheck'] = {'bytes': 3596, 'sha': '0647992fe70c', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': False}"
+if node "$EXT" --judge "$TMP/ext-current.json" > "$TMP/ext-current.out" 2>&1; then
+  ok "a current delivered entry still passes"
+else
+  bad "the judge failed a report whose entry matches the build"
+fi
+grep -q "delivered entry 3596 bytes / sha 0647992fe70c" "$TMP/ext-current.out" && ok "and the judge names the build it measured" || bad "the entry provenance note is missing"
+
 # ── 4. the console's rules: target size and the theme it actually rendered ─────────────────────
 write_con "$TMP/con-target.json" "r['targets'] = [{'page': 'overview', 'checked': 10, 'undersized': 1, 'distinct': [{'sel': 'button.x', 'text': 'x', 'w': 12, 'h': 12, 'nearest': 4.0, 'passesBySpacing': False}]}]"
 [ "$(judge "$CON" "$TMP/con-target.json")" = "1" ] && ok "console: the judge fails an undersized target with no spacing" || bad "console: a planted 2.5.8 failure was NOT a finding"
