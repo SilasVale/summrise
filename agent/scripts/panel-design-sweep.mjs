@@ -198,7 +198,7 @@ const TIMING = \`(() => {
 `;
 
 function browserScript() {
-  return `const fs = require('fs');
+  const script = `const fs = require('fs');
 const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
@@ -395,6 +395,19 @@ ${TIMING}
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length }));
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
+  // THE EMITTED SCRIPT MUST PARSE — which is what the 23 backtick incidents actually cost, and the only
+  // check that works HERE. A blanket backtick search is wrong for this emitter: the script it builds
+  // legitimately CONTAINS backticks, because it defines nested template sources of its own (the probe, the
+  // motion probe, the timing probe). My first attempt searched for one, found the script's own, and refused
+  // a perfectly good emission — the check told me more about itself than about the script.
+  // Compiling asks the question that matters: a backtick in a comment ends the outer literal early and the
+  // emitted 37 KB script stops parsing, wherever the damage happens to land.
+  try {
+    new Function(script);
+  } catch (e) {
+    throw new Error(`the emitted script does not parse: ${e.message}`);
+  }
+  return script;
 }
 
 function judge(file) {
