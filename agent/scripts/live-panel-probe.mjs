@@ -20,7 +20,7 @@ const CONFIG_PATHS = [
 ];
 
 function emitted() {
-  return `const fs = require('fs');
+  const script = `const fs = require('fs');
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
 (async () => {
@@ -66,6 +66,17 @@ const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
   console.log(JSON.stringify(out, null, 1));
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
+
+  // THE EMITTED SCRIPT MUST PARSE — the last of the five emitters in this repository to get the check the
+  // panel has had since round 155. Five emit a standalone script for the device, and four were guarded:
+  // this one, written in round 167, was not. A backtick in a comment here would have produced a broken
+  // script for a run to fail on later, in the middle of 16 KB.
+  try {
+    new Function(script);
+  } catch (e) {
+    throw new Error("the emitted script does not parse: " + e.message);
+  }
+  return script;
 }
 
 if (process.argv.includes("--emit")) {

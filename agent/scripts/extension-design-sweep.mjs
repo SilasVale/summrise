@@ -24,7 +24,7 @@ import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE, TAR
 const mode = process.argv[2];
 
 function browserScript() {
-  return `const fs = require('fs');
+  const script = `const fs = require('fs');
 const path = require('path');
 const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
@@ -133,6 +133,17 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
+
+  // THE EMITTED SCRIPT MUST PARSE — the third home for a check the panel emitter has had since round 155
+  // and the console got in round 177. This one had none, so a backtick in a comment here would have
+  // produced a broken 30 KB script for a run to fail on later, with the failure landing somewhere in the
+  // middle of it. The same guard, written the same way, so all three emitters refuse alike.
+  try {
+    new Function(script);
+  } catch (e) {
+    throw new Error("the emitted script does not parse: " + e.message);
+  }
+  return script;
 }
 
 function judge(file) {
