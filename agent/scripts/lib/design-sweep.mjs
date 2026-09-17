@@ -162,6 +162,25 @@ export const FOCUS_SOURCE = `(() => {
   return visible ? 'ok' : 'no-ring';
 })()`;
 
+/** WHICH VERDICTS TRUST A COMPUTED VALUE, AND WHY EACH ONE IS STILL HONEST (round 187).
+ *
+ *  Round 186 found the focus check reporting eighteen missing rings that the browser was painting — a
+ *  computed style is not a painted pixel, and the check had been reading one and calling it the other. That
+ *  is a CLASS, not an incident, so every other verdict in this library was audited against it:
+ *
+ *    * TARGET SIZE (2.5.8) is safe BY CONSTRUCTION: getBoundingClientRect returns the POST-transform box, so
+ *      a control scaled down to 12px measures 12px. It was already paint-aware and did not need changing.
+ *    * TYPE FLOOR could be fooled — getComputedStyle().fontSize is pre-transform, so a scale(0.5) would paint
+ *      9px while reporting 18px — and the audit found 3 transformed elements in the panel with ZERO text
+ *      leaves among them. No text in any of the three UIs is scaled, so the floor measures what it claims.
+ *    * CONTRAST composites the element's own colours and opacity against its detected surface, so an
+ *      ANCESTOR's opacity, a mix-blend-mode, a backdrop-filter or a filter would all invalidate the ratio.
+ *      The audit found 25 text leaves in the console and not one with any of those in its ancestor chain.
+ *    * UNSTYLED compares rendered class names against parsed selectors: no paint involved, nothing to fool.
+ *
+ *  Re-run the audit rather than believing this note if a UI ever gains a scale, a fade wrapper or a blend:
+ *  the method is one page scan that walks every text leaf's ancestor chain and reports the four properties.
+ */
 /** THE FOCUS PASS, in one place, inlined into every adapter's emitted script by `.toString()` — the same
  *  trick PROBE_SOURCE uses. The loop is the part that drifted when it was copied: the panel's counted
  *  nothing and treated focus escaping to the body as a pass, and the console's copy kept both defects for
