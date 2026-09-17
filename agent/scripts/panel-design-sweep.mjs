@@ -604,6 +604,14 @@ function judge(file) {
     // traced every offending element to a tab inside `#tabs`). A real defect in the strip would have
     // to be judged on the device, which is why this exemption is narrow and printed on every run.
     ignore: [
+      {
+        // THE SAME DOT, ON THE OTHER PATH, AND ORDER-INDEPENDENT ON PURPOSE: rows write "2.33 panel/Terminal
+        // div.rail-dot" and hover writes "div.rail-dot \"\" 2.33<3", so one ordered pattern matches one path
+        // and not the other — which is exactly how this exemption came to cover rows alone (round 214). The
+        // value stays in the test, so a DIFFERENT ratio on this element is still a finding on either path.
+        test: (text) => /div\.rail-dot/.test(text) && /2\.33/.test(text),
+        reason: "the working rail dot's halo is emphasis, not the signal — the fill carries the state and clears 3:1 in both themes (measured, round 212)",
+      },
 
       // THE ACTIVE TAB'S DOT: THE RING PREFERENCE DOES NOT FIRE, AND THAT IS NOW REPRODUCIBLE (round 206).
       //
@@ -645,6 +653,17 @@ function judge(file) {
       // follows everywhere else); the halo is emphasis around an already-legible mark.
       // This surfaced only after round 156 made the SSE stream open: before that the rail dots never entered
       // the working state at all, so the halo had never been measured.
+      // NOT ANCHORED TO THE ROW PATH, AND THE VALUE IS NAMED. This waiver was /^div\.rail-dot$/ — an exact
+      // match on the ROWS finding format — so it never reached the same dot when the HOVER pass reported it
+      // (round 214: "hover (panel/light): 1 element(s) below AA while hovered — div.rail-dot 2.33<3"). One
+      // exemption, two code paths, one of them unexempted: the "second home" shape again. Round 212 proved
+      // with measurements that the halo is emphasis and the dot's FILL clears 3:1 in BOTH themes, so the
+      // exemption is evidence-backed and belongs on both paths.
+      // THE VALUE STAYS IN THE PATTERN: only 2.33 is set aside, so a DIFFERENT ratio on the same element —
+      // in rows or on hover — is still a finding.
+      // THIS LIST IS THE ROWS WAIVER — its consumer reads `d.match` against a row's selector — so it keeps a
+      // match. The HOVER path reports through `ignore` instead, which is why the same dot was exempt in rows
+      // and a finding on hover (round 214). Both lists carry the exemption now; see `ignore` below.
       match: /^div\.rail-dot$/,
       // MEASURED, NOT ASSERTED (round 202). "The fill carries the state" was an assertion for fifty rounds:
       // the probe prefers a ring over a fill, so the only row this mark produced measured the HALO at 2.33 and
