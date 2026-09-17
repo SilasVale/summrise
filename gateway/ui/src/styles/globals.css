@@ -2704,3 +2704,10 @@ body[data-theme="dark"] .note.tip {
    already worked, the same property round 223's spacing scale had. */
 .cards > *, .dev-grid > *, .card, .dev-card, .key-card { min-width: 0; }
 .key-card-top, .dev-card-head, .card-header, .key-card code, .dev-card code { min-width: 0; overflow-wrap: anywhere; }
+
+/* THE CARD HEADS WRAP (round 224). After min-width:0 and a breakable token took the console's 320px overflows
+   from four to two, both survivors were card HEADS: a flex row holding a title and a badge, which cannot
+   shrink below the two of them side by side. `flex-wrap: wrap` lets the badge drop to the next line — the same
+   rule #canvas-top and the status bar already follow in the panel for the same reason. Above the width where
+   they fit, nothing wraps and nothing moves. */
+.dev-card-head, .card-header { flex-wrap: wrap; }
