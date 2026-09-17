@@ -149,8 +149,8 @@ const empty = { fleet: false };
     report.names.push({ page: label + '-dark', ...(await page.evaluate(NAMES)) });
     // A FALSE POSITIVE WORTH REMEMBERING. While deciding whether this pass was needed I probed the page by
     // hand and got 4.3 for the active rail button — under AA, apparently a defect. The tested probe finds it
-    // fine: the hand-rolled comparison read `rgba(217, 72, 15, 0.9)` as opaque and ignored what it composites
-    // over, which is the ONE thing `compositeStack` exists to get right. The real maths is a few lines away in
+    // fine: the hand-rolled comparison read rgba(217, 72, 15, 0.9) as opaque and ignored what it composites
+    // over, which is the ONE thing compositeStack exists to get right. The real maths is a few lines away in
     // lib/contrast-probe.mjs. Every exploratory probe of a colour should call it, because that is exactly the
     // moment the shortcut looks harmless.
     // HOVER IN DARK, on ONE page. The light hover pass found a dark-theme button at 1.94 when the PANEL
@@ -172,6 +172,10 @@ const empty = { fleet: false };
           if (r.kind !== 'graphic' && !r.inactive && r.cr < r.need) underAA.push(r.sel + ' ' + r.cr + '<' + r.need);
         }
       }
+      // AND PUT THE POINTER BACK. Leaving the last hovered element under the cursor made the FOCUS pass that
+      // follows measure a hovered control and report a ring that is not missing — a self-inflicted finding,
+      // caught because the round's own report showed it. State must not leak between passes.
+      await page.mouse.move(0, 0);
       report.hover.push({ page: 'overview-dark', width: 1440, density: 'console', theme: 'dark', interactive: all.length, underAA: [...new Set(underAA)] });
     }
   }
