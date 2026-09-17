@@ -163,7 +163,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -203,6 +203,7 @@ const HARNESS = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
+const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -221,7 +222,7 @@ ${TIMING}
     // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
     // with the data and the judge refuses a report that does not say it covered everything.
     passes: ${JSON.stringify(PASSES)},
-    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [],
+    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [], targets: [],
   };
   const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
@@ -345,6 +346,18 @@ ${TIMING}
       report.surfaces.push({ density: 'panel', theme: 'light', mode: 'fixture', page: page_, ...(await page.evaluate(SURFACE)) });
       report.names.push({ density: 'panel', theme: 'light', mode: 'fixture', page: page_, ...(await page.evaluate(NAMES)) });
     }
+  }
+
+  // TARGET SIZE, WCAG 2.5.8, the FULL criterion. Nothing measured it before round 162 — the number 24 was
+  // already in this suite as the threshold for whether a non-text element is a MARK, which is a different
+  // question. Both densities, one render each, recorded like any other surface.
+  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
+    await page.setViewportSize(vp);
+    await page.goto('http://vale.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2000);
+    report.targets.push({ density, ...(await page.evaluate(TARGETS)) });
   }
 
   // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
@@ -522,11 +535,31 @@ function judge(file) {
   // this suite follows — and the waived rows are PRINTED on every run so the exemption stays visible.
   const DECORATIVE = [
     {
+      // THE WORKING DOT'S HALO. The probe prefers a ring over a fill when both are present (round 129), so
+      // `.rail-dot[data-state="working"]` is judged on its box-shadow — a SOFT token by design, measuring
+      // 2.33. The dot's FILL is --state-running and carries the meaning (the same rule the state palette
+      // follows everywhere else); the halo is emphasis around an already-legible mark.
+      // This surfaced only after round 156 made the SSE stream open: before that the rail dots never entered
+      // the working state at all, so the halo had never been measured.
+      match: /^div\.rail-dot$/,
+      reason: "the working state's halo is emphasis, not the signal — the dot's fill carries the state",
+    },
+    {
       match: /^span\.approval-grant$/,
       reason: "the grant chip's outline delimits the chip; its meaning is its text (contrast-fixed for this chip already) and its dot",
     },
   ];
   const waived = [];
+  // TARGET SIZE, WCAG 2.5.8, AS WRITTEN: undersized AND without the spacing that would save it. A check
+  // that stopped at the size would flag a dozen compact-but-fine controls and be turned off within a week,
+  // which is why the criterion has the second clause and why this uses it.
+  for (const t of report.targets || []) {
+    for (const u of t.distinct || []) {
+      if (!u.passesBySpacing) {
+        findings.push(`target size (${t.density}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+      }
+    }
+  }
   for (const r of failures(report.rows)) {
     const why = DECORATIVE.find((d) => d.match.test(String(r.sel)));
     if (why) {

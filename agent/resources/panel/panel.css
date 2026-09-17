@@ -1033,6 +1033,12 @@ h3 { font-size: var(--fs-base); }
   font: 600 var(--fs-xs) var(--font);
   line-height: 1;
   padding: 5px 10px;
+  /* WCAG 2.5.8 TARGET SIZE. Measured in round 162: these were 68x21 and 45x21 with only NINE PIXELS between
+     them, so neither clause of the criterion was met — the desktop density's copies are 23px tall with 62-107
+     px of spacing and pass on the spacing clause, which is exactly what that clause is for. The panel's
+     compact density has no such room, so the target itself grows to the 24px minimum. Two pixels, and the
+     circles stop overlapping. */
+  min-height: 24px;
   border-radius: var(--radius-pill);
   cursor: pointer;
   transition: color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
@@ -1050,6 +1056,10 @@ h3 { font-size: var(--fs-base); }
   gap: var(--sp-2);
   max-width: 460px;
   padding: 5px 11px;
+  /* WCAG 2.5.8 again, and this one is worth the pixels: the bar measured 398x23 with its nearest other
+     target 23.6px away, so BOTH clauses missed by a fraction. A rounded display hid that — 23.6 printed as
+     24 until the probe started reporting tenths (round 162). The minimum is a minimum. */
+  min-height: 24px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
   background: var(--surface);

@@ -257,6 +257,60 @@ export async function motionPass(page, render, label = {}) {
   return { ...label, normal: normal.length, reduced: reduced.length, stillAnimating: reduced.slice(0, 6) };
 }
 
+/** WCAG 2.5.8 TARGET SIZE (MINIMUM), the FULL criterion — which is not "24x24 or fail".
+ *
+ *  The rule is: a target must be at least 24x24 CSS px, OR have enough SPACING that a 24px circle centred on
+ *  it does not overlap another target's circle. Most compact UIs satisfy it through the second clause, and a
+ *  check that ignored that would report a dozen false findings and be turned off within a week. So this
+ *  measures the distance to the nearest other target and applies the criterion as written.
+ *
+ *  Nothing measured this before round 162. The sweep's own probe uses 24px for a different question (whether
+ *  a non-text element is a MARK rather than a block), which is how the number was already in the codebase
+ *  without the criterion being checked. */
+export const TARGETS_SOURCE = `(() => {
+  const SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="tab"], [role="switch"], [role="checkbox"]';
+  const els = [...document.querySelectorAll(SEL)].filter((el) => {
+    const r = el.getBoundingClientRect();
+    const st = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none' && !el.disabled;
+  });
+  const name = (el) => {
+    const cls = typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.') : '';
+    return el.tagName.toLowerCase() + cls;
+  };
+  const box = (el) => el.getBoundingClientRect();
+  const centre = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const small = [];
+  for (const el of els) {
+    const r = box(el);
+    if (r.width >= 24 && r.height >= 24) continue;
+    // The spacing clause: a 24px circle centred here must not overlap another target's circle.
+    const c = centre(r);
+    let nearest = Infinity;
+    for (const other of els) {
+      if (other === el) continue;
+      const d = dist(c, centre(box(other)));
+      if (d < nearest) nearest = d;
+    }
+    small.push({
+      sel: name(el),
+      text: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 24),
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+      nearest: Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : null,
+      // 24px circles overlap when their centres are closer than 24px.
+      passesBySpacing: nearest >= 24,
+    });
+  }
+  const bySel = new Map();
+  for (const o of small) {
+    const prev = bySel.get(o.sel);
+    if (!prev || o.w * o.h < prev.w * prev.h) bySel.set(o.sel, o);
+  }
+  return { checked: els.length, undersized: small.length, distinct: [...bySel.values()] };
+})()`;
+
 export function judgeReport(report, opts = {}) {
   const findings = [];
   const suppressed = [];
