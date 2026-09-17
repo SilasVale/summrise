@@ -75,3 +75,36 @@ export function agentSignal(status: DeviceStatusLike | undefined, t: Translate):
 export function tunnelSignal(status: DeviceStatusLike | undefined, t: Translate): DeviceSignal {
   return { label: t("devices.statusTunnel"), ...signalOf(status?.tunnel_up, t, "devices.tunnelUp", "devices.tunnelDown") };
 }
+
+/** How many devices are known to be up, and how many have not been asked yet. */
+interface DeviceTally {
+  /** Devices whose status says the agent is answering. */
+  online: number;
+  /** Devices whose status says the tunnel is up. */
+  tunnels: number;
+  /** Devices with NO status entry — not checked, which is not the same as down. */
+  unchecked: number;
+  total: number;
+}
+
+/**
+ * THE COUNTS, IN ONE PLACE (round 38 of the standing goal). Two surfaces computed "N devices online" from the same
+ * fact, each with its own `filter(...).length` — the same shape that let the per-device mark disagree a round
+ * earlier. A count cannot show ambiguity per device, so the honest thing is to return BOTH numbers: `online` is
+ * what is known, `unchecked` is what is not yet known, and a surface that wants to say "1 of 2" can say so while
+ * another shows the unchecked count beside it.
+ */
+function deviceTally(devices: { name: string }[] | null | undefined, statuses: Record<string, DeviceStatusLike | undefined>): DeviceTally {
+  const list = devices ?? [];
+  let online = 0, tunnels = 0, unchecked = 0;
+  for (const d of list) {
+    const st = statuses[d.name];
+    if (st === undefined) unchecked++;
+    if (st?.agent_up) online++;
+    if (st?.tunnel_up) tunnels++;
+  }
+  return { online, tunnels, unchecked, total: list.length };
+}
+
+export { deviceTally };
+export type { DeviceTally };

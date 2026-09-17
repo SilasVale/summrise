@@ -271,6 +271,7 @@ const I18N = {
     "devices.statusTunnel": "隧道",
     "devices.statTotal": "台设备",
     "devices.statOnline": "在线",
+    "devices.statUnchecked": "未探测",
     "devices.statTunnels": "条隧道",
     "devices.statKeys": "待用注册码",
     "devices.regkeyHint": "一次性注册码，1 小时后自动失效；设备注册成功即被消费。",
@@ -647,6 +648,7 @@ const I18N = {
     "devices.statusTunnel": "Tunnel",
     "devices.statTotal": "devices",
     "devices.statOnline": "online",
+    "devices.statUnchecked": "not checked",
     "devices.statTunnels": "tunnels",
     "devices.statKeys": "unused keys",
     "devices.regkeyHint":

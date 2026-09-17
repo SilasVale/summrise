@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { deviceIsUp } from "../lib/deviceState.ts";
+import { deviceIsUp, deviceTally } from "../lib/deviceState.ts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useTranslation } from "../i18n.ts";
@@ -140,7 +140,7 @@ export default function Overview() {
   const configuredCount = keyEntries.filter((k) => k.info?.configured).length;
 
   const isAdmin = user?.role === "admin";
-  const onlineCount = (devices ?? []).filter((d) => status[d.name]?.agent_up).length;
+  const { online: onlineCount } = deviceTally(devices, status);
   const channelsOk = channels.filter((c) => c.ok).length;
 
   /* ── the first-run hint ──────────────────────────────────────────────────────────────

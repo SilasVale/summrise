@@ -10,7 +10,7 @@ import {
   type RegKeyInfo,
 } from "../api/client.ts";
 import { maskToken } from "../lib/format.ts";
-import { agentSignal, deviceIsUp, tunnelSignal } from "../lib/deviceState.ts";
+import { agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../lib/deviceState.ts";
 import {
   Card,
   PageHeader,
@@ -263,6 +263,9 @@ export default function DevicesPanel() {
     }
   };
 
+  // THE COUNTS, from the one derivation: known-online, tunnels up, and devices nobody has asked yet.
+  const tally = deviceTally(devices, deviceStatuses);
+
   return (
     <div>
       <PageHeader
@@ -296,8 +299,12 @@ export default function DevicesPanel() {
       {devices !== null && devices.length > 0 && (
         <div className="dev-stats">
           <span className="dev-stat"><b>{devices.length}</b>{t("devices.statTotal")}</span>
-          <span className="dev-stat"><b>{devices.filter((d) => deviceStatuses[d.name]?.agent_up).length}</b>{t("devices.statOnline")}</span>
-          <span className="dev-stat"><b>{devices.filter((d) => deviceStatuses[d.name]?.tunnel_up).length}</b>{t("devices.statTunnels")}</span>
+          {/* ONE TALLY, and the count of devices that have not been asked is carried in the title rather than
+              dropped: "0 online" of two devices nobody has probed is true and reads as a fleet that is down. */}
+          <span className="dev-stat" title={tally.unchecked ? t("devices.statUnchecked") + ": " + tally.unchecked : undefined}>
+            <b>{tally.online}</b>{t("devices.statOnline")}
+          </span>
+          <span className="dev-stat"><b>{tally.tunnels}</b>{t("devices.statTunnels")}</span>
           {regKeys && regKeys.length > 0 && (
             <span className="dev-stat"><b>{regKeys.length}</b>{t("devices.statKeys")}</span>
           )}

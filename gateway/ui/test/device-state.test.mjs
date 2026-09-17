@@ -6,7 +6,7 @@
 // rendered it (round 35 of the standing goal).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentSignal, deviceIsUp, tunnelSignal } from "../src/lib/deviceState.ts";
+import { agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../src/lib/deviceState.ts";
 
 /** The dictionary, stubbed: these tests are about which KEY is chosen, not what it says. */
 const t = (key) => key;
@@ -38,4 +38,25 @@ test("a device with a STATUS but no agent field is still OFF for that field", ()
   // not read as "the agent is down" either.
   assert.equal(agentSignal({}, t).signal, "off");
   assert.equal(tunnelSignal({ agent_up: true }, t).signal, "off");
+});
+
+// ── THE COUNTS, WHICH TWO SURFACES USED TO COMPUTE SEPARATELY (round 38 of the standing goal) ────────────────
+test("the tally counts what is KNOWN, and reports what is not", () => {
+  const devices = [{ name: "d1" }, { name: "d2" }, { name: "d3" }];
+  const statuses = {
+    d1: { agent_up: true, tunnel_up: true },
+    d2: { agent_up: false, tunnel_up: false },
+    // d3 has no entry at all: not checked, which is not the same as down
+  };
+  assert.deepEqual(deviceTally(devices, statuses), { online: 1, tunnels: 1, unchecked: 1, total: 3 });
+});
+
+test("an empty or absent list tallies to zero rather than throwing", () => {
+  // The Overview renders before the devices request answers, and `devices` is null until then.
+  assert.deepEqual(deviceTally(null, {}), { online: 0, tunnels: 0, unchecked: 0, total: 0 });
+  assert.deepEqual(deviceTally([], {}), { online: 0, tunnels: 0, unchecked: 0, total: 0 });
+  // and a list where NOTHING has been asked yet is all-unchecked, not all-offline
+  const t = deviceTally([{ name: "d1" }, { name: "d2" }], {});
+  assert.equal(t.online, 0);
+  assert.equal(t.unchecked, 2);
 });
