@@ -43,9 +43,15 @@ pub(crate) use panel::{
 };
 pub(crate) use sse::{acquire_sse_guard, sse_stream, sse_term_stream, SseConnectionGuard};
 
-/// Minimal self-contained status page — the panel SPA is retired, but the
-/// device URL should still answer something readable in a browser. Apple-style
-/// light, matching the rest of the Vale surface (2026-08-12).
+/// Minimal self-contained status page — the device URL answers something readable
+/// in a browser. Apple-style light, matching the rest of the Vale surface.
+///
+/// THE COLOURS HERE ARE PART OF THE SURFACE, NOT DECORATION (round 236). This string carried the RETIRED accent
+/// `#d9480f` long after the stylesheets replaced it, and nobody noticed because nothing compares a colour in a
+/// Rust string with a colour in a CSS token. Measured on the rendered pair: `#d9480f` on `#ffefe5` is 3.83, under
+/// the 4.5 AA needs for text; `#bf3a0a` on the same chip is 4.90. The code chips on this page were the only
+/// sub-AA text in the product, on the first thing anyone sees at a device URL.
+/// scripts/test/retired-colours-check.mjs now fails if the retired value comes back anywhere.
 const STATUS_PAGE: &str = concat!(
     "<!doctype html><html><head><meta charset=\"utf-8\"><title>vale-agent</title>",
     "<style>body{background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,'SF Pro Text','PingFang SC','Segoe UI',sans-serif;margin:0;display:flex;justify-content:center;padding:12vh 24px}",
@@ -53,7 +59,7 @@ const STATUS_PAGE: &str = concat!(
     ".mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;background:#1d1d1f;color:#fff;font-weight:700;font-size:22px}",
     "h1{font-size:22px;margin:14px 0 4px;font-weight:650;letter-spacing:-.01em}",
     "p{color:#6e6e73;font-size:13px;margin:4px 0}",
-    "code{background:#ffefe5;color:#d9480f;padding:1px 6px;border-radius:5px;font-family:ui-monospace,'SF Mono',Consolas,monospace;font-size:12px}",
+    "code{background:#ffefe5;color:#bf3a0a;padding:1px 6px;border-radius:5px;font-family:ui-monospace,'SF Mono',Consolas,monospace;font-size:12px}",
     "</style></head>",
     "<body><div class=\"card\"><span class=\"mark\">V</span><h1>vale-agent</h1>",
     "<p>MCP endpoint: <code>/mcp</code></p>",

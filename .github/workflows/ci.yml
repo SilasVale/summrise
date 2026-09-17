@@ -301,6 +301,11 @@ jobs:
       # refactor, and the one thing worth having now is that the gap stops widening.
       - name: the spacing scale may not drift
         run: node scripts/test/spacing-scale-check.mjs
+      # A COLOUR THAT WAS REPLACED MAY NOT COME BACK (round 236). The palette lives in four places — three
+      # stylesheets and a Rust string constant that renders the device's status page — and every existing check
+      # looked at the stylesheets. That string still carried the accent round 79 retired for failing AA.
+      - name: no retired colour is in use
+        run: node scripts/test/retired-colours-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077
