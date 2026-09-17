@@ -317,6 +317,11 @@ jobs:
       # layout property, a `transition: all`, anything over 240ms, and a sheet with no reduced-motion block.
       - name: every hover answers a press
         run: node scripts/test/feedback-check.mjs
+      # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
+      # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
+      # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
+      - name: the console's state dots differ in shape, and are legible
+        run: node scripts/test/console-marks-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077

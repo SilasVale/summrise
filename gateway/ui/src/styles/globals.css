@@ -2124,20 +2124,41 @@ body[data-theme="dark"] .note.tip {
   color: var(--text-secondary);
   min-width: 56px;
 }
+/* ══ THE DEVICE SIGNALS, AND THEY WERE THREE IDENTICAL CIRCLES (round 11 of the standing goal) ═════════════
+   `.sig-dot` is 7px in every state and the state was carried by FILL COLOUR ALONE — the exact arrangement the
+   panel retired in round 245, still live on the other front end. Two things follow from it, and both were
+   measured on this sheet rather than assumed:
+
+     * COLOUR IS THE ONLY CHANNEL, so the dots are indistinguishable with the colour stripped out. The word
+       beside each one (`s.state`) is what saves the row from being unreadable, which is also why nothing caught
+       it: the row reads fine, the DOT says nothing.
+     * `--text-faint` MEASURES 2.46:1 on `--bg` in the light theme — under the 3:1 a graphic needs — so the "off"
+       dot was not just shapeless, it was barely there. `--text-muted` is 4.63 light / 6.58 dark, so it clears
+       the bar in both themes.
+
+   THE SHAPES ARE THE PANEL'S, because one vocabulary is the point: SOLID is good, a DIAMOND is something that
+   needs attention, a DASHED RING is something absent — and the dash rather than a fade is the same decision the
+   panel made, for the same reason. */
 .sig-dot {
   width: 7px;
   height: 7px;
+  box-sizing: border-box;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--text-muted);
 }
 .sig-dot.ok {
   background: var(--success);
 }
 .sig-dot.err {
+  /* The needing-attention shape, and NOT a corner style: a square rotated to a point. */
   background: var(--error);
+  border-radius: 2px;
+  transform: rotate(45deg);
 }
 .sig-dot.off {
-  background: var(--text-faint);
+  background: transparent;
+  border: 1.5px dashed var(--text-muted);
 }
 .dev-sig-state {
   margin-left: auto;
