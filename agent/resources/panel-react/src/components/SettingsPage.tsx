@@ -279,14 +279,16 @@ export function SettingsPage({
         </p>
         <div className="settings-gw-form">
           <input
-            className="settings-input"
+            /* no class: `input:not([type])` and `input[type=password]` are styled by the sheet's generic input
+               rule, and a class that matches no rule is a name a reader has to check (round 250). */
             placeholder="Gateway URL (e.g. https://gateway.example.com)"
             value={gwUrl}
             onChange={(e) => setGwUrl(e.target.value)}
             aria-label="Gateway URL"
           />
           <input
-            className="settings-input"
+            /* no class: `input:not([type])` and `input[type=password]` are styled by the sheet's generic input
+               rule, and a class that matches no rule is a name a reader has to check (round 250). */
             type="password"
             placeholder="Registration key (optional — generate at the console)"
             value={gwKey}
@@ -325,7 +327,7 @@ export function SettingsPage({
         </p>
         <div className="settings-row-bar">
           <input
-            className="settings-input settings-input-narrow"
+            className="settings-input-narrow"
             type="number"
             min={1}
             max={64}
@@ -368,7 +370,7 @@ export function SettingsPage({
         </p>
         <div className="settings-row-bar">
           <input
-            className="settings-input settings-input-narrow"
+            className="settings-input-narrow"
             type="number"
             min={1}
             step={1}
@@ -377,7 +379,7 @@ export function SettingsPage({
             aria-label="Memory max entries"
           />
           <input
-            className="settings-input settings-input-narrow"
+            className="settings-input-narrow"
             type="number"
             min={1}
             step={1}
@@ -386,7 +388,7 @@ export function SettingsPage({
             aria-label="Memory max MiB"
           />
           <input
-            className="settings-input settings-input-narrow"
+            className="settings-input-narrow"
             type="number"
             min={1}
             step={1}

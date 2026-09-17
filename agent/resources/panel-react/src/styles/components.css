@@ -2839,6 +2839,14 @@
   gap: var(--sp-2);
   margin-top: var(--sp-2);
 }
+/* ══ THE ROW WAS NEVER A ROW (round 250) ═══════════════════════════════════════════════════════════════════
+   Both of these were rendered and NEITHER HAD A RULE. `.settings-row-bar` is a bare <div> holding a number field
+   and a Save button, so the two STACKED — the button on its own line under a field 20 characters wide, at the
+   browser's default number-field size, from markup whose class names promise a compact row. Nothing was broken
+   loudly enough for any check to notice: the elements render, they are simply in the wrong place.
+   Found by triaging the markup ratchet, one round after the ratchet found the two-step close. */
+.settings-row-bar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.settings-input-narrow { width: 7ch; }   /* a 1-64 field plus the spinner */
 .settings-check { display: flex; align-items: center; gap: var(--sp-2); }
 .settings-actions { display: flex; gap: var(--sp-2); }
 

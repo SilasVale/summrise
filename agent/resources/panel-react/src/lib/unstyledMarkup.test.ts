@@ -28,10 +28,12 @@ const BUILT_CSS = path.join(HERE, "..", "..", "..", "panel", "panel.css");
 const KNOWN_UNSTYLED = [
   // TRIAGED (round 249): `tab-confirm`, `dtab-confirm` and `tab-confirm-hint` left this list by getting rules —
   // the two-step close had no layout of its own, so `close? [Close] [Cancel]` flowed inline inside a 30px strip.
-  // The thirteen below are still untriaged, which is what this ratchet is for.
+  // TRIAGED (round 250): `settings-row-bar` and `settings-input-narrow` got the rules their names promised —
+  // both were rendered as a bare <div> and a default-sized number field — and `settings-input` was DELETED from
+  // the markup, because the sheet's generic input rule already styles every one of those elements and a class
+  // that matches no rule is a name a reader has to check. Ten remain.
   "activity-row-dur", "archive-row-identity", "archive-row-kind", "device-logs-file", "health-stat",
-  "monitor-expect", "monitor-fact", "path-step-run-label", "settings-input", "settings-input-narrow",
-  "settings-row-bar", "traj-ev-kind", "update-current",
+  "monitor-expect", "monitor-fact", "path-step-run-label", "traj-ev-kind", "update-current",
 ];
 
 function tsxFiles(dir: string, out: string[] = []): string[] {
