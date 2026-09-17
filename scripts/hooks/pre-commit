@@ -16,6 +16,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.." 2>/dev/null || cd "$(git rev-parse --show-toplevel)"
 
+# SAFE ANYWHERE, INCLUDING A SHARED HOOKS DIRECTORY. This file is designed to be symlinked into a global
+# `core.hooksPath` (round 226), where it runs for EVERY repository the operator owns. Its first job is
+# therefore to prove it is in the right one: if the emitters are not here, this is not Vale, and a hook that
+# blocked commits everywhere because it could not find a file would be a far worse outcome than the slips it
+# exists to prevent. Exit 0 immediately.
+if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
+  exit 0
+fi
+
 fail=0
 for f in panel console extension; do
   if ! node "agent/scripts/$f-design-sweep.mjs" --emit >/dev/null 2>/tmp/vale-hook-$f.err; then
