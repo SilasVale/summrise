@@ -259,10 +259,25 @@ const empty = { fleet: false };
   // "has cssRules" reports every rule as a container and answers nothing. Walk by constructor name, and
   // search for rules that set outline-style/width/color, "all", or appearance — not just the word outline.
   //
-  // WHAT IS ALSO TRUE: the device's console bundle and this repository's build are OUT OF SYNC. The page
-  // links index-D0W9u_N5.css and its rule count changed between two runs of the same probe, which no
-  // correct delivery would do. Deliver before measuring the console again, or the measurement is of an
-  // artifact nobody can name.
+  // FOUR FACTS ESTABLISHED BY MEASUREMENT (round 184), and they do not yet add up:
+  //   1. the repository's build is correct: :focus-visible { outline: 2px solid var(--accent) } is in the
+  //      built sheet, dated 2026-08-19, a month before any of this;
+  //   2. the sheet the PAGE loads contains three outline rules, INCLUDING that one;
+  //   3. the failing button MATCHES :focus-visible, and --accent resolves on it to #bf3a0a;
+  //   4. and the computed outline is STILL "solid 0px", outline-offset "0px" — every declaration of a
+  //      matching rule skipped, with no rule in any loaded sheet setting outline-width, "all" or
+  //      appearance. Whatever wins is not in the CSS this page has.
+  //
+  //   5. THE DEVICE'S assets DIRECTORY HOLDS EIGHT FILES FROM FOUR GENERATIONS — index-BNlr9UIu.js through
+  //      index-jctZl_za.js, index-DpWYMz4S.css through index-B3H-Yqtw.css — because every delivery added a
+  //      pair and nothing ever removed one. Its index.html links the CURRENT pair, yet the page reported
+  //      loading index-D0W9u_N5.css from an earlier generation. Something between the HTML and the paint is
+  //      picking an older asset, and the accumulated clutter is what made this hard to see.
+  //
+  // NEXT STEP, concretely: measure with a FRESH browser context and an explicitly cleared cache, and if the
+  // page then loads the current sheet, the whole three-round mystery was a measurement reading a cached
+  // artifact. If it still loads the old one, the console's own startup is choosing it and the fix is in the
+  // app, not the harness.
   // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
   // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
   for (const [label, hash] of [['overview', '#/'], ['devices', '#/devices']]) {
