@@ -97,6 +97,10 @@ elif which == "clipping":
     r["surfaces"][0]["clipped"] = ["span.label"]
 elif which == "sliver":
     r["surfaces"][0]["slivers"] = ["span.goal w=30"]
+elif which == "loud":
+    # TWO THINGS SHOUTING IS ONE FOCAL POINT TOO MANY. The probe counts a genuinely saturated fill of a certain
+    # size (round 18); this plants a second one beside the first.
+    r["surfaces"][0]["loud"] = ["button.approval-approve 1526px2 rgb(30,122,51)", "button.btn-primary 19680px2 rgb(176,58,10)"]
 elif which == "name":
     r["names"][0]["unnamed"] = ["input.mem-input"]
 elif which == "title-only":
@@ -158,7 +162,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
+for axis in contrast h1 skip landmark geometry sliver loud name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
@@ -257,12 +261,13 @@ if node "$CONSOLE" --judge "$TMP/console-clean.json" >/dev/null 2>&1; then
 else
   bad "a clean console report was rejected"
 fi
-for axis in contrast name geometry focus; do
+for axis in contrast loud name geometry focus; do
   python3 - "$TMP/console-clean.json" "$TMP/console-$axis.json" "$axis" <<'PY2'
 import json, sys
 src, dst, which = sys.argv[1], sys.argv[2], sys.argv[3]
 r = json.load(open(src))
 if which == "contrast": r["rows"][0]["cr"] = 2.1
+elif which == "loud": r["surfaces"][0]["loud"] = ["button.btn-primary 19680px2 rgb(176,58,10)", "button.pay 9000px2 rgb(217,72,15)"]
 elif which == "name": r["names"][0]["unnamed"] = ["input.form-input"]
 elif which == "geometry": r["surfaces"][0]["over"] = ["div.card 100<200"]
 elif which == "focus": r["focus"] = [{"page": "devices", "missing": 2}]

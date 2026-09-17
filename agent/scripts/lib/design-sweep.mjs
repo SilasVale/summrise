@@ -52,6 +52,31 @@ const SURFACE = \`(() => {
     firstIsH1: heads.length > 0 && heads[0].tagName === 'H1',
     skipped, mains: document.querySelectorAll('main').length, navs: document.querySelectorAll('nav').length,
     over: [...new Set(over)].slice(0, 8), clipped: [...new Set(clipped)].slice(0, 8), slivers: [...new Set(slivers)].slice(0, 8),
+    // ── HOW MANY THINGS ON THIS PAGE ARE SHOUTING ─────────────────────────────────────────────────────────
+    // "One focal point per surface" is the last clause of the spine and the only one with no continuous check:
+    // it was measured by hand on four surfaces (panel Terminal 1, panel Settings 0, console Overview 0, landing 1
+    // — the download CTA) and then not measured again. LOUD is an element whose FILL is genuinely saturated
+    // (not white, black or grey) and big enough to be a surface rather than a dot. ONE is a page with something
+    // to say; ZERO is a page that is all context, which is right for a form or a dashboard; TWO means nothing on
+    // it is the focal point, because two things are asking to be looked at first.
+    loud: (() => {
+      const parse = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+      const loud = [];
+      for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+        const st = getComputedStyle(el);
+        if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
+        const c = parse(st.backgroundColor);
+        if (!c || c.a < 0.5) continue;
+        const [R, G, B] = [c.r / 255, c.g / 255, c.b / 255];
+        const mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2, d = mx - mn;
+        const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+        if (sat < 0.35 || l < 0.2 || l > 0.9) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
+        loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\s/g, ''));
+      }
+      return [...new Set(loud)].slice(0, 6);
+    })(),
   };
 })()\`;
 
@@ -469,6 +494,12 @@ export function judgeReport(report, opts = {}) {
     }
     for (const [kind, list] of [["overflow", s.over], ["clipping", s.clipped], ["sliver", s.slivers]]) {
       if (list && list.length) findings.push(`${where}: ${kind} — ${list.join("; ")}`);
+    }
+    // ONE FOCAL POINT, AT MOST. Two loud surfaces means neither is the thing the page is about; the ceiling is
+    // one, and zero is allowed because a form or a dashboard is all context and should not shout. A page that
+    // needs an exception gets one here, by name, with the reason — the same shape as `navless`.
+    if ((s.loud || []).length > 1 && !(opts.twoloud || []).some((n) => String(s.page).startsWith(n))) {
+      findings.push(`${where}: ${s.loud.length} loud elements — a page has ONE focal point at most — ${s.loud.join("; ")}`);
     }
   }
   for (const n of report.names || []) {
