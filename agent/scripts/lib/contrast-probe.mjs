@@ -325,7 +325,7 @@ export const PROBE_SOURCE = `(() => {
       // what was missing: "WHETHER the element was inside .active when it was captured. That field is the
       // next step." It took until round 201 to add it, because every attempt died in this file's escaping
       // layers — so this version uses NO REGEX and NO BACKSLASHES, only trim and split on a literal space.
-      context: (function () { var c = []; var p = el.parentElement; for (var i = 0; i < 3 && p; i++) { if (typeof p.className === 'string' && p.className.trim()) c.push(p.className.trim().split(' ').join('+')); p = p.parentElement; } return c.join(' < '); })(),
+      context: (function () { var c = []; var p = el.parentElement; for (var i = 0; i < 3 && p; i++) { if (typeof p.className === 'string' && p.className.trim()) c.push(p.className.trim().split(' ').filter(function (x) { return x; }).join('+')); p = p.parentElement; } return c.join(' < '); })(),
       cr: contrastRatio(composited, surface),
     });
   }
