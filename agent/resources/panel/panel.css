@@ -99,7 +99,6 @@
 
   /* ---- status ---- */
   --success: #2f9e44;
-  --success-soft: rgba(47, 158, 68, 0.12);
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.08);
   --warn: #b45309;
@@ -132,20 +131,17 @@
   --state-warn: var(--warn);
   --state-muted: var(--faint);
   --state-running-soft: var(--accent-soft);
-  --state-ok-soft: var(--success-soft);
   --state-fail-soft: var(--danger-soft);
   --state-warn-soft: var(--warn-soft);
   --state-muted-soft: rgba(127, 127, 127, 0.12);
 
   /* ---- round-161 semantic additions (previously hardcoded in css) ---- */
   --tag-ink: #0a6f64; /* memory tag chips (teal ink, light theme) */
-  --terminal-bg: #131418; /* xterm + browser viewport (always dark) */
   /* NOT "the rail is always dark" — that was true until round 162 made the frame chrome LIGHT by default
      (see --chrome-bg below) and it stayed in this comment for fifty rounds. The rail is dark in the dark
      theme and light in the light one, like the rest of the frame. Corrected in round 211 after the sweep
      and the pair-contrast test disagreed about which surface a rail mark sits on. */
   --rail-ink: #9a9aa0;
-  --rail-ink-strong: #ffffff;
 
   /* ---- round-162 frame chrome — LIGHT by default (user preference) ----
      The frame (icon rail, tab strips, status bar) is one continuous surface;
@@ -185,11 +181,9 @@
      tab, 3.65 on the active view switch). This is the text-weight counterpart. */
   --chrome-active-text: var(--accent-on-soft);
   --chrome-glass: rgba(255, 255, 255, 0.96);
-  --amber-bright: #ffa94d; /* accent readable on DARK chrome */
   --term-canvas-bg: #ffffff; /* xterm container (theme-following) */
   --browser-stage-bg: #131418; /* browser viewport / evidence (always dark) */
   --rail-ink: var(--chrome-ink-dim);
-  --rail-ink-strong: var(--chrome-ink);
 
   /* ── THE MARK LANGUAGE'S TWO VARIABLES (lib/liveness.ts) ───────────────────────────────────────────────
      Every mark draws its silhouette from ONE shared block (`.mark[data-live=…]` in components.css), so that
@@ -303,7 +297,6 @@
   --fs-md: 14px; /* card and list titles */
   --fs-lg: 17px; /* modal titles, section heads */
   --fs-xl: 22px; /* hero numbers, empty-state and crash titles */
-  --fw-normal: 400;
   --fw-medium: 500;
   --fw-semi: 600;
   --fw-bold: 700;
@@ -411,7 +404,6 @@ body[data-theme="dark"] {
 
   /* desktop rail inks (dark rail keeps its original vocabulary) */
   --rail-ink: #9a9aa0;
-  --rail-ink-strong: #ffffff;
 }
 
 

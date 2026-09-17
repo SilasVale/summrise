@@ -72,7 +72,6 @@
      here than the #a63308 I first wrote — 6.20 on #ffefe5 against 6.04. */
   --accent-on-soft: #9c3a0a;
   --accent-ring: rgba(232, 89, 12, 0.18);
-  --accent-shadow: rgba(217, 72, 15, 0.3);
 
   /* States */
   /* ── THE NEUTRAL LADDER HAS MARK WEIGHTS AND TEXT WEIGHTS ────────────────
@@ -152,11 +151,8 @@
      `--ds-neutral-*` scale of its own. `scripts/test/token-contract-check.mjs`
      RESOLVES one `var()` level on both sides and fails on any future drift. */
   --chrome-bg: #f4f4f5;
-  --chrome-bg-2: #ffffff;
-  --chrome-bg-3: #ececef;
   --chrome-ink: #1d1d1f;
   --chrome-ink-dim: #52525b;
-  --chrome-ink-faint: #a1a1aa;
   --chrome-line: rgba(0, 0, 0, 0.08);
   --chrome-hover: rgba(0, 0, 0, 0.05);
   --chrome-active-bg: #ffefe5;
@@ -185,7 +181,6 @@
      both sides as shared, so borrowing that prefix here would either force the
      panel's terminal colours onto model channels or fail the check. Same word, two
      meanings, two surfaces: they get two names. */
-  --chan-og: var(--accent);
   --chan-ds: #4f6bed;
   --chan-or: #7048e8;
 
@@ -211,15 +206,12 @@
   --fs-lg: 17px; /* section heads */
   --fs-xl: 22px; /* page titles, empty states */
   --fs-2xl: 30px; /* the dashboard hero number — no panel equivalent */
-  --fw-normal: 400;
   --fw-medium: 500;
   --fw-semi: 600;
   --fw-bold: 700;
-  --tracking-display: -0.011em;
   --tracking-micro: 0.014em;
 
   /* Shell */
-  --sidebar-width: 248px;
   /* ---- glass materials ----
      NO COLOUR LIVES HERE, and that is the point. An iridescent "aurora" layer
      (--aura-1..5, --aura-wash, --aura-glow) used to sit in this slot: it entered
@@ -233,13 +225,11 @@
      frontends are one material rather than two that happen to be similar; the
      shared names are pinned by scripts/test/token-contract-check.mjs. */
   --glass-tint: rgba(255, 255, 255, 0.8);
-  --glass-tint-strong: rgba(252, 251, 250, 0.92);
   --glass-rim: rgba(255, 255, 255, 0.9);
   --glass-hairline: rgba(24, 32, 54, 0.07);
   --glass-shadow:
     0 1px 1px rgba(24, 32, 54, 0.04), 0 4px 10px -4px rgba(24, 32, 54, 0.06),
     0 18px 40px -24px rgba(24, 32, 54, 0.2);
-  --grain-opacity: 0.06;
   /* Blur radius for surfaces that occlude moving content (drawers, modals).
      A plain value, so it IS shared with the panel. */
   --glass-blur: 14px;
@@ -258,13 +248,11 @@ body[data-theme="dark"] {
      BOTH sides; a name that is simply missing from the dark block is invisible to
      it). Same trap the panel documents at --surface-recessed. */
   --glass-tint: rgba(32, 33, 39, 0.86);
-  --glass-tint-strong: rgba(26, 27, 32, 0.94);
   --glass-rim: rgba(255, 255, 255, 0.06);
   --glass-hairline: rgba(255, 255, 255, 0.08);
   --glass-shadow:
     0 1px 1px rgba(0, 0, 0, 0.5), 0 6px 14px -6px rgba(0, 0, 0, 0.5),
     0 22px 48px -28px rgba(0, 0, 0, 0.8);
-  --grain-opacity: 0.05;
 
   /* Aligned with the panel's midnight (#131418), not Mantine's #1a1b1e — the
      dark sets were already close, which is why their two remaining differences
@@ -292,7 +280,6 @@ body[data-theme="dark"] {
      `.note.tip` works around with a per-rule override. #ffa94d = 7.29. */
   --accent-on-soft: #ffa94d;
   --accent-ring: rgba(255, 169, 77, 0.22);
-  --accent-shadow: rgba(0, 0, 0, 0.45);
 
   /* Text weights for the dark theme — the light ones above are unreadable on a
      midnight surface (#1e7a33 on --bg dark is about 1.5:1). */
@@ -315,11 +302,8 @@ body[data-theme="dark"] {
 
   /* frame chrome, dark */
   --chrome-bg: #17181d;
-  --chrome-bg-2: #1f2026;
-  --chrome-bg-3: #2a2b33;
   --chrome-ink: #ecedef;
   --chrome-ink-dim: #a2a3ac;
-  --chrome-ink-faint: #6f707a;
   --chrome-line: rgba(255, 255, 255, 0.07);
   --chrome-hover: rgba(255, 255, 255, 0.08);
   --chrome-active-bg: rgba(217, 72, 15, 0.9);

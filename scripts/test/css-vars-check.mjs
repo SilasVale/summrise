@@ -56,12 +56,32 @@ function cssFiles(dirs) {
   return [...new Set(out)];
 }
 
+// ── AND THE OTHER DIRECTION: A TOKEN NOTHING READS (round 20 of the standing goal) ─────────────────────────
+// The check above finds a reference with no definition. Nothing found a DEFINITION with no reference, and there
+// were twenty-one of them across the panel and the console — dead weight in the one block a reader goes to in
+// order to learn what the palette IS. The rule is the CSS-rules ratchet's: a token may be read by a RULE, by
+// CODE (`getPropertyValue`), or by a name ASSEMBLED at runtime, and anything else is a name to delete.
+//
+// THE TWO ENTRIES BELOW ARE THE ONES A NAIVE SCAN GETS WRONG, which is why they are named with their reasons
+// rather than filtered by a pattern:
+const UNREAD_OK = new Map([
+  ["--ds-neutral-", "a FAMILY, read assembled: themeContrast.test.ts builds `--ds-neutral-${step}` from a step number — the same false positive the dead-CSS tool documents for class names"],
+  ["--glass-blur", "declared on BOTH UIs because the token contract REQUIRES it present for the landing comparison (the art-direction palette must be covered); the landing is the surface that reads it"],
+]);
+
 let totalDefs = 0;
 let totalRefs = 0;
+let totalUnread = 0;
 for (const [ui, dirs] of Object.entries(UIS)) {
   const files = cssFiles(dirs);
   ok(`${ui}: stylesheets found`, files.length > 0, "no .css under " + dirs.join(", "));
-  const text = files.map((f) => readFileSync(f, "utf8")).join("\n");
+  // COMMENTS ARE NOT DECLARATIONS. The `defined` set was built from raw text, so a comment that MENTIONS a token
+  // (`/* --ds-dur: 0s does not reach an animation ─ */`, `/* --warn-ink, not --amber-bright, because… */`) counted
+  // as a declaration of it — and the new unread-token check then reported two tokens that exist only as prose in
+  // an explanation. `retired-colours-check` carries the identical lesson from its own first run, which is why it
+  // strips comments first; this gate now does too. It also makes the reference check honest: a `var()` inside a
+  // comment is not a reference either.
+  const text = files.map((f) => readFileSync(f, "utf8")).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
   const defined = new Set([...text.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   // A reference WITH a fallback resolves; one without must have a definition.
   const bare = new Set();
@@ -81,6 +101,41 @@ for (const [ui, dirs] of Object.entries(UIS)) {
       : "",
   );
   console.log(`    ${defined.size} defined · ${bare.size} referenced without fallback · ${withFallback} with a fallback`);
+
+  // Every token is read by a rule in this sheet, by code in the app, or by one of the two documented names.
+  const codeDirs = ui === "panel" ? ["agent/resources/panel-react/src"] : ["gateway/ui/src"];
+  const codeFiles = [];
+  const walkCode = (d) => {
+    const full = path.join(ROOT, d);
+    if (!existsSync(full) || !statSync(full).isDirectory()) return;
+    for (const n of readdirSync(full)) {
+      if (n === "node_modules" || n === "dist" || n === "build") continue;
+      const f = path.join(full, n);
+      if (statSync(f).isDirectory()) walkCode(path.join(d, n));
+      else if (/\.(ts|tsx|js|jsx|mjs)$/.test(n) && !/\.test\./.test(n)) codeFiles.push(f);
+    }
+  };
+  for (const d of codeDirs) walkCode(d);
+  const code = codeFiles.map((f) => readFileSync(f, "utf8")).join("\n");
+  const readAnywhere = (token) => {
+    const esc = token.replace(/[-]/g, "\\-");
+    const inSheet = new RegExp(esc + "(?![a-z0-9-])", "g");
+    const writes = new RegExp(esc + "\\s*:", "g");
+    const sheetReads = [...text.matchAll(inSheet)].length - [...text.matchAll(writes)].length;
+    return sheetReads > 0 || new RegExp(esc + "(?![a-z0-9-])").test(code);
+  };
+  const unread = [...defined]
+    .filter((t) => !readAnywhere(t))
+    .filter((t) => ![...UNREAD_OK.keys()].some((k) => t.startsWith(k)))
+    .sort();
+  totalUnread += unread.length;
+  ok(
+    `${ui}: every declared token is READ by something`,
+    unread.length === 0,
+    unread.length
+      ? `${unread.length} declared and never read — a name a reader has to check for nothing:\n    ${unread.join("\n    ")}\n  Delete it, or add it to UNREAD_OK with the reason it stays.`
+      : "",
+  );
 }
 
 // ── the SAME rule for the code that READS tokens at runtime (round 235) ─────────────────────────────────────
@@ -158,7 +213,8 @@ const WAIVED_RUNTIME = new Map([]);
     dead.length === 0,
     dead.length ? `${dead.length} undefined — a reader of a removed token falls back silently rather than failing:\n    ${dead.join("\n    ")}` : "",
   );
-  console.log(`    runtime: ${RUNTIME_SOURCES.length} sources · ${seen} token reads (${[...found].sort().join(" ")}) · ${WAIVED_RUNTIME.size} waived · ${dead.length} undefined`);
+  console.log(`    ${totalUnread} declared-but-unread across both UIs`);
+console.log(`    runtime: ${RUNTIME_SOURCES.length} sources · ${seen} token reads (${[...found].sort().join(" ")}) · ${WAIVED_RUNTIME.size} waived · ${dead.length} undefined`);
 }
 
 // A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN. The three UIs carry well over a hundred definitions
