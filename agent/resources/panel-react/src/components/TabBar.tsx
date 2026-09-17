@@ -31,10 +31,24 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
   // The strip hides sessions behind its right edge at any realistic width; say so, and say it only
   // when it is true (see the hook for the measurement that made this necessary).
   const more = useStripOverflow(tabsRef, sessions.length);
+  // TEN TABS, ONE LABEL. Measured on the live device (2026-09-17): 16 sessions, 10 of them labelled
+  // `pwsh`, so the strip rendered ten identical tabs truncated to `pws…` — no way to tell which session
+  // was which, in the ONLY surface this density offers for reaching them. The first keeps the bare label
+  // (the least surprising change), and repeats take a counter: `pwsh`, `pwsh 2`, `pwsh 3`.
+  //
+  // The distinguisher is a NUMBER because that is the only information the row actually has — a pty
+  // session's label is its shell, its sid is opaque, and two PowerShell sessions ARE interchangeable
+  // until you look inside them. A number says exactly that instead of implying a difference.
+  const labelCounts = new Map<string, number>();
+  const displayLabel = sessions.map((sess) => {
+    const n = (labelCounts.get(sess.label) ?? 0) + 1;
+    labelCounts.set(sess.label, n);
+    return n === 1 ? sess.label : `${sess.label} ${n}`;
+  });
   return (
     <div className="tabrow" data-more={more ? "1" : undefined}>
       <div id="tabs" role="tablist" aria-label="Terminal sessions" ref={tabsRef}>
-        {sessions.map((s) => {
+        {sessions.map((s, tabIndex) => {
           // A question is waiting for a PERSON in this session. Keyed on
           // `pendingApproval`, never on `approvalRequired`: an armed tab asks
           // before every command, so keying off the gate would mark every armed
@@ -64,17 +78,17 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
             // it actually is instead of a place that does not exist.
             title={
               s.closed
-                ? `${s.label} — closed (its recorded trail is in Archive)`
+                ? `${displayLabel[tabIndex]} — closed (its recorded trail is in Archive)`
                 : waiting
-                  ? `${s.label} — waiting for your approval`
+                  ? `${displayLabel[tabIndex]} — waiting for your approval`
                   : s.sid
             }
-            aria-label={waiting ? `${s.label} — waiting for your approval` : undefined}
+            aria-label={waiting ? `${displayLabel[tabIndex]} — waiting for your approval` : displayLabel[tabIndex]}
             aria-selected={s.sid === activeSid}
             onClick={() => { if (!s.closed) onActivate(s.sid); }}
           >
             <span className={`tab-dot ${s.kind === "ssh" ? "ssh" : s.kind === "serial" ? "serial" : ""}`} data-kind={s.kind} />
-            <span className="tab-name">{s.label}</span>
+            <span className="tab-name">{displayLabel[tabIndex]}</span>
             {/* A SHAPE, not the existing .tab-dot (a circle): the two marks sit
                 in the same row, so a second circle would read as a second lane
                 dot. aria-hidden because the tab's own label already carries the
