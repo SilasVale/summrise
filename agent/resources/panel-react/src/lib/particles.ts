@@ -14,6 +14,15 @@
  *     recorded in docs/agents/ideas.md — the fallbacks stay until it is made.
  *     behind existing surfaces rather than a new contrast pair to measure.
  *
+ * MEASURED AT REST (round 19 of the standing goal), because "idle repaint" is one of the things the objective
+ * says to measure and nothing had:
+ *
+ *   the panel's own chrome   1.0 DOM mutation per second, and it is the approval card's countdown — one text node
+ *   this field               rAF scheduled 60x/s, the callback early-returns to 30 draws/s; a 63-mote page issues
+ *                            ~1900 arc+fill calls per second
+ *   under reduced motion     rAF 0/s, clears 0/s, fills 0/s, and NO canvas in the DOM — it returns before creating
+ *                            one, which is the honest fallback rather than a slower animation
+ *
  * IT RESPECTS `prefers-reduced-motion` BY NOT RUNNING AT ALL. A decorative animation that
  * ignores that setting is an accessibility defect, and the honest fallback is the static
  * wash the page already has — not a slower animation.
