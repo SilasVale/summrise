@@ -148,7 +148,11 @@ const fail = { api: false };
     if (auth.signedIn === false && p === '/api/me') {
       return route.fulfill({ status: 401, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ type: 'error', error: { message: 'unauthorized' } }) });
     }
-    if (fail.api && p.startsWith('/api/')) {
+    // /api/me IS EXEMPT, AND THAT IS THE WHOLE DIFFERENCE BETWEEN AN ERROR STATE AND A LOGIN PAGE. Failing every
+    // call made the app believe nobody was signed in, so all six pages rendered the login screen — which has no
+    // nav by design, and the first run of this pass reported exactly that six times. The panel's ?fail=1 fails
+    // DEVICE calls, never auth; this does the same. The login page has its own pass.
+    if (fail.api && p.startsWith('/api/') && p !== '/api/me') {
       return route.fulfill({ status: 500, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ type: 'error', error: { message: 'the device is unreachable' } }) });
     }
     if (p.startsWith('/api/')) {
