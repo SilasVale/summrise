@@ -161,6 +161,18 @@ function buildHarness() {
   // measured by anything. That is the same shape as rounds 148-149's findings: a real state no sweep
   // visits. The three seeds below reproduce the old list exactly when no parameter is given.
   var liveCount = P.has('sessions') ? Math.max(0, parseInt(P.get('sessions'), 10) || 0) : 3;
+  // ── HOW TO REACH THE FOURTH SILHOUETTE ('off', a tombstone), BECAUSE NO PARAMETER CAN ────────────────────────
+  // A closed session is CLIENT state, not wire state: the panel tombstones a tab when the operator closes it
+  // (useSessions.closeSession) or when the device's list stops naming a session it had. So '?closed=1' cannot
+  // exist — and the page sweep, which photographs pages and never presses, has never photographed 'off'.
+  // Measured recipe (round 10 of the standing goal), and it has a TIMING TRAP worth keeping:
+  //   1. click '.tab .tab-close'            (arms the two-step close)
+  //   2. click the confirm's Close button   ('/api/tools/terminal_close' is stubbed, so it succeeds)
+  //   3. READ BETWEEN ~200ms AND ~1.4s: the tab's background takes 195ms to settle out of the ACTIVE fill (the
+  //      tab's own 0.15s background transition), and at ~1.4s the harness's still-live session list REVIVES the
+  //      tombstone by round 245's rule — a live reappearance means the session is real.
+  // A probe that reads immediately measures the transition, not the state: it reports the 'off' mark sitting on
+  // the active tab's accent fill at 1.00:1, which looks exactly like the round-9 defect and is not one.
   var SESSION_SEEDS = [
     {},
     { label: 'serial:COM4', kind: 'serial', idle_ms: 45_000, held_by_human: false, pending_approval: null, approval_required: false },

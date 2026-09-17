@@ -101,6 +101,31 @@ describe("the gate's screen-reader plumbing", () => {
 });
 
 describe("waiting badges", () => {
+  it("`off` is distinguished by the DASH, not by fading", () => {
+    // THE ONE SILHOUETTE NOTHING HAD EVER PHOTOGRAPHED. A tombstone exists only after an operator presses the tab's
+    // × and confirms, so the page sweep — which photographs pages and never presses — has never seen it, and it is
+    // the state whose whole design is a judgement call: `off` is a DASHED ring rather than a dimmed one, because a
+    // fade is what drops a mark under the 3:1 a graphic needs against the chrome.
+    // Verified on the rendered panel first (round 10 of the standing goal): border-style dashed, transparent fill,
+    // 1px, ink on the settled chrome 3.78:1 — and the tab's own background takes ~195ms to settle out of the active
+    // fill, which is why a probe that measures immediately reads the transition instead of the state.
+    const css = builtCss();
+    const off = blockOf(css, '.mark[data-live="off"]');
+    expect(off, '.mark[data-live="off"] missing').not.toBeNull();
+    expect(off!).toMatch(/border:\s*[\d.]+px\s+dashed/);
+    expect(off!).toContain("var(--mark-ink)");
+    // NOT a fill: a filled `off` would read as `working` at a glance, which is the one confusion this state must
+    // never cause — a closed session is not a busy one.
+    expect(off!).toMatch(/background:\s*transparent/);
+    // AND NOBODY ELSE IS DASHED. If another state picks up a dash, two states share a silhouette and `off` stops
+    // being distinguishable with the colour stripped out — which is the whole claim of the mark language.
+    for (const other of ["idle", "working", "waiting"]) {
+      const block = blockOf(css, `.mark[data-live="${other}"]`);
+      expect(block, `.mark[data-live="${other}"] missing`).not.toBeNull();
+      expect(block!, `${other} must not be dashed as well`).not.toMatch(/dashed/);
+    }
+  });
+
   it("the waiting mark is a SHAPE, not just another colour — in every place that draws one", () => {
     const css = builtCss();
     // ONE RULE DRAWS THE MARK NOW. Three tests used to live here — the panel dot, the desktop rail's dot and a
