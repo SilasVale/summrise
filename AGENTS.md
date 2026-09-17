@@ -138,6 +138,31 @@ Each time, the direct check settled it: `ls` the path, run the command. The scan
 usable list, but only after it was made to demonstrate the one case known to be dead — do that FIRST,
 before believing any count it prints. What it found is recorded in `docs/agents/ideas.md` row 12.
 
+## Committing
+
+**A pre-commit hook runs the emitters** (`scripts/hooks/pre-commit`, round 225). Five scripts build a
+standalone script for the device inside a template literal, and a backtick anywhere inside that literal ends it
+early — the emitted file then stops parsing in the middle of 30 KB. That has happened **34 times**, and in the
+last six the failing check was already on screen: `emit=1`, and the commit made anyway. The hook runs the
+emitters' OWN guards, so it cannot disagree with what it guards.
+
+TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
+
+  * **`.git/hooks/pre-commit` will NOT run on this machine.** `core.hooksPath` is set globally in
+    `~/.gitconfig` to `~/.config/git/hooks`, and git ignores the per-repo directory entirely when that is set.
+    The first version of this hook was symlinked into `.git/hooks/` and a deliberately broken emitter was
+    committed twice with it in place. Install it where the config actually looks:
+
+        ln -sf "$PWD/scripts/hooks/pre-commit" ~/.config/git/hooks/pre-commit
+
+    or set a repo-local path (which would SHADOW any global hooks, so read what is already there first):
+
+        git config core.hooksPath scripts/hooks
+
+  * **PROVE THE MUTATION, NOT THE HOOK.** The first attempt at proving it bit planted a backtick after
+    `function browserScript() {` — inside the function body and OUTSIDE the template literal — so the emitter
+    exited 0 and the test proved nothing about either. A trap only counts when it is inside the thing it traps.
+
 ## Release — npm is the only channel
 
 ```bash
