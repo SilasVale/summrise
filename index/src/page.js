@@ -167,7 +167,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
                 0 6px 22px -8px color-mix(in srgb, var(--brand-grad-c) 55%, transparent);
   }
   .brand-text { display: flex; flex-direction: column; gap: 2px; }
-  .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--dsw-alias-label-primary); }
+  .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--dsw-alias-label-primary); margin: 0; } /* margin: 0 IS LOAD-BEARING (round 240): this is an <h1> now, not a <div>, so the UA would add 0.67em above and below and move the whole aside. The class was written for a div; a heading needs it complete. */
   .brand-tag {
     font: 11px/1 var(--ds-font-family-code);
     color: var(--dsw-alias-label-tertiary);
@@ -324,7 +324,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
       <div class="brand">
         <img class="brand-mark" src="${FAVICON}" alt="Vale">
         <div class="brand-text">
-          <div class="brand-name">Vale Agent</div>
+          <h1 class="brand-name">Vale Agent</h1>
           <div class="brand-tag">device agent</div>
         </div>
       </div>
