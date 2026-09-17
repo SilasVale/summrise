@@ -121,7 +121,10 @@ jobs:
         run: npm run build
       - name: Install a browser for the sweep
         working-directory: agent/resources/panel-react
-        run: npx playwright install --with-deps chromium
+        # THE HEADLESS SHELL, not just chromium: the helper launches with headless:true and playwright-core
+        # resolves the shell build by name — installing only `chromium` leaves it looking for
+        # chromium_headless_shell-1228 and failing before the sweep starts (round 213).
+        run: npx playwright install --with-deps chromium chromium-headless-shell
       - name: Design sweep (contrast, spacing, hierarchy, typography, states)
         run: bash scripts/test/panel-design-ci.bash
 
