@@ -518,7 +518,20 @@ function judge(file) {
     // traced every offending element to a tab inside `#tabs`). A real defect in the strip would have
     // to be judged on the device, which is why this exemption is narrow and printed on every run.
     ignore: [
-      { match: /overflow — div\.tabrow/, reason: "panel-density strip widths are a harness artifact (0-185px here, 211px on the device)" },
+      {
+        // NO LONGER AN ARTIFACT, AND NO LONGER NARROW. Round 36 saw the strip at 0-185px here and 211px on
+        // the device and set this aside as a harness quirk. Round 172 found the real cause — the strip shared
+        // a WRAPPING flex line with the session control group (935px of a 982px row), so with a zero basis it
+        // collapsed to its own overflow chip's width: 35px, and a "+10" that was arithmetically correct about
+        // a strip that could show nothing. `flex-basis: 100%` gives the tabs their own line; the strip now
+        // measures 962px here. Round 173 measured the LIVE panel (1.2.403) at 906px and 1121px — so the
+        // device was never the 211px this exemption claimed either.
+        // KEPT, because the overflow this exemption covers can still occur on a genuinely narrow window: the
+        // strip is 962px at 1280 wide, and a real tab strip DOES overflow. What changed is that a finding here
+        // is now only about width, not about a collapsed box, so it is worth reading before waiving.
+        match: /overflow — div\.tabrow/,
+        reason: "panel-density strip widths: 962px at 1280 wide since the line-break fix (round 172); a real tab strip still overflows, so read the number before waiving",
+      },
       {
         // Narrower than a regex on the text: the 320px scroll is this harness's artifact ONLY when
         // every offending scroller is a tab child (round 50 traced them there). A reflow failure
