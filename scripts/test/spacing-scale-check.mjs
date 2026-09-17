@@ -44,7 +44,9 @@ const UIS = [
     name: "console",
     sheets: () => readdirSync("gateway/ui/src/styles").filter((f) => f.endsWith(".css")).sort()
       .map((f) => join("gateway/ui/src/styles", f)),
-    tokenUses: 0,
+    // 86 token uses as of round 223: the console adopted the panel's scale, and every one of those 86 was
+    // already a literal with that exact value, so NO PIXEL MOVED. The ratchet is tightened to hold it.
+    tokenUses: 86,
     // 136, NOT the 194 an ad-hoc scan reported: that scan swept gateway/public/style.css as well, which round
     // 209 established is DEAD (nothing links it). A baseline has to come from the instrument that will enforce
     // it — taken from the ad-hoc number, this ratchet allowed 58 new literals and a planted 13px passed it.

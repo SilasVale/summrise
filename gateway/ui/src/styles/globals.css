@@ -38,6 +38,18 @@
   --text-faint: #a1a1aa;
 
   /* Vale brand — violet (matches the glossy bolt favicon) */
+  /* THE SAME SPACING SCALE AS THE PANEL (round 223), and it costs nothing: the console has used these six
+     values as LITERALS 86 times already — 2px x8, 4px x15, 8px x21, 12px x28, 16px x10, 24px x4 — so naming
+     them changes no pixel. The console had no spacing scale at all until now (round 222 measured 0 token uses
+     against 136 off-scale literals); this gives it the scale the panel already had, and the token contract that
+     keeps the two surfaces agreeing now covers spacing as well as colour. The values BETWEEN the steps — 5, 7,
+     9, 11, 13, 15px and the hairlines — stay where they are, held still by the spacing ratchet. */
+  --sp-0-5: 2px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
   --accent: #bf3a0a; /* was #d9480f — white on it measured 4.30, and it as TEXT on #fafafa measured 4.12; both under AA. This is the value the palette already used for hover. */
   --accent-fg: #ffffff; /* the foreground ON --accent */
   --accent-light: #ffefe5;
@@ -414,7 +426,7 @@ a:hover {
 
 code {
   background: var(--bg-tertiary);
-  padding: 2px 6px;
+  padding: var(--sp-0-5) 6px;
   border-radius: 4px;
   font-family: var(--ds-font-family-code);
   font-size: 0.9em;
@@ -423,7 +435,7 @@ code {
 pre {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  padding: 14px 16px;
+  padding: 14px var(--sp-4);
   border-radius: var(--radius-md);
   overflow-x: auto;
   font-size: var(--fs-sm);
@@ -465,7 +477,7 @@ pre code {
   flex-direction: column;
   align-items: center;
   height: 100vh;
-  padding: 14px 0 12px;
+  padding: 14px 0 var(--sp-3);
   gap: 6px;
 }
 .rail-brand {
@@ -492,7 +504,7 @@ pre code {
 .rail-cluster {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
   align-items: center;
   padding-bottom: 14px;
   position: relative;
@@ -537,7 +549,7 @@ pre code {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .rail-util {
   width: 36px;
@@ -606,7 +618,7 @@ pre code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-bottom: 12px;
+  padding-bottom: var(--sp-3);
   border-bottom: 1px solid var(--border);
 }
 .user-pop-name {
@@ -619,7 +631,7 @@ pre code {
   color: var(--text-secondary);
 }
 .user-pop-logout {
-  margin-top: 12px;
+  margin-top: var(--sp-3);
   width: 100%;
   padding: 7px 0;
   border: 1px solid var(--border);
@@ -654,7 +666,7 @@ pre code {
   display: grid;
   grid-template-columns: 1fr 360px;
   gap: 14px;
-  margin-bottom: 16px;
+  margin-bottom: var(--sp-4);
   align-items: stretch;
 }
 @media (max-width: 1080px) {
@@ -710,7 +722,7 @@ pre code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 2px;
+  padding: var(--sp-2) var(--sp-0-5);
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-base);
 }
@@ -749,7 +761,7 @@ pre code {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  margin-bottom: 16px;
+  margin-bottom: var(--sp-4);
 }
 @media (max-width: 980px) {
   .stat-grid {
@@ -759,7 +771,7 @@ pre code {
 .stat-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
   background: var(--glass-tint);
   border: 1px solid var(--glass-hairline);
   box-shadow:
@@ -838,7 +850,7 @@ pre code {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 12px 14px;
+  padding: var(--sp-3) 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
@@ -884,7 +896,7 @@ pre code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 2px;
+  padding: 9px var(--sp-0-5);
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-base);
 }
@@ -934,7 +946,7 @@ pre code {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--sp-4);
 }
 
 .page-title {
@@ -968,8 +980,8 @@ pre code {
     inset 0 1px 0 var(--glass-rim),
     var(--glass-shadow);
   border-radius: var(--radius-lg);
-  padding: 22px 24px;
-  margin-bottom: 16px;
+  padding: 22px var(--sp-5);
+  margin-bottom: var(--sp-4);
   transition:
     border-color var(--ds-dur) var(--ds-ease),
     box-shadow var(--ds-dur) var(--ds-ease);
@@ -983,7 +995,7 @@ pre code {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--sp-3);
   margin-bottom: 14px;
 }
 
@@ -1011,7 +1023,7 @@ pre code {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--sp-3);
   margin-bottom: 14px;
 }
 .card-head h2 {
@@ -1296,8 +1308,8 @@ a.btn-primary {
 .token-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
 }
 
 .token {
@@ -1318,8 +1330,8 @@ a.btn-primary {
 
 .token-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
   flex-wrap: wrap;
 }
 
@@ -1330,15 +1342,15 @@ a.btn-primary {
 .list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .list-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 13px 16px;
+  gap: var(--sp-3);
+  padding: 13px var(--sp-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
@@ -1357,7 +1369,7 @@ a.btn-primary {
 .list-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
 }
 
@@ -1372,7 +1384,7 @@ a.btn-primary {
   color: var(--text-secondary);
   font-family: var(--ds-font-family-code);
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
+  margin-top: var(--sp-0-5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1390,8 +1402,8 @@ a.btn-primary {
 .lane {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
@@ -1420,7 +1432,7 @@ a.btn-primary {
   transition: all var(--ds-dur) var(--ds-ease);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 
 .key-card:hover {
@@ -1445,7 +1457,7 @@ a.btn-primary {
 .key-card-desc {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: var(--sp-0-5);
 }
 
 .key-card-actions {
@@ -1457,7 +1469,7 @@ a.btn-primary {
 .test-result {
   font-size: var(--fs-base);
   line-height: 19px;
-  padding: 10px 12px;
+  padding: 10px var(--sp-3);
   border-radius: var(--radius-md);
   word-break: break-word;
 }
@@ -1483,7 +1495,7 @@ a.btn-primary {
 }
 
 .form-input {
-  padding: 10px 12px;
+  padding: 10px var(--sp-3);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--bg);
@@ -1507,7 +1519,7 @@ a.btn-primary {
 
 .input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   align-items: center;
 }
 
@@ -1526,7 +1538,7 @@ a.btn-primary {
 
 .form-message {
   font-size: var(--fs-base);
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius-sm);
   margin-top: 10px;
 }
@@ -1550,7 +1562,7 @@ a.btn-primary {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 
 .note.tip {
@@ -1626,7 +1638,7 @@ body[data-theme="dark"] .note.tip {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px 24px;
+  padding: 40px var(--sp-5);
 }
 
 .auth-card {
@@ -1690,15 +1702,15 @@ body[data-theme="dark"] .note.tip {
 .auth-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  gap: var(--sp-1);
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
-  padding: 4px;
+  padding: var(--sp-1);
   margin-bottom: 22px;
 }
 
 .auth-tab {
-  padding: 8px 0;
+  padding: var(--sp-2) 0;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
@@ -1765,7 +1777,7 @@ body[data-theme="dark"] .note.tip {
 .current-route {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
 }
 .current-route code {
@@ -1774,7 +1786,7 @@ body[data-theme="dark"] .note.tip {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: var(--sp-1) 10px;
 }
 
 /* ── Model catalogue admin ────────────────────────────────────────────────
@@ -1844,7 +1856,7 @@ body[data-theme="dark"] .note.tip {
   background: var(--bg);
   color: var(--text-secondary);
   border-radius: var(--radius-pill);
-  padding: 4px 12px;
+  padding: var(--sp-1) var(--sp-3);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
@@ -1875,7 +1887,7 @@ body[data-theme="dark"] .note.tip {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  padding: 24px;
+  padding: var(--sp-5);
   max-width: 400px;
   width: 100%;
   box-shadow: var(--shadow-lg);
@@ -1895,7 +1907,7 @@ body[data-theme="dark"] .note.tip {
 
 .modal-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   justify-content: flex-end;
 }
 
@@ -1964,7 +1976,7 @@ body[data-theme="dark"] .note.tip {
 }
 
 .empty {
-  padding: 28px 16px;
+  padding: 28px var(--sp-4);
   text-align: center;
   color: var(--text-secondary);
   font-size: var(--fs-base);
@@ -1987,18 +1999,18 @@ body[data-theme="dark"] .note.tip {
 }
 
 .mt-8 {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 .mt-12 {
-  margin-top: 12px;
+  margin-top: var(--sp-3);
 }
 .mt-16 {
-  margin-top: 16px;
+  margin-top: var(--sp-4);
 }
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
 }
 
@@ -2011,7 +2023,7 @@ body[data-theme="dark"] .note.tip {
   display: flex;
   gap: 22px;
   flex-wrap: wrap;
-  padding: 12px 18px;
+  padding: var(--sp-3) 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
@@ -2034,13 +2046,13 @@ body[data-theme="dark"] .note.tip {
 .dev-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 12px;
+  gap: var(--sp-3);
 }
 .dev-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 14px var(--sp-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg);
@@ -2082,7 +2094,7 @@ body[data-theme="dark"] .note.tip {
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border-radius: var(--radius-pill);
-  padding: 2px 9px;
+  padding: var(--sp-0-5) 9px;
 }
 
 /* Three-signal block (Agent / Tunnel / Extension) — one row each. */
@@ -2090,7 +2102,7 @@ body[data-theme="dark"] .note.tip {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 10px 12px;
+  padding: 10px var(--sp-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
@@ -2098,7 +2110,7 @@ body[data-theme="dark"] .note.tip {
 .dev-sig {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   font-size: var(--fs-sm);
 }
 .dev-sig-label {
@@ -2137,7 +2149,7 @@ body[data-theme="dark"] .note.tip {
 .dev-host {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   font: 12px var(--ds-font-family-code);
   color: var(--text-secondary);
 }
@@ -2173,7 +2185,7 @@ body[data-theme="dark"] .note.tip {
   color: var(--error-text);
   border-radius: var(--radius-md);
   font-size: var(--fs-base);
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 .banner-error .btn {
   margin-left: auto;
@@ -2205,7 +2217,7 @@ body[data-theme="dark"] .note.tip {
 /* Unused registration keys block inside the install card. */
 .regkeys {
   border-top: 1px dashed var(--border);
-  padding-top: 12px;
+  padding-top: var(--sp-3);
 }
 .regkeys-head {
   display: flex;
@@ -2234,7 +2246,7 @@ body[data-theme="dark"] .note.tip {
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   user-select: none;
 }
 .adv-block > summary::-webkit-details-marker {
@@ -2250,7 +2262,7 @@ body[data-theme="dark"] .note.tip {
   transform: rotate(90deg);
 }
 .adv-block > .adv-body {
-  padding: 0 18px 16px;
+  padding: 0 18px var(--sp-4);
 }
 
 .form-hint {
@@ -2269,7 +2281,7 @@ body[data-theme="dark"] .note.tip {
 
 @media (max-width: 900px) {
   .content {
-    padding: 24px 20px 56px;
+    padding: var(--sp-5) 20px 56px;
   }
 }
 
@@ -2312,11 +2324,11 @@ body[data-theme="dark"] .note.tip {
    ================================================================ */
 .prov-list {
   list-style: none;
-  margin: 0 0 4px;
+  margin: 0 0 var(--sp-1);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .prov-row {
   background: var(--glass-tint);
@@ -2335,8 +2347,8 @@ body[data-theme="dark"] .note.tip {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 14px;
 }
 .prov-ident {
   display: flex;
@@ -2437,13 +2449,13 @@ body[data-theme="dark"] .note.tip {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .prov-model {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 6px var(--sp-2);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
 }
@@ -2465,7 +2477,7 @@ body[data-theme="dark"] .note.tip {
 }
 .prov-addmodel {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   align-items: center;
   flex-wrap: wrap;
 }
@@ -2475,7 +2487,7 @@ body[data-theme="dark"] .note.tip {
 .prov-disabled {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   margin-top: 10px;
 }
@@ -2490,17 +2502,17 @@ body[data-theme="dark"] .note.tip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 4px 2px 8px;
+  padding: var(--sp-0-5) var(--sp-1) var(--sp-0-5) var(--sp-2);
   border: 1px solid var(--border);
   border-radius: 6px;
 }
 .prov-addrow {
-  margin-top: 4px;
+  margin-top: var(--sp-1);
 }
 /* A dashed placeholder, not a card: adding is the exception on this page. */
 .btn-dashed {
   width: 100%;
-  padding: 12px;
+  padding: var(--sp-3);
   background: transparent;
   color: var(--text-secondary);
   border: 1px dashed var(--border-strong);
@@ -2540,12 +2552,12 @@ body[data-theme="dark"] .note.tip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 .prov-newgrid label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-medium);
   letter-spacing: var(--tracking-micro);
@@ -2585,13 +2597,13 @@ body[data-theme="dark"] .note.tip {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .prov-probe-list li {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 8px;
+  padding: 5px var(--sp-2);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
 }
@@ -2614,7 +2626,7 @@ body[data-theme="dark"] .note.tip {
 .prov-facets label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-medium);
   letter-spacing: var(--tracking-micro);
@@ -2635,7 +2647,7 @@ body[data-theme="dark"] .note.tip {
 .prov-facets-actions {
   grid-column: 1 / -1;
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 /* The configuration document — an escape hatch, so it reads as a document: monospace, scrollable, and never the tallest thing on the page. */
@@ -2643,7 +2655,7 @@ body[data-theme="dark"] .note.tip {
   max-height: 46vh;
   overflow: auto;
   margin: 10px 0 0;
-  padding: 12px 14px;
+  padding: var(--sp-3) 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
