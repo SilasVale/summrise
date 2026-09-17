@@ -114,6 +114,10 @@ elif which == "theme-lie":
     # A REPORT THAT DESCRIBES A PAGE IT DID NOT RENDER: navigated as dark, rendered light. This is exactly
     # what round 175 shipped by accident, and the check reads the theme off the PAGE to catch it.
     r["themeChecks"] = [{"page": "Terminal-fail-dark", "intended": "dark", "stored": "light", "attr": "", "bodyBackground": "rgb(250, 250, 250)"}]
+elif which == "sheets-unreadable":
+    # A CHECK WHOSE BASIS IS PARTIAL MUST NOT REPORT CLEAN. An unreadable sheet contributes no class names, so
+    # every class it styles looks unstyled — the false-finding shape this suite has now fixed three times.
+    r["unstyled"] = [{"page": "Terminal", "styledClasses": 2200, "sheetsUnreadable": 1, "classes": [], "tags": {}}]
 elif which == "focus-unconfirmed":
     # A CHECK THAT COULD NOT LOOK MUST NOT READ AS A PASS. The pixel confirmation's screenshot can fail; the
     # first version turned that into "no focus indication", a false finding. It is now its own verdict and it
@@ -154,7 +158,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed; do
+for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"

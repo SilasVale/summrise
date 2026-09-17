@@ -129,15 +129,20 @@ export const UNSTYLED_SOURCE = `(() => {
       if (r.cssRules && r.cssRules.length) collect(r.cssRules);
     }
   };
+  // AN UNREADABLE SHEET IS NOT AN ABSENT ONE. A sheet the page cannot hand over (cross-origin, or a Rules
+  // object the browser refuses) contributes no class names, so every class it styles looks UNSTYLED — a
+  // false finding produced by a check that could not read its own basis. Counted and returned instead of
+  // swallowed, so the judge can say the basis was incomplete rather than reporting a clean sheet.
+  let sheetsUnreadable = 0;
   for (let i = 0; i < document.styleSheets.length; i++) {
-    try { collect(document.styleSheets[i].cssRules); } catch (e) {}
+    try { collect(document.styleSheets[i].cssRules); } catch (e) { sheetsUnreadable++; }
   }
   const unstyled = new Map();
   for (const el of document.querySelectorAll('#root *')) {
     const cls = typeof el.className === 'string' ? el.className : '';
     for (const c of cls.split(/\\s+/).filter(Boolean)) if (!styled.has(c)) unstyled.set(c, el.tagName.toLowerCase());
   }
-  return { styledClasses: styled.size, classes: [...unstyled.keys()].sort(), tags: Object.fromEntries(unstyled) };
+  return { styledClasses: styled.size, sheetsUnreadable, classes: [...unstyled.keys()].sort(), tags: Object.fromEntries(unstyled) };
 })()`;
 
 /** The judge: one implementation of "is this report a defect", whatever UI produced it.
@@ -586,6 +591,14 @@ export function judgeReport(report, opts = {}) {
     // three controls styled by element and id selectors, and its sheet defines FOUR classes — a floor of
     // 100 would report "the collector read almost nothing" forever, which is the false alarm this
     // parameter removes. The panel and console keep the strict default.
+    // A SHEET THE COLLECTOR COULD NOT READ IS A HOLE IN ITS BASIS, and every class that sheet styles looks
+    // unstyled. The floor above catches a collector that read almost nothing; this catches one that read
+    // almost everything — the failure the floor cannot see.
+    if (u.sheetsUnreadable > 0) {
+      findings.push(
+        `unstyled check on ${u.page || "?"}: ${u.sheetsUnreadable} stylesheet(s) could not be read, so their classes look unstyled — the basis is incomplete`,
+      );
+    }
     if (typeof u.styledClasses === "number" && u.styledClasses < (opts.unstyledFloor ?? 100)) {
       findings.push(`unstyled check on ${u.page || "?"}: only ${u.styledClasses} styled classes found (floor ${opts.unstyledFloor ?? 100}) — the collector read almost nothing, so its silence means nothing`);
     }
