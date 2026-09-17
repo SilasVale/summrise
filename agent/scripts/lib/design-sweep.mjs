@@ -267,6 +267,29 @@ export async function motionPass(page, render, label = {}) {
  *  Nothing measured this before round 162. The sweep's own probe uses 24px for a different question (whether
  *  a non-text element is a MARK rather than a block), which is how the number was already in the codebase
  *  without the criterion being checked. */
+/** WHAT THE PAGE ACTUALLY RENDERED, as opposed to what the navigation asked for.
+ *
+ *  Round 175 shipped a two-theme fixture whose REPORT said `theme: light` for every render, because the three
+ *  blocks recorded a hardcoded field while only the URLs had been changed — so `Terminal-fail-dark` reported
+ *  light, and two same-named surfaces looked like one. The renders were right and the report lied about them,
+ *  which is worse than not measuring: a dark regression would have been filed under light and compared
+ *  against the wrong numbers.
+ *
+ *  This reads the theme off the PAGE — the stored preference the app itself uses, plus the body background,
+ *  which is what the eye sees. The adapters record what this returns and FAIL when it disagrees with what
+ *  they navigated to, so the family of bug that cost round 175 cannot come back quietly.
+ *
+ *  Two signals rather than one deliberately: a stubbed localStorage could agree while the painted background
+ *  does not, and `bodyBackground` is the half that a reader would actually notice. */
+export const THEME_SOURCE = `(() => {
+  const body = getComputedStyle(document.body).backgroundColor;
+  let stored = '';
+  try { stored = localStorage.getItem('vale-theme') || ''; } catch (e) { stored = '(unavailable)'; }
+  // The app's own attribute when it has one, so this does not depend on the storage key never changing.
+  const attr = document.documentElement.getAttribute('data-theme') || '';
+  return { stored, attr, bodyBackground: body };
+})()`;
+
 export const TARGETS_SOURCE = `(() => {
   const SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="tab"], [role="switch"], [role="checkbox"]';
   const els = [...document.querySelectorAll(SEL)].filter((el) => {

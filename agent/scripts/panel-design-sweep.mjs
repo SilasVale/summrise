@@ -163,7 +163,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -204,6 +204,7 @@ const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
+const THEME = ${JSON.stringify(THEME_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -222,7 +223,7 @@ ${TIMING}
     // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
     // with the data and the judge refuses a report that does not say it covered everything.
     passes: ${JSON.stringify(PASSES)},
-    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [], targets: [],
+    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [], targets: [], themeChecks: [],
   };
   const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
@@ -291,6 +292,7 @@ ${TIMING}
     await page.waitForTimeout(2000);
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty' });
+    report.themeChecks.push({ page: 'Desktop-empty', intended: theme, ...(await page.evaluate(THEME)) });
     report.surfaces.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(SURFACE)) });
     report.names.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES)) });
   }
@@ -314,6 +316,7 @@ ${TIMING}
     await page.waitForTimeout(1400);
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'busy', page: 'Settings-busy' });
+    report.themeChecks.push({ page: 'Settings-busy', intended: theme, ...(await page.evaluate(THEME)) });
     report.surfaces.push({ density: 'panel', theme, mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(SURFACE)) });
     report.names.push({ density: 'panel', theme, mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(NAMES)) });
   }
@@ -347,6 +350,7 @@ ${TIMING}
       await page.waitForTimeout(1400);
       const rows = await page.evaluate(PROBE);
       const qTheme = /theme=([a-z]+)/.exec(query)[1];
+      report.themeChecks.push({ page: page_, intended: qTheme, ...(await page.evaluate(THEME)) });
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme: qTheme, mode: 'fixture', page: page_ });
       report.surfaces.push({ density: 'panel', theme: qTheme, mode: 'fixture', page: page_, ...(await page.evaluate(SURFACE)) });
       report.names.push({ density: 'panel', theme: qTheme, mode: 'fixture', page: page_, ...(await page.evaluate(NAMES)) });
@@ -571,6 +575,17 @@ function judge(file) {
   // TARGET SIZE, WCAG 2.5.8, AS WRITTEN: undersized AND without the spacing that would save it. A check
   // that stopped at the size would flag a dozen compact-but-fine controls and be turned off within a week,
   // which is why the criterion has the second clause and why this uses it.
+  // THE REPORT MUST NOT LIE ABOUT WHAT IT RENDERED. Round 175 shipped a two-theme fixture whose rows all
+  // said `theme: light` while the URLs said dark — the renders were right and the report was wrong, so a dark
+  // regression would have been filed under light. This reads the theme off the PAGE and fails when it
+  // disagrees with what was navigated to. An empty stored value is not judged: an app that reads the theme
+  // from the URL alone would legitimately have nothing to store.
+  for (const t of report.themeChecks || []) {
+    const seen = t.stored || t.attr;
+    if (seen && seen !== t.intended) {
+      findings.push(`theme: ${t.page} was navigated as "${t.intended}" and rendered "${seen}" — the report would be describing a page it did not render`);
+    }
+  }
   for (const t of report.targets || []) {
     for (const u of t.distinct || []) {
       if (!u.passesBySpacing) {

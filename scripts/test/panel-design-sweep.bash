@@ -110,6 +110,10 @@ elif which == "reflow":
     r["reflow"][0]["sideScrollers"] = ["div.card 100<300"]
 elif which == "focus":
     r["focus"] = [{"density": "panel", "theme": "light", "missing": 3}]
+elif which == "theme-lie":
+    # A REPORT THAT DESCRIBES A PAGE IT DID NOT RENDER: navigated as dark, rendered light. This is exactly
+    # what round 175 shipped by accident, and the check reads the theme off the PAGE to catch it.
+    r["themeChecks"] = [{"page": "Terminal-fail-dark", "intended": "dark", "stored": "light", "attr": "", "bodyBackground": "rgb(250, 250, 250)"}]
 elif which == "blind":
     # A REPORT THAT COULD NOT MEASURE MOST OF ITS ROWS. Every entry with cr None is excluded from judgement,
     # so without a floor this exits 0 while having judged almost nothing.
@@ -134,7 +138,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind; do
+for axis in contrast h1 skip landmark geometry sliver name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
