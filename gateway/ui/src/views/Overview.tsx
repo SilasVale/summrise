@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { deviceIsUp, deviceTally } from "../lib/deviceState.ts";
+import { CONSOLE_POLL_MS, deviceIsUp, deviceTally } from "../lib/deviceState.ts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useTranslation } from "../i18n.ts";
@@ -111,7 +111,7 @@ export default function Overview() {
   useEffect(() => {
     loadDashboard();
     // Same 60s cadence as the devices page — the two pages can never drift.
-    const poll = setInterval(loadDashboard, 60000);
+    const poll = setInterval(loadDashboard, CONSOLE_POLL_MS);
     return () => clearInterval(poll);
   }, [loadDashboard]);
 

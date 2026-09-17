@@ -10,7 +10,7 @@ import {
   type RegKeyInfo,
 } from "../api/client.ts";
 import { maskToken } from "../lib/format.ts";
-import { agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../lib/deviceState.ts";
+import { CONSOLE_POLL_MS, agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../lib/deviceState.ts";
 import {
   Card,
   PageHeader,
@@ -119,7 +119,7 @@ export default function DevicesPanel() {
   // Poll device status every 60s (KV-budget friendly; manual refresh anytime)
   useEffect(() => {
     loadStatus();
-    const poll = setInterval(() => loadStatus(), 60000);
+    const poll = setInterval(() => loadStatus(), CONSOLE_POLL_MS);
     return () => clearInterval(poll);
   }, [loadStatus]);
 

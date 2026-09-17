@@ -94,3 +94,25 @@ test("the freshness claim in deviceState.ts still matches the worker's probe TTL
     "the retracted claim is back in deviceState.ts — the worker answers it, and a false reason is worse than none",
   );
 });
+
+test("the console's poll interval is stated in one place and matches its comment", () => {
+  // THE SAME SHAPE AS THE FRESHNESS CHECK ABOVE, for the same reason: a number in a comment is a claim, and this
+  // repository has now found two of them that were false. `CONSOLE_POLL_MS` was extracted in round 49 because
+  // `Overview.tsx` and `DevicesPanel.tsx` each carried their own 60000 — and because the WORKER's comment about this
+  // very cadence says 30s. The worker's copy is in another repository; this is the half that can be pinned here.
+  const lib = readFileSync(path.join(HERE, "..", "src", "lib", "deviceState.ts"), "utf8");
+  const value = /CONSOLE_POLL_MS\s*=\s*([0-9_]+)/.exec(lib);
+  assert.ok(value, "CONSOLE_POLL_MS is gone — the two views would go back to their own literals");
+  const seconds = Number(value[1].replace(/_/g, "")) / 1000;
+  // THE BLOCK ABOVE THE CONSTANT, NOT THE WHOLE FILE: this file QUOTES the worker's wrong sentence, which contains
+  // the words "polls every 30s" — so a whole-file match found the quoted claim first and reported the cadence as
+  // missing. A check that reads its subject's own quotation of the thing it checks will believe the quotation.
+  const block = lib.slice(Math.max(0, lib.indexOf("CONSOLE_POLL_MS") - 1400), lib.indexOf("CONSOLE_POLL_MS"));
+  assert.match(block, new RegExp(`console polls every ${seconds}s\\b`), `deviceState.ts no longer states the ${seconds}s cadence it defines`);
+  // and neither view may carry its own copy again
+  for (const view of ["Overview.tsx", "DevicesPanel.tsx"]) {
+    const src = readFileSync(path.join(HERE, "..", "src", "views", view), "utf8");
+    assert.match(src, /setInterval\([^,]+,\s*CONSOLE_POLL_MS\)/, `${view} polls with something other than CONSOLE_POLL_MS`);
+    assert.ok(!/setInterval\([^,]+,\s*[0-9_]+\s*\)/.test(src), `${view} has a hard-coded poll interval again`);
+  }
+});

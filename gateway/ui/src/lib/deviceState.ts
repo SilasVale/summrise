@@ -115,3 +115,17 @@ function deviceTally(devices: { name: string }[] | null | undefined, statuses: R
 
 export { deviceTally };
 export type { DeviceTally };
+
+/**
+ * HOW OFTEN THE CONSOLE ASKS FOR DEVICE STATUS — the single value both views used to hard-code separately.
+ *
+ * THE WORKER'S OWN COMMENT ABOUT THIS IS WRONG, and reading it is why this constant exists. `vale-gate`'s
+ * `cachedDeviceProbe` says its 30-second cache is safe because the console "polls every 30s already" — and the
+ * console polls every 60s, in `Overview.tsx` and `DevicesPanel.tsx`, each with its own literal. The behaviour is
+ * fine and this comment is not: a 30s cache behind a 60s poll always answers fresh, so the cache serves a second
+ * view or a manual refresh and never the console's own request. What was NOT fine is a stated reason that is false
+ * in another repository, and the same number written twice here — which is what this constant removes on this side.
+ *
+ * The console polls every 60s. The worker's sentence is filed in `docs/agents/ideas.md` for whoever edits it.
+ */
+export const CONSOLE_POLL_MS = 60_000;
