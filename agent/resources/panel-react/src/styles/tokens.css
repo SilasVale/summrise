@@ -130,7 +130,6 @@
   --state-warn: var(--warn);
   --state-muted: var(--faint);
   --state-running-soft: var(--accent-soft);
-  --state-fail-soft: var(--danger-soft);
   --state-warn-soft: var(--warn-soft);
   --state-muted-soft: rgba(127, 127, 127, 0.12);
 

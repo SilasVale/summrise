@@ -46,10 +46,17 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Declaration block for an EXACT selector. Returns null when absent, so a
- *  renamed selector fails loudly instead of silently comparing "" to "". */
+/** Declaration block for an EXACT selector, as ONE ARM of a rule.
+ *
+ *  COMMA LISTS COUNT (round 25 of the standing goal). The vocabulary is written as one shared rule —
+ *  `.cmd-dot[data-state="fail"], .traj-ev-dot[data-state="fail"], .plug-dot[data-state="error"] { … }` — because
+ *  three families rendering one vocabulary is the point. This matcher required the selector to be followed
+ *  immediately by `{`, so five existing contracts reported the rule MISSING and read a null body: a lookup that
+ *  cannot see the shape the sheet is written in fails in the direction that looks like a real defect. It now
+ *  matches the selector where it sits — at a rule boundary, possibly with an arm after it.
+ */
 function blockOf(css: string, selector: string): string | null {
-  const m = css.match(new RegExp(escapeRe(selector) + "\\s*\\{([^}]*)\\}"));
+  const m = css.match(new RegExp("(?:^|[}\\n,])\\s*" + escapeRe(selector) + "\\s*(?:,[^{]*)?\\{([^}]*)\\}"));
   return m ? m[1] : null;
 }
 
@@ -212,5 +219,52 @@ describe("discrete state palette", () => {
       expect(media, `${sel} must still honour reduced motion`).toContain(sel);
     }
     expect(media, "the blocks must actually disable animation").toMatch(/animation\s*:\s*none/);
+  });
+});
+
+describe("the verdict vocabulary", () => {
+  // THE TWO RENDERERS ARE ONE VOCABULARY, and the check that said so only compared COLOUR. Measured (round 25 of
+  // the standing goal): `.cmd-dot[data-state="warn"]` carried a halo and `.traj-ev-dot[data-state="warn"]` did not,
+  // and `ok` / `fail` / `warn` were three FILLS a reader had to know by heart — under `prefers-reduced-motion`
+  // `running` lost its pulse and became indistinguishable from `warn`. The shapes carry the verdict now.
+  const shapeOf = (css: string, family: string, state: string) => {
+    // EVERY RULE THAT MATCHES, in sheet order, the way the cascade resolves them: a selector may be one arm of a
+    // comma list shared by three families, which is exactly how the vocabulary is written.
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      sels: m[1].trim().split(",").map((x) => x.trim()),
+      body: m[2],
+    }));
+    const body = rules
+      .filter((r) => r.sels.includes(family) || r.sels.includes(`${family}[data-state="${state}"]`))
+      .map((r) => r.body)
+      .join("\n");
+    const prop = (name: string) => {
+      const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;}]+)`).exec(body);
+      return m ? m[1].trim() : "";
+    };
+    const bg = prop("background") || prop("background-color");
+    const shadow = prop("box-shadow");
+    const filled = !!bg && !/transparent|none/.test(bg);
+    const kind = /inset/.test(shadow) ? "ring" : filled && !!shadow && !/none/.test(shadow) ? "halo" : filled ? "solid" : "empty";
+    return [prop("border-radius") || "0", /rotate/.test(prop("transform")) ? "rotated" : "upright", kind].join("|");
+  };
+
+  it("gives every verdict its own shape, and gives both renderers the SAME one", () => {
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    const STATES = ["ok", "warn", "fail", "running"];
+    for (const s of STATES) {
+      const a = shapeOf(css, ".cmd-dot", s);
+      const b = shapeOf(css, ".traj-ev-dot", s);
+      expect(a, `.traj-ev-dot[${s}] renders differently from .cmd-dot[${s}] — one vocabulary, two renderers`).toBe(b);
+    }
+    // `muted` IS EXCLUDED ON PURPOSE, and the next test pins why: in the command card it is rare and hollow, in the
+    // trajectory it is the majority and a quiet fill. A density decision outranks uniformity, and a check that
+    // insisted otherwise would be arguing with a documented choice rather than protecting one.
+    const shapes = STATES.map((s) => [s, shapeOf(css, ".cmd-dot", s)] as const);
+    for (const [s, sh] of shapes) expect(sh, `.cmd-dot[${s}] renders as nothing`).not.toMatch(/empty$/);
+    expect(
+      new Set(shapes.map(([, sh]) => sh)).size,
+      `two verdicts share a shape — colour alone is not a state channel:\n  ${shapes.map(([s, sh]) => `${s}: ${sh}`).join("\n  ")}`,
+    ).toBe(STATES.length);
   });
 });

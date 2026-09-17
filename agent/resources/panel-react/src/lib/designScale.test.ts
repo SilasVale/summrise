@@ -55,6 +55,12 @@ describe("the design scale", () => {
       // separately, and the silhouette moved into one shared rule (`.mark[data-live=…]`). The exemption is
       // NARROWER than it was — the shared rule is the only place a 2px radius draws a waiting mark.
       '.mark[data-live="waiting"]',
+      // THE VERDICT VOCABULARY'S TWO SHAPES (round 25 of the standing goal): a SQUARE for `warn` and a rotated
+      // square for `fail`/`error`. A 2px radius on a 7-8px dot is what takes the corner off a square and what
+      // makes a diamond a diamond; it is a shape, not a corner style, and the two shared rules are the only
+      // places these families draw one.
+      '.cmd-dot[data-state="warn"]',
+      '.cmd-dot[data-state="fail"]',
       '.rail-brand svg',
       '.desktop-rail-brand svg',
     ];

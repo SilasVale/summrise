@@ -131,7 +131,6 @@
   --state-warn: var(--warn);
   --state-muted: var(--faint);
   --state-running-soft: var(--accent-soft);
-  --state-fail-soft: var(--danger-soft);
   --state-warn-soft: var(--warn-soft);
   --state-muted-soft: rgba(127, 127, 127, 0.12);
 
@@ -2243,6 +2242,48 @@ h3 { font-size: var(--fs-base); }
    Halos are box-shadow, NOT border: this sheet has no global
    `box-sizing: border-box`, so a border would grow the dot and shift the row
    it sits in. */
+/* ══ FIVE STATES, FIVE SHAPES — THE VERDICT VOCABULARY (round 25 of the standing goal) ═════════════════════
+   Measured first: `.cmd-dot` and `.traj-ev-dot` are the SAME vocabulary rendered twice, and they had drifted —
+   `.cmd-dot[data-state="warn"]` carried a halo and `.traj-ev-dot[data-state="warn"]` did not, while
+   `statePalette.test.ts` asserted only that they agree on COLOUR. The colour-only pairs were worse than the
+   drift: `ok`, `fail` and `warn` were three fills a reader had to know by heart, and under `prefers-reduced-motion`
+   `running` lost its pulse and became indistinguishable from `warn`.
+
+   So the shapes carry the verdict and colour is the second channel, exactly as the mark language requires:
+     ok / success   SOLID          the command worked
+     warn           SQUARE         it worked with a caveat — a square, not a rotated one
+     fail / error   DIAMOND        it needs attention (the same shape a pending approval wears)
+     running        SOLID + HALO   in flight; the pulse is an ADDITION, and the halo survives without it
+     muted          INSET RING     nothing to report
+   `bg` keeps its half-gradient: it is a PROGRESS mark, not a verdict. */
+.cmd-dot[data-state="ok"], .traj-ev-dot[data-state="ok"], .plug-dot[data-state="success"] { background: var(--state-ok); }
+.cmd-dot[data-state="warn"], .traj-ev-dot[data-state="warn"], .plug-dot[data-state="warn"] {
+  background: var(--warn-ink);
+  border-radius: 2px;
+}
+.cmd-dot[data-state="fail"], .traj-ev-dot[data-state="fail"], .plug-dot[data-state="error"] {
+  background: var(--state-fail);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+.cmd-dot[data-state="running"], .traj-ev-dot[data-state="running"], .plug-dot[data-state="ongoing"] {
+  background: var(--state-running);
+}
+/* MUTED IS THE ONE DELIBERATE ASYMMETRY, kept from an earlier round and pinned by `statePalette.test.ts`: in the
+   COMMAND CARD it is rare (a command that ended without a verdict) so it is a hollow ring — "nothing concluded
+   here"; in the TRAJECTORY it is the MAJORITY (every raw output line) so it is a quiet FILLED dot, which reads as
+   texture rather than as a marker. Two hundred rings down a rail would be noise. The verdict vocabulary below
+   applies to VERDICTS; a density decision outranks uniformity. */
+.traj-ev-dot[data-state="muted"] { background: var(--ds-neutral-300); }
+.cmd-dot[data-state="muted"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--state-muted);
+}
+/* NO ARM FOR `.plug-dot[muted]`: the plugin dot's BASE is its "nothing to report" state, so it is the ring — the
+   same shape, one rule instead of two. The duplicated arm rendered a DISC inside a RING, because the base's
+   `background: var(--faint)` was never overridden and `--faint` and `--state-muted` are the SAME VALUE (#a1a1aa):
+   a fill and a ring of one colour, which reads as a slightly thicker disc. */
+
 .cmd-dot {
   flex: none;
   width: 8px; height: 8px;
@@ -2253,18 +2294,13 @@ h3 { font-size: var(--fs-base); }
   box-shadow: 0 0 0 2.5px var(--state-running-soft);
   animation: cmd-pulse 1.6s var(--ds-ease-in-out) infinite;
 }
-.cmd-dot[data-state="ok"] { background: var(--state-ok); }
 .cmd-dot[data-state="fail"] {
   background: var(--state-fail);
-  box-shadow: 0 0 0 2.5px var(--state-fail-soft);
 }
 .cmd-dot[data-state="warn"] {
   background: var(--warn-ink);
-  box-shadow: 0 0 0 2.5px var(--state-warn-soft);
 }
 .cmd-dot[data-state="muted"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--state-muted);
 }
 .cmd-dot[data-state="bg"] {
   background: linear-gradient(90deg, var(--state-running) 50%, transparent 50%);
@@ -2661,16 +2697,13 @@ h3 { font-size: var(--fs-base); }
    same state is rare and meaningful — one command that ended without a
    verdict — so it earns the ring. Both choices are pinned by
    src/lib/statePalette.test.ts. */
-.traj-ev-dot[data-state="muted"] { background: var(--ds-neutral-300); }
 .traj-ev-dot[data-state="bg"] {
   background: linear-gradient(90deg, var(--state-running) 50%, var(--ds-neutral-300) 50%);
 }
 .traj-ev-dot[data-state="ok"] { background: var(--state-ok); }
 .traj-ev-dot[data-state="fail"] {
   background: var(--state-fail);
-  box-shadow: 0 0 0 2px var(--state-fail-soft);
 }
-.traj-ev-dot[data-state="warn"] { background: var(--warn-ink); }
 .traj-ev-dot[data-state="running"] {
   background: var(--state-running);
   box-shadow: 0 0 0 2px var(--state-running-soft);
@@ -2817,19 +2850,15 @@ h3 { font-size: var(--fs-base); }
   flex: none;
   width: 8px; height: 8px;
   border-radius: 50%;
-  background: var(--faint);
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--state-muted);
 }
-/* Plugin page uses its OWN state names (success/error/ongoing) for the same
-   five-state contract — same defect, same fix. The halo is what makes
-   "ongoing" survive prefers-reduced-motion, which switches the pulse off. */
-.plug-dot[data-state="success"] { background: var(--state-ok); }
-.plug-dot[data-state="warn"] { background: var(--warn-ink); }
-.plug-dot[data-state="error"] {
-  background: var(--state-fail);
-  box-shadow: 0 0 0 2.5px var(--state-fail-soft);
-}
+/* Plugin page uses its OWN state names (success/error/ongoing) for the same five-state contract, and the
+   VOCABULARY BLOCK ABOVE OWNS THEIR SHAPES. What is left here is only what the vocabulary does not say: the halo
+   and the pulse that make "ongoing" read as IN FLIGHT. `.plug-dot[error]` used to restate the fail fill AND a halo
+   — which, sitting later in the sheet, overrode the vocabulary's diamond shape and left a stray ring around it
+   (found by rendering the marks at 3.5x, not by reading the sheet). */
 .plug-dot[data-state="ongoing"] {
-  background: var(--state-running);
   box-shadow: 0 0 0 2.5px var(--state-running-soft);
   animation: plug-pulse 1.6s var(--ds-ease-in-out) infinite;
 }
