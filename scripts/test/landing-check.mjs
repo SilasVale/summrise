@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-// landing-contrast-check.mjs — the download landing page is a SURFACE, and nothing was measuring it.
+// landing-check.mjs — the download landing page is a SURFACE, and nothing was measuring it.
+//
+// RENAMED FROM landing-contrast-check.mjs (round 242): it checks the page's COLOURS, its DOCUMENT structure and
+// its LAYOUT now, and a file named for one third of what it does is the kind of name that stops the next reader
+// looking — the same lesson as the console's "unified brand tokens" comment (233) and the violet that existed
+// nowhere (234).
 //
 // WHY (round 239). The token contract mentions the landing only because it shares three token names with the
 // panel; the design suite covers the panel, the console and the extension. The landing is `index/src/page.js`,
@@ -104,4 +109,39 @@ console.log(`landing contrast: ok — ${PAIRS.length} pairs in BOTH themes (${ch
     process.exit(1);
   }
   console.log(`landing structure: ok — one h1 matching the title ("${h1s[0]}"), lang, viewport, one main`);
+}
+
+// ── the LAYOUT's structural invariants, which need no browser ───────────────────────────────────────────────
+// Round 224 found two grids in the console whose FIXED pixel minimums (330px, 260px) overflowed their containers
+// at 320 — the width WCAG 1.4.10 names. This page is checked the same way, statically: no rule may declare a
+// width or min-width wider than the narrowest viewport the page has to survive, and there must be at least one
+// breakpoint, or nothing about it can reflow at all.
+{
+  const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz", "vale setup");
+  const style = (/<style[\s\S]*?<\/style>/.exec(rendered) || [""])[0];
+  const NARROWEST = 320;
+  const problems = [];
+  let widths = 0;
+  for (const m of style.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim().split("\n").pop().trim();
+    for (const decl of m[2].matchAll(/(?:^|;)\s*(min-width|width)\s*:\s*([^;]+)/g)) {
+      const value = decl[2].trim();
+      const px = /^(\d+(?:\.\d+)?)px$/.exec(value);
+      if (!px) continue;                       // percentages, clamp(), min() and calc() all shrink
+      widths++;
+      if (Number(px[1]) > NARROWEST) {
+        problems.push(`${sel} { ${decl[1]}: ${value} } — wider than the ${NARROWEST}px a 1.4.10 reflow test uses; a max-width would cap it instead of setting a floor`);
+      }
+    }
+  }
+  const breakpoints = (style.match(/@media[^{]*max-width[^{]*/g) || []).length;
+  if (breakpoints === 0) problems.push("no max-width breakpoint at all, so nothing about this page can reflow");
+  if (widths === 0) problems.push("no pixel width was found to check — the scan is reading the wrong thing");
+
+  if (problems.length) {
+    console.error("landing layout: FAILED");
+    for (const p of problems) console.error("  " + p);
+    process.exit(1);
+  }
+  console.log(`landing layout: ok — ${widths} fixed width(s), none above ${NARROWEST}px, ${breakpoints} breakpoint(s)`);
 }

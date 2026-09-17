@@ -309,8 +309,8 @@ jobs:
       # THE LANDING PAGE IS A SURFACE TOO (round 239). It shares three token names with the panel, which is the
       # only reason the token contract ever mentioned it; no design sweep covers it, and nothing had asked
       # whether its text is readable. Its own --dsw-alias-* values are read from page.js rather than copied.
-      - name: the landing page's text is readable
-        run: node scripts/test/landing-contrast-check.mjs
+      - name: the landing page's colours, structure and layout
+        run: node scripts/test/landing-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077
