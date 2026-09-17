@@ -30,6 +30,7 @@ TMP="$(mktemp -d)"
 # job that had just run npm ci in that directory, with `requireStack: []` — which points at the FIRST require
 # rather than at the helper's own import, and left two candidates to guess between. So print the facts the
 # failure depends on: the helper exists, and playwright-core resolves FROM THE HELPER'S OWN DIRECTORY.
+HELPER="$PWD/agent/resources/panel-react/scripts/local-browser.mjs"
 echo "── environment ──"
 echo "helper:   $HELPER"
 if [ -f "$HELPER" ]; then ls -l "$HELPER" | awk '{print "          " $5 " bytes"}'; else echo "          MISSING"; fi
@@ -39,7 +40,6 @@ echo "node:     $(node --version)"
 
 trap 'rm -rf "$TMP"' EXIT
 
-HELPER="$PWD/agent/resources/panel-react/scripts/local-browser.mjs"
 HARNESS_SRC="/tmp/panel-render-audit/panel-harness.html"
 
 echo "── design sweep: generating the harness from this checkout ──"
