@@ -161,6 +161,7 @@
 //   * a background that is an image (judged by the worst-BASE rule in the probe suite instead);
 //   * any state the harness fixture cannot produce. Add the fixture, or say the state is unmeasured.
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
@@ -197,6 +198,18 @@ const TIMING = \`(() => {
 })()\`;
 `;
 
+// COMPUTED AT EMIT TIME, not baked once by hand. Round 190 wrote this as a LITERAL, so it only ever matched
+// the stylesheet that happened to exist the day it was written: every rebuild afterwards made the guard fire
+// on a perfectly current harness, and round 210 hit exactly that. The value is computed HERE, in the module,
+// and only its result is inlined into the emitted script — the computation itself uses import.meta, which is
+// a syntax error in the CommonJS script the device runs. (The emitter's own parse guard caught that, which is
+// what it is for.)
+const HARNESS_STAMP = (() => {
+  try {
+    const css = readFileSync(new URL("../resources/panel/panel.css", import.meta.url));
+    return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);
+  } catch (e) { return "(unreadable)"; }
+})();
 function browserScript() {
   const script = `const fs = require('fs');
 // WHERE IT READS AND WRITES IS OVERRIDABLE, so the same sweep can run on the device (the defaults, exactly
@@ -209,7 +222,7 @@ const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\
 // inlined; baking the expectation here turns round 189's note into a check. A delivered fixture that
 // predates a CSS fix otherwise reports findings that look live — a 17px tab strip against a 962px build —
 // and nothing in the report distinguishes them from a regression.
-const EXPECTED_HARNESS_BUILD = "212274-0517495785a2";
+const EXPECTED_HARNESS_BUILD = ${JSON.stringify(HARNESS_STAMP)};
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("#root")}
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};

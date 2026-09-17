@@ -94,7 +94,13 @@
    channel that still works with colour vision deficiencies and in greyscale;
    animation is not a channel here at all (prefers-reduced-motion). */
 .rail-dot[data-state="waiting"] {
-  background: var(--warn-ink);
+  /* --state-warn, NOT --warn-ink, and this is MEASURED (round 210). The waiting dot is the one that says a
+     decision is holding — the state that most needs to be seen — and it was drawn in the token meant for
+     amber TEXT on a soft background: #92400e measures 2.32 against the rail, under the 3:1 a graphic needs,
+     and BELOW the working dot's 3.00 that this one per the comment above OUTRANKS. The state token is the
+     semantically right one for a state indicator, and it measures 3.62 — above the working dot, as the
+     ranking requires. The same shape as round 209's sc-dot: the ink variant of a colour is not its mark. */
+  background: var(--state-warn);
   /* NOT a corner style: a rotated square, and the 2px only takes the point off the diamond. The
      scale test exempts this selector by name rather than letting any future `2px` through. */
   border-radius: 2px;
