@@ -411,6 +411,19 @@ export function judgeReport(report, opts = {}) {
     if (n.unnamed.length) findings.push(`${where}: ${n.unnamed.length} control(s) with NO accessible name — ${n.unnamed.join(", ")}`);
     if (n.titleOnly.length) findings.push(`${where}: ${n.titleOnly.length} control(s) named only by title — ${n.titleOnly.join(", ")}`);
   }
+  // HOW OFTEN THE COMPUTED-STYLE VERDICT WAS OVERRULED BY THE PIXELS. Not a finding — the pixels are the
+  // authority and they said the ring is painted — but it is the number to WATCH: it was 18 out of 18 in
+  // round 186, where the style check called every console ring missing while the browser drew all of them,
+  // and six rounds went by before anyone looked at a screenshot. A count that keeps climbing means the
+  // style check is drifting further from what is painted, and the next drift may not be benign.
+  const paintTotal = (report.focus || []).reduce((a, f) => a + (f.paintConfirmed || 0), 0);
+  const pressedTotal = (report.focus || []).reduce((a, f) => a + (f.pressed || 0), 0);
+  if (paintTotal) {
+    console.log(
+      `note: the pixels overruled the computed-style focus verdict ${paintTotal} time(s) of ${pressedTotal} press(es) — ` +
+        `the rings are painted, the style check cannot see them`,
+    );
+  }
   for (const f of report.focus || []) {
     if (f.missing) findings.push(`${f.page ? f.page + ': ' : ''}${f.missing} Tab stop(s) with no visible focus ring`);
     // A RUN THAT LANDED NOWHERE IS NOT A PASSING RUN. Focus escaping to the body used to count as "ok",

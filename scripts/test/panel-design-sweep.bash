@@ -114,6 +114,11 @@ elif which == "theme-lie":
     # A REPORT THAT DESCRIBES A PAGE IT DID NOT RENDER: navigated as dark, rendered light. This is exactly
     # what round 175 shipped by accident, and the check reads the theme off the PAGE to catch it.
     r["themeChecks"] = [{"page": "Terminal-fail-dark", "intended": "dark", "stored": "light", "attr": "", "bodyBackground": "rgb(250, 250, 250)"}]
+elif which == "paint-drift":
+    # THE PIXELS OVERRULING THE STYLE CHECK must be VISIBLE, not silent. It was 18 of 18 in round 186 while
+    # the style verdict called every console ring missing; the count is a note rather than a finding, so the
+    # gate asserts the note is printed and carries both numbers.
+    r["focus"] = [{"page": "Terminal", "pressed": 16, "landed": 16, "escaped": 0, "missing": 0, "paintConfirmed": 4}]
 elif which == "blind":
     # A REPORT THAT COULD NOT MEASURE MOST OF ITS ROWS. Every entry with cr None is excluded from judgement,
     # so without a floor this exits 0 while having judged almost nothing.
@@ -146,6 +151,22 @@ for axis in contrast h1 skip landmark geometry sliver name title-only reflow foc
     ok "the judge fails a planted '$axis' defect"
   fi
 done
+
+# A NOTE MUST BE PRINTED, WHICH THE LOOP ABOVE CANNOT CHECK — it only asserts that planted defects FAIL.
+# The paint-confirmed count is deliberately NOT a finding (the pixels are the authority and they said the ring
+# is painted), so a silent regression here would hide the one number that made round 186's six-round detour
+# possible. Assert the note, and that it carries BOTH numbers.
+plant paint-drift paint-drift
+if node "$TOOL" --judge "$TMP/paint-drift.json" > "$TMP/paint-drift.out" 2>&1; then
+  ok "a report of pixels overruling the style check still passes"
+else
+  bad "the judge FAILED a report whose only oddity is paint-confirmed focus verdicts"
+fi
+if grep -q "overruled the computed-style focus verdict 4 time(s) of 16 press(es)" "$TMP/paint-drift.out"; then
+  ok "and the judge prints how often the pixels overruled it, with both numbers"
+else
+  bad "the drift note is missing or incomplete: $(grep -c overruled "$TMP/paint-drift.out") match(es)"
+fi
 
 # ── 4. the CONSOLE sweep, same contract ───────────────────────────────────────────────────────
 # Its emitted script referenced helpers it never defined when it was first written (the placeholder
