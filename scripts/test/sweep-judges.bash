@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# sweep-judges.bash — the CONSOLE and EXTENSION judges must fail what they exist to catch.
+# sweep-judges.bash — the CONSOLE judge must fail what it exists to catch.
 #
 # WHY THIS EXISTS (round 179). `panel-design-sweep.bash` has gated the panel's judge since round 50, with a
-# planted defect per axis. The other two adapters had NO gate at all: their adapter-specific rules — the
-# extension's message tones, the console's target-size findings and theme check — were mutation-proven by
-# hand when written and by nothing since. The shared judge they call is covered through the panel's gate,
-# which is exactly why the gap was easy to miss: most of the machinery IS tested, and the parts that are not
-# are the parts each adapter wrote for itself.
+# planted defect per axis. The other adapters had NO gate at all: their adapter-specific rules were
+# mutation-proven by hand when written and by nothing since. The shared judge they call is covered through the
+# panel's gate, which is exactly why the gap was easy to miss: most of the machinery IS tested, and the parts
+# that are not are the parts each adapter wrote for itself.
+#
+# IT COVERED TWO ADAPTERS UNTIL ROUND 243, when the EXTENSION was removed. What moved rather than disappeared:
+# the delivered-entry provenance checks (section 3) ran against the extension because it was the adapter whose
+# entry was easiest to stage; the CONSOLE has the same `entryCheck` and inherits them here, so the coverage
+# survives the component. What genuinely went with the extension was its message-tone rules (round 149's
+# refusal-versus-confirmation defect) — the console collects no `messages`, so there is nothing left to guard.
 #
 # Each case below plants ONE defect in an otherwise clean report and requires the judge to fail. A judge that
 # says OK to everything is worse than no judge, and the only way to know is to break the thing it guards.
@@ -21,25 +26,9 @@ FAILED=0
 ok() { PASS=$((PASS + 1)); echo "  ok: $1"; }
 bad() { FAILED=$((FAILED + 1)); echo "  FAIL: $1" >&2; }
 
-# A clean report for each adapter: the minimum the judge needs to reach the rule under test. Anything absent
-# is absent on purpose — the judge treats missing sections as nothing to say, which is the behaviour a fixture
-# for ONE rule wants.
-write_ext() { # write_ext <path> <python-mutation>
-  python3 - "$1" <<PY
-import json, sys
-r = {
-  "rows": [{"sel": "body", "text": "hello", "size": 14, "weight": "400", "need": 4.5, "cr": 15.0, "density": "extension", "page": "options", "width": 900, "theme": "light"}],
-  "surfaces": [], "names": [], "focus": [], "unstyled": [], "targets": [],
-  "messages": [
-    {"label": "refusal", "state": "error", "text": "not a url", "color": "rgb(179, 38, 30)", "size": 12, "surface": "rgba(0, 0, 0, 0)", "bodyBg": "rgb(245, 245, 247)"},
-    {"label": "saved", "state": "ok", "text": "saved", "color": "rgb(11, 122, 110)", "size": 12, "surface": "rgba(0, 0, 0, 0)", "bodyBg": "rgb(245, 245, 247)"},
-  ],
-}
-$2
-json.dump(r, open(sys.argv[1], "w"))
-PY
-}
-
+# A clean report: the minimum the judge needs to reach the rule under test. Anything absent is absent on
+# purpose — the judge treats missing sections as nothing to say, which is the behaviour a fixture for ONE rule
+# wants.
 write_con() { # write_con <path> <python-mutation>
   python3 - "$1" <<PY
 import json, sys
@@ -58,60 +47,54 @@ judge() { # judge <tool> <report> -> rc
   echo "$rc"
 }
 
-EXT=agent/scripts/extension-design-sweep.mjs
 CON=agent/scripts/console-design-sweep.mjs
 
-# ── 1. both tools still emit a script that parses ──────────────────────────────────────────────
-for tool in "$CON" "$EXT"; do
-  name="$(basename "$tool" .mjs)"
-  if node "$tool" --emit > "$TMP/$name.js" 2>"$TMP/$name.err"; then
-    ok "$name --emit exits 0"
-  else
-    bad "$name --emit exited non-zero: $(head -3 "$TMP/$name.err")"
-  fi
-  if node --check "$TMP/$name.js" 2>/dev/null; then
-    ok "$name --emit script parses ($(wc -c < "$TMP/$name.js") bytes)"
-  else
-    bad "$name --emit script does not parse"
-  fi
-done
+# ── 1. the tool still emits a script that parses ────────────────────────────────────────────────
+if node "$CON" --emit > "$TMP/console-design-sweep.js" 2>"$TMP/con.err"; then
+  ok "console-design-sweep --emit exits 0"
+else
+  bad "console-design-sweep --emit exited non-zero: $(head -3 "$TMP/con.err")"
+fi
+if node --check "$TMP/console-design-sweep.js" 2>/dev/null; then
+  ok "console-design-sweep --emit script parses ($(wc -c < "$TMP/console-design-sweep.js") bytes)"
+else
+  bad "console-design-sweep --emit script does not parse"
+fi
 
-# ── 2. clean reports pass ──────────────────────────────────────────────────────────────────────
-write_ext "$TMP/ext-clean.json" "pass"
-[ "$(judge "$EXT" "$TMP/ext-clean.json")" = "0" ] && ok "extension: a clean report passes" || bad "extension: a clean report was rejected"
+# ── 2. a clean report passes ────────────────────────────────────────────────────────────────────
 write_con "$TMP/con-clean.json" "pass"
 [ "$(judge "$CON" "$TMP/con-clean.json")" = "0" ] && ok "console: a clean report passes" || bad "console: a clean report was rejected"
 
-# ── 3. the extension's message rules (round 149's defect, guarded since 158) ────────────────────
-tests=(
-  "identical|r['messages'][1]['color'] = r['messages'][0]['color']|the refusal and the confirmation painted the same colour"
-  "underAA|r['messages'][0]['color'] = 'rgb(200, 160, 155)'|a message under AA"
-  "nostate|r['messages'][0]['state'] = ''|a message with no data-state"
-)
-for t in "${tests[@]}"; do
-  IFS='|' read -r name mutation label <<< "$t"
-  write_ext "$TMP/ext-$name.json" "$mutation"
-  rc="$(judge "$EXT" "$TMP/ext-$name.json")"
-  if [ "$rc" = "1" ]; then ok "extension: the judge fails $label"; else bad "extension: $label was NOT a finding (rc=$rc)"; fi
-done
-
-# ── 3b. a DELIVERED COPY OLDER THAN THE BUILD ──────────────────────────────────────────────────
+# ── 3. a DELIVERED COPY OLDER THAN THE BUILD ────────────────────────────────────────────────────
 # Round 184 found the console's directory holding eight files from four generations; round 189 lost an
-# afternoon to a stale panel harness. Neither adapter had anything to say about it, so the entry's digest is
-# baked at emit time and checked at run time. This plants the mismatch.
-write_ext "$TMP/ext-stale.json" "r['entryCheck'] = {'bytes': 1, 'sha': 'deadbeef0000', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': True}"
-[ "$(judge "$EXT" "$TMP/ext-stale.json")" = "1" ] && ok "extension: the judge fails a stale delivered entry" || bad "extension: a stale entry was NOT a finding"
-write_ext "$TMP/ext-unreadable.json" "r['entryCheck'] = {'error': 'ENOENT', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': True}"
-[ "$(judge "$EXT" "$TMP/ext-unreadable.json")" = "1" ] && ok "extension: an unreadable entry fails too, naming the expected digest" || bad "extension: an unreadable entry was NOT a finding"
+# afternoon to a stale panel harness. The entry's digest is baked at emit time and checked at run time; these
+# plant the mismatch, and the digest is read FROM the emitted script rather than copied here, so a rebuild
+# cannot make this fixture agree with a build it was not written for.
+read -r BYTES SHA < <(python3 - "$TMP/console-design-sweep.js" <<'PY2'
+import json, re, sys
+# PARSED, NOT GREPPED: a first attempt pulled the sha out with a character class and matched the "a" in `"sha"`,
+# so the fixture was built from a two-line value and python refused it. Read the object as an object.
+m = re.search(r"EXPECTED_ENTRY = (\{[^}]*\})", open(sys.argv[1]).read())
+d = json.loads(m.group(1)) if m else {}
+print(d.get("bytes", ""), d.get("sha", ""))
+PY2
+)
+[ -n "$BYTES" ] && [ -n "$SHA" ] && ok "the emitted console script names the entry it was built against ($BYTES / $SHA)" \
+  || bad "could not read EXPECTED_ENTRY from the emitted console script — the fixtures below would prove nothing"
+
+write_con "$TMP/con-stale.json" "r['entryCheck'] = {'bytes': 1, 'sha': 'deadbeef0000', 'expected': {'bytes': $BYTES, 'sha': '$SHA'}, 'stale': True}"
+[ "$(judge "$CON" "$TMP/con-stale.json")" = "1" ] && ok "console: the judge fails a stale delivered entry" || bad "console: a stale entry was NOT a finding"
+write_con "$TMP/con-unreadable.json" "r['entryCheck'] = {'error': 'ENOENT', 'expected': {'bytes': $BYTES, 'sha': '$SHA'}, 'stale': True}"
+[ "$(judge "$CON" "$TMP/con-unreadable.json")" = "1" ] && ok "console: an unreadable entry fails too, naming the expected digest" || bad "console: an unreadable entry was NOT a finding"
 
 # A CURRENT ENTRY MUST SAY SO — provenance that only appears on failure cannot be checked.
-write_ext "$TMP/ext-current.json" "r['entryCheck'] = {'bytes': 3596, 'sha': '0647992fe70c', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': False}"
-if node "$EXT" --judge "$TMP/ext-current.json" > "$TMP/ext-current.out" 2>&1; then
+write_con "$TMP/con-current.json" "r['entryCheck'] = {'bytes': $BYTES, 'sha': '$SHA', 'expected': {'bytes': $BYTES, 'sha': '$SHA'}, 'stale': False}"
+if node "$CON" --judge "$TMP/con-current.json" > "$TMP/con-current.out" 2>&1; then
   ok "a current delivered entry still passes"
 else
   bad "the judge failed a report whose entry matches the build"
 fi
-grep -q "delivered entry 3596 bytes / sha 0647992fe70c" "$TMP/ext-current.out" && ok "and the judge names the build it measured" || bad "the entry provenance note is missing"
+grep -q "delivered entry $BYTES bytes / sha $SHA" "$TMP/con-current.out" && ok "and the judge names the build it measured" || bad "the entry provenance note is missing"
 
 # ── 4. the console's rules: target size and the theme it actually rendered ─────────────────────
 write_con "$TMP/con-target.json" "r['targets'] = [{'page': 'overview', 'checked': 10, 'undersized': 1, 'distinct': [{'sel': 'button.x', 'text': 'x', 'w': 12, 'h': 12, 'nearest': 4.0, 'passesBySpacing': False}]}]"

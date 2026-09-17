@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pre-commit — refuse a commit whose EMITTED scripts do not parse.
 #
-# WHY THIS EXISTS (round 225). Five emitters in this repository build a standalone script for the device inside
+# WHY THIS EXISTS (round 225). Four emitters in this repository build a standalone script for the device inside
 # a template literal, and a backtick anywhere inside that literal ends it early — the emitted file then stops
 # parsing somewhere in the middle of 30 KB. That has happened THIRTY-FOUR times in this project, and in the last
 # six of them the failing check was already on screen: `emit=1`, and the commit made anyway. CI caught every one
@@ -10,6 +10,9 @@
 # THE CHECK IS THE EMITTER'S OWN GUARD, not a copy of it: `--emit` compiles what it emits and exits non-zero
 # when the result will not parse, so this hook cannot disagree with the thing it guards. It is fast — five
 # emitters, well under a second each — because a hook that costs time is a hook people bypass with --no-verify.
+#
+# IT CAUGHT ITS OWN STALENESS IN ROUND 243: the extension was removed and this loop still named its emitter, so the
+# hook refused the very commit that removed it. That is the whole point of running the thing you guard.
 #
 # INSTALL (per clone, hooks are not versioned):
 #     ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
@@ -26,7 +29,7 @@ if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
 fi
 
 fail=0
-for f in panel console extension; do
+for f in panel console; do
   if ! node "agent/scripts/$f-design-sweep.mjs" --emit >/dev/null 2>/tmp/vale-hook-$f.err; then
     echo "pre-commit: the $f sweep does not emit — $(tail -1 /tmp/vale-hook-$f.err 2>/dev/null)" >&2
     fail=1

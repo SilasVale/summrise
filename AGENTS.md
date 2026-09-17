@@ -1,7 +1,7 @@
 # Vale
 
 One repo, one front door: `gateway/` (Vale Gate worker), `agent/` (Vale Agent, Windows),
-`index/` (dist + CDN worker), `proxies/` (satellite workers), `extension/`, `brand/`, `docs/`.
+`index/` (dist + CDN worker), `proxies/` (satellite workers), `brand/`, `docs/`.
 The operator's own rules are `docs/CHARTER.md`; their inbox is `docs/agents/ideas.md`.
 
 ## Build
@@ -38,7 +38,6 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 |---|---|
 | `cargo test` (either config) | `test result: ok. N passed; 0 failed` |
 | `npm test` in `gateway/` (Node 24) | `ℹ pass N` — on Node 20 it prints `# pass N` instead |
-| `node --test` in `extension/` | `ℹ pass N` / `ℹ fail N` |
 | `npx vitest run` in `panel-react/` | `Tests  N passed` |
 
 Two rounds of this session were spent reading a silent grep as "the suite did not run" and then
@@ -53,7 +52,7 @@ assumed:
 
 | gate | mutation that must fail it | result |
 |---|---|---|
-| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side — colour between console and panel, a name the EXTENSION shares with the panel, or the spacing scale in ANY of the three UIs | exit 1 each time. The three blocks name their own sides: "--sp-2 differs: panel=8px console=8px extension=9px" (spacing), "--line: panel=rgba(0, 0, 0, 0.08) extension=rgba(0, 0, 0, 0.09)" plus the remedy (shared names), "1 of 46 shared tokens DIVERGE" (console/panel colour) |
+| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side, or DELETE a spacing step from one of them | exit 1 both ways: "1 of 46 shared tokens DIVERGE" for a disagreeing value, and "console does not define --sp-3" for a deleted step — the second case is why the spacing block outlives the shared-name comparison, which by construction cannot see a name only one side still declares (round 243) |
 | `cargo test --features terminal,keyring spec_snapshot` | add a parameter inside a device tool's `properties` | exit 101, snapshot diff |
 | `scripts/test/panel-audit-skip-check.mjs` | make the audit `exit(0)` on a skip | exit 1, names the distinction |
 | `agent/tests/fixtures/approval-grants.json` | rename a member the panel mirror reads | both sides fail |
@@ -76,7 +75,7 @@ assumed:
 | `scripts/test/spacing-scale-check.mjs` | add a spacing declaration with an off-scale literal (a planted `13px`), or an ON-scale one where a token exists (a planted `8px`) | exit 1 either way: "off-scale spacing rose from 305 to 306", or "on-scale literals rose from 0 to 1 — a value that HAS a token was written out by hand, which is how 234 of them accumulated unnoticed". A token use replaced by a literal fails the third count |
 | `scripts/test/landing-check.mjs` | lighten a label (the tertiary `#71717a` → `#9a9aa2`), take the heading away (the `<h1>` back to a `<div>`), or give a card a fixed width (`.card { width: 480px }`) | exit 1 for each: "2.68 on #fafafa, under the 4.5 AA wants for text" · "expected exactly 1 h1, found 0" · ".card { width: 480px } — wider than the 320px a 1.4.10 reflow test uses". It reads page.js's own values and BOTH themes (renamed from landing-contrast-check in round 242: a name covering a third of what it does is the kind that stops the next reader looking) |
 | `scripts/test/retired-colours-check.mjs` | put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page) | exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate |
-| `scripts/test/sweep-judges.bash` | plant a defect in a clean console/extension report (identical message colours, a message under AA, a message with no data-state, an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN reports and the current-entry report must still pass, and a note that carries numbers must be asserted to print, so a judge that fails everything is caught too |
+| `scripts/test/sweep-judges.bash` | plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck` |
 
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail

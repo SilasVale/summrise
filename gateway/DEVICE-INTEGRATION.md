@@ -1,4 +1,4 @@
-<!-- DO NOT REVIVE: extension pairing deleted round-339..348 -->
+<!-- DO NOT REVIVE: extension pairing deleted round-339..348; the extension itself deleted round-243 -->
 > **SUPERSEDED (2026-09-04, round-335)** — this v2 design (browser
 > extension + chrome.debugger + vale-tray) describes the 2026-08 era.
 > Current architecture: the Electron desktop shell

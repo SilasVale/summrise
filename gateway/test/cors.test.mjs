@@ -29,6 +29,9 @@ import mcpPlugin from "../src/plugins/mcp.ts";
 const ADMIN_PW = "test-admin-password";
 const AI = "https://ai.saisi.online";
 const API = "https://api.saisi.online";
+// The origin the Vale Code Links extension used. It was allowed until round 243 removed the extension;
+// it is kept here as a NEGATIVE case, because "the grant we deliberately withdrew still works" is a
+// regression nothing else would notice.
 const DSH = "https://dsh.saisi.online";
 const EVIL = "https://evil.example";
 const LOOPBACK = "http://localhost:8787";
@@ -66,7 +69,7 @@ test("CORS_HEADERS carries no wildcard (origin reflected per request)", () => {
 test("isAllowedOrigin: console origins pass; loopback only with a loopback request host", () => {
   assert.equal(isAllowedOrigin(AI), true);
   assert.equal(isAllowedOrigin(API), true);
-  assert.equal(isAllowedOrigin(DSH), true);
+  assert.equal(isAllowedOrigin(DSH), false);
   assert.equal(isAllowedOrigin(EVIL), false);
   assert.equal(isAllowedOrigin(""), false);
   assert.equal(isAllowedOrigin("https://ai.saisi.online.evil.example"), false);

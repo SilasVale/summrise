@@ -32,6 +32,8 @@ const SCALE = new Set([0, 2, 4, 8, 12, 16, 24]);
 const SPACING = /(?:^|[\s;{])(gap|row-gap|column-gap|padding|padding-(?:top|right|bottom|left)|margin|margin-(?:top|right|bottom|left))\s*:\s*([^;}]+)/g;
 
 // THE BASELINES, measured in rounds 220-222, one per UI. Each may only move in the good direction.
+// THREE UIs UNTIL ROUND 243, when the extension was removed (it shipped nowhere and its feature was off by
+// default); its baseline went with it rather than being kept at zero for a directory that no longer exists.
 const UIS = [
   {
     name: "panel",
@@ -57,14 +59,6 @@ const UIS = [
     // 209 established is DEAD (nothing links it). A baseline has to come from the instrument that will enforce
     // it — taken from the ad-hoc number, this ratchet allowed 58 new literals and a planted 13px passed it.
     offScaleUses: 136,
-  },
-  {
-    name: "extension",
-    sheets: () => ["extension/options/options.css"].filter(existsSync),
-    // Round 232 gave it the scale: six on-scale literals became tokens with no pixel moved.
-    tokenUses: 6,
-    offScaleUses: 6,
-    onScaleLiterals: 0,
   },
 ];
 

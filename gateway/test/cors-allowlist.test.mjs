@@ -2,9 +2,17 @@
 //    asserts they agree ────────────────────────────────────────────────────────
 //
 // `src/http.ts`'s `ALLOWED_ORIGINS` carries a comment naming where each entry
-// comes from — `CONSOLE_HOST` in wrangler.jsonc, `extension/manifest.json`'s
-// host_permissions — and ends with "(Mirrors proxies/zen-go-proxy/src/index.js.)".
-// Those are three claims about three OTHER files, and nothing read any of them.
+// comes from — `CONSOLE_HOST` in wrangler.jsonc — and ends with "(Mirrors
+// proxies/zen-go-proxy/src/index.js.)". Those are claims about OTHER files, and
+// nothing read any of them.
+//
+// A SECOND SOURCE WAS `extension/manifest.json` until round 243 removed that extension: the console host plus
+// the manifest's host_permissions WAS the expected set, which is how `https://dsh.saisi.online` got in — it was
+// there for the extension's content script and for nothing else. Checked before cutting, in this order: the
+// comment in http.ts names the manifest; the harness's own browser client posts to `http://dsh.internal` rather
+// than to this API; and the DSH plugin in this repo fetches no API at all. So the origin went, and this test now
+// compares against CONSOLE_HOST alone — which is a STRICTER check than before, because a stray origin can no
+// longer be legitimised by a manifest nobody reads.
 //
 // The stake is concrete rather than theoretical. CONSOLE_HOST is a wrangler
 // binding that the file itself says may be overridden from the dashboard, so the
@@ -63,15 +71,7 @@ test("CORS: the gateway's allowlist is exactly what its comment says it mirrors"
     .map((h) => `https://${h.trim()}`)
     .sort();
 
-  // extension/manifest.json's host_permissions are `https://host/*` patterns.
-  const manifest = JSON.parse(
-    readFileSync(join(ROOT, "..", "extension", "manifest.json"), "utf8"),
-  );
-  const fromManifest = (manifest.host_permissions ?? [])
-    .map((p) => p.replace(/\/\*$/, ""))
-    .sort();
-
-  const expected = [...new Set([...fromConsoleHost, ...fromManifest])].sort();
+  const expected = [...new Set(fromConsoleHost)].sort();
 
   assert.deepEqual(
     gateway,

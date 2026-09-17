@@ -11,7 +11,7 @@ import { deviceHostError } from "./device-fetch.ts";
 import { ToolErr, DEVICE_UNREACHABLE, SESSION_BUSY } from "./mcp-errors.ts";
 
 /** Browser tools → agent's mcp_client_call → playwright-mcp.
- *   (The extension/PluginHubDO path was deleted round-341.) */
+ *   (The extension/PluginHubDO path was deleted round-341; the extension itself in round 243.) */
 //
 // Gateway-side guardrails for this bridge: the per-fetch budget below is
 // per ATTEMPT, and the old code stacked attempts serially (invoke + start +

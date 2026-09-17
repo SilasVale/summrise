@@ -38,7 +38,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const SHEETS = [
   "agent/resources/panel/panel.css",
   "gateway/ui/src/styles/globals.css",
-  "extension/options/options.css",
 ];
 
 let checked = 0;

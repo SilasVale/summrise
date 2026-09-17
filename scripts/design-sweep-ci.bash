@@ -61,13 +61,11 @@ if [ ! -s "$TMP/panel-report.json" ]; then
   exit 1
 fi
 
-# THE CONSOLE AND THE EXTENSION serve their own built files from the repository, so they need no harness —
-# only a root that points at what this checkout produces.
-for ui in console extension; do
-  case "$ui" in
-    console)   root="$PWD/gateway/public" ;;
-    extension) root="$PWD/extension" ;;
-  esac
+# THE CONSOLE serves its own built files from the repository, so it needs no harness — only a root that points
+# at what this checkout produces. (The extension was a second arm here until round 243 removed it: it shipped
+# nowhere, its default was off, and the half it existed for had already been deleted.)
+for ui in console; do
+  root="$PWD/gateway/public"
   echo "── $ui: root $root ──"
   node "agent/scripts/$ui-design-sweep.mjs" --emit > "$TMP/$ui.js"
   node --check "$TMP/$ui.js"
@@ -85,8 +83,8 @@ done
 # partial pass set are both findings, so neither can pass as a clean run.
 echo "── judging ──"
 node agent/scripts/panel-design-sweep.mjs --judge "$TMP/panel-report.json"
-for ui in console extension; do
+for ui in console; do
   node "agent/scripts/$ui-design-sweep.mjs" --judge "$TMP/$ui-report.json"
 done
 
-echo "── all three design sweeps ran and judged clean ──"
+echo "── both design sweeps ran and judged clean ──"

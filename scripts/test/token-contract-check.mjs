@@ -29,15 +29,12 @@ import {
 } from "../../agent/scripts/lib/contrast-probe.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-// THE SPACING SCALE IS SHARED BY ALL THREE (round 233). The colour contract below compares two sides on
-// purpose: the extension is Apple-gray/teal where the panel is zinc/orange, and whether that divergence is
-// deliberate is a brand question, not something a gate should decide. The SPACING, though, is identical
-// everywhere by measurement — the panel's six steps, adopted by the console in round 223 and by the extension
-// in round 232 — so it is exactly the kind of shared vocabulary this file exists to keep honest.
+// THE SPACING SCALE IS SHARED BY BOTH SURFACES (rounds 220-233). It was three until round 243 removed the
+// extension: it shipped nowhere, its feature was off by default, and the half it existed for had already been
+// deleted — so the surface it contributed to this contract went with it.
 const SPACING_SIDES = [
   ["panel", "agent/resources/panel-react/src/styles/tokens.css"],
   ["console", "gateway/ui/src/styles/globals.css"],
-  ["extension", "extension/options/options.css"],
 ];
 const SPACING_STEPS = ["--sp-0-5", "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5"];
 const CONSOLE = "gateway/ui/src/styles/globals.css";
@@ -478,50 +475,13 @@ console.log(
   "token contract: the console and the panel agree on every shared token name.",
 );
 
-// ── SHARED NAMES BETWEEN THE PANEL AND THE EXTENSION (round 238) ──────────────────────────────────────────
-// The extension held TEN token names that were also the panel's, with different values: --bg was Apple's #f5f5f7
-// where the panel's is the zinc scale, --accent was teal where the panel's is the brand's orange, and so on. A
-// shared name meaning two things is exactly what this file exists to prevent, and it could not see them because
-// it compared two surfaces of three.
-//
-// ROUND 237 HAD JUST SHOWN THE SAME SHAPE ONE LEVEL DOWN: --accent-ink and --chrome-active-ink held one value and
-// needed two, because one paints graphics and the other paints a label. A name is a claim about meaning; the fix
-// is either to agree or to stop sharing the name, and which of those is right here is a BRAND question (the
-// extension's teal against the brand's orange, operator's inbox row 14). So the extension's ten divergent names
-// took an --ext- prefix — a decoupling with no visual cost — and what it still shares is now checked.
-{
-  const sides = [
-    ["panel", readFileSync(`${ROOT}agent/resources/panel-react/src/styles/tokens.css`, "utf8")],
-    ["extension", readFileSync(`${ROOT}extension/options/options.css`, "utf8")],
-  ].map(([name, css]) => {
-    const vars = new Map();
-    for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
-      if (!vars.has(m[1])) vars.set(m[1], m[2].trim());
-    }
-    return [name, vars];
-  });
-  const [panelName, panelVars] = sides[0];
-  const problems = [];
-  let shared = 0;
-  for (const [name, vars] of sides.slice(1)) {
-    for (const [token, value] of vars) {
-      if (!panelVars.has(token)) continue;
-      shared++;
-      if (panelVars.get(token) !== value) {
-        problems.push(`${token}: ${panelName}=${panelVars.get(token)} ${name}=${value}`);
-      }
-    }
-  }
-  if (problems.length) {
-    console.error("token contract: the extension shares a name with the panel and disagrees about it —");
-    for (const p of problems) console.error("  " + p);
-    console.error("  Either align the value, or give the extension's token its own name (the --ext- prefix).");
-    process.exit(1);
-  }
-  console.log(`token contract: the extension shares ${shared} names with the panel and agrees on every value.`);
-}
-
-// ── the spacing scale, across all three ────────────────────────────────────────────────────────────────────
+// ── the spacing scale, across both ────────────────────────────────────────────────────────────────────────
+// WHY THIS SURVIVES THE COMPARISON ABOVE, which also fails on a `--sp-*` that disagrees (verified: planting
+// `--sp-2: 9px` reports "--sp-2: console 9px vs panel 8px" there first). The two are NOT the same check. The
+// comparison above only looks at names BOTH sides define, so a step that one side DELETED stops being shared
+// and drops out of it silently — the scale quietly becomes a five-step one on that surface. This block names
+// the six steps explicitly and requires both sides to define them, which is the half a shared-name comparison
+// cannot see by construction.
 {
   const seen = new Map();
   const problems = [];
@@ -546,5 +506,5 @@ console.log(
     for (const p of problems) console.error("  " + p);
     process.exit(1);
   }
-  console.log(`token contract: the spacing scale is identical in all ${SPACING_SIDES.length} UIs (${SPACING_STEPS.length} steps).`);
+  console.log(`token contract: the spacing scale is identical in both UIs (${SPACING_STEPS.length} steps).`);
 }

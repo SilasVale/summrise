@@ -71,7 +71,6 @@ const HEADER_TIMEOUT_MS = 30000;
 const ALLOWED_ORIGINS = new Set([
   "https://ai.saisi.online",
   "https://api.saisi.online",
-  "https://dsh.saisi.online",
 ]);
 
 function isLoopbackOrigin(origin) {

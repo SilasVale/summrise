@@ -1,6 +1,6 @@
 // EVERY `var(--token)` MUST RESOLVE. An undefined custom property does not fall back to something
 // sensible — it makes the WHOLE DECLARATION invalid at computed-value time, silently. That is how the
-// extension's keyboard focus ring came to be invisible on every control (round 137): options.css styled
+// console's keyboard focus ring came to be invisible on every control (round 137): a sheet styled
 // `outline: 2px solid var(--focus-ring)` and `box-shadow: 0 0 0 3px var(--focus-ring-soft)`, neither token
 // was defined in that sheet, and BOTH declarations were dropped. The CSS read as correct. The page looked
 // fine. Only a rendered measurement of the focus ring found it, and only because rounds 133-136 had just
@@ -26,7 +26,6 @@ const ROOT = path.resolve(HERE, "..", "..");
 const UIS = {
   panel: ["agent/resources/panel-react/src/styles"],
   console: ["gateway/ui/src/styles"],
-  extension: ["extension/options", "extension"],
 };
 
 let failures = 0;
@@ -111,7 +110,6 @@ function walk(dir, out = []) {
 }
 const ALL_SHEETS = walk(path.join(ROOT_DIR, "agent/resources/panel-react/src/styles"))
   .concat(walk(path.join(ROOT_DIR, "gateway/ui/src/styles")))
-  .concat([path.join(ROOT_DIR, "extension/options/options.css")])
   .filter((f) => f.endsWith(".css"));
 const ALL_DEFINED = new Set();
 for (const f of ALL_SHEETS) {
@@ -119,7 +117,6 @@ for (const f of ALL_SHEETS) {
 }
 const RUNTIME_SOURCES = walk(path.join(ROOT_DIR, "gateway/ui/src"))
   .concat(walk(path.join(ROOT_DIR, "agent/resources/panel-react/src")))
-  .concat(walk(path.join(ROOT_DIR, "extension")))
   .filter((f) => /\.(ts|tsx|js|jsx)$/.test(f) && !/\.test\./.test(f));
 // THE LITERALS, NOT THE CALLS. The first version of this looked for a token name inside
 // `getPropertyValue("--x")` and found ZERO references in 117 files — because particles.ts passes the name to a
@@ -130,7 +127,6 @@ const TOKEN_LITERALS = /["'`](--[a-z0-9-]+)["'`]/g;
 // NOT TOKENS, and each says why. These are the three a naive scan reported and a reader can check in seconds.
 const NOT_A_TOKEN = new Map([
   ["--json", "a command-line flag in prose (the agent's CLI), not a custom property"],
-  ["--auth", "a command-line flag in the extension's own option parser"],
   ["--ds-neutral", "a PREFIX: the text is `--ds-neutral-*`, naming a family rather than one property"],
 ]);
 

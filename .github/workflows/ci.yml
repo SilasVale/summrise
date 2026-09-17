@@ -17,7 +17,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Coverage scope (intentional gaps): extension/ gets a syntax-check-only job
+# Coverage scope (intentional gaps): the extension was removed in round 243 along with its job
 # (MV3 static scripts — no build/test tooling upstream); brand/ has NO job
 # (static icon assets, no build, no tests). Either is deliberately uncovered
 # beyond that because neither produces a build artifact. Trigger: the PR that
@@ -414,10 +414,10 @@ jobs:
         run: node scripts/test/token-contract-check.mjs
       # EVERY var(--token) MUST RESOLVE, in all three UIs. An undefined custom property does not fall
       # back — it makes the whole declaration invalid at computed-value time, silently. That is how the
-      # extension's keyboard focus ring was invisible on every control (round 137): the rule looked
+      # console's keyboard focus ring was invisible on every control (round 137): the rule looked
       # correct, the page looked fine, and only a rendered focus measurement found it. A missing
       # definition is a string with no counterpart, which a check is good at.
-      - name: css custom properties resolve (panel, console, extension)
+      - name: css custom properties resolve (panel, console)
         run: node scripts/test/css-vars-check.mjs
       # THE HARNESS FIXTURES ARE PART OF THE INSTRUMENT, and a fixture that cannot express a state hides
       # that state from every sweep that uses it. Round 150's example: the live session list was a fixed
@@ -617,27 +617,6 @@ jobs:
   # extension/ (browser MV3) has no build tooling — syntax gate plus the
   # pure-guard unit tests (shared.js MITM guard; DOM glue stays untested by
   # design). No build/pack step exists here, so no new toolchain is needed.
-  extension:
-    name: extension (node --check + test)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Syntax-check extension scripts
-        run: |
-          status=0
-          for f in $(find extension -type f \( -name '*.js' -o -name '*.mjs' \)); do
-            echo "node --check $f"
-            node --check "$f" || status=1
-          done
-          exit $status
-      - name: Unit-test extension pure guards
-        # Quoted glob (NOT a trailing-slash dir): node treats a dir arg as
-        # a module path and fails; the glob discovers the test files.
-        run: node --test "extension/test/*.test.mjs"
-
   toolchain-fingerprint:
     # Answers "does the runner build with the SAME toolchain as the release
     # box?" — the one variable still open behind the last bytes of exe drift.

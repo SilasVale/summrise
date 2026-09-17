@@ -7,15 +7,18 @@
 
 // CORS allowlist: the console origins used in this repo —
 //   https://ai.saisi.online + https://api.saisi.online (CONSOLE_HOST in wrangler.jsonc),
-//   https://dsh.saisi.online (extension/manifest.json host_permissions),
 // plus http(s) loopback for local `wrangler dev`. Any other Origin gets NO
+//
+// https://dsh.saisi.online WAS HERE UNTIL ROUND 243, and it was here for exactly one reason: the Vale Code Links
+// browser extension ran a content script on that host and called this API from it. The extension was removed
+// (it shipped nowhere, its feature was off by default, and the half it existed for had already been deleted), so
+// the grant went with it — an allowed origin with no consumer is a permission nobody is using.
 // Access-Control-Allow-Origin header (default-closed). Non-browser clients
 // (Claude Code, curl, gateway server-side) are unaffected by CORS.
 // (Mirrors proxies/zen-go-proxy/src/index.js.)
 export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "https://ai.saisi.online",
   "https://api.saisi.online",
-  "https://dsh.saisi.online",
 ]);
 
 export function isLoopbackOrigin(origin: string): boolean {

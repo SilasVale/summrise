@@ -26,14 +26,12 @@ const MAX_JSON_BYTES = 10 * 1024 * 1024;
 
 // CORS allowlist: the console origins used in this repo —
 //   https://ai.saisi.online + https://api.saisi.online (gateway CONSOLE_HOST),
-//   https://dsh.saisi.online (extension/manifest.json host_permissions),
 // plus loopback for local `wrangler dev`. Any other Origin gets NO
 // Access-Control-Allow-* headers (default-closed). Non-browser clients
 // (Claude Code, gateway server-side) are unaffected by CORS.
 const ALLOWED_ORIGINS = new Set([
   "https://ai.saisi.online",
   "https://api.saisi.online",
-  "https://dsh.saisi.online",
 ]);
 
 function isLoopbackOrigin(origin) {

@@ -15,7 +15,6 @@ Vale Agent (Windows, Rust) — headless MCP server + /api/tools + panel
 Vale Desktop (Electron) — tray + native menu + CDP :9333 for AI-driven UI
 Vale Index (Cloudflare Worker) — npm tgz / download distribution
 Satellites (not in the request path): satellite proxies (Cloudflare/VPS AI egress) + brand (static icons)
-  + extension (DSH chat paths → code-server folder links; no build)
 ```
 
 ## Highlights
@@ -45,7 +44,6 @@ The install dir is registry-first (`HKLM\SOFTWARE\Vale\Agent\InstallDir`); all p
 | `gateway/` | **Vale Gate** | Cloudflare Worker | console (login/roles), BYOK AI gateway, `/mcp` proxy to devices, device registry |
 | `agent/` | **Vale Agent** | Windows (Rust) | headless MCP server + `/api/tools` + panel + Electron desktop shell (`vale-desktop-electron/`) + npm distribution (`vale-agent-npm/`) |
 | `index/` | **Vale Index** | Cloudflare Worker | download distribution (`vale-dist`; hosts the npm tgz, see Quick start) |
-| `extension/` | **Vale Code Links** | Chrome/Edge (MV3) | rewrites DSH chat file paths into code-server folder links (unpacked; no build) |
 | ~~`studio/`~~ | RETIRED 2026-09-06 | — | replaced by code-server (vscode.saisi.online, behind Access); see docs/adr/0006 |
 | `proxies/` | **Satellite proxies** | Cloudflare Worker + Oracle VPS (vrelay) | zen-go / zen-us AI egress + api-relay (`./scripts/build.sh proxies|api-relay`) |
 | `brand/` | **Brand assets** | static (satellite) | sunrise favicon / icon source (no build) |
