@@ -163,7 +163,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -210,6 +210,9 @@ ${pageChecks("#root")}
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const THEME = ${JSON.stringify(THEME_SOURCE)};
+// THE SWEEP REPORTS ITSELF TO THE AGENT'S DIAGNOSTIC RING, so a caller whose tool call timed out can tell
+// a run that is still working from one that was killed (round 181 lost half an hour to exactly that).
+${DIAG_SOURCE}
 const focusPass = ${focusPass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -229,6 +232,7 @@ ${TIMING}
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
+  await diag("start focus,pages pid=" + process.pid);
   const report = {
     harnessBuild,
     expectedHarnessBuild: EXPECTED_HARNESS_BUILD,
@@ -503,6 +507,7 @@ ${TIMING}
     await page.waitForTimeout(1500);
     report.reflow.push({ width, ...(await page.evaluate(REFLOW)) });
   }
+  await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\design-sweep.json', JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length }));
   await close();

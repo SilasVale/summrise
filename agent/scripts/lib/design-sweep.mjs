@@ -162,6 +162,46 @@ export const FOCUS_SOURCE = `(() => {
   return visible ? 'ok' : 'no-ring';
 })()`;
 
+/** THE SWEEP REPORTS ITSELF TO THE AGENT'S DIAGNOSTIC RING (round 196).
+ *
+ *  `terminal_diag_read` has returned an empty list for every call this session has ever made, and round 182
+ *  established why: the ring works, is capped at 200, has roundtrip and multibyte tests — and NOTHING WRITES
+ *  TO IT. Its documented design is "POST a diagnostic line from the calling client", so the client is the
+ *  writer, and no client ever did.
+ *
+ *  What that costs was measured in round 181: a sweep call timed out, the report stayed stale for half an
+ *  hour, and there was no way to tell a run that was still working from one that had been killed. Two lines —
+ *  start and finish — retire that ambiguity, and the ring starts earning the place it already occupies.
+ *
+ *  Self-contained on purpose: the adapters inline this source into the emitted script, so it may not
+ *  reference anything from this module. Failures are swallowed because a sweep must never die of bookkeeping:
+ *  a device whose agent is down still needs its design measured. */
+export const DIAG_SOURCE = `async function diag(line) {
+  try {
+    // NO REGEX AND NO BACKSLASHES, DELIBERATELY. The first version of this helper was written inside a
+    // template literal and emitted as /tokens*:s*.../ — every backslash eaten by one of the three escaping
+    // layers this file has — so it never matched, and the guard below returned silently. It took a direct
+    // endpoint probe to find, because the helper is designed to swallow its own failures. Reading the token
+    // by line prefix and the path with forward slashes (Node accepts them on Windows) removes both hazards
+    // rather than counting backslashes correctly, which is the mistake this session has now made 29 times.
+    const cfg = require("fs").readFileSync("D:/Vale/etc/config.yaml", "utf8");
+    let token = "";
+    for (const l of cfg.split(String.fromCharCode(10))) {
+      const t = l.trim();
+      if (t.indexOf("device_token") === 0) { token = t.slice(t.indexOf(":") + 1).trim().replace(/["']/g, ""); break; }
+    }
+    if (!token) return;
+    await fetch("http://127.0.0.1:18080/api/tools/terminal_diag_write", {
+      method: "POST",
+      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      // FLAT, not wrapped in an arguments object. The agent's dispatch reads required fields at the TOP
+      // LEVEL: a wrapped body answers 200 with invalid_params "missing required field: line", which round
+      // 196 found by probing the endpoint after this helper's catch had swallowed it twice.
+      body: JSON.stringify({ line: "sweep " + line }),
+    });
+  } catch (e) { /* a sweep must not die of bookkeeping */ }
+}`;
+
 /** WHICH VERDICTS TRUST A COMPUTED VALUE, AND WHY EACH ONE IS STILL HONEST (round 187).
  *
  *  Round 186 found the focus check reporting eighteen missing rings that the browser was painting — a

@@ -158,6 +158,25 @@ for axis in contrast h1 skip landmark geometry sliver name title-only reflow foc
   fi
 done
 
+# ── 3c. the DIAGNOSTIC HELPER survives the escaping layers ─────────────────────────────────────
+# The sweep reports itself to the agent's diagnostic ring, and its first version emitted a regex with every
+# backslash eaten by one of this file's three escaping layers — /tokens*:s*/ instead of /token\s*:\s*/ — so it
+# never matched and returned silently. The helper now avoids both hazards (forward-slash path, line-prefix
+# token read), and THIS asserts the emitted text, because the failure mode is invisible at runtime: the helper
+# swallows its own errors by design.
+if grep -q 'D:/Vale/etc/config.yaml' "$TMP/sweep.js" && grep -q 'indexOf("device_token")' "$TMP/sweep.js"; then
+  ok "the emitted diagnostic helper reads the token without a regex"
+else
+  bad "the emitted diagnostic helper lost its token read (escaping layer)"
+fi
+# THE CODE FORM, not the comment: the helper's comment QUOTES the mangled regex to explain what went wrong,
+# so a search for that text anywhere in the file matches the explanation. This looks at the call itself.
+if grep -q 'readFileSync("D:\\' "$TMP/sweep.js"; then
+  bad "the emitted diagnostic helper's path lost its slashes (readFileSync got a mangled path)"
+else
+  ok "and its config path survived the escaping layers"
+fi
+
 # A NOTE MUST BE PRINTED, WHICH THE LOOP ABOVE CANNOT CHECK — it only asserts that planted defects FAIL.
 # The paint-confirmed count is deliberately NOT a finding (the pixels are the authority and they said the ring
 # is painted), so a silent regression here would hide the one number that made round 186's six-round detour

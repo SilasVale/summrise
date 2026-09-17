@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE, contrastRatio, parseColour } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, focusPass, UNSTYLED_SOURCE, TARGETS_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
@@ -40,6 +40,9 @@ ${pageChecks("body")}
 const focusPass = ${focusPass.toString()};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
+// THE SWEEP REPORTS ITSELF TO THE AGENT'S DIAGNOSTIC RING (round 196), so a caller whose tool call timed out
+// can tell a run that is still working from one that was killed. Same helper as the other two adapters.
+${DIAG_SOURCE}
 // The page's only chrome API. Fixed values: the sweep measures the PAGE, not the storage layer.
 // storage.empty is flipped by the sweep: a fresh install has NO stored values, so the page must
 // fall back to its defaults (DEFAULT_STUDIO_ORIGIN, links off) rather than rendering blanks.
@@ -59,6 +62,7 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
+  await diag("start extension pid=" + process.pid);
   const report = { rows: [], surfaces: [], names: [], focus: [], unstyled: [], targets: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   // TWO STORAGE STATES. Empty storage is the state a NEW INSTALL is in — the origin falls back to
   // DEFAULT_STUDIO_ORIGIN and the links toggle starts off — and it is a different page to look at
@@ -137,6 +141,7 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
   // "contrastRatio is not defined" on the device.)
   report.messages = messageRows;
 
+  await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync('C:\\\\ProgramData\\\\Vale\\\\pwout\\\\ext-sweep.json', JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
   await close();
