@@ -618,8 +618,14 @@ function judge(file) {
       reason: "the working state's halo is emphasis, not the signal — the dot's FILL carries the state and measures 3.00:1, which the panel gate holds",
     },
     {
+      // MEASURED, AND ONE WORD OF THE OLD REASON WAS WRONG (round 203). It read "its meaning is its text
+      // (contrast-fixed for this chip already) and its dot" — THERE IS NO DOT. The chip is text plus a revoke
+      // button, and the numbers this run produces are: the waived outline at 1.19 (it delimits the pill), the
+      // command text at worst 5.53 of 4.5 across 88 rows, and the revoke control at 5.33 of 4.5. The two
+      // contrast fixes the CSS documents — --muted at 4.31 for an 11px mono label, and --faint at 2.33 for the
+      // one control that can undo a grant — both hold. The outline is the pill's edge; the word is the signal.
       match: /^span\.approval-grant$/,
-      reason: "the grant chip's outline delimits the chip; its meaning is its text (contrast-fixed for this chip already) and its dot",
+      reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
     },
   ];
   const waived = [];
