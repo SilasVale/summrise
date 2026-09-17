@@ -134,6 +134,10 @@ const auth = { signedIn: true };
 // real state (a fresh deployment) and the one most likely to have an undesigned blank pane. The route
 // handler consults this, and every other fixture is untouched so the two passes differ in exactly one way.
 const empty = { fleet: false };
+// EVERY API CALL FAILS, for the pass that renders the console's error surfaces. Same shape as the empty and
+// auth flags: a flag the route handler reads, not a fixture. The panel has had this since round 160 (?fail=1) and
+// the console never did — so nothing had rendered what an operator sees when the worker cannot reach a device.
+const fail = { api: false };
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
@@ -143,6 +147,9 @@ const empty = { fleet: false };
     // flipped — not a fixture.
     if (auth.signedIn === false && p === '/api/me') {
       return route.fulfill({ status: 401, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ type: 'error', error: { message: 'unauthorized' } }) });
+    }
+    if (fail.api && p.startsWith('/api/')) {
+      return route.fulfill({ status: 500, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ type: 'error', error: { message: 'the device is unreachable' } }) });
     }
     if (p.startsWith('/api/')) {
       let body = API[p] === undefined ? {} : API[p];
@@ -328,6 +335,24 @@ const empty = { fleet: false };
       report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
     }
     empty.fleet = false;
+  }
+
+  // THE FAILURE STATE, for every page. The console's error surfaces — a card that could not load, a table with
+  // nothing but a message — had never been rendered by anything, so their contrast, their type and their
+  // states were unmeasured. One render per page with the flag up, recorded like any other surface.
+  {
+    fail.api = true;
+    for (const [label, hash] of PAGES) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(1800);
+      const rows = await page.evaluate(PROBE);
+      for (const r of rows) report.rows.push({ ...r, page: label + '-fail', width: 1440, density: 'console', theme: 'light' });
+      report.surfaces.push({ page: label + '-fail', width: 1440, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ page: label + '-fail', ...(await page.evaluate(NAMES)) });
+    }
+    fail.api = false;
   }
 
   auth.signedIn = false;
