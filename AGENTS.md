@@ -83,6 +83,27 @@ assumed:
 | `scripts/test/retired-colours-check.mjs` | put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page) | exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate |
 | `scripts/test/sweep-judges.bash` | plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck` |
 
+### The LANDING has no rendered sweep, and that is a decision (measured round 37 of the standing goal)
+
+It is the one surface of the four that no sweep visits, and the reason is not an oversight: `landing-check.mjs` reads
+`page.js`'s own values statically and holds the three properties that carry the most risk on a static page — contrast
+in both themes, exactly one `h1`, and no card wider than the 320px a reflow test uses. What a rendered pass adds on
+top of that was measured by hand, at 1280px and at 320px:
+
+    h1 1 · first-is-h1 · 0 skipped heading levels · 1 main landmark · no nav (a landing page has none by design)
+    overflow [] · clipping [] · slivers [] · unnamed controls [] · no sideways scroll at 320px
+    LOUD 1 — `a.btn-primary`, rgb(176,58,10), the download CTA. One focal point, the same one round 18 measured.
+    4 controls, 2 of them under 24x24, both PASSING BY SPACING (nearest other target 473.8px and 261.5px away)
+
+THAT LAST LINE IS WHY THE SWEEP'S CLAUSE EXISTS. A bare "is it 24x24" check flagged both links and was wrong: WCAG
+2.5.8 asks for a 24px CIRCLE OF CLEAR SPACE, which a small inline link in prose has by a wide margin. It is the third
+time this session a probe of mine reported a defect the real rule does not have — after the chip's "negative gap"
+(round 6, the label was a text node) and the `off` mark at "1.00:1" (round 10, a transition caught mid-flight). A
+measurement is not a verdict until the rule behind it is the rule being applied.
+
+If the landing ever grows interaction — a form, a theme switch, anything with state — it needs the sweep the other
+three have. Until then this is the coverage, and it is written down so it is a decision rather than a gap nobody saw.
+
 ### What the sweeps report when they are clean (measured round 31 of the standing goal)
 
 Worth having, because "clean" without numbers is what makes the next person re-run it. Run on the DEVICE against a
