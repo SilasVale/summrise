@@ -592,6 +592,24 @@ function judge(file) {
     // to be judged on the device, which is why this exemption is narrow and printed on every run.
     ignore: [
 
+      // THE ACTIVE TAB'S DOT: THE RING PREFERENCE DOES NOT FIRE, AND THAT IS NOW REPRODUCIBLE (round 206).
+      //
+      // Round 143 saw the white ring and called these rows an artifact; round 201 added the context field
+      // that proved the element IS the active tab's dot; round 205 measured that context on every occurrence.
+      // This round measured the thing itself, in the sweep's own conditions (harness, 1280x860, dark, idle,
+      // sessions=4), and both halves at once:
+      //
+      //     the active dot   active=true   box-shadow "rgb(255, 255, 255) 0px 0px 0px 1px"
+      //     the probe's row  span.tab-dot   cr=1.16   paint=rgb(217, 72, 15) (background)   <-- the FILL
+      //
+      // `painterOf` is documented to put the ring first, and its condition is satisfied by that shadow:
+      // the colour parses as rgb(255,255,255), and the px tokens are [0, 0, 0, 1], so px[0]===0 && px[1]===0
+      // && px[3]>0 all hold. The emitted probe's regex was verified by evaluating the literal the browser
+      // evaluates — it is /\s+/, not /\\s+/, so the branch is not defeated by escaping either.
+      //
+      // SO THE BRANCH IS REACHED AND DOES NOT TAKE, and the next step is to log its INPUTS from inside the
+      // emitted probe rather than reason about them from outside: hand it that exact element and that exact
+      // box-shadow string and see which condition fails. Everything else about this row is settled.
       {
         // Narrower than a regex on the text: the 320px scroll is this harness's artifact ONLY when
         // every offending scroller is a tab child (round 50 traced them there). A reflow failure
