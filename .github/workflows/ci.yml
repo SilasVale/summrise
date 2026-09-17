@@ -294,6 +294,13 @@ jobs:
       # exists to catch. It passed on the developer's box (umask 0002) and on CI (0022) and would have
       # failed only where nobody was looking. Every bash gate runs under 077 here; they must all still
       # pass, because a gate whose verdict depends on the machine it runs on is not a gate.
+      # THE SPACING SCALE, RATCHETED (round 220). Four of the objective's five design axes have rendered
+      # checks; spacing had geometry and the 2.5.8 clause but nothing looked at the SCALE. Measured: 151 token
+      # uses against 305 off-scale literals, so the panel's spacing is mostly ad-hoc. This holds that number
+      # still — it may improve and may not get worse — because rewriting 305 declarations is a redesign, not a
+      # refactor, and the one thing worth having now is that the gap stops widening.
+      - name: the spacing scale may not drift
+        run: node scripts/test/spacing-scale-check.mjs
       - name: every bash gate under a hostile umask
         run: |
           umask 077
