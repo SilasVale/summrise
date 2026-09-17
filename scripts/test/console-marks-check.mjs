@@ -45,6 +45,10 @@ const MARKS = [
   // The BASE is not a state here: ui.tsx renders a bare "dot" as decoration, and the four that carry state are
   // the two the Overview draws (ok/err) and the two the connection row draws (online/offline).
   { what: "connection dot", base: ".dot", states: ["ok", "err", "online", "offline"] },
+  // The two LEDs followed the same path: `.dev-led` had NO mark at all for "off" and `.dev-mini-led` said it with a
+  // grey disc. Both are rings now, which is what the rest of this sheet already means by absent.
+  { what: "device LED", base: ".dev-led", states: ["", "on"] },
+  { what: "mini LED", base: ".dev-mini-led", states: ["", "on"] },
 ];
 
 /**

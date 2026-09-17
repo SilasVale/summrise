@@ -860,11 +860,13 @@ pre code {
   text-decoration: none;
   background: var(--bg-tertiary);
 }
+/* Same shape as its sibling: a grey DISC said "off" only by being a different colour from the green one. */
 .dev-mini-led {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
   flex-shrink: 0;
 }
 .dev-mini-led.on {
@@ -2018,10 +2020,16 @@ body[data-theme="dark"] .note.tip {
   align-items: center;
   gap: 10px;
 }
+/* AN UNLIT LED IS STILL A MARK (round 26 of the standing goal). This had NO background at all, so the "off" state
+   was 10 invisible pixels while "on" was a green fill and a halo — the row said nothing about a device whose agent
+   is down, which is the one thing that row exists to say. The console's own vocabulary (`.dot.offline`,
+   `.ov-keyled`) already answers this: ABSENT IS A RING. */
 .dev-led {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
   flex-shrink: 0;
 }
 .dev-led.on {
