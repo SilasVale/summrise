@@ -39,7 +39,11 @@ const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\
 // tab strip read as a live regression. The panel's harness now stamps itself; these two carry the entry's
 // digest instead, because a stale delivery always shows up in the file that names everything else.
 const EXPECTED_ENTRY = {"bytes": 3596, "sha": "0647992fe70c"}\;
-const EXPECTED_ENTRY_PATH = "C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension\\\\options\\\\options.html";
+// DERIVED FROM ROOT, NOT BAKED. Round 191 wrote this as the device path, so when round 219 made ROOT
+// overridable the check kept looking at C:\ProgramData\Vale while the sweep served the repository — and
+// CI reported ENOENT for a file that was right there. A check that names a location must follow the same
+// override the thing it checks does.
+const EXPECTED_ENTRY_PATH = require("path").join(ROOT, "options", "options.html");
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("body")}
 const focusPass = ${focusPass.toString()};
