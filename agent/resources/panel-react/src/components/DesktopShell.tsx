@@ -16,6 +16,7 @@ import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { idleSessions } from "../lib/idleSessions";
+import { livenessOf } from "../lib/liveness";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
@@ -310,11 +311,18 @@ export function DesktopShell({
                         }
                         onClick={() => onActivate(s.sid)}
                       >
-                        <span className="dtab-dot" data-kind={s.kind} />
+                        {/* ONE MARK, as in the panel density: the silhouette is the session's liveness and the
+                            lane tints it. `.tab-wait` used to sit beside this dot as a SECOND element, and round
+                            245 removed its rule while this line kept rendering it — so for a day the desktop
+                            strip showed a waiting session as nothing at all. (The dead-class guard checks CSS no
+                            component renders; this was markup no rule matched, and only the browser sweep could
+                            see it.) */}
+                        <span
+                          className="mark dtab-dot"
+                          data-live={livenessOf({ reachable: !s.closed, pending: waiting, active: false })}
+                          data-kind={s.kind}
+                        />
                         <span className="dtab-name">{shown}</span>
-                        {waiting && (
-                          <span className="tab-wait" aria-hidden="true" />
-                        )}
                         {confirmCloseSid === s.sid ? (
                           <span
                             className="dtab-confirm"

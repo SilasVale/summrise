@@ -108,17 +108,19 @@
 .dtab-dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: var(--lane-ds);
   flex: none;
+  /* THE LANE IS THE INK, THE STATE IS THE SHAPE — the shared `.mark[data-live=…]` block draws the silhouette,
+     and these name what colour it is drawn in. Before this the density painted the dot itself, which is how it
+     came to have its own waiting element and its own drift. */
+  --mark-ink: var(--lane-ds);
 }
 /* --chrome-ink-dim, NOT --chrome-ink-faint: this dot is a LANE INDICATOR, the same mark as its ssh and
-   serial siblings two lines down (--lane-ds 4.51, --lane-or 3.19), so it is a graphic carrying meaning and
-   3:1 applies. The faint token measures 2.56 on white (2.29-2.82 measured on the rendered page, round 142,
-   and recorded as an open question in round 126). --chrome-ink-dim gives 7.73. */
-.dtab-dot[data-kind="pty"] { background: var(--chrome-ink-dim); }
-.dtab-dot[data-kind="ssh"] { background: var(--lane-ds); }
-.dtab-dot[data-kind="serial"] { background: var(--lane-or); }
+   serial siblings below (--lane-ds 4.51, --lane-or 3.19), so it is a graphic carrying meaning and 3:1 applies.
+   The faint token measures 2.56 on white (2.29-2.82 measured on the rendered page, round 142, and recorded as
+   an open question in round 126). --chrome-ink-dim gives 7.73. */
+.dtab-dot[data-kind="pty"] { --mark-ink: var(--chrome-ink-dim); }
+.dtab-dot[data-kind="ssh"] { --mark-ink: var(--lane-ds); }
+.dtab-dot[data-kind="serial"] { --mark-ink: var(--lane-or); }
 .dtab-name {
   /* 112px, not 150px (R131). Measured budget: a 1840px window leaves ~1412px
      for the strip and a tab costs (name + dot + gaps + padding + close), so
