@@ -317,9 +317,14 @@ ${TIMING}
   // zero times. Measured by hand first (113 rows, no failing text, and the one disabled control is the
   // Notifications button at opacity 0.45, which the probe marks inactive and WCAG exempts). One render of
   // the Settings page, where the card lives, on the same top-level recipe as the empty state.
-  for (const theme of wants("pages") ? ['light', 'dark'] : []) {
-    await page.setViewportSize({ width: 1280, height: 860 });
-    await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
+  // BOTH DENSITIES. The desktop shell is what the operator actually uses, and it renders DIFFERENT markup
+  // from the panel (dtab vs tab, a header row instead of a canvas top), so a defect in its busy card would
+  // be invisible to a panel-only render. The rail lookup below already handled both rails — the desktop
+  // render was simply never asked for.
+  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
+  for (const theme of ['light', 'dark']) {
+    await page.setViewportSize(vp);
+    await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1800);
@@ -330,10 +335,12 @@ ${TIMING}
     });
     await page.waitForTimeout(1400);
     const rows = await page.evaluate(PROBE);
-    for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'busy', page: 'Settings-busy' });
-    report.themeChecks.push({ page: 'Settings-busy', intended: theme, ...(await page.evaluate(THEME)) });
-    report.surfaces.push({ density: 'panel', theme, mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(SURFACE)) });
-    report.names.push({ density: 'panel', theme, mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(NAMES)) });
+    const name = (density === 'desktop' ? 'Desktop-settings-busy' : 'Settings-busy');
+    for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'busy', page: name });
+    report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
+    report.surfaces.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(SURFACE)) });
+    report.names.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(NAMES)) });
+  }
   }
 
   // THE TWO REMAINING FIXTURE STATES, both hand-measured in earlier rounds and swept by nothing. Round 158
@@ -347,12 +354,13 @@ ${TIMING}
   // Same top-level recipe as the empty and busy surfaces. (No backticks in this comment: 23 rounds have
   // paid for that lesson and the emitter now refuses to ship one.)
   if (wants("pages")) {
+    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
     for (const [page_, query, lands] of [
       ...['light', 'dark'].map((t) => ['Terminal-fail-' + t, '?theme=' + t + '&mode=idle&sessions=3&fail=1', 'Terminal']),
       ...['light', 'dark'].map((t) => ['Settings-monitor-down-' + t, '?theme=' + t + '&mode=idle&sessions=3&monitor=down', 'Settings']),
     ]) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/' + query + '&cb=' + stamp, { waitUntil: 'load' });
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + query + '&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
@@ -365,10 +373,11 @@ ${TIMING}
       await page.waitForTimeout(1400);
       const rows = await page.evaluate(PROBE);
       const qTheme = /theme=([a-z]+)/.exec(query)[1];
-      report.themeChecks.push({ page: page_, intended: qTheme, ...(await page.evaluate(THEME)) });
-      for (const row of rows) report.rows.push({ ...row, density: 'panel', theme: qTheme, mode: 'fixture', page: page_ });
-      report.surfaces.push({ density: 'panel', theme: qTheme, mode: 'fixture', page: page_, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme: qTheme, mode: 'fixture', page: page_, ...(await page.evaluate(NAMES)) });
+      const pname = (density === 'desktop' ? 'Desktop-' : '') + page_;
+      report.themeChecks.push({ page: pname, intended: qTheme, ...(await page.evaluate(THEME)) });
+      for (const row of rows) report.rows.push({ ...row, density, theme: qTheme, mode: 'fixture', page: pname });
+      report.surfaces.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(NAMES)) });
     }
   }
 
