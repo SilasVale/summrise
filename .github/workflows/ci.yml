@@ -96,24 +96,42 @@ jobs:
         run: npm test
         working-directory: agent/resources/panel-react
 
-  # THE DESIGN SUITE ON EVERY PUSH — ONE STEP FROM WORKING (round 217). The job and its runner are correct:
-  # the environment block reports a resolving helper, the harness generates from this checkout, the sweep
-  # emits and starts. It stops at the last external dependency:
+  # THE DESIGN SUITE, ON EVERY PUSH. Rounds 184-213 found the delivery pipeline lying to the sweep four times
+  # over — a console bundle two generations old, a harness carrying a reverted change, a probe reading a
+  # day-stale snapshot, a guard that could not be satisfied after a rebuild. Here the same sweep runs against
+  # what this checkout BUILDS, with nothing delivered in between, so its numbers describe the code under review.
   #
-  #     FATAL browserType.launch: Executable doesn't exist at
-  #       /home/runner/.cache/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-linux64/...
+  # SIX ENVIRONMENT FAULTS WERE FOUND AND FIXED BY READING THIS JOB'S LOGS, one per run: a package.json given as
+  # a node-version-file; the harness emitter's exit code 2 (its SUCCESS code) read as a failure; the
+  # headless-shell build; the runner living in scripts/test/ where pack-chain runs everything; a `cd` two
+  # levels too deep after the runner moved one directory shallower; and a diagnostic block placed above the
+  # variable it printed. The seventh was the install target, and the fix is the bare form:
   #
-  # `npx playwright install --with-deps chromium chromium-headless-shell` does not put THAT build there; the
-  # next attempt should try the bare `npx playwright install --with-deps` (everything the installed
-  # playwright-core version knows about) and read what it lays down. Six environment faults are already fixed
-  # and recorded in the file's history — the wrong node-version-file, a success code read as failure, the shell
-  # build, the runner living in scripts/test/, a `cd` two levels too deep after it moved, and a diagnostic
-  # block placed above the variable it prints. Parked rather than merged red, for the same reason as before: a
-  # failing job everyone learns to ignore is worse than no job.
+  #     npx playwright install --with-deps        (everything the installed playwright-core knows about)
   #
-  #     job:    agent/resources/panel-react -> npm ci, npm run build, playwright install, then
-  #             bash scripts/design-sweep-ci.bash   (which prints its environment first)
-  #
+  # Naming targets was the mistake — it fetched `chromium` and asked for a build name that only the bare
+  # install lays down.
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agent/resources/panel-react/package-lock.json
+      - name: Install deps
+        working-directory: agent/resources/panel-react
+        run: npm ci --include=optional
+      - name: Build the panel (the sweep reads the built stylesheet)
+        working-directory: agent/resources/panel-react
+        run: npm run build
+      - name: Install the browsers the kit resolves
+        working-directory: agent/resources/panel-react
+        run: npx playwright install --with-deps
+      - name: Design sweep (contrast, spacing, hierarchy, typography, states)
+        run: bash scripts/design-sweep-ci.bash
+
   agent:
     name: agent (cargo test + clippy + fmt)
     runs-on: ubuntu-latest
