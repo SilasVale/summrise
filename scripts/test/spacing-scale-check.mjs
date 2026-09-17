@@ -15,6 +15,13 @@
 // the counts below may improve and may not get worse, which is the same ratchet the unstyled scan's floor and
 // the coverage floor use. A new ad-hoc `13px` fails this, and so does deleting a token use to make room for one.
 //
+// ONE STEP IS FREE: --sp-5 (24px) is defined and used nowhere, in any of the three UIs (checked in round 221).
+// KEPT, not pruned, and the distinction matters: an unused DECLARATION is dead weight, but an unused STEP IN A
+// SCALE is a slot the system offers. The other five steps carry 153 uses between them and this one is where a
+// section gap would go; deleting it would leave a scale with a hole in it, which is worse than a token that is
+// waiting. Recorded here so the next reader knows the sixth step is available rather than wondering whether the
+// measurement missed it.
+//
 // Deliberately counts EVERY literal, including the legitimate ones (0 is skipped; 1px hairlines and negative
 // optical adjustments are counted and ratcheted like the rest). An allow-list would need a reason per entry and
 // would drift; a number that may only improve does not.
