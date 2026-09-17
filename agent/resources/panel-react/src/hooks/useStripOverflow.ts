@@ -47,6 +47,10 @@ export function useStripOverflow(
       const box = el.getBoundingClientRect();
       let hidden = 0;
       for (const child of Array.from(el.children)) {
+        // STRIP CHROME IS NOT A TAB. The `+N` chip lives inside the strip (it has to — it sits where the
+        // hidden tabs begin), and counting it reported "+11 hidden" on a strip of TEN: the measurement was
+        // including the thing that displays the measurement. Round 170 caught it on a rendered page.
+        if (child instanceof HTMLElement && child.dataset.stripChrome) continue;
         const r = child.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) continue; // not laid out — say nothing rather than guess
         if (r.left < box.left - 1 || r.right > box.right + 1) hidden += 1;

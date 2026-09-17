@@ -3,12 +3,33 @@ import { useState } from "react";
 import type { Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useStripOverflow } from "../hooks/useStripOverflow";
+import { disambiguateLabels } from "../lib/sessionLabels";
 import { Icon } from "../ui/Icon";
 
 /** Per-session main-area view (round-admin-ui Task 5): the terminal pane +
  *  command card stream, the raw trajectory timeline, or the PATH — this
  *  session's work as a scannable list of steps plus a summary (design §2.1/§7). */
 export type SessionView = "terminal" | "trajectory" | "path";
+
+/**
+ * HOW MANY THE STRIP IS HIDING — one component, because there are two strips.
+ *
+ * The panel's strip got this in round 168 and the desktop's did not; round 170 measured a rendered desktop
+ * page with no count at all and an overflow flag that had silently become always-true when the hook's return
+ * shape changed under it. Two renderers of one measurement is the drift this file's neighbours keep warning
+ * about, so the chip is written once.
+ *
+ * aria-hidden because the count is a visual affordance for the STRIP: a screen reader reaching the tab list
+ * already gets every tab, including the hidden ones.
+ */
+export function StripMore({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return (
+    <span className="tab-more" data-strip-chrome="1" title={`${n} more session${n === 1 ? "" : "s"} — scroll the strip`} aria-hidden="true">
+      +{n}
+    </span>
+  );
+}
 
 export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, view, onViewChange }: {
   sessions: Session[];
@@ -40,12 +61,9 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
   // The distinguisher is a NUMBER because that is the only information the row actually has — a pty
   // session's label is its shell, its sid is opaque, and two PowerShell sessions ARE interchangeable
   // until you look inside them. A number says exactly that instead of implying a difference.
-  const labelCounts = new Map<string, number>();
-  const displayLabel = sessions.map((sess) => {
-    const n = (labelCounts.get(sess.label) ?? 0) + 1;
-    labelCounts.set(sess.label, n);
-    return n === 1 ? sess.label : `${sess.label} ${n}`;
-  });
+  // The helper lives in lib/ because the DESKTOP strip needs it too and had been left out (round 170 found
+  // `d1, serial:COM4, d1, …` on a rendered page). One implementation, two strips.
+  const displayLabel = disambiguateLabels(sessions);
   return (
     <div className="tabrow" data-more={more ? "1" : undefined}>
       <div id="tabs" role="tablist" aria-label="Terminal sessions" ref={tabsRef}>
@@ -133,11 +151,7 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
         {/* HOW MANY, NOT JUST "MORE". aria-hidden because the count is a visual affordance for the strip
             itself: a screen reader reaching the tab list already gets every tab, including the hidden
             ones. The title carries the same information for a pointer. */}
-        {hidden > 0 && (
-          <span className="tab-more" title={`${hidden} more session${hidden === 1 ? "" : "s"} — scroll the strip`} aria-hidden="true">
-            +{hidden}
-          </span>
-        )}
+        {<StripMore n={hidden} />}
       </div>
       {/* The per-session view switch used to render here (round-admin-ui Task 5). It moved to the
           session control bar in TerminalWorkspace, which builds it once for BOTH densities — this strip

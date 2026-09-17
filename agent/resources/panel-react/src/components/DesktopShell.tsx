@@ -39,6 +39,8 @@ import { SettingsPage } from "./SettingsPage";
 import { ConnModal } from "./ConnModal";
 import { Icon } from "../ui/Icon";
 import type { SessionView } from "./TabBar";
+import { disambiguateLabels } from "../lib/sessionLabels";
+import { StripMore } from "./TabBar";
 import { WaitingChip } from "./WaitingChip";
 import { BootChip } from "./BootChip";
 import { LoadChip } from "./LoadChip";
@@ -153,7 +155,12 @@ export function DesktopShell({
   const openTabs = sessions.filter((s) => !s.closed);
   const tabsRef = useActiveTabVisible(activeSid, openTabs.length);
   // Same rule, same hook, other density (see useStripOverflow for the measurement).
-  const moreTabs = useStripOverflow(tabsRef, openTabs.length);
+  // The hook returns { overflowing, hidden } — destructured rather than used as a boolean, which is how the
+  // desktop's fade silently became always-on when the shape changed in round 168.
+  const { overflowing: moreTabs, hidden: hiddenTabs } = useStripOverflow(tabsRef, openTabs.length);
+  // The shared disambiguation, applied to the SAME array the strip renders. Round 167 put this logic in
+  // TabBar alone; round 170 measured `d1, serial:COM4, d1, …` on a rendered desktop page — the second home.
+  const displayLabels = disambiguateLabels(openTabs);
   // Agent version + vitals for the status strip. THE POLL LIVES IN THE HOOK NOW:
   // the panel's instrument line reads the same values, and two copies of this fetch
   // would be two places for the `release` rule to drift — the single defect
@@ -274,13 +281,16 @@ export function DesktopShell({
                   data-more={moreTabs ? "1" : undefined}
                   ref={tabsRef}
                 >
-                  {openTabs.map((s) => {
+                  {openTabs.map((s, tabIndex) => {
                     // Same rule as the panel's TabBar (one meaning, two
                     // densities): a question waiting for a person is marked on
                     // the tab itself, keyed on `pendingApproval` — NEVER on the
                     // armed posture, which is permanent and would mark every
                     // session forever.
                     const waiting = !!s.pendingApproval;
+                    // Same disambiguation the panel strip uses — the desktop renders its own tabs and was missed by
+                    // round 167's fix (round 170 measured `d1, serial:COM4, d1, …` here).
+                    const shown = displayLabels[tabIndex];
                     return (
                       <div
                         key={s.sid}
@@ -301,7 +311,7 @@ export function DesktopShell({
                         onClick={() => onActivate(s.sid)}
                       >
                         <span className="dtab-dot" data-kind={s.kind} />
-                        <span className="dtab-name">{s.label}</span>
+                        <span className="dtab-name">{shown}</span>
                         {waiting && (
                           <span className="tab-wait" aria-hidden="true" />
                         )}
@@ -350,6 +360,7 @@ export function DesktopShell({
                       </div>
                     );
                   })}
+                  <StripMore n={hiddenTabs} />
                 </div>
 
                 {/* New-session menu — ONE entry point instead of four buttons */}
