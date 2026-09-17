@@ -76,6 +76,65 @@ for (const [rel, why] of FIELDS) {
   }
 }
 
+// ── 5. THE SAME FIELD: the cap, the density and the peak alpha agree across the three copies (round 48).
+//
+// WHY THIS IS A FACT OF ITS OWN. Facts 1-4 are about WHERE THE COLOUR COMES FROM, and all three copies agree on them
+// while drawing visibly different fields — a 90-mote cap here, 140 there. The numbers were equal when this was
+// written (90 / 5.5 per 100000 / MAX_ALPHA * twinkle * 0.35), which is exactly the state that does not survive
+// unenforced: nothing in this repository compared them.
+//
+// THE DENSITY IS WRITTEN IN TWO UNITS AND THEY ARE THE SAME NUMBER. The modules say `DENSITY = 0.55` and apply it as
+// `(w * h / 100_000) * DENSITY * 10`; the landing says `(w * h / 100000) * 5.5`. A check that compared the literals
+// would report a divergence that is not there — so this resolves the named constant and compares the EFFECTIVE
+// per-100000 value.
+const fieldOf = (rel, code) => {
+  // NO REGEX FOR THE FRAGILE HALF. The first version of this parsed the density with expressions like
+  // /\*\s*10\s*$/ and a heredoc double-escaped them into matching a literal backslash — so two of the three copies
+  // read as unparseable and the check (correctly) refused to compare. Splitting on characters cannot be
+  // mis-escaped, and the shapes being read are simple.
+  const num = (name) => {
+    const m = new RegExp("(?:const |var |let )?" + name + "\\s*=\\s*([0-9.]+)").exec(code);
+    return m ? Number(m[1]) : null;
+  };
+  const cap = num("MAX_MOTES");
+  const alpha = num("MAX_ALPHA");
+  let density = null;
+  const want = code.indexOf("Math.min(MAX_MOTES");
+  if (want >= 0) {
+    const arg = code.slice(want, code.indexOf(";", want)).split("Math.round(")[1] || "";
+    const tail = arg.replace(/\)+\s*$/, "").trim();
+    // the density is the SECOND-to-last factor when there is a trailing `* 10`, and the last one otherwise
+    const parts = tail.split("*").map((x) => x.trim());
+    const last = parts[parts.length - 1];
+    const prev = parts[parts.length - 2];
+    const named = prev === "DENSITY" ? num("DENSITY") : last === "DENSITY" ? num("DENSITY") : null;
+    if (named !== null) density = last === "10" ? named * 10 : named;
+    else density = Number(last);
+  }
+  const alphaUse = code.indexOf("MAX_ALPHA *");
+  let alphaFactor = null;
+  if (alphaUse >= 0) {
+    const parts = code.slice(alphaUse, code.indexOf(")", alphaUse)).split("*").map((x) => x.trim());
+    alphaFactor = Number(parts[parts.length - 1]);
+  }
+  return { rel, cap, alpha, density: Number.isFinite(density) ? density : null, alphaFactor: Number.isFinite(alphaFactor) ? alphaFactor : null };
+};
+
+const fieldsSeen = FIELDS.map(([rel]) => fieldOf(rel, readFileSync(path.join(ROOT, rel), "utf8")));
+for (const key of ["cap", "alpha", "density", "alphaFactor"]) {
+  const values = fieldsSeen.map((f) => f[key]).filter((v) => v !== null);
+  if (values.length < 3) {
+    failures.push(`only ${values.length} of 3 copies state their ${key} in a form this check can read — a comparison that cannot see all three proves nothing`);
+    continue;
+  }
+  const first = values[0];
+  for (const f of fieldsSeen) {
+    if (f[key] !== first) {
+      failures.push(`${f.rel} draws a different field: ${key} is ${f[key]} where the others are ${first}`);
+    }
+  }
+}
+
 // A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN.
 if (fields < 3) {
   console.error(`particles-check: FAILED — read ${fields} field(s), and there are three`);
@@ -87,4 +146,4 @@ if (failures.length) {
   for (const f of failures) console.error("  " + f);
   process.exit(1);
 }
-console.log(`particles-check: ok — ${fields} copies of the ambient field: brand tokens as colours, brand fallbacks, and no motion under prefers-reduced-motion`);
+console.log(`particles-check: ok — ${fields} copies of the ambient field: brand tokens as colours, brand fallbacks, no motion under prefers-reduced-motion, and one set of numbers (cap ${fieldsSeen[0].cap}, ${fieldsSeen[0].density} per 100000, alpha x${fieldsSeen[0].alphaFactor})`);
