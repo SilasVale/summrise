@@ -87,7 +87,7 @@ export function DeviceLogsCard() {
           {dir && <p className="muted device-logs-dir">Read from {dir}</p>}
           <div className="device-logs-list">
             {logs.map((l) => (
-              <div key={l.name} className="device-logs-file">
+              <div key={l.name}>
                 <button
                   type="button"
                   className="device-logs-toggle"

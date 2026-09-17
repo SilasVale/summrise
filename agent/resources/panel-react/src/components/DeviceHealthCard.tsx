@@ -53,16 +53,16 @@ function SeriesRow({
       <Sparkline values={values} label={label} tone={tone} />
       {stats ? (
         <span className="health-series-stats">
-          <span className="health-stat" title="average over the window">
+          <span title="average over the window">
             avg {pct(stats.avg)}
           </span>
-          <span className="health-stat" title="lowest reading in the window">
+          <span title="lowest reading in the window">
             low {pct(stats.min)}
           </span>
-          <span className="health-stat" title="highest reading in the window">
+          <span title="highest reading in the window">
             high {pct(stats.max)}
           </span>
-          {total && <span className="health-stat health-stat-total">{total}</span>}
+          {total && <span className="health-stat-total">{total}</span>}
         </span>
       ) : (
         // The chart drew nothing; the row says WHY rather than leaving a blank gap beside a

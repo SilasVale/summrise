@@ -3820,6 +3820,32 @@ button.dtab-close:hover { opacity: 1; }
   font: inherit; text-align: left; color: var(--ink);
 }
 .archive-row:hover { background: var(--surface-recessed); }
+
+/* ══ THE THIRD TRIAGE PASS (round 251) ═════════════════════════════════════════════════════════════════════
+   Five names rendered with no rule and DID need one. Each borrows the treatment its own family already uses,
+   rather than inventing a sixth kind of label. */
+/* The identity block holds a KIND and a LABEL and ran them together: `.archive-row` is a flex row, so without
+   its own inline-flex the two are just words in a sentence. */
+.archive-row-identity { display: inline-flex; align-items: baseline; gap: var(--sp-1); min-width: 0; }
+/* The kind is a CHIP, the same shape the tab strip already uses for "how many are hidden" — one vocabulary for a
+   small piece of metadata. */
+.archive-row-kind {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-chip);
+  color: var(--chrome-ink-dim);
+  font: 600 var(--fs-2xs) var(--font);
+}
+/* A duration is a VALUE, and the row's other values are monospace and muted (`.activity-span`). This one was
+   inheriting body type, so the number that says how long something took was the least scannable thing in the row. */
+.activity-row-dur { font: var(--fs-2xs) var(--font-mono); color: var(--muted); white-space: nowrap; }
+/* Same reasoning in the trajectory: the event's kind sits beside a time that IS mono/muted, and a label that
+   changes weight between two adjacent columns reads as a different kind of fact. */
+.traj-ev-kind { font: var(--fs-2xs) var(--font-mono); color: var(--muted); }
+/* "run" marks a step the operator did not ask for and cannot see the origin of otherwise — a quiet marker, the
+   same weight as the why-mark beside it. */
+.path-step-run-label { color: var(--chrome-ink-dim); font-size: var(--fs-2xs); }
 .archive-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .archive-row-name { font: var(--fs-xs) var(--font-mono); font-weight: var(--fw-semi); }
 .archive-row-last { font: var(--fs-2xs) var(--font-mono); color: var(--chrome-ink-dim); }

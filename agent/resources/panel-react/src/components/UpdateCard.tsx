@@ -187,7 +187,7 @@ export function UpdateCard({
       ) : (
         <>
           <p className="update-line">
-            <span className="update-current">running {status.current || "unknown"}</span>
+            <span>running {status.current || "unknown"}</span>
             {status.latest && (
               <span className="update-latest" data-available={status.updateAvailable ? "yes" : "no"}>
                 {status.updateAvailable ? `${status.latest} available` : `latest is ${status.latest}`}

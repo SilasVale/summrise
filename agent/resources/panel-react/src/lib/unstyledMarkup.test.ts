@@ -25,15 +25,12 @@ const SRC = path.join(HERE, "..");
 const BUILT_CSS = path.join(HERE, "..", "..", "..", "panel", "panel.css");
 
 /** The frozen list. Each entry is a class rendered in markup that no rule in the built sheet matches. */
-const KNOWN_UNSTYLED = [
-  // TRIAGED (round 249): `tab-confirm`, `dtab-confirm` and `tab-confirm-hint` left this list by getting rules —
-  // the two-step close had no layout of its own, so `close? [Close] [Cancel]` flowed inline inside a 30px strip.
-  // TRIAGED (round 250): `settings-row-bar` and `settings-input-narrow` got the rules their names promised —
-  // both were rendered as a bare <div> and a default-sized number field — and `settings-input` was DELETED from
-  // the markup, because the sheet's generic input rule already styles every one of those elements and a class
-  // that matches no rule is a name a reader has to check. Ten remain.
-  "activity-row-dur", "archive-row-identity", "archive-row-kind", "device-logs-file", "health-stat",
-  "monitor-expect", "monitor-fact", "path-step-run-label", "traj-ev-kind", "update-current",
+const KNOWN_UNSTYLED: string[] = [
+  // EMPTY, AFTER THREE TRIAGE PASSES (rounds 249-251). Sixteen names were frozen here; every one of them turned
+  // out to be either a real defect (the two-step close with no layout, the settings "row" that stacked, the
+  // archive identity that ran a kind and a label together) or a class that earned nothing because its parent
+  // already did the work. The list stays as the shape of the exemption: adding a name is still allowed, but it
+  // has to be a decision somebody wrote down.
 ];
 
 function tsxFiles(dir: string, out: string[] = []): string[] {

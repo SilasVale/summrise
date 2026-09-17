@@ -134,25 +134,25 @@ function TargetRow({
         />
         <span className="monitor-facts">
           {summary.upPct !== null && (
-            <span className="monitor-fact" title="share of the probes that answered">
+            <span title="share of the probes that answered">
               {pct(summary.upPct)} up
             </span>
           )}
           {summary.latency && (
             <>
-              <span className="monitor-fact">avg {summary.latency.avg} ms</span>
-              <span className="monitor-fact">max {summary.latency.max} ms</span>
+              <span>avg {summary.latency.avg} ms</span>
+              <span>max {summary.latency.max} ms</span>
             </>
           )}
           {summary.down > 0 && (
-            <span className="monitor-fact monitor-fact-down">
+            <span className="monitor-fact-down">
               {summary.down} failed {summary.down === 1 ? "probe" : "probes"}
             </span>
           )}
           {/* How many times it FELL, which is the number that separates "down" from
               "unstable" — a link that is up every time the operator looks still has a count. */}
           {(summary.drops ?? 0) > 0 && (
-            <span className="monitor-fact" title="times it fell from up to down in this window">
+            <span title="times it fell from up to down in this window">
               {summary.drops} {summary.drops === 1 ? "drop" : "drops"}
             </span>
           )}
@@ -268,7 +268,6 @@ export function MonitorsCard({
                 which is how a login page or a "starting up" stub is told from a working UI. */}
             <input
               aria-label="expect"
-              className="monitor-expect"
               placeholder="text the page must contain"
               title="Optional: the response body must contain this text (needs a path)"
               value={expect}
