@@ -365,6 +365,57 @@ ${TIMING}
   }
   }
 
+  // EVERY RAIL PAGE, IN BOTH DENSITIES (round 41 of the standing goal). Every surface above renders the page the
+  // app opens on, plus Settings — so the OTHER SIX rail pages were measured by nothing, in EITHER density, and
+  // round 40 found a two-loud reading on one of them by probing them by hand. This walks the rail instead of the
+  // URL: click each button, read back WHICH button is now active, and name the surface after it.
+  //
+  // THE READ-BACK IS THE POINT. A click that silently fails would measure the SAME page eight times and report
+  // eight clean surfaces, which is the "a scan that read nothing is not a clean scan" trap wearing a progress bar.
+  // Naming each surface by the label the app itself reports means a failed click shows up as a DUPLICATE page name
+  // in the report rather than as coverage that is not there.
+  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(2000);
+      const buttons = await page.evaluate(() => [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].map((b) => (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 18)));
+      const readActive = () => page.evaluate(() => {
+        const on = document.querySelector('#icon-rail button.active, .desktop-rail button.active') || document.querySelector('#icon-rail button[aria-current], .desktop-rail button[aria-current]');
+        return on ? (on.getAttribute('aria-label') || on.textContent || '').trim().slice(0, 18) : '';
+      });
+      let previous = '';
+      let pages = 0;
+      for (let i = 0; i < buttons.length; i++) {
+        await page.evaluate((k) => { const b = document.querySelectorAll('#icon-rail button, .desktop-rail button')[k]; if (b) b.click(); }, i);
+        await page.waitForTimeout(900);
+        const active = await readActive();
+        // NOT EVERY RAIL BUTTON IS A PAGE. Measured (round 41): the rail holds EIGHT buttons and only SIX are pages —
+        // the seventh is the THEME TOGGLE and the eighth opens the getting-started guide. Clicking the toggle flips
+        // the theme for every surface after it, which is how a run can label a DARK page as light and mean it. So a
+        // click that does not move the active button is UNDONE and skipped: it is an action, not a destination.
+        if (active === previous || !active) {
+          await page.evaluate((k) => { const b = document.querySelectorAll('#icon-rail button, .desktop-rail button')[k]; if (b) b.click(); }, i);
+          await page.waitForTimeout(600);
+          continue;
+        }
+        previous = active;
+        pages++;
+        const name = density + '-' + active;
+        const rows = await page.evaluate(PROBE);
+        for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'rail', page: name });
+        report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
+        report.surfaces.push({ density, theme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
+        report.names.push({ density, theme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
+      }
+      // THE COVERAGE IS WHAT CHANGED, not what was clicked: six pages is the fact, and a report that says fewer
+      // means the rail stopped navigating rather than that the pages are clean.
+      report.railPages = (report.railPages || 0) + pages;
+    }
+  }
+
   // SIXTEEN SESSIONS, IN BOTH DENSITIES — the state the operator actually complained about. Rounds 169-172
   // fixed ten identical pwsh labels, added the +N chip, moved the view switch out of the strip and cured a
   // strip that had collapsed to 35px. EVERY SURFACE IN THIS SUITE RENDERS 0, 3 OR 4 SESSIONS, so none of that

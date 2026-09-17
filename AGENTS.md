@@ -93,21 +93,33 @@ Sixteen surfaces, and every other axis was clean everywhere:
     names       0 unnamed controls · exactly 1 h1 per page
     LOUD        light 0 on six pages, 1-2 on two · dark 1 on seven, 2 on one
 
-`--passes=pages` sweeps the panel density across 48 surfaces and the desktop density across **one** (`Desktop-empty`,
-relaxed, no sessions). The desktop shell renders the same eight rail pages, so at 1440px the OTHER seven are measured
-by nothing — and two of them carry a loud reading the ceiling would reject:
+It has since been CLOSED (round 41) and this section is corrected where round 40 got it wrong.
 
-    dark  Terminal   button.rail-btn + div.tab      light  Settings-ish   button.rail-btn + button.btn
+TWO CORRECTIONS TO WHAT ROUND 40 FIRST RECORDED, both found while closing it:
 
-BOTH NAME NAVIGATION STATE — the rail button says which page you are on and the tab says which session — and the
-loud axis, by its own words, exists to catch a page with two competing FOCAL POINTS rather than two indicators of
-where you are. So this is recorded rather than "fixed": `twoloud` is a supported option that NO CALLER PASSES, and
-whether these two belong in it is the same reading-dependent question as row 17 of the inbox (a halo meaning "lit"
-on one surface and "in flight" on another).
+  * the desktop density had **two** swept surfaces, not one (`Desktop-empty` and `Desktop-settings-busy`) — the gap
+    is that SIX OF THE EIGHT RAIL PAGES were measured in NEITHER density, not that everything but the empty state
+    was;
+  * the "light Settings loud=2" row was **DARK**. The hand-run loop clicked the rail's EIGHTH BUTTON, which is the
+    THEME TOGGLE, and every surface after it was measured in the other theme while being labelled light. That is
+    the same failure the sweep's own `theme-lie` axis exists to catch, committed by a probe that had copied every
+    OTHER threshold from the core and did not think about which buttons are pages.
 
-WHAT IS NOT A READING, and should be closed next: the desktop density has eight pages and one of them is swept. The
-panel density proves the axis is worth having; the density the operator actually uses at this window size is
-measured once, empty.
+    A RAIL BUTTON IS NOT ALWAYS A DESTINATION. Measured: the rail holds EIGHT buttons and SIX are pages; the
+    seventh is the theme toggle and the eighth opens the getting-started guide. The first version of the round-41
+    sweep clicked all eight, so the toggle would have flipped the theme mid-pass — the fix reads the ACTIVE rail
+    button back after each click and, when it has not moved, clicks once more to UNDO the action and skips it.
+
+BOTH NAMES ARE NAVIGATION STATE — the rail button says which page you are on and the tab says which session — and
+the loud axis, by its own words, exists to catch two competing FOCAL POINTS rather than two indicators of where you
+are. `twoloud` is a supported option that NO CALLER PASSES, and whether they belong in it is the same
+reading-dependent question as row 17 of the inbox.
+
+`--passes=pages` now walks the rail in BOTH densities (`mode: 'rail'`, named by the label the app reports, with
+actions undone) — 6 pages x 2 densities x 2 themes on top of the 48 panel surfaces, so the six rail pages are
+rendered 24 times instead of never. A click that fails to move the active button is skipped rather than counted,
+because a report of eight clean surfaces measured on one page is the "a scan that read nothing" trap wearing a
+progress bar.
 
 ### The LANDING has no rendered sweep, and that is a decision (measured round 37 of the standing goal)
 
