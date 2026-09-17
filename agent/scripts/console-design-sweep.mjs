@@ -95,6 +95,11 @@ const PAGES = [
   ['users', '#/users'],
 ];
 const auth = { signedIn: true };
+// AN EMPTY FLEET, which the console has never been measured in: the fixture table carries two devices and
+// two keys, so every surface has always been rendered with content. A console with nothing registered is a
+// real state (a fresh deployment) and the one most likely to have an undesigned blank pane. The route
+// handler consults this, and every other fixture is untouched so the two passes differ in exactly one way.
+const empty = { fleet: false };
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
@@ -106,7 +111,9 @@ const auth = { signedIn: true };
       return route.fulfill({ status: 401, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify({ type: 'error', error: { message: 'unauthorized' } }) });
     }
     if (p.startsWith('/api/')) {
-      const body = API[p] === undefined ? {} : API[p];
+      let body = API[p] === undefined ? {} : API[p];
+      if (empty.fleet && p === '/api/devices') body = { devices: [] };
+      if (empty.fleet && p === '/api/me/keys') body = { keys: [] };
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(body) });
     }
     const file = p === '/' || p === '' ? 'index.html' : p.replace(/^\\//, '');
@@ -181,6 +188,24 @@ const auth = { signedIn: true };
       await page.waitForTimeout(1400);
     };
     report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
+  }
+
+  // THE EMPTY FLEET, as surfaces of its own. Two pages have a meaningful empty form — Devices and Keys —
+  // and neither had ever been rendered without content. Same recipe as the panel's empty state: a top-level
+  // pass, one render each, recorded like any other surface.
+  {
+    empty.fleet = true;
+    for (const [label, hash] of [['devices-empty', '#/devices'], ['keys-empty', '#/keys']]) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(1600);
+      const rows = await page.evaluate(PROBE);
+      for (const r of rows) report.rows.push({ ...r, page: label, width: 1440, density: 'console', theme: 'light' });
+      report.surfaces.push({ page: label, width: 1440, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+    }
+    empty.fleet = false;
   }
 
   auth.signedIn = false;
