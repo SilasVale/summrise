@@ -59,7 +59,7 @@ assumed:
 | `agent/tests/fixtures/approval-grants.json` | rename a member the panel mirror reads | both sides fail |
 | `agent/tests/fixtures/session-row.json` | rename `idle_ms` to `idleMs` | device + panel fail |
 | `agent/tests/fixtures/embedded-bridge.json` | rename `fwd` to `forward` | shell + panel fail |
-| `scripts/test/panel-design-sweep.bash` | plant a defect per axis in a report | one check per axis |
+| `scripts/test/panel-design-sweep.bash` | plant a defect per axis in a report (49 checks: contrast, h1, skip, landmark, geometry, sliver, name, title-only, reflow, focus, focus-empty, motion, motion-empty, type-floor, blind, theme-lie, harness-stale — plus the note assertions the axis loop cannot make) | one check per axis |
 | `scripts/test/release-lib.bash` | prune keeps 4 instead of 5 per minor | exit 1, actual/expected listed |
 | `scripts/test/smoke-index.bash` | read the versioned installer instead of the versionless alias | exit 1 |
 | `scripts/test/smoke-helpers.bash` | accept a truncated sha256 | exit 1, prints the offending value |
@@ -73,7 +73,7 @@ assumed:
 | `scripts/test/model-drift-check.mjs` | remove the normaliser's bracket-suffix strip | exit 1, prints the un-normalised id |
 | `scripts/test/css-vars-check.mjs` | delete a `--token` definition its own sheet references | exit 1, names the token and says the declaration is dropped |
 | `scripts/test/harness-fixture-check.mjs` | change the harness fixture's session-count default from 3 | exit 1, and its own self-test fails first if the pattern goes stale |
-| `scripts/test/sweep-judges.bash` | plant a defect in a clean console/extension report (identical message colours, an undersized target with no spacing, a theme lie) | exit 1 per case — and the CLEAN reports must still pass, so a judge that fails everything is caught too |
+| `scripts/test/sweep-judges.bash` | plant a defect in a clean console/extension report (identical message colours, a message under AA, a message with no data-state, an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN reports and the current-entry report must still pass, and a note that carries numbers must be asserted to print, so a judge that fails everything is caught too |
 
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail

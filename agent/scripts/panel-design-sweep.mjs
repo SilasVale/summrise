@@ -372,6 +372,15 @@ ${TIMING}
     }
   }
 
+  // WHY THE EVIDENCE DRAWER IS STILL NOT MEASURED, recorded so it is not re-attempted from scratch
+  // (round 193). THIS HARNESS RENDERS THE REAL BUNDLE — panel.js and panel.css — and drives it with stubbed
+  // API responses; it contains no hand-written markup at all. The drawer is opened only by
+  // EmbeddedBrowserPane, which talks to the Electron shell's control server on 127.0.0.1:9444, so in a
+  // browser there is no pane to open it from. Adding a hand-written drawer block would put the ONLY
+  // fabricated markup in a fixture built on the real app, and it would measure my markup rather than the
+  // component. The two honest routes are an app-level seam (a URL parameter that opens the drawer, which is
+  // a test hook in shipped code) or measuring it inside Electron (which this repository has no runner for).
+  // Neither is taken; the gap is real and named rather than assumed.
   // TARGET SIZE, WCAG 2.5.8, the FULL criterion. Nothing measured it before round 162 — the number 24 was
   // already in this suite as the threshold for whether a non-text element is a MARK, which is a different
   // question. Both densities, one render each, recorded like any other surface.
