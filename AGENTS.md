@@ -31,6 +31,20 @@ cd gateway && npm test                           # gateway (own prettier gate)
 
 Green tests are the bar for a release.
 
+**READ THE EXIT CODE, NOT THE OUTPUT.** The suites do not share a reporter, and grepping for the wrong
+one returns NOTHING — which looks exactly like a suite that passed silently:
+
+| command | the line to look for |
+|---|---|
+| `cargo test` (either config) | `test result: ok. N passed; 0 failed` |
+| `npm test` in `gateway/` (Node 24) | `ℹ pass N` — on Node 20 it prints `# pass N` instead |
+| `node --test` in `extension/` | `ℹ pass N` / `ℹ fail N` |
+| `npx vitest run` in `panel-react/` | `Tests  N passed` |
+
+Two rounds of this session were spent reading a silent grep as "the suite did not run" and then
+re-running it by another route: once on the burst-gate test (round 144) and once on the gateway
+(round 169). `exit 0` is the answer in every case; the line is a convenience.
+
 ### Which gates have been PROVEN to bite
 
 A gate that cannot fail is worse than no gate, and the only way to know is to break the thing it
