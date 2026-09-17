@@ -313,6 +313,40 @@ ${TIMING}
     report.names.push({ density: 'panel', theme: 'light', mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(NAMES)) });
   }
 
+  // THE TWO REMAINING FIXTURE STATES, both hand-measured in earlier rounds and swept by nothing. Round 158
+  // closed this gap for the message tones and round 159 for the busy card; these are the last two the
+  // harness can express.
+  //
+  //   ?fail=1        every device call fails, so the cards render their ERROR surfaces. This is what the
+  //                  operator sees when the device is unreachable, and no sweep has ever rendered it.
+  //   ?monitor=down  a monitor target that is down, which flips a chip and the alert strip.
+  //
+  // Same top-level recipe as the empty and busy surfaces. (No backticks in this comment: 23 rounds have
+  // paid for that lesson and the emitter now refuses to ship one.)
+  if (wants("pages")) {
+    for (const [page_, query, lands] of [
+      ['Terminal-fail', '?theme=light&mode=idle&sessions=3&fail=1', 'Terminal'],
+      ['Settings-monitor-down', '?theme=light&mode=idle&sessions=3&monitor=down', 'Settings'],
+    ]) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/' + query + '&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      await page.evaluate((want) => {
+        if (want === 'Terminal') return;
+        const rail = document.querySelector('#icon-rail, .desktop-rail');
+        const b = [...(rail ? rail.querySelectorAll('button') : [])].find((x) => new RegExp(want, 'i').test((x.getAttribute('aria-label') || '') + (x.textContent || '')));
+        if (b) b.click();
+      }, lands);
+      await page.waitForTimeout(1400);
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density: 'panel', theme: 'light', mode: 'fixture', page: page_ });
+      report.surfaces.push({ density: 'panel', theme: 'light', mode: 'fixture', page: page_, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme: 'light', mode: 'fixture', page: page_, ...(await page.evaluate(NAMES)) });
+    }
+  }
+
   // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
   // console uses, from the shared core, embedded with JSON.stringify (round 88 shipped one embedded
   // in a template literal and the device received /s+/ where the source said /\s+/: the report listed
