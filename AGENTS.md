@@ -138,6 +138,23 @@ THAT page shout would pass because of this entry.
 `panel-design-sweep.bash` pins both directions on the same planted reading: the named page passes (`2b`), and a page
 that is NOT named still fails (`loud-not-excepted` in the axis loop). 45 ok / 0 failed.
 
+AND THE REMAINING AXES WERE MEASURED TOO (round 43), because `loud` is one of eight things the judge and the
+contrast probe decide. The sweep's OWN contrast probe (`lib/contrast-probe.mjs`, delivered to the device) ran over
+the same 24 surfaces: **980 rows**, and the only two readings under their threshold were
+
+    button.plug-btn.danger  2.26 light / 2.47 dark < 4.5   "Stop"                    Plugins
+    button.btn.btn-ghost    2.11 light / 2.44 dark < 4.5   "Notifications unav…"     Settings
+
+both DISABLED controls, which WCAG 1.4.3 exempts and which `failures()` waives with `!r.inactive`. So the verdict
+on the new surfaces is 0 violations: contrast, type floor and target size are clean on all 24.
+
+THE WAY THAT WAS ALMOST REPORTED WRONG IS THE POINT. My checker filtered rows by hand with `r.cr < r.need` and
+produced eight "violations" — and `contrast-probe.mjs` line 369 already carries the warning, written when the same
+mistake was made before: "ghost button after filtering rows by hand with `r.cr < r.need` — which drops the `inactive`
+waiver". The eighth time tonight one of my own instruments disagreed with the rule it was copying, and the first
+time the rule was ALREADY WRITTEN in the file being copied. Both the round-42 theme read and this one came from
+rebuilding a rule instead of calling it: the fix in each case is `failures(rows)`, not a fresh filter.
+
 ### The LANDING has no rendered sweep, and that is a decision (measured round 37 of the standing goal)
 
 It is the one surface of the four that no sweep visits, and the reason is not an oversight: `landing-check.mjs` reads
