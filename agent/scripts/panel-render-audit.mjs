@@ -369,10 +369,32 @@ function buildHarness() {
     // DIAGNOSTIC BUILD (round 156): the SSE branch that broke the boot in round 154, back in place to have
     // its page errors read rather than guessed at.
     if (u.indexOf('/api/events/term') >= 0) {
+      // ?activity=1 — A DEVICE THAT IS DOING SOMETHING. This pushes one SSE control frame, which the app
+      // turns into a window event (vale-playwright-changed).
+      //
+      // WHAT IT IS WORTH, measured rather than assumed: the frame ARRIVES (the event is dispatched in the
+      // active render and not in the quiet one) and NO HARNESS-RENDERED SURFACE CHANGES — 51 rows and 9
+      // graphics in both panel states, no activity marks in either desktop state. The consumer is
+      // EmbeddedBrowserPane, which is Electron-only and not rendered here. So this is a fixture for a
+      // surface that is not yet measured: it proves the control-frame path works end to end, and it will
+      // light something the day that pane is measurable. Kept for that reason, and labelled so nobody
+      // expects a sweep to show a difference.
+      //
+      // Frames are escaped with raw strings and the parser guard below checks the result: this file has
+      // three escaping layers and one of them cost two rounds in 154-156.
+      var wantActivity = P.get('activity') === '1';
       var sseBody = new ReadableStream({
         start: function (c) {
-          c.enqueue(new TextEncoder().encode('data:\\n\\n'));
-          c.close();
+          var enc = new TextEncoder();
+          c.enqueue(enc.encode('data:\\n\\n'));
+          if (wantActivity) {
+            setTimeout(function () {
+              c.enqueue(enc.encode('data:{"ev":"playwright-changed"}\\n\\n'));
+              c.close();
+            }, 900);
+          } else {
+            c.close();
+          }
         },
       });
       return Promise.resolve(new Response(sseBody, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
