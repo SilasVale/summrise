@@ -16,7 +16,7 @@
 //
 // AXES COVERED, so nobody re-measures what is already known (round 85):
 //   contrast (resting) · contrast (HOVERED — the 24 :hover rules in the console's sheet) · geometry,
-//   clipping and slivers at 1440/900/720 · WCAG reflow · accessible names · keyboard focus rings.
+//   clipping and slivers at 1440/900/720/640/320 · WCAG reflow at the width the criterion names · accessible names · keyboard focus rings.
 //   Hover measured clean on 2026-09-16: 6 pages, 128 interactive elements (13-38 each), 0 under AA —
 //   unlike the panel's, where the first hover run found a dark-theme button at 1.94 (round 84).
 // NOT covered: the Electron-only shell, and any state the fixtures cannot produce (the login pass is
@@ -214,7 +214,14 @@ const empty = { fleet: false };
   }
   await page.evaluate(() => { try { localStorage.setItem('vale-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
 
-  for (const width of [1440, 900, 720]) {
+  // 320 IS IN THE LIST BECAUSE WCAG 1.4.10 NAMES IT. The criterion asks whether content reflows at 320 CSS
+  // pixels — 400% zoom on a 1280 viewport — and this sweep tested 1440/900/720, so its "WCAG reflow" claim was
+  // measured at a width the criterion does not mention. Round 224 measured the console at 640, 480 and 320
+  // before adding it, and all three are CLEAN (docOver 0); the only inner overflow is pre.mt-8, a code block
+  // with its own horizontal scroller, which is the case 1.4.10 exempts for content that needs two dimensions.
+  // The panel was not so lucky at 640 (round 215), and that is the point: the width a check does not render is
+  // the width where a real failure can sit unremarked.
+  for (const width of [1440, 900, 720, 640, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
