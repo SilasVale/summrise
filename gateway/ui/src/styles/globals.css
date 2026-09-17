@@ -686,14 +686,8 @@ pre code {
   max-width: 100%;
 }
 
-.kchip.on {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-.kchip.on .kchip-dot {
-  background: var(--success);
-  box-shadow: 0 0 5px rgba(47, 158, 68, 0.5);
-}
+
+
 .ov-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1749,67 +1743,24 @@ body[data-theme="dark"] .note.tip {
   padding: var(--sp-1) 10px;
 }
 
-/* ── Model catalogue admin ────────────────────────────────────────────────
-   THE COMMENTS IN THIS BLOCK WERE UNTERMINATED. A CSS comment runs to the NEXT closing marker, so
-   the rule below — .model-add .form-input — sat inside one and had NEVER APPLIED, while every
-   instrument that reads this sheet as text saw it and judged it live. A browser and a regex
-   disagreed and only the browser was rendering. Repaired in round 87 and now guarded by
-   scripts/test/stylesheet-hygiene.mjs. */
-.model-add .form-input {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-/* A disabled model is shown struck through rather than hidden — it is the only
-   place the operator can see what they switched off. */
-.model-chip.off {
-  text-decoration: line-through;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-}
-
-/* ── Models view ──────────────────────────────────────────────────────────
-   The catalogue `/api/admin/public` has always returned and the console never
-   rendered. Every colour here is a token, and the TEXT ones are the text weights
-   added in round 46 — a channel that is down is not a dot {
-  margin-bottom: 14px;
-}
 
 
 
-/* The channel's identity. The lane hue rides a LEFT BORDER, not the text: a border
-   is a mark, so it can stay vivid while the label keeps a readable ink. */
-.models-prefix.lane-nv {
-  border-left-color: var(--success);
-}
-.models-prefix.lane-gmi {
-  border-left-color: var(--warning);
-}
-.models-prefix.lane-cm {
-  border-left-color: var(--info);
-}
-.models-prefix.lane-amd {
-  border-left-color: var(--error);
-}
 
-.models-health.ok {
-  color: var(--success-text);
-}
-.models-health.bad {
-  color: var(--error-text);
-}
-/* Not probed is NOT the same as down, and must not borrow the colour of either. */
-.models-health.unknown {
-  color: var(--text-secondary);
-  font-weight: var(--fw-medium);
-}
 
-.model-chip.current {
-  background: var(--accent-light);
-  border-color: var(--accent);
-  color: var(--accent-on-soft);
-  font-weight: var(--fw-semi);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 .lang-btn {
   border: 1px solid var(--border-strong);
@@ -2275,12 +2226,8 @@ body[data-theme="dark"] .note.tip {
     display: block;
   }
 
-  .sidebar.open {
-    left: 0;
-  }
-  .sidebar-link.active::before {
-    display: none;
-  }
+
+
   .page-header {
     flex-direction: column;
   }

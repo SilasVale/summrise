@@ -201,15 +201,10 @@
   flex-direction: column;
 }
 
-.desktop-browser .browser-pane {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
 
-.desktop-tabs-row .tabrow { flex: 1; border: none; padding: 0; }
-.desktop-tabs-row .tabrow #tabs { overflow-x: auto; }
+
+
+
 .desktop-new { display: flex; gap: var(--sp-1); padding: 0 var(--sp-2) var(--sp-1); }
 #desktop-term-container {
   flex: 1 1 0;

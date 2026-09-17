@@ -2463,15 +2463,12 @@
 }
 .browser-page .browser-pane { flex: 1 1 0; min-height: 0; }
 
-.bp-dot.ok {
-  background: var(--success);
-  box-shadow: 0 0 6px rgba(47, 191, 113, 0.7);
-}
-.bp-dot.err { background: var(--danger); }
 
-.bp-chip .btn { margin-left: var(--sp-0-5); }
-.bp-chip.on { border-color: color-mix(in srgb, var(--success) 40%, var(--line-strong)); }
-.bp-chip.err { border-color: color-mix(in srgb, var(--danger) 40%, var(--line-strong)); }
+
+
+
+
+
 
 /* ---------- browser ---------- */
 .browser-pane {
@@ -2481,19 +2478,12 @@
   flex-direction: column;
 }
 
-.browser-view-switch .view-switch-btn { padding: 5px 14px; }
 
 
 
 
-/* stage-n: selected tab — Chrome-style: raised, accent top bar, connected
-   to the content below it (no bottom border → merges with the urlbar row). */
-.browser-tab.sel {
-  background: var(--chrome-bg-2);
-  border-color: var(--chrome-line);
-  box-shadow: inset 0 2px 0 var(--accent);
-  font-weight: var(--fw-semi);
-}
+
+
 
 
 
@@ -2690,11 +2680,7 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   z-index: 5;
 }
-.browser-toolbar .browser-tabstrip {
-  border-bottom: none;
-  padding: 3px 6px 0;
-  background: transparent;
-}
+
 .browser-toolbar .browser-urlbar {
   border-bottom: none;
   padding: var(--sp-1) var(--sp-2) 6px;
@@ -3381,9 +3367,7 @@
 
 .browser-ev-empty-mini { font-size: var(--fs-xs); color: var(--muted); padding: var(--sp-1) 0; }
 
-/* Browser wrap visibility is driven by the browserActive state class —
-   the ID-scoped display:flex rule above would beat a bare .hidden. */
-#term-container > .browser-wrap.hidden { display: none; }
+
 
 /* ── Terminal UX (round-160: scrollback search / font bar / reconnect banner) ── */
 .term-session { position: relative; }

@@ -75,6 +75,20 @@ for (const rel of SHEETS) {
     if (selectors.length) {
       problems.push(`${rel}:${line}: comment contains ${selectors.length} rule-like line(s), e.g. "${selectors[0].trim().slice(0, 40)}" — a comment must not hold a rule`);
     }
+    // A COMMENT THAT SWALLOWED A RULE'S SELECTOR (round 23). The selector-shaped check above needs a leading
+    // `.` or `#`, so it missed real damage a previous prune left in the console's sheet: a selector line became
+    // `is not a dot {` — no dot, no hash — and the comment went on holding `margin-bottom: 14px;` and its closing
+    // brace for as long as nobody read it. `.models-card` lost its margin and the sheet stopped parsing there.
+    //
+    // WHAT IS UNAMBIGUOUS IS THE SHAPE, not the name: a line inside a comment that ends in `{` and is followed by
+    // something declaration-shaped. No stylesheet documents itself that way by accident.
+    const swallowed = body.match(/^[^\n]*\{[ \t]*\n[ \t]*[a-z-]+\s*:\s*[^;\n]+;/m);
+    if (swallowed) {
+      problems.push(
+        `${rel}:${line}: a comment has swallowed a rule — "${swallowed[0].split("\n")[0].trim().slice(0, 40)}" is ` +
+          `followed by a declaration, so a selector was lost (in a sheet, that rule no longer exists)`,
+      );
+    }
     const decl = body.match(/--[a-z0-9-]+\s*:\s*[^;*\n]+;/);
     if (decl) {
       problems.push(`${rel}:${line}: comment contains a declaration-shaped token "${decl[0].slice(0, 40)}" — a token reader can mistake prose for a value (round 86)`);

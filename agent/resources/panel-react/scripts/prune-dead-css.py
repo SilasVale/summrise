@@ -91,6 +91,36 @@ def referenced_names():
     return names, prefixes
 
 
+def split_prelude(prelude):
+    """(leading text kept verbatim, the selector text, trailing whitespace).
+
+    COMMENTS ARE POSITIONAL, NOT TEXT (round 23). The three failed prunes recorded below all came from treating a
+    prelude as a string to split on ",": a comment's own commas became selector parts (the console's header lists
+    `layout .app/.sidebar/.content`), a comment's font stack became parts, and a prelude carrying two comments had
+    its second absorbed into the selector. This separates what MAY be rewritten — the selector text — from what is
+    copied through untouched.
+
+    A COMMENT INSIDE THE SELECTOR TEXT IS NOT TOUCHED EITHER: `.a, /* why */ .b {` cannot be rewritten without
+    deciding where the comment belongs, and the answer is not worth a corrupted sheet. Such a rule is reported as
+    skipped instead (see `untouchable` in prune).
+    """
+    m = re.match(r"^([\s\S]*?/\*[\s\S]*?\*/[\s\S]*?)(?=\S|$)", prelude)
+    # everything up to the last comment that is followed by the selector; simpler and safer: the leading run of
+    # whitespace + whole comment blocks, in order.
+    lead_end = 0
+    scanner = re.compile(r"\s*(?:/\*[\s\S]*?\*/\s*)*")
+    m2 = scanner.match(prelude)
+    if m2:
+        lead_end = m2.end()
+    lead, rest = prelude[:lead_end], prelude[lead_end:]
+    tail = ""
+    stripped = rest.rstrip()
+    if stripped != rest:
+        tail = rest[len(stripped):]
+        rest = stripped
+    return lead, rest, tail
+
+
 def classes_in(selector):
     return set(re.findall(r"\.([A-Za-z][\w-]*)", selector))
 
@@ -121,12 +151,39 @@ def prune(chunk, dead, stats):
         elif lead.lstrip().startswith("@keyframes") or lead.lstrip().startswith("@font-face"):
             out.append(prelude + "{" + body + "}")  # bodies here are not selectors
         else:
-            parts = [p.strip() for p in prelude.split(",") if p.strip()]
-            keep = [p for p in parts if not (classes_in(p) and classes_in(p) <= dead)]
+            lead, selector_text, tail = split_prelude(prelude)
+            if "/*" in selector_text:
+                # A comment INSIDE the selector list: leave the rule exactly as it is and say so.
+                stats["untouchable"] += 1
+                out.append(prelude + "{" + body + "}")
+                pos = j
+                nxt = pos
+                while nxt < len(chunk) and chunk[nxt] in "\r\n":
+                    nxt += 1
+                out.append(chunk[pos:nxt] if nxt > pos else "")
+                pos = nxt
+                continue
+            parts = [p.strip() for p in selector_text.split(",") if p.strip()]
+            # ANY DEAD CLASS KILLS THE PART. A COMPOUND selector requires its element to carry EVERY class it
+            # names, and in a DESCENDANT selector every compound must match — so one class the source can neither
+            # name nor assemble makes the whole part unmatchable: `.sidebar.open` cannot match however live `.open`
+            # is, and `.model-add .form-input` needs an ancestor that never exists.
+            #
+            # The old rule required EVERY class in the part to be dead, which left 14 such rules in each UI sitting
+            # inside selectors kept alive by a live arm. It is safe to widen now only because `split_prelude`
+            # separates a rule's comments from its selector text (round 23); widening it against raw text is what
+            # deleted `:root` from the console in round 22.
+            keep = [p for p in parts if not (classes_in(p) & dead)]
             if keep:
+                # ONLY REWRITE WHAT CHANGED. Rejoining every prelude with ", " collapsed every multi-line selector
+                # list in both sheets — a valid prune produced an 827-line diff nobody can review. A rule that
+                # loses no part keeps its exact text; one that does keeps its comments and its line breaks and
+                # changes only the part that went.
                 if len(keep) != len(parts):
                     stats["parts"] += len(parts) - len(keep)
-                out.append(", ".join(keep) + " {" + body + "}")
+                    out.append((lead + ", ".join(keep) + tail).rstrip() + " {" + body + "}")
+                else:
+                    out.append(prelude + "{" + body + "}")
             else:
                 stats["rules"] += 1
                 stats["lines"] += body.count(";") + 1
@@ -165,13 +222,15 @@ def main() -> int:
     if not dead:
         return 0
 
-    stats = {"rules": 0, "parts": 0, "lines": 0, "classes": set()}
+    stats = {"rules": 0, "parts": 0, "lines": 0, "classes": set(), "untouchable": 0}
     for p in sorted(STYLES.glob("*.css")):
         before = p.read_text()
         after = prune(before, dead, stats)
         if args.write and after != before:
             p.write_text(after)
 
+    if stats["untouchable"]:
+        print(f"left alone (a comment sits inside the selector list): {stats['untouchable']}")
     print(f"rules removed: {stats['rules']} | selector parts dropped: {stats['parts']} | "
           f"declaration lines: {stats['lines']} | classes: {len(stats['classes'])}")
     left = sorted(dead - stats["classes"])
