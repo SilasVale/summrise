@@ -126,9 +126,14 @@ jobs:
       - name: Build the panel (the sweep reads the built stylesheet)
         working-directory: agent/resources/panel-react
         run: npm run build
-      - name: Install the browsers the kit resolves
+      - name: Install the browsers THE LOCAL KIT resolves
         working-directory: agent/resources/panel-react
-        run: npx playwright install --with-deps
+        # THE PROJECT'S OWN playwright-core, NOT npx's. `npx playwright install` fetches whatever playwright
+        # version npx resolves and lays down THAT build number (chromium_headless_shell-1243), while the
+        # installed playwright-core asks for its own (1228) — so the install succeeded and the launch still
+        # failed with "Executable doesn't exist at .../chromium_headless_shell-1228/...". Running the local
+        # CLI installs the builds the local version will look for, which is the whole question.
+        run: node node_modules/playwright-core/cli.js install --with-deps
       - name: Design sweep (contrast, spacing, hierarchy, typography, states)
         run: bash scripts/design-sweep-ci.bash
 
