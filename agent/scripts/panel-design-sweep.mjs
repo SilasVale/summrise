@@ -290,6 +290,29 @@ ${TIMING}
     report.names.push({ density: 'desktop', theme: 'light', mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES)) });
   }
 
+  // THE UPDATE CARD MID-RELEASE. ?busy=1 exists in the harness and NO SWEEP HAS EVER RENDERED IT: the mode
+  // list is idle/relaxed, so the state an operator stares at while a release is running has been measured
+  // zero times. Measured by hand first (113 rows, no failing text, and the one disabled control is the
+  // Notifications button at opacity 0.45, which the probe marks inactive and WCAG exempts). One render of
+  // the Settings page, where the card lives, on the same top-level recipe as the empty state.
+  if (wants("pages")) {
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.goto('http://vale.test/panel/?theme=light&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1800);
+    await page.evaluate(() => {
+      const rail = document.querySelector('#icon-rail, .desktop-rail');
+      const b = [...(rail ? rail.querySelectorAll('button') : [])].find((x) => /setting/i.test((x.getAttribute('aria-label') || '') + (x.textContent || '')));
+      if (b) b.click();
+    });
+    await page.waitForTimeout(1400);
+    const rows = await page.evaluate(PROBE);
+    for (const row of rows) report.rows.push({ ...row, density: 'panel', theme: 'light', mode: 'busy', page: 'Settings-busy' });
+    report.surfaces.push({ density: 'panel', theme: 'light', mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(SURFACE)) });
+    report.names.push({ density: 'panel', theme: 'light', mode: 'busy', page: 'Settings-busy', ...(await page.evaluate(NAMES)) });
+  }
+
   // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
   // console uses, from the shared core, embedded with JSON.stringify (round 88 shipped one embedded
   // in a template literal and the device received /s+/ where the source said /\s+/: the report listed
