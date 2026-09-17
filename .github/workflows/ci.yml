@@ -96,38 +96,19 @@ jobs:
         run: npm test
         working-directory: agent/resources/panel-react
 
-  # THE DESIGN SUITE, ON EVERY PUSH (round 213). The sweeps have only ever run when the loop remembered to
-  # run them, on a device, against DELIVERED copies — and rounds 184-212 found a console bundle two generations
-  # old, a harness carrying a reverted change, a probe reading a day-stale snapshot, and a guard that could not
-  # be satisfied after a rebuild. All four are properties of the delivery pipeline, not of the product. Here
-  # the same sweep runs against what this checkout BUILDS, with nothing delivered in between.
-  design:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          # THE SAME NODE AS THE PANEL JOB. The first version of this job named the panel's package.json as a
-          # node-version-file — which is not a version file — so `npm ci` ran on a different Node and failed
-          # with "Missing: esbuild@0.28.2 from lock file" (round 213).
-          node-version: 24
-          cache: npm
-          cache-dependency-path: agent/resources/panel-react/package-lock.json
-      - name: Install deps
-        working-directory: agent/resources/panel-react
-        run: npm ci --include=optional
-      - name: Build the panel (the sweep reads the built stylesheet)
-        working-directory: agent/resources/panel-react
-        run: npm run build
-      - name: Install a browser for the sweep
-        working-directory: agent/resources/panel-react
-        # THE HEADLESS SHELL, not just chromium: the helper launches with headless:true and playwright-core
-        # resolves the shell build by name — installing only `chromium` leaves it looking for
-        # chromium_headless_shell-1228 and failing before the sweep starts (round 213).
-        run: npx playwright install --with-deps chromium chromium-headless-shell
-      - name: Design sweep (contrast, spacing, hierarchy, typography, states)
-        run: bash scripts/design-sweep-ci.bash
-
+  # THE DESIGN SUITE ON EVERY PUSH IS NOT WIRED YET (round 213). The job is written, the runner works, and
+  # four environment differences were found and fixed by reading its logs in a row — the wrong
+  # node-version-file, the emitter's exit code 2 reading as a failure, the headless-shell build, and the runner
+  # living in scripts/test/ where pack-chain runs everything. The fifth is unresolved: the emitted sweep
+  # launches the helper and gets MODULE_NOT_FOUND resolving playwright-core, in a job that has just run
+  # `npm ci` in that directory. It is parked rather than left failing, because a red job that everyone learns
+  # to ignore is worse than no job:
+  #
+  #     job:    agent/resources/panel-react -> npm ci, npm run build, npx playwright install --with-deps
+  #             chromium chromium-headless-shell, then bash scripts/design-sweep-ci.bash
+  #     next:   print the resolution from inside the runner (ls node_modules/playwright-core, node -e require)
+  #             before the sweep starts, so the failure names itself instead of arriving as MODULE_NOT_FOUND.
+  #
   agent:
     name: agent (cargo test + clippy + fmt)
     runs-on: ubuntu-latest
