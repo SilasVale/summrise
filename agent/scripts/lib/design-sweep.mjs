@@ -460,7 +460,11 @@ export function judgeReport(report, opts = {}) {
     if (s.skipped) findings.push(`${where}: ${s.skipped} skipped heading level(s)`);
     if (s.mains !== 1) findings.push(`${where}: ${s.mains} main landmark(s), expected exactly 1`);
     if (s.navs > 1) findings.push(`${where}: ${s.navs} nav landmarks — a page has one navigation`);
-    else if (s.navs !== 1 && !(opts.navless || []).includes(s.page)) {
+    // PREFIX, NOT EXACT. `navless: ["login"]` was an exact match on a page name, so when the console's login
+    // page gained a dark render (`login-dark`, round 229) the page that has no navigation BY DESIGN was
+    // reported as missing one. A navless entry names a FAMILY of renders — the same page in another theme, at
+    // another width — and matching the name alone is the one-of-N shape this session keeps finding.
+    else if (s.navs !== 1 && !(opts.navless || []).some((n) => String(s.page).startsWith(n))) {
       findings.push(`${where}: ${s.navs} nav landmark(s), expected exactly 1`);
     }
     for (const [kind, list] of [["overflow", s.over], ["clipping", s.clipped], ["sliver", s.slivers]]) {
