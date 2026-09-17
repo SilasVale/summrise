@@ -56,6 +56,18 @@ describe("IconRail", () => {
     expect(screen.getByTitle("disconnected")).toBeTruthy();
   });
 
+  it("says WORKING while a command is in flight, even with NO activity frames at all", () => {
+    // THE CASE THE DEVICE FLAG EXISTS FOR (round 29, closing round 28). `useDeviceActivity` is RECENCY — it turns
+    // working on an activity frame and fades after WORKING_MS — so a command that runs quietly for a minute left
+    // the rail saying IDLE. `command_running` is the device's own answer and covers the whole command, and this is
+    // the surface that needed it most: the rail is what an operator glances at from across the room.
+    const quiet = render(<IconRail {...props()} />);
+    expect(quiet.container.querySelector(".rail-dot")!.getAttribute("data-live")).toBe("idle");
+
+    const busy = render(<IconRail {...props({ commandsInFlight: true })} />);
+    expect(busy.container.querySelector(".rail-dot")!.getAttribute("data-live")).toBe("working");
+  });
+
   it("the device dot turns to WORKING on terminal activity", async () => {
     // The merge this hook exists for: terminal output now moves the device
     // state. Before it, only browser events did — and only inside the browser

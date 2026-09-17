@@ -98,6 +98,18 @@ export function sessionActive(session: { idleMs?: number; commandRunning?: boole
 }
 
 /**
+ * IS ANY SESSION HOLDING A COMMAND IN FLIGHT — the device's own answer, for the DEVICE-level mark.
+ *
+ * WHY IT IS NOT `useDeviceActivity`. That hook is an EVENT-RECENCY signal and says so: "some activity arrived
+ * within the last WORKING_MS". The rail's mark used it alone, so a command that runs silently for a minute read as
+ * IDLE there — the same blindness the per-session marks had until the device started reporting `command_running`
+ * (round 28). This is that fact, at device scope: one derivation, next to the per-session one it belongs with.
+ */
+export function anyCommandRunning(sessions: Array<{ commandRunning?: boolean }> | undefined): boolean {
+  return !!sessions?.some((s) => s.commandRunning);
+}
+
+/**
  * ONE DERIVATION FOR EVERY SURFACE. The tab strip, the context list and the desktop strip each used to build this
  * inline — three copies of the same three lines, two of which passed `active: false` — which is how they come to
  * disagree. Nothing about a session's own mark needs the device: connectivity is the RAIL's fact and lives on the

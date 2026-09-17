@@ -4,6 +4,7 @@
 // dual-view are replaced by Shell + ContextRail.
 import { useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
+import { anyCommandRunning } from "../lib/liveness";
 import { EvictedNotice } from "./EvictedNotice";
 import { IdleSessionsBar } from "./IdleSessionsBar";
 import { GettingStarted } from "./GettingStarted";
@@ -161,6 +162,7 @@ export function PanelApp(props: Props) {
             onPageChange={setPage}
             connected={connected}
             pendingCount={pendingApprovalCount(props.sessions)}
+            commandsInFlight={anyCommandRunning(props.sessions)}
             onOpenGuide={() => setGuideOpen(true)}
           />
         }

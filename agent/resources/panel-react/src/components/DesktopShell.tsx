@@ -16,7 +16,7 @@ import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { idleSessions } from "../lib/idleSessions";
-import { sessionLiveness } from "../lib/liveness";
+import { anyCommandRunning, sessionLiveness } from "../lib/liveness";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
@@ -258,6 +258,7 @@ export function DesktopShell({
           onPageChange={setPage}
           connected={connected}
           pendingCount={pendingApprovalCount(sessions)}
+          commandsInFlight={anyCommandRunning(sessions)}
           desktop
         />
       }

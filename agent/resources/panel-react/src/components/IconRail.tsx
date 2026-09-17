@@ -31,7 +31,8 @@ export const PAGE_ICONS: Record<Page, IconName> = {
   settings: "settings",
 };
 
-export function IconRail({ page, onPageChange, connected, desktop, pendingCount = 0, onOpenGuide }: {
+export function IconRail({ page, onPageChange, connected, desktop, pendingCount = 0,
+  commandsInFlight, onOpenGuide }: {
   page: Page;
   onPageChange: (p: Page) => void;
   connected: boolean;
@@ -40,6 +41,8 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
    *  Optional and defaulted so a caller that has no session list (or an older
    *  embedding) cannot crash the rail — it degrades to "no questions waiting". */
   pendingCount?: number;
+  /** At least one session is holding a command in flight — the device's `command_running`, at device scope. */
+  commandsInFlight?: boolean;
   /** Reopen the getting-started guide. Absent on a surface that does not host it. */
   onOpenGuide?: () => void;
 }) {
@@ -47,7 +50,12 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
   const [theme, setThemeState] = useState(getTheme());
   const themeBtnClass = desktop ? "desktop-rail-btn" : "rail-btn";
   const flipTheme = () => setThemeState(toggleTheme());
-  const working = useDeviceActivity();
+  // TWO SIGNALS, ONE MARK. `useDeviceActivity` is recency — an activity frame within the last window — and it is
+  // right about "something just happened". It cannot see a command that is running QUIETLY, which is the whole
+  // point of the flag the device now reports; the session list that carries it is the caller's, passed in like
+  // `pendingCount` rather than re-derived here.
+  const sseWorking = useDeviceActivity();
+  const working = sseWorking || !!commandsInFlight;
   // WAITING OUTRANKS WORKING. Both can be true at once (the AI asked, then kept
   // working elsewhere), and of the two, "a decision is waiting for you" is the
   // one that decays if it goes unnoticed: the question expires. Precedence, in

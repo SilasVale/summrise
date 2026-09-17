@@ -17,6 +17,7 @@ import {
   deviceLiveness,
   sessionLiveness,
   sessionActive,
+  anyCommandRunning,
   type Liveness,
 } from "./liveness";
 import { WORKING_MS } from "../hooks/useDeviceActivity";
@@ -90,6 +91,15 @@ describe("the liveness model", () => {
     expect(sessionLiveness({ pendingApproval: null, idleMs: quiet, commandRunning: true })).toBe("working");
     // approval still outranks work in flight — the operator is what everything else waits for
     expect(sessionLiveness({ pendingApproval: { id: "ap-1" }, idleMs: 0, commandRunning: true })).toBe("waiting");
+  });
+
+  it("finds a command in flight anywhere in the list, and survives not having one", () => {
+    // The device-scope derivation the rail uses. It has to be safe on an EMPTY or ABSENT list — the rail is
+    // rendered by an embedding that may have no sessions at all, which is why `pendingCount` is optional too.
+    expect(anyCommandRunning(undefined)).toBe(false);
+    expect(anyCommandRunning([])).toBe(false);
+    expect(anyCommandRunning([{ commandRunning: false }, { commandRunning: false }])).toBe(false);
+    expect(anyCommandRunning([{ commandRunning: false }, { commandRunning: true }])).toBe(true);
   });
 
   it("does not smear one busy session over the others", () => {
