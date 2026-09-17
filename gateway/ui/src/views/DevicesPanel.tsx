@@ -10,6 +10,7 @@ import {
   type RegKeyInfo,
 } from "../api/client.ts";
 import { maskToken } from "../lib/format.ts";
+import { agentSignal, deviceIsUp, tunnelSignal } from "../lib/deviceState.ts";
 import {
   Card,
   PageHeader,
@@ -334,12 +335,17 @@ export default function DevicesPanel() {
           <div className="dev-grid">
             {devices.map((d) => {
               const st = deviceStatuses[d.name];
-              const agentUp = !!st?.agent_up;
-              const tunnelUp = !!st?.tunnel_up;
+              const agentUp = deviceIsUp(st);
+              // ONE CALL EACH, before the rows are built: the three-state answer is the same object the row needs.
+              const agent = agentSignal(st, t);
+              const tunnel = tunnelSignal(st, t);
               const outdated = !!d.lastVersion && !!install?.version && d.lastVersion !== install.version;
               const signals = [
-                { label: t("devices.statusAgent"), ok: agentUp, err: !agentUp, state: agentUp ? t("devices.online") : t("devices.offline") },
-                { label: t("devices.statusTunnel"), ok: tunnelUp, err: !tunnelUp, state: tunnelUp ? t("devices.tunnelUp") : t("devices.tunnelDown") },
+                // THREE STATES, NOT TWO: a device with no status entry has not been checked, and painting it red
+                // says its agent is down — a claim nothing has earned (round 35). The `.sig-dot.off` state existed
+                // in the stylesheet for this and had no producer until now.
+                { ...agent, ok: agent.signal === "ok", err: agent.signal === "err" },
+                { ...tunnel, ok: tunnel.signal === "ok", err: tunnel.signal === "err" },
                 // ONLY A CRASH GETS A ROW (round 256). The device also reports "replaced"
                 // (its normal update restart) and "clean-exit"; the gateway drops those
                 // before they ever reach this page — a fleet view is for exceptions, and a

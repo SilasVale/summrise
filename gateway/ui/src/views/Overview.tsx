@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { deviceIsUp } from "../lib/deviceState.ts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useTranslation } from "../i18n.ts";
@@ -302,7 +303,7 @@ export default function Overview() {
           <div className="dev-strip">
             {devices.map((d) => {
               const st = status[d.name] || {};
-              const up = !!st.agent_up;
+              const up = deviceIsUp(st);
               return (
                 <Link key={d.name} to="/devices" className={`dev-mini${up ? " online" : ""}`}>
                   <span className={`dev-mini-led${up ? " on" : ""}`} />
