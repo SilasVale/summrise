@@ -59,6 +59,7 @@ assumed:
 | `scripts/test/model-drift-check.mjs` | remove the normaliser's bracket-suffix strip | exit 1, prints the un-normalised id |
 | `scripts/test/css-vars-check.mjs` | delete a `--token` definition its own sheet references | exit 1, names the token and says the declaration is dropped |
 | `scripts/test/harness-fixture-check.mjs` | change the harness fixture's session-count default from 3 | exit 1, and its own self-test fails first if the pattern goes stale |
+| `scripts/test/sweep-judges.bash` | plant a defect in a clean console/extension report (identical message colours, an undersized target with no spacing, a theme lie) | exit 1 per case — and the CLEAN reports must still pass, so a judge that fails everything is caught too |
 
 The whole RELEASE PATH is now proven, which is the part where a toothless guard ships a broken
 release: the prune, the version.json writer, the installer-alias arm and the sha256 gate all fail

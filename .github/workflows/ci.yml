@@ -367,6 +367,12 @@ jobs:
       # self-tests each check against a deliberately broken copy. Needs no device and no browser.
       - name: harness fixtures can express their states
         run: node scripts/test/harness-fixture-check.mjs
+      # THE OTHER TWO SWEEPS' JUDGES. `panel-design-sweep.bash` has gated the panel's judge since round 50;
+      # the console's and the extension's adapter-specific rules had NO gate — the shared judge they call is
+      # covered through the panel's, which is exactly why the gap was easy to miss. Each case here plants one
+      # defect in a clean report and requires a failure, and each clean report requires a pass.
+      - name: console and extension design judges bite
+        run: bash scripts/test/sweep-judges.bash
       # Smoke-helper guards: assert_want_sha256 (shared pre-publish sha gate,
       # twin of the worker's SHA256_RE) — same convention, zero new tooling.
       # A shell script that does not PARSE is a script that cannot run — and the gates below
