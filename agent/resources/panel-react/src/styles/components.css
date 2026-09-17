@@ -940,6 +940,22 @@
    pressable. The colour is the solid's own family, not a new one. */
 .approval-approve:hover:not(:disabled) { background: var(--success-ink) !important; border-color: var(--success-ink) !important; }
 .approval-approve:active:not(:disabled) { transform: translateY(0.5px); }
+
+/* ══ THE ACKNOWLEDGED STATE ════════════════════════════════════════════════════════════════════════════════
+   A CONTROL THAT IS BEING PROCESSED MUST LOOK LIKE IT, AND IT MUST LOOK LIKE IT IMMEDIATELY (round 247).
+   `disabled` alone said "something is happening" and nothing about WHICH control the operator pressed, so on a
+   slow device the only feedback was a dimmed row — which reads the same as a click that never landed. The
+   pressed control now carries `data-busy` (and `aria-busy`) from the moment of the click, and it wears a RING
+   while its siblings dim: the one you pressed is the one that is working.
+
+   A ring rather than a spinner because it needs no markup, costs no layout, and is a graphic whose contrast the
+   existing contracts already hold. */
+.approval-actions button[data-busy="1"],
+.approval-grant-x[data-busy="1"],
+#approval-arm[data-busy="1"] {
+  box-shadow: 0 0 0 2px var(--accent-ink);
+  opacity: 1;
+}
 .approval-refuse:hover:not(:disabled) { color: var(--danger-on-soft); border-color: var(--danger); }
 .approval-note { margin: 0; font-size: var(--fs-xs); color: var(--warn-ink); }
 /* "Always allow <word>" — the grant action. Carries the WORD it will cover in

@@ -660,3 +660,35 @@ describe("the grant mirror agrees with the device", () => {
     }
   });
 });
+
+describe("the acknowledgement", () => {
+  it("marks the control you pressed BEFORE the device answers, and only that one", async () => {
+    // THE PROMISE NEVER SETTLES, ON PURPOSE. The ack must not depend on the network, so this test gives it
+    // nothing to wait for: if the ring were tied to the reply it would never appear, and the assertion below
+    // would fail on the same tick as the click rather than after a timeout.
+    let release!: () => void;
+    const onDecide = vi.fn(
+      () => new Promise<boolean>((res) => { release = () => res(true); }),
+    );
+    render(<ApprovalGate {...gateProps({ armed: true, pending: pending(), onDecide })} />);
+    const runIt = screen.getByText("Run it");
+    fireEvent.click(runIt);
+
+    // NO AWAIT: the state the event produced is already on screen.
+    expect(runIt.getAttribute("aria-busy"), "the pressed control must say it heard").toBe("true");
+    expect(runIt.getAttribute("data-busy"), "and wear the ring that says so").toBe("1");
+    // THE SIBLINGS STEP BACK, and they do NOT claim to be the busy one — that distinction is the whole point
+    // of tracking WHICH control was pressed rather than only that one was.
+    const always = screen.getByText(/Always allow/);
+    const refuse = screen.getByText("Refuse");
+    expect((always as HTMLButtonElement).disabled).toBe(true);
+    expect((refuse as HTMLButtonElement).disabled).toBe(true);
+    expect(always.getAttribute("aria-busy")).toBeNull();
+    expect(refuse.getAttribute("aria-busy")).toBeNull();
+
+    // …and the ack clears when the device finally answers.
+    await act(async () => { release(); });
+    await waitFor(() => expect(runIt.getAttribute("aria-busy")).toBeNull());
+    expect(runIt.getAttribute("data-busy")).toBeNull();
+  });
+});
