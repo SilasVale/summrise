@@ -571,6 +571,20 @@ function judge(file) {
     }
   }
   console.log(reportSummary("panel", report));
+  // THE TIMING DATA, SAID OUT LOUD. It has been collected on every page since the timing pass was added and
+  // read by nothing — not judged (a wall-clock budget would fail on a loaded CI box, which is why it is not a
+  // finding) and not printed either, so a ten-fold regression in boot cost would have been invisible. The
+  // worst page is the one worth seeing: a report that prints 40 timings is a report nobody reads.
+  {
+    const t = (report.timing || []).filter((x) => typeof x.toFirstRowMs === 'number');
+    if (t.length) {
+      const worst = t.reduce((a, b) => (b.toFirstRowMs > a.toFirstRowMs ? b : a));
+      console.log(
+        `note: boot timing — worst of ${t.length} surfaces: ${worst.toFirstRowMs}ms to first row ` +
+          `(${worst.density}/${worst.mode}, first paint ${worst.firstPaintMs}ms, ${worst.nodes} nodes)`,
+      );
+    }
+  }
   if (coverage.length) console.error(`\n${coverage.join("\n")}`);
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
   if (waived.length) {
