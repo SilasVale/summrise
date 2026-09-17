@@ -44,7 +44,9 @@ const MARKS = [
   { what: "key LED", base: ".ov-keyled", states: ["", "on"] },
   // The BASE is not a state here: ui.tsx renders a bare "dot" as decoration, and the four that carry state are
   // the two the Overview draws (ok/err) and the two the connection row draws (online/offline).
-  { what: "connection dot", base: ".dot", states: ["ok", "err", "online", "offline"] },
+  // TWO STATES, NOT FOUR (round 44): `online` had no producer and `offline` restated the base rule, so both were
+  // pruned from the sheet. The family is the LIVE pair, and the ring that "offline" used to spell out is the base.
+  { what: "connection dot", base: ".dot", states: ["ok", "err"] },
   // The two LEDs followed the same path: `.dev-led` had NO mark at all for "off" and `.dev-mini-led` said it with a
   // grey disc. Both are rings now, which is what the rest of this sheet already means by absent.
   { what: "device LED", base: ".dev-led", states: ["", "on"] },
@@ -141,8 +143,20 @@ for (const family of MARKS) {
     const filled = bg !== "" && !/transparent|none/.test(bg);
     const inset = /inset/.test(shadow);
     const outer = !!shadow && shadow !== "none" && !/inset/.test(shadow);   // "none" is not a shadow
-    const kind = inset ? "ring" : filled && outer ? "halo" : filled ? "solid" : "empty";
+    // A FILL AND A RING AT ONCE IS ITS OWN KIND, and reducing it to "ring" is how round 44 found a real defect with a
+    // mutation that did NOT bite: `.dot.err` set a fill and inherited the base's inset ring, so a failing channel
+    // drew a red square INSIDE a grey ring — and the signature called it a ring, distinct from `.dot.ok`'s solid, so
+    // it passed. A kind that hides one of the two channels is not a silhouette. (The panel's marks test learned the
+    // same lesson in round 25 from the other end: a stray halo the sheet-level check could not see.)
+    const kind = inset && filled ? "ring+fill" : inset ? "ring" : filled && outer ? "halo" : filled ? "solid" : "empty";
 
+    // A MARK THAT IS BOTH A FILL AND A RING IS NEITHER, and the vocabulary has no such state: solid, ring, halo and
+    // empty are the four, and "ring+fill" is what a rule produces by accident — setting a background while
+    // inheriting an inset shadow. That is exactly the `.dot.err` defect of round 44, and this is the assertion that
+    // makes it fail rather than merely look different.
+    if (kind === "ring+fill") {
+      failures.push(`${sel} is a FILL inside a RING — the vocabulary is solid / ring / halo / empty, and a mark that is two of them is neither. Add box-shadow: none for a fill, or drop the background for a ring`);
+    }
     const borderDecl = [val("border"), val("border-style")].join(" ");
     const shape = [
       val("border-radius") || "0",

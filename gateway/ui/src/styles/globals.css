@@ -1111,6 +1111,12 @@ pre code {
   color: var(--text-secondary);
 }
 
+/* ABSENT IS A RING — and the BASE IS THAT RING (round 44 of the standing goal). It used to be said twice: this
+   rule, and a `.dot.offline` that repeated it verbatim, plus a `.dot.online` that nothing ever rendered (the
+   Overview renders `ok` / `err` and no view renders either name). Deleting the pair is not a change of meaning:
+   the ring is the base, so an unqualified `.dot` already IS "absent", and the reason the ink is `--text-muted`
+   rather than `--text-faint` survives here with it — `--text-faint` measures 2.46:1 on --bg, which is the ink the
+   marks gate retired from `.sig-dot.off`. */
 .dot {
   display: inline-block;
   width: 7px;
@@ -1119,16 +1125,6 @@ pre code {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--text-muted);
   flex-shrink: 0;
-}
-.dot.online {
-  background: var(--success);
-  box-shadow: 0 0 0 3px var(--success-bg);
-}
-/* ABSENT IS A RING, NOT A FAINTER FILL. `--text-faint` measures 2.46:1 on --bg — the ink the marks gate already
-   retired from `.sig-dot.off` — so "offline" was both shapeless and barely there. */
-.dot.offline {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--text-muted);
 }
 
 /* TWO STATES THAT HAD NO RULES AT ALL (round 24 of the standing goal). The Overview renders
@@ -1142,7 +1138,8 @@ pre code {
   background: var(--success);
   /* THE BASE'S RING HAS TO GO, or the state renders as the base shape WITH a fill: a green dot inside a grey
      inset ring, which is neither solid nor a ring. The marks check caught exactly that — it computed the same
-     signature for `.dot.ok` and `.dot.offline` and was right to. */
+     signature for `.dot.ok` and the (since pruned) `.dot.offline`, whose rule was the base's ring restated, and it
+     was right to. */
   box-shadow: none;
 }
 .dot.err {
