@@ -37,7 +37,6 @@
   --text-muted: #71717a;
   --text-faint: #a1a1aa;
 
-  /* Vale brand — violet (matches the glossy bolt favicon) */
   /* THE SAME SPACING SCALE AS THE PANEL (round 223), and it costs nothing: the console has used these six
      values as LITERALS 86 times already — 2px x8, 4px x15, 8px x21, 12px x28, 16px x10, 24px x4 — so naming
      them changes no pixel. The console had no spacing scale at all until now (round 222 measured 0 token uses
