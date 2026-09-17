@@ -247,53 +247,21 @@ const empty = { fleet: false };
     report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
   }
 
-  // OPEN QUESTION, MEASURED BUT NOT EXPLAINED (round 183). A Tab-focused console button reports:
-  //   :focus-visible MATCHES, the rule ":focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }"
-  //   is in the loaded sheet and MATCHES the element, --accent resolves to #bf3a0a on it — and the computed
-  //   outline is "solid 0px", colour rgb(82, 82, 91), outline-offset 0px. EVERY declaration of a matching
-  //   rule is being skipped, including outline-offset, which contains no variable at all. That rules out the
-  //   dropped-declaration family this suite fixed twice (rounds 137 and 141) and points at a competing rule
-  //   my search for "outline" in a rule's cssText does not see.
-  // NEXT STEP, and it needs a BETTER INSTRUMENT FIRST: the enumeration written for this is unreliable —
-  // in modern Chrome every CSSStyleRule has a truthy cssRules (CSS Nesting), so a walk that recurses on
-  // "has cssRules" reports every rule as a container and answers nothing. Walk by constructor name, and
-  // search for rules that set outline-style/width/color, "all", or appearance — not just the word outline.
+  // ANSWERED: THE RINGS WERE NEVER MISSING (round 186). Eighteen "missing focus rings" across six pages
+  // were a FALSE POSITIVE of this sweep's own verdict, and six rounds went into a cascade that was never
+  // broken. The proof is a screenshot: a keyboard-focused console button paints a 2px accent ring while
+  // getComputedStyle reports "outline: solid 0px" and "box-shadow: none" for the very same element.
   //
-  // FOUR FACTS ESTABLISHED BY MEASUREMENT (round 184), and they do not yet add up:
-  //   1. the repository's build is correct: :focus-visible { outline: 2px solid var(--accent) } is in the
-  //      built sheet, dated 2026-08-19, a month before any of this;
-  //   2. the sheet the PAGE loads contains three outline rules, INCLUDING that one;
-  //   3. the failing button MATCHES :focus-visible, and --accent resolves on it to #bf3a0a;
-  //   4. and the computed outline is STILL "solid 0px", outline-offset "0px" — every declaration of a
-  //      matching rule skipped, with no rule in any loaded sheet setting outline-width, "all" or
-  //      appearance. Whatever wins is not in the CSS this page has.
+  // Each wrong explanation was tested and killed by measurement, which is why this took six rounds rather
+  // than one: a stale bundle (183), a cached sheet (184), a pointer leak left by the dark-hover pass (182),
+  // a missing !important (185 — shipped, loaded, changed nothing), and a layered !important (186 — there
+  // are no layers in the sheet at all). Along the way the device's assets directory was found holding EIGHT
+  // files from four generations, which is what let each wrong explanation look right; it is pruned.
   //
-  //   5. THE DEVICE'S assets DIRECTORY HOLDS EIGHT FILES FROM FOUR GENERATIONS — index-BNlr9UIu.js through
-  //      index-jctZl_za.js, index-DpWYMz4S.css through index-B3H-Yqtw.css — because every delivery added a
-  //      pair and nothing ever removed one. Its index.html links the CURRENT pair, yet the page reported
-  //      loading index-D0W9u_N5.css from an earlier generation. Something between the HTML and the paint is
-  //      picking an older asset, and the accumulated clutter is what made this hard to see.
-  //
-  // ROUND 185 SETTLED THE CACHING QUESTION AND TESTED THE OBVIOUS FIX. Measured with cache-busting URLs so
-  // no cached asset could be involved, against the current build:
-  //   * the current sheet loads (index-B3H-Yqtw.css, three outline rules, ours among them);
-  //   * the failing buttons match :focus-visible, --accent resolves, and their INLINE STYLE IS EMPTY;
-  //   * no constructed or adopted stylesheets exist, and no ancestor carries an outline;
-  //   * the computed outline is STILL "solid 0px", colour rgb(82, 82, 91) (currentColor), offset 0px.
-  // So the three earlier explanations — a stale bundle, a cached sheet, a pointer leak — were all artifacts
-  // of the measurement, and the defect survived every one of them.
-  //
-  // THE OBVIOUS FIX WAS TRIED AND FAILED, WHICH IS ITSELF THE FINDING: the rule was given !important, the
-  // build was delivered, the probe confirmed the loaded rule carried it — and the four buttons did not
-  // change. An unlayered author !important cannot lose to a normal declaration, so the winner must be a
-  // LAYERED !important: the cascade INVERTS layer order for important declarations, so a framework's
-  // layered "outline: 0 !important" beats this rule however it is written. Reverted, because an override
-  // that changes nothing does not earn its place.
-  //
-  // NEXT STEP, AND IT IS A BETTER INSTRUMENT, NOT ANOTHER GUESS: walk the sheets by CONSTRUCTOR NAME
-  // (CSSLayerBlockRule, CSSMediaRule, CSSSupportsRule) rather than by "has cssRules" — in modern Chrome
-  // EVERY rule has a truthy cssRules for CSS Nesting, which is what drowned the round-184 attempt — and
-  // look for rules setting outline inside a layer. Then put this rule in a layer that comes after it.
+  // THE LESSON IS THE ONE THIS SESSION KEEPS RELEARNING: a computed style is not a painted pixel. The
+  // shared focusPass now treats its computed-style verdict as a CANDIDATE and confirms every no-ring
+  // finding against the pixels — two small screenshots per candidate, so a clean page pays nothing — and
+  // reports how many verdicts the pixels overruled.
   // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
   // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
   for (const [label, hash] of [['overview', '#/'], ['devices', '#/devices']]) {

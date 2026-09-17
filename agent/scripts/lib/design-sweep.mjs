@@ -172,6 +172,9 @@ export async function focusPass(page, presses, label = {}) {
   let landed = 0;
   let escaped = 0;
   let missing = 0;
+  // HOW MANY THE PIXELS RESCUED FROM A WRONG VERDICT. Reported rather than hidden: a number that keeps
+  // climbing means the computed-style check is drifting further from what the browser paints.
+  let paintConfirmed = 0;
   // AND WHICH ONES. A count alone leaves the next reader to re-derive the finding — round 136 got
   // "missing: 11" from the extension and could not tell a real defect from a broken probe. The offenders
   // name themselves instead, in the same tag.class form the rest of the suite uses.
@@ -206,9 +209,42 @@ export async function focusPass(page, presses, label = {}) {
     if (verdict.verdict === "ok") landed++;
     else if (verdict.verdict === "escaped") escaped++;
     else {
-      missing++;
-      if (missingOn.length < 8) missingOn.push(verdict.where);
-      if (!evidence) evidence = verdict;
+      // A COMPUTED STYLE IS NOT A PAINTED RING, AND THIS IS WHERE THAT WAS PROVEN. Six rounds chased a
+      // cascade that did not exist: a keyboard-focused console button reports "solid 0px" and boxShadow
+      // "none" while the browser draws a 2px accent ring around it — confirmed by screenshot in round 186,
+      // after a stale bundle, a cached sheet, a pointer leak, a missing !important and a layered-!important
+      // hypothesis had each been tested and killed. getComputedStyle does not report what the UA paints for
+      // :focus-visible on every control.
+      //
+      // SO THE STYLE CHECK IS A CANDIDATE, NOT A VERDICT, and the pixels are the authority. Capture the
+      // element's neighbourhood while it is keyboard-focused, then blur and re-focus it programmatically —
+      // which drops :focus-visible and therefore the ring — and compare. Different bytes mean something IS
+      // painted and this was a false positive; identical bytes mean the control really has no focus
+      // indication, which is the WCAG 2.4.7 failure this check exists to find. Only candidates pay for the
+      // two screenshots, so a clean page costs nothing.
+      let painted = false;
+      try {
+        const box = await page.evaluate(() => {
+          const e = document.activeElement;
+          if (!e) return null;
+          const r = e.getBoundingClientRect();
+          return { x: Math.max(0, Math.floor(r.x - 6)), y: Math.max(0, Math.floor(r.y - 6)), width: Math.ceil(r.width + 12), height: Math.ceil(r.height + 12) };
+        });
+        if (box && box.width > 0 && box.height > 0) {
+          const withRing = await page.screenshot({ clip: box });
+          await page.evaluate(() => { const e = document.activeElement; if (e && e.blur) { e.blur(); e.focus(); } });
+          const withoutRing = await page.screenshot({ clip: box });
+          painted = !withRing.equals(withoutRing);
+        }
+      } catch (e) { painted = false; }
+      if (painted) {
+        landed++;
+        paintConfirmed++;
+      } else {
+        missing++;
+        if (missingOn.length < 8) missingOn.push(verdict.where);
+        if (!evidence) evidence = verdict;
+      }
     }
   }
   return {
@@ -217,6 +253,7 @@ export async function focusPass(page, presses, label = {}) {
     landed,
     escaped,
     missing,
+    ...(paintConfirmed ? { paintConfirmed } : {}),
     ...(missingOn.length ? { missingOn } : {}),
     ...(evidence ? { why: { where: evidence.where, outline: evidence.outline, boxShadow: evidence.boxShadow, focusVisible: evidence.focusVisible, ringToken: evidence.ringToken } } : {}),
   };
