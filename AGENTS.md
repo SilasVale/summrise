@@ -83,6 +83,32 @@ assumed:
 | `scripts/test/retired-colours-check.mjs` | put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page) | exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate |
 | `scripts/test/sweep-judges.bash` | plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck` |
 
+### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
+
+Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.
+Sixteen surfaces, and every other axis was clean everywhere:
+
+    marks       3-5 families per page, ZERO collisions          (the round-27 axis, on every page)
+    geometry    0 overflow · 0 slivers · 0 sideways scroll       at 1440px and in both themes
+    names       0 unnamed controls · exactly 1 h1 per page
+    LOUD        light 0 on six pages, 1-2 on two · dark 1 on seven, 2 on one
+
+`--passes=pages` sweeps the panel density across 48 surfaces and the desktop density across **one** (`Desktop-empty`,
+relaxed, no sessions). The desktop shell renders the same eight rail pages, so at 1440px the OTHER seven are measured
+by nothing — and two of them carry a loud reading the ceiling would reject:
+
+    dark  Terminal   button.rail-btn + div.tab      light  Settings-ish   button.rail-btn + button.btn
+
+BOTH NAME NAVIGATION STATE — the rail button says which page you are on and the tab says which session — and the
+loud axis, by its own words, exists to catch a page with two competing FOCAL POINTS rather than two indicators of
+where you are. So this is recorded rather than "fixed": `twoloud` is a supported option that NO CALLER PASSES, and
+whether these two belong in it is the same reading-dependent question as row 17 of the inbox (a halo meaning "lit"
+on one surface and "in flight" on another).
+
+WHAT IS NOT A READING, and should be closed next: the desktop density has eight pages and one of them is swept. The
+panel density proves the axis is worth having; the density the operator actually uses at this window size is
+measured once, empty.
+
 ### The LANDING has no rendered sweep, and that is a decision (measured round 37 of the standing goal)
 
 It is the one surface of the four that no sweep visits, and the reason is not an oversight: `landing-check.mjs` reads
