@@ -361,7 +361,16 @@
 
 /* ---------- tabs ---------- */
 .tabrow {
-  flex: none;
+  /* IT MUST BE ABLE TO GROW. This was `flex: none`, and `#tabs` inside it is `flex: 1 1 0%` — a circular
+     sizing in which the row takes its content's size while the content asks for zero: the row collapsed to
+     the width of its own overflow chip. Measured round 172 on a rendered page: the strip and its row both
+     35px wide, scrollWidth 1544 against clientWidth 35, and a `+10` that was arithmetically right and
+     completely useless. Round 36 saw this as "a harness artifact (0-185px here, 211px on the device)" and
+     left it; 211px for sixteen sessions is the operator's complaint, not an explanation.
+     `min-width: 0` is what lets a flex child SHRINK below its content, which is the half that makes the
+     inner `overflow-x: auto` work — without it the row would refuse to narrow and push the shell instead. */
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--sp-2);

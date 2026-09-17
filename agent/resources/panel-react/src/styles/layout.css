@@ -77,7 +77,12 @@
   background: var(--chrome-bg);
 }
 #canvas-top .tabrow {
-  flex: 1;
+  /* flex-basis stays 100% (components.css): this override set `flex: 1`, which is `1 1 0%` — a zero basis
+     that put the strip back into competition with the control group for ONE line. The controls total 935px
+     of a 982px row, so the strip got its min-content and measured 35px: the width of its own overflow chip.
+     Round 172 traced it in the ancestor chain after round 169 moved the view switch into that group. */
+  flex-grow: 1;
+  flex-basis: 100%;
   min-width: 0;
   padding: 0;
   border: none;

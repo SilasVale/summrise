@@ -914,7 +914,16 @@ h3 { font-size: var(--fs-base); }
 
 /* ---------- tabs ---------- */
 .tabrow {
-  flex: none;
+  /* IT MUST BE ABLE TO GROW. This was `flex: none`, and `#tabs` inside it is `flex: 1 1 0%` — a circular
+     sizing in which the row takes its content's size while the content asks for zero: the row collapsed to
+     the width of its own overflow chip. Measured round 172 on a rendered page: the strip and its row both
+     35px wide, scrollWidth 1544 against clientWidth 35, and a `+10` that was arithmetically right and
+     completely useless. Round 36 saw this as "a harness artifact (0-185px here, 211px on the device)" and
+     left it; 211px for sixteen sessions is the operator's complaint, not an explanation.
+     `min-width: 0` is what lets a flex child SHRINK below its content, which is the half that makes the
+     inner `overflow-x: auto` work — without it the row would refuse to narrow and push the shell instead. */
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -4769,7 +4778,12 @@ button.dtab-close:hover { opacity: 1; }
   background: var(--chrome-bg);
 }
 #canvas-top .tabrow {
-  flex: 1;
+  /* flex-basis stays 100% (components.css): this override set `flex: 1`, which is `1 1 0%` — a zero basis
+     that put the strip back into competition with the control group for ONE line. The controls total 935px
+     of a 982px row, so the strip got its min-content and measured 35px: the width of its own overflow chip.
+     Round 172 traced it in the ancestor chain after round 169 moved the view switch into that group. */
+  flex-grow: 1;
+  flex-basis: 100%;
   min-width: 0;
   padding: 0;
   border: none;
