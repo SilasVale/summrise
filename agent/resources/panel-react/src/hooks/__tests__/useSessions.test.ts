@@ -300,7 +300,7 @@ describe("pendingApprovalCount — the badge input", () => {
     closed: false,
     savedOnly: false,
     active: true,
-    idleMs: 0, firstSeenAt: 0,
+    idleMs: 0, commandRunning: false, firstSeenAt: 0,
     closedAt: null,
     heldByHuman: false,
     approvalRequired: false,
@@ -430,6 +430,8 @@ describe("the device's session row", () => {
     expect(full.label).toBe("stc@192.168.1.1");
     expect(full.heldByHuman).toBe(true);
     expect(full.idleMs).toBe(3_600_000);
+    // THE DEVICE'S BUSY FLAG, on the row: a command in flight, which output recency cannot see (round 28).
+    expect(full.commandRunning).toBe(true);
     expect(full.approvalRequired).toBe(true);
     expect(full.approvalGrants).toEqual(["display", "show"]);
     expect(full.goal).toBe("provision the ONU 0/1 on VLAN 100");
@@ -449,6 +451,7 @@ describe("the device's session row", () => {
     expect(minimal.goal).toBeNull();
     expect(minimal.plan).toEqual([]);
     expect(minimal.idleMs).toBe(0);
+    expect(minimal.commandRunning).toBe(false);
   });
 });
 

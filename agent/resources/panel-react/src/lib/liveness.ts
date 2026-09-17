@@ -88,7 +88,12 @@ export function deviceLiveness(input: { connected: boolean; pendingCount: number
  * THE WINDOW IS `WORKING_MS`, the same number the device-wide signal uses — imported rather than restated, so the
  * two cannot drift into disagreeing about what "recently" means.
  */
-export function sessionActive(session: { idleMs?: number }): boolean {
+export function sessionActive(session: { idleMs?: number; commandRunning?: boolean }): boolean {
+  // THE DEVICE'S ANSWER FIRST. `command_running` is the manager's own busy flag — the execute wait-loop sets it
+  // around the command it is waiting for — so it is true for the WHOLE life of a command, including the silent
+  // minutes that output recency cannot see (a flash, a long probe, a serial command that prints one final line).
+  // Recency stays as the second signal, for work that is not a command through this path.
+  if (session.commandRunning) return true;
   return typeof session.idleMs === "number" && session.idleMs < WORKING_MS;
 }
 
@@ -102,6 +107,7 @@ export function sessionLiveness(session: {
   pendingApproval?: unknown;
   closed?: boolean;
   idleMs?: number;
+  commandRunning?: boolean;
 }): Liveness {
   return livenessOf({
     reachable: !session.closed,

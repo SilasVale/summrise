@@ -17,7 +17,7 @@ const session = (over: Partial<Session> = {}): Session => ({
   // A QUIET SESSION BY DEFAULT, because `idleMs: 0` means "this session produced output within the window" — which
   // is `working`, correctly, once the model reads the device's own per-session fact. The old default silently
   // claimed every fixture session was active (round 9 of the standing goal).
-  idleMs: 60_000, firstSeenAt: Date.now(),
+  idleMs: 60_000, commandRunning: false, firstSeenAt: Date.now(),
   closedAt: null,
   heldByHuman: false,
   approvalRequired: false,

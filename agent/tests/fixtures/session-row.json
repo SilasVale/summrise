@@ -1,5 +1,5 @@
 {
-  "_why": "THE WIRE FORMAT FOR A SESSION ROW, pinned from both ends. The device serializes `TermSessionInfo` (agent/src/tools/terminal/mod.rs); the panel parses it in `useSessions`'s mappers (mapPending, mapGrants, mapPlan, mapGoal). Both parsers are DELIBERATELY defensive — a missing or mistyped field yields a default rather than an error, which is right for a live UI and means a renamed field would silently show nothing. So the format is pinned by a fixture read on BOTH sides: `agent/tests/fixtures/session-row.json` is asserted against the Rust serializer (a rename fails there) and fed through the panel's mappers (a parser that stops reading a field fails there).",
+  "_why": "THE WIRE FORMAT FOR A SESSION ROW, pinned from both ends. The device serializes `TermSessionInfo` (agent/src/tools/terminal/mod.rs); the panel parses it in `useSessions`'s mappers (mapPending, mapGrants, mapPlan, mapGoal). Both parsers are DELIBERATELY defensive \u2014 a missing or mistyped field yields a default rather than an error, which is right for a live UI and means a renamed field would silently show nothing. So the format is pinned by a fixture read on BOTH sides: `agent/tests/fixtures/session-row.json` is asserted against the Rust serializer (a rename fails there) and fed through the panel's mappers (a parser that stops reading a field fails there). `command_running` is the manager's own busy flag \u2014 the execute wait-loop sets it around the command it is waiting for \u2014 and it is on the row so the rail and every tab can say WORKING without inferring it from output recency (round 28 of the standing goal).",
   "full": {
     "id": "term-abc123-7",
     "kind": "ssh",
@@ -13,9 +13,17 @@
       "command": "vlan 100 / port vlan 100 0/1 1",
       "expires_in_ms": 47000
     },
-    "approval_grants": ["display", "show"],
+    "approval_grants": [
+      "display",
+      "show"
+    ],
     "goal": "provision the ONU 0/1 on VLAN 100",
-    "plan": ["read the current config", "apply the VLAN", "verify"]
+    "plan": [
+      "read the current config",
+      "apply the VLAN",
+      "verify"
+    ],
+    "command_running": true
   },
   "minimal": {
     "id": "term-abc123-8",
@@ -26,10 +34,11 @@
     "idle_ms": 0,
     "approval_required": false,
     "approval_grants": [],
-    "plan": []
+    "plan": [],
+    "command_running": false
   },
   "_notes": {
-    "pending_approval": "absent when nothing is waiting — the device omits it (skip_serializing_if), and mapPending returns null for a missing, null or id-less value",
+    "pending_approval": "absent when nothing is waiting \u2014 the device omits it (skip_serializing_if), and mapPending returns null for a missing, null or id-less value",
     "goal": "absent or null when no objective is set; mapGoal trims and treats an empty string as no goal",
     "expires_in_ms": "a COUNTDOWN in milliseconds that SHRINKS on every read; the panel converts it once to an absolute deadline because a component that keeps the countdown while also accumulating time counts down twice as fast",
     "idle_ms": "silence since the last output, resize, write or break; drives the \"nobody is using these\" offer (an hour threshold)"

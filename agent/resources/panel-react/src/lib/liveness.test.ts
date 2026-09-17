@@ -78,6 +78,20 @@ describe("the liveness model", () => {
     expect(sessionActive({ idleMs: undefined })).toBe(false);
   });
 
+  // ── THE DEVICE'S OWN ANSWER, WHICH OUTPUT RECENCY CANNOT GIVE (round 28 of the standing goal) ──────────────
+  it("calls a session WORKING while the device says a command is in flight, however quiet it is", () => {
+    // THE CASE THIS EXISTS FOR: a flash, a long probe, a serial command whose only output is the last line. The
+    // device's execute wait-loop knows the whole time; `idleMs` sees a minute of silence and calls it idle.
+    const quiet = 90_000; // three times the recency window
+    expect(sessionActive({ idleMs: quiet })).toBe(false);
+    expect(sessionActive({ idleMs: quiet, commandRunning: true })).toBe(true);
+    // and it does not overrule the other direction: nothing running leaves recency in charge
+    expect(sessionActive({ idleMs: 400, commandRunning: false })).toBe(true);
+    expect(sessionLiveness({ pendingApproval: null, idleMs: quiet, commandRunning: true })).toBe("working");
+    // approval still outranks work in flight — the operator is what everything else waits for
+    expect(sessionLiveness({ pendingApproval: { id: "ap-1" }, idleMs: 0, commandRunning: true })).toBe("waiting");
+  });
+
   it("does not smear one busy session over the others", () => {
     // THE BUG THIS REPLACES: `sessionLiveness` took the DEVICE's `working` flag, so a command in one tab would
     // draw a halo on all sixteen — which is why the surfaces stopped calling it and hard-coded `active: false`

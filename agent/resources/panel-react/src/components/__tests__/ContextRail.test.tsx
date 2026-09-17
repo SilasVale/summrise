@@ -18,6 +18,8 @@ const session = (over: Partial<Session> = {}): Session => ({
   savedOnly: false,
   /** Idle time comes from the device (`terminal_list.idle_ms`); 0 = "just active". */
   idleMs: 0,
+  /** The device's busy flag — a command in flight, which output recency cannot see. */
+  commandRunning: false,
   active: true,
   firstSeenAt: Date.now(),
   closedAt: null,

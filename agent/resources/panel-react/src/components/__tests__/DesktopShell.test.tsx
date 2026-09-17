@@ -26,7 +26,7 @@ function sessions(): Session[] {
       closed: false,
       savedOnly: false,
       active: true,
-      idleMs: 0, firstSeenAt: Date.now(),
+      idleMs: 0, commandRunning: false, firstSeenAt: Date.now(),
       closedAt: null,
       heldByHuman: false,
       approvalRequired: false,

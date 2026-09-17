@@ -15,7 +15,7 @@ const s = (over: Partial<Session>): Session =>
     closed: false,
     savedOnly: false,
     active: false,
-    idleMs: 0,
+    idleMs: 0, commandRunning: false,
     firstSeenAt: 0,
     closedAt: null,
     heldByHuman: false,

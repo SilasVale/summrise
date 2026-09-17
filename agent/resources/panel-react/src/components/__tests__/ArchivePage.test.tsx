@@ -42,7 +42,7 @@ const session = (over: Partial<Session> = {}): Session => ({
   closed: false,
   savedOnly: false,
   /** Idle time comes from the device (`terminal_list.idle_ms`); 0 = "just active". */
-  idleMs: 0,
+  idleMs: 0, commandRunning: false,
   active: true,
   firstSeenAt: Date.now(),
   closedAt: null,

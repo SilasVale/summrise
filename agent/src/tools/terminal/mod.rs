@@ -78,6 +78,16 @@ pub struct TermSessionInfo {
     /// client (and the next person measuring this) can now see staleness directly.
     #[serde(default)]
     pub idle_ms: u64,
+    /// A COMMAND IS IN FLIGHT IN THIS SESSION — the manager's own `busy` flag, which the execute wait-loop sets
+    /// and clears around the command it is waiting for (round 28 of the standing goal).
+    ///
+    /// WHY THE DEVICE REPORTS IT. The panel derives this correctly from the audit trail — "a trailing
+    /// command/start with no end: still running" — but only for the session whose trail it has loaded, so the
+    /// rail and every OTHER tab decide "working" from output recency. A command that runs silently for a minute
+    /// therefore reads as idle in exactly the case this device exists for: a flash, a long probe, a serial
+    /// command whose only output is the last line. The device has known it all along; it now says so.
+    #[serde(default)]
+    pub command_running: bool,
     /// The session is in APPROVAL MODE: `terminal_execute` must be approved by a
     /// person before it reaches the shell. Off by default — autonomous operation
     /// is the point of the product, and a gate nobody asked for is just a delay.
@@ -1845,6 +1855,7 @@ mod desktop_impl {
                     kind: s.kind.clone(),
                     label: s.label.clone(),
                     idle_ms: s.last_output.elapsed().as_millis() as u64,
+                    command_running: s.busy,
                     shell: s.shell.clone(),
                     held_by_human: s.held_by_human,
                     approval_required: s.approval_required,
@@ -1871,6 +1882,7 @@ mod desktop_impl {
                     kind: s.kind.clone(),
                     label: s.label.clone(),
                     idle_ms: s.last_output.elapsed().as_millis() as u64,
+                    command_running: s.busy,
                     shell: s.shell.clone(),
                     held_by_human: s.held_by_human,
                     approval_required: s.approval_required,
@@ -3191,6 +3203,7 @@ mod tests {
             shell: "bash".into(),
             held_by_human: true,
             idle_ms: 3_600_000,
+            command_running: true,
             approval_required: true,
             pending_approval: Some(PendingApprovalInfo {
                 id: "ap-9f2c".into(),
@@ -3218,6 +3231,7 @@ mod tests {
             shell: "powershell".into(),
             held_by_human: false,
             idle_ms: 0,
+            command_running: false,
             approval_required: false,
             pending_approval: None,
             approval_grants: vec![],

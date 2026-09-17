@@ -91,6 +91,16 @@ export interface Session {
    *  never the session's age — but idle time is now a FACT the device measured, which is what lets
    *  the panel offer to close what nobody is using. */
   idleMs: number;
+  /**
+   * A COMMAND IS IN FLIGHT IN THIS SESSION — the device's own `busy` flag, which its execute wait-loop sets around
+   * the command it is waiting for (round 28 of the standing goal).
+   *
+   * THE PANEL ALREADY DERIVES THIS, for the one session whose trail it has loaded ("a trailing command/start with
+   * no end: still running"), and could not for any other: the rail and the other tabs decided "working" from
+   * `idleMs`, which is OUTPUT RECENCY — so a command that runs silently read as idle in exactly the case this
+   * device exists for. The device has known all along; the row says so now.
+   */
+  commandRunning: boolean;
   /** WHEN THIS PANEL FIRST SAW THE SESSION — not when it opened.
    *
    *  This field was called `openedAt` and rendered as the session's AGE, which
@@ -192,7 +202,7 @@ export function useSessions(connected: boolean) {
           for (const s of list as any[]) {
             const existing = next.find((x) => x.sid === s.id);
             if (!existing) {
-              next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
+              next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
                 approvalRequired: !!s.approval_required, pendingApproval: mapPending(s),
                 approvalGrants: mapGrants(s), goal: mapGoal(s), plan: mapPlan(s) });
             } else if (existing.closed) {
@@ -290,7 +300,7 @@ export function useSessions(connected: boolean) {
           const missing = (list as any[]).filter((s) => !prev.some((x) => x.sid === s.id));
           const next = [...prev];
           for (const s of missing) {
-            next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
+            next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
                 approvalRequired: !!s.approval_required, pendingApproval: mapPending(s),
                 approvalGrants: mapGrants(s), goal: mapGoal(s), plan: mapPlan(s) });
           }
@@ -369,7 +379,7 @@ export function useSessions(connected: boolean) {
         // round-86: the new session is the ACTIVE one — the old active:false
         // + setActiveSid(sid) never set the session's own flag, so the pane
         // stayed display:none (blank terminal area).
-        return [...prev.filter((s) => s.sid !== sid).map((s) => ({ ...s, active: false })), { sid, label, kind, closed: false, savedOnly: false, active: true, idleMs: 0, firstSeenAt: Date.now(), closedAt: null, heldByHuman: false, approvalRequired: false, pendingApproval: null, approvalGrants: [], goal: null, plan: [] }];
+        return [...prev.filter((s) => s.sid !== sid).map((s) => ({ ...s, active: false })), { sid, label, kind, closed: false, savedOnly: false, active: true, idleMs: 0, commandRunning: false, firstSeenAt: Date.now(), closedAt: null, heldByHuman: false, approvalRequired: false, pendingApproval: null, approvalGrants: [], goal: null, plan: [] }];
       });
       setActiveSid(sid);
       return sid;

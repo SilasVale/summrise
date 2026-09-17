@@ -8,7 +8,7 @@ import type { Session } from "../../hooks/useSessions";
 const idle = (sid: string, label: string): Session =>
   ({
     sid, label, kind: "pty", closed: false, savedOnly: false, active: false,
-    idleMs: 3 * 3600_000, firstSeenAt: 0, closedAt: null, heldByHuman: false,
+    idleMs: 3 * 3600_000, commandRunning: false, firstSeenAt: 0, closedAt: null, heldByHuman: false,
     approvalRequired: false, pendingApproval: null, approvalGrants: [], goal: null, plan: [],
   }) as Session;
 
