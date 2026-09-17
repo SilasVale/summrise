@@ -25,53 +25,70 @@
 // Deliberately counts EVERY literal, including the legitimate ones (0 is skipped; 1px hairlines and negative
 // optical adjustments are counted and ratcheted like the rest). An allow-list would need a reason per entry and
 // would drift; a number that may only improve does not.
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-
-const STYLES = "agent/resources/panel-react/src/styles";
-
-// THE BASELINE, measured in round 220 from the built sources. It may only move in the good direction.
-const BASELINE = { tokenUses: 151, offScaleUses: 305 };
 
 const SCALE = new Set([0, 2, 4, 8, 12, 16, 24]);
 const SPACING = /(?:^|[\s;{])(gap|row-gap|column-gap|padding|padding-(?:top|right|bottom|left)|margin|margin-(?:top|right|bottom|left))\s*:\s*([^;}]+)/g;
 
-let tokenUses = 0;
-let offScaleUses = 0;
-const offenders = [];
-
-for (const file of readdirSync(STYLES).filter((f) => f.endsWith(".css")).sort()) {
-  const css = readFileSync(join(STYLES, file), "utf8");
-  for (const m of css.matchAll(SPACING)) {
-    const value = m[2].trim();
-    tokenUses += [...value.matchAll(/var\(--[a-z0-9-]+\)/g)].length;
-    for (const px of value.matchAll(/(-?\d+(?:\.\d+)?)px/g)) {
-      const n = Number(px[1]);
-      if (n === 0 || SCALE.has(n)) continue;
-      offScaleUses++;
-      offenders.push(`${file}: ${m[1]}: ${value.slice(0, 40)}`);
-    }
-  }
-}
+// THE BASELINES, measured in rounds 220-222, one per UI. Each may only move in the good direction.
+const UIS = [
+  {
+    name: "panel",
+    sheets: () => readdirSync("agent/resources/panel-react/src/styles").filter((f) => f.endsWith(".css")).sort()
+      .map((f) => join("agent/resources/panel-react/src/styles", f)),
+    tokenUses: 151,
+    offScaleUses: 305,
+  },
+  {
+    name: "console",
+    sheets: () => readdirSync("gateway/ui/src/styles").filter((f) => f.endsWith(".css")).sort()
+      .map((f) => join("gateway/ui/src/styles", f)),
+    tokenUses: 0,
+    // 136, NOT the 194 an ad-hoc scan reported: that scan swept gateway/public/style.css as well, which round
+    // 209 established is DEAD (nothing links it). A baseline has to come from the instrument that will enforce
+    // it — taken from the ad-hoc number, this ratchet allowed 58 new literals and a planted 13px passed it.
+    offScaleUses: 136,
+  },
+  {
+    name: "extension",
+    sheets: () => ["extension/options/options.css"].filter(existsSync),
+    tokenUses: 0,
+    offScaleUses: 6,
+  },
+];
 
 const failures = [];
-if (offScaleUses > BASELINE.offScaleUses) {
-  failures.push(
-    `off-scale spacing rose from ${BASELINE.offScaleUses} to ${offScaleUses} — the scale is ` +
-      `${[...SCALE].join("/")}px, and a new literal widens the gap between the design and its tokens`,
-  );
-}
-if (tokenUses < BASELINE.tokenUses) {
-  failures.push(`token uses fell from ${BASELINE.tokenUses} to ${tokenUses} — a scale step was replaced by a literal`);
+const lines = [];
+for (const ui of UIS) {
+  let tokenUses = 0;
+  let offScaleUses = 0;
+  const offenders = [];
+  for (const file of ui.sheets()) {
+    const css = readFileSync(file, "utf8");
+    for (const m of css.matchAll(SPACING)) {
+      const value = m[2].trim();
+      tokenUses += [...value.matchAll(/var\(--[a-z0-9-]+\)/g)].length;
+      for (const px of value.matchAll(/(-?\d+(?:\.\d+)?)px/g)) {
+        const n = Number(px[1]);
+        if (n === 0 || SCALE.has(n)) continue;
+        offScaleUses++;
+        if (offenders.length < 3) offenders.push(file.split("/").pop() + ": " + value.slice(0, 28));
+      }
+    }
+  }
+  if (offScaleUses > ui.offScaleUses) {
+    failures.push(ui.name + ": off-scale spacing rose from " + ui.offScaleUses + " to " + offScaleUses + " — " + offenders.join(" | "));
+  }
+  if (tokenUses < ui.tokenUses) {
+    failures.push(ui.name + ": token uses fell from " + ui.tokenUses + " to " + tokenUses);
+  }
+  lines.push(ui.name + " " + tokenUses + " token / " + offScaleUses + " off-scale");
 }
 
 if (failures.length) {
   console.error("spacing scale: FAILED");
   for (const f of failures) console.error("  " + f);
-  console.error(`  first offenders: ${offenders.slice(0, 4).join(" | ")}`);
   process.exit(1);
 }
-console.log(
-  `spacing scale: ok — ${tokenUses} token uses (at least ${BASELINE.tokenUses}), ` +
-    `${offScaleUses} off-scale literals (at most ${BASELINE.offScaleUses})`,
-);
+console.log("spacing scale: ok — " + lines.join(" · "));
