@@ -39,6 +39,17 @@ describe("idle sessions", () => {
     expect(got).toEqual(["c", "d"]);
   });
 
+  it("never offers a session that is HOLDING A COMMAND, however silent it is", () => {
+    // THE CASE THAT MAKES THIS AN ACTION RATHER THAN A MARK. A flash, a long probe or a serial command can run for
+    // an hour without printing anything, and `idleMs` is output recency — so without this the panel would offer to
+    // CLOSE a session in the middle of its work. A wrong mark is read; a wrong action is taken.
+    const working = s({ sid: "flashing", idleMs: 2 * 3600_000, commandRunning: true });
+    const silent = s({ sid: "forgotten", idleMs: 2 * 3600_000 });
+    expect(idleSessions([working, silent]).map((x) => x.sid)).toEqual(["forgotten"]);
+    // and the offer's own line never counts it either
+    expect(idleOfferText(idleSessions([working]))).toBe("");
+  });
+
   it("never offers a CLOSED session: there is no shell left to release", () => {
     // Counting them would also make the number wrong — closed tabs stay in the list as tombstones.
     const closed = s({ sid: "closed", closed: true, idleMs: 5 * 3600_000 });

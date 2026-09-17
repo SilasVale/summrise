@@ -19,9 +19,17 @@ import type { Session } from "../hooks/useSessions";
 /** Silence past which a session is worth offering to close. See the note above for why an hour. */
 export const IDLE_OFFER_MS = 60 * 60 * 1000;
 
-/** The sessions nobody is using: live, and silent for longer than the threshold. */
+/**
+ * The sessions nobody is using: live, silent for longer than the threshold, and NOT holding a command.
+ *
+ * THE THIRD CONDITION IS NOT BELT AND BRACES (round 30 of the standing goal). Silence is not idleness: a flash, a
+ * long probe or a serial command can run for an hour without printing anything, and `idleMs` is OUTPUT RECENCY.
+ * Without this the panel would OFFER TO CLOSE a session that is in the middle of a command — and the device's own
+ * `command_running` flag, which the rest of the panel now reads, says exactly when that is the case. An offer to
+ * close is an action, not a mark: a wrong mark is read, a wrong action is taken.
+ */
 export function idleSessions(sessions: Session[], thresholdMs: number = IDLE_OFFER_MS): Session[] {
-  return sessions.filter((s) => !s.closed && !s.savedOnly && s.idleMs > thresholdMs);
+  return sessions.filter((s) => !s.closed && !s.savedOnly && !s.commandRunning && s.idleMs > thresholdMs);
 }
 
 /** ONE LINE for the offer: how many, and the longest silence among them. */
