@@ -17,16 +17,23 @@ import { PAGE as renderLanding } from "../../index/src/page.js";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PAGE = "index/src/page.js";
 
-const vars = new Map();
-const text = readFileSync(ROOT + PAGE, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-for (const m of text.matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
-  if (!vars.has(m[1])) vars.set(m[1], m[2]);
-}
-const v = (name) => {
-  const value = vars.get(name);
-  if (!value) throw new Error(`${PAGE} does not define ${name} — the check is reading the wrong thing`);
-  return value;
+// BOTH BLOCKS, from the stylesheet the page actually renders. The light values are the ones outside the dark
+// attribute; the dark ones are inside it, and a token the dark block does not restate keeps its light value.
+const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz", "vale setup");
+const style = (/<style[\s\S]*?<\/style>/.exec(rendered) || [""])[0];
+if (!style) throw new Error("the landing rendered no <style> — this check is reading the wrong thing");
+const darkStart = style.indexOf("body[data-ds-dark-theme]");
+if (darkStart < 0) throw new Error("no dark block in the landing's stylesheet — the theme toggle would do nothing");
+
+const readVars = (css) => {
+  const out = new Map();
+  for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
+    if (!out.has(m[1])) out.set(m[1], m[2]);
+  }
+  return out;
 };
+const LIGHT = readVars(style.slice(0, darkStart));
+const DARK = new Map([...LIGHT, ...readVars(style.slice(darkStart))]);
 
 const PAIRS = [
   ["label-primary on bg-base", "--dsw-alias-label-primary", "--dsw-alias-bg-base"],
@@ -41,19 +48,30 @@ const PAIRS = [
 
 const AA_TEXT = 4.5;
 const failures = [];
-const rows = [];
-for (const [label, fgName, bgName] of PAIRS) {
-  const fg = v(fgName);
-  const bg = v(bgName);
-  const ratio = contrastRatio(parseColour(fg), parseColour(bg));
-  rows.push(`${ratio.toFixed(2)} ${label}`);
-  if (ratio < AA_TEXT) failures.push(`${label}: ${fg} on ${bg} measures ${ratio.toFixed(2)}, under the ${AA_TEXT} AA wants for text`);
+let checked = 0;
+const themeVars = { light: LIGHT, dark: DARK };
+for (const theme of ["light", "dark"]) {
+  const vars = themeVars[theme];
+  const v = (name) => {
+    const value = vars.get(name);
+    if (!value) throw new Error(`${PAGE} does not define ${name} for ${theme} — the check is reading the wrong thing`);
+    return value;
+  };
+  for (const [label, fgName, bgName] of PAIRS) {
+    const fg = v(fgName);
+    const bg = v(bgName);
+    const ratio = contrastRatio(parseColour(fg), parseColour(bg));
+    checked++;
+    if (ratio < AA_TEXT) {
+      failures.push(`${theme}: ${label}: ${fg} on ${bg} measures ${ratio.toFixed(2)}, under the ${AA_TEXT} AA wants for text`);
+    }
+  }
 }
 
 // A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN: a floor on the tokens found, so a rename in page.js fails loudly
 // instead of silently checking nothing.
-if (vars.size < 10) {
-  console.error(`landing contrast: FAILED — only ${vars.size} colours read from ${PAGE}, so this proves nothing`);
+if (LIGHT.size < 10 || DARK.size < 10) {
+  console.error(`landing contrast: FAILED — ${LIGHT.size} light / ${DARK.size} dark colours read from ${PAGE}, so this proves nothing`);
   process.exit(1);
 }
 if (failures.length) {
@@ -61,8 +79,7 @@ if (failures.length) {
   for (const f of failures) console.error("  " + f);
   process.exit(1);
 }
-console.log(`landing contrast: ok — ${PAIRS.length} pairs, ${vars.size} colours read from ${PAGE}`);
-for (const r of rows) console.log("    " + r);
+console.log(`landing contrast: ok — ${PAIRS.length} pairs in BOTH themes (${checked} measurements), ${LIGHT.size} light / ${DARK.size} dark colours read from ${PAGE}`);
 
 // ── the DOCUMENT's structure, which no sweep covers for this page ───────────────────────────────────────────
 {
