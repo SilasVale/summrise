@@ -27,6 +27,14 @@ function browserScript() {
   const script = `const fs = require('fs');
 const path = require('path');
 const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension';
+
+// THE ENTRY THIS SWEEP WAS EMITTED AGAINST. Both UIs are measured from a DELIVERED copy of their
+// build, and nothing said which generation it was: round 184 found the console's directory holding eight
+// files from four generations, and round 189 lost an afternoon to a stale PANEL harness whose collapsed
+// tab strip read as a live regression. The panel's harness now stamps itself; these two carry the entry's
+// digest instead, because a stale delivery always shows up in the file that names everything else.
+const EXPECTED_ENTRY = {"bytes": 3596, "sha": "0647992fe70c"}\;
+const EXPECTED_ENTRY_PATH = "C:\\\\ProgramData\\\\Vale\\\\pwout\\\\extension\\\\options\\\\options.html";
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 ${pageChecks("body")}
 const focusPass = ${focusPass.toString()};
@@ -51,7 +59,7 @@ const shim = () => "<script>window.chrome={storage:{local:{get:(k,cb)=>{const v=
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], unstyled: [], targets: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], unstyled: [], targets: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   // TWO STORAGE STATES. Empty storage is the state a NEW INSTALL is in — the origin falls back to
   // DEFAULT_STUDIO_ORIGIN and the links toggle starts off — and it is a different page to look at
   // than the configured one. Measured by hand in round 63; repeated here so it stays measured.

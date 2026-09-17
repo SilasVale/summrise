@@ -425,6 +425,17 @@ export function judgeReport(report, opts = {}) {
   // delivered harness two generations old: its inlined CSS collapsed the tab strip to 17px and the sweep
   // reported overflow that looked exactly like a live regression. A finding is the right weight — nothing
   // below can be trusted until the fixture is regenerated.
+  // A DELIVERED COPY OLDER THAN THE BUILD MEASURES SOMETHING NOBODY CAN NAME. Same weight as a stale panel
+  // harness, and the same evidence-free failure mode: a UI whose CSS has moved on reports findings that look
+  // live. The check travels with every console and extension report.
+  if (report.entryCheck && report.entryCheck.stale) {
+    const e = report.entryCheck;
+    findings.push(
+      e.error
+        ? `the delivered entry could not be read (${e.error}) — expected ${e.expected.bytes} bytes, sha ${e.expected.sha}`
+        : `the delivered entry is ${e.bytes} bytes / sha ${e.sha} but this sweep was emitted against ${e.expected.bytes} / ${e.expected.sha} — every measurement below is of a stale build`,
+    );
+  }
   if (report.harnessStale) {
     findings.push(
       `the harness is build ${report.harnessBuild} but this sweep was emitted against ${report.expectedHarnessBuild} — ` +

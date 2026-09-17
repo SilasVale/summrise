@@ -45,6 +45,14 @@ function browserScript() {
   const script = `const fs = require('fs');
 const path = require('path');
 const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
+
+// THE ENTRY THIS SWEEP WAS EMITTED AGAINST. Both UIs are measured from a DELIVERED copy of their
+// build, and nothing said which generation it was: round 184 found the console's directory holding eight
+// files from four generations, and round 189 lost an afternoon to a stale PANEL harness whose collapsed
+// tab strip read as a live regression. The panel's harness now stamps itself; these two carry the entry's
+// digest instead, because a stale delivery always shows up in the file that names everything else.
+const EXPECTED_ENTRY = {"bytes": 1375, "sha": "2ed85bd5be71"}\;
+const EXPECTED_ENTRY_PATH = "C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console\\\\index.html";
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
@@ -125,7 +133,7 @@ const empty = { fleet: false };
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   // THE CONSOLE IN DARK. It has a dark theme — body[data-theme=dark], applied before the first paint and
   // persisted in localStorage — and every section of this sweep hardcoded theme: 'light', so a dark
   // regression has been invisible here for as long as the sweep has existed. Round 175 found the same gap in

@@ -95,6 +95,15 @@ for t in "${tests[@]}"; do
   if [ "$rc" = "1" ]; then ok "extension: the judge fails $label"; else bad "extension: $label was NOT a finding (rc=$rc)"; fi
 done
 
+# ── 3b. a DELIVERED COPY OLDER THAN THE BUILD ──────────────────────────────────────────────────
+# Round 184 found the console's directory holding eight files from four generations; round 189 lost an
+# afternoon to a stale panel harness. Neither adapter had anything to say about it, so the entry's digest is
+# baked at emit time and checked at run time. This plants the mismatch.
+write_ext "$TMP/ext-stale.json" "r['entryCheck'] = {'bytes': 1, 'sha': 'deadbeef0000', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': True}"
+[ "$(judge "$EXT" "$TMP/ext-stale.json")" = "1" ] && ok "extension: the judge fails a stale delivered entry" || bad "extension: a stale entry was NOT a finding"
+write_ext "$TMP/ext-unreadable.json" "r['entryCheck'] = {'error': 'ENOENT', 'expected': {'bytes': 3596, 'sha': '0647992fe70c'}, 'stale': True}"
+[ "$(judge "$EXT" "$TMP/ext-unreadable.json")" = "1" ] && ok "extension: an unreadable entry fails too, naming the expected digest" || bad "extension: an unreadable entry was NOT a finding"
+
 # ── 4. the console's rules: target size and the theme it actually rendered ─────────────────────
 write_con "$TMP/con-target.json" "r['targets'] = [{'page': 'overview', 'checked': 10, 'undersized': 1, 'distinct': [{'sel': 'button.x', 'text': 'x', 'w': 12, 'h': 12, 'nearest': 4.0, 'passesBySpacing': False}]}]"
 [ "$(judge "$CON" "$TMP/con-target.json")" = "1" ] && ok "console: the judge fails an undersized target with no spacing" || bad "console: a planted 2.5.8 failure was NOT a finding"
