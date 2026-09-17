@@ -649,6 +649,24 @@ function judge(file) {
       warn:
         "the boot chip's tone modifier. The BASE rule paints it — .boot-mark is the warn triangle and .boot-mark.info is the exception — so the name needs no rule of its own. Round 121 followed it anyway, and found a real defect behind it: the triangle used --state-warn, which measures 2.80 on the dark chip surface against the 3:1 a graphic needs. Fixed to --warn-ink (6.45 / 8.76).",
     },
+    // PAGES WHOSE SECOND LOUD ELEMENT IS NAVIGATION. Measured round 42, with the sweep's OWN theme and loud
+    // readings, on every rail page in both densities: light is 0 loud on six of six pages in the panel and 0-1 in
+    // the desktop; DARK is the one that reaches two, on the Terminal page only, and the two elements are
+    //
+    //     panel    button.rail-btn   1444px2   which page you are on
+    //              div.tab           3254px2   which session you are looking at
+    //     desktop  button.desktop-rail-btn 1600px2 + button.btn-new 1915px2 (the primary ACTION, which
+    //              state-colour-check deliberately protects: an accent button is an action, not a state)
+    //
+    // The loud axis exists to catch a page with two competing FOCAL POINTS — nothing on this page is about the
+    // rail or the tab strip, and the terminal canvas behind them is not loud at all. Whether the dark theme should
+    // DESATURATE one of these is a design question, and it is recorded as one rather than settled here: the same
+    // family of question as inbox row 17 (a halo meaning "lit" on one surface and "in flight" on another).
+    //
+    // THE NAME IS A PREFIX, so this also covers `panel-Terminal-16-sessions` — measured at 1 loud today, so it is
+    // not hiding a known defect, but a change that made THAT page shout would pass because of this entry. Said out
+    // loud here because a suppression that quietly widens is the thing this ledger keeps warning about.
+    twoloud: ["panel-Terminal", "desktop-Terminal"],
     // THIS HARNESS'S OWN BLIND SPOT, named rather than filtered silently. `#tabs` measures ~0-185px
     // in a plain browser and 211px on the device, so the tab strip's children report as overflowing
     // containers here and nowhere else; and the 320px document scroll is the SAME artifact (round 50

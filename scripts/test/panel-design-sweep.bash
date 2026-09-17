@@ -76,6 +76,27 @@ else
   bad "a clean report was rejected: $(tail -3 "$TMP/clean.out")"
 fi
 
+# ── 2b. THE `twoloud` EXCEPTION EXCEPTS, AND ONLY WHERE IT IS NAMED ────────────────────────────
+# Round 42 added 24 rail surfaces to the pages pass and TWO of them measure two loud elements: the rail button that
+# says which page you are on, and the tab or new-session button. The ceiling of one is right about focal points and
+# wrong about two indicators of where you are, so those two pages are named. This pins BOTH directions on the same
+# planted reading — the named page must pass, and a page that is not named must still fail (that case lives in the
+# axis loop as `loud-not-excepted`). Without the first, the pass would go red on a defect-free page; without the
+# second, a wider exception would hide a page that really did have two focal points.
+sed 's/"page": "Terminal"/"page": "panel-Terminal"/' "$TMP/clean.json" > "$TMP/twoloud.json"
+python3 - "$TMP/twoloud.json" <<'PYEOF'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["surfaces"][0]["loud"] = ["button.rail-btn 1444px2 rgb(154,52,18)", "div.tab 3254px2 rgb(154,52,18)"]
+json.dump(d, open(p, "w"), indent=1)
+PYEOF
+if node "$TOOL" --judge "$TMP/twoloud.json" > "$TMP/twoloud.out" 2>&1; then
+  ok "the pages whose second loud element is NAVIGATION pass, by name"
+else
+  bad "a named page was rejected: $(tail -3 "$TMP/twoloud.out")"
+fi
+
 # ── 3. every axis can FAIL ────────────────────────────────────────────────────────────────────
 # One planted defect per axis, each in its own report, so no branch of the judge can rot unnoticed.
 plant() { # plant <name> <jq-ish python edit>
@@ -105,6 +126,9 @@ elif which == "loud":
     # TWO THINGS SHOUTING IS ONE FOCAL POINT TOO MANY. The probe counts a genuinely saturated fill of a certain
     # size (round 18); this plants a second one beside the first.
     r["surfaces"][0]["loud"] = ["button.approval-approve 1526px2 rgb(30,122,51)", "button.btn-primary 19680px2 rgb(176,58,10)"]
+elif which == "loud-not-excepted":
+    r["surfaces"][0]["page"] = "panel-Memory"
+    r["surfaces"][0]["loud"] = ["button.rail-btn 1444px2 rgb(154,52,18)", "div.tab 3254px2 rgb(154,52,18)"]
 elif which == "name":
     r["names"][0]["unnamed"] = ["input.mem-input"]
 elif which == "title-only":
@@ -166,7 +190,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud mark-collision name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted mark-collision name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"

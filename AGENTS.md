@@ -121,6 +121,23 @@ rendered 24 times instead of never. A click that fails to move the active button
 because a report of eight clean surfaces measured on one page is the "a scan that read nothing" trap wearing a
 progress bar.
 
+AND ADDING 24 SURFACES TO A PASS IS A CHANGE THAT CAN TURN IT RED, so it was measured before it could (round 42,
+with the sweep's OWN theme and loud readings — the ninth probe-lie of this arc was a reinvented theme read). Light is
+0 loud on all six panel pages and 0-1 in the desktop. DARK reaches two, on the Terminal page only, in both densities:
+
+    panel    button.rail-btn 1444px2 (which page you are on) + div.tab 3254px2 (which session)
+    desktop  button.desktop-rail-btn 1600px2 + button.btn-new 1915px2 (the primary ACTION, which
+             state-colour-check deliberately protects: an accent button is an action, not a state)
+
+The loud axis catches two competing FOCAL POINTS, and nothing on that page is about the rail or the tab strip — the
+terminal canvas behind them is not loud at all. So the two pages are NAMED (`twoloud`), which is the mechanism the
+judge documents for exactly this, and the reason says plainly that the NAME IS A PREFIX: it also covers
+`panel-Terminal-16-sessions`, measured at 1 loud today, so it is not hiding a known defect — but a change that made
+THAT page shout would pass because of this entry.
+
+`panel-design-sweep.bash` pins both directions on the same planted reading: the named page passes (`2b`), and a page
+that is NOT named still fails (`loud-not-excepted` in the axis loop). 45 ok / 0 failed.
+
 ### The LANDING has no rendered sweep, and that is a decision (measured round 37 of the standing goal)
 
 It is the one surface of the four that no sweep visits, and the reason is not an oversight: `landing-check.mjs` reads
