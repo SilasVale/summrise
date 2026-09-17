@@ -20,8 +20,15 @@
 //     agent_up: false       -> err   "offline"       — asked, and the agent is not answering
 //     agent_up: true        -> ok    "online"
 //
-// WHAT THIS IS NOT: a device whose status is STALE. `checked_at` says when the gateway last probed, and a row could
-// report "checked 40 minutes ago"; distinguishing that from fresh is a second question, and it is not answered here.
+// HOW OLD IS THIS, AND HOW OLD CAN IT BE — ANSWERED, not left open. An earlier version of this note said a row could
+// be "checked 40 minutes ago" and that freshness was a second question. It is not: the worker probes each device's
+// own /api/status through its tunnel behind a 30-second in-isolate cache (DEVICE_PROBE_TTL_MS in
+// `vale-gate/src/plugins/mcp.ts`, mirrored for the console's code viewer at
+// `gateway/public/code/files/vale-gate/src/plugins/mcp.ts`), the console polls every 30s, and `checked_at` is THAT
+// probe's timestamp — not the newer `agent_update` check's, which is a different field on the same row. So the
+// worst-case age of an `agent_up` reading is about a minute, a stale row cannot masquerade as a fresh one, and no
+// fourth "stale" state is needed. A test in `test/device-state.test.mjs` reads the mirror and fails if the TTL this
+// note cites stops matching the source.
 
 type Signal = "ok" | "err" | "off";
 

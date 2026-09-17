@@ -6,7 +6,12 @@
 // rendered it (round 35 of the standing goal).
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../src/lib/deviceState.ts";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The dictionary, stubbed: these tests are about which KEY is chosen, not what it says. */
 const t = (key) => key;
@@ -59,4 +64,33 @@ test("an empty or absent list tallies to zero rather than throwing", () => {
   const t = deviceTally([{ name: "d1" }, { name: "d2" }], {});
   assert.equal(t.online, 0);
   assert.equal(t.unchecked, 2);
+});
+
+// ── THE NOTE'S NUMBER IS CHECKED AGAINST THE SOURCE THAT DECIDES IT (round 47) ────────────────────────────────
+test("the freshness claim in deviceState.ts still matches the worker's probe TTL", () => {
+  // WHY THIS EXISTS. `deviceState.ts` used to carry a "WHAT THIS IS NOT" paragraph saying a row could be "checked 40
+  // minutes ago" and that freshness was unanswered. The worker's own source answers it — a 30-second probe cache —
+  // and a reason that is FALSE is worse than no reason, in the one file four different checks point a reader at.
+  // This pins the number to the mirror so the note cannot rot: change the TTL and this fails, and the note gets
+  // corrected with it.
+  const mirror = readFileSync(
+    path.join(HERE, "..", "..", "public", "code", "files", "vale-gate", "src", "plugins", "mcp.ts"),
+    "utf8",
+  );
+  const ttl = /DEVICE_PROBE_TTL_MS\s*=\s*([0-9_]+)/.exec(mirror);
+  assert.ok(ttl, "the probe TTL moved or was renamed — deviceState.ts cites it by name, so this check needs updating");
+  const seconds = Number(ttl[1].replace(/_/g, "")) / 1000;
+  const note = readFileSync(path.join(HERE, "..", "src", "lib", "deviceState.ts"), "utf8");
+  assert.match(
+    note,
+    new RegExp(`${seconds}-second`),
+    `deviceState.ts no longer states the ${seconds}-second freshness window the worker implements`,
+  );
+  // THE CLAIM, NOT THE WORDS. The retraction has to be able to NAME what it retracts, so forbidding the phrase
+  // "second question" would forbid the correction — which is how this assertion failed its own first run. What must
+  // not come back is the sentence that made the claim.
+  assert.ok(
+    !/distinguishing that from fresh is a second question/.test(note),
+    "the retracted claim is back in deviceState.ts — the worker answers it, and a false reason is worse than none",
+  );
 });
