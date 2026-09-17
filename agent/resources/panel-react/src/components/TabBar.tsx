@@ -4,7 +4,7 @@ import type { Session } from "../hooks/useSessions";
 import { useActiveTabVisible } from "../hooks/useActiveTabVisible";
 import { useStripOverflow } from "../hooks/useStripOverflow";
 import { disambiguateLabels } from "../lib/sessionLabels";
-import { sessionLiveness } from "../lib/liveness";
+import { sessionLiveness, sessionWaiting } from "../lib/liveness";
 import { Icon } from "../ui/Icon";
 
 /** Per-session main-area view (round-admin-ui Task 5): the terminal pane +
@@ -75,7 +75,7 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
           // session forever and the mark would stop meaning anything. There is
           // no count here on purpose — a session holds at most one question, so
           // a number would be either 0 or 1 and carry no information.
-          const waiting = !s.closed && !!s.pendingApproval;
+          const waiting = sessionWaiting(s);
           return (
           <div
             key={s.sid}

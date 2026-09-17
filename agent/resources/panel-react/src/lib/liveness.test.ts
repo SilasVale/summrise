@@ -18,6 +18,7 @@ import {
   sessionLiveness,
   sessionActive,
   anyCommandRunning,
+  sessionWaiting,
   type Liveness,
 } from "./liveness";
 import { WORKING_MS } from "../hooks/useDeviceActivity";
@@ -100,6 +101,21 @@ describe("the liveness model", () => {
     expect(anyCommandRunning([])).toBe(false);
     expect(anyCommandRunning([{ commandRunning: false }, { commandRunning: false }])).toBe(false);
     expect(anyCommandRunning([{ commandRunning: false }, { commandRunning: true }])).toBe(true);
+  });
+
+  it("a CLOSED session is not waiting, however it is asked", () => {
+    // THE TWO DENSITIES DISAGREED (round 33). A tombstone keeps its row's data, so a question that expired with the
+    // session survived in `pendingApproval`: the mark said `off` (unreachable outranks pending) while the DESKTOP
+    // tab's title said "waiting for your approval" about a tab nothing can be answered on. `sessionWaiting` is the
+    // one predicate all three surfaces read now, and this is the case that made it one.
+    const closedWithQuestion = { pendingApproval: { id: "ap-1" }, closed: true, idleMs: 0 };
+    expect(sessionWaiting(closedWithQuestion)).toBe(false);
+    expect(sessionLiveness(closedWithQuestion)).toBe("off");
+    // a LIVE one with a question is waiting, and that outranks being busy
+    expect(sessionWaiting({ pendingApproval: { id: "ap-1" }, closed: false, commandRunning: true })).toBe(true);
+    expect(sessionLiveness({ pendingApproval: { id: "ap-1" }, closed: false, commandRunning: true })).toBe("waiting");
+    // and no question is no wait
+    expect(sessionWaiting({ pendingApproval: null, closed: false })).toBe(false);
   });
 
   it("does not smear one busy session over the others", () => {

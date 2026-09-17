@@ -73,6 +73,24 @@ export function deviceLiveness(input: { connected: boolean; pendingCount: number
 /** A session. `reachable` follows the device because a session lives on it; a CLOSED session is not
  *  liveness at all, so it degrades to `off` rather than pretending to be idle. */
 /**
+ * CAN THIS SESSION STILL ANSWER — the ONE predicate the mark, the tab's title and its aria-label all read.
+ *
+ * WHY IT IS A FUNCTION (round 33 of the standing goal). Three surfaces derived it three ways:
+ *
+ *     TabBar          !s.closed && !!s.pendingApproval
+ *     DesktopShell    !!s.pendingApproval                        <- no closed check
+ *     sessionLiveness !!s.pendingApproval, with `reachable` carrying `!closed`
+ *
+ * A CLOSED session's row keeps its data — the tombstone is the same record — so a question that expired with the
+ * session it belonged to survived in `pendingApproval`. The mark got it right (unreachable outranks pending, so a
+ * closed session is `off`), and the DESKTOP tab's title said "waiting for your approval" about a tab that cannot be
+ * answered at all. The two densities disagreed about one session, which is the failure this model exists to stop.
+ */
+export function sessionWaiting(session: { pendingApproval?: unknown; closed?: boolean; commandRunning?: boolean }): boolean {
+  return !session.closed && !!session.pendingApproval;
+}
+
+/**
  * IS THE **SESSION** WORKING — not "is the device busy".
  *
  * THE FACT WAS ON THE WIRE AND UNUSED. `terminal_list` reports `idle_ms` per session (the agent's own
@@ -123,7 +141,7 @@ export function sessionLiveness(session: {
 }): Liveness {
   return livenessOf({
     reachable: !session.closed,
-    pending: !!session.pendingApproval,
+    pending: sessionWaiting(session),
     active: sessionActive(session),
   });
 }

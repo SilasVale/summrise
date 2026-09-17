@@ -16,7 +16,7 @@ import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { idleSessions } from "../lib/idleSessions";
-import { anyCommandRunning, sessionLiveness } from "../lib/liveness";
+import { anyCommandRunning, sessionLiveness, sessionWaiting } from "../lib/liveness";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
@@ -289,7 +289,7 @@ export function DesktopShell({
                     // the tab itself, keyed on `pendingApproval` — NEVER on the
                     // armed posture, which is permanent and would mark every
                     // session forever.
-                    const waiting = !!s.pendingApproval;
+                    const waiting = sessionWaiting(s);
                     // Same disambiguation the panel strip uses — the desktop renders its own tabs and was missed by
                     // round 167's fix (round 170 measured `d1, serial:COM4, d1, …` here).
                     const shown = displayLabels[tabIndex];
