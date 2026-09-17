@@ -10,7 +10,7 @@
 //   * clear being a real, findable act rather than a hidden consequence of an
 //     empty field.
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { GoalBar } from "../GoalBar";
 
 const props = (over: Partial<React.ComponentProps<typeof GoalBar>> = {}) => ({
@@ -134,5 +134,34 @@ describe("GoalBar", () => {
     expect(screen.getByRole("button").getAttribute("title")).toMatch(
       /judged against it/i,
     );
+  });
+});
+
+describe("the acknowledgement", () => {
+  it("names the control you pressed — pressing Clear does not make Save look busy", async () => {
+    // THE FLAG COULD NOT TELL THEM APART. `busy` drove the Save button's "…" label, and Clear shared the flag, so
+    // clearing a goal made SAVE report that it was working. The promise never settles: the acknowledgement has to
+    // come from the event, and this gives it nothing to wait for.
+    let release!: () => void;
+    const onSet = vi.fn(() => new Promise<null>((res) => { release = () => res(null); }));
+    render(<GoalBar {...props({ goal: "provision the ONU", onSet })} />);
+
+    fireEvent.click(screen.getByText("provision the ONU"));   // enter editing
+    const clear = screen.getByText("Clear");
+    fireEvent.click(clear);
+
+    // NO AWAIT: the state the click produced is already on screen.
+    expect(clear.getAttribute("aria-busy"), "Clear must say it heard").toBe("true");
+    expect(clear.getAttribute("data-busy")).toBe("1");
+    const save = screen.getByText("Save");
+    expect(save.textContent, "Save must NOT claim to be the one working").toBe("Save");
+    expect(save.getAttribute("aria-busy")).toBeNull();
+    expect((save as HTMLButtonElement).disabled, "it steps back instead").toBe(true);
+
+    // …and on success the FORM closes, so the element that carried the ack is gone rather than merely cleared —
+    // asserted on a fresh query, because the captured node is detached and keeps its last attributes.
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.queryByText("Clear")).toBeNull());
+    expect(screen.getByText("provision the ONU")).toBeTruthy();
   });
 });

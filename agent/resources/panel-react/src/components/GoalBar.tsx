@@ -18,6 +18,7 @@
 // the kind of confident guess this whole design keeps refusing to make. The goal
 // is shown BESIDE the outcome and the operator draws the conclusion.
 import { useEffect, useRef, useState } from "react";
+import { useAck } from "../lib/useAck";
 
 export function GoalBar({ goal, onSet }: {
   goal: string | null;
@@ -25,7 +26,9 @@ export function GoalBar({ goal, onSet }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(goal ?? "");
-  const [busy, setBusy] = useState(false);
+  // THREE CONTROLS, ONE FLAG, AND THE WRONG ONE REPORTED: Save showed "…" when you pressed CLEAR, because the
+  // flag said only that something was in flight. The key names it now (lib/useAck.ts).
+  const { busy, busyOn, ack, run } = useAck();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // A NEW session's goal must not inherit the previous draft: the panel keeps one
@@ -40,16 +43,13 @@ export function GoalBar({ goal, onSet }: {
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  const save = async (value: string) => {
-    setBusy(true);
+  const save = async (value: string, key: "save" | "clear") => {
     try {
-      await onSet(value);
+      await run(key, () => onSet(value));
       setEditing(false);
     } catch {
       // The hook reports the message; this keeps the form open so the operator
       // does not lose what they typed to a transient failure.
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -84,7 +84,7 @@ export function GoalBar({ goal, onSet }: {
       className="editing"
       onSubmit={(e) => {
         e.preventDefault();
-        void save(draft);
+        void save(draft, "save");
       }}
     >
       <input
@@ -102,8 +102,8 @@ export function GoalBar({ goal, onSet }: {
           }
         }}
       />
-      <button type="submit" className="goal-save" disabled={busy}>
-        {busy ? "…" : "Save"}
+      <button type="submit" className="goal-save" disabled={busy} {...ack("save")}>
+        {busyOn === "save" ? "…" : "Save"}
       </button>
       {/* Clearing is an explicit act, offered only when there is something to
           clear. An empty save would also work, but a named button makes the
@@ -113,7 +113,8 @@ export function GoalBar({ goal, onSet }: {
           type="button"
           className="goal-clear"
           disabled={busy}
-          onClick={() => void save("")}
+          {...ack("clear")}
+          onClick={() => void save("", "clear")}
         >Clear</button>
       )}
     </form>
