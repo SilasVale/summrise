@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# panel-design-ci.bash — run the PANEL DESIGN SWEEP in CI, against the repository's own build.
+# design-sweep-ci.bash — run the PANEL DESIGN SWEEP in CI, against the repository's own build.
+#
+# NOT IN scripts/test/: pack-chain runs EVERY script in that directory, and this one needs a browser that only
+# the design job installs. Round 213 put it there first and pack-chain failed with "Cannot find package
+# 'playwright-core'" — a script that needs a browser is not an artifact gate.
 #
 # WHY THIS EXISTS (round 213). The design suite has only ever run when the loop remembered to run it, on a
 # DEVICE, against DELIVERED copies of the harness and the panel. Rounds 184-212 between them found: a console

@@ -126,7 +126,7 @@ jobs:
         # chromium_headless_shell-1228 and failing before the sweep starts (round 213).
         run: npx playwright install --with-deps chromium chromium-headless-shell
       - name: Design sweep (contrast, spacing, hierarchy, typography, states)
-        run: bash scripts/test/panel-design-ci.bash
+        run: bash scripts/design-sweep-ci.bash
 
   agent:
     name: agent (cargo test + clippy + fmt)
