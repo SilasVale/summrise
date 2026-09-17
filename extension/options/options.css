@@ -1,4 +1,10 @@
 /* Vale extension options — Apple-style light.
+   THE --ext- PREFIX IS A DECOUPLING, NOT A PREFIX FOR ITS OWN SAKE (round 238). Ten of this sheet's token names
+   were ALSO the panel's, holding different values — a shared name meaning two things, which is exactly what
+   scripts/test/token-contract-check.mjs exists to prevent and could not see because it compared two surfaces of
+   three. Whether the extension SHOULD share the brand's orange instead of its own teal is a brand question
+   (docs/agents/ideas.md row 14), and renaming it settles nothing about that: it makes the current state
+   explicit, at no visual cost, so the contract can hold all three UIs to the names they actually share.
    WHAT IS SHARED AND WHAT IS NOT, measured in round 233 because this line used to say "unified brand tokens"
    and implied it had been checked. The SPACING SCALE is shared with the panel and the console, value for value
    (--sp-0-5/1/2/3/4/5 = 2/4/8/12/16/24px), and scripts/test/token-contract-check.mjs now holds all three to it.
@@ -9,8 +15,8 @@
 
 :root {
   /* Canonical names (match the Vale spec) with legacy aliases below. */
-  --bg: #f5f5f7;
-  --surface: #fff;
+  --ext-bg: #f5f5f7;
+  --ext-surface: #fff;
   --line: rgba(0, 0, 0, 0.08);
   --line-strong: rgba(0, 0, 0, 0.14);
   /* THE SAME SPACING SCALE AS THE PANEL AND THE CONSOLE (round 232), which completes it across all three
@@ -23,9 +29,9 @@
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
-  --accent: #0b7a6e;
-  --accent-ink: #0b7a6e;
-  --accent-soft: #e7f5f2; /* accent darkened for AA (5.22:1 on white) */
+  --ext-accent: #0b7a6e;
+  --ext-accent-ink: #0b7a6e;
+  --ext-accent-soft: #e7f5f2; /* accent darkened for AA (5.22:1 on white) */
   /* THE TWO TOKENS THE FOCUS RULES BELOW REFERENCE. They were never defined here, so `:focus-visible
      { outline: 2px solid var(--focus-ring) }` resolved to an INVALID COLOUR and the whole declaration
      was dropped — and the `input:focus` box-shadow referencing --focus-ring-soft went the same way.
@@ -35,30 +41,30 @@
      focus ring"; the values here are the panel's, so now it does. */
   --focus-ring: rgba(11, 122, 110, 0.65);
   --focus-ring-soft: rgba(11, 122, 110, 0.14);
-  --ink: #1d1d1f;
-  --muted: #6e6e73;
-  --faint: #6e6e73; /* faint darkened #86868b→#6e6e73 (5.07:1) */
+  --ext-ink: #1d1d1f;
+  --ext-muted: #6e6e73;
+  --ext-faint: #6e6e73; /* faint darkened #86868b→#6e6e73 (5.07:1) */
   --radius: 14px;
   --radius-sm: 10px;
   --radius-lg: 20px;
   --danger: #dc2626;
-  --danger-soft: #fef2f2;
+  --ext-danger-soft: #fef2f2;
   /* THE READABLE RED. --danger is a FILL — it measures 4.44 on this page's background, under AA for the
      12px text this sheet uses — and --danger-ink is the one for type, 6.00. Same split as the panel's. */
   --danger-ink: #b3261e;
   --surface-glass: rgba(255, 255, 255, 0.72);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
-  --font:
+  --ext-font:
     -apple-system, "SF Pro Text", "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Segoe UI", Inter, sans-serif;
   /* Legacy aliases */
-  --card: var(--surface);
+  --card: var(--ext-surface);
   --border: var(--line);
   --border-strong: var(--line-strong);
-  --accent-hover: var(--accent-ink);
-  --text: var(--ink);
-  --text2: var(--muted);
-  --text3: var(--faint);
+  --accent-hover: var(--ext-accent-ink);
+  --text: var(--ext-ink);
+  --text2: var(--ext-muted);
+  --text3: var(--ext-faint);
 }
 /* Unified focus ring + slim scrollbar (round-54): every Vale surface uses
    the same teal keyboard-focus ring and 8px scrollbars. */
@@ -86,10 +92,10 @@
   padding: 0;
 }
 body {
-  font-family: var(--font);
+  font-family: var(--ext-font);
   font-size: 14px;
   line-height: 1.5;
-  background: var(--bg);
+  background: var(--ext-bg);
   color: var(--text);
   display: flex;
   justify-content: center;
@@ -136,7 +142,7 @@ input {
 }
 input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--ext-accent);
   box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 .hint {
@@ -153,8 +159,8 @@ button {
   font-family: inherit;
   font-size: 14px;
   cursor: pointer;
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--ext-accent);
+  background: var(--ext-accent);
   color: #fff;
   border-radius: var(--radius-sm);
   padding: var(--sp-2) 18px;
@@ -169,16 +175,16 @@ button:active:not(:disabled) {
 }
 /* THE STATUS LINE CARRIES TWO DIFFERENT VERDICTS AND LOOKED THE SAME FOR BOTH. Measured round 149: the
    refusal ("不是有效的 https:// 地址,未保存") and the confirmation ("已保存: …") were painted identically —
-   same colour, same weight — because #status had NO RULE AT ALL and inherited --muted from its parent. The
+   same colour, same weight — because #status had NO RULE AT ALL and inherited --ext-muted from its parent. The
    words differ, so the state was never colour-only; but an error and a confirmation that look alike tell
    you nothing about whether your change was stored. */
 #status[data-state="ok"] {
-  color: var(--accent);
+  color: var(--ext-accent);
 }
 #status[data-state="error"] {
   color: var(--danger-ink);
 }
 .saved {
-  color: var(--accent);
+  color: var(--ext-accent);
   font-size: 13px;
 }

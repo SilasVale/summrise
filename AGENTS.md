@@ -53,7 +53,7 @@ assumed:
 
 | gate | mutation that must fail it | result |
 |---|---|---|
-| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side (colour, or the spacing scale in ANY of the three UIs) | exit 1 — "--sp-2 differs: panel=8px console=8px extension=9px"; the spacing block names all three sides |
+| `scripts/test/token-contract-check.mjs` | change a shared token's value on one side — colour between console and panel, a name the EXTENSION shares with the panel, or the spacing scale in ANY of the three UIs | exit 1 each time. The three blocks name their own sides: "--sp-2 differs: panel=8px console=8px extension=9px" (spacing), "--line: panel=rgba(0, 0, 0, 0.08) extension=rgba(0, 0, 0, 0.09)" plus the remedy (shared names), "1 of 46 shared tokens DIVERGE" (console/panel colour) |
 | `cargo test --features terminal,keyring spec_snapshot` | add a parameter inside a device tool's `properties` | exit 101, snapshot diff |
 | `scripts/test/panel-audit-skip-check.mjs` | make the audit `exit(0)` on a skip | exit 1, names the distinction |
 | `agent/tests/fixtures/approval-grants.json` | rename a member the panel mirror reads | both sides fail |
