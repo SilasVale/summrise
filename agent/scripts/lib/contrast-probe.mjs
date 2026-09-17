@@ -147,6 +147,12 @@ export const PROBE_SOURCE = `(() => {
   const worstOverGradient = ${worstOverGradient.toString()};
   const SKIP = ${JSON.stringify(".xterm")};
 
+  // Composite a mark's colour over the surface it sits on, for comparing candidates. Same arithmetic the
+  // row's ratio uses, kept in one place so the two cannot drift.
+  const compositedOver = (c, s2) => {
+    const a = c.a ?? 1;
+    return { r: c.r * a + s2.r * (1 - a), g: c.g * a + s2.g * (1 - a), b: c.b * a + s2.b * (1 - a), a: 1 };
+  };
   const effBg = (el) => { const st = []; let p = el; let gradient = false; let stops = [];
     while (p) { const cs = getComputedStyle(p);
       if (cs.backgroundImage && cs.backgroundImage !== 'none') {
@@ -219,7 +225,7 @@ export const PROBE_SOURCE = `(() => {
   // The painter is resolved in this order: a drawn border; the element's own background; a zero-offset
   // BOX-SHADOW with a spread (the dot idiom — the shadow IS the mark); ::before/::after (the other dot
   // idiom); SVG fill, then stroke.
-  const painterOf = (el, st) => {
+  const painterOf = (el, st, surface) => {
     const widths = [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth].map((w) => parseFloat(w) || 0);
     const bcols = [st.borderTopColor, st.borderRightColor, st.borderBottomColor, st.borderLeftColor].map(parseColour);
     // THE COLOUR MUST COME FROM A SIDE THAT HAS WIDTH. A zero-width border still REPORTS a colour — the
@@ -251,12 +257,29 @@ export const PROBE_SOURCE = `(() => {
     // describes. Verified by reading the EMITTED text, not the module's string.
     const shadow = st.boxShadow || '';
     const ring = /(rgba?\\([^)]*\\)|#[0-9a-f]{3,8})\\s+0px\\s+0px\\s+0px\\s+([\\d.]+)px/i.exec(shadow);
+    const candidates = [];
     if (ring) {
       const col = parseColour(ring[1]);
-      if (col && (col.a ?? 1) > 0.05 && parseFloat(ring[2]) > 0) return { colour: col, from: 'ring' };
+      if (col && (col.a ?? 1) > 0.05 && parseFloat(ring[2]) > 0) candidates.push({ colour: col, from: "ring" });
     }
     const own = parseColour(st.backgroundColor);
-    if (own && (own.a ?? 1) > 0.05) return { colour: own, from: 'background' };
+    if (own && (own.a ?? 1) > 0.05) candidates.push({ colour: own, from: "background" });
+    // THE MARK IS THE MOST VISIBLE EDGE, CHOSEN BY ARITHMETIC RATHER THAN BY PREFERENCE ORDER.
+    // Round 208 made the ring branch work for the first time since round 128, and it immediately over-fired:
+    // correct for the active tab's dot (a white 1px ring, 4.99, against a fill of 1.16) and WRONG for every
+    // soft halo — the working rail dot's accent-soft halo measured 1.17 while the dot's own fill
+    // measures 4.79, and the halo is emphasis around a mark that is already legible. "Ring first" cannot
+    // separate those two cases; the numbers can, and they need no knowledge of which token is which.
+    if (!candidates.length) return null;
+    if (candidates.length === 1 || !surface) return candidates[0];
+    let best = candidates[0];
+    let bestRatio = contrastRatio(compositedOver(best.colour, surface), surface);
+    for (const c of candidates.slice(1)) {
+      const ratio = contrastRatio(compositedOver(c.colour, surface), surface);
+      if (ratio > bestRatio) { best = c; bestRatio = ratio; }
+    }
+    best.considered = candidates.map((c) => c.from).join("+");
+    return best;
     for (const pseudo of ['::before', '::after']) {
       const ps = getComputedStyle(el, pseudo);
       if (!ps || ps.content === 'none' || ps.display === 'none') continue;
@@ -307,7 +330,7 @@ export const PROBE_SOURCE = `(() => {
     // element's own background, if any, is transparent in that idiom.
     const bg = el.parentElement ? effBg(el.parentElement) : effBg(el);
     const surface = bg.colour;
-    const painter = painterOf(el, st);
+    const painter = painterOf(el, st, surface);
     if (!painter) continue;
     const paint = painter.colour;
     const a = paint.a ?? 1;
