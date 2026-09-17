@@ -37,18 +37,19 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 
 function browserScript() {
-  return `const fs = require('fs');
+  const script = `const fs = require('fs');
 const path = require('path');
 const ROOT = 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
+const THEME = ${JSON.stringify(THEME_SOURCE)};
 const motionPass = ${motionPass.toString()};
 ${pageChecks("#root")}
 const now = Date.now();
@@ -124,7 +125,31 @@ const empty = { fleet: false };
     const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [] };
+  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] };
+  // THE CONSOLE IN DARK. It has a dark theme — body[data-theme=dark], applied before the first paint and
+  // persisted in localStorage — and every section of this sweep hardcoded theme: 'light', so a dark
+  // regression has been invisible here for as long as the sweep has existed. Round 175 found the same gap in
+  // the panel's fixture surfaces; this is the second home, and it is being done before it costs anything.
+  // ONE WIDTH, not all three: 1440 is where the console is used, and three widths of dark would double a run
+  // that already takes minutes for a difference that width does not create.
+  for (const [label, hash] of PAGES) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+    await page.evaluate((h) => {
+      try { localStorage.setItem('vale-theme', 'dark'); } catch (e) {}
+      document.body.setAttribute('data-theme', 'dark');
+      location.hash = h;
+    }, hash);
+    await page.waitForTimeout(1600);
+    // READ IT OFF THE PAGE rather than trusting the instruction (round 176's lesson).
+    report.themeChecks.push({ page: label + '-dark', intended: 'dark', ...(await page.evaluate(THEME)) });
+    const rows = await page.evaluate(PROBE);
+    for (const r of rows) report.rows.push({ ...r, page: label + '-dark', width: 1440, density: 'console', theme: 'dark' });
+    report.surfaces.push({ page: label + '-dark', width: 1440, ...(await page.evaluate(SURFACE)) });
+    report.names.push({ page: label + '-dark', ...(await page.evaluate(NAMES)) });
+  }
+  await page.evaluate(() => { try { localStorage.setItem('vale-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
+
   for (const width of [1440, 900, 720]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
@@ -230,6 +255,18 @@ const empty = { fleet: false };
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
+
+  // THE EMITTED SCRIPT MUST PARSE — the check the panel emitter has had since round 155 and this one
+  // never did. Its absence cost two node --check cycles on backticks inside a COMMENT here: a backtick
+  // ends the template early and the emitted 30 KB script stops parsing somewhere in the middle, which is
+  // exactly the failure this asks about. The sweep gate compiles the emitted script for the panel; this
+  // makes the console emitter refuse to produce a broken one in the first place.
+  try {
+    new Function(script);
+  } catch (e) {
+    throw new Error("the emitted script does not parse: " + e.message);
+  }
+  return script;
 }
 
 function judge(file) {
@@ -240,6 +277,12 @@ function judge(file) {
       "stat-off": "the Overview's default tone: the base .stat-card::before already paints the faint bar that off means",
     },
   });
+  for (const t of report.themeChecks || []) {
+    const seen = t.stored || t.attr;
+    if (seen && seen !== t.intended) {
+      findings.push(`theme: ${t.page} was navigated as "${t.intended}" and rendered "${seen}" — the report would be describing a page it did not render`);
+    }
+  }
   for (const t of report.targets || []) {
     for (const u of t.distinct || []) {
       if (!u.passesBySpacing) {
