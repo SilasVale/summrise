@@ -320,6 +320,12 @@ export const PROBE_SOURCE = `(() => {
       inactive,
       gradient: bg.gradient,
       approx: false,
+      // WHERE THE MARK SITS IN THE DOM, as a short ancestor chain. Round 143 proved the two 1.16 tab-dot
+      // rows were an artifact by reproducing the state three times and NOT finding them, and then wrote down
+      // what was missing: "WHETHER the element was inside .active when it was captured. That field is the
+      // next step." It took until round 201 to add it, because every attempt died in this file's escaping
+      // layers — so this version uses NO REGEX and NO BACKSLASHES, only trim and split on a literal space.
+      context: (function () { var c = []; var p = el.parentElement; for (var i = 0; i < 3 && p; i++) { if (typeof p.className === 'string' && p.className.trim()) c.push(p.className.trim().split(' ')[0]); p = p.parentElement; } return c.join(' < '); })(),
       cr: contrastRatio(composited, surface),
     });
   }
