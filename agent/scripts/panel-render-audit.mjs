@@ -184,6 +184,14 @@ function buildHarness() {
     { label: 'serial:COM4', kind: 'serial', idle_ms: 45_000, command_running: true, held_by_human: false, pending_approval: null, approval_required: false },
     { label: 'stc@192.168.1.1', kind: 'ssh', idle_ms: 120_000, held_by_human: false, pending_approval: null },
   ];
+  // SESSIONS THE OPERATOR CLOSED, and they STAY closed (round 36 of the standing goal). A tombstone is client
+  // state: the panel draws one when the device's list stops naming a session it had, and REVIVES it if the name
+  // comes back (round 245 — a live reappearance means the session is real). With a static list that meant the
+  // tombstone lived for about a second, so the fourth silhouette — the DASHED RING, whose whole design is the
+  // decision that 'off' is a dash and not a fade — could only be photographed inside a timing window: click the
+  // tab's x, click the confirm's Close, read between 200ms and 1.4s. Now terminal_close removes the session from
+  // every later list answer, so the state is a URL plus two clicks and it stays put.
+  var CLOSED = [];
   var SESSIONS = [];
   for (var si = 0; si < liveCount; si++) {
     SESSIONS.push(Object.assign({}, SESSION, SESSION_SEEDS[si % 3], { id: 'term-audit-' + si }));
@@ -390,7 +398,15 @@ function buildHarness() {
     // emitted regex becomes /^.*/api// — "Invalid regular expression flags", which killed the WHOLE
     // stub (no token, no sessions, no counter) and looked from the outside like a broken product.
     window.__calls.push(u.replace(/^.*\\/api\\//, '') + ' ' + body);
-    if (u.indexOf('/api/tools/terminal_list') >= 0)    return Promise.resolve(J({ok:true, result:SESSIONS}));
+    if (u.indexOf('/api/tools/terminal_close') >= 0) {
+      var closeSid = null;
+      try { closeSid = JSON.parse(body || '{}').session_id || null; } catch (e) { closeSid = null; }
+      if (closeSid && CLOSED.indexOf(closeSid) < 0) CLOSED.push(closeSid);
+      return Promise.resolve(J({ ok: true, result: { closed: !!closeSid } }));
+    }
+    if (u.indexOf('/api/tools/terminal_list') >= 0) {
+      return Promise.resolve(J({ ok: true, result: SESSIONS.filter(function (x) { return CLOSED.indexOf(x.id) < 0; }) }));
+    }
     // DIAGNOSTIC BUILD (round 156): the SSE branch that broke the boot in round 154, back in place to have
     // its page errors read rather than guessed at.
     if (u.indexOf('/api/events/term') >= 0) {
