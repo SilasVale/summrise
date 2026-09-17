@@ -45,9 +45,8 @@ function walk(dir, out = []) {
 // measurement across two themes before a replacement can be chosen: #d9480f on #ffefe5 is 3.83, under the 4.5 AA
 // wants, but the same value on a DARK soft surface may pass. Round 236 records them rather than guessing.
 const WAIVED = [
-  { file: "tokens.css", token: "--accent-ink", why: "the panel's ink-on-soft token still carries the retired accent; round 79 changed --accent and left its two ink siblings. Needs a per-theme measurement before a replacement is chosen." },
-  { file: "globals.css", token: "--chrome-active-ink", why: "the console's active-tab ink, same story as --accent-ink." },
-  { file: "TerminalPane.tsx", token: "cursor", why: "the terminal's cursor colour follows --accent by hand instead of reading it; the replacement is the same #bf3a0a the token uses." },
+  { file: "tokens.css", token: "--accent-ink", why: "KEPT AFTER MEASUREMENT (round 237): every use is a GRAPHIC — hover fills, dot backgrounds, a border — where the need is 3:1, and it measures 4.12 light / 3.78 dark. Round 236 called this a text use; the sheets say otherwise and the numbers agree." },
+  { file: "TerminalPane.tsx", token: "cursor", why: "KEPT AFTER MEASUREMENT (round 237): a cursor is a graphic on the terminal's own #131418, where #d9480f measures 4.28 and the current accent would measure 3.35 — the replacement would be WORSE on a dark background." },
   { file: "themeContrast.test.ts", token: "prose", why: "a template literal QUOTING the old measurements as history, not a use — the test documents what the retired value measured." },
 ];
 const waived = (rel, text) => WAIVED.some((w) => rel.endsWith(w.file) && (w.token === "prose" || text.includes(w.token)));

@@ -171,7 +171,13 @@
   --chrome-line: rgba(0, 0, 0, 0.08);
   --chrome-hover: rgba(0, 0, 0, 0.05);
   --chrome-active-bg: var(--accent-soft);
-  --chrome-active-ink: var(--accent-ink);
+  /* NOT var(--accent-ink) ANY MORE (round 237). They held the same value, and they do NOT have the same
+     requirement: --accent-ink paints GRAPHICS (hover fills, dot backgrounds, a border) where 3:1 applies and its
+     4.12 light / 3.78 dark passes, while THIS token is the active tab's LABEL — text on --chrome-active-bg
+     (#ffefe5), where AA wants 4.5 and the value it inherited measured 3.83. Decoupled, and set to the accent
+     that measures 4.90 there. The console's copy diverged the moment it was fixed, which the sweep's 46-token
+     contract reported at once ("console #bf3a0a vs panel #d9480f") — the deeper contract doing its job. */
+  --chrome-active-ink: #bf3a0a;
   /* READABLE TEXT for an active control. --chrome-active-ink above is, by its own
      doc, "the accent for CHROME — icons, dots, borders"; it was also being used as
      TEXT on two different chrome surfaces and failed on both (3.83 on the active

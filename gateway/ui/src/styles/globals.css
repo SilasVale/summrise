@@ -152,7 +152,10 @@
   --chrome-line: rgba(0, 0, 0, 0.08);
   --chrome-hover: rgba(0, 0, 0, 0.05);
   --chrome-active-bg: #ffefe5;
-  --chrome-active-ink: #d9480f;
+  /* NOT #d9480f. It measured 3.83 on --chrome-active-bg (#ffefe5), and this token is TEXT — the active tab's
+     label — so AA wants 4.5. The current accent gives 4.90 there. Round 79 replaced --accent and left this
+     sibling behind; round 236 found it by scanning for retired values, round 237 measured it and fixed it. */
+  --chrome-active-ink: #bf3a0a;
 
   /* Radius — the panel's scale, so a card in the console and a card in the
      device panel are the same object. `--radius-md`/`--radius-xl` keep their
