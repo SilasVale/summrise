@@ -247,6 +247,22 @@ const empty = { fleet: false };
     report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
   }
 
+  // OPEN QUESTION, MEASURED BUT NOT EXPLAINED (round 183). A Tab-focused console button reports:
+  //   :focus-visible MATCHES, the rule ":focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }"
+  //   is in the loaded sheet and MATCHES the element, --accent resolves to #bf3a0a on it — and the computed
+  //   outline is "solid 0px", colour rgb(82, 82, 91), outline-offset 0px. EVERY declaration of a matching
+  //   rule is being skipped, including outline-offset, which contains no variable at all. That rules out the
+  //   dropped-declaration family this suite fixed twice (rounds 137 and 141) and points at a competing rule
+  //   my search for "outline" in a rule's cssText does not see.
+  // NEXT STEP, and it needs a BETTER INSTRUMENT FIRST: the enumeration written for this is unreliable —
+  // in modern Chrome every CSSStyleRule has a truthy cssRules (CSS Nesting), so a walk that recurses on
+  // "has cssRules" reports every rule as a container and answers nothing. Walk by constructor name, and
+  // search for rules that set outline-style/width/color, "all", or appearance — not just the word outline.
+  //
+  // WHAT IS ALSO TRUE: the device's console bundle and this repository's build are OUT OF SYNC. The page
+  // links index-D0W9u_N5.css and its rule count changed between two runs of the same probe, which no
+  // correct delivery would do. Deliver before measuring the console again, or the measurement is of an
+  // artifact nobody can name.
   // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
   // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
   for (const [label, hash] of [['overview', '#/'], ['devices', '#/devices']]) {
