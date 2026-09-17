@@ -33,11 +33,30 @@ const sheet = readdirSync(STYLES)
   .join("\n")
   .replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** The states the console's device signals can be in. Named here so a state added to the component is a decision. */
-const STATES = ["ok", "err", "off"];
+/**
+ * EVERY MARK THE CONSOLE DRAWS A STATE WITH. `.sig-dot` was the first family and the only one this check knew; the
+ * LED families below kept the pre-round-11 arrangement — identical circles told apart by fill colour — for
+ * thirteen rounds because nothing looked at them (round 24 of the standing goal). A family names its base
+ * selector and each state's modifier; the empty string is the base rule itself.
+ */
+const MARKS = [
+  { what: "device signal", base: ".sig-dot", states: ["ok", "err", "off"] },
+  { what: "key LED", base: ".ov-keyled", states: ["", "on"] },
+  // The BASE is not a state here: ui.tsx renders a bare "dot" as decoration, and the four that carry state are
+  // the two the Overview draws (ok/err) and the two the connection row draws (online/offline).
+  { what: "connection dot", base: ".dot", states: ["ok", "err", "online", "offline"] },
+];
 
+/**
+ * The body of ONE rule, matched at a SELECTOR BOUNDARY.
+ *
+ * The first version was a substring match, so `blockOf(".dot")` found `.badge .dot {` — an earlier rule that
+ * happens to contain the selector — and read its body: no box-shadow there, so the mark's ink came out as
+ * `transparent` and the check reported a dot it could not measure. A boundary is the start of the sheet or a `}`
+ * that ended the previous rule.
+ */
 const blockOf = (sel) => {
-  const m = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^{}]*)\\}").exec(sheet);
+  const m = new RegExp("(?:^|[}\\n])\\s*" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^{}]*)\\}").exec(sheet);
   return m ? m[1] : null;
 };
 
@@ -92,64 +111,83 @@ const contrast = (a, b) => {
 const failures = [];
 const signatures = new Map();
 
-for (const state of STATES) {
-  const sel = `.sig-dot.${state}`;
-  const block = blockOf(sel);
-  if (block === null) {
-    failures.push(`${sel} is missing from the console sheet — ${state} has no dot to draw`);
-    continue;
-  }
-  const prop = (name, fallback) => {
-    const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;}]+)`).exec(block);
-    return m ? m[1].trim() : fallback;
-  };
-  // the BASE rule fills in what a state does not restate, which is how CSS resolves it
-  const base = blockOf(".sig-dot") || "";
-  const baseProp = (name, fallback) => {
-    const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;}]+)`).exec(base);
-    return m ? m[1].trim() : fallback;
-  };
-  // THE BORDER STYLE ARRIVES INSIDE A SHORTHAND. `.sig-dot.off` writes `border: 1.5px dashed var(--text-muted)`,
-  // and a `border-style` lookup finds nothing there — which made `off` and `ok` look like the same shape and made
-  // this check report the fix as a defect. The panel's contrast test carries the identical lesson about
-  // `border-bottom: 7px solid var(--warn-ink)`; read the shorthand, then find the keyword inside it.
-  const borderDecl = [prop("border", baseProp("border", "")), prop("border-style", baseProp("border-style", ""))].join(" ");
-  const shape = [
-    prop("border-radius", baseProp("border-radius", "0")),
-    /dashed|dotted|double|solid|none/.exec(borderDecl)?.[0] ?? "none",
-    prop("transform", baseProp("transform", "none")),
-  ].join("|");
-  signatures.set(sel, shape);
-
-  // the ink: a background, or the border when the background is transparent (which is what "off" is)
-  const bgRaw = prop("background", baseProp("background", "transparent"));
-  const borderRaw = prop("border", baseProp("border", ""));
-  const borderColour = /(?:dashed|solid|dotted)\s+([^;]+)$/.exec(borderRaw)?.[1] ?? null;
-  const inkRaw = /transparent/.test(bgRaw) && borderColour ? borderColour : bgRaw;
-
-  for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
-    const ink = parseColour(resolve(inkRaw, tokens));
-    const surface = parseColour(resolve(tokens["--bg"], tokens));
-    if (!ink || !surface) {
-      failures.push(`${sel} [${theme}]: could not resolve ${inkRaw} and --bg (a dot that cannot be measured is not a passing dot)`);
+for (const family of MARKS) {
+  // WITHIN A FAMILY, never across: a solid mark with a halo means "on" in more than one place on purpose — the
+  // vocabulary is SHARED, which is the whole point of a mark language. The first version of this compared every
+  // signature with every other and reported two families for agreeing.
+  const familyShapes = [];
+  for (const state of family.states) {
+    const sel = state ? `${family.base}.${state}` : family.base;
+    const block = blockOf(sel);
+    if (block === null) {
+      failures.push(`${sel} is missing from the console sheet — ${family.what} has no ${state || "base"} state to draw`);
       continue;
     }
-    const ratio = contrast(ink, surface);
-    if (ratio < 3.0) failures.push(`${sel} [${theme}] ${inkRaw} on --bg = ${ratio.toFixed(2)} (a dot is a graphic; 3 is the bar)`);
+    const base = blockOf(family.base) || "";
+    const prop = (name, from) => {
+      const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;}]+)`).exec(from);
+      return m ? m[1].trim() : "";
+    };
+    const val = (name) => prop(name, block) || prop(name, base);
+
+    const bg = val("background") || val("background-color") || "transparent";
+    const shadow = val("box-shadow");
+    // THE FILL KIND IS PART OF THE SHAPE: a solid mark, a ring (an inset shadow or a border with no fill), and a
+    // halo (a fill plus an outer shadow) are three different things to look at even when the geometry matches.
+    const filled = bg !== "" && !/transparent|none/.test(bg);
+    const inset = /inset/.test(shadow);
+    const outer = !!shadow && shadow !== "none" && !/inset/.test(shadow);   // "none" is not a shadow
+    const kind = inset ? "ring" : filled && outer ? "halo" : filled ? "solid" : "empty";
+
+    const borderDecl = [val("border"), val("border-style")].join(" ");
+    const shape = [
+      val("border-radius") || "0",
+      /dashed|dotted|double|solid|none/.exec(borderDecl)?.[0] ?? "none",
+      val("transform") || "none",
+      kind,
+    ].join("|");
+    signatures.set(sel, shape);
+    familyShapes.push([sel, shape]);
+
+    // the ink: the fill, the border colour, or the shadow's colour
+    const borderColour = /(?:dashed|solid|dotted)\s+([^;]+)$/.exec(borderDecl)?.[1] ?? null;
+    // ANY COLOUR-ISH TOKEN IN THE SHADOW, wherever it sits: `inset 0 0 0 1.5px var(--text-muted)` keeps its colour
+    // at the END, and the first version of this looked for one at the start or after a space and found nothing —
+    // so a ring's ink read as `transparent` and the check reported a mark it could not measure.
+    const shadowColour = /(var\(--[\w-]+\)|#[0-9a-f]{3,8}\b|rgba?\([^)]+\))/.exec(shadow)?.[1] ?? null;
+    const inkRaw = filled ? bg : inset && shadowColour ? shadowColour : borderColour || bg;
+
+    for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
+      const ink = parseColour(resolve(inkRaw, tokens));
+      const surface = parseColour(resolve(tokens["--bg"], tokens));
+      if (!ink || !surface) {
+        failures.push(`${sel} [${theme}]: could not resolve ${inkRaw} and --bg (a mark that cannot be measured is not a passing mark)`);
+        continue;
+      }
+      const ratio = contrast(ink, surface);
+      if (ratio < 3.0) failures.push(`${sel} [${theme}] ${inkRaw} on --bg = ${ratio.toFixed(2)} (a mark is a graphic; 3 is the bar)`);
+    }
   }
 }
 
 // TWO STATES, ONE SILHOUETTE, ONE STATE. With the colour gone they are indistinguishable, which is the rule the
 // whole mark language exists for.
-const seen = new Map();
-for (const [sel, shape] of signatures) {
-  if (seen.has(shape)) failures.push(`${sel} draws the same shape as ${seen.get(shape)} (${shape}) — strip the colour and they are one state`);
-  else seen.set(shape, sel);
+for (const family of MARKS) {
+  const seen = new Map();
+  for (const state of family.states) {
+    const sel = state ? `${family.base}.${state}` : family.base;
+    const shape = signatures.get(sel);
+    if (shape === undefined) continue;
+    if (seen.has(shape)) {
+      failures.push(`within ${family.what}: ${sel} draws the same shape as ${seen.get(shape)} (${shape}) — strip the colour and they are one state`);
+    } else seen.set(shape, sel);
+  }
 }
 
 // A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN.
-if (signatures.size < STATES.length || Object.keys(light).length < 10) {
-  console.error(`console-marks-check: FAILED — read ${signatures.size}/${STATES.length} signal dots and ${Object.keys(light).length} tokens, so this proves nothing`);
+const EXPECTED = MARKS.reduce((n, m) => n + m.states.length, 0);
+if (signatures.size < EXPECTED || Object.keys(light).length < 10) {
+  console.error(`console-marks-check: FAILED — read ${signatures.size}/${EXPECTED} marks and ${Object.keys(light).length} tokens, so this proves nothing`);
   process.exit(1);
 }
 
@@ -158,4 +196,4 @@ if (failures.length) {
   for (const f of failures) console.error("  " + f);
   process.exit(1);
 }
-console.log(`console-marks-check: ok — ${signatures.size} device signals, ${new Set(signatures.values()).size} distinct silhouettes, every ink >= 3:1 on --bg in both themes`);
+console.log(`console-marks-check: ok — ${signatures.size} state marks across ${MARKS.length} families, ${new Set(signatures.values()).size} distinct signatures, every ink >= 3:1 on --bg in both themes`);

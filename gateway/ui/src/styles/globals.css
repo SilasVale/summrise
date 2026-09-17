@@ -723,15 +723,23 @@ pre code {
    state and 2.98 for a hovered on state. The tokens meant for this already existed: --text-muted for the
    inactive dot (4.83 light / 3.75 dark) and --success-text for the lit one (5.40 / 10.54). Same fix, same
    reason as the panel's marks in rounds 126-127. */
+/* ══ THE LEDS WEAR THE PANEL'S VOCABULARY (round 24 of the standing goal) ═════════════════════════════════
+   Measured: `.ov-keyled` and `.dot` were identical circles distinguished by FILL COLOUR ALONE — the same
+   arrangement the panel retired in round 245 and the console's own `.sig-dot` in round 11. `.sig-dot` got
+   silhouettes then; these were not in the check's list, so they kept the old shape.
+   SOLID is ON, a RING is ABSENT — the panel's `working`/`idle` pair, and the ring is drawn INSET so the mark's
+   box does not change size and nothing on the row moves when the state flips. */
 .ov-keyled {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
   flex-shrink: 0;
 }
 .ov-keyled.on {
   background: var(--success-text);
+  box-shadow: none;
 }
 .ov-keyname {
   font-weight: var(--fw-semi);
@@ -1106,14 +1114,40 @@ pre code {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
   flex-shrink: 0;
 }
 .dot.online {
   background: var(--success);
   box-shadow: 0 0 0 3px var(--success-bg);
 }
+/* ABSENT IS A RING, NOT A FAINTER FILL. `--text-faint` measures 2.46:1 on --bg — the ink the marks gate already
+   retired from `.sig-dot.off` — so "offline" was both shapeless and barely there. */
 .dot.offline {
-  background: var(--text-faint);
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+}
+
+/* TWO STATES THAT HAD NO RULES AT ALL (round 24 of the standing goal). The Overview renders
+   `className={`dot ${c.ok ? "ok" : "err"}`}` for every channel, and NEITHER `.dot.ok` nor `.dot.err` existed — so a
+   healthy channel and a broken one both drew the base decoration, and the state was invisible. Same class of
+   defect as the panel's `.tab-wait` (round 245): markup that renders and nothing paints. It is why the marks
+   check now lists this family's states instead of only `.sig-dot`'s.
+   THE SHAPES ARE THE VOCABULARY: SOLID is good, a DIAMOND needs attention (the same shape `.sig-dot.err` uses, and
+   the panel gives a pending approval), a haloed solid is live, and a RING is absent. */
+.dot.ok {
+  background: var(--success);
+  /* THE BASE'S RING HAS TO GO, or the state renders as the base shape WITH a fill: a green dot inside a grey
+     inset ring, which is neither solid nor a ring. The marks check caught exactly that — it computed the same
+     signature for `.dot.ok` and `.dot.offline` and was right to. */
+  box-shadow: none;
+}
+.dot.err {
+  background: var(--error);
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: none;
 }
 
 /* ================================================================
