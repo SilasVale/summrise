@@ -23,7 +23,10 @@ HELPER="$PWD/agent/resources/panel-react/scripts/local-browser.mjs"
 HARNESS_SRC="/tmp/panel-render-audit/panel-harness.html"
 
 echo "── design sweep: generating the harness from this checkout ──"
-node agent/scripts/panel-render-audit.mjs >/dev/null
+# EXIT 2 IS THIS EMITTER'S SUCCESS CODE in emit mode — it prints its usage and the harness path and exits 2,
+# which `set -e` reads as a failure. The fixture gate asserts exactly that distinction ("exited 1, not 2 — it
+# did not finish"), so the runner has to know it too. Round 213's first CI run died here.
+node agent/scripts/panel-render-audit.mjs >/dev/null || [ $? -eq 2 ]
 if [ ! -s "$HARNESS_SRC" ]; then
   echo "FAIL: the harness was not written to $HARNESS_SRC" >&2
   exit 1

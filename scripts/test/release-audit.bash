@@ -34,6 +34,18 @@ export GITHUB_TOKEN=test-token-not-used   # the token CHECK runs; the calls are 
 
 # --- fixtures ---------------------------------------------------------------
 # Build a tgz whose single file carries a chosen MODE, paired against a 644 twin.
+# NO TIMESTAMP IN THE CONTAINER. gzip writes the packing time into its header, so two archives built a second
+# apart differ in BYTES while every property the audit can name stays equal — the flake of rounds 177, 181, 206
+# and 213 ("every file's content AND mode match, yet the two tarballs' BYTES differ"). --mtime=@0 pins the tar
+# stream's timestamps and gzip -n drops the header's. NOTHING ELSE IS NORMALISED: an earlier attempt also set
+# owner/group/sort and stopped case 1 (a FILE MODE difference must FAIL) from failing, which would have made
+# this gate green by being blind.
+tar_rep() { tar --mtime=@0 -cf - "${@:2}" | gzip -n > "$1"; }
+# AND THIS ONE KEEPS THE FILE MTIMES, for the case that needs a byte difference it did not ask for from the
+# clock. `mk_tgz_ts` touches two trees to two DIFFERENT dates so the audit must fail on bytes; pinning @0 there
+# erased the intended difference and made the case pass (round 213 found that by watching case 1 go green while
+# the case below it went red). Only gzip's HEADER timestamp is dropped here.
+tar_ts() { tar -cf - "${@:2}" | gzip -n > "$1"; }
 mk_tgz() { # mk_tgz <out.tgz> <top> <mode> [content]
   local out="$1" top="$2" mode="$3" content="${4:-hello}"
   local d; d="$(mktemp -d)"
@@ -47,7 +59,7 @@ mk_tgz() { # mk_tgz <out.tgz> <top> <mode> [content]
   printf '%s\n' "$content" > "$d/$top/a.txt"
   chmod "$mode" "$d/$top/a.txt"
   printf 'exe\n' > "$d/$top/vale-agent.exe"; chmod 644 "$d/$top/vale-agent.exe"
-  tar czf "$out" -C "$d" "$top"
+  tar_rep "$out" -C "$d" "$top"
   rm -rf "$d"
 }
 
@@ -140,7 +152,7 @@ mk_empty_tgz() { # mk_empty_tgz <out.tgz> <top> [content]
   # A directory entry, never a file; the content argument only varies the bytes
   # so the two tarballs' shas differ and the comparison is actually reached.
   mkdir -p "$d/$top/sub-$content"
-  tar czf "$out" -C "$d" "$top"
+  tar_rep "$out" -C "$d" "$top"
   rm -rf "$d"
 }
 mk_empty_tgz "$WORK/gh.tgz"  package one
@@ -167,7 +179,7 @@ mk_tgz_ts() { # mk_tgz_ts <out.tgz> <touch-when>
   printf 'hello\n' > "$d/package/a.txt"; chmod 644 "$d/package/a.txt"
   printf 'exe\n'   > "$d/package/vale-agent.exe"; chmod 644 "$d/package/vale-agent.exe"
   find "$d" -exec touch -d "$when" {} +
-  tar czf "$out" -C "$d" package
+  tar_ts "$out" -C "$d" package
   rm -rf "$d"
 }
 mk_tgz_ts "$WORK/gh.tgz"  "2020-01-01T00:00:00Z"
