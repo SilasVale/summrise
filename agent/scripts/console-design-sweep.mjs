@@ -326,17 +326,27 @@ const fail = { api: false };
   // THE EMPTY FLEET, as surfaces of its own. Two pages have a meaningful empty form — Devices and Keys —
   // and neither had ever been rendered without content. Same recipe as the panel's empty state: a top-level
   // pass, one render each, recorded like any other surface.
+  // BOTH THEMES, for the same reason the fixture surfaces took both in round 175: an empty state is mostly
+  // COLOUR and TYPE, and a dark regression in one would be invisible to a light-only render.
   {
     empty.fleet = true;
-    for (const [label, hash] of [['devices-empty', '#/devices'], ['keys-empty', '#/keys']]) {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
-      await page.evaluate((h) => { location.hash = h; }, hash);
-      await page.waitForTimeout(1600);
-      const rows = await page.evaluate(PROBE);
-      for (const r of rows) report.rows.push({ ...r, page: label, width: 1440, density: 'console', theme: 'light' });
-      report.surfaces.push({ page: label, width: 1440, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+    for (const theme of ['light', 'dark']) {
+      for (const [label, hash] of [['devices-empty', '#/devices'], ['keys-empty', '#/keys']]) {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+        await page.evaluate((a) => {
+          try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+          document.body.setAttribute('data-theme', a[0]);
+          location.hash = a[1];
+        }, [theme, hash]);
+        await page.waitForTimeout(1600);
+        const name = label + (theme === 'dark' ? '-dark' : '');
+        report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
+        const rows = await page.evaluate(PROBE);
+        for (const r of rows) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
+        report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE)) });
+        report.names.push({ page: name, ...(await page.evaluate(NAMES)) });
+      }
     }
     empty.fleet = false;
   }
@@ -344,17 +354,27 @@ const fail = { api: false };
   // THE FAILURE STATE, for every page. The console's error surfaces — a card that could not load, a table with
   // nothing but a message — had never been rendered by anything, so their contrast, their type and their
   // states were unmeasured. One render per page with the flag up, recorded like any other surface.
+  // BOTH THEMES. An error card is colour and type like any other state, and the operator's console may be dark
+  // — a light-only render of it would leave exactly the regression this suite exists to catch.
   {
     fail.api = true;
-    for (const [label, hash] of PAGES) {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
-      await page.evaluate((h) => { location.hash = h; }, hash);
-      await page.waitForTimeout(1800);
-      const rows = await page.evaluate(PROBE);
-      for (const r of rows) report.rows.push({ ...r, page: label + '-fail', width: 1440, density: 'console', theme: 'light' });
-      report.surfaces.push({ page: label + '-fail', width: 1440, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ page: label + '-fail', ...(await page.evaluate(NAMES)) });
+    for (const theme of ['light', 'dark']) {
+      for (const [label, hash] of PAGES) {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+        await page.evaluate((a) => {
+          try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+          document.body.setAttribute('data-theme', a[0]);
+          location.hash = a[1];
+        }, [theme, hash]);
+        await page.waitForTimeout(1800);
+        const name = label + '-fail' + (theme === 'dark' ? '-dark' : '');
+        report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
+        const rows = await page.evaluate(PROBE);
+        for (const r of rows) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
+        report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE)) });
+        report.names.push({ page: name, ...(await page.evaluate(NAMES)) });
+      }
     }
     fail.api = false;
   }
