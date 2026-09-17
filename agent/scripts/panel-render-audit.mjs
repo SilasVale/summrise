@@ -36,6 +36,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PANEL = join(ROOT, "agent", "resources", "panel");
@@ -426,7 +427,19 @@ function buildHarness() {
   } catch (e) {
     throw new Error("the emitted stub does not parse: " + e.message);
   }
+  // A STALE HARNESS MUST SAY SO. The panel sweep measures a DELIVERED copy of this file, and rounds 189
+  // found one that predated round 172's tab-strip fix: its inlined CSS collapsed the strip to 17px, the
+  // sweep reported real-looking overflow findings, and a waiver hid them. Nothing in a report said which
+  // generation had been measured. This stamp is that missing fact — the built stylesheet's size and hash,
+  // carried into every report so a reader can see the harness is older than the build it should match.
+  const stamp = (() => {
+    try {
+      const css = readFileSync(join(ROOT, "agent", "resources", "panel", "panel.css"));
+      return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);
+    } catch (e) { return "unknown"; }
+  })();
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="vale-harness-build" content="${stamp}">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Vale Agent</title>
 <style>${css}</style></head><body><div id="root"></div>
 <script>${stub}</script><script type="module">${js}</script></body></html>`;

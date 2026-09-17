@@ -213,11 +213,16 @@ ${TIMING}
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   const html = fs.readFileSync(HARNESS, 'utf8');
+  // WHICH GENERATION OF THE HARNESS IS BEING MEASURED, in the report. The stamp is written by the audit that
+  // generates the file; without it a delivered copy that predates a CSS fix reports findings that look real
+  // (round 189: a 17px tab strip against a 962px build) and nothing distinguishes them from a live defect.
+  const harnessBuild = (/<meta name="vale-harness-build" content="([^"]+)"/.exec(html) || [])[1] || "(unstamped — an older generation)";
   const stamp = Date.now();
   await page.route('http://vale.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
   const report = {
+    harnessBuild,
     // WHICH PASSES RAN, recorded in the report itself. The sweep outgrew its caller's timeout in round
     // 90 (a check that cannot complete is a check that will quietly stop running), so passes are
     // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
@@ -527,20 +532,7 @@ function judge(file) {
     // traced every offending element to a tab inside `#tabs`). A real defect in the strip would have
     // to be judged on the device, which is why this exemption is narrow and printed on every run.
     ignore: [
-      {
-        // NO LONGER AN ARTIFACT, AND NO LONGER NARROW. Round 36 saw the strip at 0-185px here and 211px on
-        // the device and set this aside as a harness quirk. Round 172 found the real cause — the strip shared
-        // a WRAPPING flex line with the session control group (935px of a 982px row), so with a zero basis it
-        // collapsed to its own overflow chip's width: 35px, and a "+10" that was arithmetically correct about
-        // a strip that could show nothing. `flex-basis: 100%` gives the tabs their own line; the strip now
-        // measures 962px here. Round 173 measured the LIVE panel (1.2.403) at 906px and 1121px — so the
-        // device was never the 211px this exemption claimed either.
-        // KEPT, because the overflow this exemption covers can still occur on a genuinely narrow window: the
-        // strip is 962px at 1280 wide, and a real tab strip DOES overflow. What changed is that a finding here
-        // is now only about width, not about a collapsed box, so it is worth reading before waiving.
-        match: /overflow — div\.tabrow/,
-        reason: "panel-density strip widths: 962px at 1280 wide since the line-break fix (round 172); a real tab strip still overflows, so read the number before waiving",
-      },
+
       {
         // Narrower than a regex on the text: the 320px scroll is this harness's artifact ONLY when
         // every offending scroller is a tab child (round 50 traced them there). A reflow failure

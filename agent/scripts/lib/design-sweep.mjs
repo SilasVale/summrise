@@ -416,6 +416,11 @@ export function judgeReport(report, opts = {}) {
   // round 186, where the style check called every console ring missing while the browser drew all of them,
   // and six rounds went by before anyone looked at a screenshot. A count that keeps climbing means the
   // style check is drifting further from what is painted, and the next drift may not be benign.
+  // WHICH HARNESS GENERATION WAS MEASURED. Round 189 lost an afternoon to a delivered harness that
+  // predated a CSS fix: its inlined stylesheet collapsed the tab strip to 17px, the sweep reported overflow
+  // that looked like a live defect, and a waiver hid it. The stamp travels in the report and is printed
+  // here, so a reader can see at a glance that the fixture is older than the build it should match.
+  if (report.harnessBuild) console.log(`note: harness build ${report.harnessBuild}`);
   const paintTotal = (report.focus || []).reduce((a, f) => a + (f.paintConfirmed || 0), 0);
   const pressedTotal = (report.focus || []).reduce((a, f) => a + (f.pressed || 0), 0);
   if (paintTotal) {
