@@ -83,6 +83,40 @@ assumed:
 | `scripts/test/retired-colours-check.mjs` | put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page) | exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate |
 | `scripts/test/sweep-judges.bash` | plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck` |
 
+### FOUR LIVE DEFECTS THE PANEL'S OWN SHAPE CHECK COULD NOT SEE (round 45)
+
+Round 44 taught the CONSOLE's marks check that a mark which is a fill AND a ring is neither. The panel has the same
+expression in `statePalette.test.ts`, with the same hole — `inset` won outright, so a fill plus an inset shadow
+computed as `ring`, distinct from a solid and therefore passing. Mirroring the rule there found FOUR rendered
+defects, all on the Plugins page, all in both themes, confirmed by reading the browser's computed styles:
+
+    .plug-dot[data-state="success"]   a green fill inside the base's grey inset ring
+    .plug-dot[data-state="warn"]      an amber SQUARE inside the same ring
+    .plug-dot[data-state="error"]     a red rotated square (the diamond) inside it
+    .plug-dot[data-state="muted"]     a grey fill inside it
+
+The base `.plug-dot` became a RING in round 25 (its "nothing to report" state), and every state arm only set a
+BACKGROUND — so every one of them inherited the ring. Fixed by saying what each arm is (`box-shadow: none`), and by
+DELETING the `.plug-dot[data-state="muted"]` rule, which contradicted round 25's decision that an unqualified
+`.plug-dot` already IS the muted ring.
+
+    RENDERED AFTER THE FIX: 8 success=solid + 1 warn=solid, in light and in dark. Zero ring+fill.
+
+TWO WRONG CASCADE MODELS ON THE WAY, both worth recording because a shape check that disagrees with the cascade
+reports on a stylesheet nobody is looking at:
+
+  * taking the FIRST declaration hid the arm entirely (the base rule sits later in the sheet);
+  * taking the LAST TEXTUAL declaration hid the base — it read `.plug-dot`'s `background: transparent` over the
+    arm's fill and reported all four arms as clean rings, which is the opposite of the truth.
+
+The model that is right is SPECIFICITY: `.plug-dot[data-state=...]` is (0,2,0) against the base's (0,1,0), so the arm
+wins wherever it sits. The check now says so in the helper.
+
+AND TWO PROCESS TRAPS SPRUNG IN THE SAME ROUND: `git checkout <file>` used as a "restore the mutation" shortcut
+reverted the whole uncommitted round (the work was re-applied and backed up to /tmp first thereafter), and the
+rendered check first read a STALE HARNESS — the panel had been rebuilt but `panel-harness.html` is a snapshot, so
+the browser kept showing the old sheet and the fix looked absent.
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.

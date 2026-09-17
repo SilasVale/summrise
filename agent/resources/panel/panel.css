@@ -2256,15 +2256,17 @@ h3 { font-size: var(--fs-base); }
      running        SOLID + HALO   in flight; the pulse is an ADDITION, and the halo survives without it
      muted          INSET RING     nothing to report
    `bg` keeps its half-gradient: it is a PROGRESS mark, not a verdict. */
-.cmd-dot[data-state="ok"], .traj-ev-dot[data-state="ok"], .plug-dot[data-state="success"] { background: var(--state-ok); }
+.cmd-dot[data-state="ok"], .traj-ev-dot[data-state="ok"], .plug-dot[data-state="success"] { background: var(--state-ok); box-shadow: none; }
 .cmd-dot[data-state="warn"], .traj-ev-dot[data-state="warn"], .plug-dot[data-state="warn"] {
   background: var(--warn-ink);
   border-radius: 2px;
+  box-shadow: none;
 }
 .cmd-dot[data-state="fail"], .traj-ev-dot[data-state="fail"], .plug-dot[data-state="error"] {
   background: var(--state-fail);
   border-radius: 2px;
   transform: rotate(45deg);
+  box-shadow: none;
 }
 .cmd-dot[data-state="running"], .traj-ev-dot[data-state="running"], .plug-dot[data-state="ongoing"] {
   background: var(--state-running);
@@ -4155,7 +4157,10 @@ h3 { font-size: var(--fs-base); }
 }
 
 /* plugins: muted dot + mono log */
-.plug-dot[data-state="muted"] { background: var(--faint); }
+/* NO `.plug-dot[muted]` RULE (round 45). It set a fill, which contradicted the decision two rounds ago that the
+   plugin dot's BASE is its "nothing to report" state — and because the base is a RING, the pair rendered a fill
+   INSIDE a ring: "neither a solid nor a ring", which is exactly the class of defect this vocabulary exists to
+   prevent. An unqualified .plug-dot is the ring; a state arm is a fill and says so with box-shadow: none. */
 .plug-log-line { font-family: var(--font-mono); font-size: var(--fs-sm); }
 
 /* memory: busy marker + confirm hint + export actions */

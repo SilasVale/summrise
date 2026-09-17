@@ -234,20 +234,58 @@ describe("the verdict vocabulary", () => {
       sels: m[1].trim().split(",").map((x) => x.trim()),
       body: m[2],
     }));
-    const body = rules
-      .filter((r) => r.sels.includes(family) || r.sels.includes(`${family}[data-state="${state}"]`))
-      .map((r) => r.body)
-      .join("\n");
+    // the two halves the specificity model needs: what the STATE says, and what the BASE says
+    const arm = rules.filter((r) => r.sels.includes(`${family}[data-state="${state}"]`)).map((r) => r.body).join("\n");
+    const baseBlock = rules.filter((r) => r.sels.includes(family)).map((r) => r.body).join("\n");
+    // THE STATE'S OWN DECLARATIONS OVERRIDE THE BASE'S, which is what specificity does: `.plug-dot[data-state="warn"]`
+    // is (0,2,0) and `.plug-dot` is (0,1,0), so the arm wins even though the base rule sits LATER in the sheet.
+    // Taking the last textual declaration — my first attempt at this — read the base's `background: transparent`
+    // over the arm's fill and reported every arm as a ring, hiding four live defects. A shape check that disagrees
+    // with the cascade reports on a stylesheet nobody is looking at.
     const prop = (name: string) => {
-      const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;}]+)`).exec(body);
-      return m ? m[1].trim() : "";
+      const from = (text: string) => {
+        const m = new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;}]+)`).exec(text);
+        return m ? m[1].trim() : "";
+      };
+      return from(arm) || from(baseBlock);
     };
     const bg = prop("background") || prop("background-color");
     const shadow = prop("box-shadow");
     const filled = !!bg && !/transparent|none/.test(bg);
-    const kind = /inset/.test(shadow) ? "ring" : filled && !!shadow && !/none/.test(shadow) ? "halo" : filled ? "solid" : "empty";
+    // A MARK THAT IS BOTH A FILL AND A RING IS NEITHER, and it gets its own kind so it cannot hide (round 45 of the
+    // standing goal). Until now `inset` won outright, so a rule that set a background and inherited an inset shadow
+    // computed as `ring` — distinct from a solid, and therefore passing. The console's marks check found this by
+    // mutation in round 44; the panel's copy of the same expression had the same hole, latent, because no panel
+    // state does both today. One vocabulary, two checks, and now one rule about what a silhouette may be.
+    const kind =
+      /inset/.test(shadow) && filled ? "ring+fill" : /inset/.test(shadow) ? "ring" : filled && !!shadow && !/none/.test(shadow) ? "halo" : filled ? "solid" : "empty";
     return [prop("border-radius") || "0", /rotate/.test(prop("transform")) ? "rotated" : "upright", kind].join("|");
   };
+
+  it("never draws a mark that is a FILL inside a RING", () => {
+    // `ring+fill` IS NOT IN THE VOCABULARY: solid, ring, halo and empty are the four, and a mark that is two of them
+    // is neither — a green fill inside a grey inset ring reads as "slightly thicker dot", which is how the panel's
+    // `.plug-dot[error]` got a stray halo past a sheet-level check in round 25. Every state of every family that
+    // carries `data-state`, so a new one cannot arrive already broken.
+    const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
+    const families = [".cmd-dot", ".traj-ev-dot", ".plug-dot"];
+    // THE PLUGIN DOT USES ITS OWN NAMES for the same five states (`success`/`error`/`ongoing`), which is why this
+    // list carries both vocabularies — and why the first version of this test reported only `warn` while four arms
+    // were broken.
+    const states = ["ok", "warn", "fail", "running", "muted", "success", "error", "ongoing"];
+    const bad: string[] = [];
+    for (const family of families) {
+      for (const state of states) {
+        const sig = shapeOf(css, family, state);
+        if (sig.includes("ring+fill")) bad.push(`${family}[data-state="${state}"]`);
+      }
+    }
+    expect(
+      bad,
+      `\n${bad.length} mark(s) are a fill inside a ring. Add \`box-shadow: none\` for a fill, or drop the background\n` +
+        `for a ring — the vocabulary is solid / ring / halo / empty:\n  ${bad.join("\n  ")}\n`,
+    ).toEqual([]);
+  });
 
   it("gives every verdict its own shape, and gives both renderers the SAME one", () => {
     const css = builtCss().replace(/\/\*[\s\S]*?\*\//g, "");
