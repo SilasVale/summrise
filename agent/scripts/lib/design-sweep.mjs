@@ -731,6 +731,11 @@ export function judgeReport(report, opts = {}) {
       { match: /rail-btn|desktop-rail-btn/, why: "the rail button is WHICH PAGE YOU ARE ON (navigation state)" },
       { match: /^div\.tab|^button\.dtab/, why: "the active session tab is WHICH SESSION (navigation state)" },
       { match: /btn-new/, why: "the primary action on the page, which state-colour-check protects deliberately" },
+      // THE APPROVAL GATE, which `state-colour-check` lists as a PURPOSE in its own right (round 69). It appears
+      // only while a command is waiting for the operator, and on that page it is not competing with the primary
+      // action — it IS the primary action. CI's next run named it in a loud finding, which is how the omission
+      // became visible: the exception had listed the three navigation and action elements and not this one.
+      { match: /approval-approve/, why: "the approval gate's Approve — the one control that outranks the page's action while a command is held" },
     ];
     const navLoud = (s.loud || []).every((entry) => NAV_LOUD.some((n) => n.match.test(String(entry))));
     if ((s.loud || []).length > 1 && !navLoud) {
@@ -835,8 +840,30 @@ export function judgeReport(report, opts = {}) {
       findings.push(`${where}: the idle observer did not see its own probe mutation — a blind instrument reports a still panel forever, so this measurement proves nothing`);
     }
     if (real > 0) {
-      const targets = Object.entries(row.byTarget || {}).filter(([k]) => k !== "__probe").map(([k, v]) => `${k} x${v}`).join(", ");
-      findings.push(`${where}: ${real} DOM mutation(s) in ${row.seconds}s while idle — nothing changed under static fixtures, so this is a repaint of unchanged output (${targets})`);
+      const all = Object.entries(row.byTarget || {}).filter(([k]) => k !== "__probe");
+      // A CLOCK IS NOT A REPAINT (round 69). The first CI run of the pass reported "6 mutations in 6s (#text x6)" —
+      // one per second — and naming the PARENT turned it into `span.approval-left x6`: the approval countdown
+      // counting down. That is a value that is SUPPOSED to change, and calling it a repaint of unchanged output
+      // would be a false finding, which is worse than none. The exemptions are an explicit table with a reason
+      // each, the same shape `state-colour-check` uses for the rules it deliberately does not judge: a table cannot
+      // quietly grow the way a regex can, and the elements exempted are exactly the ones that render a live
+      // duration.
+      const CLOCKS = [
+        { match: /^span\.approval-left$/, why: "the approval countdown — seconds until the gate closes" },
+        { match: /^span\.cmd-duration$/, why: "a running command's elapsed time (the panel's one clock)" },
+        { match: /^span\.traj-/, why: "the same elapsed time inside the trajectory view" },
+        { match: /^\.details-duration$/, why: "the same elapsed time in the details column" },
+      ];
+      const clock = (name) => CLOCKS.find((c) => c.match.test(name));
+      const repaints = all.filter(([name]) => !clock(name));
+      const clocks = all.filter(([name]) => clock(name));
+      if (clocks.length) {
+        notes.push(`${where}: ${clocks.map(([k, v]) => `${k} x${v}`).join(", ")} changed while idle — a live duration, exempt by name with its reason in CLOCKS`);
+      }
+      if (repaints.length) {
+        const targets = repaints.map(([k, v]) => `${k} x${v}`).join(", ");
+        findings.push(`${where}: ${repaints.reduce((n, [, v]) => n + v, 0)} DOM mutation(s) in ${row.seconds}s while idle — nothing changed under static fixtures, so this is a repaint of unchanged output (${targets})`);
+      }
     }
   }
 
