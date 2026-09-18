@@ -823,3 +823,28 @@ WHAT IS LEFT, both real and both small:
         the state layer; a role badge is not a state. That is the next round's first idea.
     class name(s) with no matching rule on overview: online — on screen, matched by nothing. A class the console
         renders that no rule styles.
+
+### CI IS GREEN, ALL TEN JOBS (round 78)
+
+    index · agent e2e · agent xwin check · pack-chain · DESIGN · ui · gateway · proxies · panel · agent cargo
+
+The design job is green for the first time in this arc. Five rounds of instrument work got it there, and the ORDER
+matters more than the list: the panel's six false findings hid the console's one real finding, the console's finding
+was measured against a stale artifact, and the stale artifact came from a root that two ends read differently.
+
+    1. `color(srgb ...)` is 0-1 floats (round 75) — six false findings against the panel vanished.
+    2. CI swept the LAST PUBLISHED console (round 76) — build it from the checkout.
+    3. The entry stamp read a different root than the run (round 77) — one root, both ends.
+    4. A status surface is a tint, and ONE function decides it (round 78): the dark info chip was a saturated block
+       while its light sibling was a pale tint the rule skips by design, `--success-bg` was already a tint, and the
+       new sheet-level case asks the question of every state surface in both UIs and both themes.
+    5. `online` was a class on a Link that no rule matched — a second name for a fact the LED already carries.
+       Pruned, and the prune broke the build because a JSX comment sat at the top of a `return`, and I called tsc
+       clean because I read `$?` after a pipes — the table in AGENTS.md, read too late. Again.
+
+WHAT THE RELEASE TAUGHT, and it is worth writing down because the number will come up again: `release.yml`'s first
+real step is "Gate on tag-commit CI status", so a release is gated by the CI of the commit the TAG points at. The tag
+`v1.2.434` points at `cc7ccfac`, whose tree is genuinely broken — the design job failed on it for the srgb parser the
+panel findings came from — so that release's asset can never be built, and re-running the workflow re-tests the same
+broken tree. The gate is right; the release was pointed at the wrong commit. 1.2.435 is published from this green main
+instead, which is the first time the pipeline runs end to end on a tree whose CI is green.
