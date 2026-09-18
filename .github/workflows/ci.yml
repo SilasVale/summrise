@@ -330,6 +330,12 @@ jobs:
       # A new animation fails until somebody writes down which it is.
       - name: the chrome is still — every animation is a declared state or acknowledgement
         run: node scripts/test/chrome-stillness-check.mjs
+      # AN INSTRUCTION FILE THAT CANNOT BE READ WHOLE IS WORSE THAN A SHORT ONE. `AGENTS.md` reached 65,366 bytes
+      # in round 67 and the workspace harness TRUNCATES at 65,536 — it dropped the tail, which is the Release and
+      # Agent-layout sections, and nothing failed. The operational sections and the gate table stay in the
+      # instruction file; the round narratives live in `docs/agents/design-ledger.md`.
+      - name: the instruction file fits, and the long form is in the ledger
+        run: node scripts/test/ledger-budget-check.mjs
       # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
       # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
