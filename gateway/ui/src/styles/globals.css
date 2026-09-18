@@ -1159,6 +1159,33 @@ pre code {
   transform: translateY(1px);
 }
 
+/* A PRESS FOR EVERY CONTROL THAT HAD ONLY A HOVER (round 54). The rule above covered `.btn` and its variants and
+   nothing else: measured, this sheet had 25 `:hover` selectors and ONE press rule, so ten other controls
+   acknowledged a hover and stayed completely still under a press. `feedback-check.mjs` reads BOTH sheets now — it
+   had only ever read the panel's — which is how this list was found rather than guessed.
+
+   TRANSFORM ONLY WHERE IT RENDERS. `.card-link` and `a` are INLINE boxes, and a transform does not move an inline
+   box: their press is a dim instead, which is in the vocabulary (transform/opacity only) and works on inline
+   content. `.rail-avatar` already answers a hover with a SCALE, so its press is the same gesture inward. */
+.btn-dashed:active:not(:disabled),
+.rail-btn:active,
+.user-pop-logout:active,
+.icon-btn:active,
+.lang-btn:active,
+.auth-tab:active,
+.dev-mini:active {
+  transform: translateY(1px);
+}
+
+.rail-avatar:active {
+  transform: scale(0.96);
+}
+
+a:active,
+.card-link:active {
+  opacity: 0.72;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -1171,7 +1198,7 @@ pre code {
   font-weight: var(--fw-medium);
   cursor: pointer;
   border: none;
-  transition: all var(--ds-dur) var(--ds-ease);
+  transition: color var(--ds-dur) var(--ds-ease), border-color var(--ds-dur) var(--ds-ease), background var(--ds-dur) var(--ds-ease);
   white-space: nowrap;
   text-decoration: none;
 }
@@ -1281,7 +1308,7 @@ a.btn-primary {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--ds-dur) var(--ds-ease);
+  transition: background var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease), transform var(--ds-dur) var(--ds-ease);
 }
 .icon-btn:hover {
   background: var(--bg-tertiary);
@@ -1394,7 +1421,7 @@ a.btn-primary {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
-  transition: all var(--ds-dur) var(--ds-ease);
+  transition: background var(--ds-dur) var(--ds-ease), border-color var(--ds-dur) var(--ds-ease), box-shadow var(--ds-dur) var(--ds-ease);
 }
 
 .lane:hover {
@@ -1416,7 +1443,7 @@ a.btn-primary {
   border-radius: var(--radius-lg);
   padding: 18px 20px;
   background: var(--bg);
-  transition: all var(--ds-dur) var(--ds-ease);
+  transition: background var(--ds-dur) var(--ds-ease), border-color var(--ds-dur) var(--ds-ease), box-shadow var(--ds-dur) var(--ds-ease);
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
@@ -1705,7 +1732,7 @@ body[data-theme="dark"] .note.tip {
   font-weight: var(--fw-medium);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--ds-dur) var(--ds-ease);
+  transition: background var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease), box-shadow var(--ds-dur) var(--ds-ease);
 }
 
 .auth-tab:hover {
@@ -1804,7 +1831,7 @@ body[data-theme="dark"] .note.tip {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
-  transition: all var(--ds-dur) var(--ds-ease);
+  transition: background var(--ds-dur) var(--ds-ease), color var(--ds-dur) var(--ds-ease);
 }
 .lang-btn:hover {
   background: var(--bg-tertiary);
