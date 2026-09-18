@@ -49,6 +49,11 @@ const MARKS = [
   { what: "connection dot", base: ".dot", states: ["ok", "err"] },
   // The two LEDs followed the same path: `.dev-led` had NO mark at all for "off" and `.dev-mini-led` said it with a
   // grey disc. Both are rings now, which is what the rest of this sheet already means by absent.
+  // NO `off` IN THIS LIST, AND THAT IS CORRECT (round 76, learned by trying it): the DOM renders `dev-led off`, and
+  // the BASE is what paints it, so adding `off` reports the base and the arm as "one state" the moment the arm is
+  // removed — which it was, because the arm was the defect. The states a family lists are the states that have rules
+  // of their own; a class that resolves to the base is the base. (The rendered probe covers what this cannot: it
+  // walks the DOM, so an inherited cascade is visible to it and to nothing here.)
   { what: "device LED", base: ".dev-led", states: ["", "on"] },
   { what: "mini LED", base: ".dev-mini-led", states: ["", "on"] },
 ];

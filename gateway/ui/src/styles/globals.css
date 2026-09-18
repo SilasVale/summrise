@@ -2060,9 +2060,14 @@ body[data-theme="dark"] .note.tip {
   background: var(--success-text);
   box-shadow: 0 0 0 3px var(--success-bg);
 }
-.dev-led.off {
-  background: var(--text-muted);
-}
+/* NO `.dev-led.off` RULE, AND THAT IS THE POINT (round 76). The base above IS the off state — a 10px ring with
+   `background: transparent` and an inset shadow, which is what "absent" means in this vocabulary (round 26). The
+   devices table renders `class="dev-led off"` for a stopped device, and with no arm of its own that class paints
+   exactly the base: the ring. It used to set `background: var(--text-muted)` while the base's ring stayed, so an off
+   device drew a grey disc INSIDE a grey ring — a mark that is two things at once, which the RENDERED probe reported
+   on six surfaces while this sheet's own gate was green (its family list held only the base and `on`). Deleting the
+   arm is the fix; a rule here would either repeat the base or contradict it.
+ */
 .dev-name {
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
