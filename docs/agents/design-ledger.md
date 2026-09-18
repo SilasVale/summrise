@@ -561,3 +561,29 @@ ledger's own rule held again — a mutation that does not bite is evidence about
 outcome is that the static pair sweep may well have been able to see this all along. What did improve: its surface
 choice is a TABLE now (`.rail-dot` and the desktop rail status measured against the rail they land on) instead of a
 ternary with one hand-written exception for `.tab.active`.
+
+### TEN FINDINGS BECAME EIGHT, AND ALL EIGHT ARE ONE ELEMENT (round 69)
+
+The exclusions this round added were earned by the run before it, and the design job's list says so:
+
+    10 findings -> 8:  the four idle "repaints" (span.approval-left, a countdown) and the loud findings are gone
+    8 findings, all ONE element:  div.mark.rail-dot at 2.33, on six light pages, plus the hover case
+
+**A CLOCK IS NOT A REPAINT.** The idle clause now carries a CLOCKS table — the approval countdown and the three
+elements that render the panel's live command duration — each with its reason. Clock changes are reported as NOTES so
+the number stays visible, and only the remaining mutations are findings. A false finding is worse than none: it
+teaches the next reader to ignore the axis.
+
+**THE APPROVAL GATE IS A PURPOSE.** `button.approval-approve` joined the loud allowlist with the reason
+`state-colour-check` already gives it: while a command is held, that control IS the page's primary action.
+
+**AND THE RAIL DOT IS STILL 2.33 — WITH THE FIX PROVABLY IN THE TREE.** This is the open thread, stated exactly:
+`--rail-ink` feeds `--mark-ink` in exactly two rules and no other declaration anywhere sets it; the built sheet the
+harness reads has the fixed value at line 149 (`var(--chrome-ink-dim)`, 4.40 on the light rail); the LIVE panel on d1
+measures its `working` dot at **7.47**. CI still prints 2.33 after the fix, on six pages, which matches
+`--chrome-ink-faint` (#a1a1aa, ~2.4 on the rail) — the base `.rail-dot` background — and that rule should lose to the
+`data-live` arms on specificity. So the answer is in the HARNESS CI builds, which is the one artefact I have not been
+able to inspect from here. Next round: regenerate the harness locally, deliver it to the device, and measure the dot
+per state (idle / working / waiting / off / no attribute) — five measurements that will name the winning rule instead
+of a sixth hypothesis. The live panel measuring 7.47 while CI's harness measures 2.33 is itself the finding: the two
+are not the same artefact, and the difference is worth knowing.
