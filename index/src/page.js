@@ -309,6 +309,20 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     .main { padding: 28px 16px; }
     footer { padding: 12px 16px; }
   }
+
+  /* REDUCED MOTION: THE PAGE STOPS MOVING (round 82). The canvas already refuses to start under reduce — its guard
+     is in the script below, and it has been verified on a device — and the CSS was never asked, so the theme
+     toggle, every link and the body kept their 200 ms transitions while a person was asking for less motion. The
+     rendered landing arm found exactly that on its second run: "reduced motion (landing): 5 element(s) still
+     animate — body trans=0.2s, .theme-toggle trans=0.2s, a trans=0.2s". ZERO, not a shorter duration: the panel
+     and the console both stop outright, and 0s is the value the console's own sheet is recorded using. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0s !important;
+      animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
 </style>
 </head>
 <body>
