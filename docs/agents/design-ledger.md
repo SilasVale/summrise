@@ -894,3 +894,31 @@ Everything a static read cannot see is therefore unmeasured there — the cascad
 the installer button when a release publishes none, focus order, and the rendered press. That is the next round's
 work, and the objective's "all four surfaces green" is the reason it matters: three of the four are measured as
 rendered and the fourth is measured as text.
+
+### THE FOURTH SURFACE IS RENDERED, AND IT FOUND THREE THINGS ON ITS FIRST DAYS (round 81)
+
+Three of four surfaces were measured as rendered; the landing was measured as TEXT — `landing-check` reads
+`page.js`'s own values — and a static read cannot see the cascade as painted, a press, or a state swap.
+`agent/scripts/landing-design-sweep.mjs` serves the page the WORKER serves, in BOTH installer states and both colour
+schemes, by calling `PAGE()` — the same entry point `index/src/index.js` serves and the index tests call, so there is
+no second renderer to drift. Its first CI run measured **98 text nodes, 4 surfaces, 4 name checks**.
+
+    FINDING 1 — FIXED THE SAME ROUND: "a (a) renders NOTHING when pressed — before and during are identical
+    (79x17)", in BOTH schemes. The page has two link families with a hover each and no press at all. The console's
+    anchor and card-link recorded this class first: A TRANSFORM DOES NOT MOVE AN INLINE BOX, and the remedy there was
+    opacity. Same remedy here, placed AFTER both hover rules because hover always co-occurs with active and at equal
+    specificity the later one wins. The next run does not contain the finding.
+
+    FINDING 2 — NAMED, NOT YET FIXED: the press pass measures ONE control on the landing, and the shared clause says
+    a pass that pressed nothing proves nothing. A page with one pressable family is not the panel's page; the honest
+    answer is either a selector list that covers what the landing actually renders in BOTH installer states, or a
+    stated floor for a page this small. Not decided yet, and not guessed at.
+
+    FINDING 3 — NAMED, NOT YET FIXED: "reduced motion (landing): 5 element(s) still animate — body trans=0.2s,
+    .theme-toggle trans=0.2s, a trans=0.2s". The landing has NO prefers-reduced-motion block, and motion-check reads
+    the panel's and the console's sheets — not this one. So the surface that talks about respecting a person's
+    settings keeps its transitions when they ask for less motion.
+
+AND THE ROUND'S OWN MISTAKE, the forty-ninth of its kind: my comment used backticks inside page.js's template
+literal, the emit exited 1, and the rendered pages carried no `a:active` at all — the grep of the RENDERED html is
+what caught it, twice, because the sheet is a string until PAGE() builds it.
