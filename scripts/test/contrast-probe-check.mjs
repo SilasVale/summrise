@@ -165,6 +165,23 @@ const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
 // getComputedStyle returns rgb(); a static check reading the token sheet hit it at once. These
 // checks compare hex against the rgb() spelling of the SAME colour, so a stride bug cannot pass by
 // happening to look plausible.
+// THE FORM getComputedStyle RETURNS FOR A LIGHT TOKEN, and the one this parser read as NEAR-BLACK (round 75).
+// `color(srgb …)` carries 0-1 floats, not 0-255: reading 0.956863 as a channel value gave rgb(1,1,1), which
+// composited the light rail (#f4f4f5 at 88%) into rgb(31,31,31) and filed six false contrast findings in CI against
+// marks that measure 7.47 on it. The same lesson the LOUD axis learned in round 59; the contrast axis had no case.
+t("color(srgb …) components are 0-1 floats, not channels", () => {
+  const c = parseColour("color(srgb 0.956863 0.956863 0.960784 / 0.88)");
+  assert(c, "the srgb form must parse — getComputedStyle returns it for a token the sheet declares with a function");
+  assert(
+    Math.round(c.r) === 244 && Math.round(c.g) === 244 && Math.round(c.b) === 245,
+    `expected the light rail (244,244,245), parsed ${JSON.stringify(c)}`,
+  );
+  assert(Math.abs(c.a - 0.88) < 0.001, `alpha must stay 0-1 as written, got ${c.a}`);
+  // and a genuine 0-255 triple is not scaled by the same rule
+  const plain = parseColour("rgb(244, 244, 245)");
+  assert(plain.r === 244, `rgb() must not be scaled: ${JSON.stringify(plain)}`);
+});
+
 t("6-digit hex parses to the same colour as its rgb() form", () => {
   const hex = parseColour("#71717a");
   const rgb = parseColour("rgb(113, 113, 122)");

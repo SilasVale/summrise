@@ -86,11 +86,23 @@ export function parseColour(c) {
     }
     return null; // 5 or 7 digits is not a colour
   }
+  // color(srgb ...) IS NOT A 0-255 TRIPLE, AND THIS READ IT AS ONE (round 75). Its components are 0-1 floats, so the
+  // scrape below turned "color(srgb 0.956863 0.956863 0.960784 / 0.88)" — the LIGHT rail, #f4f4f5 with 88% alpha, and
+  // the form getComputedStyle returns for it — into rgb(1,1,1) with 0.88 alpha, compositing to rgb(31,31,31). Every
+  // mark on the rail was judged against a near-black surface: six false contrast findings in CI, and four rounds of
+  // this ledger chasing an 8px dot that measures 7.47 on the light rail.
+  //
+  // THE ALPHA STAYS AS WRITTEN (already 0-1 for this form). The scale is applied only when EVERY component fits the
+  // 0-1 range, so a parser looking at something else cannot silently triple a value; the srgb in the function name is
+  // the giveaway. NO BACKTICKS IN THIS FILE: parseColour is inlined into the probe template with its comments, and
+  // the probe's own gate asserts it — which is how this was caught (47th time this session).
+  const srgb = /^color\(\s*srgb\b/.test(s);
   // rgb() / rgba() (and anything else numeric) keeps the original scrape.
   const m = s.match(/[\d.]+/g);
   if (!m || m.length < 3) return null;
   const [r, g, b] = m.map(Number);
-  return { r, g, b, a: m.length > 3 ? Number(m[3]) : 1 };
+  const scale = srgb && r <= 1 && g <= 1 && b <= 1 ? 255 : 1;
+  return { r: r * scale, g: g * scale, b: b * scale, a: m.length > 3 ? Number(m[3]) : 1 };
 }
 
 /**
