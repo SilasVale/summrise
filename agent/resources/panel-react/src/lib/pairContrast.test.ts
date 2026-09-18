@@ -383,7 +383,19 @@ describe("colour pairs declared in one rule", () => {
       // mark is accent-filled too, measuring **1.00:1** — the dot against its own background. This check measured
       // every source against `--chrome-bg-2` and so could not see it, and neither could the sweep. Found by
       // rendering the working state for the first time (round 9 of the standing goal).
-      const surface = selector.includes(".tab.active") ? "--chrome-active-bg" : "--chrome-bg-2";
+      // WHICH SURFACE THIS INK LANDS ON, AS A TABLE RATHER THAN A TERNARY (round 68). The ternary had exactly one
+      // exception — the active tab — and the comment below records why it was needed: measuring everything against
+      // `--chrome-bg-2` hid a 1.00:1 dot against its own background. The same shape of gap was still open for the
+      // RAIL: `.rail-dot` lands on `--chrome-bg` (#f4f4f5, the near-white rail), and against `--chrome-bg-2`
+      // (#ffffff) its old ink measured 2.81 — under the 3 a graphic needs — while the sweep's RENDERED probe saw
+      // 2.33 under the cursor. REVERTING the ink to #9a9aa0 makes THIS test fail; before this table it passed,
+      // which is how the defect survived three rounds of the panel suite being green.
+      const SURFACE: Array<[string, string]> = [
+        [".rail-dot", "--chrome-bg"],
+        [".desktop-rail-status", "--chrome-bg"],
+        [".tab.active", "--chrome-active-bg"],
+      ];
+      const surface = SURFACE.find(([sel]) => selector.includes(sel))?.[1] ?? "--chrome-bg-2";
       for (const [theme, tokens] of [["light", light], ["dark", dark]] as Array<[string, Record<string, string>]>) {
         // THE MODULE-LEVEL `resolve` TAKES A VALUE, not a token NAME — `resolve("--chrome-ink-dim", …)`
         // returns the name unchanged and parses to null, which reads as "unmeasurable" rather than as the

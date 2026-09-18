@@ -258,7 +258,7 @@ d["surfaces"][0]["loud"] = ["button.rail-btn 1444px2 rgb(154,52,18)", "div.tab 3
 json.dump(d, open(p, "w"), indent=1)
 PYEOF
 if node "$TOOL" --judge "$TMP/twoloud.json" > "$TMP/twoloud.out" 2>&1; then
-  ok "the pages whose second loud element is NAVIGATION pass, by name"
+  ok "a page whose two loud elements are BOTH navigation passes — the exception is the elements, not the name"
 else
   bad "a named page was rejected: $(tail -3 "$TMP/twoloud.out")"
 fi
@@ -298,8 +298,13 @@ elif which == "loud":
     # size (round 18); this plants a second one beside the first.
     r["surfaces"][0]["loud"] = ["button.approval-approve 1526px2 rgb(30,122,51)", "button.btn-primary 19680px2 rgb(176,58,10)"]
 elif which == "loud-not-excepted":
+    # THE EXCEPTION IS ELEMENT-SCOPED, AND THIS PROVES IT CANNOT COVER A REAL SECOND FOCAL POINT (round 68). The
+    # old fixture planted the rail button and the active tab on a page that was NOT named, to show that the NAME was
+    # what made them acceptable. It is not: a rail button is navigation on every page, so the exception is about the
+    # ELEMENT — and the case that matters is a page where ONE of the two is navigation and the other is not. That
+    # must fail, on a page whose siblings are excepted, or the exception has widened into a blindfold.
     r["surfaces"][0]["page"] = "panel-Memory"
-    r["surfaces"][0]["loud"] = ["button.rail-btn 1444px2 rgb(154,52,18)", "div.tab 3254px2 rgb(154,52,18)"]
+    r["surfaces"][0]["loud"] = ["button.rail-btn 1444px2 rgb(154,52,18)", "div.mem-busy 19680px2 rgb(176,58,10)"]
 elif which == "name":
     r["names"][0]["unnamed"] = ["input.mem-input"]
 elif which == "title-only":

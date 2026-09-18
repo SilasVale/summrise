@@ -140,7 +140,13 @@
      (see --chrome-bg below) and it stayed in this comment for fifty rounds. The rail is dark in the dark
      theme and light in the light one, like the rest of the frame. Corrected in round 211 after the sweep
      and the pair-contrast test disagreed about which surface a rail mark sits on. */
-  --rail-ink: #9a9aa0;
+  /* A MARK'S INK IS A GRAPHIC (WCAG 1.4.11, 3:1), AND THIS ONE MEASURED 2.55 (round 68). `--rail-ink` feeds
+     `--mark-ink` in exactly two rules — the panel's `.rail-dot` and the desktop rail's status dot — and never any
+     text, so the graphic bar is the one that applies. It sat at a hard-coded #9a9aa0 while the DARK theme already
+     used `var(--chrome-ink-dim)`; the same reference here measures 4.40 on the light rail (241,244,245) and ends the
+     light/dark split in how one mark's ink is spelled. CI's rendered hover probe is what caught it: 2.33 under the
+     cursor, which is the same defect with the hover tint on the backdrop. */
+  --rail-ink: var(--chrome-ink-dim);
 
   /* ---- round-162 frame chrome — LIGHT by default (user preference) ----
      The frame (icon rail, tab strips, status bar) is one continuous surface;

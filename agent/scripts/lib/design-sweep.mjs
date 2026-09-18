@@ -382,10 +382,15 @@ export async function idlePass(page, ms = 6000) {
     const el = document.getElementById("root") || document.body;
     const state = { mutations: 0, byTarget: {}, samples: [] };
     window.__valeIdle = state;
+    // A TEXT NODE HAS NO IDENTITY, SO THE REPORT NAMES ITS PARENT (round 68). The first CI run of this pass reported
+    // "6 DOM mutation(s) ... (#text x6)" — one per second, which is a live duration ticking and NOT a repaint, but
+    // the report could not say WHICH text, so the finding was undiagnosable by construction. A characterData
+    // mutation is about the parent element as far as a reader is concerned.
     const name = (node) => {
-      const tag = node.tagName ? node.tagName.toLowerCase() : "#text";
-      const cls = node.className && typeof node.className === "string" ? node.className.trim().split(" ")[0] : "";
-      return tag + (node.id ? "#" + node.id : cls ? "." + cls : "");
+      const el = node.nodeType === 3 ? node.parentElement || node : node;
+      const tag = el.tagName ? el.tagName.toLowerCase() : "#node";
+      const cls = el.className && typeof el.className === "string" ? el.className.trim().split(" ")[0] : "";
+      return tag + (el.id ? "#" + el.id : cls ? "." + cls : "");
     };
     const observer = new MutationObserver((records) => {
       for (const r of records) {
@@ -717,7 +722,18 @@ export function judgeReport(report, opts = {}) {
       const samples = (s.loudUnreadableSamples || []).slice(0, 2).join("; ");
       notes.push(`${where}: ${s.loudUnreadable} background(s) in a colour syntax this probe cannot read — skipped, not counted${samples ? " (" + samples + ")" : ""}`);
     }
-    if ((s.loud || []).length > 1 && !(opts.twoloud || []).some((n) => String(s.page).startsWith(n))) {
+    // THE EXCEPTION IS ABOUT ELEMENTS, NOT PAGE NAMES (round 68). It used to except a whole page by name prefix,
+    // which hid its siblings — CI rendered `Terminal-16-sessions`, `Desktop-16-sessions`, `Desktop-Terminal-fail-dark`
+    // and `Desktop-empty`, all two-loud with the SAME rail button and the new-session action, and none of them was
+    // covered. Naming the ELEMENTS cannot widen: a page that starts shouting about something else still fails, which
+    // is what round 42's own note warned a page-name exception could never do.
+    const NAV_LOUD = [
+      { match: /rail-btn|desktop-rail-btn/, why: "the rail button is WHICH PAGE YOU ARE ON (navigation state)" },
+      { match: /^div\.tab|^button\.dtab/, why: "the active session tab is WHICH SESSION (navigation state)" },
+      { match: /btn-new/, why: "the primary action on the page, which state-colour-check protects deliberately" },
+    ];
+    const navLoud = (s.loud || []).every((entry) => NAV_LOUD.some((n) => n.match.test(String(entry))));
+    if ((s.loud || []).length > 1 && !navLoud) {
       findings.push(`${where}: ${s.loud.length} loud elements — a page has ONE focal point at most — ${s.loud.join("; ")}`);
     }
   }
