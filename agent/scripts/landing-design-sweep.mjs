@@ -73,7 +73,7 @@ const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const pressPass = ${pressPass.toString()};
 const motionPass = ${motionPass.toString()};
-${pageChecks("#root")}
+${pageChecks("body")}
 const PASSES = ${JSON.stringify(PASSES)};
 const wants = (name) => !PASSES.length || PASSES.includes('all') || PASSES.includes(name);
 const PAGES = ['installer', 'npm-only'];
