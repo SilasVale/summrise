@@ -631,6 +631,7 @@ export const THEME_SOURCE = `(() => {
   // rail walk's new labels fell back to the loop's own value — which is how six contrast findings were filed against
   // the light theme while the pages were rendered dark. Body first, then the document element as a fallback for
   // surfaces that put it elsewhere. (No backticks: this source is embedded in an emitted template literal.)
+  const attr = document.body.getAttribute('data-theme') || document.documentElement.getAttribute('data-theme') || '';
   return { stored, attr, bodyBackground: body };
 })()`;
 
