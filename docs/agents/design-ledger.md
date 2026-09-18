@@ -738,3 +738,34 @@ attempt at the comment replaced the `const attr = ...` line along with the prose
 `attr: undefined` and the commit that claimed to fix the read changed nothing. The self-test was green through all of
 it. Reading the artefact back — the emitted string, not the file I edited — is what caught it, and it is the same
 lesson as round 57 and round 71.
+
+### SOLVED: ONE MISSING COLOUR SYNTAX, AND THE PANEL GOES GREEN (round 75)
+
+Five rounds chased an 8px dot. The defect was in the PROBE's colour parser, and the arithmetic is the proof:
+
+    getComputedStyle(nav#icon-rail).backgroundColor   =  color(srgb 0.956863 0.956863 0.960784 / 0.88)
+    parseColour, before:   the numeric scrape read those 0-1 floats as channels -> rgb(1,1,1) at 0.88 alpha
+    composited over the shell:   0.88 x 0.956863 + 0.12 x 252  =  31   ->  rgb(31,31,31)
+    parseColour, after:    r=244 g=244 b=245 a=0.88 -> composited rgb(245,245,246) -> the dot measures 7.09
+
+`rgb(31,31,31)` is EXACTLY what CI reported as the surface under every `div.mark.rail-dot`. Every mark on the rail was
+being judged against a near-black backdrop, and the six findings were the probe's arithmetic, not the interface. The
+ancestor chain — printed from the live page — is what ended it: the dot's parent is `nav#icon-rail`, whose background
+is that srgb form, and the surface was never dark at all.
+
+THE SAME BUG THE LOUD AXIS FIXED IN ROUND 59. That round taught the loud parser four colour syntaxes and kept only the
+finite numbers; nobody carried the rule across to the contrast axis, which had no srgb case in its own gate — 20 green
+checks that proved nothing about the form getComputedStyle actually returns for a token declared with a colour
+function. It has 21 now, asserting the channels AND that a genuine 0-255 triple is not scaled, and the gate also caught
+the first version of my comment (backticks inside a function that is inlined into a template literal — the 47th time
+this session) before it could reach a page.
+
+WITH THAT, THE DESIGN JOB FAILS ONLY ON THE CONSOLE, and the remaining findings are real and different:
+
+    devices@1440/900/720/640/320 + devices-dark:  dev-led[off] is a FILL inside a RING — the vocabulary is
+        solid / ring / halo / empty, and a mark that is two of them is neither
+    users-dark@1440px:  2 loud elements — a.rail-btn active 1600px2 and span.badge.badge-info 1218px2 rgb(26,58,92)
+
+Both come from the RENDERED probe and neither is visible to the console's sheet-level gate, which is the same
+sheet-versus-cascade lesson rounds 44 and 45 recorded on the other surface. That is the next round's work, and it is
+the first time the console's rendered axis has had anything to say.
