@@ -671,3 +671,34 @@ WORTH KEEPING FROM THIS ROUND: the probe is a LIBRARY, not a script. `contrast-p
 (the string the sweep evaluates in the page), `failures`, `contrastRatio`, `parseColour` and more — so "run CI's own
 instrument against this artefact" is an import and a `page.evaluate`, not a reimplementation. That is how the twelve
 measurements above were taken, and it is the difference between a number I can compare with CI's and one I cannot.
+
+### ONE LINE OF DIAGNOSIS ENDED THREE ROUNDS OF GUESSING (round 73)
+
+Making the finding self-describing paid for itself on the first CI run that carried it:
+
+    2.13 panel/Terminal-fail-light div.mark.rail-dot — painted rgb(82,82,91) (border) on rgb(31,31,31), 10px graphic
+    2.33 panel/Settings        div.mark.rail-dot — painted rgb(146,64,14) (background) on rgb(31,31,31), 11.31px
+    … six pages, the same two facts
+
+Read it: `rgb(146,64,14)` is **`#92400e` = `--warn-ink` IN THE LIGHT THEME** (the dark one is `#ffc078`), and
+**11.31px** is an 8px square ROTATED — the WAITING silhouette, the diamond. And the surface is `rgb(31,31,31)`: a
+DARK backdrop under a page the label calls `panel/Settings`. So the dot is not the defect and neither was its
+transition. What CI is measuring is **a page rendered in the DARK theme and labelled light** — round 40's own defect,
+recorded in this ledger as "the hand-run loop clicked the rail's EIGHTH BUTTON, which is the THEME TOGGLE, and every
+surface after it was measured in the other theme while being labelled light" — alive in the sweep's rail walk today,
+and it explains every remaining finding at once: the light ink on the dark rail, the dark `rgba(217,72,15,0.9)` loud
+entries from earlier runs, and the hover case.
+
+**THE LESSON IS THE ONE THIS ARC KEEPS TEACHING, AND IT TOOK THREE ROUNDS TO APPLY IT AGAIN.** I chased the element
+(a transition, a token, a selector, an active state) while the finding said only "2.33". The idle pass had already
+shown the way in round 69 — naming the PARENT turned "6 mutations (#text x6)" into "span.approval-left x6" and made a
+one-line decision out of a hunt — and the contrast axis needed the same treatment: `paint`, `surface`, `kind`, `size`.
+
+    before:  2.33 panel/Settings div.mark.rail-dot ""
+    after:   2.33 panel/Settings div.mark.rail-dot "" — painted rgb(146,64,14) (background) on rgb(31,31,31),
+             11.31px graphic, needs 3
+
+NEXT ROUND: fix the rail walk's theme handling — either undo the flip reliably, or label each surface by what the page
+REPORTS rather than by what the loop intended, which is what the `theme-lie` axis exists to enforce and evidently does
+not reach these surfaces. That is a defect in the INSTRUMENT, and it has been reporting six false contrast findings
+and a set of false loud findings for as long as the walk has run.
