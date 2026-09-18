@@ -246,6 +246,17 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     text-decoration: none;
   }
   .step-body a:hover { text-decoration: underline; }
+
+  /* THE PRESS, WHICH A LINK CANNOT SHOW WITH A TRANSFORM (round 81). The sheet-level feedback check proves a press
+     RULE exists and would have found none here; the RENDERED press pass is what reported it: the link measured
+     IDENTICAL before and during a press, in both colour schemes, on the landing's first rendered run. A transform does
+     not move an inline box — the lesson the console's own anchor and card-link recorded first, where the fix was
+     opacity, and it is the fix here. Both link families answer, and this rule comes AFTER both hover rules because
+     hover ALWAYS co-occurs with active: at equal specificity the later one wins, which is how four rows in the panel
+     once had a press that could not be seen. (No backticks: this comment lives inside page.js's template literal —
+     49th time this session, and the emit failed on the first attempt.) */
+  .desc a:active,
+  .step-body a:active { opacity: 0.72; }
   .step-body code {
     font: 12px/1.4 var(--ds-font-family-code);
     background: var(--dsw-alias-bg-layer-1);
