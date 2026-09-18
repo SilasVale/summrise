@@ -834,7 +834,11 @@ function judge(file) {
       // which colour on which surface it was — three rounds went into reproducing an 8px dot because this line did
       // not say what it had looked at. The idle pass learned the same lesson in round 69 (naming the PARENT turned
       // an undiagnosable finding into `span.approval-left x6`); this is the contrast axis taking it.
-      findings.unshift(`${r.cr} ${r.density}/${r.page} ${r.sel} "${String(r.text).slice(0, 24)}" — painted ${r.paint} on ${r.surface}, ${r.size}px ${r.kind}, needs ${r.need}`);
+      // AND THE THEME, which every row carries and this line left out (round 75). `panel/Settings` names a density and
+      // a page; the light and dark passes produce the SAME name, so a finding about a dark page and a finding about a
+      // light one read identically — and four rounds of this arc went into asking which one CI meant. The surface the
+      // row landed on is already printed; the pass it came from is the other half of "say what you measured".
+      findings.unshift(`${r.cr} ${r.density}/${r.page} [${r.theme}] ${r.sel} "${String(r.text).slice(0, 24)}" — painted ${r.paint} on ${r.surface}, ${r.size}px ${r.kind}, needs ${r.need}`);
     }
   }
   console.log(reportSummary("panel", report));
