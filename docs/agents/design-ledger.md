@@ -946,3 +946,21 @@ rendered fourth surface in one line: the static check had read `page.js`'s own v
 and neither the press nor the reduced-motion block was visible to it.
 
 The verified state: panel OK, console OK, landing OK, and CI green on every job.
+
+### THE IDLE AXIS ON THE FOURTH SURFACE: NOTHING AT ALL (round 83)
+
+The panel has had idle repaint since round 64, the console since round 79, the landing never. Wired this round, four
+windows of six seconds — both installer states, both colour schemes — and the verdict is the strongest of the three:
+
+    landing design sweep OK: nothing above found a defect
+
+NOT EVEN A CLOCK. The panel's axis needed an exemption for its live command duration (round 69's CLOCKS table, declared
+by name with a reason); the landing's footer clock is a single `textContent` assignment at load rather than a timer,
+and its canvas paints without touching the DOM — so a settled landing writes NOTHING, and the shared table stayed
+empty for it. That is the right order: declare an exemption when the measurement names one, never before, because a
+table that grows in advance is a table nobody reads.
+
+All three surfaces now measure the objective's idle clause, each with the rule inlined from the same source and the
+same exemption list, so the axis cannot drift between them.
+
+    panel (6 pages x 2 densities) clean · console (every page, both themes) clean · landing (4 windows) clean
