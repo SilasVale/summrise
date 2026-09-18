@@ -612,3 +612,33 @@ it per item: the item is a React FRAGMENT, so the dot's parent is the RAIL. The 
 the active state, or `:has()` on one — and that is the next round's work, stated here rather than left as a rule that
 silently matches nothing. The dead rule was reverted, because dead CSS is exactly what `stylesheet-hygiene` exists to
 catch.
+
+### THE RAIL DOT: FIXED AND MEASURED, AND CI'S PROBE STILL DISAGREES (round 71)
+
+The cause was found by experiment, not by reading. `.rail-dot` carried the only `transition` any mark has
+(`background 0.2s ease, box-shadow 0.2s ease`), and on a theme flip every custom property updated at once while the
+PAINTED background never did — for three seconds and beyond. Removing the transition in the live page changed the
+outcome, which is the proof a cause needs:
+
+    as shipped:              light -> dark:  painted stays rgb(82,82,91)   (2.23)
+    with `transition: none`: light -> dark:  painted becomes #9a9aa0      (6.17)
+
+Removed in the sheet, rebuilt, and verified on the same harness in both directions: **light 7.47 · dark 6.17 · back
+to light 7.47**. The removal is also what the objective asks for — the chrome is neutral and still, and this is a
+state MARK whose motion channel is the WORKING HALO (an animation on the state arms), not a colour cross-fade.
+
+**CI HAS NOT CONFIRMED IT, AND THE DISAGREEMENT IS NOW NARROW.** The design job reports the same eight findings
+(`div.mark.rail-dot` 2.33 on six pages, 2.13 on the fail page) with the fix in the tree, while the same harness —
+the stamps match — measures 7.47 in light and 6.17 in dark on the device. The six pages are RAIL-WALK surfaces, and
+the rail walk clicks the theme toggle and undoes it, so the finding is consistent with a dot measured in the other
+theme than its label claims. That is a hypothesis about CI's PROBE, not about the sheet, and it is the next
+measurement: run the sweep's own contrast probe against the delivered harness on the device — the same instrument, the
+same pages — instead of a hand-written one. My probe reading 7.47 while CI's reads 2.33 on the same artefact is the
+same lesson this arc keeps teaching: the instrument that disagrees is the one to interrogate.
+
+TWO SELF-INFLICTED FAULTS FOUND ON THE WAY, both recorded because both were invisible to the gates:
+  * round 70's "revert" removed a comment and left HALF a rule: cutting from the comment to the next `.rail-dot {`
+    found the brace inside the rule being removed, so `.rail-dot { --mark-ink: var(--chrome-active-text) }` survived
+    as a real duplicate. Dead in intent, alive in the sheet, and `stylesheet-hygiene` passed it.
+  * a comment written with `//` built fine and reached the sheet as text a browser reads as declarations. CSS
+    comments only; rewritten.
