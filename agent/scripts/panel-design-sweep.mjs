@@ -415,6 +415,8 @@ ${TIMING}
       });
       let previous = '';
       let pages = 0;
+      // THE THEME THIS WALK STARTS FROM, so the undo below has something to compare against.
+      const before = (await page.evaluate(THEME)).attr;
       for (let i = 0; i < buttons.length; i++) {
         await page.evaluate((k) => { const b = document.querySelectorAll('#icon-rail button, .desktop-rail button')[k]; if (b) b.click(); }, i);
         await page.waitForTimeout(900);
@@ -426,16 +428,35 @@ ${TIMING}
         if (active === previous || !active) {
           await page.evaluate((k) => { const b = document.querySelectorAll('#icon-rail button, .desktop-rail button')[k]; if (b) b.click(); }, i);
           await page.waitForTimeout(600);
+          // AND THE UNDO IS CHECKED. Round 41 clicked the action a second time to undo it and MOVED ON; if that click
+          // lands on something that is not a toggle, or the app ignores it, every surface after it is rendered in the
+          // other theme while this loop keeps saying the one it intended — which is exactly what CI reported in round
+          // 73: six pages labelled light, rendered dark, with the light theme's warning ink on them.
+          const after = (await page.evaluate(THEME)).attr;
+          if (before && after && after !== before) {
+            await page.evaluate((k) => { const b = document.querySelectorAll('#icon-rail button, .desktop-rail button')[k]; if (b) b.click(); }, i);
+            await page.waitForTimeout(600);
+            const back = (await page.evaluate(THEME)).attr;
+            if (back && back !== before) report.railThemeDrift = (report.railThemeDrift || 0) + 1;
+          }
           continue;
         }
         previous = active;
         pages++;
         const name = density + '-' + active;
+        // THE LABEL COMES FROM THE PAGE, NOT FROM THE LOOP (round 74). The loop's own theme value is what it
+        // INTENDED; the document's data-theme attribute is what it IS. They can disagree — that is the whole subject
+        // of the theme-lie axis — and when they do, labelling the rows with the intention is how six contrast
+        // findings were filed against a theme that was not on screen. One reading, used for every label, and the
+        // disagreement is still recorded against the intention so the axis keeps its evidence. (No backticks: this
+        // comment is inside the emitted template literal — 45th time.)
+        const themeRead = await page.evaluate(THEME);
+        const pageTheme = themeRead.attr === 'dark' ? 'dark' : themeRead.attr === 'light' ? 'light' : theme;
         const rows = await page.evaluate(PROBE);
-        for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'rail', page: name });
-        report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
-        report.surfaces.push({ density, theme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
-        report.names.push({ density, theme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
+        for (const row of rows) report.rows.push({ ...row, density, theme: pageTheme, mode: 'rail', page: name });
+        report.themeChecks.push({ page: name, intended: theme, ...themeRead });
+        report.surfaces.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
+        report.names.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
       }
       // THE COVERAGE IS WHAT CHANGED, not what was clicked: six pages is the fact, and a report that says fewer
       // means the rail stopped navigating rather than that the pages are clean.
