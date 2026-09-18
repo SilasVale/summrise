@@ -222,6 +222,9 @@
 .mark:not([data-live]) { background: var(--mark-ink); border-radius: 50%; }
 
 .rail-dot {
+  --mark-ink: var(--chrome-active-text);
+}
+.rail-dot {
   --mark-ink: var(--rail-ink);
   width: 8px; height: 8px;
   border-radius: 50%;

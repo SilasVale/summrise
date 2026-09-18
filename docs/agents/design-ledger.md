@@ -587,3 +587,28 @@ able to inspect from here. Next round: regenerate the harness locally, deliver i
 per state (idle / working / waiting / off / no attribute) — five measurements that will name the winning rule instead
 of a sixth hypothesis. The live panel measuring 7.47 while CI's harness measures 2.33 is itself the finding: the two
 are not the same artefact, and the difference is worth knowing.
+
+### THE RAIL DOT'S 2.33 IS THE ACTIVE ITEM'S DOT IN THE DARK THEME (round 70), AND THE INSTRUMENT WAS THE PROBLEM
+
+CI's eight findings were one element, and my first four explanations were all wrong. What settled it was measurement,
+on the device, with the harness CI builds — and the correction to my own claim first: **the harness was never
+uninspectable.** CI's script generates it from this checkout (`panel-render-audit.mjs`) and both stamps read
+`235435-cc159cc40dcf`, so CI and I were measuring the same artefact the whole time.
+
+    five forced states, panel density, light:  working / idle / waiting / off / no attribute ALL 7.47
+    walking the rail and clicking each button: all dots ok … until the SIXTH, the theme toggle:
+        live="working"  ink=rgb(82,82,91)  --mark-ink=#9a9aa0  surface=rgb(26,27,32)  ratio=2.23
+
+That is the state nothing had ever measured: the harness starts LIGHT, and every forced-state test stayed there. Click
+the theme toggle and the dot sits on the rail in the DARK theme with the LIGHT ink painted, at **2.23** — CI's number,
+reproduced independently.
+
+**WHY MY FIX DID NOT TOUCH IT.** I added `.rail-btn.active .rail-dot { --mark-ink: var(--chrome-active-text) }`,
+copying the active tab's precedent — and the measurement came back identical because the rule CANNOT MATCH. The dot is
+rendered as a SIBLING:
+`<button className="rail-btn active">…</button> … <div className="mark rail-dot" …>`, and the theme and guide buttons
+sit between them, so neither a descendant selector nor `.rail-btn.active + .rail-dot` reaches it. CSS also cannot scope
+it per item: the item is a React FRAGMENT, so the dot's parent is the RAIL. The fix needs markup — a wrapper carrying
+the active state, or `:has()` on one — and that is the next round's work, stated here rather than left as a rule that
+silently matches nothing. The dead rule was reverted, because dead CSS is exactly what `stylesheet-hygiene` exists to
+catch.
