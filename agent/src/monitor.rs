@@ -677,7 +677,17 @@ pub fn recent_transitions(id: &str, limit: usize) -> Vec<Transition> {
 /// that did, the latency range, and WHEN the state last changed (the number an operator reads
 /// first — "down since 18:41" is the whole story).
 pub fn summary(id: &str) -> Value {
-    let probes = series(id, SERIES_MAX);
+    summary_of(&series(id, SERIES_MAX))
+}
+
+/// THE PAYLOAD FOR ONE TARGET'S SUMMARY, from the probes it has.
+///
+/// Split out of `summary` in round 65 so the WIRE SHAPE can be tested without a data dir: the fixture test asserts
+/// the exact key set this returns against `agent/tests/fixtures/monitor-row.json`, and the panel's test asserts it
+/// reads that same list. The IO is the one line above, which is the shape the ledger calls "a glue wrapper around a
+/// tested core" — and the reason it was worth doing is that a defensive parser (right for a live UI) turns a RENAMED
+/// field into a silently empty card rather than an error.
+pub fn summary_of(probes: &[Probe]) -> Value {
     if probes.is_empty() {
         return json!({
             "probes": 0,
@@ -726,7 +736,7 @@ pub fn summary(id: &str) -> Value {
         "up_now": current,
         "since_ms": since,
         "latency": latency,
-        "drops": count_drops(&probes),
+        "drops": count_drops(probes),
         // THE NUMBER AN OPERATOR ASKS FOR BY NAME when the target is a web UI: what did it answer?
         // `null` for a TCP target and for a probe that got no response at all.
         "last_status": probes[probes.len() - 1].status,
@@ -774,6 +784,64 @@ pub fn dial_addr(target: &Target) -> Option<SocketAddr> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// THE MONITORS WIRE FORMAT, pinned from this end (round 65).
+    ///
+    /// `agent/tests/fixtures/monitor-row.json` is read by this test and by the panel's `useMonitors` tests. The
+    /// panel's parser is defensive on purpose — a missing field yields a default rather than an error, which is right
+    /// for a live UI and means a RENAMED field renders an empty card with nothing to see. The panel's own payload
+    /// test recorded the consequence before this fixture existed: a hand-written transition shape looked plausible,
+    /// was wrong, and the card drew no transitions at all.
+    #[test]
+    fn monitor_row_fixture_matches_the_payload() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/monitor-row.json")).expect("fixture parses");
+
+        // up, up, down — one transition, a real latency range, and a failing HTTP probe on the end.
+        let probes = vec![
+            Probe { ts_ms: 1_000, ok: true, ms: Some(9), status: None, expect_ok: None },
+            Probe { ts_ms: 2_000, ok: true, ms: Some(7), status: None, expect_ok: None },
+            Probe { ts_ms: 3_000, ok: false, ms: None, status: Some(503), expect_ok: Some(false) },
+        ];
+        let summary = summary_of(&probes);
+        let keys: Vec<&str> = summary.as_object().expect("object").keys().map(|k| k.as_str()).collect();
+        let promised: Vec<&str> = fixture["required_by_panel"]
+            .as_array()
+            .expect("required_by_panel")
+            .iter()
+            .map(|k| k.as_str().expect("string"))
+            .collect();
+        // SETS, NOT SEQUENCES: `serde_json`'s object is a BTreeMap, so the WIRE order is alphabetical — while the
+        // fixture keeps the panel's READING order, which is what a person opening the file wants to see. Comparing
+        // the two as lists would fail on a difference nobody can observe; the contract is which keys exist.
+        let mut keys_sorted = keys.clone();
+        let mut promised_sorted = promised.clone();
+        keys_sorted.sort_unstable();
+        promised_sorted.sort_unstable();
+        assert_eq!(
+            keys_sorted, promised_sorted,
+            "the summary the device builds and the fixture promises have drifted apart"
+        );
+
+        // THE LATENCY SUB-OBJECT, which the panel reads field by field (min/avg/max).
+        let latency = summary["latency"].as_object().expect("latency object");
+        for k in fixture["latency_keys"].as_array().expect("latency_keys") {
+            let k = k.as_str().expect("string");
+            assert!(latency.contains_key(k), "latency is missing `{k}`");
+        }
+
+        // AND AN EMPTY SERIES CARRIES THE SAME KEYS as nulls. The panel reads every one of them unconditionally, so
+        // an "absent" key here would be a silently defaulted number there — the failure this fixture exists to stop.
+        let empty = summary_of(&[]);
+        for k in &promised {
+            assert!(
+                empty.get(k).is_some(),
+                "an empty series omits `{k}`, and the panel reads that key unconditionally"
+            );
+        }
+    }
+
     use super::*;
 
     /// SERIALISES THE TESTS THAT TOUCH THE TARGET LIST. It is a process-global by design (the prober

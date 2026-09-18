@@ -1,0 +1,70 @@
+{
+  "_why": "THE MONITORS PAYLOAD, pinned from both ends (round 65). The panel had a payload test of its own and the DEVICE had none: its file records the consequence in its own words — 'the shape is the contract, nothing validates it, and a wrong guess looks like data'. A hand-written fixture described a transition as {ts_ms, ok, reason}, which is plausible and wrong (the real one is {at_ms, up, lasted_ms}), and a transition the parser cannot place in time is DROPPED — so the card rendered with no transitions and no error. This file is the same contract the session row has: `required_by_panel` is the list read off the panel's parser, and `agent/src/monitor.rs` asserts the device SENDS every one of them while the panel's test asserts it READS them. A rename on either side now fails a test instead of quietly emptying a card.",
+  "_shape": "read off agent/src/monitor.rs (Probe, Transition, summary_of, snapshot) — not from memory",
+  "required_by_panel": [
+    "probes",
+    "up",
+    "down",
+    "up_pct",
+    "up_now",
+    "since_ms",
+    "drops",
+    "latency",
+    "last_status",
+    "last_expect_ok"
+  ],
+  "latency_keys": ["min", "avg", "max"],
+  "envelope_keys": ["targets", "interval_secs", "series_max"],
+  "target_keys": ["id", "host", "port", "path", "expect", "transitions", "series", "summary"],
+  "transition_keys": ["at_ms", "up", "lasted_ms"],
+  "probe_keys": ["ts_ms", "ok", "ms"],
+  "example": {
+    "targets": [
+      {
+        "id": "mon-router",
+        "host": "192.168.1.1",
+        "port": 22,
+        "path": null,
+        "expect": null,
+        "summary": {
+          "probes": 240,
+          "up": 237,
+          "down": 3,
+          "up_pct": 99,
+          "up_now": true,
+          "since_ms": 1789700000000,
+          "latency": { "min": 4, "avg": 9, "max": 41 },
+          "drops": 2,
+          "last_status": null,
+          "last_expect_ok": null
+        },
+        "transitions": [
+          { "at_ms": 1789700000000, "up": true, "lasted_ms": 1800000 }
+        ],
+        "series": [
+          { "ts_ms": 1789699990000, "ok": true, "ms": 9 },
+          { "ts_ms": 1789700000000, "ok": true, "ms": 7 }
+        ]
+      }
+    ],
+    "interval_secs": 15,
+    "series_max": 240
+  },
+  "example_http": {
+    "_why": "THE SAME TARGET WATCHED AS A WEB UI, where the two fields a TCP target leaves null are the whole point: a status code says the page answered, and `last_expect_ok` says whether it answered WITH the text — 'no answer' and 'the answer did not say it' are different facts, which is why `Probe` keeps them apart.",
+    "summary": {
+      "probes": 40,
+      "up": 38,
+      "down": 2,
+      "up_pct": 95,
+      "up_now": false,
+      "since_ms": 1789700100000,
+      "latency": { "min": 22, "avg": 31, "max": 96 },
+      "drops": 1,
+      "last_status": 503,
+      "last_expect_ok": false
+    },
+    "path": "/health",
+    "expect": "ok"
+  }
+}

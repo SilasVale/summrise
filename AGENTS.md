@@ -272,6 +272,35 @@ Console press targets are `.rail-btn`, `.btn`, `.icon-btn`, `.lang-btn`, `.auth-
 `.dev-mini`, `.rail-avatar`, `.user-pop-logout`; a target a page does not render is a NOTE, and `measured` keeps a
 pass that pressed nothing from reading as clean.
 
+### THE MONITORS PAYLOAD HAD ONE END OF ITS CONTRACT (round 65)
+
+The objective asks for facts "crossing the wire as an explicit contract (agent → API → panel)". The mechanism exists
+and is good: eight payload fixtures carry a `required_by_panel` list that the DEVICE's test asserts it sends and the
+PANEL's test asserts it reads. Monitors had only the second half — and the panel's own payload test recorded what that
+costs, in its own words: "the shape is the contract, nothing validates it, and a wrong guess looks like data". A
+hand-written transition shape (`{ts_ms, ok, reason}`) looked plausible, was wrong (`{at_ms, up, lasted_ms}`), and a
+transition the parser cannot place in time is DROPPED — so a card drew with no transitions and no error.
+
+    agent/tests/fixtures/monitor-row.json   NEW — the field list READ OFF THE PARSER, not from memory
+    agent/src/monitor.rs                    the device asserts it SENDS every promised key
+    useMonitors payload test                the panel asserts it READS them, value for value
+
+Two details worth their lines. `summary()` was refactored into a tested core — `summary_of(&[Probe])` with the IO as
+one line above it, the shape this ledger calls "a glue wrapper around a tested core" — because the wire shape could
+not otherwise be asserted without a data dir. And `serde_json`'s object is a BTreeMap, so the WIRE order is
+alphabetical while the fixture keeps the panel's READING order: the test compares SETS, because failing on a
+difference nobody can observe is how a contract test earns a reputation for lying.
+
+    MUTATIONS, one per end:
+      the device renames `up_pct` → `upPct`   → "the summary the device builds and the fixture promises have drifted
+                                                 apart" (left: … upPct …), and the panel would have shown a silently
+                                                 absent percentage
+      the panel stops reading `last_status`   → "expected null to be 503" — the HTTP target's whole point
+
+ANOTHER GATE FIRED MID-ROUND, unsought: `agent/build.rs` REFUSED the cargo test because the panel source was newer
+than `resources/panel/` — "panel.js is embedded at compile time, so this build would ship the OLD panel". Restoring a
+file during a mutation is enough to trigger it, which is exactly the class of mistake it exists to catch.
+
 ### IDLE REPAINT IS A MEASUREMENT NOW, AND ZERO IS FALSIFIABLE (round 64)
 
 The objective lists idle repaint among the things a claim is "verified by measurement" by, and nothing measured it.

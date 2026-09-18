@@ -17,6 +17,16 @@
 // card is fed by props the panel density does not pass, or something else gates it. That is a measured
 // observation, not a diagnosis, and it is the first thing to check next time this surface is measured.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+// The OTHER HALF of the monitors contract (round 65): `agent/tests/fixtures/monitor-row.json` is asserted by the
+// device's own test in `agent/src/monitor.rs` (it must SEND every promised key) and by this one (the panel must READ
+// it). Read through the filesystem rather than imported, because the fixture lives outside this package.
+const fixture = JSON.parse(
+  readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../tests/fixtures/monitor-row.json"), "utf8"),
+);
 import { parseMonitorChange, parseMonitors } from "../useMonitors";
 
 /** One target in the shape the hook reads — `summary`, `transitions` and `series` as it parses them. */
@@ -148,5 +158,45 @@ describe("parseMonitorChange — the frame the device pushes", () => {
     // default is defensive rather than reachable. Recorded because the two helpers disagree and the
     // difference is invisible until a test makes you look.
     expect(bare!.host).toBe("");
+  });
+});
+
+describe("the monitors fixture, end to end", () => {
+  it("parses the example the DEVICE promises, value for value", () => {
+    const parsed = parseMonitors(fixture.example);
+    // the envelope
+    expect(parsed.intervalSecs).toBe(15);
+    expect(parsed.seriesMax).toBe(240);
+    const t = parsed.targets[0];
+    expect(t.id).toBe("mon-router");
+    expect(t.host).toBe("192.168.1.1");
+    expect(t.port).toBe(22);
+    // EVERY KEY the fixture promises for the panel, with the value the fixture carries: a renamed field on the
+    // device falls back to a default here, so this is what turns a silently empty card into a failure.
+    expect(t.summary.probes).toBe(240);
+    expect(t.summary.up).toBe(237);
+    expect(t.summary.down).toBe(3);
+    expect(t.summary.upPct).toBe(99);
+    expect(t.summary.upNow).toBe(true);
+    expect(t.summary.sinceMs).toBe(1789700000000);
+    expect(t.summary.drops).toBe(2);
+    expect(t.summary.latency).toEqual({ min: 4, avg: 9, max: 41 });
+    expect(t.summary.lastStatus).toBeNull();
+    expect(t.summary.lastExpectOk).toBeNull();
+    // the two arrays, whose entry shapes are their own contract
+    expect(t.transitions).toEqual([{ atMs: 1789700000000, up: true, lastedMs: 1800000 }]);
+    expect(t.series).toEqual([
+      { tsMs: 1789699990000, ok: true, ms: 9 },
+      { tsMs: 1789700000000, ok: true, ms: 7 },
+    ]);
+  });
+
+  it("reads the HTTP target's two extra facts, which a TCP target leaves null", () => {
+    const parsed = parseMonitors({ targets: [{ ...fixture.example.targets[0], ...fixture.example_http }], interval_secs: 15, series_max: 240 });
+    const s = parsed.targets[0].summary;
+    expect(s.lastStatus).toBe(503);
+    expect(s.lastExpectOk).toBe(false);
+    expect(parsed.targets[0].path).toBe("/health");
+    expect(parsed.targets[0].expect).toBe("ok");
   });
 });
