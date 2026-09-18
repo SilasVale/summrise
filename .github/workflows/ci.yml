@@ -323,6 +323,13 @@ jobs:
       # (liveness.ts) and the console's as PAINTED (its sheet, with the same signature rule its own gate uses).
       - name: the two surfaces agree on one silhouette per meaning
         run: node scripts/test/mark-vocabulary-check.mjs
+      # THE CHROME IS NEUTRAL AND STILL. Colour has had its gate since round 245; motion had only the
+      # reduced-motion one, which asks whether an animation is SILENCED and never whether it should exist. Every
+      # animation on both sheets is now declared with one of three purposes and its reason — STATE (motion that
+      # describes something still happening), ENTRANCE (a thing arriving, one-shot), ATTENTION ("this changed").
+      # A new animation fails until somebody writes down which it is.
+      - name: the chrome is still — every animation is a declared state or acknowledgement
+        run: node scripts/test/chrome-stillness-check.mjs
       # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
       # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
