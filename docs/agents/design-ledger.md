@@ -869,3 +869,28 @@ ONE PROCESS NOTE WORTH KEEPING: the idle pass takes longer than one MCP browser 
 run on the device produced no report I could read before this round ended. CI is the instrument that settled it — a
 sweep committed to the repository is measured on every push, which is the cheapest possible way to learn whether a new
 axis finds anything. Reach for the device when a finding needs a human-scale look, not to discover a first result.
+
+### THE OBJECTIVE, CLAUSE BY CLAUSE, AND THE ONE SURFACE WITH NO ARM (round 80)
+
+Round 80 went looking for the next defect and found four clauses already implemented and gated. That is worth a table
+rather than another round of hunting, because the next 900 rounds need to know where the coverage ENDS.
+
+| the objective says | the gate that owns it | measured, as of round 80 |
+|---|---|---|
+| one source of truth per fact, crossing the wire as an explicit contract | `agent/tests/fixtures/*.json` + their `required_by_panel` assertions on BOTH sides (session-row, sse-frames, status, settings, vitals-series, boot-history, approval-grants, embedded-bridge, monitor-row, run-event) | 10 wire facts, each asserted by a device test AND a panel test |
+| every state has its own SILHOUETTE — shape first | `mark-vocabulary-check` (panel vs console, read as data and as paint), `console-marks-check` (11 marks, 5 families, `ring+fill` is its own FAILING kind) | panel 4 states, console 11 marks, both agree: attention=diamond, absent=ring, fine=fill |
+| the chrome neutral and still | `chrome-stillness-check` (15 animations, each with a declared purpose), `state-colour-check` (152 state-colour uses on purpose; every state SURFACE ≤ the loud bar — `loudnessOf`, shared with the rendered probe) | 8 STATE / 5 ENTRANCE / 2 ATTENTION; the dark info chip fixed this arc |
+| immediate feedback on every input, transform/opacity only, inside a stated budget | `feedback-check` — three rules: a press exists for every pressable hover, no press is fully shadowed, and **no transition above 240 ms**; plus `pressPass` rendered on BOTH UIs | sheets sit at 120/150/200 (panel), 180 (console), 200 (landing) — all under the stated 240 |
+| one focal point per surface | the rendered loud axis (shared rule) + `NAV_LOUD` element exceptions with reasons | panel and console both green |
+| idle repaint | `idlePass` on the panel (6 pages, 2 densities) and — since round 79 — on every console page in both themes | both clean; clocks exempt BY NAME with reasons |
+| reduced-motion | `motion-check` (no animation escapes the block), `particles-check` (the canvas refuses to run), rendered verification on the device | panel, console, landing |
+| whatever stops earning its place is pruned | `exports-check`, `css-vars-check` (both directions), `unstyled` axis, `retired-colours-check` | the `online` class pruned this arc |
+
+**AND THE ONE SURFACE WITH NO RENDERED ARM IS THE LANDING.** `landing-check` is STATIC — it reads `page.js`'s own
+values and asserts contrast, exactly one `h1`, and a 320px reflow — and `particles-check` holds its canvas to five
+facts including the reduced-motion refusal, verified on the device once. But no browser renders the landing in any
+gate: the panel has a harness arm and the console an arm that builds from the checkout, and the landing has neither.
+Everything a static read cannot see is therefore unmeasured there — the cascade as painted, the `hint` that replaces
+the installer button when a release publishes none, focus order, and the rendered press. That is the next round's
+work, and the objective's "all four surfaces green" is the reason it matters: three of the four are measured as
+rendered and the fourth is measured as text.
