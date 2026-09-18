@@ -127,24 +127,28 @@ const PAGES = ['installer', 'npm-only'];
 
 function judge(file) {
   const report = JSON.parse(readFileSync(file, "utf8"));
-  const findings = [];
-  for (const n of report.names || []) {
-    if (n.unnamed.length) findings.push(`${n.page}: ${n.unnamed.length} control(s) with NO accessible name — ${n.unnamed.join(", ")}`);
-    if (n.titleOnly.length) findings.push(`${n.page}: ${n.titleOnly.length} control(s) named only by title — ${n.titleOnly.join(", ")}`);
-  }
-  for (const s of report.surfaces || []) {
-    for (const c of (s.marks && s.marks.collisions) || []) findings.push(`${s.page}: ${c}`);
-  }
-  for (const u of report.unstyled || []) {
-    if (u.live && u.live.length) findings.push(`${u.page}: class name(s) with no matching rule — ${u.live.join(", ")}`);
-  }
-  for (const t of report.targets || []) {
-    for (const u of t.undersized || []) {
-      if (!u.passesBySpacing) findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+  // THE SHARED CLAUSES, NOT A COPY OF THEM. The first version of this function re-implemented names, marks and
+  // unstyled by hand — and got the target axis wrong on its first CI run, because `undersized` in that probe is a
+  // COUNT and the list is `distinct`. Duplicating a clause costs exactly what duplication costs; the console's judge
+  // had the right shape all along (it calls judgeReport and adds only what is its own), and this does the same.
+  //
+  // The press clause is NOT repeated here: the shared judge already fails a pass that measured nothing ("a press
+  // pass that pressed nothing proves nothing"), and my copy of it made the same finding twice. Pruned.
+  //
+  // `navless`: the landing has no navigation BY DESIGN — it is one page with steps, not an application — and the
+  // landmark clause would otherwise read that as a defect on every surface.
+  const findings = judgeReport(report, { navless: ["installer", "npm-only"] });
+  for (const t of report.themeChecks || []) {
+    // READ OFF THE PAGE, not off the instruction: the sweep asks the browser for its colour-scheme media query and
+    // the report carries the answer, so a page that ignored the emulation cannot pass as the scheme it was asked for.
+    if (typeof t.scheme === "boolean" && t.scheme !== (t.intended === "dark")) {
+      findings.push(`scheme: ${t.page} was rendered for "${t.intended}" but the page reports prefers-color-scheme: dark = ${t.scheme}`);
     }
   }
-  for (const p of report.press || []) {
-    if (!p.measured) findings.push(`${p.page}: the press pass measured NOTHING — a page with no pressable control either has none or the selector list is stale`);
+  for (const t of report.targets || []) {
+    for (const u of t.distinct || []) {
+      if (!u.passesBySpacing) findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+    }
   }
   const check = report.entryCheck || {};
   if (check.stale) findings.push(`the delivered entry is ${check.bytes} bytes / sha ${check.sha} but this sweep was emitted against ${check.expected && check.expected.bytes} / ${check.expected && check.expected.sha} — every measurement below is of a stale build`);
