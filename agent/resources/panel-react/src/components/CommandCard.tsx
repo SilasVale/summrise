@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CommandCard as CardData } from "../hooks/useCommandEvents";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../ui/Icon";
+import { useNow } from "../hooks/useNow";
 
 // dsh ToolCallTree-style command card (round-admin-ui Task 4): StateDot +
 // command + live output (TEXT-ONLY — never innerHTML; React text nodes are
@@ -100,7 +101,11 @@ export function CommandCard({ card, selected, onSelect }: {
     prevLen.current = card.output.length;
   }, [card.output, expanded, card.ended]);
 
-  const duration = card.ended ? fmtDuration(card.durationMs) : fmtDuration(Date.now() - card.startedAt * 1000);
+  // A RUNNING CARD KEEPS ITS OWN TIME (round 62). The clock ticks only while this command is in flight, so an ended
+  // card is not repainting once a second forever — and a SILENT running command still counts up, which it did not
+  // before: with no output there is no SSE event, and with no event there was no render.
+  const now = useNow(!card.ended);
+  const duration = card.ended ? fmtDuration(card.durationMs) : fmtDuration(now - card.startedAt * 1000);
 
   return (
     <div className={`cmd-card${selected ? " selected" : ""}`}>

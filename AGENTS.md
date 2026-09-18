@@ -271,6 +271,40 @@ Console press targets are `.rail-btn`, `.btn`, `.icon-btn`, `.lang-btn`, `.auth-
 `.dev-mini`, `.rail-avatar`, `.user-pop-logout`; a target a page does not render is a NOTE, and `measured` keeps a
 pass that pressed nothing from reading as clean.
 
+### A RUNNING COMMAND'S DURATION FROZE WHENEVER IT WENT QUIET (measured and fixed, round 62)
+
+Five components rendered an elapsed time as `Date.now() - startedAt` and re-rendered only when their props changed —
+and for a running command the props change when SSE delivers new OUTPUT. A silent command produces none, so the
+number froze. MEASURED FIRST, in `CommandCard.test.tsx`:
+
+    × advances while the command is still running, with no new output to trigger a render
+      AssertionError: expected '517ms' not to be '517ms'
+
+Five seconds of clock, the same label. The case is not exotic: the ledger's own `sessionActive` comment names it —
+"a long command that prints nothing for a while" — and a flash, a probe or a serial write that prints one final line
+all behave that way.
+
+THE FIX IS ONE CLOCK, `hooks/useNow.ts`, and the `active` FLAG IS HALF ITS CONTRACT rather than an optimisation. It
+ticks once a second and ONLY while the thing it measures is still moving, because a panel that repaints every second
+with nothing running is the idle repaint this objective forbids. `useNow.test.ts` pins both halves, and the idle half
+is measured as NO TIMER EXISTS (`vi.getTimerCount() === 0`) rather than as "the value did not change" — a timer that
+fires and sets the same value is still a repaint:
+
+    now active     → advances with the clock        (3 s of fake time, a timer exists)
+    now inactive   → value unchanged, 0 timers      (10 s of fake time, nothing scheduled)
+    false → true   → reads fresh on activation      (the first paint after "running" is not a second stale)
+
+Wired into the three renderers of a live command duration (`CommandCard`, `DetailsPanel`, `TrajectoryView`, the last
+ticking only while a visible row is running). Two deliberate non-customers: `PluginsPage`'s uptime is POLL-driven —
+`started_at` is a wire fact the device owns, refreshed each poll, and a 1 s ticker for an uptime would BE the idle
+repaint — and `ContextRail` already had a 30 s ticker of its own.
+
+AND THE GATES CAUGHT THE CHANGE ITSELF: `exports-check.mjs` refused the round because `useNow.ts` exported
+`NOW_INTERVAL_MS` that nothing outside the file reads — "an export is a PROMISE that somebody outside needs this".
+Dropped. That is the second time this session a gate has reviewed my own work before a human could.
+
+Panel 784/784 (five new tests).
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.

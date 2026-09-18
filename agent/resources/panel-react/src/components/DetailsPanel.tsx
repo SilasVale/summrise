@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useNow } from "../hooks/useNow";
 import type { CommandCard as CardData } from "../hooks/useCommandEvents";
 import { CopyButton, cardState, fmtDuration } from "./CommandCard";
 import { Icon } from "../ui/Icon";
@@ -35,7 +36,10 @@ function CardDetails({ card }: { card: CardData }) {
     prevLen.current = card.output.length;
   }, [card.output, card.ended]);
 
-  const duration = card.ended ? fmtDuration(card.durationMs) : fmtDuration(Date.now() - card.startedAt * 1000);
+  // SAME CLOCK AS THE CARD (round 62): one source of "now" for every live duration, ticking only while this
+  // command is in flight. Two renderers of the same number had two chances to freeze.
+  const now = useNow(!card.ended);
+  const duration = card.ended ? fmtDuration(card.durationMs) : fmtDuration(now - card.startedAt * 1000);
   const started = new Date(card.startedAt * 1000).toLocaleTimeString();
   // Parameters: the command/start payload (JsonTree style, text-only rows).
   const params: [string, unknown][] = [

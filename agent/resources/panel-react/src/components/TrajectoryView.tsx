@@ -1,6 +1,7 @@
 import type { PathState } from "../lib/path";
 import { trailReadNotice } from "../lib/trailRead";
 import { useEffect, useRef, useState } from "react";
+import { useNow } from "../hooks/useNow";
 import type { CommandEvent } from "../hooks/useCommandEvents";
 import { terminalStatus } from "../hooks/useCommandEvents";
 import { useTrajectory } from "../hooks/useTrajectory";
@@ -159,6 +160,9 @@ export function TrajectoryView({
   const visible = filtered ?? rounds.slice(-windowCount);
   const hasMore = !searching && rounds.length > windowCount;
   const lastVisible = visible[visible.length - 1];
+  // ONE CLOCK FOR THE LIVE DURATIONS IN THIS VIEW (round 62), ticking only while at least one visible row is
+  // running — the rows carry `ended`, the raw events do not.
+  const now = useNow(visible.some((r) => !r.ended));
 
   // Terminal-style follow: while the newest round is still running, keep the
   // list at the bottom — but only if the user hasn't scrolled up (same
@@ -284,7 +288,7 @@ export function TrajectoryView({
                     <span className="traj-chev">▸</span>
                     <span className="cmd-dot" data-state={st.state} />
                     <span className="traj-round-cmd" title={r.command}>{r.command}</span>
-                    <span className="cmd-duration">{fmtDuration(r.ended ? r.durationMs : Date.now() - r.startTs * 1000)}</span>
+                    <span className="cmd-duration">{fmtDuration(r.ended ? r.durationMs : now - r.startTs * 1000)}</span>
                     <span className="cmd-badge" data-state={st.state}>{st.compact}</span>
                   </div>
                   {open && (
