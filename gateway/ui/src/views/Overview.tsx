@@ -304,13 +304,13 @@ export default function Overview() {
             {devices.map((d) => {
               const st = status[d.name] || {};
               const up = deviceIsUp(st);
+              // NO CONDITIONAL CLASS ON THIS LINK (round 78). It carried `dev-mini online`, and no rule in either
+              // sheet has ever matched `online` — the design sweep reported it as "on screen, matched by nothing" on
+              // the Overview. The state it named is already carried by the LED beside it (`dev-mini-led on`, a filled
+              // mark against the base ring), so the class was a SECOND source for one fact with no paint of its own:
+              // the objective asks for one source per fact, and for whatever stops earning its place to be pruned.
+              // The LED is the source. (A JSX comment here is a syntax error: this is the top of a return.)
               return (
-                {/* NO CONDITIONAL CLASS HERE (round 78). This Link carried `dev-mini online`, and no rule in either sheet
-                    has ever matched `online` — the design sweep reported it as “on screen, matched by nothing” on the
-                    Overview. The state it named is already carried by the LED beside it (`dev-mini-led on`, which is a
-                    filled mark against the base ring), so the class was a SECOND source for one fact with no paint of
-                    its own: the objective asks for one source per fact, and for whatever stops earning its place to be
-                    pruned. The LED is the source. */}
                 <Link key={d.name} to="/devices" className="dev-mini">
                   <span className={`dev-mini-led${up ? " on" : ""}`} />
                   <span className="dev-mini-name">{d.name}</span>
