@@ -922,3 +922,27 @@ no second renderer to drift. Its first CI run measured **98 text nodes, 4 surfac
 AND THE ROUND'S OWN MISTAKE, the forty-ninth of its kind: my comment used backticks inside page.js's template
 literal, the emit exited 1, and the rendered pages carried no `a:active` at all — the grep of the RENDERED html is
 what caught it, twice, because the sheet is a string until PAGE() builds it.
+
+### ALL FOUR SURFACES, MEASURED AS RENDERED, GREEN (round 82)
+
+The landing's arm took three CI runs to judge clean, and every finding on the way was the instrument rather than the
+page — which is the same lesson as the console's arm three rounds earlier, arriving on a smaller surface.
+
+    1. "a renders NOTHING when pressed", both schemes — a REAL defect, fixed with the console's remedy (opacity,
+       after both hover rules, because a transform does not move an inline box).
+    2. "reduced motion (landing): 5 element(s) still animate" — a REAL defect: the canvas already refused under
+       reduce and the CSS was never asked, so the theme toggle, every link and the body kept their 200 ms transitions.
+       motion-check reads the panel's and the console's sheets and had never read this one. Fixed with the block all
+       three surfaces now share, 0s rather than a shorter duration.
+    3. "the press pass measured 1 control(s)" — MY LIST was stale: it named a class the page has never had and missed
+       the theme toggle. The shared floor of two exists to make exactly that loud, and it did its job.
+    4. "the delivered entry is 29707 … but this sweep was emitted against -1 / (unreadable)" — MY ORDER: the stamp was
+       computed at module load, before --emit had rendered anything. Read after the render now, verified byte for byte.
+    5. "only 22 styled classes found (floor 100)" — the shared floor is the PANEL's scale; the landing is one page
+       with 22. The floor's job is to make a broken collector loud, so the landing states 15.
+
+TWO OF THE FIVE WERE REAL DEFECTS IN THE PAGE, FOUND WITHIN TWO RUNS OF THE ARM EXISTING. That is the argument for a
+rendered fourth surface in one line: the static check had read `page.js`'s own values for as long as the file existed,
+and neither the press nor the reduced-motion block was visible to it.
+
+The verified state: panel OK, console OK, landing OK, and CI green on every job.
