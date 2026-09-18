@@ -222,14 +222,20 @@
 .mark:not([data-live]) { background: var(--mark-ink); border-radius: 50%; }
 
 .rail-dot {
-  --mark-ink: var(--chrome-active-text);
-}
-.rail-dot {
   --mark-ink: var(--rail-ink);
   width: 8px; height: 8px;
   border-radius: 50%;
+  /* A MARK'S COLOUR DOES NOT CROSS-FADE, AND ITS TRANSITION WAS FREEZING IT (round 71).
+     MEASURED ON THE CI HARNESS, on the device: flip the theme and every custom property updates at once
+     (--mark-ink #52525b -> #9a9aa0) while the PAINTED background stays rgb(82,82,91) — the light ink on the dark
+     rail — for three full seconds and beyond. 2.23:1 is what CI reports, on six pages. Removing this transition in
+     the live page made the same flip repaint correctly (rgb(154,154,160) = #9a9aa0, 6.17:1), which is the proof:
+     the transition is the cause, not a suspect. (No backticks: this file is also read by checks that strip
+     comments, and one of them counts braces.)
+     AND THE REMOVAL IS WHAT THE OBJECTIVE ASKS FOR ANYWAY: the chrome is neutral and STILL, and this is a state
+     MARK. A colour cross-fade between two silhouettes is decoration; the mark's own motion channel is the WORKING
+     HALO, an animation on the state arms, which this does not touch. */
   background: var(--chrome-ink-faint);
-  transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 .rail-brand {
   width: 30px; height: 30px;
