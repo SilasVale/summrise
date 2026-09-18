@@ -198,8 +198,16 @@ export function ActivityPage({ pollMs }: { pollMs?: number }) {
                 the operator is reading. */}
             <span className="activity-stat">{plural(records, "record", "records")}</span>
             {unattributed && (
-              <span className="activity-stat activity-stat-unattributed">
-                {plural(unattributed.rows.length, "record with no run", "records with no run")}
+              // THE SHARE, AND THE REASON, IN THE SAME BREATH (round 68). "479 records with no run" beside
+              // "500 records" reads like a defect to go and investigate; it is the NORMAL case — a run exists only
+              // where a session DECLARED one, so every record from a session that never set a goal is unattributed.
+              // A number without its denominator and its cause is the kind of label that makes an operator feel
+              // they are missing something, which is exactly what this says instead.
+              <span
+                className="activity-stat activity-stat-unattributed"
+                title="A run exists only where a session declared one, so a record from a session that never set a goal carries no run id. Those records are the separate group at the end of the list."
+              >
+                {`${unattributed.rows.length} of ${plural(records, "record", "records")} name no run`}
               </span>
             )}
             {span && (

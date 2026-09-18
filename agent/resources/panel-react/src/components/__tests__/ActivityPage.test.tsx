@@ -240,9 +240,13 @@ describe("ActivityPage — (b) the unattributed bucket stays SEPARATE", () => {
     expect(groups[1].textContent).toContain("click");
     // The header's count says how many records are in the separate bucket, so
     // the split is visible before scrolling.
-    expect(
-      container.querySelector(".activity-stat-unattributed")!.textContent,
-    ).toBe("2 records with no run");
+    // THE SHARE, not just the count (round 68): "2 records with no run" left the reader to work out what it was a
+    // share OF, and on a real device that number is 479 of 500 — the normal case, not an alarm.
+    const stat = container.querySelector(".activity-stat-unattributed")!;
+    // 2 OF 4: the fixture holds two records inside the run and two in the bucket, so the sentence states the
+    // split the old wording left the reader to compute.
+    expect(stat.textContent).toBe("2 of 4 records name no run");
+    expect(stat.getAttribute("title")).toContain("a session declared one");
   });
 
   it("says WHY the bucket is apart, in the same words the run strip uses", async () => {
