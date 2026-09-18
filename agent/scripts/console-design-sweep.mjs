@@ -38,7 +38,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 // WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
@@ -110,6 +110,7 @@ const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const pressPass = ${pressPass.toString()};
+const idlePass = ${idlePass.toString()};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const THEME = ${JSON.stringify(THEME_SOURCE)};
 // THE SWEEP REPORTS ITSELF TO THE AGENT'S DIAGNOSTIC RING, so a caller whose tool call timed out can tell
@@ -204,7 +205,7 @@ const fail = { api: false };
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
   await diag("start console pid=" + process.pid);
-  const report = { rows: [], surfaces: [], names: [], focus: [], press: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
+  const report = { rows: [], surfaces: [], names: [], focus: [], press: [], idle: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   // THE CONSOLE IN DARK. It has a dark theme — body[data-theme=dark], applied before the first paint and
   // persisted in localStorage — and every section of this sweep hardcoded theme: 'light', so a dark
   // regression has been invisible here for as long as the sweep has existed. Round 175 found the same gap in
@@ -226,6 +227,12 @@ const fail = { api: false };
     for (const r of rows) report.rows.push({ ...r, page: label + '-dark', width: 1440, density: 'console', theme: 'dark' });
     report.surfaces.push({ page: label + '-dark', width: 1440, ...(await page.evaluate(SURFACE)) });
     report.names.push({ page: label + '-dark', ...(await page.evaluate(NAMES)) });
+    // THE SAME WINDOW IN DARK, off the page that was just set to it. The panel's idle finding was a THEME-shaped
+    // one once (the rail dot froze its paint across a flip), so the dark pass is not a formality here.
+    if (wants('idle')) {
+      const idle = await idlePass(page, 6000);
+      report.idle.push({ page: label + '-dark', width: 1440, density: 'console', theme: 'dark', seconds: 6, ...idle });
+    }
     // A FALSE POSITIVE WORTH REMEMBERING. While deciding whether this pass was needed I probed the page by
     // hand and got 4.3 for the active rail button — under AA, apparently a defect. The tested probe finds it
     // fine: the hand-rolled comparison read rgba(217, 72, 15, 0.9) as opaque and ignored what it composites
@@ -328,6 +335,17 @@ const fail = { api: false };
         // a pass that pressed nothing from reading as clean. (No backticks in this comment: 43rd time.)
         const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], { page: label, width }) : [];
         if (wants('press')) report.press.push({ density: 'console', theme: 'light', page: label, width, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
+        // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round
+        // 64 and it found a live duration being called a repaint; the console polls its own views twice a second, so
+        // "the page is settled and writing nothing" is exactly the claim its live views could break. It runs on
+        // EVERY console page, in both themes, because this sweep has three pages and a six-second window each —
+        // 36 seconds for the whole axis, which is cheaper than the panel's two densities and six pages make it.
+        // The window lives inside the 1440 block where the other per-class passes are, because width changes what
+        // is on screen and the idle question is about what a settled page does.
+        if (wants('idle')) {
+          const idle = await idlePass(page, 6000);
+          report.idle.push({ page: label, width, density: 'console', theme: 'light', seconds: 6, ...idle });
+        }
       }
     }
   }
