@@ -576,7 +576,7 @@ ${TIMING}
         for (const r of await page.evaluate(PROBE)) {
           const need = r.need ?? 4.5;
           if (r.cr !== null && !r.inactive && r.cr < need) {
-            underAA.push(r.sel + ' "' + String(r.text).slice(0, 16) + '" ' + r.cr + '<' + need);
+            underAA.push(r.sel + ' "' + String(r.text).slice(0, 16) + '" ' + r.cr + '<' + need + ' painted ' + r.paint + ' on ' + r.surface + ', ' + r.size + 'px ' + r.kind);
           }
         }
         await page.mouse.move(2, 2);
@@ -808,7 +808,12 @@ function judge(file) {
       continue;
     }
     if (findings.length < 10 + coverage.length) {
-      findings.unshift(`${r.cr} ${r.density}/${r.page} ${r.sel} "${String(r.text).slice(0, 24)}"`);
+      // WHAT THE PROBE MEASURED, NOT JUST THE RATIO (round 73). The row has carried `paint`, `surface`, `kind` and
+      // `size` all along and the finding printed none of them, so a number like "2.33" arrived with no way to tell
+      // which colour on which surface it was — three rounds went into reproducing an 8px dot because this line did
+      // not say what it had looked at. The idle pass learned the same lesson in round 69 (naming the PARENT turned
+      // an undiagnosable finding into `span.approval-left x6`); this is the contrast axis taking it.
+      findings.unshift(`${r.cr} ${r.density}/${r.page} ${r.sel} "${String(r.text).slice(0, 24)}" — painted ${r.paint} on ${r.surface}, ${r.size}px ${r.kind}, needs ${r.need}`);
     }
   }
   console.log(reportSummary("panel", report));
