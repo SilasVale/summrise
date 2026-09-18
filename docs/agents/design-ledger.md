@@ -769,3 +769,31 @@ WITH THAT, THE DESIGN JOB FAILS ONLY ON THE CONSOLE, and the remaining findings 
 Both come from the RENDERED probe and neither is visible to the console's sheet-level gate, which is the same
 sheet-versus-cascade lesson rounds 44 and 45 recorded on the other surface. That is the next round's work, and it is
 the first time the console's rendered axis has had anything to say.
+
+### THE DESIGN JOB WAS SWEEPING THE LAST PUBLISHED CONSOLE (round 76)
+
+Eight findings became three this round, and the mechanism is worth more than the count. The six `dev-led[off]`
+findings survived TWO correct fixes — the fill arm deleted, the transparency spelling taught — and a fresh build of
+the same source measured clean with the sweep's own marks probe:
+
+    devices @1440  dev-led[on,off]   ringFill: []   collisions: []
+
+The reason was the ROOT. The console arm of `design-sweep-ci.bash` served `gateway/public`, which the RELEASE flow
+copies a console into, so the job's verdict was a statement about the artefact from the LAST PUBLISHED RELEASE while
+its own header says it runs "against what this repository builds". The findings were neither stale nor false: they
+were TRUE OF THE ARTEFACT CI MEASURED. Every instrument was right and one was pointed at the wrong thing — the panel's
+rail dot, one level up.
+
+    the script now builds:  ( cd gateway/ui && npx vite build --outDir "$TMP/console-build" )  and serves THAT
+    the job now installs:   gateway/ui's dependencies, which that build needs
+
+    eight findings -> three, and each one is specific:
+      users-dark@1440px: 2 loud — a.rail-btn active and span.badge.badge-info 1218px2 rgb(26,58,92)
+      the delivered entry is 1375 bytes / sha 19186df2 but this sweep was emitted against … 2ab1c505 — a stale build
+      class name(s) with no matching rule on overview: online — on screen, matched by nothing
+
+THE THREE ARE THE NEXT ROUND'S WORK, and the first is the same idea as the panel's: the console's loud clause has no
+element exception, so the RAIL BUTTON — navigation state, which the panel's clause excepts with a reason — counts as a
+competing focal point. The second is the emit's own root: `EXPECTED_ENTRY` is baked when the sweep is emitted, from
+`gateway/public`, so a run against a fresh build always reports its entry as stale. The third is a real one: a class
+the console renders that no rule matches.
