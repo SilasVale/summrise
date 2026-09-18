@@ -78,6 +78,85 @@ const NOT_PRESSABLE = new Map([
 const hasPress = (b) => [...actives].some((a) => b === a || b.startsWith(a + ".") || b.startsWith(a + ":"));
 
 const failures = [];
+// ── A PRESS WHOSE EVERY PROPERTY IS SHADOWED IS A PRESS THAT CANNOT BE SEEN (round 52).
+//
+// Round 51 measured presses AS RENDERED for the first time and found the ACTIVE TAB dead: `.tab.active` and
+// `.tab:active` are both (0,2,0), the sheet put the state rule later, and the press rule's only property was a
+// background — so the one control an operator presses to re-focus it did nothing at all ON SCREEN. This file's other
+// checks cannot see that: they prove a rule EXISTS.
+//
+// THE RULE IS "EVERY PROPERTY", not "any": a press that also moves is a press you can see, so `.tab:active`'s
+// background being shadowed is harmless now that a transform survives. Only when NOTHING of the press reaches the
+// screen is it the defect.
+const specificity = (s) => {
+  const ids = (s.match(/#[\w-]+/g) || []).length;
+  const classes = (s.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+(\([^)]*\))?/g) || []).length;
+  const elements = (s.replace(/[#.][\w-]+|\[[^\]]+\]|::?[\w-]+(\([^)]*\))?/g, " ").match(/[a-zA-Z][\w-]*/g) || []).length;
+  return [ids, classes, elements];
+};
+const atLeast = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2]);
+const declsOf = (body) => {
+  const m = new Map();
+  for (const d of body.matchAll(/(?:^|[;{\s])([a-z-]+)\s*:\s*([^;}]+)/g)) m.set(d[1], d[2].trim());
+  return m;
+};
+// A WHOLE CLASS TOKEN, NOT A SUBSTRING. `arm.includes(".btn")` is true of `.btn-ghost:active:not(:disabled)` — the
+// first run of this check reported `.btn`'s press as shadowed for that reason alone, while the rendered measurement
+// had already watched it move. The bar is a value comparison too: a later rule that sets the SAME declaration is not
+// a shadow, it is the same instruction said twice.
+const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// AND THE KEY MUST BE THE SUBJECT OF THE RULE — the element the press belongs to, not an ancestor of it.
+// `.cmd-btn.cmd-toggle.open svg` and `.traj-round.open .traj-chev` name `.cmd-btn` and `.traj-round` while styling a
+// descendant, and the first run of this check called those shadows: two more findings that the rendered measurement
+// would have had to disprove one at a time.
+const subjectOf = (arm) => arm.split(/\s+|[>+~]/).filter(Boolean).pop() || "";
+const namesKey = (arm, key) =>
+  key.includes(" ")
+    ? new RegExp(escapeRe(key) + "(?![\\w-])").test(arm)
+    : new RegExp(escapeRe(key) + "(?![\\w-])").test(subjectOf(arm));
+
+/** Every press, grouped by WHAT IS PRESSED: `.tab:active` and `.tab:active:not(.closed)` are one control. */
+const presses = new Map();
+const arms = rules.map((r, i) => ({ i, arms: r.sel.split(",").map((x) => x.trim()), body: r.body }));
+for (const r of arms) {
+  for (const arm of r.arms) {
+    if (!/:active/.test(arm)) continue;
+    const key = base(arm).replace(/:not\([^)]*\)/g, "").trim();
+    if (!key) continue;
+    const entry = presses.get(key) || { key, decls: new Map(), order: [] };
+    for (const [prop, value] of declsOf(r.body)) entry.decls.set(prop, value);
+    entry.order.push({ i: r.i, arm, body: r.body });
+    presses.set(key, entry);
+  }
+}
+// A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN: 68 pressable hover selectors were measured when this was written,
+// and the press layer has grown every time somebody added a control.
+if (presses.size < 20) {
+  console.error(`feedback-check: FAILED — found ${presses.size} press rule(s), and this sheet has dozens; the shadow scan is reading the wrong thing`);
+  process.exit(1);
+}
+for (const entry of presses.values()) {
+  const surviving = [];
+  for (const [prop, value] of entry.decls) {
+    // SHADOWED WHEN A LATER RULE FOR THE SAME ELEMENTS SETS THE SAME PROPERTY AT >= SPECIFICITY
+    // THE STRONGEST ARM OF THE PRESS, not the weakest. A press written as `.btn:active:not(:disabled)` is (0,3,0)
+    // while `.btn:active` alone is (0,2,0) — and comparing a later rule against the WEAKER one reported `.btn`'s
+    // press as shadowed when the rendered measurement had already shown it moving. The grouped arms are one control,
+    // so the bar a later rule must clear is the highest one in the group.
+    const bar = entry.order.map((o) => specificity(o.arm)).reduce((a, b) => (atLeast(a, b) ? a : b));
+    const shadow = arms.find((r) => {
+      if (r.i <= Math.max(...entry.order.map((o) => o.i))) return false;
+      if (!r.arms.some((arm) => namesKey(arm, entry.key) && atLeast(specificity(arm), bar))) return false;
+      const later = declsOf(r.body).get(prop);
+      return later !== undefined && later !== value;
+    });
+    if (!shadow) surviving.push(prop);
+  }
+  if (!surviving.length && entry.decls.size) {
+    failures.push(`${entry.key}:active sets ${[...entry.decls.keys()].join(", ")} — and EVERY one is shadowed by a later rule, so the press cannot be seen. Round 51's active tab was this: .tab.active put a background over .tab:active's only property. Give the press a transform, which no background rule can override`);
+  }
+}
+
 const missing = [...hovers.keys()].filter((k) => !hasPress(k) && !NOT_PRESSABLE.has(k));
 for (const sel of missing) failures.push(`no :active for ${hovers.get(sel)} — a hover that answers and a press that does not is the feedback gap this checks for`);
 
@@ -130,4 +209,4 @@ if (failures.length) {
   for (const f of failures) console.error("  " + f);
   process.exit(1);
 }
-console.log(`feedback-check: ok — ${hovers.size} pressable hover selectors, all with a press state (${reveals} reveal rules skipped); ${transitions} transitions, none touching layout, all within ${MAX_TRANSITION_MS}ms; reduced-motion honoured`);
+console.log(`feedback-check: ok — ${hovers.size} pressable hover selectors, all with a press state (${reveals} reveal rules skipped); ${presses.size} presses with at least one property that survives the cascade; ${transitions} transitions, none touching layout, all within ${MAX_TRANSITION_MS}ms; reduced-motion honoured`);

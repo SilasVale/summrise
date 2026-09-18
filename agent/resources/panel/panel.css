@@ -661,6 +661,18 @@ h3 { font-size: var(--fs-base); }
    opacity, on the event. */
 .tab:active:not(.closed) { transform: translateY(1px); }
 
+/* FOUR ROWS WHOSE PRESS WAS INVISIBLE (round 53). Each takes `background: var(--chrome-hover)` on :active — and each
+   has a LATER :hover rule setting a different background. HOVER ALWAYS CO-OCCURS WITH ACTIVE (you must be over a
+   control to press it), so at equal specificity the hover rule won every time and the press rendered nothing at all:
+   measured on `.side-row` as idle, hover and pressed all identical at 232x34. The transform is what a background rule
+   cannot override, and it is what every other press in this sheet already uses.
+   `feedback-check.mjs` now fails any press whose EVERY property is shadowed by a later rule naming the same element —
+   this list is what that check found, after two rounds of it finding its own reflection first. */
+.side-row:active,
+.run-strip-head:active,
+.archive-row:active,
+.path-attention-row:active { transform: translateY(1px); }
+
 .side-row:active,
 .tab:active,
 .tab.closed:active,
