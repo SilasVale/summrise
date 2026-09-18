@@ -214,6 +214,22 @@ of the main page loop are named by DENSITY (`panel-Terminal`, `desktop-Terminal`
 page and the `twoloud` exception matches the rows it was written for. Six backgrounds across 24 surfaces remain in a
 syntax the parser cannot read; they are reported as NOTES, not failures, and the count rides in the summary.
 
+AND THE CLASS IS NOW GUARDED (round 58), in the emitted artefact rather than in anyone's memory. Two assertions run
+in `panel-design-sweep.bash` on the script `--emit` just produced:
+
+    EVERY PROBE CONSTANT MUST BE A JSON STRING WHOSE VALUE EQUALS THE CORE'S. A probe that goes out as a template
+    literal loses one level of escaping before the page sees it (`/^color\(/` → `/^color(/`), which is the bug that
+    cost rounds 55-57; comparing PARSED VALUES catches it rather than comparing text.
+
+    NO TEMPLATE LITERAL IN THE EMITTED SCRIPT MAY CONTAIN A SINGLE BACKSLASH. An even run is a literal backslash and
+    an odd run ending on a backtick is an escaped backtick; an odd run ending anywhere else escapes the next character
+    at the template level and is eaten. THIS ONE FIRED WITHIN SECONDS OF BEING WRITTEN: `MOTION` carried
+    `split(/\s+/)`, so the motion pass split class names on the letter "s" — the fourth instance of the same bug this
+    session, found by the guard rather than by a symptom.
+
+Mutation: reverting `pageChecks()` to template-literal probes fails with "read 0 probe constant(s) from the core, so
+this proves nothing" (47 ok / 0 failed with the fix in place).
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.

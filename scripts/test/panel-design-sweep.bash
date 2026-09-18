@@ -50,6 +50,76 @@ else
   bad "the emitted script does not embed the probe"
 fi
 
+# ── 1b. THE PROBES REACH THE PAGE UNCHANGED ────────────────────────────────────────────────────
+# Round 57 lost three rounds to this: the emitted script embeds its probes as TEMPLATE LITERALS, so every nesting
+# level ate one backslash — `/^color\(/` in the file reached the browser as `/^color(/`, and `/rgba?\(…\)/` became a
+# capture group whose parser returned NaN. Every guard against NaN is false, so the loud axis counted EVERY element
+# over 400px2 for thirty-seven rounds while reporting a clean-looking six. The fix is structural (probes go out as
+# JSON strings, the idiom the contrast probe has used since round 88) and this is the check that keeps it: every
+# probe constant in the emitted script must be a JSON string whose VALUE equals the one the core produced.
+cat > "$TMP/probe-check.mjs" <<'JS'
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const [, , root, emittedPath] = process.argv;
+const core = await import(pathToFileURL(root + "/agent/scripts/lib/design-sweep.mjs").href);
+const emitted = readFileSync(emittedPath, "utf8");
+const intended = core.pageChecks("#root");
+const jsonConst = (text, name) => {
+  const m = new RegExp("const " + name + " = (\"(?:[^\"\\\\]|\\\\.)*\");").exec(text);
+  return m ? m[1] : null;
+};
+const names = [...intended.matchAll(/const (\w+) = "/g)].map((m) => m[1]);
+const problems = [];
+if (names.length < 3) problems.push(`read ${names.length} probe constant(s) from the core, so this proves nothing`);
+for (const name of names) {
+  // a probe that reaches the page as a template literal loses one level of escaping on the way
+  if (new RegExp("const " + name + " = `").test(emitted)) {
+    problems.push(`${name} goes out as a TEMPLATE LITERAL — one level of escaping is lost before the page sees it`);
+    continue;
+  }
+  const a = jsonConst(emitted, name);
+  const b = jsonConst(intended, name);
+  if (!a || !b) { problems.push(`${name} is not a JSON string on both sides`); continue; }
+  if (JSON.parse(a) !== JSON.parse(b)) problems.push(`${name} reaches the page CHANGED (${JSON.parse(a).length} vs ${JSON.parse(b).length} chars)`);
+}
+for (const name of ["PROBE", "UNSTYLED", "TARGETS", "THEME"]) {
+  if (new RegExp("const " + name + " = `").test(emitted)) problems.push(`${name} goes out as a template literal`);
+}
+// AND EVERY TEMPLATE LITERAL IN THE EMITTED SCRIPT, not just the probes: a backslash inside one is eaten when the
+// file is evaluated, so `split(/\\s+/)` reaches the page as `/s+/`. An escaped backtick (`\``) is the one legitimate
+// use. This is the general form of the bug that cost rounds 55-57 — it caught MOTION, which the probe check above
+// could not.
+{
+  let inside = false, line = 1, i = 0;
+  while (i < emitted.length) {
+    const ch = emitted[i];
+    if (ch === "\n") line++;
+    if (ch === "\\" && inside) {
+      let j = i;
+      while (j < emitted.length && emitted[j] === "\\") j++;
+      const run = j - i;
+      const next = j < emitted.length ? emitted[j] : "";
+      // an EVEN run is a literal backslash and an ODD run ending on a backtick is an escaped backtick; an odd run
+      // ending anywhere else escapes the NEXT character at the template level and is eaten before the page sees it
+      if (run % 2 === 1 && next !== "`") {
+        problems.push(`line ${line}: a single backslash inside a template literal (\\${next}) is eaten before the page sees it`);
+      }
+      i = j; continue;
+    }
+    if (ch === "`") inside = !inside;
+    i++;
+  }
+  if (inside) problems.push("the emitted script ends inside a template literal");
+}
+if (problems.length) { for (const x of problems) console.error("  " + x); process.exit(1); }
+console.log("ok: " + names.length + " probe constant(s) reach the page byte-identical");
+JS
+if node "$TMP/probe-check.mjs" "$PWD" "$TMP/sweep.js" > "$TMP/probe-check.out" 2>&1; then
+  ok "$(tail -1 "$TMP/probe-check.out")"
+else
+  bad "the emitted probes do not reach the page unchanged: $(head -4 "$TMP/probe-check.out")"
+fi
+
 # ── 2. a clean report passes ──────────────────────────────────────────────────────────────────
 cat > "$TMP/clean.json" <<'JSON'
 {

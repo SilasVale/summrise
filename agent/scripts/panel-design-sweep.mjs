@@ -181,7 +181,7 @@ const MOTION = \`(() => {
     const dur = parseFloat(st.transitionDuration) > 0 ? st.transitionDuration : null;
     const anim = st.animationName && st.animationName !== 'none' ? st.animationName + ' x' + st.animationIterationCount : null;
     if (!dur && !anim) continue;
-    const key = typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/).join('.') : el.tagName.toLowerCase();
+    const key = typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\\\s+/).join('.') : el.tagName.toLowerCase();
     animating.push(key + (dur ? ' trans=' + dur : '') + (anim ? ' anim=' + anim : ''));
   }
   return { animating: [...new Set(animating)] };
