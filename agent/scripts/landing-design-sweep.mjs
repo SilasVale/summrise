@@ -59,9 +59,12 @@ const stampOf = (file) => {
     return { bytes: -1, sha: "(unreadable)" };
   }
 };
-const LOCAL_STAMP = stampOf(join(OUT, "installer.html"));
-
 function browserScript() {
+  // READ AFTER THE RENDER, not at module load (round 82's second CI run). The stamp was computed before --emit had
+  // written the page, so it baked as {bytes: -1, sha: "(unreadable)"} and every run reported its own entry as stale
+  // — a true sentence about two artefacts and a useless one about a commit. The call order is the fix: render()
+  // runs first in the --emit branch, and the stamp is read here, from the file that branch just wrote.
+  const LOCAL_STAMP = stampOf(join(OUT, "installer.html"));
   const script = `const fs = require('fs');
 const path = require('path');
 const ROOT = process.env.VALE_SWEEP_ROOT || '${ROOT}';
@@ -142,7 +145,11 @@ function judge(file) {
   //
   // `navless`: the landing has no navigation BY DESIGN — it is one page with steps, not an application — and the
   // landmark clause would otherwise read that as a defect on every surface.
-  const findings = judgeReport(report, { navless: ["installer", "npm-only"] });
+  //
+  // `unstyledFloor`: the shared floor is 100 because the panel and the console each style hundreds of classes. The
+  // landing is ONE PAGE with 22, and the floor's purpose is to make a broken collector loud — so 15 is the number
+  // that does that job here without failing a page that is simply small. Measured: 22.
+  const findings = judgeReport(report, { navless: ["installer", "npm-only"], unstyledFloor: 15 });
   for (const t of report.themeChecks || []) {
     // READ OFF THE PAGE, not off the instruction: the sweep asks the browser for its colour-scheme media query and
     // the report carries the answer, so a page that ignored the emulation cannot pass as the scheme it was asked for.
