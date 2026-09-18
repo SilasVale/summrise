@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -232,6 +232,7 @@ const THEME = ${JSON.stringify(THEME_SOURCE)};
 // a run that is still working from one that was killed (round 181 lost half an hour to exactly that).
 ${DIAG_SOURCE}
 const focusPass = ${focusPass.toString()};
+const pressPass = ${pressPass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
 ${TIMING}
@@ -270,7 +271,7 @@ ${TIMING}
       // was pressed, and the report came back focus: [] — clean, and clean because nothing ran. The
       // full sweep hid it, since all includes pages. Same defect as the ones this suite keeps
       // finding in its own checks, this time in the wiring between two of them.
-      const needsPage = wants("pages") || wants("focus") || wants("timing") || wants("hover");
+      const needsPage = wants("pages") || wants("focus") || wants("timing") || wants("hover") || wants("press");
       for (const mode_ of needsPage ? (wants("pages") ? ['idle', 'relaxed'] : ['idle']) : []) {
         await page.setViewportSize(vp);
         const t0 = Date.now();
@@ -286,6 +287,19 @@ ${TIMING}
         // extension (lib/design-sweep.mjs). It was copied between adapters once and the copies
         // drifted for two rounds; the loop lives in the core now.
         report.focus.push(await focusPass(page, 14, { density, theme }));
+
+        // THE PRESS, ON THE SAME PAGE, RIGHT AFTER THE FOCUS PASS (round 55). It is the half feedback-check.mjs
+        // cannot do: that gate proves an :active RULE EXISTS, and round 51 found the ACTIVE TAB dead with the rule
+        // sitting right there in the sheet. Targets differ per density — the panel renders .tab where the desktop
+        // renders .dtab — and one that is absent is a NOTE, not a finding, because the two surfaces do not carry
+        // the same controls. The measured count is what keeps that from becoming a pass that presses nothing.
+        // (No backticks in this comment: it lives inside the emitted template literal, and one ends it — 39th time.)
+        if (wants("press")) {
+          const pressTargets = ['.rail-btn', '.desktop-rail-btn', '.tab', '.dtab', '.side-row', '.side-add'];
+          const pressRows = await pressPass(page, pressTargets, { density, theme, mode: mode_ });
+          report.press = report.press || [];
+          report.press.push({ density, theme, mode: mode_, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
+        }
 
         const rail = await page.evaluate(() => {
           const r = document.querySelector('#icon-rail, .desktop-rail');

@@ -133,6 +133,37 @@ missed two of the three copies of this defect — which is what happened: the co
 the panel's unit test by mirroring the rule (round 45), and the rendered axis not at all until the probe was fixed
 (round 46).
 
+### TWO INSTRUMENT BUGS THE PRESS PASS EXPOSED (round 55) — ONE FIXED, ONE OPEN
+
+Adding a press pass meant running the emitted sweep for the first time in a while, and it died immediately:
+
+    FATAL page.evaluate: ReferenceError: inset is not defined
+
+THE FIRST BUG WAS MINE AND NINE ROUNDS OLD. Round 46 rewrote the marks probe's `kind` expression to use `inset`
+(`inset && filled ? 'ring+fill' : inset ? 'ring' : …`) and never declared it — the line above defines `shadow`, not
+`inset`. Every sweep run since would have thrown the moment the marks probe executed, so the pages pass would have
+died in CI on the next push. It survived because round 46 verified the RULE with a reimplementation on the device
+instead of running THIS probe, and the judge's self-test feeds the judge a synthetic report rather than the probe's
+output. **A reimplementation is not a test of the original.** Fixed by declaring it.
+
+THE SECOND IS OPEN, AND IT IS BIGGER: THE CORE'S `PAGE_CHECKS_TEMPLATE` UNDER-ESCAPES ITS REGEXES. The template is a
+JS template literal, so a single backslash before a non-escape character is DROPPED — `/\(/` written as `/\(/`
+becomes `/(/`, i.e. a capture group. In the emitted script the loud probe's parser reads
+
+    const parse = (c) => { const m = /rgba?(([^)]+))/.exec(c); … split(/[s,/]+/) … .replace(/s/g, '') };
+
+and on `rgba(252, 251, 250, 0.92)` that yields `r: NaN` — after which EVERY guard is false, because every comparison
+against NaN is false. Reproduced directly:
+
+    rgba(252, 251, 250, 0.92)   r=NaN  l=NaN  sat=NaN  skipped=false   <<< COUNTED AS LOUD
+    rgb(19, 20, 24)             r=NaN  l=NaN  sat=NaN  skipped=false   <<< COUNTED AS LOUD
+
+So in any EMITTED sweep the loud axis counts every element over 400px2 with alpha >= 0.5, capped by `slice(0, 6)` —
+which is why a report from the device shows exactly 6 "loud" elements on all 24 surfaces, including pale containers
+like `div#app-shell rgba(252,251,250,0.92)`. The hand-run measurements recorded in this ledger (rounds 18, 40, 42)
+were written directly in browser scripts and are NOT affected; the axis they were checking is the one that is broken.
+The next round fixes the escaping across the template and re-measures.
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.

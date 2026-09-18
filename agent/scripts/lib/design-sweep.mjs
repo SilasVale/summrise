@@ -87,6 +87,13 @@ const SURFACE = \`(() => {
         const bg = st.backgroundColor;
         const filled = !!bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg);
         const shadow = st.boxShadow;
+        // DEFINED HERE, AND MISSING FOR NINE ROUNDS (round 55). The kind expression below has used 'inset' since
+        // round 46 and nothing ever declared it — so this probe threw ReferenceError the moment it ran, and the
+        // sweep's marks axis would have died in CI on the next push. It survived because round 46 verified the RULE
+        // with a reimplementation on the device instead of running THIS probe, and the judge's self-test feeds the
+        // judge a synthetic report rather than the probe's output. A reimplementation is not a test of the original.
+        // (No backticks: this text is inside PAGE_CHECKS_TEMPLATE, and one would end the template — 40th time.)
+        const inset = /inset/.test(shadow);
         // A FILL AND A RING AT ONCE IS ITS OWN KIND (round 46). Until now 'inset' won outright, so a mark that set a
         // background and inherited an inset shadow computed as 'ring' — distinct from a solid, and therefore passing.
         // That is how four broken plugin dots survived every sweep: the panel's own shape check had the same hole
@@ -309,6 +316,65 @@ export const DIAG_SOURCE = `async function diag(line) {
  *  nothing and treated focus escaping to the body as a pass, and the console's copy kept both defects for
  *  two rounds after the panel's were fixed (rounds 133-135). It runs ON THE DEVICE because a Tab press
  *  must be a real one — a synthetic KeyboardEvent does not move focus. */
+/**
+ * THE PRESS, AS THE BROWSER RENDERS IT — one implementation, shared by every adapter (round 55).
+ *
+ * WHY IT EXISTS. `feedback-check.mjs` proves an `:active` RULE EXISTS in a sheet; it cannot see whether the press is
+ * VISIBLE. Round 51 measured the panel's presses by hand and found the ACTIVE TAB dead — `.tab.active` and
+ * `.tab:active` are both (0,2,0) and the state rule came later — and rounds 52-53 turned that class into a
+ * sheet-level check. This is the other half: the same measurement, in the sweep, so a press that stops rendering is
+ * caught on the page rather than in a stylesheet.
+ *
+ * WITHOUT CLICKING ANYTHING. `mouse.down()` then a read, then the pointer is MOVED OFF the element before
+ * `mouse.up()`: releasing over the same control fires a click, and a pass that presses every button on every page
+ * would navigate, close sessions and toggle the theme while measuring. The elements that answer a press are the same
+ * ones that act on a click, which is exactly why the release has to happen somewhere else.
+ *
+ * A TARGET THAT IS NOT ON THE PAGE IS A NOTE, NOT A FINDING — the panel and the desktop render different controls —
+ * but the caller records how many were measured, because a press pass that measured nothing is not a clean pass.
+ */
+export async function pressPass(page, targets, label = {}) {
+  const rows = [];
+  const styleOf = (sel) => page.evaluate((s) => {
+    for (const el of document.querySelectorAll(s)) {
+      const r = el.getBoundingClientRect();
+      const st = getComputedStyle(el);
+      if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+      const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : "";
+      return {
+        where: el.tagName.toLowerCase() + cls + (el.id ? "#" + el.id : ""),
+        transform: st.transform, opacity: st.opacity, background: st.backgroundColor, filter: st.filter,
+      };
+    }
+    return null;
+  }, sel);
+  for (const sel of targets) {
+    const box = await page.evaluate((s) => {
+      for (const el of document.querySelectorAll(s)) {
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
+      }
+      return null;
+    }, sel);
+    if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
+    const before = await styleOf(sel);
+    await page.mouse.move(box.x, box.y);
+    await page.waitForTimeout(80);
+    await page.mouse.down();
+    await page.waitForTimeout(120);
+    const pressed = await styleOf(sel);
+    // OFF THE ELEMENT FIRST — see the note above: releasing here would click it.
+    await page.mouse.move(box.x, Math.max(0, box.y - 80));
+    await page.mouse.up();
+    await page.waitForTimeout(60);
+    const props = before && pressed ? ["transform", "opacity", "background", "filter"].filter((k) => before[k] !== pressed[k]) : [];
+    rows.push({ sel, where: pressed ? pressed.where : before.where, size: box.w + "x" + box.h, changed: props.length > 0, props, before, pressed, ...label });
+  }
+  return rows;
+}
+
 export async function focusPass(page, presses, label = {}) {
   await page.evaluate(() => document.body.focus());
   let landed = 0;
@@ -638,6 +704,20 @@ export function judgeReport(report, opts = {}) {
         `${f.density || ''}${f.theme ? '/' + f.theme : ''}: focus landed on nothing in ${f.pressed} Tab press(es) ` +
           `(${f.escaped} escaped to the body) — that is a report of no focusable targets, not of good focus rings`,
       );
+    }
+  }
+  // A PRESS THAT RENDERS NOTHING IS A CONTROL THAT DOES NOT ANSWER (round 55). The same measurement that found the
+  // panel's dead active tab by hand, in the sweep: `pressPass` presses each target with the pointer and compares the
+  // computed style before and during. `feedback-check.mjs` proves the RULE exists; only this can see whether it
+  // reaches the screen.
+  for (const row of report.press || []) {
+    const where = `${row.density || "?"}/${row.theme || "?"}`;
+    const dead = (row.rows || []).filter((r) => r.changed === false);
+    for (const d of dead) findings.push(`${where}: ${d.sel} (${d.where}) renders NOTHING when pressed — before and during are identical (${d.size})`);
+    // A PASS THAT PRESSED NOTHING IS NOT A CLEAN PASS. Targets are per surface, and a page that renders none of them
+    // would otherwise report zero dead presses forever.
+    if ((row.measured || 0) < 2) {
+      findings.push(`${where}: the press pass measured ${row.measured || 0} control(s) — a press pass that pressed nothing proves nothing`);
     }
   }
   // REDUCED MOTION IS A CONTRACT, NOT A COURTESY. `motion` entries come from a render with the
