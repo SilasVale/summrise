@@ -91,12 +91,30 @@ for ui in console; do
   fi
 done
 
+# THE LANDING IS GENERATED, NOT BUILT, AND IT HAD NEVER BEEN RENDERED BY ANY GATE (round 81). `--emit` renders the page
+# the WORKER serves — by calling PAGE(), the same entry point index/src/index.js serves and the index tests call — in
+# BOTH installer states, into a directory this job then serves. The two states are the point: when a release publishes
+# no installer the page swaps the primary button for a hint, a different element with a different contrast question,
+# and only a browser can see it. Nothing is delivered in between, so the root is set for the emit AND the run.
+echo "── landing: rendering the page the worker serves ──"
+VALE_LANDING_OUT="$TMP/landing" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing.js" 2>"$TMP/landing-emit.log"
+cat "$TMP/landing-emit.log"
+node --check "$TMP/landing.js"
+VALE_SWEEP_ROOT="$TMP/landing" \
+VALE_SWEEP_REPORT="$TMP/landing-report.json" \
+VALE_BROWSER_HELPER="$HELPER" \
+  node "$TMP/landing.js"
+if [ ! -s "$TMP/landing-report.json" ]; then
+  echo "FAIL: the landing sweep wrote no report — a run that did not finish is not a pass" >&2
+  exit 1
+fi
+
 # THE JUDGE IS THE VERDICT, for each UI in turn, reading the report that sweep just wrote. A stale harness and a
 # partial pass set are both findings, so neither can pass as a clean run.
 echo "── judging ──"
 node agent/scripts/panel-design-sweep.mjs --judge "$TMP/panel-report.json"
-for ui in console; do
+for ui in console landing; do
   node "agent/scripts/$ui-design-sweep.mjs" --judge "$TMP/$ui-report.json"
 done
 
-echo "── both design sweeps ran and judged clean ──"
+echo "── all three design sweeps ran and judged clean ─"
