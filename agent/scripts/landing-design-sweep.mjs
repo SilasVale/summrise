@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, pressPass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, pressPass, idlePass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -75,6 +75,7 @@ const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const pressPass = ${pressPass.toString()};
+const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${pageChecks("body")}
 const PASSES = ${JSON.stringify(PASSES)};
@@ -84,7 +85,7 @@ const PAGES = ['installer', 'npm-only'];
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
-  const report = { rows: [], surfaces: [], names: [], press: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [], entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require('crypto').createHash('sha256').update(b).digest('hex').slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
+  const report = { rows: [], surfaces: [], names: [], press: [], idle: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [], entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require('crypto').createHash('sha256').update(b).digest('hex').slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   await page.route('http://vale.test/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     const file = p === '/' || p === '' ? 'installer.html' : p.replace(/^\\//, '');
@@ -108,6 +109,15 @@ const PAGES = ['installer', 'npm-only'];
         report.surfaces.push({ page: where, width: 1440, theme: scheme, ...(await page.evaluate(SURFACE)) });
       }
       if (wants('names')) report.names.push({ page: where, ...(await page.evaluate(NAMES)) });
+      // IDLE REPAINT. The same axis the panel has had since round 64 and the console since round 79, on the surface
+      // that has never been asked: the landing sets its footer clock ONCE at load and its canvas paints without
+      // touching the DOM, so the claim to test is that a settled landing writes NOTHING at all. If the verdict names
+      // a clock, the shared table is where a clock gets declared with its reason — that is what the table is for, and
+      // it is not for guessing in advance.
+      if (wants('idle')) {
+        const idle = await idlePass(page, 6000);
+        report.idle.push({ page: where, width: 1440, density: 'landing', theme: scheme, seconds: 6, ...idle });
+      }
       if (wants('unstyled')) report.unstyled.push({ page: where, ...(await page.evaluate(UNSTYLED)) });
       if (wants('targets')) report.targets.push({ page: where, width: 1440, ...(await page.evaluate(TARGETS)) });
       if (wants('press')) {
