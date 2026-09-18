@@ -642,3 +642,32 @@ TWO SELF-INFLICTED FAULTS FOUND ON THE WAY, both recorded because both were invi
     as a real duplicate. Dead in intent, alive in the sheet, and `stylesheet-hygiene` passed it.
   * a comment written with `//` built fine and reached the sheet as text a browser reads as declarations. CSS
     comments only; rewritten.
+
+### CI'S OWN PROBE SAYS THE SHEET IS CLEAN — SO THE 2.33 LIVES IN CI'S FULL RUN (round 72)
+
+Round 71 ended with a disagreement: the sheet measured clean on the device while CI reported the same eight
+`div.mark.rail-dot` findings. This round removed every difference except one.
+
+    CI's harness stamp on a6013f5a:  236375-c729b637b9c6
+    my harness stamp:                236375-c729b637b9c6   <- identical artefact
+
+    CI'S OWN PROBE (contrast-probe.mjs, run by me on the device, every rail page, both themes):
+        light  paint=rgb(255,239,229) (ring)  surface=rgb(31,31,31)   cr=14.71  need=3
+        dark   paint=rgb(255,239,229) (ring)  surface=rgb(3,3,4)      cr=18.36  need=3
+    twelve measurements (6 pages x 2 themes), all far ABOVE the bar.
+
+So the shell is not what CI is measuring, and the difference is now down to HOW the full sweep drives the page: my
+runs load a page and click a rail button, while CI runs `--passes=all` — which includes the HOVER pass, and the
+ledger already records that class of artefact ("a pointer leak left by the dark-hover pass", round 182). The last CI
+finding is literally the hover case; the six page findings are consistent with the same leaked pointer.
+
+THE FULL SWEEP IS NOW RUNNING ON THE DEVICE in the background (`Start-Process node … --passes=all`, report to
+`C:\ProgramData\Vale\pwout\full72.json`), which is the one experiment that reproduces CI's circumstances exactly.
+Next round reads that report: if the dot appears there, its pass (hover vs pages) names the mechanism; if it does not,
+CI's own environment is the remaining variable and the honest next step is to run the sweep there with its report
+echoed, rather than reasoning about it from here.
+
+WORTH KEEPING FROM THIS ROUND: the probe is a LIBRARY, not a script. `contrast-probe.mjs` exports `PROBE_SOURCE`
+(the string the sweep evaluates in the page), `failures`, `contrastRatio`, `parseColour` and more — so "run CI's own
+instrument against this artefact" is an import and a `page.evaluate`, not a reimplementation. That is how the twelve
+measurements above were taken, and it is the difference between a number I can compare with CI's and one I cannot.
