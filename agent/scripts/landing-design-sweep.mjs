@@ -108,7 +108,12 @@ const PAGES = ['installer', 'npm-only'];
       if (wants('unstyled')) report.unstyled.push({ page: where, ...(await page.evaluate(UNSTYLED)) });
       if (wants('targets')) report.targets.push({ page: where, width: 1440, ...(await page.evaluate(TARGETS)) });
       if (wants('press')) {
-        const rows = await pressPass(page, ['.btn-primary', 'a', '.copy'], { page: where, width: 1440 });
+        // WHAT THE PAGE ACTUALLY RENDERS, measured rather than assumed: the landing has a theme TOGGLE, one or
+        // more plain links, and a .btn-primary that exists only in the installer state. The first list named
+        // '.copy' — a class this page has never had — and missed the toggle, so the shared clause's floor of two
+        // (which exists to make a STALE SELECTOR LIST loud) fired on a page that was rendering three controls.
+        // The clause was right and the list was wrong: the floor did exactly its job.
+        const rows = await pressPass(page, ['.btn-primary', 'a', '.theme-toggle'], { page: where, width: 1440 });
         report.press.push({ page: where, width: 1440, density: 'landing', theme: scheme, measured: rows.filter((r) => !r.note).length, rows });
       }
     }
