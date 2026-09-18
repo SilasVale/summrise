@@ -626,8 +626,11 @@ export const THEME_SOURCE = `(() => {
   const body = getComputedStyle(document.body).backgroundColor;
   let stored = '';
   try { stored = localStorage.getItem('vale-theme') || ''; } catch (e) { stored = '(unavailable)'; }
-  // The app's own attribute when it has one, so this does not depend on the storage key never changing.
-  const attr = document.documentElement.getAttribute('data-theme') || '';
+  // THE APP WRITES data-theme ON BODY, AND THIS READ html UNTIL ROUND 74. So the attr field came back "(none)" on every
+  // surface this sweep has ever measured: the theme-lie axis had nothing to compare an intention against, and the
+  // rail walk's new labels fell back to the loop's own value — which is how six contrast findings were filed against
+  // the light theme while the pages were rendered dark. Body first, then the document element as a fallback for
+  // surfaces that put it elsewhere. (No backticks: this source is embedded in an emitted template literal.)
   return { stored, attr, bodyBackground: body };
 })()`;
 
