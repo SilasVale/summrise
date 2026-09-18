@@ -527,3 +527,37 @@ AND THE FIRST ATTEMPT AT THE SPLIT WAS WRONG in the way this session keeps being
 table and the narratives and ADDED the pointer, so the file grew to 66,314 — past the truncation point, with the
 pointer itself in danger of being cut. Rebuilt from `git show HEAD:AGENTS.md` with the measured spans, and the size
 printed at every step rather than assumed.
+
+### CI'S FIRST RENDERED VERDICT ON THIS SESSION'S WORK (round 68)
+
+The release was published and the design job was the first place any of it met a rendered probe. Its first run raised
+three findings; the round fixed the shape of all three and left two of them measured-but-not-yet-explained, which is
+recorded here rather than guessed at.
+
+**THE IDLE PASS COULD NOT SAY WHAT CHANGED.** Its first CI report read `6 DOM mutation(s) in 6s ... (#text x6)` — one
+per second, a live duration ticking and not a repaint, but a text node has no identity, so the finding was
+undiagnosable by construction. The probe now names the PARENT of a characterData mutation, and the next run said it
+plainly: **`span.approval-left x6`** — the approval countdown, a clock doing its job. That is the whole argument for
+naming the parent: the same sentence went from unactionable to diagnosed in one run. The clause still fails every
+mutation; what it needs next is the stated exemption for a value that is SUPPOSED to change with time.
+
+**THE LOUD EXCEPTION NAMED PAGES.** It excepted two page names, so CI's other Terminal surfaces —
+`Terminal-16-sessions`, `Desktop-16-sessions`, `Desktop-Terminal-fail-dark`, `Desktop-empty` — were not covered while
+measuring the same rail button. It is an element allowlist now (rail button, active tab, primary action), and the
+self-test proves the property that matters: a page whose two loud elements are BOTH navigation passes, and a page with
+navigation PLUS a real second focal point fails. 50 ok / 0 failed.
+
+**THE RAIL DOT: FIXED AT THE TOKEN, STILL 2.33 ON HOVER.** `--rail-ink` feeds `--mark-ink` in exactly two rules and
+never any text, so the 3:1 graphic bar applies. It sat at a hard-coded `#9a9aa0` while the DARK theme already used
+`var(--chrome-ink-dim)`; the same reference measures **4.40** on the light rail and **6.89** on the active button's
+`--accent-soft`, which is what the sheet's own round-126 note had already listed as `.rail-dot 2.63`. After the fix
+CI STILL reports 2.33 while hovered, so the surface it measures is not one of those two — the next round runs the
+contrast probe against the live rail on the device and finds out which, rather than picking a third token to try.
+
+**AND MY MUTATION DID NOT BITE — THE THIRD TIME THIS SESSION.** I reverted a `--rail-ink` declaration to prove the
+unit test would catch it, the test passed, and I read that as a gap in the test. Instrumenting the real test showed
+the light map resolving the FIXED value (7.03): my edit had hit a different declaration than the light one. The
+ledger's own rule held again — a mutation that does not bite is evidence about the MUTATION first — and the honest
+outcome is that the static pair sweep may well have been able to see this all along. What did improve: its surface
+choice is a TABLE now (`.rail-dot` and the desktop rail status measured against the rail they land on) instead of a
+ternary with one hand-written exception for `.tab.active`.
