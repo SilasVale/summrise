@@ -230,6 +230,18 @@ in `panel-design-sweep.bash` on the script `--emit` just produced:
 Mutation: reverting `pageChecks()` to template-literal probes fails with "read 0 probe constant(s) from the core, so
 this proves nothing" (47 ok / 0 failed with the fix in place).
 
+AND THE LOUD AXIS IS NOW FULLY SIGHTED (round 59). The six backgrounds it could not read were all ONE syntax —
+`color(srgb 0.956863 0.956863 0.960784 / 0.88)` — and the reason was the colour-space NAME: the parser split the
+argument list and took `p[0]` as `r`, which is `srgb`, so every component became NaN. It keeps only finite numbers now,
+which reads all four syntaxes with one rule. Measured on the device:
+
+    loud histogram over 24 surfaces: {0: 11, 1: 11, 2: 2}   loudUnreadable: 0   (was 6)
+    panel-Terminal light  loud = []          panel-Terminal dark  loud = [button.rail-btn.active, div.tab]
+    judge: "panel design sweep OK: nothing above found a defect"      unreadable notes: 0
+
+The three unreadable colours a surface does report are now NAMED in the note rather than counted, so the next syntax
+the browser invents arrives as its own string instead of a number.
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.
