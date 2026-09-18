@@ -797,3 +797,29 @@ element exception, so the RAIL BUTTON — navigation state, which the panel's cl
 competing focal point. The second is the emit's own root: `EXPECTED_ENTRY` is baked when the sweep is emitted, from
 `gateway/public`, so a run against a fresh build always reports its entry as stale. The third is a real one: a class
 the console renders that no rule matches.
+
+### ONE ROOT, BOTH ENDS: THE STALE-ENTRY FINDING WAS THE EMIT READING A DIFFERENT ARTEFACT (round 77)
+
+Three findings became two, and the one that went was the sweep accusing itself. The stamp is baked when the sweep is
+emitted and compared at run time, and baking it by hand showed the two ends were reading different consoles:
+
+    baked:  {bytes: 1375, sha: 2ab1c505f928}      <- gateway/public, the last PUBLISHED console
+    actual: {bytes: 1375, sha: 19186df2454b}      <- the console this checkout builds
+
+`ENTRY_STAMP` read a hard-coded `gateway/public` while the run serves `VALE_SWEEP_ROOT`; and the CI script set that
+variable for the run and not for the emit. Both halves now read one root, with the default unchanged so a DEVICE run
+still compares the delivered copy against the copy it was emitted for. Verified both ways: with the root set the stamp
+matches the fresh build; with no environment at all it still resolves to `gateway/public`.
+
+The check itself is not wrong — it is the guard for the device pipeline, where a script emitted here is delivered
+there, and round 184 found that directory holding eight files from four generations. What was wrong was pointing its
+two ends at two artefacts and reading the disagreement as a fact about a commit. Third time in four rounds: the
+instrument was right about the wrong thing.
+
+WHAT IS LEFT, both real and both small:
+    users-dark@1440px: 2 loud — a.rail-btn active (navigation: the core's NAV_LOUD already excepts it with a reason,
+        which is how the clause works — EVERY loud element must be navigation) and span.badge.badge-info 1218px2
+        rgb(26,58,92), a saturated navy fill on chrome. The objective says the chrome is NEUTRAL and colour belongs to
+        the state layer; a role badge is not a state. That is the next round's first idea.
+    class name(s) with no matching rule on overview: online — on screen, matched by nothing. A class the console
+        renders that no rule styles.
