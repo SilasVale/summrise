@@ -72,6 +72,7 @@ const SURFACE = \`(() => {
       const scale = srgb && p.length >= 3 && p[0] <= 1 && p[1] <= 1 && p[2] <= 1 ? 255 : 1;
       return { r: p[0] * scale, g: p[1] * scale, b: p[2] * scale, a: p.length > 3 ? p[3] : 1 };
     };
+    const isLoud = ${loudnessOf.toString()};
     const loud = [];
     let unreadable = 0;
     const unreadableSamples = [];
@@ -80,11 +81,9 @@ const SURFACE = \`(() => {
       if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
       const c = parse(st.backgroundColor);
       if (!c || c.a < 0.5) continue;
-      const [R, G, B] = [c.r / 255, c.g / 255, c.b / 255];
-      const mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2, d = mx - mn;
-      const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-      if (!Number.isFinite(R) || !Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; if (unreadableSamples.length < 3) unreadableSamples.push(st.backgroundColor); continue; }
-      if (sat < 0.35 || l < 0.2 || l > 0.9) continue;
+      const { sat, l, loud: shouts } = isLoud(c);
+      if (!Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; if (unreadableSamples.length < 3) unreadableSamples.push(st.backgroundColor); continue; }
+      if (!shouts) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
       loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
@@ -635,6 +634,24 @@ export async function motionPass(page, render, label = {}) {
  *
  *  Two signals rather than one deliberately: a stubbed localStorage could agree while the painted background
  *  does not, and `bodyBackground` is the half that a reader would actually notice. */
+/** IS A SURFACE LOUD — a saturated fill that competes for the page's focus?
+ *
+ *  ONE RULE, TWO AXES (round 78). This computation lived only inside the emitted probe, so nothing could ask the
+ *  same question of a TOKEN. The rendered axis found the dark info chip (`#1a3a5c`, saturation 0.559) on the one page
+ *  that renders that badge while the light one is a pale tint the rule skips by design (lightness above 0.9) — and a
+ *  sheet-level check can find the same thing everywhere, on both UIs, without a browser.
+ *
+ *  THE BANDS ARE MEASURED, NOT CHOSEN: saturation 0.35 with a lightness between 0.2 and 0.9 is what an operator reads
+ *  as "something shouting". HSL saturation is d / (1 - |2l - 1|), which is the form the probe has always used — and
+ *  the one the probe's own gate checks. (No backticks: this function is inlined into an emitted template.) */
+export function loudnessOf(colour) {
+  const [R, G, B] = [colour.r / 255, colour.g / 255, colour.b / 255];
+  const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+  const l = (mx + mn) / 2, d = mx - mn;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  return { sat, l, loud: Number.isFinite(sat) && Number.isFinite(l) && sat >= 0.35 && l >= 0.2 && l <= 0.9 };
+}
+
 export const THEME_SOURCE = `(() => {
   const body = getComputedStyle(document.body).backgroundColor;
   let stored = '';

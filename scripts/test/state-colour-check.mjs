@@ -18,6 +18,7 @@
 // primary button in grey to satisfy a slogan would be a worse interface. The tokens in question are the ones that
 // MEAN something: ok, warn, fail, running, danger, success, error.
 import { readFileSync, readdirSync } from "node:fs";
+import { loudnessOf } from "../../agent/scripts/lib/design-sweep.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -102,4 +103,41 @@ if (failures.length) {
   console.error("  reason, or the chrome is wearing a colour that means something it does not mean.");
   process.exit(1);
 }
+
+// ── A STATUS SURFACE IS A TINT, JUDGED WITH THE PROBE'S OWN RULE (round 78) ─────────────────────────────────────
+//
+// The rendered axis found the dark info chip as a second focal point on the Users page: `--info-bg: #1a3a5c`,
+// saturation 0.559. The light chip is a pale tint the same rule skips by design (lightness above 0.9), and
+// `--success-bg` was already a quiet tint — so one token had missed what its siblings got, and only the one page
+// that renders that badge could see it. This asks the question of EVERY state surface in both UIs and both themes,
+// at the sheet level, using `loudnessOf` — the function the probe itself evaluates, imported rather than copied.
+const SURFACE_TOKENS = ["--info-bg", "--success-bg", "--warn-bg", "--danger-bg", "--err-bg"];
+const loudSurfaces = [];
+for (const [name, css] of sheets) {
+  const themes = [
+    ["light", css.split(/data-theme="dark"/)[0]],
+    ["dark", css.split(/data-theme="dark"/).slice(1).join("") || css],
+  ];
+  for (const [theme, text] of themes) {
+    for (const token of SURFACE_TOKENS) {
+      // the LAST declaration in the block wins, which is what the cascade does for a repeated token
+      const all = [...text.matchAll(new RegExp(token.replace(/[-]/g, "\\-") + ":\\s*(#[0-9a-fA-F]{6})\\b", "g"))];
+      if (!all.length) continue;
+      const hex = all[all.length - 1][1];
+      const r = loudnessOf({
+        r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16),
+      });
+      if (r.loud) loudSurfaces.push(`${name} ${theme} ${token} = ${hex} — saturation ${r.sat.toFixed(2)}, lightness ${r.l.toFixed(2)}: a saturated block on chrome`);
+    }
+  }
+}
+if (loudSurfaces.length) {
+  console.error(`state-colour-check: FAILED — ${loudSurfaces.length} state surface(s) are LOUD, and a status surface is a tint`);
+  for (const f of loudSurfaces) console.error("  " + f);
+  console.error("\n  The rule: saturation >= 0.35 with lightness between 0.2 and 0.9 is what an operator reads as");
+  console.error("  something shouting. Colour belongs to the state LAYER (a mark, an ink, a lane) — a surface a badge");
+  console.error("  sits on is chrome, and chrome is neutral. Pick a tint of the same hue, as --success-bg is.");
+  process.exit(1);
+}
+
 console.log(`state-colour-check: ok — ${judged} uses of a state colour across both sheets, every one on a surface that carries state`);

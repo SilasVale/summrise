@@ -294,7 +294,12 @@ body[data-theme="dark"] {
   --warning: #ffa94d;
   --warning-bg: #45301b;
   --info: #74c0fc;
-  --info-bg: #1a3a5c;
+  /* A STATUS SURFACE IS A TINT, AND THIS ONE WAS A BLOCK (round 78). The light chip is #e7f5ff — a pale tint the
+     loud rule skips by design — and the dark one was #1a3a5c, saturation 0.559, which the rendered probe reported as
+     a second focal point on the Users page. Measured with that same rule: #2e3440 is saturation 0.164, LIGHTER than
+     --bg-tertiary (#2a2b33, 0.182) exactly as the light chip is lighter than its tertiary, and the info ink reads
+     6.36 on it. --success-bg (#21362a) was already a quiet tint; this one simply missed it. */
+  --info-bg: #2e3440;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
