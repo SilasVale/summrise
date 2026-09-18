@@ -38,9 +38,15 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
+// WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
+// everything, which took ~95 s and did not fit in one tool call — so an axis could only be checked by paying for all
+// of them. `--passes=press` is what makes a single axis measurable; the default is every axis, unchanged.
+// BAKED INTO THE EMITTED SCRIPT below, because that is where the gates are: a helper defined out here does not
+// exist on the device (the first run of this failed with "wants is not defined").
+const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice('--passes='.length).split(',').filter(Boolean);
 
 // HOW TO RENDER THIS CONSOLE FROM HERE WITHOUT DELIVERING A DIRECTORY (round 17 of the standing goal). The sweep
 // below measures a DELIVERED build — `C:\ProgramData\Vale\pwout\console`, several files, one transfer each. For a
@@ -96,6 +102,7 @@ const EXPECTED_ENTRY_PATH = require("path").join(ROOT, "index.html");
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
+const pressPass = ${pressPass.toString()};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const THEME = ${JSON.stringify(THEME_SOURCE)};
 // THE SWEEP REPORTS ITSELF TO THE AGENT'S DIAGNOSTIC RING, so a caller whose tool call timed out can tell
@@ -103,6 +110,8 @@ const THEME = ${JSON.stringify(THEME_SOURCE)};
 ${DIAG_SOURCE}
 const motionPass = ${motionPass.toString()};
 ${pageChecks("#root")}
+const PASSES = ${JSON.stringify(PASSES)};
+const wants = (name) => !PASSES.length || PASSES.includes('all') || PASSES.includes(name);
 const now = Date.now();
 // The console's own render-smoke fixtures (gateway/ui/*-render-smoke.mjs), so the browser renders the
 // same pages those tests assert against in jsdom — same data, real layout, real colours.
@@ -188,14 +197,14 @@ const fail = { api: false };
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
   await diag("start console pid=" + process.pid);
-  const report = { rows: [], surfaces: [], names: [], focus: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
+  const report = { rows: [], surfaces: [], names: [], focus: [], press: [], reflow: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [] , entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   // THE CONSOLE IN DARK. It has a dark theme — body[data-theme=dark], applied before the first paint and
   // persisted in localStorage — and every section of this sweep hardcoded theme: 'light', so a dark
   // regression has been invisible here for as long as the sweep has existed. Round 175 found the same gap in
   // the panel's fixture surfaces; this is the second home, and it is being done before it costs anything.
   // ONE WIDTH, not all three: 1440 is where the console is used, and three widths of dark would double a run
   // that already takes minutes for a difference that width does not create.
-  for (const [label, hash] of PAGES) {
+  for (const [label, hash] of (wants('dark') ? PAGES : [])) {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((h) => {
@@ -251,22 +260,25 @@ const fail = { api: false };
   // with its own horizontal scroller, which is the case 1.4.10 exempts for content that needs two dimensions.
   // The panel was not so lucky at 640 (round 215), and that is the point: the width a check does not render is
   // the width where a real failure can sit unremarked.
-  for (const width of [1440, 900, 720, 640, 320]) {
+  for (const width of (wants('reflow') ? [1440, 900, 720, 640, 320] : [1440])) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
       await page.evaluate((h) => { location.hash = h; }, hash);
       await page.waitForTimeout(1600);
-      const rows = await page.evaluate(PROBE);
-      for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
-      report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE)) });
+      if (wants('contrast')) {
+        const rows = await page.evaluate(PROBE);
+        for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
+        report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE)) });
+      }
       if (width === 1440) {
-        report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+        // (a press-only run pays for this width and nothing else)
+        if (wants('names')) report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
         // Rendered classes with no matching rule — the mirror of dead CSS, and the failure a prune
         // causes. The browser's parsed selectors are the authority (rounds 79-80 removed 300+ lines
         // from this sheet). The styled count travels with the list as the tripwire. (No backticks in
         // here: this text is inside the emitted template, and the ninth stray one shut --emit down.)
-        report.unstyled.push({ page: label, ...(await page.evaluate(UNSTYLED)) });
+        if (wants('unstyled')) report.unstyled.push({ page: label, ...(await page.evaluate(UNSTYLED)) });
         // HOVER, the state round 84 added for the panel — where its first run found a dark-theme
         // button at 1.94. The console has its own 24 :hover rules and a different token set, and had
         // never been measured hovering. One element per control family, at the widest viewport only,
@@ -299,7 +311,16 @@ const fail = { api: false };
         }
         await page.evaluate(() => document.body.focus());
         // ONE implementation, shared with the panel and the extension (lib/design-sweep.mjs).
-        report.focus.push(await focusPass(page, 16, { page: label, width }));
+        if (wants('focus')) report.focus.push(await focusPass(page, 16, { page: label, width }));
+        // RENDERED PRESSES — the axis the panel has had since round 51 and this console had only at SHEET level.
+        // feedback-check.mjs proves an :active RULE exists; it cannot see whether the press reaches the screen, and
+        // round 54 had to fix ten console controls (the rail button, the avatar, the logout item, the icon button,
+        // the language button, the auth tab, .btn-dashed, .card-link, .dev-mini and every link) by reading the sheet
+        // alone. This measures them as the browser paints them. The pointer is moved OFF the element before release
+        // so nothing is clicked; a target this page does not render is a NOTE, and the measured count is what keeps
+        // a pass that pressed nothing from reading as clean. (No backticks in this comment: 43rd time.)
+        const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], { page: label, width }) : [];
+        if (wants('press')) report.press.push({ density: 'console', theme: 'light', page: label, width, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
       }
     }
   }
@@ -307,7 +328,7 @@ const fail = { api: false };
   // 134 and the console had nothing: the gap was recorded in round 136 when the pass was shared and left
   // unwired. render re-loads the page and re-applies the route, because the preference only takes
   // effect on a fresh style resolution.
-  for (const width of [1440]) {
+  for (const width of (wants('motion') ? [1440] : [])) {
     await page.setViewportSize({ width, height: 900 });
     const render = async () => {
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
@@ -334,7 +355,7 @@ const fail = { api: false };
   // reports how many verdicts the pixels overruled.
   // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
   // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
-  for (const [label, hash] of [['overview', '#/'], ['devices', '#/devices']]) {
+  for (const [label, hash] of (wants('targets') ? [['overview', '#/'], ['devices', '#/devices']] : [])) {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((h) => { location.hash = h; }, hash);

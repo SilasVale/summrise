@@ -65,6 +65,45 @@ fi
 write_con "$TMP/con-clean.json" "pass"
 [ "$(judge "$CON" "$TMP/con-clean.json")" = "0" ] && ok "console: a clean report passes" || bad "console: a clean report was rejected"
 
+# ── 2b. THE RENDERED PRESS AXIS (round 60) ──────────────────────────────────────────────────────
+# The console had press feedback checked at SHEET level only (feedback-check.mjs proves an :active RULE exists);
+# round 54 recorded that the rendered measurement existed for the panel and not here. The sweep now presses 21
+# controls across 6 console pages and the judge fails any control whose computed style is identical during the
+# press. Both directions are pinned, because a clause that fails everything is as useless as one that fails
+# nothing.
+write_con "$TMP/con-press-clean.json" '
+r["press"] = [{"density": "console", "theme": "light", "page": "overview", "measured": 3, "rows": [
+  {"sel": ".rail-btn", "where": "button.rail-btn", "size": "40x40", "changed": True, "props": ["transform"]},
+  {"sel": ".btn", "where": "button.btn", "size": "48x28", "changed": True, "props": ["transform"]},
+  {"sel": ".rail-avatar", "where": "button.rail-avatar", "size": "36x36", "changed": True, "props": ["transform"]},
+]}]
+'
+[ "$(judge "$CON" "$TMP/con-press-clean.json")" = "0" ] && ok "console: pressed controls that answer pass" || bad "console: a clean press pass was rejected"
+
+write_con "$TMP/con-press-dead.json" '
+r["press"] = [{"density": "console", "theme": "light", "page": "overview", "measured": 3, "rows": [
+  {"sel": ".rail-btn", "where": "button.rail-btn", "size": "40x40", "changed": True, "props": ["transform"]},
+  {"sel": ".btn", "where": "button.btn", "size": "48x28", "changed": False, "props": []},
+  {"sel": ".rail-avatar", "where": "button.rail-avatar", "size": "36x36", "changed": True, "props": ["transform"]},
+]}]
+'
+if [ "$(judge "$CON" "$TMP/con-press-dead.json")" != "0" ]; then
+  ok "console: a control that renders NOTHING when pressed fails"
+else
+  bad "console: a dead press passed the judge"
+fi
+
+write_con "$TMP/con-press-empty.json" '
+r["press"] = [{"density": "console", "theme": "light", "page": "devices", "measured": 0, "rows": [
+  {"sel": ".dtab", "note": "not rendered on this page"},
+]}]
+'
+if [ "$(judge "$CON" "$TMP/con-press-empty.json")" != "0" ]; then
+  ok "console: a press pass that pressed nothing fails"
+else
+  bad "console: a press pass that measured nothing passed the judge"
+fi
+
 # ── 3. a DELIVERED COPY OLDER THAN THE BUILD ────────────────────────────────────────────────────
 # Round 184 found the console's directory holding eight files from four generations; round 189 lost an
 # afternoon to a stale panel harness. The entry's digest is baked at emit time and checked at run time; these

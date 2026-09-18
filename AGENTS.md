@@ -242,6 +242,34 @@ which reads all four syntaxes with one rule. Measured on the device:
 The three unreadable colours a surface does report are now NAMED in the note rather than counted, so the next syntax
 the browser invents arrives as its own string instead of a number.
 
+AND THE CONSOLE'S PRESSES ARE MEASURED AS RENDERED TOO (round 60), which is the gap round 54 recorded in its own
+words: "Console presses are verified at the SHEET level here; the rendered press measurement exists for the panel and
+not yet for the console." The shared `pressPass` is now wired into the console sweep and the judge's clause applies to
+its report unchanged:
+
+    6 surfaces · 21 controls pressed · DEAD 0
+    overview  measured=5  .rail-btn 40x40 · .btn 48x28 · .card-link 67x20 · .dev-mini 192x46 · .rail-avatar 36x36
+    models    measured=4  .rail-btn · .btn 96x28 · .btn-dashed 1052x42 · .rail-avatar
+    devices/keys/routes/users: 3 each, every one answering
+    judge: "console design sweep OK: nothing above found a defect"
+
+THREE THINGS THAT HAD TO CHANGE TO GET THERE, each worth its line:
+
+  * THE CONSOLE SWEEP HAD NO PASS SELECTION. Every run measured every axis, and the run takes 95-118 s — past the tool
+    call's cap, so a single axis could only be checked by paying for all of them (and the first attempt died at the
+    timeout with the report unwritten). It has `--passes=` now, baked INTO the emitted script: the first version put
+    the helper at node level and the device failed with "wants is not defined", which is the same class of mistake as
+    a probe that does not reach the page.
+  * THE BUILD IS SHIPPED AS A TAR, which its own header has documented since round 55 — 112 KB, one transfer, extracted
+    to `C:\ProgramData\Vale\pwout\console` on the device. Twelve files would have been twelve transfers.
+  * THE CLAUSE IS PINNED IN BOTH DIRECTIONS AND FOR THE EMPTY CASE (`sweep-judges.bash`, 11 ok → 14): a pressed control
+    that answers passes, a control that renders NOTHING when pressed fails, and a pass that measured zero controls
+    fails — because a clause that fails everything is as useless as one that fails nothing.
+
+Console press targets are `.rail-btn`, `.btn`, `.icon-btn`, `.lang-btn`, `.auth-tab`, `.btn-dashed`, `.card-link`,
+`.dev-mini`, `.rail-avatar`, `.user-pop-logout`; a target a page does not render is a NOTE, and `measured` keeps a
+pass that pressed nothing from reading as clean.
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.
