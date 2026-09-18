@@ -65,8 +65,15 @@ fi
 # at what this checkout produces. (The extension was a second arm here until round 243 removed it: it shipped
 # nowhere, its default was off, and the half it existed for had already been deleted.)
 for ui in console; do
-  root="$PWD/gateway/public"
-  echo "── $ui: root $root ──"
+  # BUILD IT, DO NOT SERVE THE PUBLISHED COPY (round 76). This arm pointed at `gateway/public`, which the RELEASE
+  # flow copies a console into — so the design job was sweeping the console that was last published, not the one in
+  # this checkout, in a script whose own header says it runs "against what this repository builds". Two console fixes
+  # were reported as absent by CI while a fresh build of the same source measured clean (`ringFill: []`), which is
+  # how the difference was found: the findings were real FOR THAT ARTEFACT and had nothing to do with the commit.
+  ( cd gateway/ui && npx vite build --outDir "$TMP/console-build" --emptyOutDir ) >"$TMP/console-build.log" 2>&1 \
+    || { echo "FAIL: the console did not build: $(tail -3 "$TMP/console-build.log")" >&2; exit 1; }
+  root="$TMP/console-build"
+  echo "── $ui: root $root (built from this checkout) ──"
   node "agent/scripts/$ui-design-sweep.mjs" --emit > "$TMP/$ui.js"
   node --check "$TMP/$ui.js"
   VALE_SWEEP_ROOT="$root" \

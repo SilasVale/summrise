@@ -126,6 +126,12 @@ jobs:
       - name: Build the panel (the sweep reads the built stylesheet)
         working-directory: agent/resources/panel-react
         run: npm run build
+      # THE CONSOLE ARM OF THE DESIGN SWEEP BUILDS FROM THIS CHECKOUT (round 76), so the job needs the console's
+      # dependencies. It used to sweep `gateway/public` — the copy the RELEASE flow writes — which made the job's
+      # verdict a statement about the last published console rather than about the commit under test.
+      - name: Install deps (the console the design sweep builds)
+        working-directory: gateway/ui
+        run: npm ci
       - name: Install the browsers THE LOCAL KIT resolves
         working-directory: agent/resources/panel-react
         # THE PROJECT'S OWN playwright-core, NOT npx's. `npx playwright install` fetches whatever playwright
