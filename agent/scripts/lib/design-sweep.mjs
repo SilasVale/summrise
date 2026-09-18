@@ -132,7 +132,20 @@ const SURFACE = \`(() => {
         if (!base || !which) continue;
         if (!/\\.(dot|dotcol|mark|led|chip|signal|state)$|(dot|led|mark)$/.test(base)) continue;
         const bg = st.backgroundColor;
-        const filled = !!bg && !/rgba\\(0, 0, 0, 0\\)|transparent/.test(bg);
+        // ZERO ALPHA IS NOT A FILL, IN WHATEVER SPELLING THE BROWSER RETURNS (round 76). This test excluded exactly
+        // two strings — "transparent" and "rgba(0, 0, 0, 0)" — which are the two forms the SHEETS write. A COMPUTED
+        // style returns a third: "color(srgb 0 0 0 / 0)", and a transparent ring was therefore read as a fill inside
+        // its own ring. Six CI findings against the console's device LED, whose off state is a ring and correct.
+        // Reading the components instead of matching strings covers all the syntaxes, and it cannot mistake a black
+        // CHANNEL for an alpha: three components means opaque, whatever they are.
+        const noFill = (c) => {
+          if (/^transparent$/i.test(c)) return true;
+          const inner = /\(([^)]*)\)/.exec(c);
+          if (!inner) return false;
+          const parts = inner[1].split(/[\s,/]+/).filter(Boolean);
+          return parts.length > 3 && Number(parts[3]) === 0;
+        };
+        const filled = !!bg && !noFill(bg);
         const shadow = st.boxShadow;
         // DEFINED HERE, AND MISSING FOR NINE ROUNDS (round 55). The kind expression below has used 'inset' since
         // round 46 and nothing ever declared it — so this probe threw ReferenceError the moment it ran, and the
