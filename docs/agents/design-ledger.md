@@ -702,3 +702,39 @@ NEXT ROUND: fix the rail walk's theme handling — either undo the flip reliably
 REPORTS rather than by what the loop intended, which is what the `theme-lie` axis exists to enforce and evidently does
 not reach these surfaces. That is a defect in the INSTRUMENT, and it has been reporting six false contrast findings
 and a set of false loud findings for as long as the walk has run.
+
+### THE APP DISAGREES WITH ITSELF: data-theme="light" OVER DARK PIXELS (round 74)
+
+Two fixes went in this round and the finding stayed identical — which is itself the result, because the finding now
+carries the theme read from the element the app actually writes:
+
+    attr is read from <body> now   (it read <html> until round 74, so it was "(none)" on every surface ever swept,
+                                    the theme-lie axis had two sides only by accident, and the rail walk's first
+                                    labelling fix silently fell back to the loop's intention)
+    the label is a READING          (rows, surfaces and names take the page's own attribute, not the loop's hope)
+
+And the six surfaces still come back as `panel/<page>` with a DARK surface: `<body data-theme="light">` while the
+pixels are `rgb(31,31,31)`. On the panel density, flipping the theme on the device and flipping it back is perfect —
+shell, dot and `--warn-ink` all follow, and the attribute tracks them:
+
+    start        attr=(none, on <html>)  body=light  shellBg=rgba(252,251,250,0.92)  warnInk=#92400e
+    after flip 1 body=dark               shellBg=rgba(26,27,32,0.94)                warnInk=#ffc078
+    after flip 2 body=light              shellBg=rgba(252,251,250,0.92)             warnInk=#92400e
+
+So the disagreement is produced by the RAIL WALK's sequence, not by a single flip: the walk clicks every rail button,
+the theme toggle among them, and then clicks it again at the same INDEX to undo it. If the button list shifts under it
+— and it does, because navigating can add or remove rail controls — the undo lands elsewhere, and what remains is an
+app whose attribute says one thing and whose paint says another. That is the objective's own subject, in the product
+rather than the instrument: "the interface carry its state".
+
+NEXT ROUND, ONE IDEA: SUPPRESS TRANSITIONS ACROSS A THEME FLIP. Round 71 proved one element (`.rail-dot`) froze
+because it transitioned its own colour while the custom properties moved; the shell's backdrop is the same mechanism
+at page scale, and the standard remedy is a class applied for one frame around the swap (`transition: none` on
+everything, removed after a reflow). That fixes the class rather than the instance — and the sweep's rail walk should
+also address its buttons by LABEL rather than by index, which is how the undo came to land somewhere else.
+
+AND ONE MORE SELF-INFLICTED FAULT, caught by reading the emitted VALUE rather than trusting the edit: my first
+attempt at the comment replaced the `const attr = ...` line along with the prose, so the probe returned
+`attr: undefined` and the commit that claimed to fix the read changed nothing. The self-test was green through all of
+it. Reading the artefact back — the emitted string, not the file I edited — is what caught it, and it is the same
+lesson as round 57 and round 71.
