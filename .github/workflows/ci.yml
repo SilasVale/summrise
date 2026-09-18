@@ -317,6 +317,12 @@ jobs:
       # layout property, a `transition: all`, anything over 240ms, and a sheet with no reduced-motion block.
       - name: every hover answers a press
         run: node scripts/test/feedback-check.mjs
+      # ONE STATE, ONE SILHOUETTE, ON BOTH SURFACES. Each surface already checked its own marks; nothing compared
+      # the two languages, so the panel's diamond ("a question is waiting") and the console's ("this channel is
+      # failing") could drift apart in silence — and an operator reads both. It reads the panel's vocabulary as DATA
+      # (liveness.ts) and the console's as PAINTED (its sheet, with the same signature rule its own gate uses).
+      - name: the two surfaces agree on one silhouette per meaning
+        run: node scripts/test/mark-vocabulary-check.mjs
       # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
       # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
