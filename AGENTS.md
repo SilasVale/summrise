@@ -164,6 +164,29 @@ like `div#app-shell rgba(252,251,250,0.92)`. The hand-run measurements recorded 
 were written directly in browser scripts and are NOT affected; the axis they were checking is the one that is broken.
 The next round fixes the escaping across the template and re-measures.
 
+FIXED IN ROUND 56, AND THE AXIS IS REPAIRED — WITH ONE THING STILL UNEXPLAINED. Eight backslashes in
+`PAGE_CHECKS_TEMPLATE` were doubled (the six replacement sites cover eight escapes: `/rgba?\(…\)/` and
+`/rgba\(0, 0, 0, 0\)/` each carry two). A scan of the template now reports **zero** odd-backslash runs, and the
+emitted script carries the real regexes:
+
+    emitted parse:  /rgba?\(([^)]+)\)/    and   split(/[\s,/]+/)    and   .replace(/\s/g, '')
+    evaluated on the emitted code:  rgba(252,251,250,0.92) → r=252 l=0.984 sat=0.250 → SKIPPED
+                                    rgb(19,20,24)          → r=19  l=0.084 sat=0.116 → SKIPPED
+                                    rgb(217,72,15)         → r=217 l=0.455 sat=0.871 → counted (correctly)
+
+and the SURFACE probe EXTRACTED FROM THE EMITTED SCRIPT and run against the delivered harness returns
+`loud: []` on the panel's Terminal page — which is what the hand measurements in this ledger always said.
+
+WHAT IS STILL UNEXPLAINED: a full run of that same emitted script writes a report whose surfaces still carry SIX
+loud entries each, pale containers included (`div#app-shell rgba(252,251,250,0.92)`), and the arrays are
+theme-correct so they were computed on the page. Ruled out this round, each by measurement: the report is written
+unconditionally at the end of the emitted script; there is exactly ONE `loud` producer in the emitted text and ONE
+`SURFACE` definition; the contrast probe has no `loud` at all; the harness is read from the same file both times; a
+run pointed at a private report path via `VALE_SWEEP_REPORT` produces the same arrays, so no other writer is involved;
+and the same probe evaluated by hand on the same page returns `[]`. The next round starts by making the emitted script
+print its own loud array for one surface at evaluation time, which will say whether the difference is the page state or
+the code that ran.
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.

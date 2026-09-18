@@ -76,16 +76,16 @@ const SURFACE = \`(() => {
         if (st.display === 'none' || st.visibility === 'hidden') continue;
         const r = el.getBoundingClientRect();
         if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
-        const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/) : [];
+        const cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/) : [];
         const state = el.getAttribute('data-state') || el.getAttribute('data-live');
         // the family is the class the STATE rules hang off: with a data-attribute it is the first class, with a
         // modifier class it is everything except the last one
         const base = state ? cls[0] : cls.length > 1 ? cls.slice(0, -1).join('.') : null;
         const which = state || (cls.length > 1 ? cls[cls.length - 1] : null);
         if (!base || !which) continue;
-        if (!/\.(dot|dotcol|mark|led|chip|signal|state)$|(dot|led|mark)$/.test(base)) continue;
+        if (!/\\.(dot|dotcol|mark|led|chip|signal|state)$|(dot|led|mark)$/.test(base)) continue;
         const bg = st.backgroundColor;
-        const filled = !!bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg);
+        const filled = !!bg && !/rgba\\(0, 0, 0, 0\\)|transparent/.test(bg);
         const shadow = st.boxShadow;
         // DEFINED HERE, AND MISSING FOR NINE ROUNDS (round 55). The kind expression below has used 'inset' since
         // round 46 and nothing ever declared it — so this probe threw ReferenceError the moment it ran, and the
@@ -120,7 +120,7 @@ const SURFACE = \`(() => {
       return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6), ringFill: ringFill.slice(0, 6) };
     })(),
     loud: (() => {
-      const parse = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+      const parse = (c) => { const m = /rgba?\\(([^)]+)\\)/.exec(c); if (!m) return null; const p = m[1].split(/[\\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
       const loud = [];
       for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
         const st = getComputedStyle(el);
@@ -133,7 +133,7 @@ const SURFACE = \`(() => {
         if (sat < 0.35 || l < 0.2 || l > 0.9) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
-        loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\s/g, ''));
+        loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
       }
       return [...new Set(loud)].slice(0, 6);
     })(),
