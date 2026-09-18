@@ -120,6 +120,102 @@ else
   bad "the emitted probes do not reach the page unchanged: $(head -4 "$TMP/probe-check.out")"
 fi
 
+# ── 1c. IDLE REPAINT, AND THE INSTRUMENT THAT MEASURES IT (round 64) ───────────────────────────
+# The claim is exact: under the harness's STATIC fixtures nothing changes, so a settled panel should write nothing to
+# the DOM. Two things are pinned here — the verdict, and the requirement that the observer saw its OWN probe mutation,
+# because a blind observer reports a perfectly still panel forever and that is indistinguishable from a clean one.
+cat > "$TMP/idle-check.mjs" <<'JS'
+import { readFileSync } from "node:fs";
+const [file, expect] = process.argv.slice(2);
+const report = JSON.parse(readFileSync(file, "utf8"));
+report.idle = [{
+  density: "panel", theme: "light", page: "panel-Terminal", seconds: 6,
+  byTarget: { __probe: 1, ...(process.env.VALE_IDLE_TARGET ? { "div.totals": 3 } : {}) },
+  mutations: process.env.VALE_IDLE_TARGET ? 4 : 1,
+  selfTest: true,
+}];
+if (process.env.VALE_IDLE_BLIND) report.idle[0].byTarget = {};
+if (process.env.VALE_IDLE_BLIND) report.idle[0].mutations = 0;
+const out = JSON.stringify(report);
+const { writeFileSync } = await import("node:fs");
+writeFileSync(expect, out);
+JS
+clean_idle() {
+  cat > "$TMP/idle-clean.json" <<'JSON'
+{
+  "passes": "all",
+  "rows": [
+    {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
+  ],
+  "surfaces": [
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+  ],
+  "names": [
+    {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
+  ],
+  "reflow": [
+    {"width": 320, "docScrollWidth": 320, "viewport": 320, "docScrollsSideways": false, "sideScrollers": ["div.tabs 100<300"]}
+  ],
+  "timing": [],
+  "focus": [],
+  "idle": [{"density":"panel","theme":"light","page":"Terminal","seconds":6,"byTarget":{"__probe":1},"mutations":1,"selfTest":true}]}
+JSON
+}
+clean_idle
+if node "$TOOL" --judge "$TMP/idle-clean.json" > "$TMP/idle-clean.out" 2>&1; then
+  ok "a panel that writes nothing while idle passes the idle clause"
+else
+  bad "a still panel was rejected: $(head -3 "$TMP/idle-clean.out")"
+fi
+cat > "$TMP/idle-busy.json" <<'JSON'
+{
+  "passes": "all",
+  "rows": [
+    {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
+  ],
+  "surfaces": [
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+  ],
+  "names": [
+    {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
+  ],
+  "reflow": [
+    {"width": 320, "docScrollWidth": 320, "viewport": 320, "docScrollsSideways": false, "sideScrollers": ["div.tabs 100<300"]}
+  ],
+  "timing": [],
+  "focus": [],
+  "idle": [{"density":"panel","theme":"light","page":"Terminal","seconds":6,"byTarget":{"__probe":1,"div.totals":3},"mutations":4,"selfTest":true}]}
+JSON
+if node "$TOOL" --judge "$TMP/idle-busy.json" > "$TMP/idle-busy.out" 2>&1; then
+  bad "a panel that repainted three times while idle passed the idle clause"
+else
+  grep -q "DOM mutation(s) in 6s while idle" "$TMP/idle-busy.out" && ok "an idle repaint fails, and the clause names the target" || bad "the idle clause failed for the wrong reason: $(head -3 "$TMP/idle-busy.out")"
+fi
+cat > "$TMP/idle-blind.json" <<'JSON'
+{
+  "passes": "all",
+  "rows": [
+    {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
+  ],
+  "surfaces": [
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+  ],
+  "names": [
+    {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
+  ],
+  "reflow": [
+    {"width": 320, "docScrollWidth": 320, "viewport": 320, "docScrollsSideways": false, "sideScrollers": ["div.tabs 100<300"]}
+  ],
+  "timing": [],
+  "focus": [],
+  "idle": [{"density":"panel","theme":"light","page":"Terminal","seconds":6,"byTarget":{},"mutations":0,"selfTest":false}]}
+JSON
+if node "$TOOL" --judge "$TMP/idle-blind.json" > "$TMP/idle-blind.out" 2>&1; then
+  bad "a blind idle observer passed — a still panel and a blind instrument are indistinguishable"
+else
+  grep -q "did not see its own probe mutation" "$TMP/idle-blind.out" && ok "a blind idle observer fails, and the clause says why" || bad "the blind case failed for the wrong reason: $(head -3 "$TMP/idle-blind.out")"
+fi
+
 # ── 2. a clean report passes ──────────────────────────────────────────────────────────────────
 cat > "$TMP/clean.json" <<'JSON'
 {

@@ -362,6 +362,52 @@ export const DIAG_SOURCE = `async function diag(line) {
  * A TARGET THAT IS NOT ON THE PAGE IS A NOTE, NOT A FINDING — the panel and the desktop render different controls —
  * but the caller records how many were measured, because a press pass that measured nothing is not a clean pass.
  */
+/**
+ * IDLE REPAINT, MEASURED AS DOM MUTATIONS (round 64).
+ *
+ * The objective lists idle repaint among the things a claim is verified by, and nothing measured it: `useNow` carries
+ * the contract for one clock (round 62), and that is a unit test about one hook, not a measurement of the panel.
+ *
+ * WHY DOM MUTATIONS ARE THE RIGHT PROXY: React writes to the DOM only when the rendered output DIFFERS. So a panel
+ * that re-renders on a timer while nothing has changed produces no mutations, and a panel that writes something is
+ * writing something that changed. Under the harness's STATIC fixtures nothing ever changes, which makes the bar exact:
+ * an idle panel should mutate NOTHING, and every mutation is either a clock or a re-render that recomputed a value
+ * from unchanged inputs.
+ *
+ * NO REGEXES IN THIS FUNCTION, deliberately: it is inlined into the emitted script through `toString()`, and a single
+ * backslash inside that template literal is eaten before the page sees it (rounds 55-58, four times).
+ */
+export async function idlePass(page, ms = 6000) {
+  await page.evaluate(() => {
+    const el = document.getElementById("root") || document.body;
+    const state = { mutations: 0, byTarget: {}, samples: [] };
+    window.__valeIdle = state;
+    const name = (node) => {
+      const tag = node.tagName ? node.tagName.toLowerCase() : "#text";
+      const cls = node.className && typeof node.className === "string" ? node.className.trim().split(" ")[0] : "";
+      return tag + (node.id ? "#" + node.id : cls ? "." + cls : "");
+    };
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        state.mutations++;
+        const key = r.attributeName === "data-vale-idle-probe" ? "__probe" : name(r.target);
+        state.byTarget[key] = (state.byTarget[key] || 0) + 1;
+        if (state.samples.length < 8) state.samples.push(key + " " + r.type + (r.attributeName ? ":" + r.attributeName : ""));
+      }
+    });
+    observer.observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+    // THE INSTRUMENT PROVES IT IS ALIVE, because ZERO IS OTHERWISE UNFALSIFIABLE. An observer attached to the wrong
+    // node, or a filter that matches nothing, reports a perfect idle panel forever — and "a scan that read nothing
+    // is not a clean scan" is the trap this suite keeps catching. So the window opens with ONE deliberate mutation of
+    // the panel's own root; it is counted like any other and subtracted by the judge, and a run that does not see it
+    // is reported as a blind instrument rather than as a still panel.
+    el.setAttribute("data-vale-idle-probe", String(Date.now()));
+    window.__valeIdleStop = () => { observer.disconnect(); return { ...state, selfTest: state.byTarget.__probe !== undefined }; };
+  });
+  await page.waitForTimeout(ms);
+  return page.evaluate(() => window.__valeIdleStop());
+}
+
 export async function pressPass(page, targets, label = {}) {
   const rows = [];
   const styleOf = (sel) => page.evaluate((s) => {
@@ -761,6 +807,23 @@ export function judgeReport(report, opts = {}) {
       findings.push(`${where}: the press pass measured ${row.measured || 0} control(s) — a press pass that pressed nothing proves nothing`);
     }
   }
+  // IDLE REPAINT (round 64). The objective lists it among the things a claim is verified by, and the measurement is
+  // DOM mutations on a settled page under STATIC fixtures: React writes to the DOM only when the output differs, so
+  // nothing changing means nothing written. The observer proves it is alive by seeing one deliberate mutation of the
+  // panel's own root, and that is required — a blind observer reports a perfectly still panel forever.
+  for (const row of report.idle || []) {
+    const where = `${row.density || "?"}/${row.theme || "?"}/${row.page || "?"}`;
+    const probe = (row.byTarget || {}).__probe || 0;
+    const real = (row.mutations || 0) - probe;
+    if (probe < 1) {
+      findings.push(`${where}: the idle observer did not see its own probe mutation — a blind instrument reports a still panel forever, so this measurement proves nothing`);
+    }
+    if (real > 0) {
+      const targets = Object.entries(row.byTarget || {}).filter(([k]) => k !== "__probe").map(([k, v]) => `${k} x${v}`).join(", ");
+      findings.push(`${where}: ${real} DOM mutation(s) in ${row.seconds}s while idle — nothing changed under static fixtures, so this is a repaint of unchanged output (${targets})`);
+    }
+  }
+
   // REDUCED MOTION IS A CONTRACT, NOT A COURTESY. `motion` entries come from a render with the
   // preference EMULATED: anything still carrying a transition or an infinite animation under it is a
   // finding. Measured round 77 — the panel density honoured the preference and the desktop density

@@ -272,6 +272,40 @@ Console press targets are `.rail-btn`, `.btn`, `.icon-btn`, `.lang-btn`, `.auth-
 `.dev-mini`, `.rail-avatar`, `.user-pop-logout`; a target a page does not render is a NOTE, and `measured` keeps a
 pass that pressed nothing from reading as clean.
 
+### IDLE REPAINT IS A MEASUREMENT NOW, AND ZERO IS FALSIFIABLE (round 64)
+
+The objective lists idle repaint among the things a claim is "verified by measurement" by, and nothing measured it.
+Round 62 added the CONTRACT for one clock (`useNow` schedules nothing while inactive) and that is a unit test about
+one hook, not a measurement of the panel. `--passes=idle` is the measurement: a MutationObserver on `#root` counts DOM
+writes for six seconds on a settled page, and the harness's fixtures are STATIC — so nothing can change, React writes
+only when the rendered output differs, and the bar is exact rather than a threshold.
+
+    panel-Terminal light idle -> total 1 (probe 1, panel 0) in 6s
+    panel-Terminal dark  idle -> total 1 (probe 1, panel 0) in 6s
+    desktop-Terminal light idle -> total 1 (probe 1, panel 0) in 6s
+    desktop-Terminal dark  idle -> total 1 (probe 1, panel 0) in 6s
+
+THE "probe 1" IS THE POINT, and it is why this measurement can be believed. Zero is otherwise unfalsifiable: an
+observer attached to the wrong node, or a filter matching nothing, reports a perfectly still panel forever — the
+"a scan that read nothing is not a clean scan" trap this suite keeps catching. So the window opens with ONE
+deliberate mutation of the panel's own root; the judge REQUIRES that the observer saw it, subtracts it, and fails on
+any remaining write with the target named.
+
+    judge clause, three planted cases in `panel-design-sweep.bash` (47 ok -> 50):
+      a still panel                          → passes
+      three writes to div.totals while idle   → "3 DOM mutation(s) in 6s while idle — nothing changed under static
+                                                 fixtures, so this is a repaint of unchanged output (div.totals x3)"
+      an observer that saw nothing at all     → "the idle observer did not see its own probe mutation — a blind
+                                                 instrument reports a still panel forever, so this measurement proves
+                                                 nothing"
+
+TWO MISTAKES ON THE WAY, both recorded because both are the kind this session keeps making: the first version read
+`label` for the page name in a scope that has no such binding (the rail walk that defines it is further down), and the
+device answered "label is not defined"; and the self-test flag was written inverted (`=== undefined`, i.e. true when
+the probe was MISSING), which the printed data caught before the judge ever ran — the clause reads the DATA
+(`byTarget.__probe`) rather than the narration, which is the same lesson as round 61. A 44th stray backtick inside the
+emitted template ended one `--emit` mid-round, and this time the guard stopped it before the file was delivered.
+
 ### A RUNNING COMMAND'S DURATION FROZE WHENEVER IT WENT QUIET (measured and fixed, round 62)
 
 Five components rendered an elapsed time as `Date.now() - startedAt` and re-rendered only when their props changed —

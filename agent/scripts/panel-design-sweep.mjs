@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -233,6 +233,7 @@ const THEME = ${JSON.stringify(THEME_SOURCE)};
 ${DIAG_SOURCE}
 const focusPass = ${focusPass.toString()};
 const pressPass = ${pressPass.toString()};
+const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
 ${TIMING}
@@ -271,7 +272,7 @@ ${TIMING}
       // was pressed, and the report came back focus: [] — clean, and clean because nothing ran. The
       // full sweep hid it, since all includes pages. Same defect as the ones this suite keeps
       // finding in its own checks, this time in the wiring between two of them.
-      const needsPage = wants("pages") || wants("focus") || wants("timing") || wants("hover") || wants("press");
+      const needsPage = wants("pages") || wants("focus") || wants("timing") || wants("hover") || wants("press") || wants("idle");
       for (const mode_ of needsPage ? (wants("pages") ? ['idle', 'relaxed'] : ['idle']) : []) {
         await page.setViewportSize(vp);
         const t0 = Date.now();
@@ -294,6 +295,18 @@ ${TIMING}
         // renders .dtab — and one that is absent is a NOTE, not a finding, because the two surfaces do not carry
         // the same controls. The measured count is what keeps that from becoming a pass that presses nothing.
         // (No backticks in this comment: it lives inside the emitted template literal, and one ends it — 39th time.)
+        // IDLE REPAINT (round 64): the page is settled, the fixtures are static, and the panel should be writing
+        // nothing at all. Anything it does write is a clock or a recomputation from unchanged inputs.
+        // ONE PAGE, not six: the measurement is a SIX-SECOND window, and running it on every page of every density
+        // and theme would spend two and a half minutes proving the same thing. Terminal is the panel's default page.
+        if (wants("idle")) {
+          const idle = await idlePass(page, 6000);
+          report.idle = report.idle || [];
+          // This is the page the mode loop just loaded — the default one, Terminal — because the rail walk that
+          // names the other pages happens further down. Calling it label here was the first version's bug: there is
+          // no such binding in this scope, and the device answered "label is not defined". (44th backtick.)
+          report.idle.push({ density, theme, mode: mode_, page: density + "-Terminal", seconds: 6, ...idle });
+        }
         if (wants("press")) {
           const pressTargets = ['.rail-btn', '.desktop-rail-btn', '.tab', '.dtab', '.side-row', '.side-add'];
           const pressRows = await pressPass(page, pressTargets, { density, theme, mode: mode_ });
