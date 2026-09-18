@@ -73,8 +73,13 @@ for ui in console; do
   ( cd gateway/ui && npx vite build --outDir "$TMP/console-build" --emptyOutDir ) >"$TMP/console-build.log" 2>&1 \
     || { echo "FAIL: the console did not build: $(tail -3 "$TMP/console-build.log")" >&2; exit 1; }
   root="$TMP/console-build"
-  echo "── $ui: root $root (built from this checkout) ──"
-  node "agent/scripts/$ui-design-sweep.mjs" --emit > "$TMP/$ui.js"
+  echo "── $ui: root $root (built from this checkout) ─"
+  # THE EMIT MUST SEE THE SAME ROOT THE RUN SERVES (round 77). The sweep bakes the entry's size and sha when it is
+  # emitted and compares them at run time — a guard for the DEVICE pipeline, where the script is emitted here and
+  # delivered there. Pointing the run at a fresh build while the emit read `gateway/public` made every CI run report
+  # its own entry as stale, which is a true statement about two artefacts and a useless one about a commit.
+  VALE_SWEEP_ROOT="$root" \
+    node "agent/scripts/$ui-design-sweep.mjs" --emit > "$TMP/$ui.js"
   node --check "$TMP/$ui.js"
   VALE_SWEEP_ROOT="$root" \
   VALE_SWEEP_REPORT="$TMP/$ui-report.json" \

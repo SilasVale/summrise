@@ -72,9 +72,16 @@ const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice
 // for the panel harness in round 210 and NOT applied here, which is why the console sweep failed on the
 // first rebuild after that. The value is computed in the module (where the repository is) and only its
 // result is inlined into the emitted script.
+// ONE ROOT, BOTH ENDS (round 77). The stamp is baked from the entry the RUN will serve — the same
+// `VALE_SWEEP_ROOT` the sweep reads at run time — and until now it was read from a hard-coded
+// `gateway/public`, the copy the RELEASE flow writes. So a CI run that built the console from its own
+// checkout and served that while the stamp came from the last published build reported every run as
+// "stale" — a true statement about two artefacts and a useless one about a commit. The default is
+// unchanged, so a device run compares the delivered copy against the delivered copy it was emitted for.
 const ENTRY_STAMP = (() => {
+  const root = process.env.VALE_SWEEP_ROOT || new URL("../../gateway/public", import.meta.url).pathname;
   try {
-    const b = readFileSync(new URL("../../gateway/public/index.html", import.meta.url));
+    const b = readFileSync(new URL("index.html", new URL(root.endsWith("/") ? root : root + "/", "file://")));
     return { bytes: b.length, sha: createHash("sha256").update(b).digest("hex").slice(0, 12) };
   } catch (e) { return { bytes: -1, sha: "(unreadable)" }; }
 })();
