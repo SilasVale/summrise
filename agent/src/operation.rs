@@ -405,8 +405,8 @@ mod tests {
     /// it from.
     #[test]
     fn run_event_fixture_matches_both_allowlists() {
-        let fixture: Value =
-            serde_json::from_str(include_str!("../tests/fixtures/run-event.json")).expect("fixture parses");
+        let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/run-event.json"))
+            .expect("fixture parses");
         let list = |key: &str| -> Vec<String> {
             fixture[key]
                 .as_array()
@@ -415,9 +415,8 @@ mod tests {
                 .map(|v| v.as_str().expect("string").to_string())
                 .collect()
         };
-        let keys_of = |v: &Value| -> Vec<String> {
-            v.as_object().expect("object").keys().cloned().collect()
-        };
+        let keys_of =
+            |v: &Value| -> Vec<String> { v.as_object().expect("object").keys().cloned().collect() };
 
         let terminal = terminal_row(&fixture["example_terminal"], "term-1", 1789700000123);
         let browser = browser_row(&fixture["example_browser"], 1789700001500);
@@ -429,11 +428,24 @@ mod tests {
         assert_eq!(terminal["run_id"], "run-1000-abc123");
         assert_eq!(browser["script"], "mcp: click");
         assert_eq!(browser["timed_out"], false);
-        assert_eq!(browser["run_id"], "run-1000-abc123", "the browser half of the same run");
+        assert_eq!(
+            browser["run_id"], "run-1000-abc123",
+            "the browser half of the same run"
+        );
 
         for (label, row, allowlist, required) in [
-            ("terminal", &terminal, list("terminal_keys"), list("required_by_panel")),
-            ("browser", &browser, list("browser_keys"), list("required_by_panel_browser")),
+            (
+                "terminal",
+                &terminal,
+                list("terminal_keys"),
+                list("required_by_panel"),
+            ),
+            (
+                "browser",
+                &browser,
+                list("browser_keys"),
+                list("required_by_panel_browser"),
+            ),
         ] {
             let mut keys = keys_of(row);
             let mut promised = allowlist.clone();

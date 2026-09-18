@@ -796,16 +796,40 @@ mod tests {
     #[test]
     fn monitor_row_fixture_matches_the_payload() {
         let fixture: Value =
-            serde_json::from_str(include_str!("../tests/fixtures/monitor-row.json")).expect("fixture parses");
+            serde_json::from_str(include_str!("../tests/fixtures/monitor-row.json"))
+                .expect("fixture parses");
 
         // up, up, down — one transition, a real latency range, and a failing HTTP probe on the end.
         let probes = vec![
-            Probe { ts_ms: 1_000, ok: true, ms: Some(9), status: None, expect_ok: None },
-            Probe { ts_ms: 2_000, ok: true, ms: Some(7), status: None, expect_ok: None },
-            Probe { ts_ms: 3_000, ok: false, ms: None, status: Some(503), expect_ok: Some(false) },
+            Probe {
+                ts_ms: 1_000,
+                ok: true,
+                ms: Some(9),
+                status: None,
+                expect_ok: None,
+            },
+            Probe {
+                ts_ms: 2_000,
+                ok: true,
+                ms: Some(7),
+                status: None,
+                expect_ok: None,
+            },
+            Probe {
+                ts_ms: 3_000,
+                ok: false,
+                ms: None,
+                status: Some(503),
+                expect_ok: Some(false),
+            },
         ];
         let summary = summary_of(&probes);
-        let keys: Vec<&str> = summary.as_object().expect("object").keys().map(|k| k.as_str()).collect();
+        let keys: Vec<&str> = summary
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
         let promised: Vec<&str> = fixture["required_by_panel"]
             .as_array()
             .expect("required_by_panel")
@@ -841,7 +865,6 @@ mod tests {
             );
         }
     }
-
 
     /// SERIALISES THE TESTS THAT TOUCH THE TARGET LIST. It is a process-global by design (the prober
     /// and every route read it), and cargo runs one binary's tests IN PARALLEL — which CI caught:
