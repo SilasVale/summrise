@@ -842,7 +842,6 @@ mod tests {
         }
     }
 
-    use super::*;
 
     /// SERIALISES THE TESTS THAT TOUCH THE TARGET LIST. It is a process-global by design (the prober
     /// and every route read it), and cargo runs one binary's tests IN PARALLEL — which CI caught:

@@ -77,6 +77,37 @@ pub(crate) fn merged_operation(
 }
 
 /// One session's events, mapped onto the operation shape.
+/// ONE terminal record, mapped onto the wire shape.
+///
+/// EXTRACTED IN ROUND 66 so the allowlist can be asserted against
+/// `agent/tests/fixtures/run-event.json` without a data dir — the same reason `summary_of` was split out of
+/// `summary` in round 65.
+///
+/// THIS MAPPING IS AN ALLOWLIST, and that is the whole risk: a field missing here is dropped SILENTLY, with every
+/// other test still green, and the panel renders a row with a hole in it. `run_id` was the first field to make that
+/// trip and it had a test of its own; this function is what lets the fixture pin ALL of them, on both feeds.
+pub fn terminal_row(v: &Value, sid: &str, ts_ms: u64) -> Value {
+    let kind = v.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+    json!({
+        "source": "terminal",
+        "ts_ms": ts_ms,
+        "session": sid,
+        "kind": kind,
+        "seq": v.get("seq").cloned().unwrap_or(Value::Null),
+        "command": v.get("command").cloned().unwrap_or(Value::Null),
+        "text": v.get("text").cloned().unwrap_or(Value::Null),
+        "status": v.get("status").cloned().unwrap_or(Value::Null),
+        "exit_code": v.get("exit_code").cloned().unwrap_or(Value::Null),
+        "duration_ms": v.get("duration_ms").cloned().unwrap_or(Value::Null),
+        "intent": v.get("intent").cloned().unwrap_or(Value::Null),
+        "considered": v.get("considered").cloned().unwrap_or(Value::Null),
+        "plan_step": v.get("plan_step").cloned().unwrap_or(Value::Null),
+        // The run this event belonged to, when the client declared one. Carried through the merge because grouping
+        // by run is the whole point of recording it.
+        "run_id": v.get("run_id").cloned().unwrap_or(Value::Null),
+    })
+}
+
 fn terminal_events(sessions_dir: &Path, since_ms: u64) -> Vec<Value> {
     let Ok(entries) = std::fs::read_dir(sessions_dir) else {
         return Vec::new();
@@ -128,27 +159,7 @@ fn terminal_events(sessions_dir: &Path, since_ms: u64) -> Vec<Value> {
             if ts_ms < since_ms {
                 continue;
             }
-            out.push(json!({
-                "source": "terminal",
-                "ts_ms": ts_ms,
-                "session": sid,
-                "kind": kind,
-                "seq": v.get("seq").cloned().unwrap_or(Value::Null),
-                "command": v.get("command").cloned().unwrap_or(Value::Null),
-                "text": v.get("text").cloned().unwrap_or(Value::Null),
-                "status": v.get("status").cloned().unwrap_or(Value::Null),
-                "exit_code": v.get("exit_code").cloned().unwrap_or(Value::Null),
-                "duration_ms": v.get("duration_ms").cloned().unwrap_or(Value::Null),
-                "intent": v.get("intent").cloned().unwrap_or(Value::Null),
-                "considered": v.get("considered").cloned().unwrap_or(Value::Null),
-                "plan_step": v.get("plan_step").cloned().unwrap_or(Value::Null),
-                // The run this event belonged to, when the client declared one.
-                // Carried through the merge because grouping by run is the
-                // whole point of recording it — and this mapping is an
-                // ALLOWLIST, so a field missing here is dropped silently with
-                // every other test still green.
-                "run_id": v.get("run_id").cloned().unwrap_or(Value::Null),
-            }));
+            out.push(terminal_row(&v, sid, ts_ms));
         }
     }
     out
@@ -159,6 +170,28 @@ fn terminal_events(sessions_dir: &Path, since_ms: u64) -> Vec<Value> {
 /// `recent_actions` reads newest-first and caps, so it is asked for a generous
 /// slice and the filter/sort happens here — the cap is a read optimisation, not
 /// the timeline's ordering rule.
+/// ONE browser action, mapped onto the SAME wire shape — the other half of the allowlist, and the half where a
+/// missing key is easiest to miss because the browser has no session or sequence to leave a visible hole.
+pub fn browser_row(a: &Value, ts_ms: u64) -> Value {
+    json!({
+        "source": "browser",
+        "ts_ms": ts_ms,
+        "session": Value::Null,
+        "kind": "action",
+        "script": a.get("script").cloned().unwrap_or(Value::Null),
+        // NO `text` AND NO `status` ON THIS FEED, and that is the shape the panel already reads: its row parser asks
+        // for both on EVERY row and gets `undefined` here, which its own default turns into null. Adding them would
+        // be a behaviour change dressed as a refactor — the extraction in round 66 is exact.
+        "exit_code": a.get("exit_code").cloned().unwrap_or(Value::Null),
+        "duration_ms": a.get("duration_ms").cloned().unwrap_or(Value::Null),
+        "timed_out": a.get("timed_out").cloned().unwrap_or(Value::Null),
+        "screenshots": a.get("screenshots").cloned().unwrap_or(Value::Null),
+        // Same allowlist rule as the terminal side: a browser action's run is dropped here unless it is named. Null
+        // for actions from producers that carry no run.
+        "run_id": a.get("run_id").cloned().unwrap_or(Value::Null),
+    })
+}
+
 fn browser_actions(evidence_dir: &Path, since_ms: u64) -> Vec<Value> {
     crate::evidence::recent_actions(evidence_dir, OPERATION_READ_CAP)
         .into_iter()
@@ -167,22 +200,7 @@ fn browser_actions(evidence_dir: &Path, since_ms: u64) -> Vec<Value> {
             if ts_ms < since_ms {
                 return None;
             }
-            Some(json!({
-                "source": "browser",
-                "ts_ms": ts_ms,
-                "session": Value::Null,
-                "kind": "action",
-                "script": a.get("script").cloned().unwrap_or(Value::Null),
-                "exit_code": a.get("exit_code").cloned().unwrap_or(Value::Null),
-                "duration_ms": a.get("duration_ms").cloned().unwrap_or(Value::Null),
-                "timed_out": a.get("timed_out").cloned().unwrap_or(Value::Null),
-                "screenshots": a.get("screenshots").cloned().unwrap_or(Value::Null),
-                // Same allowlist rule as the terminal side: a browser action's
-                // run is dropped here unless it is named. Null for actions from
-                // producers that carry no run (the browser has no session
-                // ownership, and neither does an ungrouped action).
-                "run_id": a.get("run_id").cloned().unwrap_or(Value::Null),
-            }))
+            Some(browser_row(&a, ts_ms))
         })
         .collect()
 }
@@ -377,6 +395,63 @@ mod tests {
     /// starts writing a new one is silently dropped from the timeline with every
     /// existing test still green — the same "added on one side, reader never
     /// told" shape as the module map and the gateway's NOT_EXPOSED contract.
+    /// THE RUNS WIRE FORMAT, pinned from this end (round 66) — the same contract the session row and the monitor
+    /// row have.
+    ///
+    /// `agent/tests/fixtures/run-event.json` is read by this test and by the panel's `runs` test. The two feeds are
+    /// separate ALLOWLISTS over one row shape, and the device's own comment says the risk out loud: "a field missing
+    /// here is dropped silently with every other test still green". `run_id` got a test of its own first; this pins
+    /// every field, on both feeds, and asserts that everything the PANEL reads is on the list for the feed it reads
+    /// it from.
+    #[test]
+    fn run_event_fixture_matches_both_allowlists() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/run-event.json")).expect("fixture parses");
+        let list = |key: &str| -> Vec<String> {
+            fixture[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} is a list"))
+                .iter()
+                .map(|v| v.as_str().expect("string").to_string())
+                .collect()
+        };
+        let keys_of = |v: &Value| -> Vec<String> {
+            v.as_object().expect("object").keys().cloned().collect()
+        };
+
+        let terminal = terminal_row(&fixture["example_terminal"], "term-1", 1789700000123);
+        let browser = browser_row(&fixture["example_browser"], 1789700001500);
+
+        // The row carries the RECORD's fields as the source record had them, which is the other half of the mapping:
+        // an allowlist that reads a key the producer never writes sends nulls forever.
+        assert_eq!(terminal["command"], "vale status");
+        assert_eq!(terminal["plan_step"], 2);
+        assert_eq!(terminal["run_id"], "run-1000-abc123");
+        assert_eq!(browser["script"], "mcp: click");
+        assert_eq!(browser["timed_out"], false);
+        assert_eq!(browser["run_id"], "run-1000-abc123", "the browser half of the same run");
+
+        for (label, row, allowlist, required) in [
+            ("terminal", &terminal, list("terminal_keys"), list("required_by_panel")),
+            ("browser", &browser, list("browser_keys"), list("required_by_panel_browser")),
+        ] {
+            let mut keys = keys_of(row);
+            let mut promised = allowlist.clone();
+            keys.sort();
+            promised.sort();
+            assert_eq!(
+                keys, promised,
+                "the {label} row the device builds and the fixture promises have drifted apart"
+            );
+            for k in &required {
+                assert!(
+                    allowlist.contains(k),
+                    "the panel reads `{k}` from a {label} row, which this feed does not carry"
+                );
+            }
+        }
+    }
+
     /// `run_id` is the first field to make that trip, so it is the one pinned.
     #[test]
     fn run_id_survives_the_merge_on_both_feeds() {

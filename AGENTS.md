@@ -272,6 +272,34 @@ Console press targets are `.rail-btn`, `.btn`, `.icon-btn`, `.lang-btn`, `.auth-
 `.dev-mini`, `.rail-avatar`, `.user-pop-logout`; a target a page does not render is a NOTE, and `measured` keeps a
 pass that pressed nothing from reading as clean.
 
+### THE RUNS PAYLOAD — THE PANEL'S MOST-READ WIRE DATA — GETS ITS CONTRACT (round 66)
+
+`.runs` is read more than any other field in the panel (42 reads), and `/api/operation` merges TWO feeds — terminal
+events and browser actions — onto one row shape that the panel groups into runs, plans and goals. The device's own
+comment names the risk: "this mapping is an ALLOWLIST, so a field missing here is dropped silently with every other
+test still green". `run_id` was the first field to make that trip and it had a test of its own; this is the same
+contract for all of them, on BOTH feeds.
+
+    agent/tests/fixtures/run-event.json   NEW — two key lists, two `required_by_panel` lists, and one example per feed
+    agent/src/operation.rs                both mappings became PURE functions, and the device asserts it sends them
+    lib/runs.test.ts                      NEW — the panel groups the device's own example into ONE run
+
+THE EXTRACTION HAD TO BE EXACT, and the first attempt was not: I wrote `text` and `status` into the browser row while
+"extracting" it, and the diff against HEAD caught two fields the feed had never sent — a behaviour change dressed as a
+refactor. Reverted, and the absence is now written down where it matters: the panel's row parser asks EVERY row for
+`text` and `status`, the browser feed carries neither, and its own default turns the `undefined` into null. A row
+parser that NEEDED them for a browser row would be reading a fact no feed promises.
+
+    MUTATIONS, one per end:
+      the device renames `plan_step` → `planStep`   → the row reads Null where the fixture says 2, and the key sets
+                                                      "have drifted apart"
+      the panel stops reading `plan_step`           → "expected null to be 2"
+
+AND ROUND 65 LEFT A DEFECT THAT CI WOULD HAVE CAUGHT AND I HAD NOT: its new test was inserted INSIDE `monitor::tests`,
+so the module ended up with TWO `use super::*;` and the second was an unused import. `cargo clippy --all-targets
+--features terminal,keyring -- -D warnings` — the documented gate — fails on that. Found by re-running the tests and
+reading the warning rather than only the exit code; `clippy` is clean now, which it was not an hour ago.
+
 ### THE MONITORS PAYLOAD HAD ONE END OF ITS CONTRACT (round 65)
 
 The objective asks for facts "crossing the wire as an explicit contract (agent → API → panel)". The mechanism exists
