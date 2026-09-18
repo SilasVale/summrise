@@ -848,3 +848,24 @@ real step is "Gate on tag-commit CI status", so a release is gated by the CI of 
 panel findings came from — so that release's asset can never be built, and re-running the workflow re-tests the same
 broken tree. The gate is right; the release was pointed at the wrong commit. 1.2.435 is published from this green main
 instead, which is the first time the pipeline runs end to end on a tree whose CI is green.
+
+### THE CONSOLE'S FIRST IDLE MEASUREMENT: CLEAN (round 79)
+
+The panel has had an idle pass since round 64; the console had **never** been measured for it, and its views poll twice
+a second — so "the page is settled and writing nothing" was exactly the claim its live views could break. The
+objective asks for idle repaint to be verified on both ends, and this was the end with no instrument.
+
+    every console page, both themes, a six-second window each: 36 seconds for the whole axis.
+
+THE JUDGE ALREADY KNEW HOW TO READ IT — the idle clause lives in the shared judge, so the console's rows are judged by
+the rule the panel's are, including the CLOCKS exemption (round 69: a countdown is not a repaint) and the parent-naming
+that turned "6 mutations (#text x6)" into "span.approval-left x6". The round added the instrument and nothing else.
+
+MEASURED ON THE FIRST CI RUN CARRYING IT: no idle findings on any console page in either theme. The console polls
+`/api/*` on its own schedule and still paints nothing it did not have to — which is the property, now verified rather
+than assumed. (The panel's own axis reports the same, with its live command duration exempt by name.)
+
+ONE PROCESS NOTE WORTH KEEPING: the idle pass takes longer than one MCP browser call tolerates, and a backgrounded
+run on the device produced no report I could read before this round ended. CI is the instrument that settled it — a
+sweep committed to the repository is measured on every push, which is the cheapest possible way to learn whether a new
+axis finds anything. Reach for the device when a finding needs a human-scale look, not to discover a first result.
