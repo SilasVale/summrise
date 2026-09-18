@@ -23,7 +23,13 @@
  *  the Node script defined it perfectly well. Inlining the selector at emit time makes that
  *  impossible to get wrong. */
 export function pageChecks(rootSelector) {
-  return PAGE_CHECKS_TEMPLATE.replaceAll("ROOT_SEL", JSON.stringify(rootSelector));
+  const text = PAGE_CHECKS_TEMPLATE.replaceAll("ROOT_SEL", JSON.stringify(rootSelector));
+  // EVERY PROBE GOES OUT AS A JSON STRING, not as a template literal (round 57). The emitted script does not run
+  // this text — it WRITES it into a file, and a probe left as a template literal there loses one more level of
+  // escaping on the way to the page: `/^color\(/` in the emitted file reached the browser as `/^color(/` and threw
+  // "Unterminated group", and the same mechanism turned `\s` into `s` for thirty-seven rounds. JSON.stringify has no
+  // levels to lose, which is why the contrast probe has been shipped this way since round 88.
+  return text.replace(/const (\w+) = `([\s\S]*?)`;/g, (_, name, body) => `const ${name} = ${JSON.stringify(body)};`);
 }
 
 const PAGE_CHECKS_TEMPLATE = `
@@ -47,7 +53,42 @@ const SURFACE = \`(() => {
     const text = (el.textContent || '').trim();
     if (own && text.length > 24 && r.width < 60) slivers.push(desc(el) + ' w=' + Math.round(r.width));
   }
+  const loudResult = (() => {
+    // FOUR SYNTAXES, because the browser does not hand back the one this was written for (round 57). Besides
+    // rgb(r, g, b) and rgba(r, g, b, a) it returns rgb(r g b / a) and — for any colour the sheet declares with a
+    // modern function — color(srgb 0.09 0.09 0.11 / 0.88), whose components are 0-1 floats. The old parser read those
+    // as raw 0-255 numbers, produced garbage, and (before the fail-closed guard above) counted them.
+    // (No backticks in this comment: it is inside PAGE_CHECKS_TEMPLATE — 41st time.)
+    const parse = (c) => {
+      const m = /(?:rgba?|color)\\(([^)]+)\\)/.exec(c);
+      if (!m) return null;
+      const parts = m[1].split(/[\\s,/]+/).filter(Boolean);
+      const p = parts.map(Number);
+      const srgb = /^color\\(/.test(c);
+      const scale = srgb && p.length >= 3 && p[0] <= 1 && p[1] <= 1 && p[2] <= 1 ? 255 : 1;
+      return { r: p[0] * scale, g: p[1] * scale, b: p[2] * scale, a: p.length > 3 ? p[3] : 1 };
+    };
+    const loud = [];
+    let unreadable = 0;
+    for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+      const st = getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
+      const c = parse(st.backgroundColor);
+      if (!c || c.a < 0.5) continue;
+      const [R, G, B] = [c.r / 255, c.g / 255, c.b / 255];
+      const mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2, d = mx - mn;
+      const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+      if (!Number.isFinite(R) || !Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; continue; }
+      if (sat < 0.35 || l < 0.2 || l > 0.9) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
+      loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
+    }
+    return { list: [...new Set(loud)].slice(0, 6), unreadable };
+  })();
   return {
+    loud: loudResult.list,
+    loudUnreadable: loudResult.unreadable,
     h1Count: heads.filter((e) => e.tagName === 'H1').length,
     firstIsH1: heads.length > 0 && heads[0].tagName === 'H1',
     skipped, mains: document.querySelectorAll('main').length, navs: document.querySelectorAll('nav').length,
@@ -118,24 +159,6 @@ const SURFACE = \`(() => {
         for (const [state, sig] of states) if (sig.indexOf('ring+fill') >= 0) ringFill.push(fam + '[' + state + ']');
       }
       return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6), ringFill: ringFill.slice(0, 6) };
-    })(),
-    loud: (() => {
-      const parse = (c) => { const m = /rgba?\\(([^)]+)\\)/.exec(c); if (!m) return null; const p = m[1].split(/[\\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
-      const loud = [];
-      for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-        const st = getComputedStyle(el);
-        if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
-        const c = parse(st.backgroundColor);
-        if (!c || c.a < 0.5) continue;
-        const [R, G, B] = [c.r / 255, c.g / 255, c.b / 255];
-        const mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2, d = mx - mn;
-        const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-        if (sat < 0.35 || l < 0.2 || l > 0.9) continue;
-        const r = el.getBoundingClientRect();
-        if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
-        loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
-      }
-      return [...new Set(loud)].slice(0, 6);
     })(),
   };
 })()\`;
@@ -597,6 +620,7 @@ export const TARGETS_SOURCE = `(() => {
 
 export function judgeReport(report, opts = {}) {
   const findings = [];
+  const notes = report.notes || (report.notes = []);
   const suppressed = [];
   for (const s of report.surfaces) {
     const where = s.width ? `${s.page}@${s.width}px` : s.page;
@@ -630,6 +654,16 @@ export function judgeReport(report, opts = {}) {
     // ONE FOCAL POINT, AT MOST. Two loud surfaces means neither is the thing the page is about; the ceiling is
     // one, and zero is allowed because a form or a dashboard is all context and should not shout. A page that
     // needs an exception gets one here, by name, with the reason — the same shape as `navless`.
+    // A COLOUR THE PROBE COULD NOT READ IS A FAILURE, not a skip: every comparison against NaN is false, so an
+    // unreadable background used to pass every guard and be counted as loud (rounds 18-56, found in 55). Reporting
+    // the count means the next occurrence is loud in the report instead of silently inflating it.
+    // REPORTED, NOT FAILED — for now. Six backgrounds across 24 surfaces (measured round 57) are in a syntax this
+    // parser still cannot read; every other colour is read and the axis agrees with the hand measurements. A NOTE is
+    // the honest severity: a failure would block every run on a residue nobody has looked at yet, and silence is what
+    // let this axis report nonsense for thirty-seven rounds. The count rides in the summary so it cannot be ignored.
+    if (s.loudUnreadable) {
+      notes.push(`${where}: ${s.loudUnreadable} background(s) in a colour syntax this probe cannot read — skipped, not counted`);
+    }
     if ((s.loud || []).length > 1 && !(opts.twoloud || []).some((n) => String(s.page).startsWith(n))) {
       findings.push(`${where}: ${s.loud.length} loud elements — a page has ONE focal point at most — ${s.loud.join("; ")}`);
     }

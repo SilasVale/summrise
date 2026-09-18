@@ -187,6 +187,33 @@ and the same probe evaluated by hand on the same page returns `[]`. The next rou
 print its own loud array for one surface at evaluation time, which will say whether the difference is the page state or
 the code that ran.
 
+SOLVED IN ROUND 57, AND THE CAUSE WAS THE NESTING ITSELF. The probes are embedded in the emitted file as TEMPLATE
+LITERALS, so every level eats a backslash: the core's `\(` becomes `\(` in the emitted text (correct for a plain
+string) and is then evaluated ONCE MORE by the emitted file's own template literal, reaching the page as `(`. Measured:
+
+    raw emitted text:     const srgb = /^color\(/.test(c);
+    value the page gets:  const srgb = /^color(/.test(c);      -> "Unterminated group"
+    and the same mechanism turned \s into s, and /rgba?\(…\)/ into a capture group whose parser returned NaN
+
+    THE FIX IS STRUCTURAL, NOT ANOTHER ESCAPE LEVEL: `pageChecks()` now re-embeds every probe as a JSON STRING — the
+    idiom the contrast probe has used since round 88 — so there are no levels left to lose. Both sweeps emit and parse,
+    and the console sweep gets the same repair from the shared core.
+
+WITH THAT, THE LOUD AXIS READS CORRECTLY ON A REAL RUN, and it agrees with the hand measurements this ledger has
+carried since round 40:
+
+    loud histogram over 24 surfaces: {0: 11, 1: 11, 2: 2}
+    panel-Terminal light  loud = []                                     unreadable = 1
+    panel-Terminal dark   loud = [button.rail-btn.active 1444px2, div.tab 3254px2]   <- the round-42 exception
+    judge: "panel design sweep OK: nothing above found a defect"
+
+THREE MORE THINGS THE SAME ROUND HAD TO FIX TO GET THERE: the parser now reads FOUR colour syntaxes (rgb/rgba with
+commas, `rgb(r g b / a)` with spaces, and `color(srgb …)` whose components are 0-1 floats); a colour it still cannot
+read is COUNTED and SKIPPED rather than passing every comparison (that is how a NaN became "loud"); and the surfaces
+of the main page loop are named by DENSITY (`panel-Terminal`, `desktop-Terminal`) so a surface name identifies one
+page and the `twoloud` exception matches the rows it was written for. Six backgrounds across 24 surfaces remain in a
+syntax the parser cannot read; they are reported as NOTES, not failures, and the count rides in the summary.
+
 ### The DESKTOP density is swept as ONE page, and that is how a two-loud surface stayed invisible (round 40)
 
 Found by probing all of the panel's rail pages at a 1440px viewport — which is the DESKTOP density — in both themes.

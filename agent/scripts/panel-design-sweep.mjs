@@ -314,8 +314,8 @@ ${TIMING}
           await page.waitForTimeout(450);
           const rows = await page.evaluate(PROBE);
           for (const row of rows) report.rows.push({ ...row, density, theme, mode: mode_, page: label });
-          report.surfaces.push({ density, theme, mode: mode_, page: label, ...(await page.evaluate(SURFACE)) });
-          report.names.push({ density, theme, mode: mode_, page: label, ...(await page.evaluate(NAMES)) });
+          report.surfaces.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(SURFACE)) });
+          report.names.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(NAMES)) });
         }
       }
     }
