@@ -112,6 +112,19 @@ const CHECKS = [
     ],
   },
   {
+    // AN ENDPOINT THE PANEL REQUIRES AN ENVELOPE FROM (round 99). `useBootHistory` reads `/api/boots` and treats
+    // anything without `ok === true` as a FAILED read, so a stub that omitted it made the Restarts card render
+    // "The device did not answer, so its restart history could not be read" on EVERY Settings surface — a false
+    // claim about a device that answered perfectly, photographed and judged clean while the card's real content
+    // (the summary line and the crash rows) was measured by nothing at all. The device sends the envelope
+    // (`api_boots` in agent/src/web/mod.rs); this asserts the FIXTURE does too.
+    name: "/api/boots carries the ok envelope the panel's hook requires",
+    test: (h) => /J\(\{ ok: true, boots: \[/.test(h),
+    mutations: [
+      { why: "the envelope is gone, so the card claims the device did not answer", from: /J\(\{ ok: true, boots: \[/, to: "J({ boots: [" },
+    ],
+  },
+  {
     name: "the status count follows the same number (the fixture cannot contradict itself)",
     test: (h) => /live_sessions: liveCount/.test(h),
     mutations: [

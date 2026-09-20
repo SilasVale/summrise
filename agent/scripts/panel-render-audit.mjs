@@ -386,7 +386,13 @@ function buildHarness() {
     return Promise.resolve(J({ ok: true, interval_secs: 30, span_secs: 1200, samples: samples }));
   }
   if (u.indexOf('/api/boots') >= 0) {
-    return Promise.resolve(J({ boots: [
+    // THE ENVELOPE MATTERS, AND THIS STUB WAS MISSING IT (round 99) — the same lesson the monitors stub below
+    // records from round 100, one endpoint over. useBootHistory requires ok === true and treats anything else
+    // as a FAILED read, so a body that looked perfectly good here made the Restarts card render "The device did not
+    // answer, so its restart history could not be read" on EVERY Settings surface — a false claim about the device,
+    // photographed and judged clean for as long as the surface has existed, with the card's real content (the
+    // summary line and the crash rows) measured by nothing at all. (No backticks: emitted template literal.)
+    return Promise.resolve(J({ ok: true, boots: [
       { ts_ms: 1789000000000, kind: 'crashed', detail: '2026-09-13 04:12:03 +08:00 - unexpected exit', uptime_secs: 5412, gap_secs: 1, release: '1.2.433' },
       { ts_ms: 1788900000000, kind: 'replaced', detail: '2026-09-12 09:00:00 +08:00 - replaced by vale update', uptime_secs: 0, gap_secs: 1, release: '1.2.433' },
       { ts_ms: 1788800000000, kind: 'first-run', detail: '2026-09-11 08:00:00 +08:00 - first run', release: null },
