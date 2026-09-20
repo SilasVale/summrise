@@ -27,7 +27,13 @@
 // WHAT IT CHECKS, on every stylesheet the repo ships or serves:
 //   1. comments are BALANCED (a `/*` without its `*/` swallows whatever follows);
 //   2. no comment contains a rule-like selector line (`{`-terminated) or a declaration-shaped
-//      `--token: value;`.
+//      `--token: value;`;
+//   3. NO ORPHANED `*/` OUTSIDE a comment (round 97). The walk below finds `/*` and takes the NEXT `*/`, so a
+//      stray close — a comment that ended early, with prose after it — is skipped over as ordinary text and the
+//      sheet looks clean. THE BROWSER DOES NOT SKIP IT: `*/` in a selector prelude is a parse error, and the
+//      parser then discards everything up to the next `}`, so ONE stray close silently deleted a large region of
+//      the panel's sheet — the marks, the session rows and the marks' own sizes stopped applying — while every
+//      gate here stayed green and the page merely LOOKED wrong.
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -66,6 +72,21 @@ for (const rel of SHEETS) {
     }
     spans.push([a, b + 2]);
     pos = b + 2;
+  }
+
+  // 3. AN ORPHANED CLOSE IS A PARSE ERROR, NOT TEXT. Checked in the GAPS between the spans, because that is
+  // exactly where the walk above cannot see one.
+  const orphanLines = [];
+  let cursor = 0;
+  for (const [a, b] of spans) {
+    const at = css.slice(cursor, a).indexOf("*/");
+    if (at >= 0) orphanLines.push(css.slice(0, cursor + at).split("\n").length);
+    cursor = b;
+  }
+  const tailAt = css.slice(cursor).indexOf("*/");
+  if (tailAt >= 0) orphanLines.push(css.slice(0, cursor + tailAt).split("\n").length);
+  for (const line of orphanLines) {
+    problems.push(`${rel}:${line}: ORPHANED '*/' outside any comment — the browser reads it as a parse error and drops rules until the next '}', which is how one stray close deleted a large region of this sheet`);
   }
 
   for (const [a, b] of spans) {
