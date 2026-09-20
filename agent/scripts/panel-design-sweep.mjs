@@ -1154,6 +1154,13 @@ function judge(file) {
         // value stays in the test, so a DIFFERENT ratio on this element is still a finding on either path.
         test: (text) => /div\.rail-dot/.test(text) && /2\.33/.test(text),
         reason: "the working rail dot's halo is emphasis, not the signal — the fill carries the state and clears 3:1 in both themes (measured, round 212)",
+        // IT STAYS, AND THE NUMBER IS WHY (round 22). A run with the hover axis measured 14/14 and 11/11 interactive
+        // elements on four surfaces with `underAA: []` — nothing on the hover path is below AA today, so this entry
+        // matches nothing while the state it guards keeps passing. The pattern is UNANCHORED (`/div\.rail-dot/`
+        // matches the row's sel, which is `div.mark.rail-dot` since the mark language gained data-live), so a hover
+        // row of that shape WOULD still be set aside — which is what makes this a guard rather than weight.
+        dormant:
+          "4 hover surfaces, 14/14 and 11/11 interactive, underAA empty (round 22) — nothing to excuse today; the unanchored pattern still matches the row shape, so it stays for the state it guards",
       },
 
       // THE ACTIVE TAB'S DOT: THE RING PREFERENCE DOES NOT FIRE, AND THAT IS NOW REPRODUCIBLE (round 206).

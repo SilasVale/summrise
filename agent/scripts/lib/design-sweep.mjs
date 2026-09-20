@@ -1458,6 +1458,12 @@ export function judgeReport(report, opts = {}) {
     if (r.sideScrollers.length) console.log(`note: scrollers at ${r.width}px (allowed for toolbars) — ${r.sideScrollers.join("; ")}`);
   }
   const kept = [];
+  // WHICH EXEMPTIONS THIS RUN ACTUALLY NEEDED (round 22). `DECORATIVE` reports the entries no row matched; this is
+  // the same question for `ignore`, whose entries are consulted against FINDINGS rather than rows — the hover path's
+  // dot exemption and the reflow harness artifact. An exemption nothing needs is weight in the one list a reader
+  // consults, and the panel spent rounds discovering that the hard way (a waiver for `/^div\.rail-dot$/` had matched
+  // nothing since a selector changed). Counted here because this is the only place that knows.
+  const usedRules = new Set();
   for (const f of findings) {
     const text = typeof f === "string" ? f : f.text;
     const entry = typeof f === "string" ? null : f.entry;
@@ -1466,8 +1472,33 @@ export function judgeReport(report, opts = {}) {
     // the text alone would also hide a genuine 320px reflow defect, and the sweep's own gate caught
     // exactly that when the first version of this exemption was written.
     const rule = (opts.ignore || []).find((i) => (i.test ? i.test(text, entry) : i.match.test(text)));
-    if (rule) suppressed.push({ finding: text, reason: rule.reason });
-    else kept.push(text);
+    if (rule) {
+      usedRules.add(rule);
+      suppressed.push({ finding: text, reason: rule.reason });
+    } else kept.push(text);
+  }
+  {
+    // A NOTE, NOT A FINDING, and it names the size of the search: a run that measured one axis produces none of the
+    // findings these entries exist for, and then every entry looks unused. The count is what lets a reader tell a
+    // stale exemption from a partial run — the same reason the DECORATIVE note carries its row count.
+    //
+    // AND AN ENTRY MAY ANSWER THE QUESTION ITSELF (round 22). "Prune it or say why it stays" is only actionable if
+    // there is somewhere to say it: an exemption whose reason still holds and whose pattern still fires — a GUARD for
+    // a state that currently passes — declares `dormant: "<why it is expected to match nothing in a clean run>"`,
+    // and the note then reports it as declared rather than as weight. An entry that is genuinely dead has nothing to
+    // declare, which is exactly the one to prune (round 21's `/^div\.rail-dot$/` in DECORATIVE).
+    const unused = (opts.ignore || []).filter((i) => !usedRules.has(i));
+    const undeclared = unused.filter((i) => !i.dormant);
+    const dormant = unused.filter((i) => i.dormant);
+    if (undeclared.length) {
+      console.log(
+        `note: ${undeclared.length} of ${(opts.ignore || []).length} ignore entr(ies) matched none of this run's ${findings.length} finding(s) and does not say why it stays — an exemption nothing needs is weight; prune it, or declare it dormant with the measurement that makes it a guard:`,
+      );
+      for (const u of undeclared) console.log(`  ${u.reason}`);
+    }
+    for (const d of dormant) {
+      console.log(`note: ignore entry dormant as declared — ${d.dormant}`);
+    }
   }
   for (const s of suppressed) console.log(`note: set aside (${s.reason}) — ${s.finding}`);
   return kept;

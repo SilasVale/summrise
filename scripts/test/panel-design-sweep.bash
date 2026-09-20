@@ -504,6 +504,36 @@ else
   bad "the clean report no longer passes with the staleness note present"
 fi
 
+# AN EXEMPTION NOTHING NEEDED EITHER ANSWERS FOR ITSELF OR IS ASKED ABOUT (round 22). `ignore` entries are consulted
+# against FINDINGS (the hover path's dot, the reflow harness artifact), and this report produced one finding which the
+# reflow entry set aside — so that entry is used and must NOT be reported, while the hover one matched nothing and,
+# having a `dormant` declaration, must be reported AS DECLARED rather than as weight.
+# THE FIXTURE MIRRORS A REAL CLEAN RUN: a 320px reflow finding whose scrollers are all tab children, so the reflow
+# exemption IS used and the only unused entry is the hover-path guard, which declares itself dormant. (The first
+# version of this case judged a report with NO reflow row, where the reflow entry is legitimately unused and
+# undeclared — the judge was right to ask about it, and the fixture was wrong.)
+python3 - "$TMP/clean.json" "$TMP/ignore-dormant.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["reflow"] = [{"width": 320, "viewport": 320, "docScrollWidth": 506, "docScrollsSideways": True, "sideScrollers": ["div.tab-strip"]}]
+r["sse"] = [{"page": "Terminal", "opened": True, "fail": False}]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+if node "$TOOL" --judge "$TMP/ignore-dormant.json" > "$TMP/ignore-note.out" 2>&1; then
+  if grep -q "ignore entry dormant as declared" "$TMP/ignore-note.out"; then
+    ok "an unused exemption that declares why it stays is reported as dormant, not as weight"
+  else
+    bad "a dormant exemption was not reported: $(grep -c 'ignore entr' "$TMP/ignore-note.out") line(s)"
+  fi
+  if grep -q "does not say why it stays" "$TMP/ignore-note.out"; then
+    bad "the judge asked to prune an entry that had declared itself dormant: $(grep -m1 'does not say why' "$TMP/ignore-note.out")"
+  else
+    ok "and it is not told to prune itself, while the entry the run DID use is never mentioned"
+  fi
+else
+  bad "the clean report failed once the ignore note was added: $(tail -2 "$TMP/ignore-note.out" | tr '\n' ' ')"
+fi
+
 # THE TARGET-SIZE VERDICT NAMES THE PAGE AND THE STATE (round 16). This axis measures two states now — the resting
 # page and the one a hover reveals — and a finding that says only "panel" cannot be reproduced. Planted on the
 # REVEAL entry, because that is the state that was previously reached by accident.
