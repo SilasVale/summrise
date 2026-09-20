@@ -282,10 +282,24 @@ export const MODEL_REGISTRY: ModelSpec[] = [
   // isn't available in this session". A deliberately fabricated tool type
   // (`totally_made_up_20991231`) behaves identically, which is what rules out
   // "this request was malformed": the upstream simply does not know the tool.
-  // Forcing tool_choice does not change it. Consequence: a web_search request
-  // aimed at r4/ is swapped to the og/ Flash lane by translate.ts's
-  // searchTargetFor — the path every non-search-capable channel takes — and is
-  // answered by zen/go, NOT by r4.
+  // Forcing tool_choice does not change it.
+  //
+  // WHAT ACTUALLY HAPPENS TO A web_search REQUEST — measured through the
+  // DEPLOYED gateway on 2026-09-20, after an earlier version of this comment
+  // claimed otherwise and shipped: the request is forwarded to r4 UNCHANGED.
+  // The swap to the og/ Flash lane (searchTargetFor) sits behind the
+  // /v1/messages parse gate, whose kind list is the translate route plus
+  // opencode/deepseek/gmi/amd/nvidia — r4 is a passthrough kind and is NOT on
+  // it, so the body is never parsed, `body` stays null, and the swap cannot
+  // fire. qw/ and or/ behave the same way. The control that settles it: og/ was
+  // answering 429 (weekly cap exhausted) at the moment of the test, so a swap
+  // would have returned 429 — the r4 request returned 200 with no
+  // web_search_tool_result block, and the model emitted its attempted tool call
+  // as PLAIN TEXT (`<tool_use><invoke name="web_search">…`). That is the honest
+  // shape of "this upstream has no server tools": not an error, and not a
+  // search. Wiring the swap for r4/ means adding its kind to that parse gate —
+  // a real CPU cost on every r4 request, and a silent re-point of the answer at
+  // zen/go — so it is a deliberate decision, not a doc fix.
   { id: "r4/deepseek-v4.1-flash", ownedBy: "r4", probe: true },
 ];
 
@@ -534,7 +548,7 @@ export const ROUTE_INFO: { prefix: string; backend: string; desc: string; models
   {
     prefix: "r4/",
     backend: "r4.codes",
-    desc: "api.r4.codes — Anthropic /v1/messages AND OpenAI /v1/chat/completions both native (no translation either way), user's own R4_API_KEY; no server-side tools (web_search requests are swapped to the og/ Flash lane); any catalog model reachable as r4/<id>",
+    desc: "api.r4.codes — Anthropic /v1/messages AND OpenAI /v1/chat/completions both native (no translation either way), user's own R4_API_KEY; no server-side tools — a web_search request is forwarded UNCHANGED and the tool is ignored (r4 is not on the parse gate that swaps to the og/ lane); any catalog model reachable as r4/<id>",
     models: routeModelsFor("r4/"),
   },
   {
