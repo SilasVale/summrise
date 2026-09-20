@@ -142,6 +142,52 @@ pub fn update_busy() -> bool {
     busy_marker_path().exists()
 }
 
+/// WHERE THE DEVICE RECORDS THE UPDATE IT LAUNCHED (2026-09-21).
+///
+/// The verdict an operator reads after clicking Update is a four-way READING OF A LOG FILE — `vale-update.log`,
+/// written by TWO programs (the CLI writes the `update requested` receipt, the generated swap script writes the
+/// stages). The question that decides whether it is safe to press the button again is "did the swap actually
+/// start on this device", and the DEVICE knows the answer at the moment it hands the script to WMI. That answer
+/// belongs on the wire, not in a regex over text the device merely happens to have written.
+///
+/// The file lives beside the update log (same directory, so one backup covers both) and is written after the
+/// launch has already succeeded: a record that cannot be written must never fail an update that is on its way.
+fn attempt_path() -> PathBuf {
+    crate::paths::logs_dir().join("update-attempt.json")
+}
+
+/// Record the launch. Best-effort by construction — the return value is ignored at the call site.
+///
+/// The ONE caller is the Windows launch path (`update_from_tgz`'s WMI handoff), so on a non-Windows build this
+/// has no caller at all — and the test that round-trips the record runs everywhere, which is exactly why the
+/// function is not platform-gated with its caller.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn record_update_attempt(from: &str, to: &str, launched: bool) {
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let body = json!({ "at_ms": at_ms, "from": from, "to": to, "launched": launched });
+    if let Err(e) = std::fs::write(attempt_path(), body.to_string()) {
+        tracing::error!("[vale-agent] update: could not record the launch: {e}");
+    }
+}
+
+/// The last launch this device recorded, or Null. A file that cannot be read or parsed is ABSENT, never an
+/// empty object: the panel must be able to tell "this device has never launched an update" from "this device
+/// said something this build cannot read", and an empty object would render as the first.
+pub fn last_update_attempt() -> Value {
+    std::fs::read_to_string(attempt_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .filter(|v| {
+            v.get("at_ms")
+                .and_then(|x| x.as_u64())
+                .is_some_and(|x| x > 0)
+        })
+        .unwrap_or(Value::Null)
+}
+
 /// HOW LONG A CHANNEL ANSWER IS REUSED. The panel polls this while its card is open, and a
 /// device may have several clients (panel, console, the AI); one CDN request per 30 s per
 /// device is polite, and a release published seconds ago is not something an operator needs
@@ -244,6 +290,9 @@ pub async fn update_status(download_url: Option<String>) -> Value {
             "update_available": false,
             "pinned_to": if pin.is_empty() { Value::Null } else { json!(pin) },
             "busy": busy,
+            // EVEN WITH NO CHANNEL, an update can have been launched by hand — the fact is about the DEVICE,
+            // not about the channel, so it is reported in both arms.
+            "last_attempt": last_update_attempt(),
         });
     };
     let answer = channel_answer(&site).await;
@@ -262,6 +311,11 @@ pub async fn update_status(download_url: Option<String>) -> Value {
         "busy": busy,
         "error": if reachable { Value::Null } else { json!(answer.error) },
         "checked_at": answer.at * 1000,
+        // DID THE LAST UPDATE ACTUALLY LAUNCH, and from which build to which (2026-09-21). `checked_at` says when
+        // the channel was asked; this says what the DEVICE did about an answer. The logs card still reads
+        // `vale-update.log` for the stages a swap writes, and that reading stays the fallback for devices whose
+        // record is absent — this field is the fact, that one is the narration.
+        "last_attempt": last_update_attempt(),
     })
 }
 
@@ -621,7 +675,13 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
                     .trim()
                     .to_string();
                 match serde_json::from_str::<serde_json::Value>(&txt) {
-                    Ok(v) if v.get("ReturnValue").and_then(|x| x.as_i64()) == Some(0) => true,
+                    Ok(v) if v.get("ReturnValue").and_then(|x| x.as_i64()) == Some(0) => {
+                        // THE SWAP IS ON ITS WAY — the one moment this process can say so for certain. The
+                        // script will narrate the rest into vale-update.log; whether it STARTED is a fact only
+                        // this line knows, and the panel reads it from /api/update now.
+                        record_update_attempt(&local_release(), release_version, true);
+                        true
+                    }
                     Ok(v) => {
                         tracing::error!(
                             "[vale-agent] agent_update: WMI Create rejected (ReturnValue {:?})",
@@ -1381,6 +1441,47 @@ mod tests {
         .is_ok());
     }
 
+    /// THE LAUNCH RECORD: written when a swap actually starts, reported as a fact, and ABSENT (never an empty
+    /// object) when there is nothing to say. The panel renders "the last update this device launched" from it,
+    /// which is the question an operator has after pressing the button — the log tells the story, this says
+    /// whether the thing started.
+    #[test]
+    fn the_launch_record_round_trips_and_refuses_a_body_it_cannot_use() {
+        let path = attempt_path();
+        let had = std::fs::read_to_string(&path).ok();
+        let _ = std::fs::create_dir_all(path.parent().unwrap());
+
+        // Nothing recorded: Null, so the panel can tell "never launched" from "unreadable".
+        let _ = std::fs::remove_file(&path);
+        assert!(last_update_attempt().is_null());
+
+        record_update_attempt("1.2.403", "1.2.435", true);
+        let v = last_update_attempt();
+        assert_eq!(v["from"], "1.2.403");
+        assert_eq!(v["to"], "1.2.435");
+        assert_eq!(v["launched"], true);
+        assert!(
+            v["at_ms"].as_u64().unwrap_or(0) > 0,
+            "a launch needs a time: {v}"
+        );
+
+        // A file this build cannot use is ABSENT, not an empty object: an empty object would render as
+        // "launched" with no versions and no time.
+        std::fs::write(&path, "{not json").unwrap();
+        assert!(last_update_attempt().is_null());
+        std::fs::write(&path, r#"{"from":"1.2.403"}"#).unwrap();
+        assert!(last_update_attempt().is_null(), "no at_ms is no record");
+        std::fs::write(&path, r#"{"at_ms":0}"#).unwrap();
+        assert!(last_update_attempt().is_null(), "zero is not a time");
+
+        match had {
+            Some(t) => std::fs::write(&path, t).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
     /// `update_status` — the view a PANEL reads, and the three facts it must never blur:
     /// "no channel configured" (a local install), "the channel did not answer" (unknown), and
     /// "pinned" (an update exists but this device refuses it).
@@ -1398,6 +1499,11 @@ mod tests {
         assert_eq!(v["current"], local_release(), "{v}");
         // And it never invents an error for a device that simply has no channel.
         assert!(v.get("error").is_none(), "{v}");
+        // THE LAUNCH FACT IS REPORTED EVEN HERE, because it is about the device and not about the channel.
+        assert!(
+            v.get("last_attempt").is_some(),
+            "the status view must carry the launch record: {v}"
+        );
     }
 
     /// An empty channel string is the same fact as an absent one — a config that carries

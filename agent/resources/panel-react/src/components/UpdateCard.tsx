@@ -30,6 +30,13 @@ export interface UpdateStatus {
   busy: boolean;
   /** Text when the channel could not be read; null when it answered (or was never asked). */
   error: string | null;
+  /** THE LAST UPDATE THIS DEVICE LAUNCHED, or null when it never has.
+   *
+   *  The device records it at the moment it hands the swap script to WMI (`record_update_attempt`), which is the
+   *  only moment anything can say for certain that an update STARTED — the log narrates what the script did
+   *  afterwards, and it is written by two programs. This is the fact; the logs card's log reading is the
+   *  narration, and stays the fallback for a device that reports the field as absent. */
+  lastAttempt: { atMs: number; from: string; to: string } | null;
   /** WHEN THE DEVICE LAST ASKED ITS CHANNEL — epoch milliseconds, or null when it never has.
    *
    *  The device reports this (`checked_at`, from `update_status`), and this panel used to drop it: the card
@@ -48,6 +55,7 @@ const EMPTY_UPDATE: UpdateStatus = {
   busy: false,
   error: null,
   checkedAt: null,
+  lastAttempt: null,
 };
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
@@ -71,7 +79,22 @@ export function parseUpdateStatus(j: unknown): UpdateStatus {
       typeof b.checked_at === "number" && Number.isFinite(b.checked_at) && b.checked_at > 0
         ? b.checked_at
         : null,
+    lastAttempt: parseAttempt(b.last_attempt),
   };
+}
+
+/** The launch record, or null. A record without a POSITIVE time, a `from` and a `to` is not one — the device
+ *  refuses such a body too (`last_update_attempt`), and this refuses it again because the two ends of a wire
+ *  contract drift independently: half a record would render as "updated from to at Invalid Date". */
+export function parseAttempt(v: unknown): { atMs: number; from: string; to: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const a = v as Record<string, unknown>;
+  const atMs = a.at_ms;
+  if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs <= 0) return null;
+  const from = typeof a.from === "string" ? a.from : "";
+  const to = typeof a.to === "string" ? a.to : "";
+  if (!from && !to) return null;
+  return { atMs, from, to };
 }
 
 /** "checked 12s ago" — the age of the device's answer, in the panel's own vocabulary.
@@ -79,6 +102,14 @@ export function parseUpdateStatus(j: unknown): UpdateStatus {
  *  The unit follows the size of the number because the reader's question changes with it: seconds matter while an
  *  update is being applied, minutes when the card is idle. Anything over an hour is stated in hours, and the exact
  *  timestamp rides along in the title so a reader who needs the clock time has it. */
+/** "2m ago" — the age of an ACT, where `checkedAge` is the age of a READING. Same units, no verb: the sentence
+ *  around it already says what happened ("the swap was handed over 2m ago"), and repeating "checked" there would
+ *  describe the wrong event. */
+export function attemptAge(atMs: number | null, nowMs: number): string {
+  const age = checkedAge(atMs, nowMs);
+  return age ? age.replace(/^checked /, "") : "at an unknown time";
+}
+
 export function checkedAge(checkedAt: number | null, nowMs: number): string | null {
   // ZERO IS NOT A TIME. The mapper already refuses non-positive values, and this refuses them again because the
   // formatter is the last place before the screen: `epoch 0` renders as "checked 497204h ago", which is a claim
@@ -252,6 +283,27 @@ export function UpdateCard({
             <p className="muted">
               No update channel is configured on this install (<code>platform.download_url</code> is
               unset), so this device is updated by hand. That is a supported way to run it.
+            </p>
+          )}
+
+          {/* THE LAST UPDATE THIS DEVICE LAUNCHED — the fact that answers "did my click do anything", which
+              until now could only be inferred by opening a log file and reading a four-way verdict derived from
+              two programs' text. Stated with its time, because "the swap started" and "the swap started twenty
+              minutes ago and this build is still running" are different situations. */}
+          {status.lastAttempt && (
+            <p
+              className="update-attempt"
+              data-from={status.lastAttempt.from}
+              data-to={status.lastAttempt.to}
+            >
+              Last update launched on this device: {status.lastAttempt.from || "?"} →{" "}
+              {status.lastAttempt.to || "?"},{" "}
+              <span
+                className="update-attempt-age"
+                title={`the device handed the swap script over at ${new Date(status.lastAttempt.atMs).toLocaleTimeString()}`}
+              >
+                {attemptAge(status.lastAttempt.atMs, nowMs)}
+              </span>
             </p>
           )}
 

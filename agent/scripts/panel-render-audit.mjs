@@ -342,6 +342,11 @@ function buildHarness() {
       // report would make two runs of the same surface disagree. Two minutes ago is recent enough to read in
       // seconds-vs-minutes terms and stable enough to compare.
       checked_at: Date.now() - 120000,
+      // AND WHAT THE DEVICE DID ABOUT IT: the launch record, from the same field the panel now states. Fixed
+      // values and a fixed age, for the same reason as checked_at above — a page whose numbers move cannot be
+      // compared between runs. This is the state an operator sees right after pressing Update, and until this
+      // round no fixture rendered it at all.
+      last_attempt: { at_ms: Date.now() - 600000, from: '1.2.433', to: '1.2.435', launched: true },
     }));
   }
 

@@ -1463,6 +1463,11 @@
    update applied a minute ago still reads as available until the next check lands. Muted ink like its neighbours;
    the sweep measures this row on every Settings surface. */
 .update-checked { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* WHAT THE DEVICE DID ABOUT IT (2026-09-21). The launch record from `last_attempt` — the fact that answers "did my
+   click do anything", stated where the button is. Chrome ink, not a state colour: it reports an ACT, and the
+   outcome is the log card's business. Measured by the sweep on every Settings surface. */
+.update-attempt { margin: var(--sp-1) 0 0; color: var(--chrome-ink); font: 400 var(--fs-xs) var(--font); }
+.update-attempt-age { color: var(--muted); font-variant-numeric: tabular-nums; }
 .update-latest[data-available="yes"] { color: var(--danger-on-soft); }
 .update-latest[data-available="no"] { color: var(--chrome-ink-dim); }
 .update-warn {

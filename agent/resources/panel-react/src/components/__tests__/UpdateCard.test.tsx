@@ -12,7 +12,7 @@
 //     the agent dies mid-update), and the panel says what it is now running.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { UpdateCard, parseUpdateStatus, type UpdateStatus, checkedAge } from "../UpdateCard";
+import { UpdateCard, parseUpdateStatus, type UpdateStatus, checkedAge, parseAttempt } from "../UpdateCard";
 import { callApi } from "../../lib/api";
 
 vi.mock("../../lib/api", async (importOriginal) => ({
@@ -29,6 +29,7 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   pinnedTo: null,
   busy: false,
   checkedAt: null,
+  lastAttempt: null,
   error: null,
   ...over,
 });
@@ -77,6 +78,55 @@ it("a device that never checked says NOTHING rather than an age", () => {
   expect(checkedAge(1_700_000_000_000, 1_700_000_040_000)).toBe("checked 40s ago");
   expect(checkedAge(1_700_000_000_000, 1_700_000_600_000)).toBe("checked 10m ago");
   expect(checkedAge(1_700_000_000_000, 1_700_010_000_000)).toBe("checked 3h ago");
+});
+
+it("states the last update the DEVICE launched, from its own record", () => {
+  // The fact that answers "did my click do anything". It comes from the device (`record_update_attempt` at the
+  // moment the swap script is handed to WMI) rather than from a reading of vale-update.log, which two programs
+  // write and which says nothing at all about whether the swap STARTED.
+  const { container } = render(
+    <UpdateCard
+      status={status({
+        lastAttempt: { atMs: 1_700_000_000_000, from: "1.2.403", to: "1.2.435" },
+      })}
+      refresh={vi.fn(async () => {})}
+      nowMs={1_700_000_600_000}
+    />,
+  );
+  const line = container.querySelector(".update-attempt");
+  expect(line, "the launch record must be on the card").toBeTruthy();
+  expect(line!.textContent).toContain("1.2.403");
+  expect(line!.textContent).toContain("1.2.435");
+  expect(container.querySelector(".update-attempt-age")!.textContent).toBe("10m ago");
+  expect(line!.getAttribute("data-to")).toBe("1.2.435");
+});
+
+it("a device that never launched an update says nothing about one", () => {
+  const { container } = render(
+    <UpdateCard status={status({})} refresh={vi.fn(async () => {})} />,
+  );
+  expect(container.querySelector(".update-attempt")).toBeNull();
+});
+
+it("HALF a launch record is not a record: the two ends of the wire are checked independently", () => {
+  // The device refuses a body without `at_ms` (its own test says so); this refuses one too, because the two ends
+  // drift independently and half a record renders as "updated from ? to ? at Invalid Date".
+  expect(parseAttempt(null)).toBeNull();
+  expect(parseAttempt({})).toBeNull();
+  expect(parseAttempt({ at_ms: 0, from: "1.2.1", to: "1.2.2" })).toBeNull();
+  expect(parseAttempt({ at_ms: 1_700_000_000_000 })).toBeNull();
+  expect(parseAttempt({ at_ms: 1_700_000_000_000, from: "1.2.1", to: "1.2.2" })).toEqual({
+    atMs: 1_700_000_000_000,
+    from: "1.2.1",
+    to: "1.2.2",
+  });
+  // A record with only a `from` is still worth showing — the build it came FROM is the half an operator needs to
+  // know what they are running now.
+  expect(parseAttempt({ at_ms: 1_700_000_000_000, from: "1.2.1" })).toEqual({
+    atMs: 1_700_000_000_000,
+    from: "1.2.1",
+    to: "",
+  });
 });
 
 const card = (over: Partial<UpdateStatus> = {}, extra: Record<string, unknown> = {}) =>
