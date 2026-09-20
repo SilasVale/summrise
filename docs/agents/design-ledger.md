@@ -2075,3 +2075,34 @@ something, and a signal that another process can produce is not evidence about t
 fourth time this session an added signal turned out to have a second producer (a request counter on a polling page, a
 hover rule mistaken for an acknowledgement, a floor calibrated for curated selectors, a stub answering a route nobody
 asked for) — and each time the fix was the same: name what the signal can and cannot support.
+
+### A WAIVER NOTHING HAD USED FOR ROUNDS (round 21)
+
+"Whatever stops earning its place pruned" is the one clause of the objective that has no instrument until somebody
+looks. The panel's DECORATIVE list holds the exemptions from the 3:1 graphic bar, each with the band it was MEASURED
+at — and one of them had matched nothing since the mark language changed:
+
+    /^div\.rail-dot$/   band 2.25-2.45   MATCHES 0 of 6,876 ROWS ACROSS 126 SURFACES
+
+The working dot's halo was waived when the rows path reported that mark as `div.rail-dot`. `data-live` arrived, the
+selector became `div.mark.rail-dot`, and the pattern has matched nothing since — while the ELEMENT is measured and
+fine: 68 rows name it, all above their bar (6.50 light / 10.99 dark against 3), and its fill is held at exactly 3.00
+by the panel gate, which fails on a mutation to #8a2a07 (1.90). Nothing needed the exemption.
+
+    PRUNED, with the measurement, the band, and where the exemption lives now written where the entry was
+    REPORTED NOW: the judge prints how many DECORATIVE entries matched no row, naming them, with the row and
+    surface counts so a reader can tell a stale entry from a partial run
+
+A NOTE AND NOT A FINDING, deliberately: this list is judged per run, and a run that measures one axis (the ack pass
+alone) has rows from nothing else — every entry would look stale. The counts are what make the difference visible.
+
+PINNED IN THREE DIRECTIONS: a waiver the run used is not called stale; a waiver no row matched is named with its row
+count; and THE PRUNE ITSELF — the row the deleted entry used to excuse is now a finding, because a prune that still
+excuses something is a prune in name only. One gate case had to move for this: it planted `div.rail-dot 2.33` to pin
+"a waiver at its measured ratio still passes", which was pinning the entry being removed. It plants
+`span.approval-grant 1.19` now, whose entry exists — and the case is more honest for it, because the rule was never
+about that one dot.
+
+WHERE TO LOOK NEXT for weight of this kind, recorded rather than remembered: the `ignore` list beside DECORATIVE (the
+hover path's exemptions, which the same note does not cover), the panel's `UNSTYLED` waivers, and the `DECORATIVE`
+bands themselves — a band that no run has landed inside for several rounds is a number nobody has checked.
