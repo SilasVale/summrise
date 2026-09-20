@@ -499,17 +499,59 @@ export function pressDelta(hovered, pressed) {
   return KEYS.filter((k) => hovered[k] !== pressed[k]);
 }
 
+/** EVERY CONTROL ON THE PAGE, deduped by class+size — for the surfaces where the curated list does not apply.
+ *
+ *  WHY IT EXISTS (round 103). The press targets are a CURATED list, which means a control nobody thought of is
+ *  never pressed: `.device-logs-toggle` — a button that opens a log file's tail — had `cursor: pointer` and no
+ *  hover or press at all, and no gate could see it. `feedback-check` demands a press only where a HOVER exists
+ *  (hover implies press), so a control with NEITHER is invisible to it; the rendered pass never visited that card.
+ *  This asks the DOM instead of a list: every visible `button`, link and `[role=button|tab]`, deduped so a table of
+ *  fifty identical rows costs one press, capped so a busy page cannot turn one surface into a minute of clicking.
+ *  The CAP is reported (`discovered`), because a pass that quietly pressed the first eight of forty controls is the
+ *  same false comfort as a scan that read nothing. */
+async function discoverPressTargets(page, cap, skip) {
+  return page.evaluate(({ cap, skip }) => {
+    const out = [];
+    const seen = new Set();
+    const els = [...document.querySelectorAll('button:not([disabled]), a[href], [role="button"], [role="tab"]')];
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      const st = getComputedStyle(el);
+      if (r.width < 6 || r.height < 6 || st.display === 'none' || st.visibility === 'hidden') continue;
+      if (st.pointerEvents === 'none') continue;
+      if (skip.some((s) => el.matches(s))) continue;
+      const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+      const key = el.tagName.toLowerCase() + cls + '|' + Math.round(r.width) + 'x' + Math.round(r.height);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(el.tagName.toLowerCase() + cls);
+    }
+    return { found: out.length, targets: out.slice(0, cap) };
+  }, { cap, skip });
+}
+
 export async function pressPass(page, targets, label = {}) {
   const rows = [];
+  // THE DISCOVERED SET IS OPT-IN, because a page of fifty archive rows would cost fifty presses: the curated list
+  // stays for the surfaces it was written for, and `discover` adds what the DOM knows that the list does not.
+  let discovered = null;
+  if (label.discover) {
+    discovered = await discoverPressTargets(page, label.discover, targets.filter((t) => !t.includes(',')));
+    targets = [...targets.filter((t) => !t.includes(',')), ...discovered.targets];
+  }
   const styleOf = (sel) => page.evaluate((s) => {
     for (const el of document.querySelectorAll(s)) {
       const r = el.getBoundingClientRect();
       const st = getComputedStyle(el);
       if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
       const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : "";
+      // AND WHETHER THE POINT ACTUALLY REACHES IT. A covered element and a still element are different facts, and
+      // this pass must not report the second when it means the first.
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return {
         where: el.tagName.toLowerCase() + cls + (el.id ? "#" + el.id : ""),
         transform: st.transform, opacity: st.opacity, background: st.backgroundColor, filter: st.filter,
+        hit: !!(top && (top === el || el.contains(top) || top.contains(el))),
       };
     }
     return null;
@@ -517,14 +559,28 @@ export async function pressPass(page, targets, label = {}) {
   for (const sel of targets) {
     const box = await page.evaluate((s) => {
       for (const el of document.querySelectorAll(s)) {
+        // A CONTROL BELOW THE FOLD IS NOT A CONTROL THAT FAILED TO ANSWER (round 103). This pass took the element's
+        // rect as it found it and pressed that coordinate; for `.device-logs-toggle` the coordinate was y=1582 in an
+        // 860px viewport, the mouse never touched the button, and the measurement read "press adds nothing" — a
+        // finding against a control that answered perfectly. The element is scrolled to the middle FIRST, and an
+        // element that cannot be brought into view is reported as exactly that, because silence about a press is not
+        // evidence of a missing one.
+        el.scrollIntoView({ block: "center", behavior: "instant" });
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        if (r.top < 0 || r.bottom > innerHeight) {
+          return { offscreen: true, top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: innerHeight, w: Math.round(r.width), h: Math.round(r.height) };
+        }
         return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
       }
       return null;
     }, sel);
     if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
+    if (box.offscreen) {
+      rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
+      continue;
+    }
     // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the
     // baseline is taken, or a mid-transition value would be compared against a settled one and a control that only
     // answers a hover would read as answering a press again. These sheets transition in 120-200ms, so 260ms is the
@@ -541,7 +597,15 @@ export async function pressPass(page, targets, label = {}) {
     await page.mouse.up();
     await page.waitForTimeout(60);
     const props = pressDelta(hovered, pressed);
-    rows.push({ sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h, changed: props.length > 0, props, hovered, pressed, ...label });
+    // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED: if the pointer never reached the element (something
+    // is drawn over it, or the read happened mid-scroll), the row says so instead of claiming a still control.
+    const reached = !(hovered && hovered.hit === false);
+    rows.push({
+      sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
+      changed: props.length > 0, props, hovered, pressed, reached,
+      ...(reached ? {} : { note: "the pointer never reached this element (something is drawn over it) — NOT pressed, and that is not evidence about its press" }),
+      ...label,
+    });
   }
   return rows;
 }

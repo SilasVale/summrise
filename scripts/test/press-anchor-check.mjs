@@ -99,6 +99,18 @@ try {
       assert.ok(hover < down, `${name}: the baseline is read AFTER the press (hovered@${hover}, down@${down})`);
       assert.ok(call > down, `${name}: the verdict is not pressDelta(hovered, pressed) — the baseline is not the hover`);
       assert.ok(src.includes("function pressDelta"), `${name}: pressDelta is not embedded, so the browser runs a different rule`);
+
+      // AND A PRESS THE POINTER NEVER DELIVERED IS NOT A PRESS THE CONTROL IGNORED (round 103). The pass took the
+      // element's rect as it found it: for `.device-logs-toggle` that was y=1582 in an 860px viewport, so the mouse
+      // moved to a coordinate outside the page, nothing was hovered, nothing was pressed, and the row read
+      // "press adds nothing" — a finding against a button that answers. An instrument that reports a defect which
+      // is really its own blind spot is the one failure mode this file exists to prevent, so the three rules are
+      // pinned here: scroll it into view first, refuse to measure one that will not fit, and say so when the point
+      // resolves to something else.
+      assert.ok(src.includes('el.scrollIntoView({ block: "center", behavior: "instant" })'), `${name}: the element is not scrolled into view — a control below the fold will be "pressed" at a coordinate outside the page and reported as still`);
+      assert.ok(src.includes("box.offscreen"), `${name}: an element that cannot be brought into view is measured anyway, which is how a blind spot becomes a finding`);
+      assert.ok(src.includes("document.elementFromPoint"), `${name}: the hit test is gone — a covered element and a still element would read the same`);
+      assert.ok(src.includes("the pointer never reached this element"), `${name}: a press the pointer never delivered is reported as an answer (or as its absence) instead of as a note`);
     });
   }
 } finally {

@@ -519,6 +519,17 @@ ${TIMING}
         report.themeChecks.push({ page: name, intended: theme, ...themeRead });
         report.surfaces.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
         report.names.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
+        // AND THE CONTROLS THIS PAGE HAS, WHICH NO LIST NAMED (round 103). The press pass ran on the Terminal
+        // surfaces against a CURATED list, so a control on any other page had never been pressed: .device-logs-toggle
+        // — the button that opens a log file's tail — had cursor:pointer and no hover or press at all, and
+        // feedback-check cannot see that (it demands a press only where a HOVER exists). The DOM is asked here
+        // instead, deduped by class+size and CAPPED, because this walk visits six pages in two densities and two
+        // themes and every press costs a hover, a settle and a read.
+        if (wants("press")) {
+          const found = await pressPass(page, [], { density, theme: pageTheme, mode: 'rail', page: name, discover: 5 });
+          report.press = report.press || [];
+          report.press.push({ density, theme: pageTheme, mode: 'rail', page: name, measured: found.filter((r) => !r.note && r.changed).length, rows: found });
+        }
       }
       // THE COVERAGE IS WHAT CHANGED, not what was clicked: six pages is the fact, and a report that says fewer
       // means the rail stopped navigating rather than that the pages are clean.
