@@ -337,7 +337,15 @@ export const PROBE_SOURCE = `(() => {
     //     sparkline's stroke is not measured by this instrument.
     //   * CONTROLS. A .btn-mini is 26px tall and passed the mark test, then compared its soft background
     //     with the card behind it. A control is judged by its TEXT, in the loop above.
-    if (el instanceof SVGElement || el.closest('svg')) continue;
+    // THE SVG ROOT IS MEASURABLE; ITS CHILDREN ARE NOT (round 93). This line was written for PATHS, and its reason
+    // is a measurement: "an icon's path inherits fill: black and its real colour comes from the svg above it, so
+    // every decorative glyph reported cr ~1". It excluded the SVG ELEMENT as well, which is the one that KNOWS the
+    // colour — the panel's Icon renders fill="none" stroke="currentColor", so the computed stroke on the root IS the
+    // icon's colour — and the cost was named only in round 92, beside a waiver it produced: the per-kind lane
+    // colours in the new-session menu had NO ROW anywhere in this suite. painterOf has had SVG fill/stroke branches
+    // all along and no element could reach them.
+    // (No backticks: this source is embedded in an emitted template literal.)
+    if (el instanceof SVGElement && el.tagName.toLowerCase() !== 'svg') continue;
     if (/^(BUTTON|A|INPUT|SELECT|TEXTAREA|LABEL)$/.test(el.tagName)) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 3 || r.height < 3) continue;

@@ -169,6 +169,26 @@ const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
 // `color(srgb …)` carries 0-1 floats, not 0-255: reading 0.956863 as a channel value gave rgb(1,1,1), which
 // composited the light rail (#f4f4f5 at 88%) into rgb(31,31,31) and filed six false contrast findings in CI against
 // marks that measure 7.47 on it. The same lesson the LOUD axis learned in round 59; the contrast axis had no case.
+// THE SVG ROOT IS MEASURABLE, AND ITS CHILDREN ARE NOT (round 93). The probe excluded every SVG — the element and
+// its paths together — for a measured reason about PATHS ("an icon's path inherits fill: black and its real colour
+// comes from the svg above it, so every decorative glyph reported cr ~1"). The cost of excluding the ROOT as well was
+// named only in round 92, beside a waiver it produced: the per-kind lane colours in the new-session menu had no row
+// anywhere in the suite, while painterOf carried SVG fill/stroke branches no element could reach.
+//
+// This is a SHAPE check and it is honest about that: the loop runs in a browser and cannot be exercised here. What it
+// pins is the rule — a blanket exclusion is what regressed the coverage, so a blanket exclusion fails it.
+t("the probe measures the SVG root and skips only its children", () => {
+  assert(
+    /el instanceof SVGElement && el\.tagName\.toLowerCase\(\) !== 'svg'/.test(PROBE_SOURCE),
+    "the loop must let the svg ROOT through: it is the element that knows the icon's colour (fill: none, stroke: currentColor)",
+  );
+  assert(
+    !/el instanceof SVGElement \|\| el\.closest\('svg'\)/.test(PROBE_SOURCE),
+    "a blanket SVG exclusion is back — it takes the root with it and leaves painterOf's fill/stroke branches unreachable",
+  );
+  assert(/from: 'stroke'/.test(PROBE_SOURCE), "the painter must be able to report a stroke as the paint");
+});
+
 t("color(srgb …) components are 0-1 floats, not channels", () => {
   const c = parseColour("color(srgb 0.956863 0.956863 0.960784 / 0.88)");
   assert(c, "the srgb form must parse — getComputedStyle returns it for a token the sheet declares with a function");
