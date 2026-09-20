@@ -1245,3 +1245,98 @@ RUNNING LIST OF STATES THIS METHOD HAS ADDED:
     unset / the goal affordance  round 90  clean
     empty / the panel density    round 91  re-added after its prune expired; clean
     menu / the new-session popover round 92 clean, and a limit named (icons are not measured at all)
+
+### THE 46TH BACKTICK REACHED A COMMIT, AND IT TOOK FIVE CI JOBS WITH IT (round 93)
+
+Every previous one of these was caught by an emitter's own guard before the commit. This one was not, and the
+difference is worth writing down precisely, because the guard exists and works:
+
+    cd7aa961  fix(probe): an SVG element's className is not a string — ten findings named `svg ""`
+
+The commit explained its fix with an example inside the probe's template literal — `` `svg ""` `` — so the module
+stopped PARSING. Not the emitted script: the module itself, at import:
+
+    SyntaxError: Unexpected identifier 'svg'   (contrast-probe.mjs:206)
+
+Five of the ten CI jobs on the pushed commit went red — ui, panel (vitest), gateway, design and pack-chain — because
+each of them imports the probe, directly or through the shared judge. `RolldownError: Parse failure` in panel-react's
+pairContrast/themeContrast tests; `not ok 9 - test/gradient-text-contrast.test.mjs` in the UI job. The two Rust jobs
+stayed green, which is the shape that reads as "only the front end noticed".
+
+THE GUARD WAS ALREADY THERE. `scripts/hooks/pre-commit` refuses exactly this commit (exit 1, all three checks), and
+`contrast-probe-check.mjs` — wired into CI at ci.yml:437 — fails it too. Proven on HEAD's own blob rather than on a
+paraphrase of it: stash the fix, run either one, watch it fail; restore, watch 22 checks pass.
+
+WHAT WAS MISSING IS THAT NOTHING RUNS THE HOOK. `core.hooksPath` is global (`~/.config/git/hooks`, which holds the
+operator's `post-commit` and a free `pre-commit` slot), so `.git/hooks/` is ignored entirely and the only thing that
+invokes the guard is the loop remembering to. The loop's inbox has carried that symlink request since round 226 as a
+convenience — "the hook works, and the only thing standing between it and every commit is that a human-shaped loop has
+to remember to run it". This commit is that sentence's first receipt: the hook was not run, and the mistake landed.
+
+THE ROUND'S OWN FIX THEN REPEATED IT, which is the part that makes this a ledger entry rather than an anecdote: the
+comment written for the SVG rule contained an `<svg>` and an `svgRootPaints` in backticks, and the hook — run by hand
+this time, as the FIRST thing after the edit — refused it in under a second. 47th time, caught, because the guard was
+invoked. The lesson is not "be careful with backticks"; it is that a guard nobody runs is a guard that is not there,
+and the fix for that is one symlink the loop cannot make for itself.
+
+### AN SVG ROOT'S FILL IS NOT ALWAYS A COLOUR (round 94)
+
+Round 93 let the svg ROOT through the graphic loop on a true observation — the root is the element that knows an
+icon's colour (fill: none, stroke: currentColor) — and then read the root's OWN computed fill and stroke. An `<svg>`
+root draws nothing: fill and stroke are INHERITED properties, so a root whose shapes each declare their own paint
+contributes the initial value, rgb(0,0,0), and CI filed ten rows for it:
+
+    1.18 panel/Memory [dark] svg "" — painted rgb(0, 0, 0) (fill) on rgb(23, 24, 29), 22px graphic, needs 3
+    1.19 panel/Browser [dark] svg "" — painted rgb(0, 0, 0) (fill) on rgb(23, 24, 29), 20px graphic, needs 3
+
+The 20px one is the rail's BrandMark (shapes: url(#vale-sky), #fff8e1, #ffffff) and the 22px one the vitals dial
+(circles painting --chrome-line and the tone's state colour). Nothing paints black in either.
+
+MEASURED FIRST, ON THE DEVICE, on both idioms, with the bundled Playwright — the two lines that decide the rule:
+
+    Icon   root fill=none stroke=rgb(162,163,172)  -> the polyline and line compute EXACTLY that
+    brand  root fill=rgb(0,0,0)                    -> its rect/circle/path compute url(#sky), #fff8e1, #ffffff
+
+So a root's value counts only when a shape below it computes the same paint. `svgRootPaints` is a PURE function —
+which is the only reason the rule is testable at all, since the DOM loop around it is not — and it is embedded in the
+probe the same way the other helpers are, so the browser and the test run one implementation. Mutation: delete the
+`painted.has(...)` guard and the check fails with the brand mark's black; restored, 23 checks pass. The emitted
+artifact was checked too, not only the module.
+
+AND THE NOISE WAS NOT FREE. It failed the design job, and it pushed a REAL defect off the end of the report: the
+judge prints ten findings plus coverage, and the ten were all this. Which is the case for treating a false finding as
+a defect in the instrument — it does not merely annoy, it occupies the space where the true one would have been.
+
+What the rule still does not measure, unchanged and stated where it bites: a shape that declares its OWN paint (the
+sparkline's paths, the brand mark's discs) produces no row, because the root's value is not its colour.
+
+### THE ACTIVE TAB'S OWN CONTROLS WERE 1.99:1 (round 94)
+
+The row the false findings were hiding, from the same CI run, in the hover pass:
+
+    svg "" 1.99<3 painted rgb(162,163,172) (stroke) on rgb(198,67,16), 12px graphic
+
+rgb(198,67,16) is `rgba(217,72,15,0.9)` over `--chrome-bg` #17181d — an ACTIVE TAB. `.tab-export` and `.tab-close`
+rest at `--chrome-ink-dim`, a CHROME ink, and the active tab is not chrome. It is also the one tab that shows both
+controls WITHOUT a hover (`visibility: visible`), so the defect is on screen whenever the tab is.
+
+Every ink that rule reaches fails there in one theme or the other — `--chrome-ink-dim` 1.99 dark, `--chrome-active-ink`
+1.10 light (it is #bf3a0a there, and it measures 4.12 on the CHROME, which is where it was chosen), `--danger-on-soft`
+2.16 dark — so it is one rule, not three point fixes.
+
+THE TWIN RULE ALREADY DID IT RIGHT, which is how the fix was chosen rather than invented: the desktop density's
+`button.dtab-close` inherits its tab's colour and `.dtab.active` sets `--chrome-active-text`. Both panel controls take
+that token now — 4.99 dark, 4.90 light — measured as rendered on the device:
+
+    dark   .tab.active .tab-export svg  stroke rgb(255,255,255) on rgba(217,72,15,0.9)   (was rgb(162,163,172))
+    light  .tab.active .tab-export svg  stroke rgb(156,58,10)   on rgb(255,239,229)
+
+The ✕ keeps its SHAPE, the mark language's first channel, and the danger hue returns the moment the tab is not the
+active one. The test reads the RULE out of the BUILT sheet — selector, declared colour, and the surface composited the
+way the probe composites it — so repointing it at another surface, renaming its ink, or deleting it fails. Mutation
+verified: put `--chrome-ink-dim` back, rebuild, and it fails with CI's own number, "1.99 on the active tab's fill".
+
+THE WHOLE PANEL SWEEP, RE-RUN ON THE DEVICE against the same harness: 106 surfaces, 5038 rows, 24 findings — every one
+of them `span.approval-grant` or `span.nm-ico`, both already waived with reasons — and ZERO under AA in the hover pass
+of all four density/theme combinations. The ten false rows are gone and no new SVG row took their place: the icons'
+inherited strokes all clear 3:1, which is the thing round 93 was trying to find out.

@@ -66,7 +66,7 @@ assumed:
 | `scripts/test/publish-release.bash` | disable the stale-exe refusal | exit 1 — **after round 67 ADDED the case that does it** |
 | `scripts/test/build-pins.bash` | bump rust-toolchain's channel alone | exit 1, names the workflow literal |
 | `scripts/test/script-syntax.bash` | append an orphan `fi` to a shell script | exit 1, with file and line |
-| `scripts/test/contrast-probe-check.mjs` | remove the probe's hex handling | exit 1, "both spellings must parse" |
+| `scripts/test/contrast-probe-check.mjs` | remove the probe's hex handling, or delete `svgRootPaints`'s `painted.has(...)` guard | exit 1 both ways: "both spellings must parse"; and the brand mark's `rgb(0,0,0)` — the INHERITED default on an SVG root whose shapes each declare their own paint — is reported as its colour again. Those rows were TEN of a red design job in round 94, and they pushed the one real defect in that run off the end of the report |
 | `scripts/test/e2e-only-check.mjs` | make the zero-selection guard exit 0 | exit 1, "reported success having run nothing" |
 | `scripts/test/scan-dups-check.py` | stop recognising `*_test.rs` files | exit 1, names the file |
 | `scripts/test/model-drift-check.mjs` | remove the normaliser's bracket-suffix strip | exit 1, prints the un-normalised id |
@@ -104,9 +104,16 @@ learned something new adds a section THERE, not here.
 
 **A pre-commit hook runs the emitters** (`scripts/hooks/pre-commit`, round 225). Five scripts build a
 standalone script for the device inside a template literal, and a backtick anywhere inside that literal ends it
-early — the emitted file then stops parsing in the middle of 30 KB. That has happened **34 times**, and in the
-last six the failing check was already on screen: `emit=1`, and the commit made anyway. The hook runs the
-emitters' OWN guards, so it cannot disagree with what it guards.
+early — the emitted file then stops parsing in the middle of 30 KB. That has happened **47 times**, and in the
+last six of the first 34 the failing check was already on screen: `emit=1`, and the commit made anyway. The hook
+runs the emitters' OWN guards, so it cannot disagree with what it guards.
+
+**AND IT IS STILL NOT INSTALLED, WHICH HAS NOW COST A PUSH.** Round 93's commit carried a backtick in a comment,
+the probe module stopped PARSING, and five of the ten CI jobs went red (ui, panel, gateway, design, pack-chain —
+everything that imports it). The hook refuses that commit in under a second, and so does
+`contrast-probe-check.mjs`, which CI runs at `ci.yml:437` — but nothing runs the hook unless the loop does it by
+hand, because `core.hooksPath` is global. RUN IT BY HAND BEFORE EVERY COMMIT until the symlink below exists; the
+story is in the ledger under "THE 46TH BACKTICK REACHED A COMMIT".
 
 TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
 
