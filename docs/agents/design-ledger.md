@@ -1628,3 +1628,52 @@ them a distinct sentence the instrument had been dropping.
 The gate: `harness-fixture-check` asserts the stub carries `ok: true`, with the mutation that strips it, because the
 failure mode of THIS fixture is not an empty card — it is the panel asserting something false about a device that
 answered.
+
+### TWO ROUNDS OF FINDING THE SAME DEFECT BY HAND, AND THE CLAUSE THAT ENDS THAT (round 100)
+
+Rounds 99 and 100 both found the same shape by hand: the panel saying **"the device did not answer"** about a device
+that answered, because a harness stub omitted the `ok` envelope its reader requires — the restart history, then the
+monitors. Two rounds, two endpoints, no gate, because a sentence is not a contrast ratio and every instrument in this
+suite was reading numbers.
+
+**THE ENVELOPE IS STRUCTURAL NOW.** `J()` — the harness's only JSON responder — merges `ok: true` into every object
+body that does not bring its own. The rule had been written in that file since round 110 ("EVERY FIXTURE BELOW NEEDS
+ok:true … the omission has cost three rounds") and the fourth still happened, because a note is not a mechanism. A
+reader that requires `ok` gets it; a reader that ignores it is unaffected; a stub that MEANS to express a failure
+passes `ok: false` and is left alone.
+
+**AND THE CLAIM ITSELF IS JUDGED.** The surface probe collects read-failure claims — "could not be read", "did not
+answer, so", "unavailable — reconnecting" — and the judge fails any surface that makes one WHILE THE FIXTURE ANSWERED
+EVERY CALL. The excuse is the fixture's own answer, not a list in the judge: `report.sse.fail` marks the `?fail=1`
+pages, where the claim is true, and those are printed with their reason.
+
+IT FIRED ON ITS FIRST RUN, ON 22 SURFACES:
+
+    "The device did not answer, so its logs could not be read."
+
+The DeviceLogsCard, on every Settings page since it existed. `/api/logs` was stubbed by NOTHING: the device serves it
+(`api_logs`), the card reads it, and the harness had never answered it — so the card drew its failure branch on every
+sweep ever run, and its real content (the update VERDICT from `updateDiagnosis`'s four-way table, the receipt, the
+directory, one row per file with an ABSENT file named as absent) had been measured by nothing. THE FOURTH CARD IN THIS
+FAMILY: update, monitors, restarts, logs.
+
+RENDERING IT FOUND A REAL DEFECT, which is the whole argument for the exercise:
+
+    p.device-logs-verdict-ok   3.33:1   rgb(47,158,68) on rgb(252,251,250)   13px text, AA wants 4.5
+
+`--state-ok` is a MARK colour, and `tokens.css` already names the readable weight for text — "--success-text: Status
+ink for SMALL TEXT … --success is tuned for marks (dots, borders, bars); as 11px text they measure 4.27/3.45 in light
+and 3.63/5.34 in dark". The card used the wrong half of the vocabulary. After the fix:
+
+    ok    5.22 light / 9.89 dark        warn   7.27 light / 7.46 dark        need 4.5
+
+AND THE SECOND TONE HAS A SURFACE, because one payload can only render one verdict: `?logs=warn` carries a receipt
+with NO start line (the CLI reached the device and the swap never launched — the state an operator investigating a
+stalled update actually sees), and the sweep grew `LogsWarn-{light,dark}`.
+
+    112 surfaces, 5,916 rows, judged clean. Read-failure claims on non-failing surfaces: ZERO.
+
+A NOTE ON THE INSTRUMENT, since the claim clause is new and a clause that cannot see a defect is worse than none:
+the axis is planted in `panel-design-sweep.bash` as `false-claim`, and the OTHER direction is planted beside it — the
+same sentence on a `?fail=1` surface must PASS and must print its reason, because a judge that fails everything is as
+useless as one that fails nothing.
