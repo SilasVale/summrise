@@ -1116,3 +1116,37 @@ which was declared BELOW them — a const in the temporal dead zone. `node --che
 was green, and the browser threw "Cannot access 'rgbStr' before initialization". The probe is a SCRIPT THAT RUNS IN A
 BROWSER; the gates around it check its SHAPE, not its execution. The file's own round-46 note records the same class
 from the other end.
+
+### THE HELD SESSION'S FIRST PHOTOGRAPH, AND THE SECOND STATE IN TWO ROUNDS WITH NO TEST (round 89)
+
+Round 88's lesson was that a state no surface renders is a state no surface measures; round 89 went looking for the
+next one and found it in a wire fact the panel is most careful about. `held_by_human` is SERVER-OWNED — SessionControl
+reads it off the session record and will not flip its button before the server agrees, "because another client taking
+the session shows up here too" — and EVERY seed this harness has ever built set it false. So:
+
+    .sc-dot[data-state="human"]   a solid fill        NEVER RENDERED
+    .sc-dot[data-state="ai"]      an inset ring       rendered on every page
+    #session-control.held         the button variant  NEVER RENDERED
+
+`?held=1` holds the FIRST session and leaves the rest, so both states of the family are on one page — the marks probe
+compares states WITHIN a family and can only see a collision between two that are both on screen.
+
+WHAT THE FIRST PHOTOGRAPH FOUND:
+
+    panel/Held-dark [dark] span.sc-dot — painted rgb(191,58,10) (background) on rgb(61,40,23), 7px graphic, needs 3
+
+The dot that says a PERSON holds this session's keyboard sits on the held button, whose background is `--accent-soft`,
+and it named `--accent` — the accent for a SOLID BUTTON — which measures **2.53** there in dark. The token whose own
+comment names this exact job is `--accent-ink`: "the accent for CHROME — icons, DOTS, borders — and it is too light to
+read as small text: measured against its own soft background it gives 3.83 in light and 3.23 in dark". Both clear the
+graphic bar. The vocabulary was already written down; the dot was using the wrong half of it.
+
+AND IT HAD NO TEST, for the same reason the sweep had never seen it: this mark does not route through `--mark-ink`, so
+the panel's contrast contract — which walks the SOURCES of that channel — could not see it either. The contract has a
+case now: the held dot's ink against `--accent-soft` in both themes.
+
+THE MUTATION LESSON, AGAIN, AND THIS TIME IT COST THREE CALLS: my first attempt to prove that case bites replaced the
+first occurrence of the rule's text in the file, which was a DIFFERENT rule — the sheet kept `--accent-ink`, the build
+was green, and the test passed for the right reason while I read it as a hole in the test. Aimed at the actual line, it
+fails. A mutation that does not bite is evidence about the MUTATION first; the ledger has said so since round 44 and it
+has now been right five times.
