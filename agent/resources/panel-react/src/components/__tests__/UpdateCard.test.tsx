@@ -12,7 +12,7 @@
 //     the agent dies mid-update), and the panel says what it is now running.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { UpdateCard, parseUpdateStatus, type UpdateStatus, checkedAge, parseAttempt } from "../UpdateCard";
+import { UpdateCard, parseUpdateStatus, type UpdateStatus, checkedAge, parseAttempt, attemptAge } from "../UpdateCard";
 import { callApi } from "../../lib/api";
 
 vi.mock("../../lib/api", async (importOriginal) => ({
@@ -78,6 +78,17 @@ it("a device that never checked says NOTHING rather than an age", () => {
   expect(checkedAge(1_700_000_000_000, 1_700_000_040_000)).toBe("checked 40s ago");
   expect(checkedAge(1_700_000_000_000, 1_700_000_600_000)).toBe("checked 10m ago");
   expect(checkedAge(1_700_000_000_000, 1_700_010_000_000)).toBe("checked 3h ago");
+});
+
+it("the age of an ACT reads as an age, not as a reading", () => {
+  // Two formatters on purpose: `checkedAge` is the age of a READING ("checked 2m ago") and `attemptAge` the age of
+  // an ACT ("10m ago"), because the sentence around the second already says what happened and repeating the reading
+  // verb there would describe the wrong event. A record with no usable time must still produce a sentence.
+  expect(attemptAge(1_700_000_000_000, 1_700_000_040_000)).toBe("40s ago");
+  expect(attemptAge(1_700_000_000_000, 1_700_000_600_000)).toBe("10m ago");
+  expect(attemptAge(1_700_000_000_000, 1_700_010_000_000)).toBe("3h ago");
+  expect(attemptAge(null, Date.now())).toBe("at an unknown time");
+  expect(attemptAge(0, Date.now())).toBe("at an unknown time");
 });
 
 it("states the last update the DEVICE launched, from its own record", () => {
