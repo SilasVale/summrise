@@ -248,7 +248,16 @@ export const PROBE_SOURCE = `(() => {
     // x6"): a finding that cannot be located is a finding that gets ignored. getAttribute works on both.
     // (No backticks: this source is embedded in an emitted template literal.)
     const cls = typeof el.className === 'string' ? el.className : (el.getAttribute ? el.getAttribute('class') || '' : '');
-    const key = cls + '|' + (el.textContent || '').slice(0, 16);
+    // THE DEDUPE KEY CARRIES THE LENGTH TOO (round 99). It was class + the first 16 characters of the text, which
+    // collapses the same label repeated across rows — the reason it exists — and ALSO collapsed two DIFFERENT
+    // paragraphs that happen to open alike: the Settings page's restart card says "The device did not answer, so its
+    // restart history could not be read" and the vitals card says "The device did not answer, so its vitals could not
+    // be read". Same class, same first sixteen characters, so the second was dropped from the report — and the row
+    // that would have exposed a FALSE CLAIM about the device was the row the instrument hid. Two paragraphs that
+    // agree on sixteen characters and on their total length are the same paragraph; anything less is a measurement
+    // this probe does not get to make for the reader.
+    const text = (el.textContent || '').trim();
+    const key = cls + '|' + text.slice(0, 16) + '|' + text.length;
     if (seen.has(key)) continue; seen.add(key);
     // WCAG 1.4.3 EXEMPTS INACTIVE CONTROLS. A disabled button at opacity 0.45
     // composites to a real 2.1:1 reading — a truthful measurement of a control
