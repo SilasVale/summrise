@@ -38,7 +38,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 // WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
@@ -111,6 +111,10 @@ const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
+// AND THE HELPER pressPass CALLS: it asks the DOM for the page's controls. A borrowed helper that calls another
+// one needs that one embedded too, or the run dies on the device with "is not defined" — the failure the emitted
+// check below exists for.
+const discoverPressTargets = ${discoverPressTargets.toString()};
 const idlePass = ${idlePass.toString()};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const THEME = ${JSON.stringify(THEME_SOURCE)};
@@ -519,7 +523,9 @@ function judge(file) {
 }
 
 if (mode === "--emit") {
-  process.stdout.write(browserScript());
+  const out = browserScript();
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets"]);
+  process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];
   if (!file) {

@@ -499,17 +499,118 @@ export function pressDelta(hovered, pressed) {
   return KEYS.filter((k) => hovered[k] !== pressed[k]);
 }
 
+/** THE EMITTER MUST DEFINE WHAT IT BORROWS (round 103).
+ *
+ * Each sweep borrows its helpers by name (`const pressPass = ${pressPass.toString()};`), and a borrowed helper that
+ * calls another one needs THAT one embedded too. When that was missed the emitted file PARSED — it throws when the
+ * function is reached — so every local gate passed (they read the artifact's text or judge a planted report; none of
+ * them RUNS it) and CI died two minutes into the design job. Each emitter calls this before printing.
+ */
+export function assertEmbedded(out, names) {
+  const missing = names.filter((n) => !out.includes("function " + n));
+  if (missing.length) {
+    throw new Error(
+      "the emitted sweep CALLS " +
+        missing.join(", ") +
+        " but does not define " +
+        (missing.length === 1 ? "it" : "them") +
+        " — the run would die on the device with 'is not defined'",
+    );
+  }
+}
+
+/** EVERY CONTROL ON THE PAGE, deduped by class+size — for the surfaces where no curated list applies.
+ *
+ *  WHY IT EXISTS (round 15 of the standing goal). The press targets are a CURATED list, which means a control nobody
+ *  thought of is never pressed: `.device-logs-toggle` — a button that opens a log file's tail — had `cursor: pointer`
+ *  and NO hover and NO press at all, and no gate could see it (`feedback-check` demands a press only where a HOVER
+ *  exists, and the rendered pass had never visited that card). This asks the DOM instead of a list: every visible
+ *  `button`, link and `[role=button|tab]`, deduped so fifty identical rows cost one press, capped so a busy page
+ *  cannot turn a surface into a minute of clicking. The COUNT is returned, because the judge's floor has to know what
+ *  the page HAD before it can say a pass proved nothing. */
+export async function discoverPressTargets(page, cap, skip) {
+  return page.evaluate(
+    ({ cap, skip }) => {
+      const out = [];
+      const seen = new Set();
+      for (const el of document.querySelectorAll(
+        'button:not([disabled]), a[href], [role="button"], [role="tab"]',
+      )) {
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        if (st.pointerEvents === "none") continue;
+        if (skip.some((s) => el.matches(s))) continue;
+        const cls =
+          typeof el.className === "string" && el.className.trim()
+            ? "." + el.className.trim().split(/\s+/)[0]
+            : "";
+        const key =
+          el.tagName.toLowerCase() + cls + "|" + Math.round(r.width) + "x" + Math.round(r.height);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(el.tagName.toLowerCase() + cls);
+      }
+      return { found: out.length, targets: out.slice(0, cap) };
+    },
+    { cap, skip },
+  );
+}
+
+/**
+ * A CONTROL THE PASS NEVER TOUCHED IS NOT A CONTROL THAT FAILED TO ANSWER.
+ *
+ * The pass takes the element's rect AS IT FINDS IT. For `.device-logs-toggle` that rect was y=1582 in an 860px
+ * viewport, so the mouse moved to a coordinate outside the page, nothing was hovered, nothing was pressed, and the
+ * first measurement read "press adds nothing" — a finding against a button that answers perfectly. Two corrections,
+ * both about what an instrument is allowed to do:
+ *
+ *   * SCROLL ONLY IF THE ELEMENT IS NOT ALREADY FULLY VISIBLE, and then by the MINIMUM amount. An instrument may
+ *     move the page to REACH a control; it may not rearrange the page it is measuring (centring every element
+ *     unconditionally scrolled a panel out from under its own rail buttons).
+ *   * PRESS THE VISIBLE PART, and say whether the pointer ARRIVED. The rect is clamped to the viewport, the point is
+ *     hit-tested with `document.elementFromPoint`, and the row carries `reached`. The pass still PRESSES — a row is
+ *     never dropped, because a pass that presses nothing proves nothing — and the JUDGE is where `reached: false`
+ *     changes a verdict.
+ */
 export async function pressPass(page, targets, label = {}) {
   const rows = [];
+  // THE DISCOVERED SET IS OPT-IN: a page of fifty archive rows must not cost fifty presses. The curated list stays
+  // for the surfaces it was written for, and `discover` adds what the DOM knows that the list does not.
+  let found = null;
+  if (label.discover) {
+    // THE CHROME IS ALREADY MEASURED, AND THE CAP IS SMALL. The rail walk presses the CONTENT controls of a page —
+    // the mode passes already own the rail buttons, the session tabs and the side rows — so those are skipped here.
+    // Without the skip the cap is spent on the rail itself: the Settings page renders seventeen distinct controls
+    // and the first five were all rail buttons, which is how `.device-logs-toggle` stayed unpressed even after the
+    // discovery existed. The skip list is the caller's (`label.skip`), because only the caller knows which controls
+    // another pass already reaches.
+    const skip = [...targets.filter((t) => !t.includes(",")), ...(label.skip || [])];
+    const d = await discoverPressTargets(page, label.discover, skip);
+    found = d.found;
+    targets = [...targets.filter((t) => !t.includes(",")), ...d.targets];
+    // A PAGE WITH NO CONTENT CONTROLS IS A FACT, NOT AN EMPTY SET. Without a row to carry it, `found` never reaches
+    // the report, the judge falls back to its curated floor of two, and the harness's Browser page — an explanation
+    // with nothing but the rail — is reported as a vacuous pass. It says what it is instead.
+    if (targets.length === 0) {
+      rows.push({
+        sel: "(none)",
+        note: "this page renders no controls outside the chrome another pass already presses",
+        found,
+      });
+    }
+  }
   const styleOf = (sel) => page.evaluate((s) => {
     for (const el of document.querySelectorAll(s)) {
       const r = el.getBoundingClientRect();
       const st = getComputedStyle(el);
       if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
       const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : "";
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return {
         where: el.tagName.toLowerCase() + cls + (el.id ? "#" + el.id : ""),
         transform: st.transform, opacity: st.opacity, background: st.backgroundColor, filter: st.filter,
+        hit: !!(top && (top === el || el.contains(top) || top.contains(el))),
       };
     }
     return null;
@@ -517,14 +618,33 @@ export async function pressPass(page, targets, label = {}) {
   for (const sel of targets) {
     const box = await page.evaluate((s) => {
       for (const el of document.querySelectorAll(s)) {
+        const before = el.getBoundingClientRect();
+        const movedPage =
+          before.top < 0 || before.bottom > innerHeight || before.left < 0 || before.right > innerWidth;
+        if (movedPage) el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
+        const left = Math.max(r.left, 0), right = Math.min(r.right, innerWidth);
+        const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
+        if (right - left < 4 || bottom - top < 4) {
+          return { offscreen: true, top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: innerHeight, w: Math.round(r.width), h: Math.round(r.height) };
+        }
+        const cx = (left + right) / 2, cy = (top + bottom) / 2;
+        const at = document.elementFromPoint(cx, cy);
+        const reaches = !!(at && (at === el || el.contains(at) || at.contains(el)));
+        return {
+          x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), movedPage, reaches,
+          covered: reaches ? null : at ? at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.trim().split(/\s+/)[0] : "") : "nothing",
+        };
       }
       return null;
     }, sel);
     if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
+    if (box.offscreen) {
+      rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
+      continue;
+    }
     // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the
     // baseline is taken, or a mid-transition value would be compared against a settled one and a control that only
     // answers a hover would read as answering a press again. These sheets transition in 120-200ms, so 260ms is the
@@ -541,7 +661,19 @@ export async function pressPass(page, targets, label = {}) {
     await page.mouse.up();
     await page.waitForTimeout(60);
     const props = pressDelta(hovered, pressed);
-    rows.push({ sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h, changed: props.length > 0, props, hovered, pressed, ...label });
+    // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED — but the row IS still a measurement, and the JUDGE
+    // is where `reached` changes the verdict. The pass presses what it was asked to press.
+    const reached = !(box.movedPage && hovered && hovered.hit === false);
+    rows.push({
+      sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
+      // WHAT THE PAGE HAD, on every row of a discovered pass: the harness's Browser page renders an EXPLANATION with
+      // exactly one control in a plain browser (round 45), and "measured 1" there is a COMPLETE pass, not a vacuous
+      // one. The judge sizes its floor to this instead of to a constant.
+      found,
+      changed: props.length > 0, props, hovered, pressed, reached,
+      ...(reached ? {} : { note: "the pointer never reached this control — " + box.covered + " is drawn over the point that was pressed — so this row is NOT evidence that it ignores a press" }),
+      ...label,
+    });
   }
   return rows;
 }
@@ -932,13 +1064,26 @@ export function judgeReport(report, opts = {}) {
   // computed style before and during. `feedback-check.mjs` proves the RULE exists; only this can see whether it
   // reaches the screen.
   for (const row of report.press || []) {
-    const where = `${row.density || "?"}/${row.theme || "?"}`;
-    const dead = (row.rows || []).filter((r) => r.changed === false);
+    // THE LABEL NAMES THE ITERATION, not just the surface: density/theme alone made a finding from the rail walk
+    // indistinguishable from one from the mode loop, and both run on every density of this suite.
+    const where = `${row.density || "?"}/${row.theme || "?"}${row.mode ? " " + row.mode : ""}${row.page ? " " + row.page : ""}`;
+    // AND ONLY WHERE THE POINTER ARRIVED: a row the pass could not deliver a press to is not a control that ignored
+    // one — the distinction that matters when an element sits below the fold.
+    const dead = (row.rows || []).filter((r) => r.changed === false && r.reached !== false);
     for (const d of dead) findings.push(`${where}: ${d.sel} (${d.where}) renders NOTHING when pressed — before and during are identical (${d.size})`);
-    // A PASS THAT PRESSED NOTHING IS NOT A CLEAN PASS. Targets are per surface, and a page that renders none of them
-    // would otherwise report zero dead presses forever.
-    if ((row.measured || 0) < 2) {
-      findings.push(`${where}: the press pass measured ${row.measured || 0} control(s) — a press pass that pressed nothing proves nothing`);
+    for (const r of row.rows || []) {
+      if (r.note && !/not rendered/.test(r.note)) console.log(`note: ${where} ${r.sel} — ${r.note}`);
+    }
+    // A PASS THAT PRESSED NOTHING IS NOT A CLEAN PASS — AND THE FLOOR IS WHAT THE PAGE HAS, not a constant. A curated
+    // list expects a surface to render several of its selectors, so two is the bar. A DISCOVERED pass reports how
+    // many controls the page had, and ONE control pressed is a complete pass on a page that has one: the harness's
+    // Browser page is an explanation with a single control (round 45), and a floor of two called that vacuous.
+    const floor = row.found == null ? 2 : Math.min(2, row.found);
+    if (row.found != null && row.found > (row.rows || []).length) {
+      console.log(`note: ${where} has ${row.found} control(s) and the pass pressed the first ${(row.rows || []).length} (cap) — the rest were not measured`);
+    }
+    if ((row.measured || 0) < floor) {
+      findings.push(`${where}: the press pass measured ${row.measured || 0} control(s)${row.found == null ? "" : ` of the ${row.found} this page renders`} — a press pass that pressed nothing proves nothing`);
     }
   }
   // A SURFACE MAY NOT CLAIM A READ FAILED WHEN THE FIXTURE ANSWERED EVERY CALL (round 100).

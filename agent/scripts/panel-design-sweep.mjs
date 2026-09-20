@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -234,6 +234,11 @@ ${DIAG_SOURCE}
 const focusPass = ${focusPass.toString()};
 const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
+// AND EVERY HELPER THAT FUNCTION CALLS. pressPass asks the DOM for the page's controls, and a version of this
+// shipped WITHOUT this line: the emitted sweep called discoverPressTargets, the definition was not in the file, and
+// the run died with "FATAL discoverPressTargets is not defined" — in CI, because no local gate RUNS the artifact
+// (they plant defects in a report and judge it). The emitter checks its own output for exactly this now.
+const discoverPressTargets = ${discoverPressTargets.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -519,6 +524,28 @@ ${TIMING}
         report.themeChecks.push({ page: name, intended: theme, ...themeRead });
         report.surfaces.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
         report.names.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
+        // AND THE CONTROLS THIS PAGE HAS, WHICH NO LIST NAMED (round 15). The press pass ran on the Terminal surfaces
+        // against a CURATED list, so a control on any other page had never been pressed: .device-logs-toggle — the
+        // button that opens a log file's tail — had cursor:pointer and NO hover and NO press, and feedback-check
+        // cannot see that shape (it demands a press only where a HOVER exists). The DOM is asked instead, deduped by
+        // class+size and CAPPED, and the count travels into the report so the judge sizes its floor to THIS page:
+        // the Browser page renders an explanation with one control, and one pressed is a complete pass there.
+        if (wants("press")) {
+          const pressed = await pressPass(page, [], {
+            density, theme: pageTheme, mode: 'rail', page: name, discover: 16,
+            // WHAT ANOTHER PASS ALREADY PRESSES: the mode passes own the rail buttons, the session tabs and the side
+            // rows. Skipping them here is what lets the cap reach the page's OWN controls — the log toggles, the
+            // archive rows, the view switches — which is the whole reason this pass exists.
+            skip: ['.rail-btn', '.desktop-rail-btn', '.tab', '.dtab', '.side-row', '.side-add'],
+          });
+          report.press = report.press || [];
+          report.press.push({
+            density, theme: pageTheme, mode: 'rail', page: name,
+            found: pressed.find((r) => r.found != null)?.found ?? null,
+            measured: pressed.filter((r) => !r.note && r.changed).length,
+            rows: pressed,
+          });
+        }
       }
       // THE COVERAGE IS WHAT CHANGED, not what was clicked: six pages is the fact, and a report that says fewer
       // means the rail stopped navigating rather than that the pages are clean.
@@ -1245,17 +1272,10 @@ function judge(file) {
 
 if (mode === "--emit") {
   const out = browserScript();
-  // A HELPER THAT IS CALLED BUT NOT EMBEDDED IS A RUN THAT DIES ON THE DEVICE (round 103). The emitter borrows each
-  // helper by name (`${name}.toString()`), and the emitted file PARSES even when one is missing — it throws when the
-  // function is reached. Every local gate reads the emitted TEXT or judges a planted report; none of them RUNS it, so
-  // a missing definition reached CI: "FATAL discoverPressTargets is not defined", two minutes into the design job.
-  // The emitter is the only thing that knows what it borrowed, so it names it here.
-  const EMBEDDED = ["focusPass", "pressDelta", "pressPass", "idlePass", "motionPass"];
-  const missing = EMBEDDED.filter((n) => !out.includes("function " + n));
-  if (missing.length) {
-    console.error("FATAL the emitted sweep CALLS " + missing.join(", ") + " but does not define " + (missing.length === 1 ? "it" : "them") + " — the run would die on the device with 'is not defined'");
-    process.exit(1);
-  }
+  // THE EMITTER NAMES WHAT IT BORROWS, and a borrowed helper that CALLS another one needs that one embedded too:
+  // missing it, the emitted file still parses (it throws when reached), every local gate passes because they read
+  // the artifact's text, and CI finds out. The shared assertion is in lib/design-sweep.mjs.
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "idlePass", "motionPass"]);
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];

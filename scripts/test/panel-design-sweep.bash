@@ -398,6 +398,65 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted dec
   fi
 done
 
+# A DEAD PRESS IS ONLY A FINDING WHEN THE POINTER ARRIVED (round 15), and the floor is sized to the PAGE.
+# `.device-logs-toggle` was accused of ignoring a press it answers because the pass pressed a coordinate outside the
+# viewport; and the harness's Browser page renders an explanation with ONE control, so "measured 1" there is a
+# complete pass while "measured 1 of 4" is not. Both directions planted, because a clause that excuses everything is
+# as useless as one that accuses everything.
+python3 - "$TMP/clean.json" "$TMP/press-blind.json" "$TMP/press-dead.json" "$TMP/press-one-of-one.json" "$TMP/press-one-of-four.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+def press(found, rows):
+    r = dict(base); r["press"] = [{"density": "panel", "theme": "light", "mode": "rail", "page": "panel-Browser",
+                                   "found": found, "measured": len([x for x in rows if x.get("changed") and not x.get("note")]),
+                                   "rows": rows}]
+    return r
+ok_row = {"sel": ".rail-btn", "where": "button.rail-btn", "size": "38x38", "changed": True, "props": ["transform"], "reached": True}
+# TWO controls answered, so the FLOOR is satisfied and the only question left is the third row: a press the pointer
+# never delivered must not be reported as a control that ignored one.
+blind = press(4, [ok_row, dict(ok_row),
+                  {"sel": ".btn", "where": "button.btn", "size": "54x26", "changed": False, "props": [],
+                   "reached": False, "note": "the pointer never reached this control — .toast is drawn over the point that was pressed"}])
+json.dump(blind, open(sys.argv[2], "w"))
+dead = json.loads(json.dumps(blind))
+dead["press"][0]["rows"][2].pop("reached")
+dead["press"][0]["rows"][2].pop("note")
+json.dump(dead, open(sys.argv[3], "w"))
+one_of_one = press(1, [{"sel": ".rail-btn", "where": "button.rail-btn", "size": "38x38", "changed": True, "props": ["transform"], "reached": True}])
+json.dump(one_of_one, open(sys.argv[4], "w"))
+one_of_four = press(4, [{"sel": ".rail-btn", "where": "button.rail-btn", "size": "38x38", "changed": True, "props": ["transform"], "reached": True}])
+json.dump(one_of_four, open(sys.argv[5], "w"))
+PY
+if node "$TOOL" --judge "$TMP/press-blind.json" > "$TMP/press-blind.out" 2>&1; then
+  ok "a press row the pointer never reached is NOT reported as a control that ignores a press"
+else
+  bad "the judge accused a control from a press the pointer never delivered: $(grep -m1 'renders NOTHING' "$TMP/press-blind.out")"
+fi
+if node "$TOOL" --judge "$TMP/press-dead.json" > /dev/null 2>&1; then
+  bad "the judge passed a dead press with no evidence about whether the pointer arrived"
+else
+  ok "and the same row WITHOUT that evidence is still a finding"
+fi
+if node "$TOOL" --judge "$TMP/press-one-of-one.json" > "$TMP/press-one-of-one.out" 2>&1; then
+  ok "a discovered pass that pressed the ONLY control a page has is a complete pass"
+else
+  bad "the floor called a one-control page vacuous: $(grep -m1 'measured' "$TMP/press-one-of-one.out")"
+fi
+if node "$TOOL" --judge "$TMP/press-one-of-four.json" > /dev/null 2>&1; then
+  bad "the judge passed a pass that pressed 1 of the 4 controls a page renders"
+else
+  ok "and a page with four controls still has to have more than one pressed"
+fi
+# AND THE EMITTERS KEEP THEIR GUARD: every borrowed helper must be defined in what they print, or the run dies on
+# the device with "is not defined" while every local gate (which reads text) passes.
+for f in panel console landing; do
+  if grep -q "assertEmbedded(out" "agent/scripts/$f-design-sweep.mjs"; then
+    ok "the $f emitter asserts that what it borrows is defined"
+  else
+    bad "the $f emitter prints its script without checking that the helpers it calls are defined"
+  fi
+done
+
 # AND THE CLAIM A FIXTURE MEANS: the same sentence on a surface whose run REJECTED every call (?fail=1) is TRUE,
 # and the judge must excuse it from the fixture's own answer rather than from a list inside the judge.
 python3 - "$TMP/clean.json" "$TMP/claim-excused.json" <<'PY'

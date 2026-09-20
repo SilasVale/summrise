@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -77,6 +77,10 @@ const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
+// AND THE HELPER pressPass CALLS: it asks the DOM for the page's controls. A borrowed helper that calls another
+// one needs that one embedded too, or the run dies on the device with "is not defined" — the failure the emitted
+// check below exists for.
+const discoverPressTargets = ${discoverPressTargets.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${pageChecks("body")}
@@ -209,7 +213,9 @@ function judge(file) {
 if (mode === "--emit") {
   const labels = render();
   console.error(`landing: rendered ${labels.join(", ")} into ${OUT}`);
-  process.stdout.write(browserScript());
+  const out = browserScript();
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets"]);
+  process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];
   if (!file) {

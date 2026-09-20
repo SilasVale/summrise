@@ -99,6 +99,33 @@ try {
       assert.ok(hover < down, `${name}: the baseline is read AFTER the press (hovered@${hover}, down@${down})`);
       assert.ok(call > down, `${name}: the verdict is not pressDelta(hovered, pressed) — the baseline is not the hover`);
       assert.ok(src.includes("function pressDelta"), `${name}: pressDelta is not embedded, so the browser runs a different rule`);
+
+      // AND IT MAY NOT ACCUSE FROM A BLIND SPOT (round 15). The pass takes the element's rect as it finds it: for
+      // `.device-logs-toggle` that was y=1582 in an 860px viewport, so the pointer moved to a coordinate outside the
+      // page, nothing hovered, nothing pressed, and the row read "press adds nothing" — a finding against a button
+      // that answers. Four rules, pinned here because each is a way this instrument lied:
+      assert.ok(src.includes('el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" })'), `${name}: the element is not scrolled into view — a control below the fold will be "pressed" at a coordinate outside the page`);
+      // The condition is wrapped across lines in the source, so the assertion names its parts rather than one
+      // formatted string: a check that goes stale on a reflow is a check that gets deleted instead of fixed.
+      assert.ok(
+        src.includes("const movedPage =") && src.includes("before.bottom > innerHeight"),
+        `${name}: every element is scrolled unconditionally — an instrument may move the page to REACH a control, it may not rearrange the page it is measuring`,
+      );
+      assert.ok(src.includes("Math.min(r.right, innerWidth)"), `${name}: the rect is not clamped to the viewport, so a half-visible control is refused or pressed off-page`);
+      assert.ok(src.includes("document.elementFromPoint"), `${name}: the hit test is gone — a covered element and a still element would read the same`);
+      assert.ok(src.includes("the pointer never reached this control"), `${name}: a press the pointer never delivered is reported as an answer (or as its absence) instead of as a note`);
+      // (The judge half — `r.reached !== false` gating the dead-control verdict — lives in `judgeReport`, which is
+      // NOT part of the emitted sweep, so it is planted at the judge: `panel-design-sweep.bash`.)
+      // THE PASS PRESSES WHAT IT WAS ASKED TO PRESS: rows are annotated, never dropped, because a pass that presses
+      // nothing proves nothing (CI's floor said so twice while this was being got wrong).
+      assert.ok(src.includes("const reached = !(box.movedPage && hovered && hovered.hit === false)"), `${name}: the row no longer carries whether the pointer arrived`);
+      // AND IT ASKS THE DOM FOR THE CONTROLS, with the count that lets the judge size its floor to the page.
+      assert.ok(src.includes("function discoverPressTargets"), `${name}: the DOM discovery is not embedded — a control on a page no list names is never pressed (that is how the log toggle was missed)`);
+      assert.ok(src.includes("found,"), `${name}: the row does not carry what the page HAD, so the judge cannot tell a one-control page from a vacuous pass`);
+      assert.ok(src.includes("label.skip"), `${name}: the discovery has no skip list, so its cap is spent on chrome another pass already presses (that is how the log toggle stayed unpressed)`);
+      // (The emitter's own guard — every borrowed helper must be DEFINED in the text it prints — is enforced where it
+      // can bite: each `--emit` branch calls `assertEmbedded`, the pre-commit hook runs all of them, and
+      // `panel-design-sweep.bash` asserts the three emitters still call it.)
     });
   }
 } finally {
