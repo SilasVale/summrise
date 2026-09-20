@@ -478,7 +478,7 @@ async function adminListUsers(request: Request, env: Env): Promise<Response> {
       // by design (minimal change); rotation lives in /api/me.
       token: maskKey(u.token || ""),
       relayToken: maskKey(u.relayToken || ""),
-      keys: userKeysStatus(ukeys),
+      keys: userKeysStatus(ukeys, env),
     });
   }
   return jsonOk({ users: out });

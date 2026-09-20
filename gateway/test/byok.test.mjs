@@ -70,7 +70,48 @@ test("byok: translate-vision derives the NINE and keeps the TENTH", async () => 
   assert.deepEqual(leaked, [], `translate-vision must not re-type these: ${leaked.join(", ")}`);
 });
 
+test("byok: the console's key status names WHICH credential is in force", async () => {
+  // The incident this pins: an operator rotated their opencode key in the console, the request path
+  // preferred that (wrong) value, and the page could only say "configured" — there was no way to see
+  // that the user key was the one being spent, or that the deployment's key was the thing serving a
+  // channel the page called "not configured". `source` is that fact, derived from the same authority
+  // the request path uses (BYOK_CHANNELS.envKey), so the console cannot invent a fourth answer.
+  const { userKeysStatus } = await import("../src/store/users.ts");
+  const { BYOK_CHANNELS } = await import("../src/store/byok.ts");
+  const withEnvKey = BYOK_CHANNELS.filter((c) => c.envKey);
+  const noEnvKey = BYOK_CHANNELS.filter((c) => !c.envKey);
+  const env = Object.fromEntries(withEnvKey.map((c) => [c.envKey, "deployment-secret"]));
+  // and a stray secret under the name of a channel that declares NO envKey (nv/gmi)
+  for (const c of noEnvKey) env[c.userKey] = "not-a-fallback";
+
+  const userKey = userKeysStatus({ [withEnvKey[0].userKey]: "sk-user" }, env);
+  assert.equal(userKey[withEnvKey[0].userKey].source, "user", "the user's own key is in force");
+  assert.equal(userKey[withEnvKey[0].userKey].configured, true);
+
+  const deployment = userKeysStatus({}, env);
+  for (const c of withEnvKey) {
+    assert.equal(
+      deployment[c.userKey].source,
+      "deployment",
+      `${c.kind}: no user key + envKey set → the deployment serves it`,
+    );
+    assert.equal(deployment[c.userKey].configured, false, "…and it is still not the USER's key");
+  }
+  for (const c of noEnvKey) {
+    assert.equal(
+      deployment[c.userKey].source,
+      "none",
+      `${c.kind}: envKey is null BY DESIGN — a secret of the same name is not a fallback`,
+    );
+  }
+  const neither = userKeysStatus({}, {});
+  for (const c of BYOK_CHANNELS) {
+    assert.equal(neither[c.userKey].source, "none", `${c.kind}: nothing configured, nothing claimed`);
+  }
+});
+
 test("byok: CHANNEL_KEY_RULES derives — and stays MUTABLE for registerChannelKey", async () => {
+
   // The last of the four consumers, and the only one on the per-request path. Two things
   // must hold at once: the nine rows come from the source (with nv/gmi still saying
   // envKey null — the distinction round 188 called the deletion criterion), and the object

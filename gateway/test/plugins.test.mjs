@@ -880,8 +880,43 @@ test("me: 401 unauth; authed returns identity + key status", async () => {
   assert.equal(me.role, "user");
   assert.equal(me.enabled, true);
   assert.equal(me.token, "bob-tok-1", "device token surfaced for the console");
-  assert.deepEqual(me.keys.DEEPSEEK_API_KEY, { configured: true, masked: "d…-k" });
-  assert.deepEqual(me.keys.OPENCODE_GO_API_KEY, { configured: false, masked: "not configured" });
+  // `source` is the console's answer to "what will a request on this channel be spent on",
+  // which is not the same question as "has this user stored a key" (the env fallback serves
+  // a channel whose own key is absent, and nv/gmi have no fallback at all).
+  assert.deepEqual(me.keys.DEEPSEEK_API_KEY, {
+    configured: true,
+    masked: "d…-k",
+    source: "user",
+  });
+  assert.deepEqual(me.keys.OPENCODE_GO_API_KEY, {
+    configured: false,
+    masked: "not configured",
+    source: "none",
+  });
+});
+
+test("me: a channel the deployment serves says so, and one with no fallback does not", async () => {
+  __clearCaches();
+  const env = meEnv();
+  const bob = await issueSessionToken("pw", "bob", "user");
+  // The worker has an OpenCode Go secret and NO GMI one (mirrors the live binding list).
+  env.OPENCODE_GO_API_KEY = "sk-deployment";
+  await env.KEYS.put("ukeys:bob", JSON.stringify({}));
+  __clearCaches();
+  const me = await (await meReq(env, bob, "/api/me", "GET")).json();
+  assert.deepEqual(me.keys.OPENCODE_GO_API_KEY, {
+    configured: false,
+    masked: "not configured",
+    source: "deployment",
+    // …and still not the user's key: the console must be able to say BOTH things,
+    // because "who pays" and "did you configure it" are different answers.
+  });
+  assert.equal(me.keys.GMI_API_KEY.source, "none", "gmi has no deployment fallback by design");
+  // a stray secret under a channel's own name does not become a fallback
+  env.GMI_API_KEY = "sk-stray";
+  __clearCaches();
+  const again = await (await meReq(env, bob, "/api/me", "GET")).json();
+  assert.equal(again.keys.GMI_API_KEY.source, "none", "envKey null is a decision, not an oversight");
 });
 
 test("logout: malformed cookie still 200s and clears the cookie", async () => {

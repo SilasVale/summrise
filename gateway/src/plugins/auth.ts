@@ -275,7 +275,7 @@ async function meGet(request: Request, env: any): Promise<Response> {
     enabled: user.enabled,
     token: user.token,
     relayTokenSet: !!user.relayToken,
-    keys: userKeysStatus(ukeys),
+    keys: userKeysStatus(ukeys, env),
   });
 }
 

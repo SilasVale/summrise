@@ -417,14 +417,42 @@ export function maskKey(v: string): string {
 
 /** Per-key configured/masked status for the console (shared by the auth
  *  plugin's /api/me and the admin plugin's user list — was copy-pasted in
- *  both with subtly different types). */
+ *  both with subtly different types).
+ *
+ *  AND WHICH CREDENTIAL IS IN FORCE (2026-09-21). `configured` answers "has this
+ *  user stored this key"; it does NOT answer "will a request on this channel be
+ *  served, and on whose credential" — and since the request path falls back to the
+ *  channel's Worker secret (`bearerKeyFor`, translate.ts), those are different
+ *  questions. A page that shows only the first told an operator "not configured" for
+ *  a channel that was working, and could not explain a 502 on a channel whose own
+ *  key had been rotated to a wrong value. `source` is that second answer, derived
+ *  from the SAME authority the request path uses (`BYOK_CHANNELS.envKey`):
+ *
+ *      user        this user's own key is set — it wins, the deployment is not charged
+ *      deployment  no user key, but the channel declares an envKey and the worker has it
+ *      none        neither — including nv/gmi, whose envKey is null BY DESIGN, so a
+ *                  stray secret of the same name is not a fallback here
+ *
+ *  Pure: `env` is passed in, never read from a global, so the three states are
+ *  directly testable and the console cannot invent a fourth. */
 export function userKeysStatus(
   ukeys: Record<string, any>,
-): Record<string, { configured: boolean; masked: string }> {
-  const out: Record<string, { configured: boolean; masked: string }> = {};
+  env: Record<string, any> = {},
+): Record<string, { configured: boolean; masked: string; source: "user" | "deployment" | "none" }> {
+  const out: Record<
+    string,
+    { configured: boolean; masked: string; source: "user" | "deployment" | "none" }
+  > = {};
   for (const n of USER_KEY_NAMES) {
     const v = ukeys?.[n];
-    out[n] = { configured: !!v, masked: maskKey(v || "") };
+    const channel = BYOK_CHANNELS.find((c) => c.userKey === n);
+    const envKey = channel?.envKey ?? null;
+    const source: "user" | "deployment" | "none" = v
+      ? "user"
+      : envKey && env[envKey]
+        ? "deployment"
+        : "none";
+    out[n] = { configured: !!v, masked: maskKey(v || ""), source };
   }
   return out;
 }

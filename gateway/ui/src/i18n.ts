@@ -147,9 +147,14 @@ const I18N = {
     "keys.lede":
       "填入你自己在对应服务商申请的 API key，网关转发时只使用你自己的 key，各算各的额度。",
     "key.configured": "已配置",
-    "keys.summary": "已配置 {done} / {total}",
+    "keys.summary": "你的密钥 {done} / {total} · 部署密钥 {deployment}",
     "btn.setKey": "填入密钥",
     "key.notConfigured": "未配置",
+    "key.sourceUser": "使用你的密钥",
+    "key.sourceDeployment": "使用部署密钥",
+    "key.deploymentServed":
+      "你没有填这个通道的密钥，网关会使用部署在 Worker 上的密钥（费用记在部署方），所以在 {backend} 上仍然可用。填入你自己的密钥即可改为自付。",
+    "key.sourceNone": "未配置",
     "key.ds.backend": "DeepSeek",
     "key.ds.hint": "api.deepseek.com 申请",
     "key.og.backend": "OpenCode Go",
@@ -369,7 +374,8 @@ const I18N = {
     "models.documentHint": "这份文档就是 config/models.ts 的内容——复制过去、提交、部署即生效。",
     "models.documentLoad": "读取中…",
     "models.fileOwned": "配置文件",
-    "models.fileOwnedHint": "由 config/models.ts 声明；在这里修改会在下次部署时被覆盖，所以控件是关的。",
+    "models.fileOwnedHint":
+      "由 config/models.ts 声明；在这里修改会在下次部署时被覆盖，所以控件是关的。",
   },
   en: {
     "app.sub": "AI relay & devices",
@@ -473,7 +479,8 @@ const I18N = {
     "overview.firstRun": "Start here",
     "overview.firstRunKeys":
       "No channel key is usable yet — the gateway falls back to the deployment default. To use your own quota or another model, add one first.",
-    "overview.firstRunDevices": "No device is registered yet — the install command and a registration key are on the devices page.",
+    "overview.firstRunDevices":
+      "No device is registered yet — the install command and a registration key are on the devices page.",
     "overview.keysHint": "Backend key status:",
     "overview.devicesTitle": "Devices at a glance",
     "overview.devicesFail": "Could not read the device list",
@@ -521,9 +528,14 @@ const I18N = {
     "keys.lede":
       "Add your own API keys from each provider; the gateway only uses your keys, so each user pays for their own usage.",
     "key.configured": "Configured",
-    "keys.summary": "{done} of {total} configured",
+    "keys.summary": "your keys {done} / {total} · deployment {deployment}",
     "btn.setKey": "Set key",
     "key.notConfigured": "Not configured",
+    "key.sourceUser": "your key",
+    "key.sourceDeployment": "deployment key",
+    "key.deploymentServed":
+      "You have not set a key for this channel, so the gateway uses the key deployed on the Worker (the deployment pays). It works — set your own key to pay for it yourself.",
+    "key.sourceNone": "not configured",
     "key.ds.backend": "DeepSeek",
     "key.ds.hint": "from api.deepseek.com",
     "key.og.backend": "OpenCode Go",
@@ -542,7 +554,8 @@ const I18N = {
     "key.amd.backend": "AMD Radeon Cloud",
     "key.amd.hint": "from developer.amd.com.cn/radeon (free rc-… key, $1/day cap)",
     "key.r4.backend": "r4.codes",
-    "key.r4.hint": "from r4.codes (coding-agent gateway; both Anthropic and OpenAI protocols are native)",
+    "key.r4.hint":
+      "from r4.codes (coding-agent gateway; both Anthropic and OpenAI protocols are native)",
     "key.emptyValue": "Value cannot be empty",
     "key.revealFail": "Copy failed — could not read the full key, try again",
     "key.saved": "Saved",
@@ -718,9 +731,11 @@ const I18N = {
     "models.channelDown": "Channel unreachable",
     "models.providerModels": "{n} models",
     "models.removeProvider": "Remove provider",
-    "models.removeProviderConfirm": "Remove provider {prefix}? Its models leave the catalogue with it.",
+    "models.removeProviderConfirm":
+      "Remove provider {prefix}? Its models leave the catalogue with it.",
     "models.addCustomProvider": "Add a custom provider",
-    "models.addCustomHint": "Point at an upstream: prefix, endpoint, protocol, key. Leave the key blank to keep the current one.",
+    "models.addCustomHint":
+      "Point at an upstream: prefix, endpoint, protocol, key. Leave the key blank to keep the current one.",
     "models.prefix": "Prefix",
     "models.label": "Display name",
     "models.baseUrl": "Endpoint",
@@ -747,10 +762,12 @@ const I18N = {
     "models.editFacetsSave": "Save",
     "models.editFacetsCancel": "Cancel",
     "models.openDocument": "Open configuration document",
-    "models.documentHint": "This document is what config/models.ts carries — copy it, commit, deploy.",
+    "models.documentHint":
+      "This document is what config/models.ts carries — copy it, commit, deploy.",
     "models.documentLoad": "Loading…",
     "models.fileOwned": "config file",
-    "models.fileOwnedHint": "Declared in config/models.ts; an edit here is reverted by the next deploy, so the control is off.",
+    "models.fileOwnedHint":
+      "Declared in config/models.ts; an edit here is reverted by the next deploy, so the control is off.",
   },
 } as const;
 

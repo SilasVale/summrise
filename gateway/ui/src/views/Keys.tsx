@@ -19,6 +19,11 @@ const KEY_NAMES = [
 interface KeyInfo {
   configured: boolean;
   masked: string;
+  /** WHICH CREDENTIAL SERVES THIS CHANNEL — the gateway's own answer, derived from
+   *  the same channel table its request path reads, not a guess made here.
+   *  `configured` says the user stored a key; `source` says what a request will
+   *  actually be spent on, which is the question this page exists to answer. */
+  source?: "user" | "deployment" | "none";
 }
 
 // Full env names → the i18n prefixes ("key.<prefix>.backend/.hint"). The old
@@ -190,10 +195,14 @@ export default function Keys() {
         // thing it should say is how many are missing — the Overview tile ("0/8 keys
         // ready") knew, and the page you click through to did not.
         actions={
+          // TWO NUMBERS, because since the env fallback they answer different questions:
+          // "yours" is what this user pays for, "deployment" is what the worker serves on
+          // their behalf. One number called the second group missing while it was working.
           <Badge tone="muted">
             {t("keys.summary", {
-              done: String(KEY_NAMES.filter((n) => keys[n]?.configured).length),
+              done: String(KEY_NAMES.filter((n) => keys[n]?.source === "user").length),
               total: String(KEY_NAMES.length),
+              deployment: String(KEY_NAMES.filter((n) => keys[n]?.source === "deployment").length),
             })}
           </Badge>
         }
@@ -202,6 +211,7 @@ export default function Keys() {
         {KEY_NAMES.map((name) => {
           const info = keys[name];
           const configured = !!(info && info.configured);
+          const source = info?.source ?? (configured ? "user" : "none");
           const shortName = getKeyShortName(name);
           const backend = t(`key.${shortName}.backend` as any);
           const hint = t(`key.${shortName}.hint` as any);
@@ -217,8 +227,18 @@ export default function Keys() {
                     {backend} · {hint}
                   </div>
                 </div>
-                <Badge tone={configured ? "success" : "muted"}>
-                  {configured ? t("key.configured") : t("key.notConfigured")}
+                {/* THREE STATES, NOT TWO. "Configured / Not configured" was the whole
+                    vocabulary, and after the fallback landed it was wrong in the case that
+                    matters most: a channel the deployment serves read as "not configured"
+                    on a page whose job is to explain why requests do or do not work. */}
+                <Badge
+                  tone={source === "user" ? "success" : source === "deployment" ? "info" : "muted"}
+                >
+                  {source === "user"
+                    ? t("key.sourceUser")
+                    : source === "deployment"
+                      ? t("key.sourceDeployment")
+                      : t("key.sourceNone")}
                 </Badge>
               </div>
 
@@ -246,6 +266,16 @@ export default function Keys() {
                     small
                   />
                 </div>
+              )}
+
+              {/* THE DEPLOYMENT'S KEY IS NOT THIS USER'S TO COPY, so no masked box and no
+                  reveal button — just the sentence that says who is paying and how to change
+                  it. Rendering a mask here would invite a copy of something the page does not
+                  have, and offering "reveal" would leak a Worker secret to any session. */}
+              {source === "deployment" && (
+                <p className="key-card-desc">
+                  {t("key.deploymentServed", { backend: backend as any })}
+                </p>
               )}
 
               <div className="key-card-actions">
