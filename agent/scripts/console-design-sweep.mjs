@@ -170,6 +170,7 @@ const PAGES = [
   ['users', '#/users'],
 ];
 const auth = { signedIn: true };
+
 // AN EMPTY FLEET, which the console has never been measured in: the fixture table carries two devices and
 // two keys, so every surface has always been rendered with content. A console with nothing registered is a
 // real state (a fresh deployment) and the one most likely to have an undesigned blank pane. The route
@@ -391,6 +392,26 @@ const fail = { api: false };
     await page.evaluate((h) => { location.hash = h; }, hash);
     await page.waitForTimeout(1500);
     report.targets.push({ page: label, ...(await page.evaluate(TARGETS)) });
+  }
+
+  // AND THE UNSTYLED CENSUS VISITS IT TOO (round 25). The rendered surfaces above visit the Overview with nothing
+  // registered; the CENSUS walked only the six populated pages, so the one class this console declares
+  // unstyled-by-design was still unseen and its note still asked for it — while the surfaces that DO carry it had
+  // just been measured. A declaration is exercised by the pass that asks the question, not by a different one.
+  if (wants('unstyled')) {
+    empty.fleet = true;
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.evaluate((a) => {
+        try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+        document.body.setAttribute('data-theme', a[0]);
+        location.hash = a[1];
+      }, [theme, '#/']);
+      await page.waitForTimeout(1600);
+      report.unstyled.push({ page: 'overview-empty' + (theme === 'dark' ? '-dark' : ''), ...(await page.evaluate(UNSTYLED)) });
+    }
+    empty.fleet = false;
   }
 
   // THE EMPTY FLEET, as surfaces of its own. Two pages have a meaningful empty form — Devices and Keys —
