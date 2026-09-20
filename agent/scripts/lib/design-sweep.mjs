@@ -169,7 +169,10 @@ const SURFACE = \`(() => {
         // the emitted template.)
         const bw = parseFloat(st.borderTopWidth) || 0;
         const bstyle = bw > 0 ? st.borderTopStyle : 'none';
-        const bordered = bstyle !== 'none' && bstyle !== 'hidden';
+        // A BORDER THAT PAINTS NOTHING IS NOT A RING (round 88). Width and style are not the whole question: a mark
+        // can carry a transparent border for layout and fill itself, and counting that as a ring would report every
+        // such mark as a FILL inside a RING. noFill, two lines up, already knows every spelling of "paints nothing".
+        const bordered = bstyle !== 'none' && bstyle !== 'hidden' && !noFill(st.borderTopColor);
         const dashed = /dashed|dotted/.test(bstyle);
         const kind = inset && filled ? 'ring+fill'
           : bordered && filled ? 'ring+fill'
