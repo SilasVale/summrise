@@ -223,6 +223,55 @@ describe("colour pairs declared in one rule", () => {
     expect(checked, "this check must actually measure something").toBe(4);
   });
 
+  it("the failure MARK's ink clears the 3:1 a graphic needs — including on the active tab", () => {
+    // ROUND 98, AND THE SECOND MEASUREMENT OF THIS INK. `--state-fail` drew 2.87:1 on the dark ACTIVE session row;
+    // `--danger-on-soft`, which fixed that, draws **2.16:1** on the dark accent-filled ACTIVE TAB (#c64310) — a
+    // surface the first measurement had not covered. Both were found by rendering the state where it actually
+    // appears, and this pins the token that clears every one of them, INCLUDING the composited active fill that no
+    // single token names.
+    //
+    // A MARK IS A GRAPHIC: 3:1 (WCAG 1.4.11), not 4.5. The values are measured, not derived — and the test resolves
+    // them from the sheet so a palette change fails here rather than on a device.
+    const css = builtCss();
+    const light = tokensIn(css, ":root");
+    const dark = { ...light, ...tokensIn(css, 'body[data-theme="dark"]') };
+    const cases: Array<[string, Record<string, string>, string, number]> = [
+      // [label, tokens, surface description, expected surface resolution]
+      ["light row", light, "white", 0],
+      ["light active row / tab tint", light, "--accent-soft", 0],
+      ["dark row", dark, "--bg", 0],
+      ["dark active row", dark, "--accent-soft", 0],
+      // THE ONE THAT FAILED TWICE: the accent FILL, composited over the chrome behind it.
+      ["dark ACTIVE TAB fill", dark, "--chrome-active-bg over --chrome-bg", 1],
+      ["light ACTIVE TAB tint", light, "--chrome-active-bg over --chrome-bg", 1],
+    ];
+    let checked = 0;
+    for (const [label, tokens, surfaceName, composite] of cases) {
+      const ink = parseColour(resolve(tokens["--state-fail-ink"] ?? "", tokens) ?? "");
+      expect(ink, `${label}: --state-fail-ink must resolve`).toBeTruthy();
+      let surface;
+      if (surfaceName === "white") surface = parseColour("#ffffff");
+      else {
+        const fill = parseColour(resolve(tokens[surfaceName.split(" ")[0]] ?? "", tokens) ?? "");
+        expect(fill, `${label}: ${surfaceName} must resolve`).toBeTruthy();
+        if (composite) {
+          const behind = parseColour(resolve(tokens["--chrome-bg"] ?? "", tokens) ?? "");
+          expect(behind, `${label}: --chrome-bg must resolve`).toBeTruthy();
+          surface = (fill!.a ?? 1) < 1 ? compositeStack([fill!], behind!) : fill!;
+        } else {
+          surface = fill!;
+        }
+      }
+      const ratio = contrastRatio(ink!, surface!);
+      expect(
+        ratio,
+        `${label}: the failure mark draws ${ratio.toFixed(2)} on ${surfaceName} — a graphic needs 3.0 (round 98)`,
+      ).toBeGreaterThanOrEqual(3);
+      checked++;
+    }
+    expect(checked, "this check must actually measure something").toBe(cases.length);
+  });
+
   it("every one of them clears AA in both themes", () => {
     const css = builtCss();
     const themes: Record<string, Record<string, string>> = {

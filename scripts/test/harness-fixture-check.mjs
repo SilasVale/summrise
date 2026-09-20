@@ -102,6 +102,16 @@ const CHECKS = [
     ],
   },
   {
+    // THE SAME STATE ON THE ACTIVE SESSION (round 98), because that is where the mark is drawn on the accent-filled
+    // active tab — the combination whose ink drew 2.16:1 in dark while no surface rendered it. A separate flag, since
+    // `?exitfail=1` deliberately plants the failure on a QUIET row to put four states on one page.
+    name: "?exitfail=active can put the failure on the session the operator is looking at",
+    test: (h) => /P\.get\('exitfail'\) === 'active'/.test(h) && /SESSIONS\[0\]\.last_exit_code = 1;/.test(h),
+    mutations: [
+      { why: "the active-tab surface stopped rendering a failed mark, so the ink that only fails there is unmeasured again", from: /SESSIONS\[0\]\.last_exit_code = 1;/, to: ";" },
+    ],
+  },
+  {
     name: "the status count follows the same number (the fixture cannot contradict itself)",
     test: (h) => /live_sessions: liveCount/.test(h),
     mutations: [

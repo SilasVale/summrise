@@ -237,6 +237,20 @@ function buildHarness() {
   // answer, and it must render as EMPTY rather than as a chip saying "exit 0".
   var EXIT_OK = P.get('exitok') === '1';
   if (EXIT_OK && SESSIONS.length > 2) SESSIONS[2].last_exit_code = 0;
+  // ?exitfail=active — THE SAME STATE ON THE SESSION THE OPERATOR IS LOOKING AT (round 98). The failure lands on the
+  // FIRST session, which is the ACTIVE one, so the mark is drawn on the accent-filled active tab. That combination
+  // is where the ink finally broke (--danger-on-soft draws 2.16:1 there in dark) and it had NO SURFACE for two
+  // rounds: every other flag plants the failure on a quiet row. Use it with mode=idle, because waiting and working
+  // outrank a failure and would hide it.
+  var EXIT_FAIL_ACTIVE = P.get('exitfail') === 'active';
+  if (EXIT_FAIL_ACTIVE && SESSIONS.length) {
+    // AND IT HAS TO BE QUIET, or the state is invisible: EVERY seed above reports idle_ms 900 — "just produced
+    // output" — which reads as WORKING, and working outranks a failure by design. The first run of this flag
+    // rendered mark[working,idle] and no failed mark at all, which is the state model behaving correctly and the
+    // fixture failing to express what it claimed. 60s of silence puts the failure on top, where a person can see it.
+    SESSIONS[0].idle_ms = 60_000;
+    SESSIONS[0].last_exit_code = 1;
+  }
 
   var FAIL = P.get('fail') === '1';
   window.__calls = [];

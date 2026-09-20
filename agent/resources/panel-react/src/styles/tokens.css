@@ -132,6 +132,17 @@
   --state-running-soft: var(--accent-soft);
   --state-warn-soft: var(--warn-soft);
   --state-muted-soft: rgba(127, 127, 127, 0.12);
+  /* THE INK A FAILURE **MARK** IS DRAWN IN, and it is not `--state-fail` — that token is a FILL, and a mark has to
+     read on every surface a mark lands on, one of which is the accent-filled ACTIVE TAB. Measured (round 98) over
+     the four surfaces a mark sits on plus that active fill:
+         light #a51d1d   worst 6.71   (the active tint; 7.5 on the row surfaces)
+         dark  #ffc9c9   worst 3.44   (the accent fill #c64310; 9.5-11.2 on the rest)
+     `--danger-on-soft` was the obvious candidate and it is the right value in LIGHT; in dark it draws **2.16:1** on
+     that fill, under the 3:1 a graphic needs — the same surface where the waiting diamond already sits at 3.11. The
+     dark value is Open Color red-3, the ramp this palette follows, so the state keeps its own colour rather than
+     following the place's ink: on the one tab an operator is looking at, "this one broke" is worth more than a lane
+     hue. Decoupled from `--danger-on-soft` on purpose — the round-237 lesson, one family over. */
+  --state-fail-ink: #a51d1d;
 
   /* ---- round-161 semantic additions (previously hardcoded in css) ---- */
   --tag-ink: #0a6f64; /* memory tag chips (teal ink, light theme) */
@@ -361,6 +372,9 @@ body[data-theme="dark"] {
   /* The dark theme's hover step: white on it measures 6.67 against 5.38 on --success-solid, the
      same relationship as the light block rather than a reused value. */
   --success-ink: #1b6a2e;
+  /* Restated for the same computed-value reason as the tokens above — and here the VALUE changes, because the light
+     ink cannot clear the accent fill this theme paints an active tab with. */
+  --state-fail-ink: #ffc9c9;
   /* Restated for the same computed-value reason as the tokens above. */
   --accent-solid: #b03a0a;
   /* Status ink for SMALL TEXT. --danger and --success are tuned for marks

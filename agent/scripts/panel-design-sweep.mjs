@@ -624,6 +624,26 @@ ${TIMING}
     }
   }
 
+  // THE SAME FAILURE ON THE ACTIVE SESSION (round 98). The surface above puts it on a quiet row, and the mark is
+  // ALSO drawn on the accent-filled ACTIVE TAB — where the state's ink drew 2.16:1 in dark while no surface rendered
+  // the combination. One render per theme, mode=idle so nothing outranks the failure, and the ACTIVE tab and row are
+  // the ones carrying it.
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&exitfail=active&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      const pname = 'LastFailActive-' + theme;
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail-active', page: pname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
   // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
   // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,

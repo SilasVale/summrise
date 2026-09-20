@@ -133,6 +133,17 @@
   --state-running-soft: var(--accent-soft);
   --state-warn-soft: var(--warn-soft);
   --state-muted-soft: rgba(127, 127, 127, 0.12);
+  /* THE INK A FAILURE **MARK** IS DRAWN IN, and it is not `--state-fail` — that token is a FILL, and a mark has to
+     read on every surface a mark lands on, one of which is the accent-filled ACTIVE TAB. Measured (round 98) over
+     the four surfaces a mark sits on plus that active fill:
+         light #a51d1d   worst 6.71   (the active tint; 7.5 on the row surfaces)
+         dark  #ffc9c9   worst 3.44   (the accent fill #c64310; 9.5-11.2 on the rest)
+     `--danger-on-soft` was the obvious candidate and it is the right value in LIGHT; in dark it draws **2.16:1** on
+     that fill, under the 3:1 a graphic needs — the same surface where the waiting diamond already sits at 3.11. The
+     dark value is Open Color red-3, the ramp this palette follows, so the state keeps its own colour rather than
+     following the place's ink: on the one tab an operator is looking at, "this one broke" is worth more than a lane
+     hue. Decoupled from `--danger-on-soft` on purpose — the round-237 lesson, one family over. */
+  --state-fail-ink: #a51d1d;
 
   /* ---- round-161 semantic additions (previously hardcoded in css) ---- */
   --tag-ink: #0a6f64; /* memory tag chips (teal ink, light theme) */
@@ -362,6 +373,9 @@ body[data-theme="dark"] {
   /* The dark theme's hover step: white on it measures 6.67 against 5.38 on --success-solid, the
      same relationship as the light block rather than a reused value. */
   --success-ink: #1b6a2e;
+  /* Restated for the same computed-value reason as the tokens above — and here the VALUE changes, because the light
+     ink cannot clear the accent fill this theme paints an active tab with. */
+  --state-fail-ink: #ffc9c9;
   /* Restated for the same computed-value reason as the tokens above. */
   --accent-solid: #b03a0a;
   /* Status ink for SMALL TEXT. --danger and --success are tuned for marks
@@ -808,15 +822,14 @@ h3 { font-size: var(--fs-base); }
    mark is a FILL whose outline is cut, which is the one thing a clipped background says exactly.
    RADIUS ZERO ON PURPOSE: the probe's signature carries the corner radius, and a clipped shape with rounded
    corners would be a contradiction in the data two states are told apart by.
-   AND THE INK IS THE FAMILY'S INK, NOT ITS FILL — measured rather than assumed, because the first version used
-   --state-fail and a mark sits on FOUR surfaces per theme. On the dark ACTIVE session row (--accent-soft, #3d2817)
-   --state-fail draws 2.87:1, under the 3:1 a graphic needs, and that is exactly where the diamond already sits on
-   the surface this flag was built for. --danger-on-soft is the danger family's readable ink (light #a51d1d, dark
-   #ff8787) and clears 6.71 / 5.99 at its worst — the same choice the `waiting` state already made with --warn-ink,
-   whose own name says "ink" for the same reason. (No backticks in this comment: it is inside a template literal in
-   the sweep emitters' world too, and the emit guard is the one that says so.) */
+   THE INK IS ITS OWN TOKEN AND IT WAS MEASURED TWICE. The first version used --state-fail and drew 2.87:1 on the
+   dark ACTIVE session row; the second used --danger-on-soft, which fixes that and draws **2.16:1** on the dark
+   accent-filled ACTIVE TAB (#c64310) — a surface the first measurement had not covered, found by forcing the state
+   onto the active tab and reading it. --state-fail-ink carries the value that clears every one of them: 6.71 light
+   at its worst, 3.44 dark at its worst, on the fill where the waiting diamond sits at 3.11. Two rounds, two
+   surfaces, one token — which is the argument for a mark ink being its own token rather than a borrowed one. */
 .mark[data-live="failed"] {
-  background: var(--danger-on-soft);
+  background: var(--state-fail-ink);
   border-radius: 0;
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
