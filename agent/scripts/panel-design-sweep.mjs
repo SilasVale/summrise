@@ -1119,7 +1119,14 @@ function judge(file) {
       "xterm-decoration-container": "xterm.js DOM, styled by the sheet it injects at runtime",
       "composition-view": "xterm.js DOM (IME composition), styled by the sheet it injects at runtime",
       terminal: "a VIEW NAME; the element's .view class does the styling",
-      serial: "a session-kind modifier; the element is painted by its [data-kind] rule",
+      // PRUNED: `serial`, whose reason was "a session-kind modifier; the element is painted by its
+      // [data-kind] rule" (round 24). The class it exempts no longer exists: the mark language's TabBar emits
+      // `className="mark tab-dot" data-kind={s.kind}` and the sheet paints the kind with
+      // `.tab-dot[data-kind="serial"]`, so nothing puts a bare `serial` on screen. MEASURED, not assumed: the
+      // unstyled pass (1129 styled classes per density over 2 pages) reports 11 unstyled names — the eight
+      // xterm ones, composition-view, terminal and warn — and `serial` is not among them, while the declared
+      // count was 12. The paragraph above counted "eleven such names ... the last two are ours" when this entry
+      // was written; the last two are `terminal` and `warn` now, which is what the same run says.
       warn:
         "the boot chip's tone modifier. The BASE rule paints it — .boot-mark is the warn triangle and .boot-mark.info is the exception — so the name needs no rule of its own. Round 121 followed it anyway, and found a real defect behind it: the triangle used --state-warn, which measures 2.80 on the dark chip surface against the 3:1 a graphic needs. Fixed to --warn-ink (6.45 / 8.76).",
     },

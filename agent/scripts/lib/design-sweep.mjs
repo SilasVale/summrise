@@ -1359,6 +1359,16 @@ export function judgeReport(report, opts = {}) {
   // causes. Round 88 found three by hand; this is the same question, asked by the browser (CSSOM)
   // on every sweep. `opts.implicitStates` names classes that are unstyled ON PURPOSE because a base
   // rule already produces their appearance, each with the reason printed rather than hidden.
+  // WHICH DECLARED CLASSES THIS RUN ACTUALLY SAW (round 24). `implicitStates` is the third list of exemptions the
+  // suite keeps, after DECORATIVE (rows) and ignore (findings) — and like the other two it had no way to say that an
+  // entry was not earning its place. The probe reports only classes with NO matching rule, so an entry stops being
+  // used the moment the class disappears from the markup OR gains a rule: either way the reason attached to it is
+  // being kept for nothing. Counted here, reported below with the size of the search.
+  const declaredImplicit = Object.keys(opts.implicitStates || {});
+  const seenImplicit = new Set();
+  for (const u of report.unstyled || []) {
+    for (const c of u.classes || []) if ((opts.implicitStates || {})[c]) seenImplicit.add(c);
+  }
   for (const u of report.unstyled || []) {
     const all = u.classes || [];
     const waived = all.filter((c) => (opts.implicitStates || {})[c]);
@@ -1391,6 +1401,16 @@ export function judgeReport(report, opts = {}) {
     }
     if (typeof u.styledClasses === "number" && u.styledClasses < (opts.unstyledFloor ?? 100)) {
       findings.push(`unstyled check on ${u.page || "?"}: only ${u.styledClasses} styled classes found (floor ${opts.unstyledFloor ?? 100}) — the collector read almost nothing, so its silence means nothing`);
+    }
+  }
+  {
+    const unused = declaredImplicit.filter((c) => !seenImplicit.has(c));
+    if (unused.length) {
+      const classes = (report.unstyled || []).reduce((n, u) => n + (u.classes || []).length, 0);
+      console.log(
+        `note: ${unused.length} of ${declaredImplicit.length} declared unstyled-by-design class(es) were not seen in this run (${classes} unstyled name(s) over ${(report.unstyled || []).length} page(s)) — a reason nothing needs is weight; prune it or say why it stays:`,
+      );
+      for (const c of unused) console.log(`  ${c} — ${opts.implicitStates[c]}`);
     }
   }
   // THE TYPE FLOOR, IN THE RENDERED PAGE. designScale.test.ts pins the SCALE — names, order, and a 10px floor

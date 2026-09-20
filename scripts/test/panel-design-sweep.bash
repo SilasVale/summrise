@@ -504,6 +504,36 @@ else
   bad "the clean report no longer passes with the staleness note present"
 fi
 
+# THE THIRD LIST OF EXEMPTIONS REPORTS ITS UNUSED ENTRIES TOO (round 24). `implicitStates` waives classes that are on
+# screen with no matching rule; an entry stops being used the moment the class leaves the markup OR gains a rule, and
+# this note found a real one on its first run (`serial`, whose markup no longer carries a bare kind class). Both
+# directions: a run that saw every declared class says NOTHING, and a run that saw none names them all.
+python3 - "$TMP/clean.json" "$TMP/unstyled-seen.json" "$TMP/unstyled-none.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+classes = ["composition-view", "terminal", "warn", "xterm-char-measure-element", "xterm-decoration-container",
+           "xterm-helper-textarea", "xterm-helpers", "xterm-screen", "xterm-scroll-area", "xterm-viewport",
+           "xterm-width-cache-measure-container"]
+def with_classes(cs):
+    r = json.loads(json.dumps(base))
+    r["unstyled"] = [{"page": "panel", "styledClasses": 1129, "sheetsUnreadable": 0, "classes": cs}]
+    return r
+json.dump(with_classes(classes), open(sys.argv[2], "w"))
+json.dump(with_classes([]), open(sys.argv[3], "w"))
+PY
+node "$TOOL" --judge "$TMP/unstyled-seen.json" > "$TMP/unstyled-seen.out" 2>&1 || true
+if grep -q "were not seen" "$TMP/unstyled-seen.out"; then
+  bad "a run that saw every declared unstyled-by-design class still reported unused ones: $(grep -m1 'were not seen' "$TMP/unstyled-seen.out")"
+else
+  ok "the unstyled-by-design list says nothing when the run saw every class it declares"
+fi
+node "$TOOL" --judge "$TMP/unstyled-none.json" > "$TMP/unstyled-none.out" 2>&1 || true
+if grep -q "11 of 11 declared unstyled-by-design" "$TMP/unstyled-none.out"; then
+  ok "and a run that saw none names them all, with the reason each is kept"
+else
+  bad "an entirely unused unstyled-by-design list went unmentioned: $(grep -c 'unstyled' "$TMP/unstyled-none.out") line(s)"
+fi
+
 # A BAND IS MEASURED AGAINST WHAT THE RUN SAW (round 23). A DECORATIVE entry waives a RATIO, not an element, so a
 # band wider than its evidence is a hole that leaves no trace: a drift toward the bar inside the band is waived
 # silently. The grant chip's band was 1.10-1.35 while the four ratios this suite has ever seen are 1.19-1.27 — and the
