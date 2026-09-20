@@ -1978,3 +1978,35 @@ whether to re-run an update — DID THE SWAP LAUNCH — at the moment it hands t
 `/api/update` to report. That is a device + wire + panel change with a real migration question (older devices report
 the field as absent, so the log reading has to stay as the fallback), and it deserves its own round rather than the
 tail of this one.
+
+### THE MOMENT THE DEVICE KNOWS, AND THE TWO PROGRAMS THAT WERE NARRATING IT (round 18)
+
+The question an operator has after pressing Update is "did the swap actually start". The answer was a four-way
+READING OF A LOG FILE — `vale-update.log`, written by TWO programs (the CLI writes the `update requested` receipt,
+the generated PowerShell swap script writes `update start`, `copy ok` and the restart line). The device knows the
+answer at exactly one moment: when it hands the script to WMI and `Win32_Process.Create` returns 0.
+
+    record_update_attempt(from, to, launched)   written in that branch, to logs/update-attempt.json
+    last_update_attempt()                      read back; NULL for a body it cannot use
+    /api/update.last_attempt                   reported in BOTH arms, including the no-channel one
+
+ABSENT, NEVER AN EMPTY OBJECT. A body without a positive `at_ms` is not a record, and the panel must be able to tell
+"this device has never launched an update" from "this device said something this build cannot read" — an empty object
+renders as the first. The panel refuses the same shapes again (`parseAttempt`), because the two ends of a wire
+contract drift independently: half a record renders as "updated from ? to ? at Invalid Date". A record with only a
+`from` IS accepted — it is the half an operator needs to know what they are running now.
+
+WHAT IT LOOKS LIKE, measured as rendered on 126 surfaces (6,920 rows, `stale=false`):
+
+    p.update-attempt        "Last update launched on this device: 1.2.433 → 1.2.435,"   16.27 light / 14.74 dark
+    span.update-attempt-age "10m ago"                                                  4.67 light / 6.88 dark
+    desktop density 16.69 / 14.00 · Settings-busy and LogsWarn included · need 4.5
+
+TWO AGES, TWO WORDS. `checkedAge` is the age of a READING ("checked 2m ago"); `attemptAge` is the age of an ACT
+("10m ago"), and the sentence around it already says what happened. Rendering the act with the reading's verb would
+describe the wrong event — which is why the formatter is separate rather than a boolean argument.
+
+AND THE LOGS CARD IS UNTOUCHED, deliberately: its verdict remains a reading of the log, which is the narration and
+the fallback for a device whose record is absent. The next step, if the two ever disagree in practice, is to let the
+wire fact OVERRIDE the `cli-only`/`cli-swap-launched` arm — the receipt says the CLI reached the device, the record
+says the swap started, and those are the two facts that arm is trying to guess from timestamps in text.
