@@ -86,7 +86,7 @@ const PAGES = ['installer', 'npm-only'];
 (async () => {
   const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
-  const report = { rows: [], surfaces: [], names: [], focus: [], press: [], idle: [], hover: [], unstyled: [], motion: [], targets: [], themeChecks: [], entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require('crypto').createHash('sha256').update(b).digest('hex').slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
+  const report = { rows: [], surfaces: [], names: [], focus: [], press: [], idle: [], hover: [], unstyled: [], motion: [], reflow: [], targets: [], themeChecks: [], entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require('crypto').createHash('sha256').update(b).digest('hex').slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
   await page.route('http://vale.test/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     const file = p === '/' || p === '' ? 'installer.html' : p.replace(/^\\//, '');
@@ -135,6 +135,21 @@ const PAGES = ['installer', 'npm-only'];
         // The clause was right and the list was wrong: the floor did exactly its job.
         const rows = await pressPass(page, ['.btn-primary', 'a', '.theme-toggle'], { page: where, width: 1440 });
         report.press.push({ page: where, width: 1440, density: 'landing', theme: scheme, measured: rows.filter((r) => !r.note).length, rows });
+      }
+    }
+  }
+  // REFLOW, THE LAST AXIS ON A STATIC PROXY. The static landing check answers the 320px question by reading page.js's own
+  // values — a proxy for the measurement the panel and the console take from the rendered document. The claim WCAG
+  // 1.4.10 makes is about what the BROWSER lays out, so this asks the browser, at both widths the standard names and
+  // in BOTH installer states: the npm-only state swaps a button for a sentence, which is exactly the kind of change
+  // that pushes a line past the viewport. The judge's clause is shared, so this is wiring only.
+  if (wants('reflow')) {
+    for (const width of [640, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+      for (const label of PAGES) {
+        await page.goto('http://vale.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
+        await page.waitForTimeout(900);
+        report.reflow.push({ page: label + '@' + width, width, density: 'landing', theme: 'light', ...(await page.evaluate(REFLOW)) });
       }
     }
   }

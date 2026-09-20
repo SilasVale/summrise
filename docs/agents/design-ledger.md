@@ -964,3 +964,19 @@ All three surfaces now measure the objective's idle clause, each with the rule i
 same exemption list, so the axis cannot drift between them.
 
     panel (6 pages x 2 densities) clean · console (every page, both themes) clean · landing (4 windows) clean
+
+### THE LANDING'S FOCUS PASS: CLEAN, WITH ONE RULE IN THE WHOLE PAGE (round 84)
+
+The panel and the console have walked their controls with Tab for many rounds; the landing never had, and it is the
+surface with the least focus styling — exactly ONE `.btn-primary:focus-visible` rule against a theme toggle and two or
+three links. Fourteen Tab presses per surface, once for each of the four (two installer states, two colour schemes),
+and the verdict is clean: focus is visible on every control the walk reaches, and Tab does not escape the page.
+
+That the pass found nothing is the useful part: the page's single focus rule is on the PRIMARY ACTION, and the
+browser's own default ring covers the rest — which is what a page with no framework reset gets for free and what the
+panel had to earn with its own sheet.
+
+Wired with the pass inlined from the shared source and judged by the shared clause, like every other axis: the landing
+now measures contrast, marks, names, unstyled, targets, press, idle, reduced motion AND focus. The one axis left on a
+STATIC proxy is reflow — `landing-check` reads `page.js`'s own values for the 320px question, while the panel and the
+console measure the rendered document's scrollWidth. That is the next round's work.
