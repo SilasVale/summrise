@@ -369,6 +369,34 @@ ${TIMING}
     report.names.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES)) });
   }
 
+  // THE PANEL DENSITY'S EMPTY STATE, RE-ADDED BECAUSE THE REASON IT WAS PRUNED HAS EXPIRED (round 91).
+  //
+  // Round 152 added this surface for the panel density and measured it "clean". Round 153 looked at what it had
+  // actually rendered and found it was NOT the empty state: the rail said "Sessions unavailable — reconnecting…",
+  // because in that harness the rail received connected=false. The desktop harness rendered the real thing ("No
+  // sessions yet"); the panel block was PRUNED rather than left in place with a caveat, and the note kept the
+  // sentence worth remembering: "a surface that measures the wrong state passes for the best reason."
+  //
+  // THE PREMISE HAS EXPIRED. Rounds 86 and 87 established — and CI now asserts on every run — that this harness DOES
+  // open the SSE stream: the panel renders connected, 4142 text nodes contain no "Sessions unavailable" on a surface
+  // whose harness did not report the failure fixture, and the judge FAILS a surface that regresses. So the block can
+  // come back, and the clause that proved the harness connected is also what makes it safe to re-add: if the panel
+  // renders the wrong state here again, THIS SURFACE fails instead of passing.
+  for (const theme of wants("pages") ? ['light', 'dark'] : []) {
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(2000);
+    const rows = await page.evaluate(PROBE);
+    for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty' });
+    report.themeChecks.push({ page: 'Panel-empty', intended: theme, ...(await page.evaluate(THEME)) });
+    report.surfaces.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(SURFACE)) });
+    report.names.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(NAMES)) });
+    // THE FLAG TRAVELS WITH THIS ONE, unlike the desktop block above: it is the whole reason the surface can exist.
+    report.sse.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(SSE)) });
+  }
+
   // THE UPDATE CARD MID-RELEASE. ?busy=1 exists in the harness and NO SWEEP HAS EVER RENDERED IT: the mode
   // list is idle/relaxed, so the state an operator stares at while a release is running has been measured
   // zero times. Measured by hand first (113 rows, no failing text, and the one disabled control is the
