@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -75,6 +75,7 @@ const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
 const focusPass = ${focusPass.toString()};
+const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};

@@ -38,7 +38,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 // WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
@@ -109,6 +109,7 @@ const EXPECTED_ENTRY_PATH = require("path").join(ROOT, "index.html");
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
 const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
+const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
 const idlePass = ${idlePass.toString()};
 const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};

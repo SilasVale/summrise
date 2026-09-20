@@ -435,6 +435,14 @@ jobs:
       # via Function.prototype.toString() — so this is not a copy that can drift.
       - name: contrast-probe regression checks
         run: node scripts/test/contrast-probe-check.mjs
+      # A PRESS MEASURED AGAINST REST IS A HOVER WEARING A PRESS'S NAME (round 95).
+      # `pressPass` took its baseline with the pointer parked away from the control, so a sheet that answered
+      # `:hover` and had NO `:active` rule still produced a difference and the row read `changed: true`. Measured
+      # on the device: the landing's theme toggle changes background+color on hover and NOTHING on press, and both
+      # gates missed it — this pass for that reason, `feedback-check.mjs` because it did not read the landing's
+      # inline sheet. The check pins the rule as a pure function AND the wiring in all three emitted artifacts.
+      - name: press anchor checks
+        run: node scripts/test/press-anchor-check.mjs
       # A SKIP MUST NOT LOOK LIKE A PASS — the third time this repo has had to say
       # so. `panel-render-audit.mjs` needs a Playwright runtime; where there is none
       # it emits its harness (deliberately) but it used to exit 0, and its own

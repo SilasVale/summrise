@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -232,6 +232,7 @@ const THEME = ${JSON.stringify(THEME_SOURCE)};
 // a run that is still working from one that was killed (round 181 lost half an hour to exactly that).
 ${DIAG_SOURCE}
 const focusPass = ${focusPass.toString()};
+const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};

@@ -447,6 +447,27 @@ export async function idlePass(page, ms = 6000) {
   return page.evaluate(() => window.__valeIdleStop());
 }
 
+/** WHAT THE PRESS ADDED, measured against the HOVERED state rather than the resting one.
+ *
+ *  A PRESS IS MEASURED AGAINST WHAT THE POINTER HAS ALREADY DONE (round 95). `pressPass` used to snapshot the
+ *  control with the pointer parked away from it, so a sheet that answered `:hover` and had no `:active` rule at all
+ *  still produced a difference — the hover did it — and the row read `changed: true`, which the judge reports as a
+ *  press that renders. Measured on the device, on the landing's theme toggle, which has a `:hover` rule and NO press
+ *  rule: resting -> hovered changes `background` and `color`; hovered -> pressed changes NOTHING. The pass could not
+ *  see it, and no other gate could either (the landing's sheet is inline in `index/src/page.js`, which the
+ *  sheet-level `feedback-check.mjs` did not read).
+ *
+ *  A hover ALWAYS co-occurs with a press, so the hover is the baseline the press has to beat: this is the same rule
+ *  `feedback-check.mjs` applies to the sheet ("hover implies press"), carried to the pixels.
+ *
+ *  PURE ON PURPOSE. The DOM loop around it cannot be exercised off a browser, so the part that decides the verdict
+ *  is a function with a test — the same reason `svgRootPaints` exists in the contrast probe. */
+export function pressDelta(hovered, pressed) {
+  const KEYS = ["transform", "opacity", "background", "filter"];
+  if (!hovered || !pressed) return [];
+  return KEYS.filter((k) => hovered[k] !== pressed[k]);
+}
+
 export async function pressPass(page, targets, label = {}) {
   const rows = [];
   const styleOf = (sel) => page.evaluate((s) => {
@@ -473,18 +494,23 @@ export async function pressPass(page, targets, label = {}) {
       return null;
     }, sel);
     if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
-    const before = await styleOf(sel);
+    // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the
+    // baseline is taken, or a mid-transition value would be compared against a settled one and a control that only
+    // answers a hover would read as answering a press again. These sheets transition in 120-200ms, so 260ms is the
+    // settle; the old pass waited 80ms and read `before` before the move, which is why the anchor was the defect
+    // rather than the wait.
     await page.mouse.move(box.x, box.y);
-    await page.waitForTimeout(80);
+    await page.waitForTimeout(260);
+    const hovered = await styleOf(sel);
     await page.mouse.down();
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(140);
     const pressed = await styleOf(sel);
     // OFF THE ELEMENT FIRST — see the note above: releasing here would click it.
     await page.mouse.move(box.x, Math.max(0, box.y - 80));
     await page.mouse.up();
     await page.waitForTimeout(60);
-    const props = before && pressed ? ["transform", "opacity", "background", "filter"].filter((k) => before[k] !== pressed[k]) : [];
-    rows.push({ sel, where: pressed ? pressed.where : before.where, size: box.w + "x" + box.h, changed: props.length > 0, props, before, pressed, ...label });
+    const props = pressDelta(hovered, pressed);
+    rows.push({ sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h, changed: props.length > 0, props, hovered, pressed, ...label });
   }
   return rows;
 }
