@@ -1589,3 +1589,42 @@ it, and `harness-fixture-check` pins both halves.
 
 The shipped test measures the token against every surface a mark lands on — including the COMPOSITED active fill that
 no single token names — and fails with the device's own number when the old value goes back.
+
+### THE PANEL BLAMED THE DEVICE FOR A QUESTION IT NEVER ASKED (round 99)
+
+The unrendered-state method — enumerate states the sheet draws, find one no fixture produces — turned up something
+different this time: a state that WAS rendered, on eight surfaces, saying something false.
+
+    Settings   "The device did not answer, so its restart history could not be read."
+
+`useBootHistory` reads `/api/boots` and requires `ok === true`; anything else is a FAILED read. The device sends the
+envelope, the panel's hook test sends it, and THE HARNESS DID NOT — so the Restarts card rendered its failure branch
+on every Settings surface the suite has ever photographed, judged clean every time, while its real content (the
+24-hour summary, the crash rows, the "first start" row, the uptime facts) was measured by NOTHING. It is the lesson
+the monitors stub three lines below already records from round 100, one endpoint over and one step worse: not an
+empty card, but a card blaming the device.
+
+FOUND BY READING THE DOM RATHER THAN THE REPORT, which is the part worth keeping. `window.__calls` showed no
+`/api/boots` request had ever been counted, and the card's section held only its `<h2>` and that sentence. The report
+had shown an `<h2>Restarts</h2>` with no rows after it and nothing looked wrong, because THE INSTRUMENT HAD HIDDEN
+THE ROW: the text-row dedupe keys on class + the first sixteen characters, and the vitals card says "The device did
+not answer, so its vitals could not be read" — same class, same sixteen characters, so the restart card's sentence
+was dropped. A probe that collapses two paragraphs into one cannot report what the second one said.
+
+Both ends fixed, and the first photograph of a restarts card this suite has ever taken came out clean:
+
+    p.restart-summary "3 restarts in the last 24h — one of them a crash"   16.27 of 4.5
+    span.restart-row-kind.is-crash "previous run crashed"                  7.27  rgb(165,29,29)
+    span.restart-row-kind "replaced by a restart" / "first start"          16.27
+    span.restart-row-fact "ran 1h 30m" / "ran 0s"                          7.47
+    li.restart-row (the crash row's edge, a graphic)                       4.85 of 3
+    "did not answer" rows across all 110 surfaces                                     0
+
+AND THE DEDUPE KEY IS HONEST ABOUT WHAT IT IS: class + sixteen characters + TOTAL LENGTH. It can still collide for
+two distinct strings of equal length sharing a prefix, and that is stated rather than claimed away; what it no longer
+does is collide on the pair that mattered. The same run reports **5,508 rows where it reported 5,250** — every one of
+them a distinct sentence the instrument had been dropping.
+
+The gate: `harness-fixture-check` asserts the stub carries `ok: true`, with the mutation that strips it, because the
+failure mode of THIS fixture is not an empty card — it is the panel asserting something false about a device that
+answered.
