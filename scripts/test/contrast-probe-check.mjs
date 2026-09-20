@@ -15,7 +15,7 @@
 // them with `Function.prototype.toString()`, so this is not a copy that can drift.
 import {
   compositeStack, contrastRatio, aaThreshold, parseColour, failures, unmeasurable, inactive, PROBE_SOURCE,
-  gradientStops, worstOverGradient,
+  gradientStops, worstOverGradient, svgRootPaints,
 } from "../../agent/scripts/lib/contrast-probe.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -186,7 +186,41 @@ t("the probe measures the SVG root and skips only its children", () => {
     !/el instanceof SVGElement \|\| el\.closest\('svg'\)/.test(PROBE_SOURCE),
     "a blanket SVG exclusion is back — it takes the root with it and leaves painterOf's fill/stroke branches unreachable",
   );
-  assert(/from: 'stroke'/.test(PROBE_SOURCE), "the painter must be able to report a stroke as the paint");
+  assert(PROBE_SOURCE.includes(svgRootPaints.toString()), "svgRootPaints is not embedded — the browser would run a different rule");
+});
+
+// ── AN SVG ROOT'S PAINT COUNTS ONLY WHERE A SHAPE PAINTS IT (round 94) ───────────────────────────────────────
+// Round 93 let the svg ROOT through the loop, and the root's fill/stroke are INHERITED properties — so a root whose
+// shapes each declare their own paint contributed the DEFAULT, rgb(0,0,0), and CI filed ten rows reading
+// "svg — painted rgb(0, 0, 0) (fill) ... 22px graphic, needs 3" against the brand mark and the vitals dial. These
+// cases are the two idioms MEASURED ON THE DEVICE (round 94), plus the number those false rows produced.
+t("an SVG root's paint is reported only when a shape computes it", () => {
+  // The panel's Icon: fill="none" stroke="currentColor", and every shape inherits exactly that.
+  const icon = svgRootPaints("none", "rgb(162, 163, 172)", ["none", "rgb(162, 163, 172)", "none", "rgb(162, 163, 172)"]);
+  assert.deepEqual(icon.map((c) => c.from), ["stroke"], `the icon's stroke is its colour, got ${JSON.stringify(icon)}`);
+  assert.equal(Math.round(icon[0].colour.r), 162);
+
+  // THE LANE COLOUR ROUND 92 NAMED AS UNMEASURABLE: the icon inside the new-session menu takes its stroke from
+  // the chip's `color`, so the same read measures --lane-ds / --lane-or instead of nothing.
+  const lane = svgRootPaints("none", "rgb(77, 171, 247)", ["none", "rgb(77, 171, 247)"]);
+  assert.equal(lane.length, 1, "an icon that inherits a lane colour must produce a row");
+  assert.equal(lane[0].colour.b, 247, "and the row must carry THAT colour");
+
+  // The brand mark, exactly as the device computed it: the root reports rgb(0,0,0) — the initial value of an
+  // inherited property — and all three shapes override it. NOTHING paints black, so nothing is reported.
+  const brand = svgRootPaints("rgb(0, 0, 0)", "none", ['url("#vale-sky")', "rgb(255, 248, 225)", "rgb(255, 255, 255)"]);
+  assert.deepEqual(brand, [], `the root's black is an inherited default, not a paint: ${JSON.stringify(brand)}`);
+  // ...and the row it used to produce was the 1.18 CI filed, which is why a false row is not harmless.
+  assert.equal(
+    contrastRatio(parseColour("rgb(0, 0, 0)"), parseColour("rgb(23, 24, 29)")).toFixed(2),
+    "1.18",
+    "the removed finding's own number — if this moves, the story in the probe's comment is stale",
+  );
+
+  // A root value that a shape DOES inherit still counts, and an empty svg paints nothing at all.
+  const kept = svgRootPaints("rgb(191, 58, 10)", "none", ["rgb(191, 58, 10)"]);
+  assert.equal(kept.length, 1, "a fill a shape inherits is the mark's real colour");
+  assert.deepEqual(svgRootPaints("rgb(0, 0, 0)", "none", []), [], "an svg with no shapes paints nothing");
 });
 
 t("color(srgb …) components are 0-1 floats, not channels", () => {

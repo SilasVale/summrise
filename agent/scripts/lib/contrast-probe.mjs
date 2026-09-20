@@ -150,6 +150,44 @@ export function worstOverGradient(fg, stops, base) {
   return worst;
 }
 
+/** THE PAINT AN SVG ROOT ACTUALLY PUTS ON SCREEN, as `{ colour, from }` candidates.
+ *
+ *  THE ROOT DRAWS NOTHING ITSELF. `fill` and `stroke` are INHERITED properties: an `<svg>`'s computed value is
+ *  what its shapes paint with, UNLESS a shape declares its own — and then the root's value paints nothing at
+ *  all. Measured on the device, on the panel's two idioms (round 94):
+ *
+ *      Icon   root fill=none stroke=rgb(162,163,172)  -> the polyline and line compute EXACTLY that
+ *      brand  root fill=rgb(0,0,0) — the DEFAULT       -> its rect/circle/path compute url(#sky), #fff8e1, #ffffff
+ *
+ *  The first is the icon's real colour, and reporting it is what round 93 was for. The second is the initial
+ *  value of an inherited property, which no pixel uses: the round-93 version filed TEN findings in CI that read
+ *  "svg — painted rgb(0,0,0) (fill) ... 22px graphic, needs 3" — the brand mark and the vitals dial on every
+ *  page — and that wall of noise is what the design job failed on. A false finding is not harmless: it is the
+ *  thing that gets an axis ignored, and it hid the one row in that same run that WAS a defect.
+ *
+ *  So a root's value is evidence only when a shape below it computes that same paint. `shapePaints` are the
+ *  computed `fill`/`stroke` strings of the root's shape descendants, in any order.
+ *
+ *  WHAT THIS STILL DOES NOT MEASURE, said here because a limit nobody wrote down gets rediscovered: a shape
+ *  that declares its OWN paint (the sparkline's paths, the brand mark's discs) produces no row — the root's
+ *  value is not its colour. That limit is older than round 93 and unchanged by this rule. */
+export function svgRootPaints(rootFill, rootStroke, shapePaints) {
+  const key = (c) => Math.round(c.r) + "," + Math.round(c.g) + "," + Math.round(c.b) + "," + Math.round((c.a ?? 1) * 1000);
+  const painted = new Set();
+  for (const raw of shapePaints) {
+    const c = parseColour(raw);
+    if (c && (c.a ?? 1) > 0.05) painted.add(key(c));
+  }
+  const out = [];
+  for (const pair of [[rootFill, "fill"], [rootStroke, "stroke"]]) {
+    const c = parseColour(pair[0]);
+    if (!c || (c.a ?? 1) <= 0.05) continue;
+    if (!painted.has(key(c))) continue;
+    out.push({ colour: c, from: pair[1] });
+  }
+  return out;
+}
+
 export const PROBE_SOURCE = `(() => {
   const compositeStack = ${compositeStack.toString()};
   const contrastRatio = ${contrastRatio.toString()};
@@ -157,6 +195,7 @@ export const PROBE_SOURCE = `(() => {
   const parseColour = ${parseColour.toString()};
   const gradientStops = ${gradientStops.toString()};
   const worstOverGradient = ${worstOverGradient.toString()};
+  const svgRootPaints = ${svgRootPaints.toString()};
   const SKIP = ${JSON.stringify(".xterm")};
 
   // Composite a mark's colour over the surface it sits on, for comparing candidates. Same arithmetic the
@@ -321,10 +360,19 @@ export const PROBE_SOURCE = `(() => {
       }
     }
     if (el instanceof SVGElement) {
-      const f = parseColour(st.fill);
-      if (f && (f.a ?? 1) > 0.05) candidates.push({ colour: f, from: 'fill' });
-      const sk = parseColour(st.stroke);
-      if (sk && (sk.a ?? 1) > 0.05) candidates.push({ colour: sk, from: 'stroke' });
+      // WHAT THE ROOT PAINTS IS WHAT ITS SHAPES PAINT (round 94). The two lines that stood here read the root's
+      // OWN computed fill and stroke, and an svg root draws nothing — those properties are INHERITED, so a
+      // root whose shapes each declare their own paint contributed the DEFAULT, rgb(0,0,0), and ten rows in CI
+      // reported the brand mark and the vitals dial as invisible black glyphs. svgRootPaints keeps a root value
+      // only when a shape computes it too; the reasoning and the measurements are on that function.
+      // (No backticks: this source is embedded in an emitted template literal — 47th time, caught by the hook.)
+      const shapes = el.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon, text');
+      const shapePaints = [];
+      for (const s of shapes) {
+        const ss = getComputedStyle(s);
+        shapePaints.push(ss.fill, ss.stroke);
+      }
+      for (const p of svgRootPaints(st.fill, st.stroke, shapePaints)) candidates.push(p);
     }
     if (!candidates.length) return null;
     if (candidates.length === 1 || !surface) return candidates[0];
