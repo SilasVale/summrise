@@ -233,7 +233,9 @@ cat > "$TMP/clean.json" <<'JSON'
     {"width": 320, "docScrollWidth": 320, "viewport": 320, "docScrollsSideways": false, "sideScrollers": ["div.tabs 100<300"]}
   ],
   "timing": [],
-  "focus": []
+  "focus": [],
+  "_sse_note": "WHAT THE FIXTURE SERVED. The claim clause needs this premise: a read-failure claim is judged only in a report that declares whether the fixture answered, because elsewhere the claim may be TRUE (the console has no backend). A clean panel report has a stream record per surface; this one stands in for the Terminal page.",
+  "sse": [{"page": "Terminal", "density": "panel", "theme": "light", "mode": "idle", "opened": true, "fail": false}]
 }
 JSON
 if node "$TOOL" --judge "$TMP/clean.json" > "$TMP/clean.out" 2>&1; then

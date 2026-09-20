@@ -952,8 +952,18 @@ export function judgeReport(report, opts = {}) {
   // THE SURFACES THAT MEAN IT ARE EXCUSED BY THE FIXTURE'S OWN ANSWER, not by a list here: report.sse carries
   // whether the run rejected every API call on purpose (?fail=1), and on those pages the claim is TRUE.
   const rejectedCalls = new Set((report.sse || []).filter((s) => s.fail).map((s) => s.page));
+  // THE PREMISE HAS TO HOLD BEFORE THE CLAUSE APPLIES: a claim is only FALSE where a fixture ANSWERED. The panel's
+  // report carries that evidence (`sse` records per surface, including the ?fail=1 pages); the CONSOLE has no backend
+  // at all — its sweep serves a static build, every API call fails for real, and "could not be read" on its Models
+  // page is TRUE. A clause that failed that page would be the instrument lying about the console, which is the
+  // defect this whole round is about, one level up. So a report that declares nothing about what it served is not
+  // judged on this axis, and says so the first time it runs.
+  const fixtureEvidence = (report.sse || []).length > 0;
+  if (!fixtureEvidence && (report.surfaces || []).some((s) => (s.claims || []).length)) {
+    console.log("note: read-failure claims are NOT judged here — this report declares nothing about what its fixture served, so the clause has no premise (the console has no backend)");
+  }
   const excusedClaims = [];
-  for (const s of report.surfaces || []) {
+  for (const s of fixtureEvidence ? report.surfaces || [] : []) {
     const claims = s.claims || [];
     if (!claims.length) continue;
     if (rejectedCalls.has(s.page)) {
