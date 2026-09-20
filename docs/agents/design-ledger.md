@@ -1942,3 +1942,39 @@ AND THE FINDING NOW SAYS WHERE. This axis measures two states per page, so `targ
 `target size (panel panel-Terminal reveal)` — the same lesson the press rows learned one round earlier, when
 `panel/light` made a rail-walk finding indistinguishable from a mode-loop one. A finding that cannot be reproduced is
 half a finding.
+
+### THE FACT THE PANEL WAS THROWING AWAY (round 17)
+
+`update_status` has reported `checked_at` since it was written — the moment the device last asked its release channel —
+and `grep checked_at` across the panel source returned NOTHING. The card said "1.2.433 available" with no age on it,
+while the device answers from a 30-second cache, so an update applied a minute ago still reads as available until the
+next check lands. A version claim with no time on it is one the reader cannot weigh; the vitals window and the restart
+list have carried their span for rounds.
+
+WHAT SHIPPED:
+
+    UpdateStatus.checkedAt      a NUMBER (a string is not epoch ms), finite and positive — absent, never zero
+    checkedAge(checkedAt, now)  seconds while an update may be in flight, minutes when idle, hours beyond
+    the line                   rendered only where the device reported a time; the clock time rides in the title
+    nowMs                      injected, the way the vitals and monitor cards take it, so the age is testable
+
+MEASURED AS RENDERED, on the device:
+
+    light   .update-checked  "checked 2m ago"  12px  tabular-nums  rgb(113,113,122)  4.67 of 4.5
+    dark    .update-checked  "checked 2m ago"  12px  tabular-nums  rgb(162,163,172)  6.88 of 4.5
+    desktop light 4.79 · desktop dark 6.54 · Settings-busy 4.67 · LogsWarn 4.67 / 6.88
+
+AND THE FIXTURE CHANGED WITH IT, because a state no fixture renders is a state no sweep measures — the rule rounds
+96-101 kept re-learning. `/api/update` serves a FIXED `checked_at` two minutes back: fixed rather than relative,
+because a page whose numbers move between the harness and the report would make two runs of the same surface
+disagree. The judge's stale-stamp clause fired on the first pair I ran (harness and sweep emitted either side of the
+fixture change) — a caveat I chose to remove by re-running from one generation rather than read through.
+
+WHAT THIS ROUND DID NOT DO, and why it is the next device-end step: the update verdict an operator actually reads is
+still a four-way READING OF `vale-update.log` — a text file written by TWO programs (the CLI writes the
+`update requested` receipt, the generated swap script writes the stages). The device knows the fact that decides
+whether to re-run an update — DID THE SWAP LAUNCH — at the moment it hands the script to WMI
+(`update_from_tgz`'s `ReturnValue == 0` branch), and it could record it as a structured `last_attempt` for
+`/api/update` to report. That is a device + wire + panel change with a real migration question (older devices report
+the field as absent, so the log reading has to stay as the fallback), and it deserves its own round rather than the
+tail of this one.
