@@ -1677,3 +1677,48 @@ A NOTE ON THE INSTRUMENT, since the claim clause is new and a clause that cannot
 the axis is planted in `panel-design-sweep.bash` as `false-claim`, and the OTHER direction is planted beside it — the
 same sentence on a `?fail=1` surface must PASS and must print its reason, because a judge that fails everything is as
 useless as one that fails nothing.
+
+### THE TWO VIEWS NOBODY HAD PHOTOGRAPHED, AND THE FIXTURE BUG THAT HID THEM (round 101)
+
+The per-session view switch has three tabs — Terminal, Trajectory (the raw audit timeline) and Path (the same work as
+steps, with a summary) — and every surface in this suite left it on Terminal. The harness has served the events all
+along: a goal, an approval armed/approved/granted, two commands with exit 0 and exit 1, their output. Nothing ever
+clicked the tab. So the panel's two most information-dense views, and every style in them — the round dots and their
+states, the exit badges, the governance chips, the plan rows, the step tags, the attention rows — had been measured by
+nothing at all.
+
+ADDING THE CLICK WAS NOT ENOUGH, and the reason is the fourth instance of one defect class:
+
+    if (u.indexOf('/api/sessions') >= 0) { ... }        the ARCHIVE stub
+
+also matches `/api/sessions/<sid>`, so the PER-SESSION stub below it — the one that serves the audit trail — was
+UNREACHABLE. Every request for a session's events got the archive's body, and with the envelope now in place the
+reader treated that as a SUCCESSFUL EMPTY READ: both views drew "No commands in this session yet" and "No path yet",
+and the first photographs were of an empty page that looked correct. A BROAD MATCH SHADOWING A SPECIFIC ONE joins the
+family this ledger has been collecting: a fixture answering a question nobody asked. It is matched as a PATH now
+(no regex, no backslashes — the diag helper in that same file records why), and `harness-fixture-check` pins it with
+the mutation that widens it back.
+
+THE FIRST REAL PHOTOGRAPH, ON BOTH DENSITIES AND BOTH THEMES (120 surfaces, 6,412 rows), and the judge failed it at
+once:
+
+    2.56  panel/Trajectory-light              span.cmd-dot  rgb(161,161,170) (ring) on white, 8px graphic, needs 3
+    2.56  desktop/Desktop-Trajectory-light    the same mark, the same number
+
+THE MUTED RING WAS UNDER THE GRAPHIC BAR IN LIGHT, and nothing could see it from either side: `statePalette.test.ts`
+asserts those dots agree on COLOUR across components, and the contrast contract walks `--mark-ink` — which these rings
+do not use. `--state-muted` is the INK OF A RING (three rules draw `inset 0 0 0 1.5px var(--state-muted)`) and it was
+`var(--faint)`, a token whose own doc calls it a mark colour. Fixed to `var(--muted)` — 4.83 on that surface, 6.71 in
+dark — and restated in the dark block so each theme uses its own grey rather than the light one computed at :root.
+
+    after:  Trajectory-light .cmd-dot (ring) 4.83 | Trajectory-dark 6.71 | need 3
+            every other dot on the new surfaces: ok 3.42-4.88, fail 3.48-4.83, all passing
+
+The two views also render their real content now: three rounds with durations, `exit 1` badges in the failure ink, the
+governance chips, the plan steps with their tags and reasons, and the "why was this interrupted" notes — so the next
+round has something to measure that no round before it could.
+
+A NOTE FOR THE NEXT READER: the History page's OTHER half is still unphotographed. `HistoryPage` has two scopes —
+Sessions (the archive, which the sweep does render, EMPTY) and Runs (the activity view, behind a click) — and
+`/api/sessions` answers an empty list, so the archive's list rows and the trail inside an archived session have never
+been drawn either.
