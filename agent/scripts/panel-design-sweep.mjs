@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -234,6 +234,12 @@ ${DIAG_SOURCE}
 const focusPass = ${focusPass.toString()};
 const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
+// AND EVERY HELPER THAT FUNCTION CALLS. pressPass now asks the DOM for the page's controls, and the first version
+// of that shipped WITHOUT this line: the emitted sweep called discoverPressTargets, the definition was not in the
+// file, and the run died with "FATAL discoverPressTargets is not defined" — in CI, two minutes into the design job,
+// because nothing local RUNS the emitted artifact (the gates plant defects in a report and judge it). The emitter
+// checks its own output for this now; see the guard below.
+const discoverPressTargets = ${discoverPressTargets.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -1255,7 +1261,20 @@ function judge(file) {
 }
 
 if (mode === "--emit") {
-  process.stdout.write(browserScript());
+  const out = browserScript();
+  // A HELPER THAT IS CALLED BUT NOT EMBEDDED IS A RUN THAT DIES ON THE DEVICE (round 103). `pressPass` asks the DOM
+  // for the page's controls now, and the first version of that shipped without embedding `discoverPressTargets`: the
+  // emitted file parsed, every local gate passed (they PLANT DEFECTS IN A REPORT and judge it — nothing local RUNS
+  // the emitted artifact), and CI died two minutes into the design job with "FATAL discoverPressTargets is not
+  // defined". The emitters are the only place that knows which helpers are borrowed, so the check lives here: each
+  // name below is embedded by name, and the emitted text must DEFINE it.
+  const EMBEDDED = ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "idlePass", "motionPass"];
+  const missing = EMBEDDED.filter((n) => !out.includes("function " + n));
+  if (missing.length) {
+    console.error("FATAL the emitted sweep CALLS " + missing.join(", ") + " but does not define " + (missing.length === 1 ? "it" : "them") + " — the run would die on the device with 'is not defined'");
+    process.exit(1);
+  }
+  process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];
   if (!file) {

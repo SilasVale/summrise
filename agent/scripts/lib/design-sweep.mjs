@@ -509,7 +509,7 @@ export function pressDelta(hovered, pressed) {
  *  fifty identical rows costs one press, capped so a busy page cannot turn one surface into a minute of clicking.
  *  The CAP is reported (`discovered`), because a pass that quietly pressed the first eight of forty controls is the
  *  same false comfort as a scan that read nothing. */
-async function discoverPressTargets(page, cap, skip) {
+export async function discoverPressTargets(page, cap, skip) {
   return page.evaluate(({ cap, skip }) => {
     const out = [];
     const seen = new Set();
