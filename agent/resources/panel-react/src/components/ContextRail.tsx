@@ -233,6 +233,18 @@ export function ContextRail({
                 which of the two this is; a bare "2h" beside a session name reads
                 as the session's age, and until this round that is exactly what it
                 claimed. */}
+            {/* THE DEVICE'S OWN EXIT CODE, when the last command it finished failed (round 96). Nothing is
+                shown for a session whose last command succeeded or whose fate is unknown: `null` means the
+                device observed no code (no command yet, a timeout, or an ssh/serial session with no marker),
+                and a chip for that would be a claim the device never made. */}
+            {typeof s.lastExitCode === "number" && s.lastExitCode !== 0 && (
+              <span
+                className="side-exit"
+                title={`the last command this session finished exited ${s.lastExitCode}`}
+              >
+                exit {s.lastExitCode}
+              </span>
+            )}
             <span
               className="side-time"
               title="how long this panel has known about this session"

@@ -1067,6 +1067,14 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
                         plan_step,
                         run_id.as_deref(),
                     );
+                    // THE PREVIOUS COMMAND'S OUTCOME STOPS BEING THIS SESSION'S ANSWER HERE (round 96).
+                    // Cleared at the write, not at completion: between the two, the honest answer is
+                    // "unknown", and a row still carrying the old code would let a surface say FAILED
+                    // about a command that has not finished. `None` is that third state, and it is
+                    // written on the path where the command REALLY started — the write above failed
+                    // its way out before this point, so nothing is cleared for a command that never
+                    // reached the shell.
+                    terminal_mgr.term_note_exit_code(&sid, None).await;
                     let quiet_dur = std::time::Duration::from_millis(quiet_ms);
                     // Background mode: return immediately with the read cursor
                     // so the caller can collect output incrementally.
@@ -1151,11 +1159,24 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
                                             // swallowed done/exit_code and left
                                             // terminal_jobs reporting running
                                             // forever (same idiom as 377/988/1291).
-                                            let mut jm = jobs_bg.lock().unwrap_or_else(|p| p.into_inner());
-                                            if let Some(j) = jm.get_mut(&job_id2) {
-                                                j.done = true;
-                                                j.exit_code = f.exit_code;
+                                            // THE GUARD LIVES IN ITS OWN SCOPE. A `std::sync::MutexGuard`
+                                            // held across an await makes the whole spawned future
+                                            // non-Send, and this block now awaits below — the compiler
+                                            // says so in one line (`future cannot be sent between
+                                            // threads safely`), which is the good version of this bug.
+                                            {
+                                                let mut jm = jobs_bg.lock().unwrap_or_else(|p| p.into_inner());
+                                                if let Some(j) = jm.get_mut(&job_id2) {
+                                                    j.done = true;
+                                                    j.exit_code = f.exit_code;
+                                                }
                                             }
+                                            // The session row carries the same answer the job registry
+                                            // just got, from the same marker — one fact, one read, two
+                                            // audiences (round 96). Unknown shells stay `None` here for
+                                            // the same reason the registry does: the quiet fallback
+                                            // cannot prove the command ended.
+                                            mgr2.term_note_exit_code(&sid2, f.exit_code).await;
                                         }
                                     } else {
                                         // Unknown shell: quiet-period fallback.
@@ -1392,6 +1413,12 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
                     // (marker) and the reason the wait stopped (round-54).
                     logger.log_command_end(&sid, marker_code, Some(wait_reason),
                         Some(cmd_started.elapsed().as_millis() as u64));
+                    // AND THE SESSION SAYS SO (round 96). Only a marker code is recorded: a wait that
+                    // ended in a timeout or a partial read does not know what became of the command,
+                    // so the row keeps saying "unknown" instead of claiming an outcome. That is the
+                    // same rule the audit line above follows by logging `marker_code`, which is None
+                    // in exactly those cases.
+                    terminal_mgr.term_note_exit_code(&sid, marker_code).await;
                     // Release the per-session execute lock (round-55) — the
                     // only exit path from the wait loop.
                     terminal_mgr.term_release_execute(&sid).await;

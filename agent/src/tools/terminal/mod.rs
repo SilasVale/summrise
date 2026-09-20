@@ -123,6 +123,27 @@ pub struct TermSessionInfo {
     /// path shows three of them plus two nobody announced.
     #[serde(default)]
     pub plan: Vec<String>,
+    /// THE EXIT CODE OF THE LAST COMMAND THIS SESSION FINISHED, when the shell reported one.
+    ///
+    /// WHY THE DEVICE REPORTS IT. `liveness.ts` lists four states and says why there is no fifth:
+    /// "'Failed' is not here because no field reports it per session — inventing a state would put a
+    /// shape on the screen that nothing can ever mean." The panel CAN derive a failure from the audit
+    /// trail, but only for the session whose trail it has loaded, so every OTHER tab, and the rail,
+    /// cannot say it at all — the same blindness `command_running` had before round 28, and the same
+    /// answer: the device has known it all along (`marker_code` at the end of the execute wait loop),
+    /// so it says so on the list every client already polls.
+    ///
+    /// THREE STATES, AND THE THIRD IS THE POINT. `Some(0)` succeeded, `Some(n)` failed, and ABSENT
+    /// means NO CODE WAS OBSERVED — either no command has finished in this session, or the last one
+    /// was still running when its wait ended (a timeout or a partial read). It is CLEARED when a new
+    /// command is written, so a stale code can never be read as the new command's outcome, and a
+    /// command whose fate is unknown reports nothing rather than guessing. A mark that lies is worse
+    /// than a mark that is absent.
+    ///
+    /// Only the shell's own marker produces it (PTY with marker injection, or the 633;D sequence):
+    /// ssh and serial sessions report nothing, which is the same limit `term_exit_code` has always had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_exit_code: Option<i32>,
 }
 
 /// A command waiting for an operator decision. `expires_in_ms` is derived at read
@@ -439,6 +460,13 @@ mod desktop_impl {
         /// concurrent executes share one buffer cursor and would interleave
         /// reads + marker ownership.
         busy: bool,
+        /// The exit code of the last command this session FINISHED, when the shell's own marker
+        /// reported one. Cleared when a new command is written, so it is never a stale code read as
+        /// the new command's outcome; `None` therefore means "nothing to say" (no command yet, or the
+        /// last one's wait ended without a marker — a timeout, a partial read, an ssh/serial session
+        /// with no marker injection at all). See `TermSessionInfo::last_exit_code` for why it is on
+        /// the wire and why the third state exists.
+        last_exit_code: Option<i32>,
         /// A PERSON holds the keyboard (control handoff). Orthogonal to `busy`
         /// on purpose: `busy` is transient contention the AI should wait out,
         /// this is a deliberate handover that waiting cannot resolve.
@@ -1005,6 +1033,7 @@ mod desktop_impl {
                     last_output: std::time::Instant::now(),
                     opened_at: std::time::Instant::now(),
                     busy: false,
+                    last_exit_code: None,
                     held_by_human: false,
                     approval_required: false,
                     pending_approval: None,
@@ -1845,6 +1874,18 @@ mod desktop_impl {
                 .and_then(|s| s.backend.exit_code())
         }
 
+        /// RECORD (or CLEAR) THE SESSION'S LAST OBSERVED EXIT CODE.
+        ///
+        /// `None` is not "no opinion" — it is the honest answer for a command whose fate is unknown,
+        /// and the caller that writes a command passes it so the previous command's code cannot be
+        /// read as this one's. See `TermSessionInfo::last_exit_code`.
+        pub async fn term_note_exit_code(&self, sid: &str, code: Option<i32>) {
+            let mut inner = self.inner.lock().await;
+            if let Some(s) = inner.sessions.iter_mut().find(|s| s.id == sid) {
+                s.last_exit_code = code;
+            }
+        }
+
         pub async fn term_list(&self) -> Vec<TermSessionInfo> {
             let inner = self.inner.lock().await;
             inner
@@ -1863,6 +1904,7 @@ mod desktop_impl {
                     approval_grants: s.approval_grants.clone(),
                     goal: s.goal.clone(),
                     plan: s.plan.clone(),
+                    last_exit_code: s.last_exit_code,
                 })
                 .collect()
         }
@@ -1890,6 +1932,7 @@ mod desktop_impl {
                     approval_grants: s.approval_grants.clone(),
                     goal: s.goal.clone(),
                     plan: s.plan.clone(),
+                    last_exit_code: s.last_exit_code,
                 })
         }
 
@@ -3217,6 +3260,7 @@ mod tests {
                 "apply the VLAN".into(),
                 "verify".into(),
             ],
+            last_exit_code: Some(1),
         };
         assert_eq!(
             serde_json::to_value(&full).expect("serializes"),
@@ -3237,6 +3281,7 @@ mod tests {
             approval_grants: vec![],
             goal: None,
             plan: vec![],
+            last_exit_code: None,
         };
         assert_eq!(
             serde_json::to_value(&minimal).expect("serializes"),
@@ -3548,6 +3593,76 @@ mod tests {
             Some(id),
             "term_info and term_list must project the same question"
         );
+    }
+
+    /// THE DEVICE'S OWN EXIT CODE, ON THE ROW THE PANEL READS (round 96).
+    ///
+    /// Three states, and the third is the one a surface must not guess: `Some(0)` succeeded, `Some(n)`
+    /// failed, and ABSENT means no code was observed — no command yet, a wait that ended in a timeout or a
+    /// partial read, or an ssh/serial session, which has no marker at all. The execute path CLEARS it when a
+    /// new command is written, so this drives the manager the way that path does: set, then clear.
+    ///
+    /// The OMISSION is asserted as well as the value. `skip_serializing_if` is the difference between "the
+    /// device has nothing to say" and "the device says exit 0", and a surface that cannot tell those apart
+    /// would paint a success nobody observed.
+    #[cfg(all(feature = "terminal", not(target_os = "windows")))]
+    #[tokio::test]
+    async fn the_row_carries_the_last_command_outcome_and_forgets_it_on_the_next_write() {
+        let mgr = control_mgr();
+        let sid = open_pty(&mgr).await;
+
+        let row = |mgr: &crate::tools::terminal::TerminalManager, sid: &str| {
+            let sid = sid.to_string();
+            let mgr = mgr.clone();
+            async move {
+                mgr.term_list()
+                    .await
+                    .into_iter()
+                    .find(|s| s.id == sid)
+                    .expect("the session is listed")
+            }
+        };
+
+        let fresh = row(&mgr, &sid).await;
+        assert_eq!(
+            fresh.last_exit_code, None,
+            "a session that has finished nothing says nothing"
+        );
+        assert!(
+            serde_json::to_value(&fresh)
+                .expect("serializes")
+                .get("last_exit_code")
+                .is_none(),
+            "ABSENT, not null: a reader has to tell 'nothing to say' from 'exit 0'"
+        );
+
+        mgr.term_note_exit_code(&sid, Some(1)).await;
+        let failed = row(&mgr, &sid).await;
+        assert_eq!(failed.last_exit_code, Some(1));
+        assert_eq!(
+            serde_json::to_value(&failed).expect("serializes")["last_exit_code"],
+            1,
+            "the number crosses the wire, so a surface can say WHICH code"
+        );
+
+        mgr.term_note_exit_code(&sid, Some(0)).await;
+        assert_eq!(
+            row(&mgr, &sid).await.last_exit_code,
+            Some(0),
+            "a SUCCESS is an answer too — the row must not go quiet and leave the reader guessing"
+        );
+
+        mgr.term_note_exit_code(&sid, None).await;
+        assert_eq!(
+            row(&mgr, &sid).await.last_exit_code,
+            None,
+            "a new command CLEARS it: between the write and the shell's marker the honest answer is \
+             'unknown', never the previous command's code"
+        );
+
+        // A session that has gone away is a no-op, not a panic: the execute path notes the outcome on a
+        // session that may have been closed while the command was in flight.
+        mgr.term_note_exit_code("term-gone", Some(2)).await;
     }
 
     /// A REFUSAL after the park mints nothing.

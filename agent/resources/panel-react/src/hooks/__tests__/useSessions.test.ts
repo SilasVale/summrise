@@ -432,6 +432,9 @@ describe("the device's session row", () => {
     expect(full.idleMs).toBe(3_600_000);
     // THE DEVICE'S BUSY FLAG, on the row: a command in flight, which output recency cannot see (round 28).
     expect(full.commandRunning).toBe(true);
+    // AND THE OUTCOME OF THE LAST COMMAND IT FINISHED (round 96) — the fact `liveness.ts` says no field
+    // reported, so no surface could say FAILED about a session whose trail it had not loaded.
+    expect(full.lastExitCode).toBe(1);
     expect(full.approvalRequired).toBe(true);
     expect(full.approvalGrants).toEqual(["display", "show"]);
     expect(full.goal).toBe("provision the ONU 0/1 on VLAN 100");
@@ -446,6 +449,9 @@ describe("the device's session row", () => {
     // The minimal row keeps its defaults — no invented question, no invented goal.
     const minimal = sessions.find((s) => s.sid === "term-abc123-8")!;
     expect(minimal.pendingApproval).toBeNull();
+    // ABSENT IS NOT ZERO. The minimal row has never finished a command, and the device omits the field
+    // rather than sending null — a surface must show nothing for that, not "exit 0".
+    expect(minimal.lastExitCode).toBeNull();
     expect(minimal.approvalRequired).toBe(false);
     expect(minimal.approvalGrants).toEqual([]);
     expect(minimal.goal).toBeNull();

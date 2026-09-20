@@ -101,6 +101,20 @@ export interface Session {
    * device exists for. The device has known all along; the row says so now.
    */
   commandRunning: boolean;
+  /** THE EXIT CODE OF THE LAST COMMAND THIS SESSION FINISHED, when the shell's marker reported one
+   *  (round 96). `null`/absent means NO CODE WAS OBSERVED — no command yet, or the last wait ended
+   *  without a marker (a timeout or a partial read), or an ssh/serial session, which has no marker
+   *  injection at all.
+   *
+   *  WHY IT IS ON THE WIRE RATHER THAN DERIVED HERE. The panel can read a failure out of the audit
+   *  trail — `cardState` maps an exit code to ok/fail — but only for the session whose trail is
+   *  loaded, so the rail and every other tab could not say it. `liveness.ts` names this exact hole:
+   *  "'Failed' is not here because no field reports it per session — inventing a state would put a
+   *  shape on the screen that nothing can ever mean." The device has reported one since round 96.
+   *
+   *  THREE STATES, AND THE DEVICE CLEARS IT WHEN A NEW COMMAND IS WRITTEN, so a surface must not
+   *  keep its own memory of a failure: a row that is absent means "nothing to say", not "fine". */
+  lastExitCode?: number | null;
   /** WHEN THIS PANEL FIRST SAW THE SESSION — not when it opened.
    *
    *  This field was called `openedAt` and rendered as the session's AGE, which
@@ -211,7 +225,7 @@ export function useSessions(connected: boolean) {
           for (const s of list as any[]) {
             const existing = next.find((x) => x.sid === s.id);
             if (!existing) {
-              next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
+              next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
                 approvalRequired: !!s.approval_required, pendingApproval: mapPending(s),
                 approvalGrants: mapGrants(s), goal: mapGoal(s), plan: mapPlan(s) });
             } else if (existing.closed) {
@@ -224,11 +238,13 @@ export function useSessions(connected: boolean) {
               const revived = { ...existing, closed: false, closedAt: null,
                 heldByHuman: !!s.held_by_human, approvalRequired: !!s.approval_required,
                 pendingApproval: mapPending(s), approvalGrants: mapGrants(s), goal: mapGoal(s),
-                plan: mapPlan(s) };
+                plan: mapPlan(s),
+                lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null };
               next[next.indexOf(existing)] = revived;
             } else if (
               existing.heldByHuman !== !!s.held_by_human ||
               existing.approvalRequired !== !!s.approval_required ||
+              (existing.lastExitCode ?? null) !== (typeof s.last_exit_code === "number" ? s.last_exit_code : null) ||
               existing.pendingApproval?.id !== mapPending(s)?.id
               || existing.approvalGrants.join("\u0000") !== mapGrants(s).join("\u0000")
               || existing.goal !== mapGoal(s)
@@ -247,6 +263,7 @@ export function useSessions(connected: boolean) {
                 approvalGrants: mapGrants(s),
                 goal: mapGoal(s),
                 plan: mapPlan(s),
+                lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null,
               };
             }
           }
@@ -309,7 +326,7 @@ export function useSessions(connected: boolean) {
           const missing = (list as any[]).filter((s) => !prev.some((x) => x.sid === s.id));
           const next = [...prev];
           for (const s of missing) {
-            next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
+            next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
                 approvalRequired: !!s.approval_required, pendingApproval: mapPending(s),
                 approvalGrants: mapGrants(s), goal: mapGoal(s), plan: mapPlan(s) });
           }
@@ -388,7 +405,7 @@ export function useSessions(connected: boolean) {
         // round-86: the new session is the ACTIVE one — the old active:false
         // + setActiveSid(sid) never set the session's own flag, so the pane
         // stayed display:none (blank terminal area).
-        return [...prev.filter((s) => s.sid !== sid).map((s) => ({ ...s, active: false })), { sid, label, kind, closed: false, savedOnly: false, active: true, idleMs: 0, commandRunning: false, firstSeenAt: Date.now(), closedAt: null, heldByHuman: false, approvalRequired: false, pendingApproval: null, approvalGrants: [], goal: null, plan: [] }];
+        return [...prev.filter((s) => s.sid !== sid).map((s) => ({ ...s, active: false })), { sid, label, kind, closed: false, savedOnly: false, active: true, idleMs: 0, commandRunning: false, lastExitCode: null, firstSeenAt: Date.now(), closedAt: null, heldByHuman: false, approvalRequired: false, pendingApproval: null, approvalGrants: [], goal: null, plan: [] }];
       });
       setActiveSid(sid);
       return sid;

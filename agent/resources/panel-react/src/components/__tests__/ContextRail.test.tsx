@@ -206,3 +206,30 @@ describe("ContextRail when the device is unreachable", () => {
     expect(container.textContent).toContain("No sessions yet");
   });
 });
+
+// ── THE DEVICE'S EXIT CODE, ON THE ROW (round 96) ────────────────────────────────────────────────
+// `liveness.ts` names the hole this closes: "'Failed' is not here because no field reports it per
+// session." The device reports it now, and the row wears it — for a failure only.
+describe("the last command's exit code", () => {
+  const renderRail = (over: Partial<Session>) =>
+    render(<ContextRail {...props({ sessions: [session(over)] })} />);
+
+  it("wears a failure and nothing else", () => {
+    const { unmount } = renderRail({ lastExitCode: 1 });
+    expect(screen.getByText("exit 1")).toBeTruthy();
+    unmount();
+    // A SUCCESS IS NOT A CHIP. The row's job is to draw the eye to what needs it; exit 0 asks for nothing.
+    const ok = renderRail({ lastExitCode: 0 });
+    expect(screen.queryByText(/^exit /)).toBeNull();
+    ok.unmount();
+    // AND NEITHER IS "UNKNOWN": absent means the device observed no code (no command yet, a timeout, an
+    // ssh/serial session with no marker), so a chip would be a claim it never made.
+    const unknown = renderRail({ lastExitCode: null });
+    expect(screen.queryByText(/^exit /)).toBeNull();
+    unknown.unmount();
+    // A non-zero code carries the code itself, because "failed" alone does not say how.
+    const two = renderRail({ lastExitCode: 130 });
+    expect(screen.getByText("exit 130")).toBeTruthy();
+    two.unmount();
+  });
+});

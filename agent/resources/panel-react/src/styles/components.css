@@ -401,6 +401,25 @@
   cursor: pointer;
   transition: background var(--ds-transition-duration) var(--ds-ease-in-out);
 }
+/* THE SESSION'S LAST COMMAND FAILED — THE DEVICE'S OWN EXIT CODE, WORN ON THE ROW (round 96).
+   The panel could already say this about ONE session: the trajectory's `cardState` maps an exit code to
+   ok/fail, but only for the trail it has loaded. Every other tab, and the rail, had no way to know — which
+   `liveness.ts` names in its own words: "'Failed' is not here because no field reports it per session."
+   `last_exit_code` is that report, and this is the row wearing it.
+   IT IS A CHIP, NOT A MARK, ON PURPOSE. The mark vocabulary is one shape per LIVENESS state, and a failure is
+   not liveness — a session can be idle and have failed. Giving it a fifth silhouette would also collide with
+   the question the operator has not answered yet (the console spells failure as a diamond and the panel spells
+   WAITING as one). A chip says the same thing without borrowing the vocabulary: the shape decision stays open.
+   The pair is judged by pairContrast.test.ts, which reads every rule that declares both a colour and a
+   background — including this one. */
+.side-exit {
+  flex: none;
+  padding: var(--sp-0-5) var(--sp-1);
+  border-radius: var(--radius-xs);
+  background: var(--danger-soft);
+  color: var(--danger-on-soft);
+  font: 600 var(--fs-2xs) var(--font-mono);
+}
 .side-row:hover { background: var(--surface); }
 .side-row.active { background: var(--accent-soft); }
 .side-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }

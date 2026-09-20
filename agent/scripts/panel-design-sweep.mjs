@@ -590,6 +590,38 @@ ${TIMING}
     }
   }
 
+  // THE DEVICE'S LAST-COMMAND OUTCOME, PHOTOGRAPHED (round 96). liveness.ts names this hole in its own
+  // comment — "'Failed' is not here because no field reports it per session" — and the device reports it now
+  // (last_exit_code), so the panel's session row wears a chip for a NON-ZERO code.
+  // (No backticks: this comment is inside the emitted template literal — 52nd time, caught by the emit.) Every seed this harness
+  // builds reports no code at all, so without a surface the chip exists on the wire and nowhere a sweep can
+  // measure it: the same gap rounds 88-92 closed four times, and the fifth state found the same way.
+  //
+  // THE THREE STATES ARE ALL ON ONE PAGE, which is what makes this surface worth its two renders: the first
+  // session's last command FAILED (Some(1) -> the chip), and the rest report NOTHING (absent -> no chip). The
+  // third state — exit ZERO — renders identically to absent by design, so no rendered surface can tell those
+  // two apart; the unit test in ContextRail.test.tsx pins that difference instead, which is the honest place
+  // for it. (?exitok=1 exists in the harness for a round that needs to photograph the pair directly.)
+  //
+  // PANEL DENSITY ONLY: the desktop shell renders its own tab strip and no side list, so the chip has no
+  // desktop surface to photograph — measured, not assumed (the press pass reports .side-row as NOT RENDERED
+  // in that density).
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=4&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      const pname = 'LastFail-' + theme;
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail', page: pname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
   // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
   // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,
