@@ -398,6 +398,31 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted dec
   fi
 done
 
+# A DEAD PRESS IS ONLY A FINDING WHEN THE POINTER ARRIVED (round 103). `pressPass` records `reached`, and a row whose
+# point the pointer never got to proves nothing about the control — reporting it as "renders NOTHING when pressed" is
+# how the log toggle was accused of ignoring a press it answers. Both directions, because a clause that excuses
+# everything is as useless as one that accuses everything.
+python3 - "$TMP/clean.json" "$TMP/press-blind.json" "$TMP/press-dead.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+row = {"sel": ".btn", "where": "button.btn", "size": "54x26", "changed": False, "props": [], "reached": False,
+       "note": "the pointer never reached this control — .toast is drawn over the point that was pressed"}
+blind = dict(base); blind["press"] = [{"density": "panel", "theme": "light", "measured": 2, "rows": [row]}]
+json.dump(blind, open(sys.argv[2], "w"))
+dead = json.loads(json.dumps(blind)); dead["press"][0]["rows"][0].pop("reached"); dead["press"][0]["rows"][0].pop("note")
+json.dump(dead, open(sys.argv[3], "w"))
+PY
+if node "$TOOL" --judge "$TMP/press-blind.json" > "$TMP/press-blind.out" 2>&1; then
+  ok "a press row the pointer never reached is NOT reported as a control that ignores a press"
+else
+  bad "the judge accused a control from a press the pointer never delivered: $(grep -m1 'renders NOTHING' "$TMP/press-blind.out")"
+fi
+if node "$TOOL" --judge "$TMP/press-dead.json" > /dev/null 2>&1; then
+  bad "the judge passed a dead press with no evidence about whether the pointer arrived"
+else
+  ok "and the same row WITHOUT that evidence is still a finding"
+fi
+
 # AND THE CLAIM A FIXTURE MEANS: the same sentence on a surface whose run REJECTED every call (?fail=1) is TRUE,
 # and the judge must excuse it from the fixture's own answer rather than from a list inside the judge.
 python3 - "$TMP/clean.json" "$TMP/claim-excused.json" <<'PY'

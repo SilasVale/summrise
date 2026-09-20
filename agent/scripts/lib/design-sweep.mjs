@@ -610,10 +610,6 @@ export async function pressPass(page, targets, label = {}) {
       rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
       continue;
     }
-    if (box.movedPage && box.reaches === false) {
-      rows.push({ sel, note: "the pointer cannot reach this control — " + box.covered + " is drawn over its visible part — NOT pressed, and that is not evidence about its press" });
-      continue;
-    }
     // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the
     // baseline is taken, or a mid-transition value would be compared against a settled one and a control that only
     // answers a hover would read as answering a press again. These sheets transition in 120-200ms, so 260ms is the
@@ -632,11 +628,15 @@ export async function pressPass(page, targets, label = {}) {
     const props = pressDelta(hovered, pressed);
     // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED: if the pointer never reached the element (something
     // is drawn over it, or the read happened mid-scroll), the row says so instead of claiming a still control.
+    // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED (round 103) — but the ROW IS STILL A MEASUREMENT. The
+    // pass presses, as it always has; `reached` is EXTRA EVIDENCE, and the JUDGE is where it changes the verdict.
+    // Removing such rows instead (two earlier versions of this fix) emptied the pass and CI's FLOOR said so: an
+    // instrument may not answer a question it declined to ask, and it may not stop asking either.
     const reached = !(box.movedPage && hovered && hovered.hit === false);
     rows.push({
       sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
       changed: props.length > 0, props, hovered, pressed, reached,
-      ...(reached ? {} : { note: "the pointer never reached this element (something is drawn over it) — NOT pressed, and that is not evidence about its press" }),
+      ...(reached ? {} : { note: "the pointer never reached this control — " + box.covered + " is drawn over the point that was pressed — so this row is NOT evidence that it ignores a press" }),
       ...label,
     });
   }
@@ -1030,7 +1030,9 @@ export function judgeReport(report, opts = {}) {
   // reaches the screen.
   for (const row of report.press || []) {
     const where = `${row.density || "?"}/${row.theme || "?"}`;
-    const dead = (row.rows || []).filter((r) => r.changed === false);
+    // AND ONLY WHERE THE POINTER ARRIVED. A row the pass could not deliver a press to is not a control that ignored
+    // one — that distinction is the whole reason `.device-logs-toggle` was accused in round 103.
+    const dead = (row.rows || []).filter((r) => r.changed === false && r.reached !== false);
     for (const d of dead) findings.push(`${where}: ${d.sel} (${d.where}) renders NOTHING when pressed — before and during are identical (${d.size})`);
     // AND WHAT THE PASS COULD NOT PRESS IS SAID OUT LOUD (round 103). A row that carries a note was not measured, and
     // a floor that fires without saying why sends the next reader to the browser to re-derive it.
