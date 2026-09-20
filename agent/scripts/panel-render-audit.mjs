@@ -227,12 +227,16 @@ function buildHarness() {
   // MEASURES. The chip's three states are all on one page: the first session failed (Some(1) -> chip), the
   // rest report nothing (absent -> no chip), and ?exitok=1 below is the third.
   // (No backticks: this comment lives inside the emitted template literal — 51st time, caught by the emit.)
+  // ON THE SSH SEED (index 2), NOT THE FIRST SESSION, and that is what puts FOUR states on one page: with
+  // mode=pending the first seed is the one holding the question (WAITING outranks everything) and the second is
+  // the busy serial session (WORKING), so a failure on either of those would be invisible. Index 2 is the quiet
+  // ssh row — idle by every other measure — which is exactly the session a failure mark has to describe.
   var EXIT_FAIL = P.get('exitfail') === '1';
-  if (EXIT_FAIL && SESSIONS.length) SESSIONS[0].last_exit_code = 1;
+  if (EXIT_FAIL && SESSIONS.length > 2) SESSIONS[2].last_exit_code = 1;
   // THE THIRD STATE, on its own surface because it is the one a surface must not get wrong: exit ZERO is an
   // answer, and it must render as EMPTY rather than as a chip saying "exit 0".
   var EXIT_OK = P.get('exitok') === '1';
-  if (EXIT_OK && SESSIONS.length) SESSIONS[0].last_exit_code = 0;
+  if (EXIT_OK && SESSIONS.length > 2) SESSIONS[2].last_exit_code = 0;
 
   var FAIL = P.get('fail') === '1';
   window.__calls = [];

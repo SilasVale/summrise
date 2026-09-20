@@ -597,11 +597,13 @@ ${TIMING}
   // builds reports no code at all, so without a surface the chip exists on the wire and nowhere a sweep can
   // measure it: the same gap rounds 88-92 closed four times, and the fifth state found the same way.
   //
-  // THE THREE STATES ARE ALL ON ONE PAGE, which is what makes this surface worth its two renders: the first
-  // session's last command FAILED (Some(1) -> the chip), and the rest report NOTHING (absent -> no chip). The
-  // third state — exit ZERO — renders identically to absent by design, so no rendered surface can tell those
-  // two apart; the unit test in ContextRail.test.tsx pins that difference instead, which is the honest place
-  // for it. (?exitok=1 exists in the harness for a round that needs to photograph the pair directly.)
+  // FOUR OF THE FIVE STATES ARE ON ONE PAGE, which is what makes this surface worth its renders: the ssh row's
+  // last command FAILED (Some(1) -> the triangle), the busy serial row is WORKING, the first row holds a question
+  // (WAITING), and the rest are IDLE. The marks probe compares states WITHIN a family on ONE page, so this is the
+  // only surface where a collapsed failed/idle or failed/waiting can be caught at all; off is the fifth and
+  // lives on the closed surface. The states that render IDENTICALLY are pinned by tests instead of pixels: exit
+  // ZERO and absent both draw nothing, and liveness.test.ts is where that difference lives.
+  // (No backticks: this comment is inside the emitted template literal.)
   //
   // PANEL DENSITY ONLY: the desktop shell renders its own tab strip and no side list, so the chip has no
   // desktop surface to photograph — measured, not assumed (the press pass reports .side-row as NOT RENDERED
@@ -609,7 +611,7 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=4&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=pending&sessions=6&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);

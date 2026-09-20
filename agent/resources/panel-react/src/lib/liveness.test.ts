@@ -19,6 +19,7 @@ import {
   sessionActive,
   anyCommandRunning,
   sessionWaiting,
+  sessionFailed,
   type Liveness,
 } from "./liveness";
 import { WORKING_MS } from "../hooks/useDeviceActivity";
@@ -27,7 +28,20 @@ const STATES = Object.keys(URGENCY) as Liveness[];
 
 describe("the liveness model", () => {
   it("names exactly the states the device can report", () => {
-    expect(STATES.sort()).toEqual(["idle", "off", "waiting", "working"]);
+    // FIVE, AND THE FIFTH WAITED FOR THE WIRE (round 97). This list was four for as long as the comment above it
+    // said why: "'Failed' is not here because no field reports it per session." `last_exit_code` is that field
+    // (round 96), so the state exists now — and this assertion is the one that failed the moment it was added,
+    // which is what it is for.
+    expect(STATES.sort()).toEqual(["failed", "idle", "off", "waiting", "working"]);
+  });
+
+  it("gives FAILED the shape nothing else claims", () => {
+    // The panel spends the diamond on WAITING and the console spends it on FAILURE; a fifth state that reused it
+    // would put two meanings on one silhouette in the same tab strip. Pinned by NAME so a later "simplification"
+    // cannot quietly fold the triangle back into a shape that is already taken.
+    expect(SILHOUETTE.failed).toBe("triangle");
+    expect(SILHOUETTE.failed).not.toBe(SILHOUETTE.waiting);
+    expect(SILHOUETTE.failed).not.toBe(SILHOUETTE.working);
   });
 
   it("gives every state its own silhouette", () => {
@@ -42,8 +56,30 @@ describe("the liveness model", () => {
 
   it("orders urgency: a question beats activity, activity beats quiet, unreachable beats all", () => {
     expect(URGENCY.waiting).toBeGreaterThan(URGENCY.working);
-    expect(URGENCY.working).toBeGreaterThan(URGENCY.idle);
+    expect(URGENCY.working).toBeGreaterThan(URGENCY.failed);
+    // A FAILURE OUTRANKS QUIET AND LOSES TO ANYTHING HAPPENING NOW (round 97). It describes what already
+    // happened, so a session that is working or holding a question is not described by its last exit code.
+    expect(URGENCY.failed).toBeGreaterThan(URGENCY.idle);
     expect(URGENCY.idle).toBeGreaterThan(URGENCY.off);
+  });
+
+  it("resolves a FAILED session, and never lets it outrank work or a question", () => {
+    const failed = { lastExitCode: 1 };
+    expect(sessionLiveness(failed)).toBe("failed");
+    expect(sessionLiveness({ lastExitCode: 1, commandRunning: true })).toBe("working");
+    expect(sessionLiveness({ lastExitCode: 1, pendingApproval: { id: "ap" } })).toBe("waiting");
+    expect(sessionLiveness({ lastExitCode: 1, closed: true })).toBe("off");
+    // ABSENT IS NOT FAILURE, and it is not success either — it is the third state the device reports by omission
+    // (no command yet, no shell marker, an ssh/serial session). A mark that turned it into either answer would be
+    // inventing one, so both spellings of "nothing to say" land on idle.
+    expect(sessionLiveness({ lastExitCode: null })).toBe("idle");
+    expect(sessionLiveness({})).toBe("idle");
+    // ZERO IS AN ANSWER, AND IT IS NOT A FAILURE.
+    expect(sessionLiveness({ lastExitCode: 0 })).toBe("idle");
+    expect(sessionFailed({ lastExitCode: 0 })).toBe(false);
+    expect(sessionFailed({ lastExitCode: 130 })).toBe(true);
+    expect(sessionFailed({ lastExitCode: null })).toBe(false);
+    expect(sessionFailed({})).toBe(false);
   });
 
   it("resolves the precedence in one place", () => {

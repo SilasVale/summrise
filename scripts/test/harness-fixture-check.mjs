@@ -86,14 +86,19 @@ const CHECKS = [
     // a flag the chip has no rendered surface anywhere. That is the gap rounds 88-92 closed four times running.
     // TWO FLAGS, because the state has three values and the third (exit ZERO) must render as EMPTY.
     name: "?exitfail=1 and ?exitok=1 can express the last command's outcome",
+    // ON THE SSH SEED (index 2), AND THE INDEX IS PART OF THE CONTRACT (round 97). With `mode=pending` the first
+    // seed holds the question and the second is busy, so a failure planted on either is INVISIBLE — waiting and
+    // working both outrank it. Index 2 is the quiet row, which is the one a failure mark has to describe; a
+    // mutation that moves it back to [0] fails here rather than silently photographing a waiting diamond.
     test: (h) =>
       /P\.get\('exitfail'\) === '1'/.test(h) &&
-      /SESSIONS\[0\]\.last_exit_code = 1;/.test(h) &&
+      /SESSIONS\[2\]\.last_exit_code = 1;/.test(h) &&
       /P\.get\('exitok'\) === '1'/.test(h) &&
-      /SESSIONS\[0\]\.last_exit_code = 0;/.test(h),
+      /SESSIONS\[2\]\.last_exit_code = 0;/.test(h),
     mutations: [
-      { why: "the failure flag stopped setting the code, so its only surface renders no chip", from: /SESSIONS\[0\]\.last_exit_code = 1;/, to: ";" },
-      { why: "exit ZERO stopped being expressible, so the state that must render as EMPTY has no surface", from: /SESSIONS\[0\]\.last_exit_code = 0;/, to: ";" },
+      { why: "the failure flag stopped setting the code, so its only surface renders no failed mark", from: /SESSIONS\[2\]\.last_exit_code = 1;/, to: ";" },
+      { why: "exit ZERO stopped being expressible, so the state that must render as EMPTY has no surface", from: /SESSIONS\[2\]\.last_exit_code = 0;/, to: ";" },
+      { why: "the failure moved onto the session whose WAITING state hides it (round 97)", from: /SESSIONS\[2\]\.last_exit_code = 1;/, to: "SESSIONS[0].last_exit_code = 1;" },
     ],
   },
   {

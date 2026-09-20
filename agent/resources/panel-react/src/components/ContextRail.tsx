@@ -192,7 +192,13 @@ export function ContextRail({
             {connected ? "No sessions yet" : "Sessions unavailable — reconnecting…"}
           </p>
         )}
-        {rows.map((s) => (
+        {rows.map((s) => {
+          // ONE DERIVATION FOR THE MARK AND FOR ITS EXPLANATION (round 97). The title names the exit code only when
+          // the shape BESIDE IT is the failed triangle: a tooltip that described a different state from the mark it
+          // hangs on would be the two-witnesses defect in miniature, and a session that is working right now is not
+          // described by its last exit code.
+          const live = sessionLiveness(s);
+          return (
           <div
             key={s.sid}
             role="button"
@@ -209,7 +215,19 @@ export function ContextRail({
               }
             }}
           >
-            <span className="mark side-dot" data-live={sessionLiveness(s)} data-kind={s.kind} />
+            {/* THE MARK CARRIES THE STATE, THE TITLE CARRIES THE CODE (round 97). The row used to wear a chip
+                for a failed last command — the stopgap while the state had no silhouette. The state has one now
+                (a triangle), so the chip is gone: one fact, one focal point. The exit code is still one hover
+                away, because "failed" without a number is not enough to act on, and the command cards in the
+                trajectory carry the full story. */}
+            <span
+              className="mark side-dot"
+              data-live={live}
+              data-kind={s.kind}
+              title={
+                live === "failed" ? `the last command this session finished exited ${s.lastExitCode}` : undefined
+              }
+            />
             {renaming === s.sid ? (
               <input
                 className="side-rename"
@@ -233,18 +251,6 @@ export function ContextRail({
                 which of the two this is; a bare "2h" beside a session name reads
                 as the session's age, and until this round that is exactly what it
                 claimed. */}
-            {/* THE DEVICE'S OWN EXIT CODE, when the last command it finished failed (round 96). Nothing is
-                shown for a session whose last command succeeded or whose fate is unknown: `null` means the
-                device observed no code (no command yet, a timeout, or an ssh/serial session with no marker),
-                and a chip for that would be a claim the device never made. */}
-            {typeof s.lastExitCode === "number" && s.lastExitCode !== 0 && (
-              <span
-                className="side-exit"
-                title={`the last command this session finished exited ${s.lastExitCode}`}
-              >
-                exit {s.lastExitCode}
-              </span>
-            )}
             <span
               className="side-time"
               title="how long this panel has known about this session"
@@ -281,7 +287,8 @@ export function ContextRail({
               </button>
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );

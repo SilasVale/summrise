@@ -180,7 +180,15 @@ const SURFACE = \`(() => {
           : bordered ? (dashed ? 'dashed-ring' : 'ring')
           : filled && shadow !== 'none' ? 'halo'
           : filled ? 'solid' : 'empty';
-        const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', kind].join('/');
+        // A CLIPPED SHAPE IS A SHAPE, AND THE SIGNATURE COULD NOT SEE ONE (round 97). The panel's fifth state draws
+        // its triangle with clip-path — a fill whose outline is cut — so without this term the failed mark and a
+        // plain fill computed the SAME signature, and the collision check would have passed two states that paint
+        // differently (or, worse, called a real collision clean). The four shape channels a mark can use are now all
+        // in the signature: corner radius, rotation, clip, and the fill/ring/halo/dash KIND. The whole clip string is
+        // carried rather than a boolean, because a second clipped shape would otherwise collide with this one.
+        // (No backticks: this probe is a template literal — 53rd time, caught by the emit.)
+        const clip = st.clipPath && st.clipPath !== 'none' ? st.clipPath : '-';
+        const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', clip, kind].join('/');
         const key = base;
         if (!families.has(key)) families.set(key, new Map());
         families.get(key).set(which, sig);

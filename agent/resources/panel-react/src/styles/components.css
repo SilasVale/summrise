@@ -217,6 +217,29 @@
   border-radius: 50%;
   background: transparent;
 }
+/* A FAILED LAST COMMAND — THE FIFTH SILHOUETTE, AND THE FIRST ONE THE DEVICE HAD TO LEARN TO REPORT (round 97).
+   `liveness.ts` used to say why it did not exist: "'Failed' is not here because no field reports it per session."
+   The device reports it now (`last_exit_code`, round 96), so the state has a shape like every other state.
+   A TRIANGLE, AND IT IS THE ONLY SHAPE NEITHER SURFACE USES FOR A STATE ALREADY: the panel spends the diamond on
+   WAITING, the console spends it on FAILURE, and the console's other states are a solid fill (ok), a square
+   (warn), a halo (running) and a ring (absent). The triangle reads as "something went wrong" without being
+   learned, and it leaves both diamonds alone — which matters because `waiting` and `failed` sit side by side in
+   the same tab strip. `clip-path` rather than a border trick, because the probe resolves a BORDER as a ring: this
+   mark is a FILL whose outline is cut, which is the one thing a clipped background says exactly.
+   RADIUS ZERO ON PURPOSE: the probe's signature carries the corner radius, and a clipped shape with rounded
+   corners would be a contradiction in the data two states are told apart by.
+   AND THE INK IS THE FAMILY'S INK, NOT ITS FILL — measured rather than assumed, because the first version used
+   --state-fail and a mark sits on FOUR surfaces per theme. On the dark ACTIVE session row (--accent-soft, #3d2817)
+   --state-fail draws 2.87:1, under the 3:1 a graphic needs, and that is exactly where the diamond already sits on
+   the surface this flag was built for. --danger-on-soft is the danger family's readable ink (light #a51d1d, dark
+   #ff8787) and clears 6.71 / 5.99 at its worst — the same choice the `waiting` state already made with --warn-ink,
+   whose own name says "ink" for the same reason. (No backticks in this comment: it is inside a template literal in
+   the sweep emitters' world too, and the emit guard is the one that says so.) */
+.mark[data-live="failed"] {
+  background: var(--danger-on-soft);
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
 /* A mark with no liveness to report — the session card's holder dot answers a different question — still draws
    as a plain mark rather than disappearing. */
 .mark:not([data-live]) { background: var(--mark-ink); border-radius: 50%; }
@@ -400,25 +423,6 @@
   text-align: left;
   cursor: pointer;
   transition: background var(--ds-transition-duration) var(--ds-ease-in-out);
-}
-/* THE SESSION'S LAST COMMAND FAILED — THE DEVICE'S OWN EXIT CODE, WORN ON THE ROW (round 96).
-   The panel could already say this about ONE session: the trajectory's `cardState` maps an exit code to
-   ok/fail, but only for the trail it has loaded. Every other tab, and the rail, had no way to know — which
-   `liveness.ts` names in its own words: "'Failed' is not here because no field reports it per session."
-   `last_exit_code` is that report, and this is the row wearing it.
-   IT IS A CHIP, NOT A MARK, ON PURPOSE. The mark vocabulary is one shape per LIVENESS state, and a failure is
-   not liveness — a session can be idle and have failed. Giving it a fifth silhouette would also collide with
-   the question the operator has not answered yet (the console spells failure as a diamond and the panel spells
-   WAITING as one). A chip says the same thing without borrowing the vocabulary: the shape decision stays open.
-   The pair is judged by pairContrast.test.ts, which reads every rule that declares both a colour and a
-   background — including this one. */
-.side-exit {
-  flex: none;
-  padding: var(--sp-0-5) var(--sp-1);
-  border-radius: var(--radius-xs);
-  background: var(--danger-soft);
-  color: var(--danger-on-soft);
-  font: 600 var(--fs-2xs) var(--font-mono);
 }
 .side-row:hover { background: var(--surface); }
 .side-row.active { background: var(--accent-soft); }

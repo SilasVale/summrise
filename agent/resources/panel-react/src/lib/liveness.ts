@@ -27,28 +27,35 @@ import { WORKING_MS } from "../hooks/useDeviceActivity";
 // that nothing can ever mean.
 
 /** What a mark can say about an entity's LIVENESS. Urgency, not category. */
-export type Liveness = "off" | "waiting" | "working" | "idle";
+export type Liveness = "off" | "waiting" | "working" | "failed" | "idle";
 
 /** The silhouette a state draws — the channel that survives colour loss. */
-type Silhouette = "diamond" | "solid-halo" | "ring" | "dashed-ring";
+type Silhouette = "diamond" | "solid-halo" | "ring" | "dashed-ring" | "triangle";
 
 /** Ordered by URGENCY, and the order is the contract: a mark may only be louder than another if it
  *  outranks it. `waiting` beats `working` because a question DECAYS if it is not seen, while work
- *  continues; `off` is quietest because it says nothing can be done either way. */
-export const URGENCY: Record<Liveness, number> = { waiting: 3, working: 2, idle: 1, off: 0 };
+ *  continues; `off` is quietest because it says nothing can be done either way.
+ *
+ *  `failed` SITS BETWEEN ACTIVITY AND QUIET, and the position is the argument (round 97). It is a fact about
+ *  what ALREADY HAPPENED, so anything happening NOW outranks it — a session that is working or holding a
+ *  question is not described by its last exit code. It outranks `idle` because "quiet, and the last thing here
+ *  broke" is more than "quiet". And it LINGERS by design: the device clears the code when the next command is
+ *  written, so the state ends when the session does something else, not on a timer this surface invents. */
+export const URGENCY: Record<Liveness, number> = { waiting: 4, working: 3, failed: 2, idle: 1, off: 0 };
 
 /** One shape per state, no two alike. Pinned by liveness.test.ts, because "shape carries the state"
  *  is worthless if two states share a shape. */
 export const SILHOUETTE: Record<Liveness, Silhouette> = {
   waiting: "diamond",
   working: "solid-halo",
+  failed: "triangle",
   idle: "ring",
   off: "dashed-ring",
 };
 
 /** Motion is an ADDITION, never the message: only `working` moves, and it still reads as a solid
  *  mark with a halo when motion is off. */
-export const MOVES: Record<Liveness, boolean> = { waiting: false, working: true, idle: false, off: false };
+export const MOVES: Record<Liveness, boolean> = { waiting: false, working: true, failed: false, idle: false, off: false };
 
 /**
  * THE PRECEDENCE, in one place. Every surface that shows liveness calls this rather than writing its
@@ -58,14 +65,23 @@ export const MOVES: Record<Liveness, boolean> = { waiting: false, working: true,
  * `reachable` is about the TRANSPORT, not the entity: a session on a dead connection cannot be
  * answered even if a question is outstanding, so it is `off` and the mark must not claim otherwise.
  */
-export function livenessOf(input: { reachable: boolean; pending: boolean; active: boolean }): Liveness {
+export function livenessOf(input: { reachable: boolean; pending: boolean; active: boolean; failed?: boolean }): Liveness {
   if (!input.reachable) return "off";
   if (input.pending) return "waiting";
   if (input.active) return "working";
+  if (input.failed) return "failed";
   return "idle";
 }
 
-/** The device as a whole: reachable, holding questions, or busy. */
+/** The device as a whole: reachable, holding questions, or busy.
+ *
+ *  NO `failed` HERE, AND THAT IS A DECISION RATHER THAN AN OMISSION (round 97). A device-level failure would have
+ *  to pick WHICH session's last command to blame and say nothing about which — and the rail has no room to name it.
+ *  Worse, the rail is the one mark that is always on screen: an AI runs commands continuously and plenty of them
+ *  exit non-zero for ordinary reasons (a `grep` with no match), so a device-wide triangle would be a light that is
+ *  on most of the time and therefore means nothing. The failure belongs on the SESSION's mark, where the operator
+ *  can see which session it is, and the rail keeps answering the question it was built for: is this machine doing
+ *  something, and does anything want me. */
 export function deviceLiveness(input: { connected: boolean; pendingCount: number; working: boolean }): Liveness {
   return livenessOf({ reachable: input.connected, pending: input.pendingCount > 0, active: input.working });
 }
@@ -138,10 +154,28 @@ export function sessionLiveness(session: {
   closed?: boolean;
   idleMs?: number;
   commandRunning?: boolean;
+  lastExitCode?: number | null;
 }): Liveness {
   return livenessOf({
     reachable: !session.closed,
     pending: sessionWaiting(session),
     active: sessionActive(session),
+    failed: sessionFailed(session),
   });
+}
+
+/** DID THIS SESSION'S LAST COMMAND FAIL — the device's own exit code, and nothing else (round 97).
+ *
+ *  ONE PREDICATE, because three surfaces ask the question (the tab's mark, the row's mark, the desktop tab's) and
+ *  a second `!== 0` written somewhere else is how two of them come to disagree.
+ *
+ *  ABSENT IS NOT FAILURE and not success: `lastExitCode` is `null` when the device observed no code at all — no
+ *  command yet, a wait that ended without a shell marker, or an ssh/serial session with no marker injection. That
+ *  is the third state, and a mark that turned it into either answer would be inventing one.
+ *
+ *  NON-ZERO IS A FAILURE, with no judgement about WHICH codes deserve it: the panel's command cards have called
+ *  every non-zero exit "Failed (exit N)" since they existed (`cardState`), and a surface that decided a 1 from a
+ *  `grep` was not worth mentioning would be making a claim the device never made. */
+export function sessionFailed(session: { lastExitCode?: number | null }): boolean {
+  return typeof session.lastExitCode === "number" && session.lastExitCode !== 0;
 }

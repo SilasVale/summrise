@@ -207,29 +207,47 @@ describe("ContextRail when the device is unreachable", () => {
   });
 });
 
-// ── THE DEVICE'S EXIT CODE, ON THE ROW (round 96) ────────────────────────────────────────────────
-// `liveness.ts` names the hole this closes: "'Failed' is not here because no field reports it per
-// session." The device reports it now, and the row wears it — for a failure only.
-describe("the last command's exit code", () => {
-  const renderRail = (over: Partial<Session>) =>
-    render(<ContextRail {...props({ sessions: [session(over)] })} />);
+// ── THE DEVICE'S EXIT CODE, ON THE MARK (round 96, given a shape in round 97) ───────────────────
+// The fact crossed the wire in round 96 and the row wore it as a text chip while the state had no silhouette. It
+// has one now (a triangle, `liveness.ts`), so the chip is gone and this pins what the mark says instead: a failed
+// last command changes the MARK and nothing else on the row, a success and an unknown do not, and the code itself
+// stays one hover away.
+describe("a session whose last command failed", () => {
+  const markOf = (container: HTMLElement) => container.querySelector(".side-dot");
 
-  it("wears a failure and nothing else", () => {
-    const { unmount } = renderRail({ lastExitCode: 1 });
-    expect(screen.getByText("exit 1")).toBeTruthy();
-    unmount();
-    // A SUCCESS IS NOT A CHIP. The row's job is to draw the eye to what needs it; exit 0 asks for nothing.
-    const ok = renderRail({ lastExitCode: 0 });
-    expect(screen.queryByText(/^exit /)).toBeNull();
+  it("draws the failed state, and only for a failure", () => {
+    // QUIET, because the failure has to be the loudest true thing about the session: the helper's `idleMs: 0`
+    // means "just produced output", which is WORKING and outranks a past failure — asserted below, because that
+    // precedence is the whole reason `failed` sits where it does in the urgency table.
+    const quiet = { idleMs: 60_000 };
+    const failed = render(<ContextRail {...props({ sessions: [session({ ...quiet, lastExitCode: 1 })] })} />);
+    expect(markOf(failed.container)?.getAttribute("data-live")).toBe("failed");
+    expect(markOf(failed.container)?.getAttribute("title")).toBe("the last command this session finished exited 1");
+    failed.unmount();
+
+    // ZERO IS AN ANSWER, NOT A FAILURE: the session is idle, and no title claims otherwise.
+    const ok = render(<ContextRail {...props({ sessions: [session({ ...quiet, lastExitCode: 0 })] })} />);
+    expect(markOf(ok.container)?.getAttribute("data-live")).toBe("idle");
+    expect(markOf(ok.container)?.getAttribute("title")).toBeNull();
     ok.unmount();
-    // AND NEITHER IS "UNKNOWN": absent means the device observed no code (no command yet, a timeout, an
-    // ssh/serial session with no marker), so a chip would be a claim it never made.
-    const unknown = renderRail({ lastExitCode: null });
-    expect(screen.queryByText(/^exit /)).toBeNull();
+
+    // AND NEITHER IS "UNKNOWN": absent means the device observed no code at all (no command yet, a wait without a
+    // shell marker, an ssh/serial session), so the row says nothing about an outcome.
+    const unknown = render(<ContextRail {...props({ sessions: [session({ ...quiet, lastExitCode: null })] })} />);
+    expect(markOf(unknown.container)?.getAttribute("data-live")).toBe("idle");
+    expect(markOf(unknown.container)?.getAttribute("title")).toBeNull();
     unknown.unmount();
-    // A non-zero code carries the code itself, because "failed" alone does not say how.
-    const two = renderRail({ lastExitCode: 130 });
-    expect(screen.getByText("exit 130")).toBeTruthy();
-    two.unmount();
+
+    // The code is carried for any non-zero value, not only for 1 — "failed" alone does not say how it failed.
+    const killed = render(<ContextRail {...props({ sessions: [session({ ...quiet, lastExitCode: 130 })] })} />);
+    expect(markOf(killed.container)?.getAttribute("title")).toBe("the last command this session finished exited 130");
+    killed.unmount();
+
+    // ANYTHING HAPPENING NOW OUTRANKS WHAT ALREADY HAPPENED: still producing output reads working, and the code
+    // is not mentioned, because the session's present is not its last exit code.
+    const busy = render(<ContextRail {...props({ sessions: [session({ idleMs: 0, lastExitCode: 1 })] })} />);
+    expect(markOf(busy.container)?.getAttribute("data-live")).toBe("working");
+    expect(markOf(busy.container)?.getAttribute("title")).toBeNull();
+    busy.unmount();
   });
 });

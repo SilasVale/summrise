@@ -43,9 +43,22 @@ if (!silhouetteBlock) {
 }
 const panel = {};
 for (const m of silhouetteBlock[1].matchAll(/(\w+)\s*:\s*"([\w-]+)"/g)) panel[m[1]] = m[2];
-if (Object.keys(panel).length < 4) {
-  console.error(`mark-vocabulary-check: FAILED — read ${Object.keys(panel).length} panel state(s), expected at least 4`);
+// FIVE SINCE ROUND 97, and the floor is how a silent SHRINK is caught: the vocabulary grew a state when the device
+// learned to report a command's outcome, and a later edit that drops one would otherwise leave this gate reading
+// four and reporting a clean sheet.
+if (Object.keys(panel).length < 5) {
+  console.error(`mark-vocabulary-check: FAILED — read ${Object.keys(panel).length} panel state(s), expected at least 5`);
   process.exit(1);
+}
+// AND NO TWO STATES MAY SHARE A SHAPE, which is the property the map exists for. `liveness.test.ts` asserts it too;
+// this file asserts it on the DATA the two surfaces are compared through, because a shape added here without one
+// there is exactly how "the silhouette carries the state" would quietly stop being true.
+{
+  const shapes = Object.values(panel);
+  if (new Set(shapes).size !== shapes.length) {
+    console.error(`mark-vocabulary-check: FAILED — the panel's ${shapes.length} states share ${new Set(shapes).size} silhouette(s): ${shapes.join(", ")}`);
+    process.exit(1);
+  }
 }
 
 // ── the console's vocabulary, computed from its sheet with the SAME rule its own gate uses ─────
@@ -102,6 +115,16 @@ if (consoleShapes.size < 10) {
 // ── 1. THE ATTENTION SHAPE IS THE DIAMOND ON BOTH SURFACES ──────────────────────────────────────
 if (panel.waiting !== "diamond") {
   failures.push(`the panel's most urgent state draws "${panel.waiting}", not a diamond — the shape that means "this wants you" has moved`);
+}
+// FAILURE HAS ITS OWN SHAPE, AND IT IS NOT THE DIAMOND (round 97). A failed last command is the second thing that
+// asks for a person, and the panel's diamond is already spent on a question — so the state that says "this broke"
+// must be drawn as something else, or the tab strip would carry two meanings on one silhouette. The console's own
+// failure diamond is asserted above; this is the panel's side of the same rule.
+if (panel.failed === panel.waiting) {
+  failures.push(`the panel draws FAILURE as "${panel.failed}" — the shape it already uses for a QUESTION, so the two states that both want a person are one silhouette`);
+}
+if (!panel.failed || panel.failed === "solid-halo") {
+  failures.push(`the panel gives FAILED no shape of its own ("${panel.failed}") — a state the device reports and no surface can draw is the hole this vocabulary closed in round 97`);
 }
 for (const [sel, s] of consoleShapes) {
   if (s.means !== "failure") continue;
