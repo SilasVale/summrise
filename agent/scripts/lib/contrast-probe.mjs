@@ -223,6 +223,13 @@ export const PROBE_SOURCE = `(() => {
       gradient: bg.gradient,
       approx: gradientCr !== null,
       cr: bg.gradient ? gradientCr : contrastRatio(fg, bg.colour),
+      // THE SAME EVIDENCE THE GRAPHIC ROWS CARRY (round 88). These two colours ARE the ratio — the graphic rows
+      // have carried paint and surface since round 125, and the text rows never had, so the line added in round 73
+      // to make a finding explain itself printed "painted undefined on undefined" on the axis that produces most of
+      // them. A number that cannot say what it measured is the thing that line existed to prevent.
+      paint: rgbStr(fg) + ' (text)',
+      surface: bg.gradient ? '(gradient)' : rgbStr(bg.colour),
+      kind: 'text',
     });
   }
   // ── GRAPHICS: BORDERS, MARKS AND DOTS (round 125) ────────────────────────────────────────────────
