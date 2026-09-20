@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -239,6 +239,7 @@ const pressPass = ${pressPass.toString()};
 // the run died with "FATAL discoverPressTargets is not defined" — in CI, because no local gate RUNS the artifact
 // (they plant defects in a report and judge it). The emitter checks its own output for exactly this now.
 const discoverPressTargets = ${discoverPressTargets.toString()};
+const revealPass = ${revealPass.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -524,6 +525,14 @@ ${TIMING}
         report.themeChecks.push({ page: name, intended: theme, ...themeRead });
         report.surfaces.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
         report.names.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
+        // AND THE STATE A HOVER REVEALS, ASKED FOR RATHER THAN STUMBLED INTO (round 16). .side-actions is
+        // display:none until the row is hovered, so the target probe has always read 0x0 and skipped it; the one
+        // time it was measured, the press pass happened to leave the pointer on a row. This hovers a row, measures,
+        // and parks the pointer again.
+        if (wants("targets")) {
+          const revealed = await revealPass(page, '.side-row', TARGETS, { density, theme: pageTheme, mode: 'reveal', page: name });
+          if (revealed) report.targets.push(revealed);
+        }
         // AND THE CONTROLS THIS PAGE HAS, WHICH NO LIST NAMED (round 15). The press pass ran on the Terminal surfaces
         // against a CURATED list, so a control on any other page had never been pressed: .device-logs-toggle — the
         // button that opens a log file's tail — had cursor:pointer and NO hover and NO press, and feedback-check
@@ -899,7 +908,7 @@ ${TIMING}
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(2000);
-    report.targets.push({ density, ...(await page.evaluate(TARGETS)) });
+    report.targets.push({ density, mode: 'rest', ...(await page.evaluate(TARGETS)) });
   }
 
   // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
@@ -1203,9 +1212,12 @@ function judge(file) {
     }
   }
   for (const t of report.targets || []) {
+    // THE LABEL NAMES THE PAGE AND THE STATE, because this axis now measures TWO of them: the resting page and the
+    // state a hover reveals (`mode: 'reveal'`). A finding that says only "panel" cannot be reproduced.
+    const where = `${t.density || '?'}${t.page ? ' ' + t.page : ''}${t.mode ? ' ' + t.mode : ''}`;
     for (const u of t.distinct || []) {
       if (!u.passesBySpacing) {
-        findings.push(`target size (${t.density}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+        findings.push(`target size (${where}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
       }
     }
   }
@@ -1275,7 +1287,7 @@ if (mode === "--emit") {
   // THE EMITTER NAMES WHAT IT BORROWS, and a borrowed helper that CALLS another one needs that one embedded too:
   // missing it, the emitted file still parses (it throws when reached), every local gate passes because they read
   // the artifact's text, and CI finds out. The shared assertion is in lib/design-sweep.mjs.
-  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "idlePass", "motionPass"]);
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "revealPass", "idlePass", "motionPass"]);
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];

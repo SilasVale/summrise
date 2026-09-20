@@ -558,6 +558,36 @@ export async function discoverPressTargets(page, cap, skip) {
 }
 
 /**
+/** MEASURE THE TARGETS A ROW REVEALS, ON PURPOSE (round 16 of the standing goal).
+ *
+ *  The target-size criterion is about what an operator can hit, and some of those targets exist only while their
+ *  row is hovered: `.side-actions` is `display: none` until `.side-row:hover`, so the target probe — which reads
+ *  what is on screen — has always read 0x0 and skipped them. The first time one was ever measured it was an
+ *  ACCIDENT: the press pass parked the pointer over a row, the next navigation re-applied the hover, and the probe
+ *  found a real 2.5.8 failure (two 22x22 buttons whose centres were 22px apart).
+ *
+ *  An instrument may not depend on where the last pass left the mouse, and it may not skip a state an operator
+ *  sees. This asks for the revealed state explicitly and puts the page back afterwards, so the residue that
+ *  produced the accidental finding cannot exist either. Returns null where the row is not rendered.
+ */
+export async function revealPass(page, rowSel, targetsSource, label = {}) {
+  const box = await page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width < 6 || r.height < 6) return null;
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, rowSel);
+  if (!box) return null;
+  await page.mouse.move(box.x, box.y);
+  await page.waitForTimeout(320);
+  const measured = await page.evaluate(targetsSource);
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(80);
+  return { revealed: rowSel, ...label, ...measured };
+}
+
+/**
  * A CONTROL THE PASS NEVER TOUCHED IS NOT A CONTROL THAT FAILED TO ANSWER.
  *
  * The pass takes the element's rect AS IT FINDS IT. For `.device-logs-toggle` that rect was y=1582 in an 860px
@@ -675,6 +705,12 @@ export async function pressPass(page, targets, label = {}) {
       ...label,
     });
   }
+  // AND THE POINTER GOES HOME (round 16). Leaving it where the last press ended meant the NEXT surface's probes ran
+  // with whatever sat under that position still hovered: a session row kept its actions revealed, the target probe
+  // measured a state nobody had asked for, and the finding it produced — a real 2.5.8 failure, as it happens — was
+  // an accident. A pass that moves the pointer owns putting it back.
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(60);
   return rows;
 }
 

@@ -123,6 +123,17 @@ try {
       assert.ok(src.includes("function discoverPressTargets"), `${name}: the DOM discovery is not embedded — a control on a page no list names is never pressed (that is how the log toggle was missed)`);
       assert.ok(src.includes("found,"), `${name}: the row does not carry what the page HAD, so the judge cannot tell a one-control page from a vacuous pass`);
       assert.ok(src.includes("label.skip"), `${name}: the discovery has no skip list, so its cap is spent on chrome another pass already presses (that is how the log toggle stayed unpressed)`);
+      // AND A PASS THAT MOVES THE POINTER PUTS IT BACK. Leaving it where the last press ended meant the next
+      // surface's probes ran with whatever sat under that position still hovered — a session row kept its actions
+      // revealed and the target probe measured a state nobody had asked for.
+      assert.ok(src.includes("A pass that moves the pointer owns putting it back"), `${name}: the pass leaves the pointer where it stopped, so the next surface measures whatever that position hovers`);
+      // THE PANEL IS WHERE A HOVER-REVEALED TARGET EXISTS, so the reveal pass is pinned there and only there: the
+      // console's stylesheets have no `:hover` rule that reveals a child (`display`/`visibility`/`opacity` of a
+      // descendant — checked when this was written) and the landing's action buttons are always in flow. If either
+      // grows one, this assertion is where the next reader should widen the pass rather than guess.
+      if (!name.startsWith("console") && !name.startsWith("landing")) {
+        assert.ok(src.includes("function revealPass"), `${name}: the revealed state is not measured deliberately — a hover-revealed target is then measured only when the pointer happens to rest on its row`);
+      }
       // (The emitter's own guard — every borrowed helper must be DEFINED in the text it prints — is enforced where it
       // can bite: each `--emit` branch calls `assertEmbedded`, the pre-commit hook runs all of them, and
       // `panel-design-sweep.bash` asserts the three emitters still call it.)

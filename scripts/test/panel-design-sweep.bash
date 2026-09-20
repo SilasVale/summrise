@@ -398,6 +398,27 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted dec
   fi
 done
 
+# THE TARGET-SIZE VERDICT NAMES THE PAGE AND THE STATE (round 16). This axis measures two states now — the resting
+# page and the one a hover reveals — and a finding that says only "panel" cannot be reproduced. Planted on the
+# REVEAL entry, because that is the state that was previously reached by accident.
+python3 - "$TMP/clean.json" "$TMP/targets-reveal.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["targets"] = [{"density": "panel", "page": "panel-Terminal", "mode": "reveal", "checked": 12, "undersized": 1,
+                 "distinct": [{"sel": "button.side-action", "text": "Rename session", "w": 22, "h": 22,
+                               "nearest": 22, "passesBySpacing": False}]}]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+if node "$TOOL" --judge "$TMP/targets-reveal.json" > "$TMP/targets-reveal.out" 2>&1; then
+  bad "the judge passed a 22x22 target with a 22px neighbour in the REVEALED state"
+else
+  if grep -q "reveal" "$TMP/targets-reveal.out" && grep -q "panel-Terminal" "$TMP/targets-reveal.out"; then
+    ok "a target-size finding names the page and the state it was measured in"
+  else
+    bad "the finding does not say WHERE it was measured: $(grep -m1 'target size' "$TMP/targets-reveal.out")"
+  fi
+fi
+
 # A DEAD PRESS IS ONLY A FINDING WHEN THE POINTER ARRIVED (round 15), and the floor is sized to the PAGE.
 # `.device-logs-toggle` was accused of ignoring a press it answers because the pass pressed a coordinate outside the
 # viewport; and the harness's Browser page renders an explanation with ONE control, so "measured 1" there is a
