@@ -187,6 +187,12 @@ export const PROBE_SOURCE = `(() => {
     const a = (c.a ?? 1) * chainOpacity(el);
     return { r: c.r * a + bg.r * (1 - a), g: c.g * a + bg.g * (1 - a), b: c.b * a + bg.b * (1 - a) }; };
 
+  // DEFINED BEFORE ITS FIRST USE, WHICH IS NOT WHERE IT STARTED (round 88). The text rows began carrying paint
+  // and surface this round, and this helper sat below them — a const in the temporal dead zone, so the probe threw
+  // "Cannot access 'rgbStr' before initialization" the moment it ran. The graphic rows never noticed: they are
+  // after it. (No backticks: this source is embedded in an emitted template literal.)
+  const rgbStr = (c) => c ? 'rgb(' + Math.round(c.r) + ', ' + Math.round(c.g) + ', ' + Math.round(c.b) + ')' : null;
+
   const rows = []; const seen = new Set();
   for (const el of document.querySelectorAll('body *')) {
     if (SKIP && el.closest(SKIP)) continue;
@@ -319,7 +325,6 @@ export const PROBE_SOURCE = `(() => {
     return null;
   };
 
-  const rgbStr = (c) => c ? 'rgb(' + Math.round(c.r) + ', ' + Math.round(c.g) + ', ' + Math.round(c.b) + ')' : null;
 
   for (const el of document.querySelectorAll('body *')) {
     if (SKIP && el.closest(SKIP)) continue;
