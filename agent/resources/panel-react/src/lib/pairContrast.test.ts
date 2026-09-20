@@ -413,4 +413,36 @@ describe("colour pairs declared in one rule", () => {
     }
     expect(failures, failures.join("\n  ")).toEqual([]);
   });
+
+  it("the held-session dot reads on the button it sits on, in both themes", () => {
+    // WHY THIS IS NOT IN THE SWEEP ABOVE. That case walks every source of `--mark-ink`, and this dot does not route
+    // through that channel: `.sc-dot` is a mark on a DIFFERENT axis (who holds the keyboard, not liveness), so it
+    // names its colour directly and the walk could not see it. The rendered probe found it the first time the state
+    // was ever on screen — `rgb(191,58,10)` on `rgb(61,40,23)` = 2.53 in dark, under the 3 a graphic needs — because
+    // `--accent` is the accent for a SOLID BUTTON, not for a dot on a soft surface. The token whose own comment names
+    // this job is `--accent-ink` ("the accent for CHROME — icons, dots, borders"), and it measures 3.83 light /
+    // 3.23 dark against the same background.
+    //
+    // A state that no fixture rendered had no test either. This is the test.
+    const css = builtCss();
+    const light = tokensIn(css, ":root");
+    const dark = { ...light, ...tokensIn(css, 'body[data-theme="dark"]') };
+    const rule = /#session-control \.sc-dot\[data-state="human"\]\s*\{([^}]*)\}/.exec(css);
+    expect(rule, "the human state of .sc-dot must exist in the built sheet").toBeTruthy();
+    const declares = /background:\s*var\((--[a-z-]+)\)/.exec(rule![1]);
+    expect(declares, "the human state must name its ink as a token, not a literal").toBeTruthy();
+    const inkToken = declares![1];
+    expect(inkToken, "the held dot must not use --accent: it is the SOLID BUTTON token and measures 2.53 on the held button's background").not.toBe("--accent");
+    const failures: string[] = [];
+    for (const [theme, tokens] of [["light", light], ["dark", dark]] as Array<[string, Record<string, string>]>) {
+      const inkRaw = resolve(tokens[inkToken] ?? "", tokens);
+      const softRaw = resolve(tokens["--accent-soft"] ?? "", tokens);
+      const ink = inkRaw ? parseColour(inkRaw) : null;
+      const soft = softRaw ? parseColour(softRaw) : null;
+      expect(ink && soft, `${theme}: ${inkToken} and --accent-soft must resolve`).toBeTruthy();
+      const ratio = contrastRatio(ink!, soft!);
+      if (ratio < 3.0) failures.push(`.sc-dot[data-state="human"] [${theme}] ${inkToken} on --accent-soft = ${ratio.toFixed(2)} (needs 3)`);
+    }
+    expect(failures, failures.join("\n  ")).toEqual([]);
+  });
 });

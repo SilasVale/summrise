@@ -1146,7 +1146,14 @@
   width: 7px; height: 7px;
   border-radius: 50%;
 }
-#session-control .sc-dot[data-state="human"] { background: var(--accent); }
+/* --accent-ink, NOT --accent (round 89). This dot says "a person holds this session's keyboard" and it sits ON the
+   held button, whose background is --accent-soft. The token's own comment names this exact job — "--accent-ink is the
+   accent for CHROME — icons, DOTS, borders — and ... measured against its own soft background it gives 3.83 in light
+   and 3.23 in dark". Plain --accent on the same background measures 2.53 in dark, under the 3:1 a graphic needs,
+   which the rendered probe reported the first time this state was ever on screen. Both readings clear the graphic bar;
+   neither was ever measured here before, because this dot does not route through --mark-ink and the panel's contrast
+   test only walks the sources that do. */
+#session-control .sc-dot[data-state="human"] { background: var(--accent-ink); }
 #session-control .sc-dot[data-state="ai"] {
   background: transparent;
   /* --chrome-ink-dim, NOT --faint, and this is a MEASURED change (round 209). The AI dot is a HOLLOW ring,
