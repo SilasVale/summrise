@@ -157,7 +157,26 @@ const SURFACE = \`(() => {
         // background and inherited an inset shadow computed as 'ring' — distinct from a solid, and therefore passing.
         // That is how four broken plugin dots survived every sweep: the panel's own shape check had the same hole
         // (round 45), the console's found it by mutation (round 44), and this probe reported them as clean rings.
-        const kind = inset && filled ? 'ring+fill' : inset ? 'ring' : filled && shadow !== 'none' ? 'halo' : filled ? 'solid' : 'empty';
+        // A BORDER IS A RING, AND THIS COULD NOT SEE ONE (round 88). The kind expression read FILLS and INSET
+        // SHADOWS only, so every mark the panel draws with a border computed as 'empty' — including BOTH of its
+        // rings: idle is 1.5px solid and off is 1.5px dashed, and the signature below could not tell them apart,
+        // nor either of them from a mark that draws nothing at all. The hole was invisible for as long as no
+        // surface rendered two border-drawn states side by side; the first surface that closed a session put off
+        // beside idle and the collision was immediate.
+        //
+        // DASHED IS ITS OWN KIND, because that is the whole design decision the 'off' state encodes — a dash and not
+        // a fade — and "shape first, colour second" means the signature must carry the dash. (No backticks: inside
+        // the emitted template.)
+        const bw = parseFloat(st.borderTopWidth) || 0;
+        const bstyle = bw > 0 ? st.borderTopStyle : 'none';
+        const bordered = bstyle !== 'none' && bstyle !== 'hidden';
+        const dashed = /dashed|dotted/.test(bstyle);
+        const kind = inset && filled ? 'ring+fill'
+          : bordered && filled ? 'ring+fill'
+          : inset ? 'ring'
+          : bordered ? (dashed ? 'dashed-ring' : 'ring')
+          : filled && shadow !== 'none' ? 'halo'
+          : filled ? 'solid' : 'empty';
         const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', kind].join('/');
         const key = base;
         if (!families.has(key)) families.set(key, new Map());
