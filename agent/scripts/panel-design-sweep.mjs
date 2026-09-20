@@ -703,6 +703,70 @@ ${TIMING}
     }
   }
 
+  // THREE STATES OF THE RECORD PAGE THAT NO SURFACE HAS EVER PHOTOGRAPHED (round 102). The History page's first
+  // scope is the ARCHIVE, and every sweep has measured it EMPTY: the harness has served a populated one behind
+  // ?rows=N since round 69, and no surface ever passed it — so the row list, its identity/reason/when columns and
+  // its cost at scale were measured by nothing. Inside a row is the TRAIL of a recorded session, which is the one
+  // place an operator can read a session that is over. And the page's SECOND scope ("Runs") reads /api/operation,
+  // which no stub answered at all until this round.
+  if (wants("pages")) {
+    const gotoHistory = async () => {
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => /history/i.test((x.getAttribute('aria-label') || '') + x.textContent));
+        if (b) b.click();
+      });
+      await page.waitForTimeout(1500);
+    };
+    for (const theme of ['light', 'dark']) {
+      // (a) THE ARCHIVE WITH CONTENT
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&rows=50&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await gotoHistory();
+      const rowsName = 'ArchiveRows-' + theme;
+      const rowsA = await page.evaluate(PROBE);
+      for (const row of rowsA) report.rows.push({ ...row, density: 'panel', theme, mode: 'archive', page: rowsName });
+      report.surfaces.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(SSE)) });
+
+      // (b) THE TRAIL INSIDE AN ARCHIVED SESSION — one click, the same page
+      await page.evaluate(() => {
+        const b = document.querySelector('.archive-row');
+        if (b) b.click();
+      });
+      await page.waitForTimeout(1800);
+      const trailName = 'ArchiveTrail-' + theme;
+      const rowsB = await page.evaluate(PROBE);
+      for (const row of rowsB) report.rows.push({ ...row, density: 'panel', theme, mode: 'archive-trail', page: trailName });
+      report.surfaces.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(SSE)) });
+    }
+    for (const theme of ['light', 'dark']) {
+      // (c) THE RUNS SCOPE
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await gotoHistory();
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll('.view-switch button, .desktop-view-switch button')].find((x) => (x.textContent || '').trim() === 'Runs');
+        if (b) b.click();
+      });
+      await page.waitForTimeout(1800);
+      const runsName = 'HistoryRuns-' + theme;
+      const rowsC = await page.evaluate(PROBE);
+      for (const row of rowsC) report.rows.push({ ...row, density: 'panel', theme, mode: 'runs', page: runsName });
+      report.surfaces.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
   // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
   // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,

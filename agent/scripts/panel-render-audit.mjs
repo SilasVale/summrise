@@ -409,6 +409,40 @@ function buildHarness() {
       { ts_ms: 1788800000000, kind: 'first-run', detail: '2026-09-11 08:00:00 +08:00 - first run', release: null },
     ] }));
   }
+  // /api/operation — THE MERGED ACTIVITY FEED, WHICH NOTHING EVER SERVED (round 102). The History page's second
+  // scope ("Runs") reads it through useOperationRuns, and it was stubbed NOWHERE: the generic /api/ branch answered
+  // {ok:true}, events was therefore not an array, and the view drew its empty state on every surface that ever
+  // showed it. The device serves a merge of the terminal audit trail, the browser feed and the run boundaries
+  // (agent/src/web/mod.rs, /api/operation); this mirrors the client's own types (lib/runs.ts: OperationEvent,
+  // RunBoundary) so the run strip, the grouping and the per-row states all have something real to draw.
+  // (No backticks: emitted template literal.)
+  if (u.indexOf('/api/operation') >= 0) {
+    var opRows = [];
+    var mk = function (source, ts, kind, extra) {
+      var row = { source: source, ts_ms: ts, kind: kind };
+      for (var k in extra) row[k] = extra[k];
+      return row;
+    };
+    // A run boundary, a command that succeeded, a command that FAILED, and browser work inside the same run —
+    // which is what the view exists to put on ONE timeline.
+    opRows.push(mk('terminal', 1789000000000, 'run', { run_id: 'run-1' }));
+    opRows.push(mk('terminal', 1789000001000, 'command/start', { session: 'term-arch-0', seq: 4, command: 'display ont info 0 1', intent: 'check the ONU before changing it', considered: ['reset the ONU'] }));
+    opRows.push(mk('terminal', 1789000001100, 'output', { session: 'term-arch-0', seq: 5, text: 'ONT 0/1 online, VLAN 1' }));
+    opRows.push(mk('terminal', 1789000001200, 'command/end', { session: 'term-arch-0', seq: 6, exit_code: 0, duration_ms: 900 }));
+    opRows.push(mk('browser', 1789000001400, 'navigate', { script: 'goto', text: 'https://192.168.1.1/' }));
+    opRows.push(mk('browser', 1789000001600, 'action', { script: 'click', text: 'Login' }));
+    opRows.push(mk('terminal', 1789000002000, 'command/start', { session: 'term-arch-1', seq: 9, command: 'vlan 100', intent: 'apply the change' }));
+    opRows.push(mk('terminal', 1789000002200, 'command/end', { session: 'term-arch-1', seq: 10, exit_code: 1, duration_ms: 200 }));
+    return Promise.resolve(J({
+      cursor_ms: 1789000003000,
+      events: opRows,
+      runs: [
+        { kind: 'run_begin', run_id: 'run-1', ts_ms: 1789000000000, label: 'provision the ONU', goal: 'provision the ONU 0/1 on VLAN 100' },
+        { kind: 'run_end', run_id: 'run-1', ts_ms: 1789000002500, outcome: 'done' },
+      ],
+    }));
+  }
+
   // THE DEVICE'S LOGS — THE FOURTH CARD IN THIS FAMILY TO HAVE NEVER RENDERED ITS REAL STATE (round 100).
   // /api/logs was stubbed by NOTHING, so the DeviceLogsCard drew "The device did not answer, so its logs could not
   // be read" on every Settings surface since it existed — the same false claim the restart card made (round 99) and
