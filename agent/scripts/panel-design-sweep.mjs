@@ -536,6 +536,47 @@ ${TIMING}
     }
   }
 
+  // THE FOURTH SILHOUETTE, PHOTOGRAPHED AT LAST (round 88). The mark language has four states — off, waiting,
+  // working, idle — and this file's own note has said for many rounds that the page sweep, which photographs pages
+  // and never presses, has never photographed 'off': a closed session is CLIENT state, so no URL parameter can
+  // produce it. It is reachable by PRESSING, and the recipe is the harness's: click the tab's x to arm the two-step
+  // close, click the confirm's Close, and read AFTER the tab's 0.15s background transition settles. Round 245 made
+  // it stable — terminal_close removes the session from every later list answer, so the tombstone no longer lives
+  // only inside a timing window.
+  //
+  // AND IT IS THE ONLY SURFACE WHERE ALL FOUR STATES CAN BE COMPARED AT ONCE, which is the point. The marks probe
+  // groups a family's states per page and fails when two of them paint identically; until this surface existed, a
+  // page could show working beside idle and never show off beside either. mode=pending keeps the pending approval,
+  // so the diamond is here too.
+  if (wants("pages")) {
+    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=pending&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      // 1. arm the two-step close on the LAST tab, so the states the other surfaces rely on stay on screen.
+      await page.evaluate(() => {
+        const closes = [...document.querySelectorAll('.tab .tab-close')];
+        if (closes.length) closes[closes.length - 1].click();
+      });
+      await page.waitForTimeout(250);
+      // 2. confirm it. /api/tools/terminal_close is stubbed and succeeds.
+      await page.evaluate(() => {
+        const confirm = document.querySelector('.tab-confirm .btn-danger');
+        if (confirm) confirm.click();
+      });
+      await page.waitForTimeout(700);
+      const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Closed-' + theme;
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'closed', page: pname });
+      report.surfaces.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // WHY THE EVIDENCE DRAWER IS STILL NOT MEASURED, recorded so it is not re-attempted from scratch
   // (round 193). THIS HARNESS RENDERS THE REAL BUNDLE — panel.js and panel.css — and drives it with stubbed
   // API responses; it contains no hand-written markup at all. The drawer is opened only by
