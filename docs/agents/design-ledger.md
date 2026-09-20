@@ -2134,3 +2134,37 @@ which is how the first attempt produced no finding to exempt at all).
 
 WHERE TO LOOK NEXT, unchanged from round 21 and now one shorter: the panel's `UNSTYLED` waivers, and the DECORATIVE
 bands themselves — a band no run has landed inside for several rounds is a number nobody has checked.
+
+### A BAND WIDER THAN ITS EVIDENCE (round 23)
+
+A DECORATIVE entry waives a RATIO, not an element (round 95), so the band is what decides: a row inside it is set
+aside, a row outside it is a finding. The failure that leaves no trace is the other direction — a band WIDER than its
+evidence excuses a drift nobody measured, and nothing in the suite was asking.
+
+MEASURED: the grant chip's entry carried **1.10-1.35** while its own reason claimed "the band covers what was measured
+and nothing else". The four ratios this suite has ever seen on that element are **1.19, 1.20, 1.25, 1.27** — 32 rows
+across 126 surfaces. That is ~0.09 of unearned margin on each side: a move to 1.12 or 1.33, real movement toward the
+3:1 bar, would have been waived in silence. The icon chip's band had 0.05 on each side for a 1.05-1.10 observation.
+
+    grant chip  1.10-1.35  ->  1.17-1.29   (observed 1.19-1.27)
+    nm-ico      1.00-1.15  ->  1.03-1.12   (observed 1.05-1.10)
+    each declares slack: 0.02 — probe rounding only, because ratios print to two decimals and a band written at the
+    printed value would refuse a true 1.185
+
+AND THE INSTRUMENT'S FIRST VERSION HAD THE SAME HOLE IT WAS BUILT TO FIND. It computed `Math.min(lo - bandLo,
+bandHi - hi)`, so a run that saw a single 1.19 inside a 1.17-1.29 band reported NO margin at all while the upper side
+carried a tenth nobody had measured. The margin is per side now, the note names both with the observation counts
+("1 distinct over 1 row(s)") so a partial run is visibly partial, and the gate's case for the far side (`0.10 above`)
+is one the min-of-both-sides version could not produce.
+
+TWO ARITHMETIC NOTES worth keeping, because both produced a false reading before the numbers were looked at:
+
+  * 1.29 - 1.27 is 0.020000000000000018 in binary floating point, so an EXACT band (observed range plus exactly the
+    declared slack) reported itself as over its own slack. The comparison carries an epsilon; the alternative was a
+    band written 0.001 tighter than its justification, which is the same defect in the other direction.
+  * the ratios are printed to two decimals, which is why a slack exists at all rather than an equality. A tolerance
+    invented to hide a drift is a hole; a tolerance that covers the READER's precision is honest, and the entry says
+    which it is.
+
+The full 126-surface report judges clean with no band note. The panel's remaining known weight is the `UNSTYLED`
+waivers, which is where the next round of this kind should look.
