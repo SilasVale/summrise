@@ -536,6 +536,29 @@ ${TIMING}
     }
   }
 
+  // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
+  // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
+  // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,
+  // with no .goal-text span inside it — has never been rendered, while the state it replaces has been measured on
+  // every page. Third round running that a surface for an unrendered state found the state was not what the sheet
+  // alone could prove.
+  if (wants("pages")) {
+    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&goal=none&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      const pname = (density === 'desktop' ? 'Desktop-' : '') + 'NoGoal-' + theme;
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'no-goal', page: pname });
+      report.surfaces.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE HELD SESSION, PHOTOGRAPHED FOR THE FIRST TIME (round 89). held_by_human is the fact the panel is most
   // careful about — SessionControl reads it from the session record and will not flip the button until the server
   // agrees — and every fixture this harness has ever built set it FALSE. So the HUMAN state of the .sc-dot mark

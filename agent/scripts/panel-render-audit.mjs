@@ -209,6 +209,14 @@ function buildHarness() {
   // never been photographed, and neither has the button's .held variant.
   // ONLY THE FIRST SESSION, so both states of the family are on one page: the marks probe compares states WITHIN a
   // family and can only see a collision between two states that are both rendered.
+  // ?goal=none — THE COMMON CASE, AND ONE NO SURFACE HAS EVER RENDERED (round 90). GoalBar says it plainly in its
+  // own comment: "nothing stated -> a QUIET affordance. An unset goal is normal (most sessions ...)". The fixture
+  // above sets a goal on EVERY session, so the affordance — a dashed-bordered button whose only content is a text
+  // node, with no .goal-text span inside it — has never been on screen, while the state it renders instead has been
+  // measured on every page since the harness was written.
+  var NO_GOAL = P.get('goal') === 'none';
+  if (NO_GOAL) SESSION.goal = null;
+
   var HELD = P.get('held') === '1';
   if (HELD && SESSIONS.length) SESSIONS[0].held_by_human = true;
 
