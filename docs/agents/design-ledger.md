@@ -1559,3 +1559,33 @@ The gate checks the gaps between the comment spans now, with a line number, and 
 deeper lesson is the one this ledger keeps relearning from the other side: a sheet-level gate and a rendered
 measurement disagreeing is not noise — the rendered one was right, and the sheet-level one had a hole exactly the
 shape of the mistake I had just made.
+
+### THE SURFACE THE FLAG NEVER RENDERED (round 98)
+
+Round 97 chose the failed mark's ink by measuring the four surfaces a mark sits on, and stated the number with
+confidence. It had missed one: the **accent-filled active tab**, found by forcing the state onto the active tab in the
+browser rather than waiting for a fixture to produce it:
+
+    panel/dark  .tab.active .tab-dot[failed]   rgb(255,135,135) on rgb(198,67,16)   2.16:1   (needs 3.0)
+
+Light was 6.71 and both active SIDE rows 5.99 — only the tab paints the accent FILL, which is why a table of "the
+surfaces a mark sits on" written from the row-like ones missed it.
+
+THE FIX NEEDED A THIRD VALUE, and that is the point of the entry. `--state-fail` was 2.87 on the dark active row;
+`--danger-on-soft` fixed that and is 2.16 here; the value that clears everything is Open Color red-3 (#ffc9c9) in
+dark, worst 3.44 on the fill and 9.5-11.2 elsewhere. So the failure mark owns its ink — `--state-fail-ink` — and it is
+DECOUPLED from `--danger-on-soft` even though the light values are identical, because that is exactly the case where
+two tokens with one job in one theme need different values in the other. Round 237 learned this for the accent family.
+
+AND THE COMBINATION HAS A SURFACE NOW, or the fix would be one edit away from regressing in the dark: the rule this
+repository keeps relearning is that a state no fixture renders is a state no sweep measures. `?exitfail=active` puts
+the failure on the ACTIVE session — and it must ALSO quiet it, because every seed reports `idle_ms: 900`, which reads
+as WORKING, which outranks a failure by design. The first run of the flag rendered `mark[working,idle]` and no failed
+mark at all: the state model was right and the fixture was lying about what it expressed. 60 seconds of silence fixed
+it, and `harness-fixture-check` pins both halves.
+
+    rendered after: dark .tab-dot[failed] 3.44 on rgb(198,67,16), light 6.71; families mark[working,failed,idle],
+                    collisions=[] in both themes; 110 surfaces, report clean.
+
+The shipped test measures the token against every surface a mark lands on — including the COMPOSITED active fill that
+no single token names — and fails with the device's own number when the old value goes back.
