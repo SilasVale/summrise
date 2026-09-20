@@ -929,11 +929,16 @@ function judge(file) {
       // exemption, two code paths, one of them unexempted: the "second home" shape again. Round 212 proved
       // with measurements that the halo is emphasis and the dot's FILL clears 3:1 in BOTH themes, so the
       // exemption is evidence-backed and belongs on both paths.
-      // THE VALUE STAYS IN THE PATTERN: only 2.33 is set aside, so a DIFFERENT ratio on the same element —
-      // in rows or on hover — is still a finding.
-      // THIS LIST IS THE ROWS WAIVER — its consumer reads `d.match` against a row's selector — so it keeps a
-      // match. The HOVER path reports through `ignore` instead, which is why the same dot was exempt in rows
-      // and a finding on hover (round 214). Both lists carry the exemption now; see `ignore` below.
+      // WHAT THIS PATTERN ACTUALLY WAIVES, MEASURED RATHER THAN INTENDED (round 92). The consumer tests the
+      // pattern against THE ROW'S SELECTOR ALONE — DECORATIVE.find((d) => d.match.test(String(r.sel))) — so this
+      // entry sets aside EVERY ratio on div.rail-dot in the rows path, not only the 2.33 it was written for. The
+      // sentence that stood here ("only 2.33 is set aside, so a DIFFERENT ratio on the same element — in rows or
+      // on hover — is still a finding") is TRUE of the hover path, which reports through `ignore` with the value
+      // inside its pattern, and FALSE of this one. The dot's FILL — the channel that carries the state — is held
+      // at 3.00:1 by the panel gate, which is what makes a selector-wide waiver survivable here; making the rows
+      // path value-anchored like the hover path is its own piece of work and is recorded in the design ledger.
+      // THIS LIST IS THE ROWS WAIVER; the hover path reports through `ignore` instead, which is why the same dot
+      // was exempt in rows and a finding on hover (round 214). Both lists carry the exemption now; see `ignore`.
       match: /^div\.rail-dot$/,
       // MEASURED, NOT ASSERTED (round 202). "The fill carries the state" was an assertion for fifty rounds:
       // the probe prefers a ring over a fill, so the only row this mark produced measured the HALO at 2.33 and
@@ -951,6 +956,20 @@ function judge(file) {
       // one control that can undo a grant — both hold. The outline is the pill's edge; the word is the signal.
       match: /^span\.approval-grant$/,
       reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
+    },
+    {
+      // THE MENU'S ICON CHIP: ITS BACKGROUND DELIMITS, AND THE SIGNAL IS NOT MEASURED AT ALL (round 92). The first
+      // photograph of the new-session menu reported span.nm-ico at 1.05 dark / 1.10 light — a 22px chip whose
+      // background is a subtle surface behind a coloured glyph, which is what a chip's background is for.
+      //
+      // AND THIS WAIVER DOES NOT CLAIM THE ICON WAS JUDGED, which is the part worth writing down rather than
+      // hiding. The graphic loop excludes SVG ON PURPOSE ("an icon's path inherits fill: black and its real colour
+      // comes from the svg above it, so every decorative glyph reported cr ~1"), so the per-kind colour that
+      // carries this menu's meaning — --lane-ds for ssh, --lane-or for serial, the lane vocabulary the rest of the
+      // panel uses — produces no row anywhere in this suite. Silencing a decorative background is what this entry
+      // does; closing the icon gap is a separate piece of work and is recorded as such in the design ledger.
+      match: /^span\.nm-ico$/,
+      reason: "the icon chip's background delimits a coloured glyph at 1.05/1.10; the GLYPH ITSELF IS NOT MEASURED — the probe excludes SVG by design, so the lane colour it carries has no row in this suite",
     },
   ];
   const waived = [];
