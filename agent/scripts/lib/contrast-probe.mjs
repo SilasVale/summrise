@@ -295,6 +295,31 @@ export const PROBE_SOURCE = `(() => {
     // soft halo — the working rail dot's accent-soft halo measured 1.17 while the dot's own fill
     // measures 4.79, and the halo is emphasis around a mark that is already legible. "Ring first" cannot
     // separate those two cases; the numbers can, and they need no knowledge of which token is which.
+    // THE PSEUDO AND SVG IDIOMS ARE CANDIDATES TOO, AND BOTH WERE UNREACHABLE (round 93). These two blocks sat
+    // BELOW the early return that fires when candidates is empty — which is exactly the case they exist for: a mark
+    // drawn by a ::before dot has no border and no background of its own, and an icon's svg element has neither. The
+    // comment above says the painter resolves "a drawn border; the element's own background; a zero-offset BOX-SHADOW
+    // with a spread (the dot idiom — the shadow IS the mark); ::before/::after (the other dot idiom); SVG fill, then
+    // stroke" — and the last two of those five had never run. Found by letting the SVG root through the loop and
+    // watching the row count not move.
+    // (No backticks: this source is embedded in an emitted template literal.)
+    for (const pseudo of ['::before', '::after']) {
+      const ps = getComputedStyle(el, pseudo);
+      if (!ps || ps.content === 'none' || ps.display === 'none') continue;
+      const pb = parseColour(ps.backgroundColor);
+      if (pb && (pb.a ?? 1) > 0.05) candidates.push({ colour: pb, from: pseudo });
+      const pw = ['borderTopWidth', 'borderLeftWidth'].map((k) => parseFloat(ps[k]) || 0);
+      if (pw.some((w) => w >= 1)) {
+        const pc = [ps.borderTopColor, ps.borderLeftColor].map(parseColour).filter((x) => x && (x.a ?? 1) > 0.05)[0];
+        if (pc) candidates.push({ colour: pc, from: pseudo });
+      }
+    }
+    if (el instanceof SVGElement) {
+      const f = parseColour(st.fill);
+      if (f && (f.a ?? 1) > 0.05) candidates.push({ colour: f, from: 'fill' });
+      const sk = parseColour(st.stroke);
+      if (sk && (sk.a ?? 1) > 0.05) candidates.push({ colour: sk, from: 'stroke' });
+    }
     if (!candidates.length) return null;
     if (candidates.length === 1 || !surface) return candidates[0];
     let best = candidates[0];
@@ -305,24 +330,6 @@ export const PROBE_SOURCE = `(() => {
     }
     best.considered = candidates.map((c) => c.from).join("+");
     return best;
-    for (const pseudo of ['::before', '::after']) {
-      const ps = getComputedStyle(el, pseudo);
-      if (!ps || ps.content === 'none' || ps.display === 'none') continue;
-      const pb = parseColour(ps.backgroundColor);
-      if (pb && (pb.a ?? 1) > 0.05) return { colour: pb, from: pseudo };
-      const pw = ['borderTopWidth', 'borderLeftWidth'].map((k) => parseFloat(ps[k]) || 0);
-      if (pw.some((w) => w >= 1)) {
-        const pc = [ps.borderTopColor, ps.borderLeftColor].map(parseColour).filter((x) => x && (x.a ?? 1) > 0.05)[0];
-        if (pc) return { colour: pc, from: pseudo };
-      }
-    }
-    if (el instanceof SVGElement) {
-      const f = parseColour(st.fill);
-      if (f && (f.a ?? 1) > 0.05) return { colour: f, from: 'fill' };
-      const sk = parseColour(st.stroke);
-      if (sk && (sk.a ?? 1) > 0.05) return { colour: sk, from: 'stroke' };
-    }
-    return null;
   };
 
 
