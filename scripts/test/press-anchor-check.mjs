@@ -131,6 +131,18 @@ try {
       // console's stylesheets have no `:hover` rule that reveals a child (`display`/`visibility`/`opacity` of a
       // descendant — checked when this was written) and the landing's action buttons are always in flow. If either
       // grows one, this assertion is where the next reader should widen the pass rather than guess.
+      // AND THE EMPTY FLEET RENDERS THE OVERVIEW, WHERE THE OFF TONE LIVES (round 25). The console declares
+      // `stat-off` unstyled-by-design — a class with no matching rule, painted by the base card — and the unstyled
+      // pass reported it UNSEEN ("1 of 1 declared unstyled-by-design class(es) were not seen in this run (0 unstyled
+      // name(s) over 6 page(s))"). The tone goes off when there is nothing to report (no device online, no channels,
+      // no keys); the empty-fleet fixture existed and visited only #/devices and #/keys, so the one state that needs
+      // that declaration had never been rendered by anything. A state with no surface cannot be measured.
+      if (name.startsWith("console")) {
+        assert.ok(
+          src.includes("'overview-empty', '#/'"),
+          `${name}: the empty-fleet fixture does not render the Overview — the stat-off declaration then waives a state no surface shows`,
+        );
+      }
       if (!name.startsWith("console") && !name.startsWith("landing")) {
         assert.ok(src.includes("function revealPass"), `${name}: the revealed state is not measured deliberately — a hover-revealed target is then measured only when the pointer happens to rest on its row`);
         // AND THE ACKNOWLEDGEMENT'S LATENCY IS A PASS OF ITS OWN (round 19): the emitted script must carry it, or

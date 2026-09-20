@@ -401,7 +401,16 @@ const fail = { api: false };
   {
     empty.fleet = true;
     for (const theme of ['light', 'dark']) {
-      for (const [label, hash] of [['devices-empty', '#/devices'], ['keys-empty', '#/keys']]) {
+      // THE OVERVIEW JOINS THE EMPTY FLEET (round 25), and the reason is a measurement rather than symmetry. The
+      // stat-off declaration in this sweep's implicitStates waives a class with NO matching rule — the Overview
+      // builds a stat-card plus a stat-<tone> class, the sheet has rules for ok/warn/info only, and the unstyled pass
+      // reported "1 of 1 declared unstyled-by-design class(es) were not seen in this run (0 unstyled name(s) over 6
+      // pages)". The class fires when a tone is off, which happens on three of the Overview's four stats when
+      // there is nothing to report: no device online, no channels, no keys. The empty-fleet fixture already exists
+      // and visited only #/devices and #/keys, so the Overview in that state — and the faint bars the off tone
+      // paints — had never been rendered by anything. A state with no surface cannot be measured; this is the
+      // surface.
+      for (const [label, hash] of [['overview-empty', '#/'], ['devices-empty', '#/devices'], ['keys-empty', '#/keys']]) {
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
         await page.evaluate((a) => {
