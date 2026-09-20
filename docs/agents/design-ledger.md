@@ -1803,3 +1803,33 @@ THE LESSON, for the third time this session and in its sharpest form yet: a meas
 INSTRUMENT as much as about the page. The previous two were a dedupe key that hid a row (round 99) and a fixture
 that answered a question nobody asked (round 100). This one is worse, because the instrument did not stay silent —
 it ACCUSED.
+
+### THE LAST THREE ROUNDS' WORST FAILURE MODE, IN ONE MORE COSTUME (round 103, part two)
+
+CI's design job died with `FATAL discoverPressTargets is not defined`, two minutes in — and every local gate had
+passed, including the pre-commit hook.
+
+The emitter BORROWS helpers by name (`const pressPass = ${pressPass.toString()};`), and the new DOM-discovery helper
+was called from `pressPass` without being added to that list. The emitted file **parses** — it is valid JavaScript
+that throws when the function is reached — so:
+
+    the emitter's guard      compiles the HARNESS, not the sweep          passed
+    press-anchor-check       reads the emitted text for rules it knows    passed
+    panel-design-sweep.bash  plants defects in a REPORT and judges it     passed
+    sweep-judges.bash        same                                          passed
+    the pre-commit hook      runs the emitters (which emitted fine)        passed
+    CI's design job          RUNS the sweep on a real browser              DIED
+
+THE GATES ARE JUDGES, AND A JUDGE CANNOT SEE A RUN THAT NEVER REACHED IT. That is the sentence to keep: five checks
+read the artifact's TEXT, and the one that would have caught this is the one that EXECUTES it — which is exactly
+what the gate table has said about the rendered pass since round 51, applied one level up.
+
+THE EMITTER CHECKS ITS OWN OUTPUT NOW, because it is the only thing that knows which helpers are borrowed: every
+name it embeds must be defined in the text it produces. Mutation: replace the embed line with an unused binding —
+`--emit` exits 1 with "the emitted sweep CALLS discoverPressTargets but does not define it — the run would die on the
+device with 'is not defined'". The same commit embeds the helper, so the sweep runs again.
+
+A NOTE ON THE TWO FAILURES OF THIS ROUND, since they are the same failure: the press pass ACCUSED a control from a
+coordinate outside the page, and the sweep CALLED a function it did not carry. Both are instruments making claims
+they had not earned, and both were caught by going one level down — `elementFromPoint` for the first, executing the
+artifact for the second.
