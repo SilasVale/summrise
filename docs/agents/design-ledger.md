@@ -1386,3 +1386,42 @@ not only `className="…"` in `.tsx`, because the landing builds HTML strings an
 the variant exemption.
 
 Mutation: delete the landing's `:active` rule and the check fails with "landing: no :active for .theme-toggle:hover".
+
+### A WAIVER IS FOR THE RATIO, NOT THE ELEMENT (round 95)
+
+Round 92 found this entry claiming something false about itself:
+
+    "only 2.33 is set aside, so a DIFFERENT ratio on the same element — in rows or on hover — is still a finding"
+
+The consumer tested the pattern against THE SELECTOR ALONE, so `div.rail-dot` set aside every ratio that element could
+ever produce. The sentence was true of the hover path (whose patterns carry the value) and false of the rows path, and
+the ledger recorded the value-anchoring work as its own. It is done now: each entry carries the band it was measured
+in, and a row outside every band is a finding that names the band that refused it.
+
+THE BANDS ARE MEASUREMENTS, taken from the device report this suite produced the same round:
+
+    div.rail-dot        2.25-2.45   the working dot's halo (2.33 on the rail)
+    span.approval-grant 1.10-1.35   FOUR surfaces, four ratios — 1.19, 1.20, 1.25, 1.27 — the outline composites
+                                    over a different surface on each
+    span.nm-ico         1.00-1.15   1.05 light / 1.10 dark, the chip's own background
+
+PINNED IN BOTH DIRECTIONS, which is the part that keeps a judge honest (50 → 52 checks in
+`panel-design-sweep.bash`):
+
+  * a new axis, `decorative-drift`, plants the rail dot at 1.50 and requires a FAILURE. Mutation — make the consumer
+    match the selector alone again — reports "the judge PASSED a report with a planted 'decorative-drift' defect".
+  * and a positive case the axis loop cannot make: the same element at 2.33 must still pass AND the waiver must still
+    be printed with its reason. A judge that fails everything is as useless as one that passes everything, and a
+    suppression nobody can see is one nobody can review. Both planted rows carry `kind: "graphic"`; without it the
+    type floor rejects them first and the case proves nothing about the waiver — a lesson the first version of the
+    positive case paid for.
+
+AND ONE OF THE REASONS IN THAT LIST HAD GONE STALE, found by reading it while banding it: the `nm-ico` entry still
+said "the GLYPH ITSELF IS NOT MEASURED — the probe excludes SVG by design". Rounds 93-94 changed exactly that, so the
+lane colour it named as unmeasurable HAS a row now and clears 3:1 everywhere the sweep renders. The entry says what it
+silences (the background) and what is judged elsewhere. That is the sixth round in a row where a sentence about the
+instrument, not the instrument, was the defect.
+
+VERIFIED AGAINST THE REAL REPORT: the 5,038-row device report still judges clean with the bands in place — every
+waived row lands inside its band — and its only finding is the expected INCOMPLETE REPORT clause for a run that
+measured `pages,hover`.
