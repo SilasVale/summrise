@@ -1722,3 +1722,40 @@ A NOTE FOR THE NEXT READER: the History page's OTHER half is still unphotographe
 Sessions (the archive, which the sweep does render, EMPTY) and Runs (the activity view, behind a click) — and
 `/api/sessions` answers an empty list, so the archive's list rows and the trail inside an archived session have never
 been drawn either.
+
+### THE RECORD PAGE'S THREE UNMEASURED STATES, AND THE FLAG NOBODY PASSED (round 102)
+
+The History page has two scopes and the archive two faces. The sweep had photographed exactly one of the four: an
+EMPTY archive. This round closed the other three, and the reasons they were open are three different lessons.
+
+  * THE FLAG WAS ADDED, MEASURED BY HAND, AND WRITTEN DOWN AS PROSE. The harness has served a populated archive behind
+    `?rows=N` since round 69 — the measurement exists in this file's own header ("window 50 rows … the DOM stays flat
+    (395 nodes) whatever the archive holds") — and NO SURFACE ever passed the flag. An ad-hoc measurement is not a
+    gate, which is the rule round 150 wrote for `?sessions=N` and this round re-learned for its twin.
+  * THE SECOND FACE WAS ONE CLICK AWAY. A row opens the TRAIL of a recorded session — the only place an operator can
+    read a session that is over — and no surface had ever clicked one.
+  * THE SECOND SCOPE'S ROUTE WAS NEVER SERVED. `Runs` reads `/api/operation`; no stub answered it, the generic branch
+    replied `{ok:true}`, `events` was not an array, and the view drew its empty state everywhere it appeared. The
+    fourth round in a row where an unserved route turned out to be an unmeasured page (envelope, archive shadowing,
+    logs, operation) — and the stub now mirrors the client's own types (`lib/OperationEvent`, `RunBoundary`) rather
+    than a shape invented here.
+
+THE MEASUREMENT (126 surfaces, 6,854 rows) came back CLEAN, and that is the result worth recording:
+
+    archive    "50 recorded sessions" · "showing 50 of 50" · rows with identity, kind, state "archived"    4.67+
+    trail      a recorded session's trajectory: 3 rounds, exit 1 badges, durations, the session badge
+    runs       "1 run" · "8 records" · "7 of 8 records not attributed" · run-row-state "unregistered" /
+               "unattributed" · terminal + browser rows with intent and the branches not taken           4.63-16.12
+
+Nothing to fix — and three states that can now REGRESS LOUDLY instead of silently, which is the whole difference
+between a photographed state and an unphotographed one. The running list of states this method has added:
+
+    off / the tombstone            round 88   found: a mark collision, then three FILL-inside-a-RING defects
+    human / the held session       round 89   found: 2.53 on the graphic bar in dark
+    unset / the goal affordance    round 90   clean
+    empty / the panel density      round 91   re-added after its prune expired; clean
+    menu / the new-session popover round 92   clean, and a limit named (icons are not measured)
+    exitfail / the failed last command round 96  NEEDED A WIRE FIELD; now 5.96/5.65 rendered
+    failed / the fifth silhouette  round 97   the shape, then the ink chosen by measuring the active tab (round 98)
+    trajectory + path              round 101  found: a 2.56 muted ring, unreachable behind a shadowing stub
+    archive + trail + runs         round 102  clean — and the third one needed a route that no stub answered
