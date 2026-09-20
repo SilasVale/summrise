@@ -499,59 +499,17 @@ export function pressDelta(hovered, pressed) {
   return KEYS.filter((k) => hovered[k] !== pressed[k]);
 }
 
-/** EVERY CONTROL ON THE PAGE, deduped by class+size — for the surfaces where the curated list does not apply.
- *
- *  WHY IT EXISTS (round 103). The press targets are a CURATED list, which means a control nobody thought of is
- *  never pressed: `.device-logs-toggle` — a button that opens a log file's tail — had `cursor: pointer` and no
- *  hover or press at all, and no gate could see it. `feedback-check` demands a press only where a HOVER exists
- *  (hover implies press), so a control with NEITHER is invisible to it; the rendered pass never visited that card.
- *  This asks the DOM instead of a list: every visible `button`, link and `[role=button|tab]`, deduped so a table of
- *  fifty identical rows costs one press, capped so a busy page cannot turn one surface into a minute of clicking.
- *  The CAP is reported (`discovered`), because a pass that quietly pressed the first eight of forty controls is the
- *  same false comfort as a scan that read nothing. */
-export async function discoverPressTargets(page, cap, skip) {
-  return page.evaluate(({ cap, skip }) => {
-    const out = [];
-    const seen = new Set();
-    const els = [...document.querySelectorAll('button:not([disabled]), a[href], [role="button"], [role="tab"]')];
-    for (const el of els) {
-      const r = el.getBoundingClientRect();
-      const st = getComputedStyle(el);
-      if (r.width < 6 || r.height < 6 || st.display === 'none' || st.visibility === 'hidden') continue;
-      if (st.pointerEvents === 'none') continue;
-      if (skip.some((s) => el.matches(s))) continue;
-      const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
-      const key = el.tagName.toLowerCase() + cls + '|' + Math.round(r.width) + 'x' + Math.round(r.height);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(el.tagName.toLowerCase() + cls);
-    }
-    return { found: out.length, targets: out.slice(0, cap) };
-  }, { cap, skip });
-}
-
 export async function pressPass(page, targets, label = {}) {
   const rows = [];
-  // THE DISCOVERED SET IS OPT-IN, because a page of fifty archive rows would cost fifty presses: the curated list
-  // stays for the surfaces it was written for, and `discover` adds what the DOM knows that the list does not.
-  let discovered = null;
-  if (label.discover) {
-    discovered = await discoverPressTargets(page, label.discover, targets.filter((t) => !t.includes(',')));
-    targets = [...targets.filter((t) => !t.includes(',')), ...discovered.targets];
-  }
   const styleOf = (sel) => page.evaluate((s) => {
     for (const el of document.querySelectorAll(s)) {
       const r = el.getBoundingClientRect();
       const st = getComputedStyle(el);
       if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
       const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : "";
-      // AND WHETHER THE POINT ACTUALLY REACHES IT. A covered element and a still element are different facts, and
-      // this pass must not report the second when it means the first.
-      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return {
         where: el.tagName.toLowerCase() + cls + (el.id ? "#" + el.id : ""),
         transform: st.transform, opacity: st.opacity, background: st.backgroundColor, filter: st.filter,
-        hit: !!(top && (top === el || el.contains(top) || top.contains(el))),
       };
     }
     return null;
@@ -559,57 +517,14 @@ export async function pressPass(page, targets, label = {}) {
   for (const sel of targets) {
     const box = await page.evaluate((s) => {
       for (const el of document.querySelectorAll(s)) {
-        // A CONTROL BELOW THE FOLD IS NOT A CONTROL THAT FAILED TO ANSWER (round 103). This pass took the element's
-        // rect as it found it and pressed that coordinate; for `.device-logs-toggle` the coordinate was y=1582 in an
-        // 860px viewport, the mouse never touched the button, and the measurement read "press adds nothing" — a
-        // finding against a control that answered perfectly. The element is scrolled to the middle FIRST, and an
-        // element that cannot be brought into view is reported as exactly that, because silence about a press is not
-        // evidence of a missing one.
-        // SCROLL ONLY IF IT IS NOT ALREADY FULLY VISIBLE, and then by the MINIMUM amount (`nearest`): centring every
-        // element unconditionally moved controls that were already on screen — the rail buttons and session rows of a
-        // panel whose own containers scroll — and the press FLOOR reported it in CI ("the press pass measured 1
-        // control(s)"). An instrument may move the page to reach a control; it may not rearrange the page it is
-        // measuring.
-        const before = el.getBoundingClientRect();
-        const movedPage = before.top < 0 || before.bottom > innerHeight || before.left < 0 || before.right > innerWidth;
-        if (movedPage) {
-          el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
-        }
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
-        // THE PRESS GOES TO THE VISIBLE PART, not to the element's mathematical centre: on a page that cannot scroll
-        // (the landing holds its height) a control near the bottom keeps only its top edge on screen, and refusing to
-        // press it there would be the same over-correction in the other direction — the first version of this fix
-        // dropped three of the landing's four controls and the press FLOOR caught it in CI ("the press pass measured
-        // 1 control(s)"). So: clamp the rect to the viewport, and ask the hit test about the point that results.
-        const left = Math.max(r.left, 0), right = Math.min(r.right, innerWidth);
-        const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
-        if (right - left < 4 || bottom - top < 4) {
-          return { offscreen: true, top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: innerHeight, w: Math.round(r.width), h: Math.round(r.height) };
-        }
-        const cx = (left + right) / 2, cy = (top + bottom) / 2;
-        const at = document.elementFromPoint(cx, cy);
-        const reaches = !!(at && (at === el || el.contains(at) || at.contains(el)));
-        // THE HIT TEST IS CONSULTED ONLY WHERE IT WAS WRITTEN TO BE (round 103). It exists for the control the pass
-        // had to FETCH — the one below the fold, or the one it clamped into view — because that is where "the pointer
-        // never arrived" and "the control did not answer" are easy to confuse. For a control that was fully visible
-        // before the pass touched anything, the old measurement is the right one: it presses the centre and reports
-        // what the control does. Refusing those too cost CI four press entries (the floor read "measured 1 control")
-        // on a page the device measures at 4 and 2 — the same over-correction as the unconditional scroll, one step
-        // further in.
-        return {
-          x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), movedPage,
-          reaches, covered: reaches ? null : (at ? at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.trim().split(/\s+/)[0] : "") : "nothing"),
-        };
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
       }
       return null;
     }, sel);
     if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
-    if (box.offscreen) {
-      rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
-      continue;
-    }
     // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the
     // baseline is taken, or a mid-transition value would be compared against a settled one and a control that only
     // answers a hover would read as answering a press again. These sheets transition in 120-200ms, so 260ms is the
@@ -626,19 +541,7 @@ export async function pressPass(page, targets, label = {}) {
     await page.mouse.up();
     await page.waitForTimeout(60);
     const props = pressDelta(hovered, pressed);
-    // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED: if the pointer never reached the element (something
-    // is drawn over it, or the read happened mid-scroll), the row says so instead of claiming a still control.
-    // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED (round 103) — but the ROW IS STILL A MEASUREMENT. The
-    // pass presses, as it always has; `reached` is EXTRA EVIDENCE, and the JUDGE is where it changes the verdict.
-    // Removing such rows instead (two earlier versions of this fix) emptied the pass and CI's FLOOR said so: an
-    // instrument may not answer a question it declined to ask, and it may not stop asking either.
-    const reached = !(box.movedPage && hovered && hovered.hit === false);
-    rows.push({
-      sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
-      changed: props.length > 0, props, hovered, pressed, reached,
-      ...(reached ? {} : { note: "the pointer never reached this control — " + box.covered + " is drawn over the point that was pressed — so this row is NOT evidence that it ignores a press" }),
-      ...label,
-    });
+    rows.push({ sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h, changed: props.length > 0, props, hovered, pressed, ...label });
   }
   return rows;
 }
@@ -1030,15 +933,8 @@ export function judgeReport(report, opts = {}) {
   // reaches the screen.
   for (const row of report.press || []) {
     const where = `${row.density || "?"}/${row.theme || "?"}`;
-    // AND ONLY WHERE THE POINTER ARRIVED. A row the pass could not deliver a press to is not a control that ignored
-    // one — that distinction is the whole reason `.device-logs-toggle` was accused in round 103.
-    const dead = (row.rows || []).filter((r) => r.changed === false && r.reached !== false);
+    const dead = (row.rows || []).filter((r) => r.changed === false);
     for (const d of dead) findings.push(`${where}: ${d.sel} (${d.where}) renders NOTHING when pressed — before and during are identical (${d.size})`);
-    // AND WHAT THE PASS COULD NOT PRESS IS SAID OUT LOUD (round 103). A row that carries a note was not measured, and
-    // a floor that fires without saying why sends the next reader to the browser to re-derive it.
-    for (const r of row.rows || []) {
-      if (r.note && !/not rendered/.test(r.note)) console.log(`note: ${where} ${r.sel} — ${r.note}`);
-    }
     // A PASS THAT PRESSED NOTHING IS NOT A CLEAN PASS. Targets are per surface, and a page that renders none of them
     // would otherwise report zero dead presses forever.
     if ((row.measured || 0) < 2) {

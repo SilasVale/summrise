@@ -99,27 +99,6 @@ try {
       assert.ok(hover < down, `${name}: the baseline is read AFTER the press (hovered@${hover}, down@${down})`);
       assert.ok(call > down, `${name}: the verdict is not pressDelta(hovered, pressed) — the baseline is not the hover`);
       assert.ok(src.includes("function pressDelta"), `${name}: pressDelta is not embedded, so the browser runs a different rule`);
-
-      // AND A PRESS THE POINTER NEVER DELIVERED IS NOT A PRESS THE CONTROL IGNORED (round 103). The pass took the
-      // element's rect as it found it: for `.device-logs-toggle` that was y=1582 in an 860px viewport, so the mouse
-      // moved to a coordinate outside the page, nothing was hovered, nothing was pressed, and the row read
-      // "press adds nothing" — a finding against a button that answers. An instrument that reports a defect which
-      // is really its own blind spot is the one failure mode this file exists to prevent, so the three rules are
-      // pinned here: scroll it into view first, refuse to measure one that will not fit, and say so when the point
-      // resolves to something else.
-      assert.ok(src.includes('el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" })'), `${name}: the element is not scrolled into view — a control below the fold will be "pressed" at a coordinate outside the page and reported as still`);
-      assert.ok(src.includes("const movedPage = before.top < 0 || before.bottom > innerHeight"), `${name}: every element is scrolled unconditionally — an instrument may move the page to REACH a control, it may not rearrange the page it is measuring`);
-      assert.ok(src.includes("box.movedPage && hovered && hovered.hit === false"), `${name}: the hit test removes rows instead of annotating them — the pass must press what it was asked to press, and the row carries whether the pointer arrived`);
-      assert.ok(src.includes("box.offscreen"), `${name}: an element that cannot be brought into view is measured anyway, which is how a blind spot becomes a finding`);
-      // AND THE PRESS GOES TO THE VISIBLE PART, not to a centre that may be off-screen: the first version of the
-      // refusal dropped three of the landing's four controls and CI's press FLOOR caught it ("measured 1 control(s)").
-      assert.ok(src.includes("Math.min(r.right, innerWidth)"), `${name}: the rect is not clamped to the viewport — a partially visible control will be refused or pressed at a coordinate outside the page`);
-      assert.ok(src.includes("the pointer never reached this control"), `${name}: a control drawn over by something else is reported as still rather than as unreachable`);
-      assert.ok(src.includes("document.elementFromPoint"), `${name}: the hit test is gone — a covered element and a still element would read the same`);
-      // THE OTHER HALF IS THE JUDGE'S, and it is pinned where the judge is: a dead press row must NOT be reported
-      // when the row says the pointer never arrived (`reached: false`). That clause lives in `judgeReport`, which is
-      // not part of the emitted sweep — `panel-design-sweep.bash` plants both shapes at the judge.
-      assert.ok(src.includes("the pointer never reached this control"), `${name}: a press the pointer never delivered is reported as an answer (or as its absence) instead of as a note`);
     });
   }
 } finally {
