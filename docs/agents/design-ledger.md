@@ -1070,3 +1070,49 @@ operator never sees. The failure surfaces report their own flag rather than the 
 So the harness delivers the push, the panel renders connected, and two independent clauses now say so — one about what
 the fixture did, one about what the panel concluded from it. Proven three ways on synthetic reports before shipping:
 clean passes, a missing push fails on BOTH witnesses, and the failure fixture passes.
+
+### THE FOURTH SILHOUETTE'S FIRST PHOTOGRAPH, AND EVERYTHING IT EXPOSED (round 88)
+
+The harness's own note had said for many rounds that the page sweep, "which photographs pages and never presses", has
+never photographed `off` — a closed session is CLIENT state, so no URL parameter can produce it. It is reachable by
+PRESSING, and the recipe was already written down (click the tab's x, click the confirm's Close, read after the 0.15s
+background transition). Round 245 made it stable. The surface now exists in both densities and both themes, with
+`mode=pending` so the waiting diamond is on screen too — and it is the only surface where ALL FOUR STATES can be
+compared at once.
+
+IT FOUND FOUR THINGS, IN A CHAIN, AND THREE OF THEM WERE OLDER THAN THE SURFACE:
+
+1. **THE MARKS PROBE COULD NOT SEE A BORDER.** `kind` read FILLS and INSET SHADOWS only:
+
+       const kind = inset && filled ? 'ring+fill' : inset ? 'ring' : filled && shadow !== 'none' ? 'halo' : filled ? 'solid' : 'empty';
+
+   The panel draws BOTH of its rings with a border — idle is `1.5px solid`, off is `1.5px dashed` — so both computed
+   as 'empty', and the first surface to put them side by side reported "idle and off paint identically
+   (50%/flat/empty)". A border is a ring now, a dashed or dotted one is 'dashed-ring' (its own kind, because the dash
+   IS the design decision the state encodes), and a border that PAINTS NOTHING is not a ring at all — that last
+   refinement came from the probe immediately reporting three more collisions, which were transparent borders until
+   proven otherwise.
+
+2. **THREE REAL DEFECTS, EXPOSED BY (1).** `mark[idle]` on Desktop-empty and `mark[off]` on both desktop failure
+   surfaces were FILL inside a RING. The cause was specificity and order: `.mark[data-live="idle"]` (0,2,0) sets
+   `background: transparent` and a border, `.desktop-rail-status .dot` (0,2,0) sets `background: var(--warn)` and an
+   amber glow LATER in the sheet — equal specificity, later wins, so the state's own fill and halo never applied on
+   the desktop rail. The comment beside it already said what it was for ("kept as the base so a missing data-state
+   degrades to 'not sure'"); scoping it to `:not([data-live])` is what that comment describes.
+
+3. **A TEXT FINDING COULD NOT SAY WHAT IT MEASURED.** Round 73 added paint/surface/kind to the judge's message so a
+   finding would explain itself; the GRAPHIC rows had carried those fields since round 125 and the TEXT rows never
+   had, so the axis that produces most of the findings printed "painted undefined on undefined, 12px undefined".
+
+4. **AND THAT MADE A REAL CONTRAST DEFECT ACTIONABLE.** With the evidence in place the finding read
+   `rgb(177,177,181) on rgb(255,255,255)` — 2.13:1 for the closed tab's own name, because `.tab.closed { opacity:
+   0.45 }` dimmed the whole tab on top of the dimmed ink beside it. The panel had already decided this one component
+   over, in the sidebar's words: "the ink stays legible and the shape says closed, which is the rule the whole mark
+   language follows". The tab follows it now: 7.73:1 light, 6.47:1 dark, with the dashed ring, the line-through and
+   `cursor: default` still saying closed.
+
+AND ONE FAILURE THAT ONLY CI COULD SEE, worth its line because no local gate can: the text rows began using `rgbStr`,
+which was declared BELOW them — a const in the temporal dead zone. `node --check` passed, the emit passed, every gate
+was green, and the browser threw "Cannot access 'rgbStr' before initialization". The probe is a SCRIPT THAT RUNS IN A
+BROWSER; the gates around it check its SHAPE, not its execution. The file's own round-46 note records the same class
+from the other end.
