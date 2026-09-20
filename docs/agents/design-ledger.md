@@ -1914,3 +1914,31 @@ discovered and held by the suite, not merely hand-verified once. That is the dif
 AND THE EMITTERS NOW ASSERT WHAT THEY BORROW. `assertEmbedded` is shared by all three, because the failure that
 reached CI (a helper called but not embedded) is invisible to every local gate: they read the artifact's TEXT or judge
 a planted report, and none of them RUNS it.
+
+### A FINDING THAT WAS TRUE AND STILL AN ACCIDENT (round 16)
+
+Round 15 fixed a real 2.5.8 failure — two 22x22 session-row action buttons whose centres were 22px apart — and it was
+found by LUCK: the press pass parked the pointer over a session row, the next navigation re-applied the hover, and the
+target probe read a state it had never been asked to measure. `.side-actions` is `display: none` until `.side-row:hover`,
+so every sweep before that read 0x0 and skipped it.
+
+A SUITE MAY NOT DEPEND ON WHERE THE LAST PASS LEFT THE MOUSE. Two rules, one for each half:
+
+    the pass parks the pointer at (2,2) when it finishes     the accidental finding cannot recur AS an accident
+    revealPass hovers a row, measures, and parks again       …and cannot be LOST as one either
+
+MEASURED, first run with the deliberate reveal:
+
+    TARGETS panel panel-Terminal reveal   checked=32   undersized=10
+            .side-action  22x22  nearest=26px  passes=true      (the round-15 fix, now held by the suite)
+    TARGETS panel rest                    checked=29   undersized=6
+    TARGETS desktop rest                  checked=27   undersized=5
+    press: answering=158  dead=0
+
+TWO MORE TARGETS ARE SEEN IN THE REVEALED STATE THAN AT REST. That is the whole argument for measuring it: a control an
+operator can hit, and that no instrument had ever looked at.
+
+AND THE FINDING NOW SAYS WHERE. This axis measures two states per page, so `target size (panel)` became
+`target size (panel panel-Terminal reveal)` — the same lesson the press rows learned one round earlier, when
+`panel/light` made a rail-walk finding indistinguishable from a mode-loop one. A finding that cannot be reproduced is
+half a finding.
