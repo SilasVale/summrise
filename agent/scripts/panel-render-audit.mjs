@@ -202,6 +202,16 @@ function buildHarness() {
   // opening also deleted these two lines, so the header referenced an undeclared FAIL and the counter
   // every measurement reads was never created. The emitted stub threw "FAIL is not defined" on the
   // first request, which is why the app showed "reconnecting" and why window.__calls was undefined.
+  // ?held=1 — THE STATE THE PANEL IS MOST CAREFUL ABOUT, AND ONE NO SURFACE HAS EVER RENDERED (round 89).
+  // held_by_human is SERVER-OWNED: SessionControl reads it off the session record and refuses to flip the button
+  // before the server agrees, because another client taking the session has to show up here too. Every seed above
+  // sets it false, so the HUMAN state of the .sc-dot mark — a solid fill against the ai state's inset ring — has
+  // never been photographed, and neither has the button's .held variant.
+  // ONLY THE FIRST SESSION, so both states of the family are on one page: the marks probe compares states WITHIN a
+  // family and can only see a collision between two states that are both rendered.
+  var HELD = P.get('held') === '1';
+  if (HELD && SESSIONS.length) SESSIONS[0].held_by_human = true;
+
   var FAIL = P.get('fail') === '1';
   window.__calls = [];
   // DID THE STREAM OPEN? The panel's connected state comes from a COMPLETE FRAME on /api/events/term (the app

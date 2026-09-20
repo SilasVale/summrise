@@ -536,6 +536,29 @@ ${TIMING}
     }
   }
 
+  // THE HELD SESSION, PHOTOGRAPHED FOR THE FIRST TIME (round 89). held_by_human is the fact the panel is most
+  // careful about — SessionControl reads it from the session record and will not flip the button until the server
+  // agrees — and every fixture this harness has ever built set it FALSE. So the HUMAN state of the .sc-dot mark
+  // (a solid fill against the ai state's inset ring) and the button's .held variant have never been rendered.
+  // ONE session is held and the rest are not, because the marks probe compares states within a family and can only
+  // see a collision between two states that are both on screen.
+  if (wants("pages")) {
+    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize(vp);
+      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&held=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Held-' + theme;
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'held', page: pname });
+      report.surfaces.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE FOURTH SILHOUETTE, PHOTOGRAPHED AT LAST (round 88). The mark language has four states — off, waiting,
   // working, idle — and this file's own note has said for many rounds that the page sweep, which photographs pages
   // and never presses, has never photographed 'off': a closed session is CLIENT state, so no URL parameter can
