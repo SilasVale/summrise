@@ -13,6 +13,7 @@ const KEY_NAMES = [
   "GMI_API_KEY",
   "CMD_API_KEY",
   "AMD_API_KEY",
+  "R4_API_KEY",
 ];
 
 interface KeyInfo {
@@ -31,6 +32,7 @@ const KEY_I18N_PREFIX: Record<string, string> = {
   GMI_API_KEY: "gmi",
   CMD_API_KEY: "cmd",
   AMD_API_KEY: "amd",
+  R4_API_KEY: "r4",
 };
 
 function getKeyShortName(name: string) {

@@ -58,7 +58,7 @@ test("detectRoute: one flag per POST shape, none otherwise", () => {
   });
 });
 
-test("extractByokKeys: eight keys mapped, unset normalized to null", () => {
+test("extractByokKeys: nine keys mapped, unset normalized to null", () => {
   assert.deepEqual(
     extractByokKeys({
       DEEPSEEK_API_KEY: "sk-ds",
@@ -69,6 +69,7 @@ test("extractByokKeys: eight keys mapped, unset normalized to null", () => {
       GMI_API_KEY: "sk-gmi",
       CMD_API_KEY: "sk-cm",
       AMD_API_KEY: "sk-amd",
+      R4_API_KEY: "sk-r4",
       WHATEVER_ELSE: "ignored",
     }),
     {
@@ -80,6 +81,7 @@ test("extractByokKeys: eight keys mapped, unset normalized to null", () => {
       gmi: "sk-gmi",
       cmd: "sk-cm",
       amd: "sk-amd",
+      r4: "sk-r4",
     },
   );
   assert.deepEqual(extractByokKeys({}), {
@@ -91,6 +93,7 @@ test("extractByokKeys: eight keys mapped, unset normalized to null", () => {
     gmi: null,
     cmd: null,
     amd: null,
+    r4: null,
   });
   assert.equal(extractByokKeys({ DEEPSEEK_API_KEY: "" }).deepseek, null, "blank normalizes to null");
 });

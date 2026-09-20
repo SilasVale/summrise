@@ -38,6 +38,14 @@ export const QWEN_COMPAT_CHAT: string =
 // translation needed on either path.
 export const AMD_ANTHROPIC: string = "https://developer.amd.com.cn/radeon/api" + VERIFY_PATH;
 export const AMD_CHAT: string = "https://developer.amd.com.cn/radeon/api/v1/chat/completions";
+// r4.codes — a coding-agent gateway serving its whole catalog on ONE host under
+// BOTH protocols natively, like AMD (verified against the live API 2026-09-20):
+// /v1/messages returns a real Anthropic message (thinking blocks included) and
+// accepts x-api-key OR Bearer, and /v1/chat/completions returns a normal
+// chat.completion. No translation on either path, so the route is picked by
+// requestPath — see r4Route in upstream.ts.
+export const R4_ANTHROPIC: string = "https://api.r4.codes" + VERIFY_PATH;
+export const R4_CHAT: string = "https://api.r4.codes/v1/chat/completions";
 // Reserved for future use — currently empty. Models listed here would bypass
 // the OpenAI translate path and use native Anthropic /v1/messages passthrough.
 export const OG_NATIVE_ANTHROPIC: Set<string> = new Set();
@@ -248,6 +256,37 @@ export const MODEL_REGISTRY: ModelSpec[] = [
   { id: "cm/meituan/LongCat-2.0:free", ownedBy: "command-code", probe: true },
   { id: "cm/poolside/laguna-s-2.1-free", ownedBy: "command-code", probe: true },
   { id: "cm/deepseek/deepseek-v4.1-flash", ownedBy: "command-code", probe: true },
+  // ── r4/ — r4.codes (registered 2026-09-20) ──────────────────────────────
+  // A coding-agent gateway serving its whole catalog on ONE host under BOTH
+  // protocols natively: /v1/messages returns a real Anthropic message
+  // (thinking blocks included) and accepts x-api-key OR Bearer, while
+  // /v1/chat/completions returns a normal chat.completion — so r4Route picks
+  // by requestPath and NOTHING is translated (the amd/ pattern). The upstream
+  // slug carries the version exactly as the advertised name does, so the
+  // prefix-stripped id CROSSES THE WIRE UNCHANGED: no `wire` facet is set, and
+  // none could be (`wire` is consulted for og/ alone).
+  //
+  // Every facet below was measured against the live upstream before this
+  // record was written (2026-09-20). Both paths answer 200 for all eight
+  // catalog models; an image_url request reads a 320x100 PNG's text verbatim
+  // and reports usage.prompt_tokens_details.image_tokens=202, so
+  // VISION_CAPABLE_MODELS gains the id (wrangler.jsonc); and `reasoning_effort`
+  // accepts minimal|low|medium|high|xhigh|max while `none` is a 400 with no
+  // floor below minimal — which is why DSH maps off→minimal for this channel
+  // rather than the off→max convention og/ and qw/ use.
+  //
+  // NO `search` FACET, and that one is measured too, not assumed. r4's
+  // /v1/messages accepts a `tools` array but implements only CLIENT-side
+  // tools: `web_search_20250305` is IGNORED — 200, no server_tool_use block,
+  // no web_search_tool_result, and the model answers "the web_search tool
+  // isn't available in this session". A deliberately fabricated tool type
+  // (`totally_made_up_20991231`) behaves identically, which is what rules out
+  // "this request was malformed": the upstream simply does not know the tool.
+  // Forcing tool_choice does not change it. Consequence: a web_search request
+  // aimed at r4/ is swapped to the og/ Flash lane by translate.ts's
+  // searchTargetFor — the path every non-search-capable channel takes — and is
+  // answered by zen/go, NOT by r4.
+  { id: "r4/deepseek-v4.1-flash", ownedBy: "r4", probe: true },
 ];
 
 /** A record by advertised id. */
@@ -493,6 +532,12 @@ export const ROUTE_INFO: { prefix: string; backend: string; desc: string; models
     models: routeModelsFor("cm/"),
   },
   {
+    prefix: "r4/",
+    backend: "r4.codes",
+    desc: "api.r4.codes — Anthropic /v1/messages AND OpenAI /v1/chat/completions both native (no translation either way), user's own R4_API_KEY; no server-side tools (web_search requests are swapped to the og/ Flash lane); any catalog model reachable as r4/<id>",
+    models: routeModelsFor("r4/"),
+  },
+  {
     prefix: "none",
     backend: "Command Code (default)",
     desc: "no prefix → the default channel, Command Code (GOAT) with the model name passed through as-is; `auto` resolves to cm/deepseek/deepseek-v4.1-flash (per-user selection first, see model-route.ts). Note: cm/ rides Command Code's OpenAI endpoint, which rejects claude-* ids (those exist only on their Anthropic endpoint) — use a prefixed deepseek/OSS model there",
@@ -555,6 +600,11 @@ export const HEALTH_CHANNELS: { id: string; model: string }[] = [
   { id: "cm", model: "cm/deepseek/deepseek-v4.1-flash" },
   { id: "cm", model: "cm/meituan/LongCat-2.0:free" },
   { id: "cm", model: "cm/poolside/laguna-s-2.1-free" },
+  // r4/ — ONE card, not one per catalog model. The registry above advertises a
+  // single r4 model deliberately (the other seven are reachable as r4/<id> but
+  // are not registered), and every card here costs an upstream call on a
+  // PUBLIC, unauthenticated endpoint.
+  { id: "r4", model: "r4/deepseek-v4.1-flash" },
 ];
 // The default channel leads: `auto`/no-prefix now resolve to Command Code
 // V4.1 (model-route.ts / upstream.ts defaultRoute), so the console's

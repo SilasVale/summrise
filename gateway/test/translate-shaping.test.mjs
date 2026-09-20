@@ -300,14 +300,14 @@ test("REQUIRED_KEY_BY_KIND: every byok field is reachable from some kind", () =>
 });
 
 test("REQUIRED_KEY_BY_KIND: the irregular spellings are the ones that matter", () => {
-  // Three of the eight fields do NOT match their kind name. These are pinned
+  // Three of the nine fields do NOT match their kind name. These are pinned
   // by name because a "tidy-up" that renames them for symmetry would break the
   // lookup in exactly the way the typo pin above describes.
   assert.equal(REQUIRED_KEY_BY_KIND.nvidia, "nv");
   assert.equal(REQUIRED_KEY_BY_KIND.opencode, "opencodeGo");
   assert.equal(REQUIRED_KEY_BY_KIND.commandgoat, "cmd");
-  // ...and the five that do match.
-  for (const kind of ["deepseek", "openrouter", "qwen", "gmi", "amd"]) {
+  // ...and the six that do match.
+  for (const kind of ["deepseek", "openrouter", "qwen", "gmi", "amd", "r4"]) {
     assert.ok(REQUIRED_KEY_BY_KIND[kind], `kind ${kind} lost its entry`);
   }
 });
@@ -322,6 +322,7 @@ test("isKeyMissing: present key passes, absent/empty/null fails", () => {
     gmi: "k",
     cmd: "k",
     amd: "k",
+    r4: "k",
   };
   for (const kind of Object.keys(REQUIRED_KEY_BY_KIND)) {
     assert.equal(isKeyMissing(kind, full), false, `${kind} with its key must pass`);

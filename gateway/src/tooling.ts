@@ -117,6 +117,7 @@ const PROBE_ENV_KEYS: Record<string, string> = {
   gmi: "GMI_API_KEY",
   cm: "CMD_API_KEY",
   amd: "AMD_API_KEY",
+  r4: "R4_API_KEY",
   ds: "DEEPSEEK_API_KEY",
 };
 

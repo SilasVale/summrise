@@ -72,8 +72,18 @@
     //     image_tokens. Listed by ADVERTISED id; its wire name
     //     (deepseek-v4.1-flash) is deliberately NOT listed — a bare entry
     //     would also cover any future channel serving that same slug.
+    //   - r4/deepseek-v4.1-flash — r4.codes (2026-09-20): an image_url request
+    //     read a 320x100 PNG's text verbatim and reported
+    //     prompt_tokens_details.image_tokens=202. Listed by ADVERTISED id for
+    //     the same reason as qw/ above. NOTE the rest of the r4 catalog is NOT
+    //     vision-capable (glm-5.3, deepseek-v4-pro, deepseek-v4-flash and
+    //     glm-5.2 answered "I cannot see images" to the same probe), and the
+    //     other three that DO see images (kimi-k3, glm-5.3-flash, qwen3.8-27b)
+    //     are not registered in MODEL_REGISTRY — so this entry must NOT be
+    //     widened to the bare wire slug, which would silently claim vision for
+    //     the text-only seven.
     // The amd/ vision-exp entry left with the amd/ catalog (no V4.1 upstream).
-    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash"
+    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash, r4/deepseek-v4.1-flash"
   }
   // Vale Gate — unified AI gateway + device console. Custom domains are added
   // in the dashboard (custom_domains API is OAuth-only).
@@ -85,6 +95,8 @@
   // key, e.g. for the vale-probe health check; per-user keys are BYOK via the console),
   // NVAPI_KEY, GMI_API_KEY, AMD_API_KEY (same pattern: worker-level key only
   // feeds /api/vale-probe; real traffic uses the requesting user's own key),
+  // R4_API_KEY (same pattern: worker-level r4.codes key for /api/vale-probe;
+  // real traffic uses the requesting user's own key),
   // ADMIN_PASSWORD,
   // SESSION_SECRET (high-entropy; decouples session signing from the admin password — set it!),
   // DO_AUTH (shared secret the main worker passes to BreakerDO/RouteDO to gate their /call)

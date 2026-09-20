@@ -32,7 +32,7 @@ import {
   museResponsesExit,
 } from "../src/channels.ts";
 
-const KNOWN_PREFIXES = new Set(["ds", "og", "qw", "or", "nv", "gmi", "cm", "amd"]);
+const KNOWN_PREFIXES = new Set(["ds", "og", "qw", "or", "nv", "gmi", "cm", "amd", "r4"]);
 
 test("RETIRED_MODELS: retired ids stay out of MODELS, replacements stay in", () => {
   const live = new Set(MODELS.map((m) => m.id));

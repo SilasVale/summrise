@@ -85,6 +85,12 @@ export const BYOK_CHANNELS: ByokChannel[] = [
     shape: "openai",
   },
   { prefix: "amd", kind: "amd", userKey: "AMD_API_KEY", envKey: "AMD_API_KEY", shape: "anthropic" },
+  // r4.codes (2026-09-20). shape "anthropic": its /v1/messages is NATIVE — the
+  // route passes the body through untranslated — so the vision preprocessor
+  // must encode image blocks the Anthropic way when it does run. It normally
+  // does not: r4/deepseek-v4.1-flash is on VISION_CAPABLE_MODELS, which is what
+  // keeps the picture out of the preprocessor entirely.
+  { prefix: "r4", kind: "r4", userKey: "R4_API_KEY", envKey: "R4_API_KEY", shape: "anthropic" },
 ];
 
 /** Look up by routing prefix (`model-route.ts`'s vocabulary). */

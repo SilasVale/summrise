@@ -23,6 +23,8 @@ import {
   QWEN_COMPAT_CHAT,
   AMD_ANTHROPIC,
   AMD_CHAT,
+  R4_ANTHROPIC,
+  R4_CHAT,
   OG_WIRE_REMAP,
 } from "./channels.ts";
 import {
@@ -185,6 +187,33 @@ function amdRoute({ requestPath }: RouteCtx): RouteInfo {
       };
 }
 
+function r4Route({ requestPath }: RouteCtx): RouteInfo {
+  // r4.codes — BOTH formats native on ONE host, so nothing is translated and
+  // the route is picked by requestPath (the amd/ pattern). Verified against the
+  // live API 2026-09-20: /v1/messages returns a real Anthropic message
+  // (thinking blocks included) and accepts x-api-key OR Bearer, and
+  // /v1/chat/completions returns a normal chat.completion.
+  //
+  // Always DIRECT, never the US exit: the egress relay's TARGETS map has no r4
+  // entry, and an unknown target silently falls back to zen — which would
+  // answer with the wrong model under the user's r4 key (the trap amdRoute
+  // records). Adding r4 to that TARGETS map is the prerequisite if the US exit
+  // is ever wanted for this channel.
+  return requestPath === "/v1/chat/completions"
+    ? {
+        type: "passthrough",
+        kind: "r4",
+        stripPrefix: true,
+        upstream: R4_CHAT,
+      }
+    : {
+        type: "passthrough",
+        kind: "r4",
+        stripPrefix: true,
+        upstream: R4_ANTHROPIC,
+      };
+}
+
 function defaultRoute({ via }: RouteCtx): RouteInfo {
   // No prefix / unknown prefix → the DEFAULT channel. Since the 2026-09-10 V4
   // retirement that is Command Code (GOAT), the same channel `auto` resolves
@@ -212,6 +241,7 @@ export const ROUTE_TABLE: Record<string, RouteBuilder> = {
   gmi: gmiRoute,
   cm: cmRoute,
   amd: amdRoute,
+  r4: r4Route,
 };
 
 /** OCP extension point: new channels register here — no edit to pickRoute. */

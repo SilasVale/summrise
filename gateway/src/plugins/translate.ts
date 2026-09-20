@@ -191,6 +191,7 @@ const KEY_MISSING_MESSAGES: Record<string, string> = {
   gmi: "GMI_API_KEY not configured — add your GMI Cloud key in the console",
   amd: "AMD_API_KEY not configured — add your AMD Radeon Cloud (rc-…) key in the console",
   commandgoat: "CMD_API_KEY not configured — add your Command Code key in the console",
+  r4: "R4_API_KEY not configured — add your own r4.codes key in the console",
 };
 /** Missing-key 502 for a route kind, or null when the kind needs no key.
  *  Callers invoke it only inside their own `!key` guard (they own which
@@ -518,6 +519,7 @@ export function extractByokKeys(ukeys: Record<string, any>) {
     gmi: ukeys.GMI_API_KEY || null,
     cmd: ukeys.CMD_API_KEY || null,
     amd: ukeys.AMD_API_KEY || null,
+    r4: ukeys.R4_API_KEY || null,
   };
 }
 
@@ -529,7 +531,7 @@ export function extractByokKeys(ukeys: Record<string, any>) {
  * `route.kind === "X" && !byok.Y` checks scattered across the flows.
  *
  * The irregular fields are the whole point of centralising it — three of the
- * eight do NOT match their kind:
+ * nine do NOT match their kind:
  *
  *     nvidia -> nv          opencode -> opencodeGo      commandgoat -> cmd
  *
@@ -550,6 +552,7 @@ export const REQUIRED_KEY_BY_KIND: Record<string, string> = {
   gmi: "gmi",
   commandgoat: "cmd",
   amd: "amd",
+  r4: "r4",
 };
 
 /** Is `routeKind`'s required BYOK key absent from `byok`?
@@ -1096,9 +1099,11 @@ async function handleGatewayImpl(
                 ? byok.gmi
                 : route.kind === "amd"
                   ? byok.amd
-                  : route.kind === "opencode"
-                    ? byok.opencodeGo
-                    : byok.deepseek;
+                  : route.kind === "r4"
+                    ? byok.r4
+                    : route.kind === "opencode"
+                      ? byok.opencodeGo
+                      : byok.deepseek;
 
   // ---- POST /v1/chat/completions (OpenAI format passthrough) ----
   // Accepts OpenAI-format requests directly and forwards to the upstream
@@ -1108,7 +1113,7 @@ async function handleGatewayImpl(
     // Key-existence guards for the chat/completions flow — one per provider
     // kind the endpoint serves. Table-driven: identical shape, order matters
     // only relative to the degraded-channel probe below.
-    for (const kind of ["nvidia", "gmi", "amd", "opencode"]) {
+    for (const kind of ["nvidia", "gmi", "amd", "opencode", "r4"]) {
       if (route.kind === kind && isKeyMissing(kind, byok)) {
         return keyMissingError(kind) as Response;
       }
@@ -1132,14 +1137,18 @@ async function handleGatewayImpl(
     // completions re-pick the compatible-mode upstream (bugfix 2026-08-30).
     // amd/ is the same shape again: pickRoute defaults to Radeon's native
     // /v1/messages URL (Anthropic clients), an OpenAI body must go to
-    // /v1/chat/completions instead.
+    // /v1/chat/completions instead. r4/ is the fifth of the same shape: its
+    // route is picked by requestPath, and resolveRoute above was called WITHOUT
+    // one (so it defaulted to /v1/messages) — re-picking is what sends an
+    // OpenAI body to r4's chat/completions URL rather than its Anthropic one.
     if (
       route.kind === "openrouter" ||
       route.kind === "commandgoat" ||
       route.kind === "qwen" ||
-      route.kind === "amd"
+      route.kind === "amd" ||
+      route.kind === "r4"
     ) {
-      // Re-pick by the REQUEST prefix (kind→prefix is 1:1 for these four);
+      // Re-pick by the REQUEST prefix (kind→prefix is 1:1 for these five);
       // pickRoute ignores the US exit for amd — that host is CN-served.
       route.upstream = pickRoute(prefix2, env, usProxy, "/v1/chat/completions").upstream;
     }
@@ -1287,7 +1296,7 @@ async function handleGatewayImpl(
   // own ±20% accuracy stance and cuts that latency entirely. Missing-key checks
   // are still real config errors and stay.
   if (isCount) {
-    for (const kind of ["deepseek", "qwen", "amd"]) {
+    for (const kind of ["deepseek", "qwen", "amd", "r4"]) {
       if (route.kind === kind && isKeyMissing(kind, byok)) {
         return keyMissingError(kind) as Response;
       }
@@ -1361,6 +1370,12 @@ async function handleGatewayImpl(
     // the request would go out headerless and 401 at the upstream.
     if (route.kind === "amd" && isKeyMissing("amd", byok)) {
       return keyMissingError("amd") as Response;
+    }
+    // r4/ is pure BYOK as well, and unlike qw/ds it has no Worker-level
+    // fallback consulted anywhere on this path: a keyless request would go out
+    // headerless and 401 at api.r4.codes.
+    if (route.kind === "r4" && isKeyMissing("r4", byok)) {
+      return keyMissingError("r4") as Response;
     }
     // og/ models need the OpenCode Go key too — without it the request would
     // go out headerless and return a bare

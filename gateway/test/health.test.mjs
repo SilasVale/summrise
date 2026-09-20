@@ -48,7 +48,7 @@ test("health: breaker closed → all channels ok, recommended cm", async () => {
 
 test("health: channels cover all prefixes in priority order", async () => {
   const h = await buildHealth(closedEnv);
-  assert.deepEqual(h.channels.map((c) => c.id), ["qw", "qw", "qw", "og", "og", "og", "og", "og", "or", "or", "or", "or", "nv", "gmi", "gmi", "cm", "cm", "cm"]);
+  assert.deepEqual(h.channels.map((c) => c.id), ["qw", "qw", "qw", "og", "og", "og", "og", "og", "or", "or", "or", "or", "nv", "gmi", "gmi", "cm", "cm", "cm", "r4"]);
   assert.deepEqual(h.channels.map((c) => c.model), [
     "qw/qwen3.8-max-preview",
     "qw/qwen3.8-flash",
@@ -68,11 +68,14 @@ test("health: channels cover all prefixes in priority order", async () => {
     "cm/deepseek/deepseek-v4.1-flash",
     "cm/meituan/LongCat-2.0:free",
     "cm/poolside/laguna-s-2.1-free",
+    "r4/deepseek-v4.1-flash",
   ]);
   // og and or repeat per model card; the dedup'd set must still cover every
   // priority prefix in order. ds/ and amd/ cards left with the V4 retirement
-  // (2026-09-10) — ds/ is unpayable, amd/ has no V4.1.
-  assert.deepEqual([...new Set(h.channels.map((c) => c.id))], ["qw", "og", "or", "nv", "gmi", "cm"]);
+  // (2026-09-10) — ds/ is unpayable, amd/ has no V4.1. r4/ sits LAST: it is not
+  // in HEALTH_PRIORITY (it is not an `auto` fallback candidate), so it carries
+  // one card and never leads.
+  assert.deepEqual([...new Set(h.channels.map((c) => c.id))], ["qw", "og", "or", "nv", "gmi", "cm", "r4"]);
 });
 
 test("installer round-trip: non-ASCII CLI encodes and decodes losslessly", () => {
@@ -360,7 +363,7 @@ test("probe rows cover every non-og HEALTH_CHANNELS id (no silent default)", () 
 // would spend the DeepSeek worker key on a foreign channel).
 test("probe coverage spans every USER_KEY_NAMES entry", () => {
   const tabled = new Set(
-    ["or", "qw", "nv", "gmi", "cm", "amd", "ds"].map((p) => probeEnvKeyName(p)),
+    ["or", "qw", "nv", "gmi", "cm", "amd", "r4", "ds"].map((p) => probeEnvKeyName(p)),
   );
   for (const name of USER_KEY_NAMES) {
     const covered = tabled.has(name) || name === "OPENCODE_GO_API_KEY";

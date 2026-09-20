@@ -89,6 +89,7 @@ test("the advertised ORDER is pinned (it is the /v1/models response)", () => {
     "cm/meituan/LongCat-2.0:free",
     "cm/poolside/laguna-s-2.1-free",
     "cm/deepseek/deepseek-v4.1-flash",
+    "r4/deepseek-v4.1-flash",
   ];
   assert.deepEqual(
     MODELS.map((m) => m.id),
@@ -219,10 +220,19 @@ test("wireSpec: unique wire names resolve, ambiguous ones refuse", () => {
       `"${w}" is shared by ${ms.map((m) => m.id).join(", ")} and must not guess`,
     );
   }
-  // The known collision, named so a future de-duplication is a deliberate act.
+  // The known collisions, named so a future de-duplication is a deliberate act.
+  // The second one arrived with r4/ (2026-09-20): qw/deepseek-v4.1-flash and
+  // r4/deepseek-v4.1-flash both cross the wire as the bare `deepseek-v4.1-flash`
+  // (neither remaps — only og/ has aliases). Harmless, and checked rather than
+  // assumed: a wire-name collision only breaks a facet consulted BY WIRE, and
+  // assertion (a) above proves neither of these two carries one (no
+  // `responsesOnly`, no `reasoningMax`). SEARCH and VISION are keyed by wire
+  // too, which is exactly why VISION_CAPABLE_MODELS lists the ADVERTISED ids
+  // and not this bare slug — a bare entry would have claimed vision for every
+  // channel serving that name.
   assert.deepEqual(
     ambiguous.map(([w]) => w),
-    ["openai/gpt-5.6-luna:floor[1m]"],
+    ["openai/gpt-5.6-luna:floor[1m]", "deepseek-v4.1-flash"],
     "the ambiguous wire set changed — re-check every wire-name facet",
   );
 

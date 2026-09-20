@@ -223,7 +223,7 @@ export async function describeImage(
   // failed. shape picks the response reader:
   //   anthropic — upstream speaks /v1/messages (content[] text blocks);
   //   openai    — upstream speaks /v1/chat/completions (choices[0].message).
-  // The eight BYOK channels are DERIVED from `store/byok.ts` since round 194.
+  // The nine BYOK channels are DERIVED from `store/byok.ts` since round 194.
   //
   // `custom` is NOT one of them and is deliberately written out here: it is a route KIND
   // with no BYOK channel behind it — its models are served through the OpenAI-compatible
@@ -231,7 +231,7 @@ export async function describeImage(
   // record rather than from `ukeys`, so `key` is unused. A naive "derive the whole table"
   // would have DROPPED this entry, and the failure mode is silent: `VISION_BACKENDS[kind]`
   // would be undefined and every describe against a custom provider would answer
-  // "视觉模型后端不支持". The shared source covers eight; THIS table needs nine — recorded
+  // "视觉模型后端不支持". The shared source covers nine; THIS table needs ten — recorded
   // because that mismatch is the same shape as the `shape` facet round 189 found only by
   // reading this file instead of assuming from the three tables that agreed.
   const VISION_BACKENDS: Record<string, { key: string; shape: "anthropic" | "openai" }> = {
