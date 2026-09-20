@@ -3681,8 +3681,15 @@
 .cmd-btn.cmd-toggle svg { transition: transform var(--ds-transition-duration-fast) var(--ds-ease-in-out); }
 .cmd-btn.cmd-toggle.open svg { transform: rotate(90deg); }
 
-/* closed tab honesty */
-.tab.closed { opacity: 0.45; }
+/* CLOSED TAB HONESTY — AND THE INK STAYS LEGIBLE (round 88). This rule dimmed the WHOLE tab to 0.45, name
+   included, and the rendered contrast probe measured what that costs: the closed tab's own label read
+   rgb(177,177,181) on white = 2.13:1 in light and 2.4:1 in dark, against the 4.5 AA wants for 12px text. The panel
+   had already decided this question one component over, in the sidebar's own words: "The state rides in the
+   silhouette now: a closed session is off in the model, and off draws a DASHED ring. So the ink stays legible and
+   the shape says closed, which is the rule the whole mark language follows."
+   Four channels say closed without touching legibility: the dashed ring (the mark), the line-through, the dimmed
+   ink (.tab.closed { color: var(--chrome-ink-dim) }, 7.03:1 light and 6.3:1 dark), and cursor: default. The blanket
+   opacity was the only one that broke the name. */
 .tab.closed .tab-name { text-decoration: line-through; }
 .tab.closed { cursor: default; }
 
