@@ -134,14 +134,15 @@ function buildHarness() {
   // answered terminal_list with an undefined result and the panel showed "Sessions unavailable —
   // reconnecting" no matter what else was fixed). Same shape as the single SESSION row above, which is
   // the shape agent/tests/fixtures/session-row.json pins from both ends.
-  // WHAT THE HARNESS STILL DOES NOT DO, measured round 115 and worth knowing before reading any
-  // measurement made with it: window.EventSource below is a NO-OP (its addEventListener does nothing),
-  // so the panel's SSE stream NEVER opens. Every SSE-driven surface therefore renders its
-  // "Connection lost - reconnecting" state, and has in every sweep this harness has ever produced.
-  // That is the harness, not the product. The HTTP surfaces (cards, settings, update, monitors) are
-  // served properly; anything fed by a push is not. window.__calls records what the app requested, and
-  // reading it is the fastest way to tell the two apart: 4 calls now reach the stub, where the count was
-  // 0 while the fetch header was missing.
+  // THE STREAM OPENS NOW, AND THIS NOTE SAID OTHERWISE FOR SIXTY ROUNDS (corrected round 86). It was written in
+  // round 115, when window.EventSource was a NO-OP and the panel's push never arrived — so every surface really was
+  // measured in its "Connection lost - reconnecting" state. Round 156 put the branch in (see /api/events/term
+  // below, which serves one empty frame and closes) and the panel has rendered CONNECTED since; the paragraph that
+  // said "NEVER opens" stayed, and it is exactly the kind of note that makes a reader distrust a working fixture or
+  // "fix" what is not broken. What replaced it is a CHECK, not a sentence: the harness publishes window.__sse, the
+  // panel sweep reads it per surface, and the shared judge FAILS a surface that should be connected and was not.
+  // (window.EventSource is still a no-op and that is still correct: the app fetches /api/events/term and reads a
+  // stream rather than using EventSource.)
   //
   // WHAT THE PANEL SHOWS BECAUSE OF IT, traced to the line (round 154): PanelApp defines connected as
   // props.sseState === "connected" — the SSE state, NOT the boot connection — and the sidebar message
@@ -202,6 +203,11 @@ function buildHarness() {
   // first request, which is why the app showed "reconnecting" and why window.__calls was undefined.
   var FAIL = P.get('fail') === '1';
   window.__calls = [];
+  // DID THE STREAM OPEN? The panel's connected state comes from a COMPLETE FRAME on /api/events/term (the app
+  // fetches a stream rather than using EventSource), so "the harness delivered the push" is a fact only this file
+  // knows. It is published here for the sweep to assert, together with FAIL, because the failure surfaces reject
+  // every /api/ call on purpose and are SUPPOSED to read as reconnecting.
+  window.__sse = { opened: false, fail: FAIL };
   var realFetch = window.fetch.bind(window);
   // THE RESPONSE HELPER, which every fixture guard below calls and which the same edit deleted. Without
   // it every guard threw "J is not defined" on the first request: the app's calls failed, the cards said
@@ -426,6 +432,7 @@ function buildHarness() {
       // CONNECTED with this exact shape, and round 194 found that a stream which stays open and sends a
       // second frame at 900ms puts four "reconnecting" rows back into the report. This prune removes the
       // ?activity=1 branch and NOTHING ELSE — a fixture change that alters behaviour is not a prune.
+      window.__sse.opened = true;
       var sseBody = new ReadableStream({
         start: function (c) {
           var enc = new TextEncoder();

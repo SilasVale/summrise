@@ -262,8 +262,10 @@ ${TIMING}
     // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
     // with the data and the judge refuses a report that does not say it covered everything.
     passes: ${JSON.stringify(PASSES)},
-    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [], targets: [], themeChecks: [],
+    rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [], targets: [], themeChecks: [], sse: [],
   };
+  // The harness publishes window.__sse (opened, fail). Read as data, judged by the shared clause.
+  const SSE = "(() => window.__sse || null)()";
   const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
@@ -329,6 +331,12 @@ ${TIMING}
           for (const row of rows) report.rows.push({ ...row, density, theme, mode: mode_, page: label });
           report.surfaces.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(SURFACE)) });
           report.names.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(NAMES)) });
+          // DID THE HARNESS DELIVER THE PUSH? The panel's connected state comes from a complete frame on
+          // /api/events/term, and the fixture that serves it is the only thing that knows whether it was served.
+          // This was a NOTE in the harness for many rounds ("with the stream shut, every panel measurement this
+          // harness has ever produced was taken in a reconnecting state") and nothing asserted it, so a change that
+          // broke the stream would have gone on being measured as if it were the product.
+          report.sse.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(SSE)) });
         }
       }
     }

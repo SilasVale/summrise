@@ -1000,6 +1000,17 @@ export function judgeReport(report, opts = {}) {
       findings.push(`hover (${h.density || "?"}/${h.theme || "?"}): ${h.underAA.length} element(s) below AA while hovered — ${h.underAA.slice(0, 3).join("; ")}`);
     }
   }
+  // THE HARNESS DELIVERED THE PUSH, OR THE MEASUREMENT IS OF ANOTHER PANEL. Every panel surface this suite has
+  // ever measured was taken with the SSE fixture either serving a frame (connected) or refusing every call (the
+  // failure surfaces, which are SUPPOSED to read as reconnecting). Nothing asserted which — so a fixture change that
+  // shut the stream would silently turn every surface into a reconnecting panel and every finding into a statement
+  // about a screen nobody sees. The harness publishes {opened, fail}; this is the clause that reads it.
+  for (const row of report.sse || []) {
+    if (row.fail === true) continue;                       // a failure surface is meant to be disconnected
+    if (row.opened !== true) {
+      findings.push(`${row.page || "?"}: the harness never opened the SSE stream, so this surface was measured in the RECONNECTING state — the fixture failed, not the panel`);
+    }
+  }
   for (const r of report.reflow || []) {
     if (r.docScrollsSideways) {
       findings.push({ text: `reflow @${r.width}px: the document scrolls sideways (${r.docScrollWidth} > ${r.viewport})`, entry: r });
