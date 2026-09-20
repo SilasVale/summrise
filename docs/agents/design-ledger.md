@@ -2106,3 +2106,31 @@ about that one dot.
 WHERE TO LOOK NEXT for weight of this kind, recorded rather than remembered: the `ignore` list beside DECORATIVE (the
 hover path's exemptions, which the same note does not cover), the panel's `UNSTYLED` waivers, and the `DECORATIVE`
 bands themselves — a band that no run has landed inside for several rounds is a number nobody has checked.
+
+### AN EXEMPTION MAY ANSWER FOR ITSELF (round 22)
+
+Round 21 pruned a waiver nothing had matched and recorded where to look next: the `ignore` list beside `DECORATIVE`,
+whose entries are consulted against FINDINGS rather than rows. Asked the same question, one of its two entries turned
+out to be used and one turned out to be a GUARD — and "prune it or say why it stays" is only actionable if there is
+somewhere to say it.
+
+THE MEASUREMENT, from a run with the hover and reflow axes on the device (126 surfaces, 6,920 rows, stale=false):
+
+    hover    4 surfaces · 14/14 and 11/11 interactive elements · underAA EMPTY
+    reflow   @640 a toolbar scroller (a note by design) · @320 THE DOCUMENT SCROLLS (506 > 320), and the harness
+             artifact entry SET IT ASIDE — the entry is used, and the note never mentions it
+
+WHY THE HOVER ENTRY IS A GUARD AND NOT WEIGHT — and this is the distinction round 21's prune turned on: its test is
+`/div\.rail-dot/`, UNANCHORED, so it still matches the row's sel (`div.mark.rail-dot` since the mark language gained
+`data-live`). The pruned DECORATIVE entry was `/^div\.rail-dot$/`, anchored, and matched nothing at all — a pattern
+that cannot fire is weight; a pattern that can fire, for a state that currently passes, is a guard. The entry now says
+so in one line, with its numbers, and the note reports it as `dormant as declared` instead of asking for a prune.
+
+THE FIXTURE LESSON, third time this session: the gate case for this first judged a report with NO reflow row — where
+the reflow entry is legitimately unused and undeclared, and the judge was RIGHT to ask about it. The instrument was
+fine and the fixture was wrong; it now mirrors a real clean run (a 320px finding whose scrollers are all tab children,
+an SSE record with `opened: true`, and the `docScrollsSideways` flag the clause actually reads — not the raw numbers,
+which is how the first attempt produced no finding to exempt at all).
+
+WHERE TO LOOK NEXT, unchanged from round 21 and now one shorter: the panel's `UNSTYLED` waivers, and the DECORATIVE
+bands themselves — a band no run has landed inside for several rounds is a number nobody has checked.
