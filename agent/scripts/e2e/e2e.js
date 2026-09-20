@@ -90,6 +90,27 @@ async function tool(name, body) {
   return j && j.result !== undefined ? j.result : j;
 }
 
+/** HOW MANY TIMES A SESSION ROW WAS ASKED FOR — the outcome assertions below need the list, not the command. */
+async function rowOf(id) {
+  const list = await tool('terminal_list', {});
+  return (Array.isArray(list) ? list : (list && list.sessions) || []).find((s) => s && s.id === id);
+}
+
+/** DO THE CALLER AND THE SESSION ROW AGREE ABOUT THE LAST COMMAND? (round 96)
+ *
+ *  AGREEMENT, NOT A NUMBER, and the difference was measured rather than reasoned: on a bash PTY in CI no shell
+ *  marker fires, the execute wait ends `state=partial`, and NEITHER side has a code — which is the correct
+ *  answer ("no code was observed"), not a missing feature. A check that demanded a number would be a check about
+ *  the runner's shell. What must never happen is the two audiences DISAGREEING — one reporting a code the other
+ *  never saw — which is exactly what this fails on, in both directions. The number itself is pinned by the
+ *  device's unit test (`the_row_carries_the_last_command_outcome_and_forgets_it_on_the_next_write`), which sets,
+ *  replaces and clears it. */
+function sameOutcome(row, result) {
+  const caller = result && result.exit_code;
+  const onRow = row && row.last_exit_code;
+  return typeof caller === 'number' ? onRow === caller : typeof onRow !== 'number';
+}
+
 const results = [];
 function check(name, cond, detail) {
   results.push({ name, pass: !!cond, detail: detail || '' });
@@ -121,6 +142,27 @@ async function sectionTerminal() {
   });
   check('terminal session execute', ex && ex.state === 'done' && (ex.text || '').includes('E2E-SESSION-OK'),
     'state=' + (ex && ex.state) + ' exit=' + (ex && ex.exit_code));
+  // THE DEVICE REPORTS THE LAST COMMAND'S OUTCOME ON THE ROW EVERY CLIENT POLLS (round 96).
+  // `ex.exit_code` is the answer the execute CALLER gets; `last_exit_code` is the same fact on `terminal_list`,
+  // which is what lets a surface say FAILED about a session whose audit trail it has never loaded. Driven here
+  // against the REAL binary, because the unit test drives the manager directly — this is the wire.
+  const okRow = await rowOf(sessionId);
+  check('terminal_list agrees with the caller about the last command outcome',
+    !!okRow && sameOutcome(okRow, ex),
+    'row=' + (okRow && okRow.last_exit_code) + ' caller=' + (ex && ex.exit_code) + ' state=' + (ex && ex.state));
+  // ...AND A FAILURE IS THE NUMBER, NOT A BOOLEAN. A command that does not exist leaves the shell ALIVE, which is
+  // the whole point of a per-session fact rather than a dead session's last words; if the shell reported a code at
+  // all it must be NON-ZERO, and the row must carry the same one.
+  const failedEx = await tool('terminal_execute', {
+    command: 'vale-e2e-no-such-command', session_id: sessionId, timeout_secs: 20,
+  });
+  check('a failing command does not report success',
+    !!failedEx && (typeof failedEx.exit_code !== 'number' || failedEx.exit_code !== 0),
+    'exit=' + (failedEx && failedEx.exit_code) + ' state=' + (failedEx && failedEx.state));
+  const badRow = await rowOf(sessionId);
+  check('and the session row carries whatever the caller was told',
+    !!badRow && sameOutcome(badRow, failedEx),
+    'row=' + (badRow && badRow.last_exit_code) + ' caller=' + (failedEx && failedEx.exit_code));
   const bg = await tool('terminal_execute', {
     command: 'Start-Sleep -Seconds 2; Write-Output E2E-BG-DONE',
     session_id: sessionId, run_in_background: true,
@@ -727,6 +769,22 @@ async function sectionGovernance() {
 
   const exec = await execP;
   check('gov: the approved command ran', exec.ok, exec.ok ? 'state=' + (exec.r && exec.r.state) : exec.e);
+  // AND THE ROW EVERY CLIENT POLLS CARRIES THE OUTCOME (round 96). `exec.r.exit_code` is what the execute caller
+  // got; `last_exit_code` is the same fact on `terminal_list`, which is what lets a surface say FAILED about a
+  // session whose audit trail it has never loaded. THE ASSERTION IS EQUALITY, not a hardcoded number, because the
+  // shell differs per runner — and it lives in THIS section as well as in the terminal one because this is the
+  // section CI runs (`--only governance,runs`): a check in a section nothing invokes is a check that never runs.
+  // WHAT IS ASSERTED IS AGREEMENT, IN BOTH DIRECTIONS — not "there is a code". Measured on this runner: the
+  // approved command ends `state=partial`, because no shell marker fired, so the caller got NO code and the row
+  // must carry NONE either (absent means "no code was observed"; see TermSessionInfo::last_exit_code). Demanding
+  // a number here would have been a check about the runner's shell, not about the wire. What must never happen is
+  // the two audiences DISAGREEING — a code on one side and not the other — and that is what this fails on.
+  const govRows = await tool('terminal_list', {});
+  const govRow = (Array.isArray(govRows) ? govRows : (govRows && govRows.sessions) || []).find((x) => x && x.id === sid);
+  check('gov: the session row agrees with the caller about the last command outcome',
+    exec.ok && !!govRow && sameOutcome(govRow, exec.r),
+    'row=' + (govRow && govRow.last_exit_code) + ' caller=' + (exec.ok && exec.r && exec.r.exit_code) +
+      ' state=' + (exec.ok && exec.r && exec.r.state));
 
   // --- the granted family does NOT ask again ---
   const t0 = Date.now();
