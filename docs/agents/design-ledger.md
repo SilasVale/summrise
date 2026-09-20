@@ -1506,3 +1506,56 @@ WHAT IS NOT CLAIMED, because it would be easy to read the above as more than it 
 on a real session BY THIS LOOP. This box's shells never produce one, so the exec.rs call site is verified by reading
 it (the value it records is the same `marker_code` the audit line and the job registry already get) and by the
 unit test on the setter, not by a live end-to-end run.
+
+### THE FIFTH SILHOUETTE, AND THE STRAY CLOSE THAT COST A REGION OF THE SHEET (round 97)
+
+`liveness.ts` had said for rounds why this state did not exist — "no field reports it per session" — and round 96
+made the device report it. The row wore a text chip while the shape decision waited on the operator; this round gave
+it the shape, because "every state has its own silhouette" is the objective's own clause and a chip is not one.
+
+A TRIANGLE, and it is the only shape neither surface has spent: the panel spends the diamond on WAITING, the console
+spends it on FAILURE, and the console's rest are a solid fill (ok), a square (warn), a halo (running) and a ring
+(absent). That matters because `waiting` and `failed` sit side by side in the same tab strip. `clip-path` rather than
+a border trick — the probe resolves a BORDER as a ring, and this mark is a FILL whose outline is cut — with
+`border-radius: 0` so the signature's radius channel does not contradict the shape it describes.
+
+THE PRECEDENCE IS THE DESIGN: off > waiting > working > failed > idle. A failure describes what ALREADY HAPPENED, so
+anything happening now outranks it; it outranks idle because "quiet, and the last thing here broke" is more than
+"quiet"; and it LINGERS by design, because the device clears the code when the next command is written — the state
+ends when the session does something else, not on a timer the panel invents. `deviceLiveness` deliberately does not
+pass it: a device-wide failure would have to pick which session to blame and say nothing about which, and an AI's
+ordinary `grep` exiting 1 would leave the rail shouting about a machine that is fine.
+
+AND THE INK WAS CHOSEN BY MEASURING, which is the one number worth keeping:
+
+    --state-fail on the dark ACTIVE session row (#3d2817)   2.87:1   FAILS the 3:1 a graphic needs
+    --danger-on-soft, worst over the four mark surfaces      6.71 light / 5.99 dark
+
+The first version used `--state-fail` and the failure was found the way these are always found — by measuring the
+surface the mark actually sits on, which is the dark active row, the same place the waiting diamond already lives.
+
+THE PROBE HAD TO LEARN THE SHAPE CHANNEL. The signature was radius / rotation / KIND, so a clipped fill and a plain
+fill computed identically and the collision check would have called two different marks equal. It is radius /
+rotation / CLIP / kind now: every channel a mark can be drawn with is in the data two states are told apart by.
+
+RENDERED, on a surface built to hold four of the five states at once (`?exitfail=1` on the quiet ssh seed, under
+`mode=pending`, so waiting + working + failed + idle share one page — the only place a collapsed failed/idle or
+failed/waiting can be caught at all):
+
+    LastFail-light  families=["mark[waiting,working,failed,idle]", ...]  collisions=[]  ringFill=[]
+    LastFail-dark   families=["mark[waiting,working,failed,idle]", ...]  collisions=[]  ringFill=[]
+    light  .side-dot[failed]  8x8  bg rgb(165,29,29)   radius 0  clip-path polygon(50% 0, 100% 100%, 0 100%)
+    dark   .side-dot[failed]  8x8  bg rgb(255,135,135) radius 0  clip-path …
+
+AND THEN THE SHEET BROKE IN A WAY NO GATE COULD SEE. The comment written for the new mark closed early — one `*/`
+too many — so the paragraph after it became raw CSS. The symptom was a broken PAGE, not a broken rule: every mark
+lost its size (0x0), the session rows lost `display: flex` and their padding, and the rendered sweep reported
+`families=[]` — no marks at all — while every gate stayed green and `stylesheet-hygiene` reported "comments are
+balanced and none of them reads as code". It was right about what it checked and blind to the shape that mattered:
+the walk finds `/*` and takes the NEXT `*/`, so a stray close is skipped as ordinary text, while THE BROWSER reads
+it as a parse error and discards rules until the next `}`.
+
+The gate checks the gaps between the comment spans now, with a line number, and the mutation is planting one. The
+deeper lesson is the one this ledger keeps relearning from the other side: a sheet-level gate and a rendered
+measurement disagreeing is not noise — the rendered one was right, and the sheet-level one had a hole exactly the
+shape of the mistake I had just made.
