@@ -1203,3 +1203,45 @@ THE RUNNING LIST, now four states and one re-added surface:
     unset / the goal affordance  round 90  clean
     empty / the panel density    round 91  re-added after its prune expired; clean, and the wrong-state failure it
                                           was pruned for is now a clause rather than a caveat
+
+### THE NEW-SESSION MENU, AND A LIMIT THAT HAD NEVER BEEN NAMED WHERE IT BITES (round 92)
+
+Fifth state added by the same method. The menu lives in DesktopShell — a `.btn-new` button with aria-expanded and a
+popover of role=menuitem buttons, each with an `.nm-ico` span carrying data-kind — and the sweep has PRESSED that
+button for many rounds (it is in the press targets) without ever photographing what it opens.
+
+WHAT IT FOUND, AND WHY IT IS NOT A DEFECT:
+
+    span.nm-ico 1.10 light / 1.05 dark — a 22px chip whose background is a subtle surface behind a coloured glyph
+
+A chip's background delimits; it does not inform. So it is waived — with a reason that does NOT claim more than it
+knows, and that is the part worth keeping:
+
+    "the icon chip's background delimits a coloured glyph at 1.05/1.10; the GLYPH ITSELF IS NOT MEASURED — the probe
+     excludes SVG by design, so the lane colour it carries has no row in this suite"
+
+THE LIMIT IS REAL AND NOW NAMED WHERE IT BITES. The graphic loop skips `el instanceof SVGElement || el.closest('svg')`
+for a good reason ("an icon's path inherits fill: black and its real colour comes from the svg above it, so every
+decorative glyph reported cr ~1"), and the consequence had never been written next to a finding it produced: the
+per-kind colour that carries THIS menu's meaning — --lane-ds for ssh, --lane-or for serial, the lane vocabulary the
+rest of the panel uses — produces no row anywhere. A waiver that silences a decorative background is honest only if it
+says the signal was not judged, and this one does.
+
+AND PROVING THE WAIVER NARROW ENOUGH TURNED UP A FALSE CLAIM BESIDE IT. The rail-dot entry said "only 2.33 is set
+aside, so a DIFFERENT ratio on the same element — in rows or on hover — is still a finding". The consumer is
+`DECORATIVE.find((d) => d.match.test(String(r.sel)))`: the pattern is tested against THE SELECTOR ALONE, so that entry
+waives EVERY ratio on div.rail-dot in the rows path. The sentence is true of the hover path (which reports through
+`ignore` with the value in its pattern) and false of this one. Corrected, with the reason a selector-wide waiver is
+survivable there — the dot's FILL, the channel that carries the state, is held at 3.00:1 by the panel gate — and the
+value-anchoring work recorded as its own.
+
+FOURTH ROUND RUNNING WHERE THE DEFECT WAS A SENTENCE ABOUT THE INSTRUMENT. The list is now: the SSE note that said the
+stream never opens (86), the paragraph that said the attempt was reverted (87), the entry-stamp root (77), and this
+value claim. Every one was found by using the thing the sentence described.
+
+RUNNING LIST OF STATES THIS METHOD HAS ADDED:
+    off / the tombstone          round 88  found: a mark collision, then three FILL-inside-a-RING defects
+    human / the held session     round 89  found: 2.53 on the graphic bar in dark
+    unset / the goal affordance  round 90  clean
+    empty / the panel density    round 91  re-added after its prune expired; clean
+    menu / the new-session popover round 92 clean, and a limit named (icons are not measured at all)
