@@ -1458,6 +1458,11 @@
   font: 400 var(--fs-sm) var(--font-mono);
   color: var(--chrome-ink);
 }
+/* WHEN THE DEVICE LAST ASKED (2026-09-21). The age of the version claim, from the device's own `checked_at` — the
+   card used to state "1.2.435 available" with no time on it, while the device answers from a 30-second cache and an
+   update applied a minute ago still reads as available until the next check lands. Muted ink like its neighbours;
+   the sweep measures this row on every Settings surface. */
+.update-checked { color: var(--muted); font-variant-numeric: tabular-nums; }
 .update-latest[data-available="yes"] { color: var(--danger-on-soft); }
 .update-latest[data-available="no"] { color: var(--chrome-ink-dim); }
 .update-warn {

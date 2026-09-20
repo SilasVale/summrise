@@ -30,6 +30,13 @@ export interface UpdateStatus {
   busy: boolean;
   /** Text when the channel could not be read; null when it answered (or was never asked). */
   error: string | null;
+  /** WHEN THE DEVICE LAST ASKED ITS CHANNEL — epoch milliseconds, or null when it never has.
+   *
+   *  The device reports this (`checked_at`, from `update_status`), and this panel used to drop it: the card
+   *  said "1.2.435 available" with no age on it, while the device answers from a 30-second cache and may have
+   *  failed its last check entirely. A version claim without a time is a claim the reader cannot weigh — the
+   *  same reason the vitals window and the restart list carry their span. */
+  checkedAt: number | null;
 }
 
 const EMPTY_UPDATE: UpdateStatus = {
@@ -40,6 +47,7 @@ const EMPTY_UPDATE: UpdateStatus = {
   pinnedTo: null,
   busy: false,
   error: null,
+  checkedAt: null,
 };
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
@@ -56,7 +64,31 @@ export function parseUpdateStatus(j: unknown): UpdateStatus {
     pinnedTo: str(b.pinned_to),
     busy: b.busy === true,
     error: str(b.error),
+    // A NUMBER, NOT A STRING: the wire sends epoch ms, and `0` is not a time anyone can weigh (it reads as 1970),
+    // so a non-positive or non-finite value is null — the same "absent, never zero" rule the vitals and boot
+    // records follow.
+    checkedAt:
+      typeof b.checked_at === "number" && Number.isFinite(b.checked_at) && b.checked_at > 0
+        ? b.checked_at
+        : null,
   };
+}
+
+/** "checked 12s ago" — the age of the device's answer, in the panel's own vocabulary.
+ *
+ *  The unit follows the size of the number because the reader's question changes with it: seconds matter while an
+ *  update is being applied, minutes when the card is idle. Anything over an hour is stated in hours, and the exact
+ *  timestamp rides along in the title so a reader who needs the clock time has it. */
+export function checkedAge(checkedAt: number | null, nowMs: number): string | null {
+  // ZERO IS NOT A TIME. The mapper already refuses non-positive values, and this refuses them again because the
+  // formatter is the last place before the screen: `epoch 0` renders as "checked 497204h ago", which is a claim
+  // about a device that simply has not answered that question.
+  if (checkedAt === null || !Number.isFinite(checkedAt) || checkedAt <= 0) return null;
+  const secs = Math.max(0, Math.round((nowMs - checkedAt) / 1000));
+  if (secs < 90) return `checked ${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 90) return `checked ${mins}m ago`;
+  return `checked ${Math.round(mins / 60)}h ago`;
 }
 
 /** The update state, re-read on an interval (the release channel is cached device-side, so
@@ -108,11 +140,15 @@ export function UpdateCard({
   /** The release the panel last saw, so a swap that happens WHILE the operator watches can
    *  be recognised as one. `useAgentVitals` supplies it. */
   runningRelease,
+  /** The clock, injectable the way the vitals and monitor cards take it, so the age of the
+   *  device's answer is testable instead of reading `Date.now()` inside the markup. */
+  nowMs = Date.now(),
 }: {
   status: UpdateStatus;
   failed?: boolean;
   refresh: () => Promise<void>;
   runningRelease?: string;
+  nowMs?: number;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState("");
@@ -191,6 +227,23 @@ export function UpdateCard({
             {status.latest && (
               <span className="update-latest" data-available={status.updateAvailable ? "yes" : "no"}>
                 {status.updateAvailable ? `${status.latest} available` : `latest is ${status.latest}`}
+              </span>
+            )}
+            {/* THE AGE OF THE ANSWER, which is the device's own fact (`checked_at`) and was being thrown away.
+                A version claim with no time on it cannot be weighed: the device answers from a 30-second cache,
+                and an update applied a minute ago still reads "1.2.403 available" until the next check lands.
+                Rendered only where the device reported a time — a device that never checked says nothing here
+                rather than "checked 56 years ago". */}
+            {checkedAge(status.checkedAt, nowMs) && (
+              <span
+                className="update-checked"
+                title={
+                  status.checkedAt
+                    ? `the device last asked its channel at ${new Date(status.checkedAt).toLocaleTimeString()}`
+                    : undefined
+                }
+              >
+                {checkedAge(status.checkedAt, nowMs)}
               </span>
             )}
           </p>

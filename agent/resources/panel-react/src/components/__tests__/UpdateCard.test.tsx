@@ -12,7 +12,7 @@
 //     the agent dies mid-update), and the panel says what it is now running.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { UpdateCard, parseUpdateStatus, type UpdateStatus } from "../UpdateCard";
+import { UpdateCard, parseUpdateStatus, type UpdateStatus, checkedAge } from "../UpdateCard";
 import { callApi } from "../../lib/api";
 
 vi.mock("../../lib/api", async (importOriginal) => ({
@@ -28,8 +28,55 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   updateAvailable: false,
   pinnedTo: null,
   busy: false,
+  checkedAt: null,
   error: null,
   ...over,
+});
+
+it("the card states WHEN the device last asked, from the device's own checked_at", async () => {
+  mockCallApi.mockResolvedValue({
+    ok: true,
+    current: "1.2.403",
+    channel: "stable",
+    latest: "1.2.433",
+    update_available: true,
+    pinned_to: null,
+    busy: false,
+    error: null,
+    checked_at: 1_700_000_000_000,
+  });
+  const { container } = render(
+    <UpdateCard
+      status={parseUpdateStatus({
+        ok: true,
+        current: "1.2.403",
+        channel: "stable",
+        latest: "1.2.433",
+        update_available: true,
+        checked_at: 1_700_000_000_000,
+      })}
+      refresh={vi.fn(async () => {})}
+      // 40 seconds after the check: the age is in SECONDS, because that is the unit that matters while an
+      // update may be in flight.
+      nowMs={1_700_000_040_000}
+    />,
+  );
+  const age = container.querySelector(".update-checked");
+  expect(age, "the age of the device's answer must be on the card").toBeTruthy();
+  expect(age!.textContent).toBe("checked 40s ago");
+  expect(age!.getAttribute("title") || "").toMatch(/last asked its channel at/);
+});
+
+it("a device that never checked says NOTHING rather than an age", () => {
+  // The rule the vitals and boot records follow: absent, never zero. A missing `checked_at` renders no line —
+  // "checked 56 years ago" would be a claim about a device that simply has not answered that question.
+  expect(checkedAge(null, Date.now())).toBeNull();
+  expect(checkedAge(0, Date.now()), "zero is not a time").toBeNull();
+  expect(parseUpdateStatus({ checked_at: "1700000000000" }).checkedAt, "a STRING is not epoch ms").toBeNull();
+  expect(parseUpdateStatus({ checked_at: -5 }).checkedAt).toBeNull();
+  expect(checkedAge(1_700_000_000_000, 1_700_000_040_000)).toBe("checked 40s ago");
+  expect(checkedAge(1_700_000_000_000, 1_700_000_600_000)).toBe("checked 10m ago");
+  expect(checkedAge(1_700_000_000_000, 1_700_010_000_000)).toBe("checked 3h ago");
 });
 
 const card = (over: Partial<UpdateStatus> = {}, extra: Record<string, unknown> = {}) =>

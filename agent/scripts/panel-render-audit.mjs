@@ -333,6 +333,15 @@ function buildHarness() {
       pinned_to: null,
       busy: busy,
       error: null,
+      // WHEN THE DEVICE LAST ASKED (2026-09-21). update_status has reported checked_at since it was written, and
+      // the panel dropped it — so the card stated a version with no age on it while the device answers from a
+      // 30-second cache. A state no fixture renders is a state no sweep measures, so the stub carries it now: the
+      // age line is drawn (and contrast-measured) on every Settings surface.
+      //
+      // FIXED, NOT RELATIVE: the fixture is a page, and a page whose numbers move between the harness and the
+      // report would make two runs of the same surface disagree. Two minutes ago is recent enough to read in
+      // seconds-vs-minutes terms and stable enough to compare.
+      checked_at: Date.now() - 120000,
     }));
   }
 
