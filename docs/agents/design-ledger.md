@@ -2010,3 +2010,39 @@ AND THE LOGS CARD IS UNTOUCHED, deliberately: its verdict remains a reading of t
 the fallback for a device whose record is absent. The next step, if the two ever disagree in practice, is to let the
 wire fact OVERRIDE the `cli-only`/`cli-swap-launched` arm — the receipt says the CLI reached the device, the record
 says the swap started, and those are the two facts that arm is trying to guess from timestamps in text.
+
+### THE CLAUSE NOBODY HAD MEASURED (round 19)
+
+"Pressed and acknowledged states that fire on the EVENT, not on the network, inside a stated budget." The panel has the
+mechanism — `useAck` sets its busy key in the same tick as the click — and a unit test pinning the hook's SHAPE. What
+did not exist was a measurement of the claim as rendered, which is the only place it can be false: a handler that
+awaits anything before calling `run` looks identical in the source and answers a full network round trip late.
+
+WHAT THE INSTRUMENT IS: the fixture can delay every `/api/*` reply (`?slowms=N`, SSE exempt), and `ackPass` times the
+gap between a real press and the first visible acknowledgement (`data-busy` / `aria-busy` / `disabled` / a painted
+change) against a STATED budget of 100ms — about six frames, and far under any round trip. `msToClear` is reported
+and not judged: that one is the network.
+
+IT FOUND TWO CONTROLS WITH NO FEEDBACK AT ALL. `MonitorsCard` wrapped its ADD button in `run`/`ack` and left the row's
+`check now` and `remove` calling their props directly. With every reply delayed 900ms, `watch` acknowledged in 5-7ms
+and those two showed NOTHING for the whole round trip — invisible in the source, and the first thing an operator
+notices on a slow device. Both go through the hook now, with per-row keys so the pressed control wears the ring and
+its sibling steps back.
+
+    after:  .monitor-btn acked=true via=data-busy msToAck=5   .monitor-add .btn acked=true msToAck=5
+            (8 controls, both densities, both themes; every row 4-5ms against a 900ms delay)
+
+AND THE INSTRUMENT WAS WRONG TWICE BEFORE IT WAS RIGHT — which is the part worth keeping, because both mistakes are
+already written in this ledger under other rounds:
+
+  * IT ACCUSED FROM A COORDINATE THE CONTROL DID NOT OCCUPY. The first run clicked `.monitor-btn` and the monitor
+    form's button at y=1200-1430 in an 860px viewport, measured nothing, and reported "no acknowledgement" for two
+    buttons it had never touched. The press pass's three rules — minimal scroll, clamp to the visible part, hit-test
+    the point — are now asserted for this pass too. (Rounds 15-16, same shape, third occurrence.)
+  * IT READ ITS BASELINE WITH THE POINTER PARKED AWAY, so `.monitor-btn`'s own hover rule looked like an
+    acknowledgement: "acked via=paint, 6ms" for a button whose only response was the pointer being over it. THE
+    BASELINE IS THE HOVER — the round-95 rule, now asserted here as well.
+
+A FINDING THAT SURVIVES BOTH CORRECTIONS IS THE ONE WORTH REPORTING, and this round is the argument for measuring a
+clause a doc comment already claims: the hook's own header says "it fires on the event", and two of its three call
+sites in one card did not.
