@@ -24,6 +24,7 @@ import {
   searchTargetFor,
   REQUIRED_KEY_BY_KIND,
   isKeyMissing,
+  bearerKeyFor,
   extractByokKeys,
   scrubKeys,
 } from "../src/plugins/translate.ts";
@@ -378,6 +379,89 @@ test("the key guards agree with the table end-to-end through extractByokKeys", (
   );
   assert.equal(isKeyMissing("nvidia", byok), false, "NVAPI_KEY must reach the nvidia route");
   assert.equal(isKeyMissing("commandgoat", byok), false, "CMD_API_KEY must reach cm/");
+});
+
+// round-? (REAL FIND, temp fix): the request flow used to read BYOK only — the
+// `envKey` column in `store/byok.ts` was honoured by `isModelUsable` (so
+// `model=auto` would route to a channel the deployment had a key for) but
+// ignored at the bearer site (so the same request 502'd "not configured").
+// These pins codify the corrected contract: byok OR env, with nv/gmi keeping
+// their "pure BYOK" semantics because their channels declare envKey: null.
+test("isKeyMissing: env.OPENCODE_GO_API_KEY is a fallback when user BYOK is unset", () => {
+  const byok = extractByokKeys({ OPENCODE_GO_API_KEY: null, DEEPSEEK_API_KEY: "sk-ds" });
+  assert.equal(isKeyMissing("opencode", byok), true, "BYOK empty + env empty → still missing");
+  assert.equal(
+    isKeyMissing("opencode", byok, { OPENCODE_GO_API_KEY: "sk-og-env" }),
+    false,
+    "BYOK empty + env set → usable (the deployment pays)",
+  );
+});
+
+test("isKeyMissing: user BYOK still wins over env (env is fallback, not override)", () => {
+  const byok = extractByokKeys({ OPENCODE_GO_API_KEY: "sk-og-user" });
+  const res = bearerKeyFor({ OPENCODE_GO_API_KEY: "sk-og-env" }, byok, "opencode");
+  assert.equal(res, "sk-og-user", "user BYOK takes precedence — env is the fallback, never an override");
+});
+
+test("bearerKeyFor: env fallback applies to every kind with an envKey in byok.ts", () => {
+  // Built-in kinds whose channels declare a non-null envKey. Pinned because
+  // adding a channel that declares an envKey should be a one-line BYOK_CHANNELS
+  // entry AND one assertion here — a regression that forgets the env fallback
+  // would silently bill the user for nothing (502 with no useful message).
+  const envMap = {
+    DEEPSEEK_API_KEY: "sk-ds-env",
+    OPENCODE_GO_API_KEY: "sk-og-env",
+    OPENROUTER_API_KEY: "sk-or-env",
+    QWEN_API_KEY: "sk-qw-env",
+    CMD_API_KEY: "sk-cm-env",
+    AMD_API_KEY: "sk-amd-env",
+    R4_API_KEY: "sk-r4-env",
+  };
+  const emptyByok = extractByokKeys({});
+  for (const [kind, envVar] of [
+    ["deepseek", "DEEPSEEK_API_KEY"],
+    ["opencode", "OPENCODE_GO_API_KEY"],
+    ["openrouter", "OPENROUTER_API_KEY"],
+    ["qwen", "QWEN_API_KEY"],
+    ["commandgoat", "CMD_API_KEY"],
+    ["amd", "AMD_API_KEY"],
+    ["r4", "R4_API_KEY"],
+  ]) {
+    assert.equal(
+      bearerKeyFor(envMap, emptyByok, kind),
+      envMap[envVar],
+      `${kind}: env.${envVar} is the bearer key when BYOK is empty`,
+    );
+  }
+});
+
+test("bearerKeyFor: nv/gmi keep their pure-BYOK semantics (envKey null in byok.ts)", () => {
+  // The fix must NOT widen the fallback to nv/gmi — they declare envKey null
+  // by design (BYOK_CHANNELS:78-79). A user without an NVAPI_KEY still 502s,
+  // even if env had been seeded with one.
+  const emptyByok = extractByokKeys({});
+  assert.equal(
+    bearerKeyFor({ NVAPI_KEY: "nv-env" }, emptyByok, "nvidia"),
+    null,
+    "nv: no env fallback (envKey null in byok.ts)",
+  );
+  assert.equal(
+    bearerKeyFor({ GMI_API_KEY: "gmi-env" }, emptyByok, "gmi"),
+    null,
+    "gmi: no env fallback (envKey null in byok.ts)",
+  );
+});
+
+test("isKeyMissing: still reports true when neither byok nor env has a key", () => {
+  // pin so the new env branch cannot accidentally say "missing" → false on
+  // channels the operator has not configured either side of.
+  const byok = extractByokKeys({ OPENCODE_GO_API_KEY: null });
+  assert.equal(isKeyMissing("opencode", byok, {}), true);
+  assert.equal(
+    isKeyMissing("opencode", byok, { OPENCODE_GO_API_KEY: "" }),
+    true,
+    "empty-string env reads as missing",
+  );
 });
 
 test("errorTypeForStatus: only 429 is special — it drives client BACKOFF", () => {

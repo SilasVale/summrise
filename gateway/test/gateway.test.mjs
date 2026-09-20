@@ -13,7 +13,7 @@ import { __clearCaches } from "../src/store.ts";
 import { freezeClock } from "./helpers.mjs";
 
 let uidSeq = 0;
-function gwEnv({ keys = {}, breakerOpen = false, trips = null, timeout = 30, usProxy = false, usProxyBase } = {}) {
+function gwEnv({ keys = {}, envKeys = {}, breakerOpen = false, trips = null, timeout = 30, usProxy = false, usProxyBase } = {}) {
   const uid = `u${++uidSeq}`;
   const token = `tok-${uid}`;
   const kv = new Map([
@@ -71,6 +71,7 @@ function gwEnv({ keys = {}, breakerOpen = false, trips = null, timeout = 30, usP
       ROUTE: routeDo,
       UPSTREAM_TIMEOUT_MS: timeout,
       OG_TIMEOUT_MS: timeout, // og translate reads this (60s default)
+      ...envKeys,
       ...(usProxyBase ? { US_PROXY_BASE: usProxyBase } : {}),
     },
     token,
@@ -1565,6 +1566,73 @@ test("og-native passthrough: missing OPENCODE_GO_API_KEY → 502 config_error (n
   assert.match(body.error.message, /OPENCODE_GO_API_KEY not configured/);
 });
 
+// round-? (REAL FIND, temp fix): og/ requests used to 502 "OPENCODE_GO_API_KEY
+// not configured" even when the deployment's Worker secret (env.OPENCODE_GO_API_KEY)
+// was set — `byok.ts` declares it as the envKey, `isModelUsable` honours it, but
+// the bearer site read only the user's BYOK. A user whose console-BYOK is empty
+// but whose deployment has the key configured now reaches the upstream, and the
+// request spends the deployment's key, not a non-existent user key.
+test("og/: env.OPENCODE_GO_API_KEY is a fallback when user BYOK is unset", async () => {
+  let seen;
+  const { env, token } = gwEnv({
+    keys: { OPENCODE_GO_API_KEY: undefined }, // user BYOK: no key
+    envKeys: { OPENCODE_GO_API_KEY: "sk-og-env" }, // deployment: secret set
+  });
+  const res = await withFetch(async (url, init) => {
+    seen = { url: String(url), init };
+    return okChoices("env-served");
+  }, () => post(env, token, ogBody()));
+  assert.equal(res.status, 200);
+  const auth = seen.init.headers.get
+    ? seen.init.headers.get("authorization")
+    : seen.init.headers.Authorization;
+  assert.equal(auth, "Bearer sk-og-env", "env key is the one spent, not a phantom user key");
+});
+
+test("og/: user BYOK wins over env.OPENCODE_GO_API_KEY (env is fallback, not override)", async () => {
+  let seen;
+  const { env, token } = gwEnv({
+    // user BYOK present (default gwEnv sets OPENCODE_GO_API_KEY: "sk-og")
+    envKeys: { OPENCODE_GO_API_KEY: "sk-og-env" },
+  });
+  const res = await withFetch(async (url, init) => {
+    seen = { url: String(url), init };
+    return okChoices();
+  }, () => post(env, token, ogBody()));
+  assert.equal(res.status, 200);
+  const auth = seen.init.headers.get
+    ? seen.init.headers.get("authorization")
+    : seen.init.headers.Authorization;
+  assert.equal(auth, "Bearer sk-og", "user BYOK takes precedence over the env fallback");
+});
+
+test("cm/: env.CMD_API_KEY is a fallback when user BYOK is unset", async () => {
+  let seen;
+  const { env, token } = gwEnv({
+    keys: { CMD_API_KEY: undefined },
+    envKeys: { CMD_API_KEY: "sk-cm-env" },
+  });
+  const res = await withFetch(async (url, init) => {
+    seen = { url: String(url), init };
+    return okChoices();
+  }, () => post(env, token, { ...ogBody(), model: "cm/deepseek/deepseek-v4.1-flash" }));
+  assert.equal(res.status, 200);
+  const auth = seen.init.headers.get
+    ? seen.init.headers.get("authorization")
+    : seen.init.headers.Authorization;
+  assert.equal(auth, "Bearer sk-cm-env");
+});
+
+test("og/: neither user BYOK nor env key → still 502 (no leak, no phantom key)", async () => {
+  const { env, token } = gwEnv({ keys: { OPENCODE_GO_API_KEY: undefined } });
+  const res = await withFetch(
+    async () => { throw new Error("must not be called"); },
+    () => post(env, token, ogBody()),
+  );
+  assert.equal(res.status, 502);
+  assert.match((await res.json()).error.message, /OPENCODE_GO_API_KEY not configured/);
+});
+
 test("og translate: 500 → 500 single attempt (billable POST not retried)", async () => {
   const trips = [];
   const { env, token } = gwEnv({ trips, timeout: 1000 });
@@ -1928,7 +1996,7 @@ test("chat/completions: per-token limiter trips at ~60/min (F1 coverage)", async
 // keeps a module-level cache AND the F1 limiter holds per-token buckets,
 // so token reuse across tests would cross-contaminate.
 let isoSeq = 0;
-function isoEnv({ aKeys = {}, bKeys = {}, aEnabled = true } = {}) {
+function isoEnv({ aKeys = {}, bKeys = {}, aEnabled = true, envKeys = {} } = {}) {
   const mk = (tag, ogKey, enabled) => {
     const uid = `iso-${tag}-${++isoSeq}`;
     const token = `tok-${uid}`;
@@ -1985,6 +2053,7 @@ function isoEnv({ aKeys = {}, bKeys = {}, aEnabled = true } = {}) {
       },
       BREAKER: breaker,
       ROUTE: routeDo,
+      ...envKeys,
     },
     a,
     b,

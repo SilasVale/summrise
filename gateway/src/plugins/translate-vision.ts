@@ -11,7 +11,7 @@
  * with the returned text so every model can "see" the picture.
  */
 
-import { BYOK_CHANNELS } from "../store/byok.ts";
+import { BYOK_CHANNELS, byKind as byokKind } from "../store/byok.ts";
 import { getGlobalSetting, globalSettingEnabled } from "../store.ts";
 import { providerKey } from "../store/providers.ts";
 import { toOpenAIRequest } from "../anthropic-translate.ts";
@@ -240,7 +240,27 @@ export async function describeImage(
   };
   const backend = VISION_BACKENDS[route.kind];
   if (!backend) return "(图片描述失败：视觉模型后端不支持)";
-  const bearerKey = route.kind === "custom" ? providerKey(env, route.provider) : ukeys[backend.key];
+  // env fallback (the BYOK_CHANNELS.envKey column): a user without their own
+  // key can still have vision described by the deployment's Worker secret —
+  // mirrors the request path in translate.ts so describe and /v1 agree.
+  //
+  // THE ENV HALF IS `envKey`, NOT `userKey` (round 13 of this session). The
+  // first version looked up `env[backend.key]`, and `backend.key` is the
+  // USER-key name: for the seven channels where the two columns happen to be
+  // equal (opencode, deepseek, qwen, openrouter, commandgoat, amd, r4) that is
+  // the same string, but for nv and gmi `userKey` is a name the channel does
+  // not deploy while `envKey` is NULL — no deployment-level fallback, by
+  // design. With the gmi secret actually set on the worker, vision on a gmi/
+  // route spent the deployment's key for a user who owns none, WHILE the same
+  // user's text request on the same channel answered 502 "not configured": two
+  // paths, one request, two credentials. `envKey` null now means no fallback
+  // here too — the single rule the request path and the BYOK table already
+  // keep, and the rule `test/byok.test.mjs` guards this file against re-typing.
+  const envKey = byokKind(route.kind)?.envKey ?? null;
+  const bearerKey =
+    route.kind === "custom"
+      ? providerKey(env, route.provider)
+      : ukeys[backend.key] || (envKey ? env[envKey] : null);
   if (!bearerKey) {
     return route.kind === "custom"
       ? `(图片描述失败：${route.provider?.prefix || "custom provider"} 未配置 key)`

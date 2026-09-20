@@ -241,7 +241,91 @@ async function withStubFetch(fn, handler) {
   }
 }
 
+// THE ENV FALLBACK KEYS OFF `envKey`, AND nv/gmi HAVE NONE (round 13 of this session).
+//
+// The first version of the cross-path fix looked up `env[backend.key]` — the USER-key name. For the seven
+// channels whose two columns are equal that is the same string, but nv and gmi declare `userKey` =
+// "NVAPI_KEY"/"GMI_API_KEY" with `envKey` NULL ("no deployment-level fallback by design"), so vision on a gmi/
+// route spent the deployment's key for a user who owns none while the same user's TEXT request on the same
+// channel answered 502 "not configured". Two paths, one request, two credentials — pinned in both directions
+// here, with the happy path proving the fallback still WORKS where the channel declares an envKey.
+test("describeImage: an envKey channel falls back to the Worker secret (opencode)", async () => {
+  const src = (data) => ({ media_type: "image/png", data });
+  let sent = null;
+  await withStubFetch(
+    async () => {
+      const out = await describeImage({ OPENCODE_GO_API_KEY: "sk-og-env" }, {}, src(IMG), OG, "u1");
+      assert.equal(out, "seen-it", "the deployment's key served the description");
+      assert.equal(
+        sent?.headers?.Authorization ?? sent?.headers?.authorization,
+        "Bearer sk-og-env",
+        "the env key is the one spent, not a phantom user key",
+      );
+    },
+    async (url, init) => {
+      sent = { url: String(url), headers: init?.headers };
+      return new Response(JSON.stringify({ choices: [{ message: { content: "seen-it" } }] }), {
+        status: 200,
+      });
+    },
+  );
+});
+
+test("describeImage: the user's own key still wins over the env fallback", async () => {
+  const src = (data) => ({ media_type: "image/png", data });
+  let sent = null;
+  await withStubFetch(
+    async () => {
+      await describeImage(
+        { OPENCODE_GO_API_KEY: "sk-og-env" },
+        { OPENCODE_GO_API_KEY: "sk-og-user" },
+        src(IMG),
+        OG,
+        "u1",
+      );
+      assert.equal(
+        sent?.headers?.Authorization ?? sent?.headers?.authorization,
+        "Bearer sk-og-user",
+        "env is the fallback, never an override",
+      );
+    },
+    async (url, init) => {
+      sent = { url: String(url), headers: init?.headers };
+      return new Response(JSON.stringify({ choices: [{ message: { content: "seen-it" } }] }), {
+        status: 200,
+      });
+    },
+  );
+});
+
+test("describeImage: gmi takes NO env fallback even when GMI_API_KEY is set on the worker", async () => {
+  const src = (data) => ({ media_type: "image/png", data });
+  // GMI_API_KEY really is set on the live worker (`wrangler secret list --name vale-gate`), and byok.ts
+  // declares envKey null for this channel — which is why this case is not hypothetical.
+  let fetched = false;
+  const out = await withStubFetch(
+    () => describeImage({ GMI_API_KEY: "env-gmi" }, {}, src(IMG), "gmi/mimo-v2.5", "u1"),
+    async () => {
+      fetched = true;
+      return new Response(JSON.stringify({ choices: [{ message: { content: "seen-it" } }] }), {
+        status: 200,
+      });
+    },
+  );
+  assert.equal(out, "(图片描述失败：GMI_API_KEY 未配置)", "no fallback: the marker names the missing key");
+  assert.equal(fetched, false, "and nothing was sent upstream with a credential the user does not own");
+});
+
+test("describeImage: nvidia takes NO env fallback either", async () => {
+  const src = (data) => ({ media_type: "image/png", data });
+  assert.equal(
+    await describeImage({ NVAPI_KEY: "env-nv" }, {}, src(IMG), "nv/mimo-v2.5", "u1"),
+    "(图片描述失败：NVAPI_KEY 未配置)",
+  );
+});
+
 test("describeImage: fault → marker taxonomy (og branch)", async () => {
+
   const src = (data) => ({ media_type: "image/png", data });
   assert.equal(await describeImage({}, {}, src(""), OG, "u1"), "(图片数据为空)", "empty data, no fetch");
   assert.equal(

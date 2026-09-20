@@ -28,6 +28,7 @@ import {
   facetOverrides,
 } from "../store/models.ts";
 import { providerKey, providerModelVision, type ProviderSpec } from "../store/providers.ts";
+import { byKind as byokKind } from "../store/byok.ts";
 import { findUserByToken, getUserKeys, getGlobalSetting, globalSettingEnabled } from "../store.ts";
 import {
   toOpenAIRequest,
@@ -555,16 +556,39 @@ export const REQUIRED_KEY_BY_KIND: Record<string, string> = {
   r4: "r4",
 };
 
-/** Is `routeKind`'s required BYOK key absent from `byok`?
+/** Resolve the bearer key for `kind`: user BYOK first, then the deployment's
+ *  Worker secret (the envKey declared in `store/byok.ts`). Returns null when
+ *  neither has it — channels with `envKey: null` (nv, gmi) deliberately have
+ *  no fallback and report null even when env is set.
  *
- * Pure, and the single place the kind→field mapping lives. An UNKNOWN kind
- * reports `false` (not missing): a route with no entry in the table above is a
- * programming error that the routing layer or the upstream will surface, and
- * inventing a "missing key" for it here would mask that with a config error. */
-export function isKeyMissing(routeKind: string, byok: Record<string, any>): boolean {
+ *  Pre-fix, the request flow only read `byok`; the env-level half of the
+ *  `BYOK_CHANNELS` contract was honoured by `isModelUsable` (so `model=auto`
+ *  would *route* to og/ when only env had a key) but then ignored at the
+ *  bearer site (so the same request 502'd with "not configured"). This is the
+ *  single source for the bearer key, used by every flow — chat, messages,
+ *  responses, count_tokens, vision. */
+export function bearerKeyFor(env: any, byok: Record<string, any>, kind: string): string | null {
+  const byokField = REQUIRED_KEY_BY_KIND[kind];
+  if (!byokField) return null;
+  const u = byok[byokField];
+  if (u) return u;
+  const envVar = byokKind(kind)?.envKey;
+  return envVar ? env[envVar] || null : null;
+}
+
+/** Is `routeKind`'s required BYOK key absent from `byok` (and env)?
+ *
+ *  `env` is optional — when omitted, this is the historical "BYOK only"
+ *  semantics the existing pins assert. When passed, an env-level key counts
+ *  as a usable credential for any kind whose channel declares an envKey. An
+ *  UNKNOWN kind reports `false` (not missing): a route with no entry in the
+ *  table above is a programming error that the routing layer or the upstream
+ *  will surface, and inventing a "missing key" for it here would mask that
+ *  with a config error. */
+export function isKeyMissing(routeKind: string, byok: Record<string, any>, env?: any): boolean {
   const field = REQUIRED_KEY_BY_KIND[routeKind];
   if (!field) return false;
-  return !byok[field];
+  return bearerKeyFor(env ?? {}, byok, routeKind) === null;
 }
 
 /** Detect the route kind from method + path. */
@@ -1082,12 +1106,12 @@ async function handleGatewayImpl(
 
   // or/ uses "this user's" OpenRouter key (BYOK); upstream is direct
   // openrouter.ai or the US exit per the proxy switch (see pickRoute).
-  if (route.kind === "openrouter" && isKeyMissing("openrouter", byok)) {
+  if (route.kind === "openrouter" && isKeyMissing("openrouter", byok, env)) {
     return keyMissingError("openrouter") as Response;
   }
   // cm/ is pure BYOK like or/ — both the messages and chat/completions flows
   // need the user's own Command Code key.
-  if (route.kind === "commandgoat" && isKeyMissing("commandgoat", byok)) {
+  if (route.kind === "commandgoat" && isKeyMissing("commandgoat", byok, env)) {
     return keyMissingError("commandgoat") as Response;
   }
   // ds / no prefix use this user's DeepSeek key; qw/ uses their Qwen key;
@@ -1099,26 +1123,15 @@ async function handleGatewayImpl(
   // DeepSeek key to a third-party endpoint the operator pointed the prefix at —
   // a credential leak to an arbitrary host, which is why this branch is not
   // merely a default.
+  //
+  // Every built-in kind: user BYOK wins, env-level Worker secret is the
+  // fallback — matches the `BYOK_CHANNELS.envKey` table and `isModelUsable`'s
+  // view (model-route.ts:54-66). Channels with envKey null (nv, gmi) keep
+  // their "pure BYOK" semantics: no env fallback, keyless request 502s.
   const bearerKey =
     route.kind === "custom"
       ? providerKey(env, route.provider)
-      : route.kind === "openrouter"
-        ? byok.openRouter
-        : route.kind === "commandgoat"
-          ? byok.cmd
-          : route.kind === "qwen"
-            ? byok.qwen
-            : route.kind === "nvidia"
-              ? byok.nv
-              : route.kind === "gmi"
-                ? byok.gmi
-                : route.kind === "amd"
-                  ? byok.amd
-                  : route.kind === "r4"
-                    ? byok.r4
-                    : route.kind === "opencode"
-                      ? byok.opencodeGo
-                      : byok.deepseek;
+      : bearerKeyFor(env, byok, route.kind);
 
   // ---- POST /v1/chat/completions (OpenAI format passthrough) ----
   // Accepts OpenAI-format requests directly and forwards to the upstream
@@ -1129,7 +1142,7 @@ async function handleGatewayImpl(
     // kind the endpoint serves. Table-driven: identical shape, order matters
     // only relative to the degraded-channel probe below.
     for (const kind of ["nvidia", "gmi", "amd", "opencode", "r4"]) {
-      if (route.kind === kind && isKeyMissing(kind, byok)) {
+      if (route.kind === kind && isKeyMissing(kind, byok, env)) {
         return keyMissingError(kind) as Response;
       }
     }
@@ -1140,7 +1153,7 @@ async function handleGatewayImpl(
       if (dg) return dg;
     }
     for (const kind of ["deepseek", "openrouter", "qwen"]) {
-      if (route.kind === kind && isKeyMissing(kind, byok)) {
+      if (route.kind === kind && isKeyMissing(kind, byok, env)) {
         return keyMissingError(kind) as Response;
       }
     }
@@ -1240,7 +1253,7 @@ async function handleGatewayImpl(
         "invalid_request",
       );
     }
-    if (route.kind === "opencode" && isKeyMissing("opencode", byok)) {
+    if (route.kind === "opencode" && isKeyMissing("opencode", byok, env)) {
       return keyMissingError("opencode") as Response;
     }
     {
@@ -1312,7 +1325,7 @@ async function handleGatewayImpl(
   // are still real config errors and stay.
   if (isCount) {
     for (const kind of ["deepseek", "qwen", "amd", "r4"]) {
-      if (route.kind === kind && isKeyMissing(kind, byok)) {
+      if (route.kind === kind && isKeyMissing(kind, byok, env)) {
         return keyMissingError(kind) as Response;
       }
     }
@@ -1326,10 +1339,10 @@ async function handleGatewayImpl(
   // Code) can ride these channels via /v1/messages. OpenAI-native clients
   // keep using the /v1/chat/completions direct passthrough above.
   if (route.kind === "nvidia" || route.kind === "gmi") {
-    if (route.kind === "nvidia" && isKeyMissing("nvidia", byok)) {
+    if (route.kind === "nvidia" && isKeyMissing("nvidia", byok, env)) {
       return keyMissingError("nvidia") as Response;
     }
-    if (route.kind === "gmi" && isKeyMissing("gmi", byok)) {
+    if (route.kind === "gmi" && isKeyMissing("gmi", byok, env)) {
       return keyMissingError("gmi") as Response;
     }
     const openaiReq = toOpenAIRequest(body, upstreamModel);
@@ -1338,7 +1351,11 @@ async function handleGatewayImpl(
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${route.kind === "nvidia" ? byok.nv : byok.gmi}`,
+          // ONE SOURCE FOR THE BEARER (round 13): this site read `byok.nv`/`byok.gmi` directly. That
+          // is the same VALUE today — both channels declare `envKey: null`, so the shared resolver cannot
+          // reach an env fallback they do not have — but it is a second place the fact lives, and the
+          // whole point of `bearerKeyFor` is that adding an envKey to a channel moves ONE line.
+          Authorization: `Bearer ${bearerKeyFor(env, byok, route.kind)}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(openaiReq),
@@ -1365,9 +1382,7 @@ async function handleGatewayImpl(
       // Retry-After — all of which this arm had been reimplementing partially.
       // `byok.nv`/`byok.gmi` is the credential THIS request sent, so it is the
       // one a provider would echo — passed for exact redaction.
-      return upstreamBodyErrorResponse(upstream, route.kind, [
-        route.kind === "nvidia" ? byok.nv : byok.gmi,
-      ]);
+      return upstreamBodyErrorResponse(upstream, route.kind, [bearerKeyFor(env, byok, route.kind)]);
     }
     return openAIUpstreamToAnthropicResponse(upstream, body, body.model, upstreamModel);
   }
@@ -1375,27 +1390,27 @@ async function handleGatewayImpl(
   // Passthrough routes (or/ds/qw/amd): the upstream already speaks the Anthropic
   // protocol, forward the body unchanged + stream the response.
   if (route.type === "passthrough") {
-    if (route.kind === "deepseek" && isKeyMissing("deepseek", byok)) {
+    if (route.kind === "deepseek" && isKeyMissing("deepseek", byok, env)) {
       return keyMissingError("deepseek") as Response;
     }
-    if (route.kind === "qwen" && isKeyMissing("qwen", byok)) {
+    if (route.kind === "qwen" && isKeyMissing("qwen", byok, env)) {
       return keyMissingError("qwen") as Response;
     }
     // amd/ (AMD Radeon Cloud) is pure BYOK too — without the user's rc-… key
     // the request would go out headerless and 401 at the upstream.
-    if (route.kind === "amd" && isKeyMissing("amd", byok)) {
+    if (route.kind === "amd" && isKeyMissing("amd", byok, env)) {
       return keyMissingError("amd") as Response;
     }
     // r4/ is pure BYOK as well, and unlike qw/ds it has no Worker-level
     // fallback consulted anywhere on this path: a keyless request would go out
     // headerless and 401 at api.r4.codes.
-    if (route.kind === "r4" && isKeyMissing("r4", byok)) {
+    if (route.kind === "r4" && isKeyMissing("r4", byok, env)) {
       return keyMissingError("r4") as Response;
     }
     // og/ models need the OpenCode Go key too — without it the request would
     // go out headerless and return a bare
     // "Upstream 401" instead of a clear config error (translate path checks).
-    if (route.kind === "opencode" && isKeyMissing("opencode", byok)) {
+    if (route.kind === "opencode" && isKeyMissing("opencode", byok, env)) {
       return keyMissingError("opencode") as Response;
     }
     // The og-native passthrough previously BYPASSED the circuit breaker — a
@@ -1476,13 +1491,13 @@ async function handleGatewayImpl(
   // round-504: shadowed by the pre-branch commandgoat guard (same !byok.cmd,
   // same message) — unreachable, kept as defense-in-depth like the chat-path
   // openrouter arm. Not pinned: keyless-cm tests land on the live guard.
-  if (route.kind === "commandgoat" && isKeyMissing("commandgoat", byok)) {
+  if (route.kind === "commandgoat" && isKeyMissing("commandgoat", byok, env)) {
     return keyMissingError("commandgoat") as Response;
   }
   // round-500: this guard was unscoped — a cm/ request (Bearer byok.cmd,
   // cm upstream; byok.opencodeGo unused below) was 502'd for lacking an
   // unrelated og key. Scope to the opencode kind it actually protects.
-  if (route.kind === "opencode" && isKeyMissing("opencode", byok)) {
+  if (route.kind === "opencode" && isKeyMissing("opencode", byok, env)) {
     return keyMissingError("opencode") as Response;
   }
   // Circuit open: repeated hard failures — fail fast instead of waiting on
@@ -1520,8 +1535,11 @@ async function handleGatewayImpl(
   if (declaredEffort && openaiReq.reasoning === undefined) {
     openaiReq.reasoning = { effort: declaredEffort };
   }
-  const translateKey =
-    route.kind === "custom" ? bearerKey : route.kind === "commandgoat" ? byok.cmd : byok.opencodeGo;
+  // Same as `bearerKey` (the bearer above), already resolved with the env
+  // fallback — re-using it here keeps this flow consistent with the /v1/messages
+  // and /v1/chat/completions arms, and removes the third place `byok.cmd /
+  // byok.opencodeGo` was hard-coded.
+  const translateKey = bearerKey;
   // Same rule as the bearer chain above: a custom provider is its own channel,
   // so its label must name it (the label rides every upstream-error message this
   // arm produces) instead of claiming to be og/ or cm/.
