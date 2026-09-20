@@ -4060,6 +4060,14 @@ button.dtab-close:hover { opacity: 1; }
   text-align: left;
   cursor: pointer;
 }
+/* A CONTROL WITH NO FEEDBACK AT ALL (round 103). This button opens a log file's tail and it had `cursor: pointer`
+   and NOTHING ELSE — no hover, no press. Nothing demanded either: `feedback-check` demands a press only where a
+   HOVER exists (hover implies press), so a control with neither was invisible to the gate, and the rendered press
+   pass had never visited this card (it was rendered for the first time in round 100, and the press targets are a
+   curated list that does not include it). Measured on the device: hoverChanges=[border-color,color],
+   pressAdds=[transform]. */
+.device-logs-toggle:hover { border-color: var(--chrome-ink-faint); color: var(--ink); }
+.device-logs-toggle:active { transform: translateY(1px); }
 .device-logs-absent { font: 400 var(--fs-xs) var(--font); color: var(--chrome-ink-dim); }
 .device-logs-tail {
   max-height: 260px;
