@@ -1178,3 +1178,28 @@ THE RUNNING LIST OF STATES THIS METHOD HAS ADDED, for the next round to extend r
     off / the tombstone          round 88  (found: a mark collision, then three FILL-inside-a-RING defects)
     human / the held session     round 89  (found: 2.53 on the graphic bar in dark)
     unset / the goal affordance  round 90  (clean)
+
+### A PRUNE THAT EXPIRED, AND THE CLAUSE THAT MADE RE-ADDING IT SAFE (round 91)
+
+Round 153 pruned the panel density's empty-state surface with a reason worth keeping:
+
+    Round 152 added this for the PANEL density and measured it "clean". Round 153 looked at what that surface actually
+    rendered and found it was not the empty state at all: the rail said "Sessions unavailable — reconnecting…",
+    because in the panel harness the rail receives connected=false, while the DESKTOP harness renders the real thing.
+    The contrast was clean in both cases, which is exactly why the label mattered — A SURFACE THAT MEASURES THE WRONG
+    STATE PASSES FOR THE BEST REASON.
+
+That reason has expired, and rounds 86-87 are what expired it: this harness DOES open the SSE stream, the panel renders
+connected, and the judge now fails any surface that regresses — by the harness's own `{opened, fail}` flag AND by the
+rendered sentence. So the block is back, and the clause that proved the harness connected is also what makes re-adding
+it safe rather than hopeful: if the panel renders the wrong state there again, the surface fails instead of passing.
+
+    MEASURED, CI green: the panel sweep now reports 104 surfaces, up from 98 — the held, no-goal and empty states, two
+    themes each — and every one of them is clean, with the empty state's harness flag travelling with its reading.
+
+THE RUNNING LIST, now four states and one re-added surface:
+    off / the tombstone          round 88  found: a mark collision, then three FILL-inside-a-RING defects
+    human / the held session     round 89  found: 2.53 on the graphic bar in dark
+    unset / the goal affordance  round 90  clean
+    empty / the panel density    round 91  re-added after its prune expired; clean, and the wrong-state failure it
+                                          was pruned for is now a clause rather than a caveat
