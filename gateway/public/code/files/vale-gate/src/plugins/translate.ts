@@ -892,14 +892,19 @@ async function handleGatewayImpl(
   // multi-MB body into an object graph would blow the Free plan CPU budget.
   let body: any = null;
 
-  // ---- Gateway web search (og/ model answers, DeepSeek executes the search) ----
-  // Claude Code's WebSearch is executed server-side via Anthropic's web_search
-  // server tool. opencode zen (og/) doesn't implement it — for any og model,
-  // native-Anthropic or not — but DeepSeek official's Anthropic endpoint does.
-  // So for og/ models, run the search through DeepSeek official and let the
-  // requested og/ model answer from the results — the model stays og/, DeepSeek
-  // is only the search backend. Requires this user's DEEPSEEK_API_KEY. ds/ and
-  // or/ requests pass through untouched (ds/ handles web_search natively).
+  // ---- Web search (og/ ONLY, and the gateway never executes one) ----
+  // The search itself is always run by an UPSTREAM — Anthropic's
+  // web_search_20250305 is a server-side tool, so the model that answers must be
+  // the one whose upstream implements it. zen/go implements it on the
+  // version-less Flash lane; most other upstreams do not.
+  //
+  // THIS COMMENT USED TO DESCRIBE A DIFFERENT MECHANISM and had gone stale: it
+  // said the search ran through DeepSeek official's Anthropic endpoint and that
+  // the requested og/ model answered from the results. That interception
+  // (runWebSearch/ogWebSearchAnswer) was REMOVED — see the note further down,
+  // where the request is forwarded untouched and zen performs the search itself.
+  // Nothing here needs this user's DEEPSEEK_API_KEY any more.
+  //
   // round-119: the vision-preprocess gate excluded ds/ (passthrough+deepseek)
   // — text-only DeepSeek received raw Anthropic image blocks and answered
   // blind (or rejected them). Every route kind must preprocess images when
@@ -995,12 +1000,22 @@ async function handleGatewayImpl(
       body.tool_choice = { type: "tool", name: "web_search" };
     }
     const webSearchToolChoice = isForcedWebSearch(body?.tool_choice);
-    // The swap below re-points the request at zen/go (og/ Flash lane) and
-    // rewrites route.kind to "opencode". A CUSTOM provider must never be part of
-    // that: its operator declared the endpoint, and hijacking the request to
-    // zen would send the user's OpenCode key to answer a question addressed to
-    // their own provider. Same reason commandgoat is excluded.
-    if (webSearchToolChoice && body && route.kind !== "commandgoat" && route.kind !== "custom") {
+    // THE SWAP IS og/-SCOPED, AND THE SCOPE IS THE POINT (2026-09-20). It used to
+    // read `kind !== "commandgoat" && kind !== "custom"` — a blocklist — which
+    // also caught every other kind that reaches this line (ds/nv/gmi/amd are here
+    // for IMAGE preprocessing, not for search). A forced web_search addressed to
+    // one of those was answered by zen/go under the user's OPENCODE key, which is
+    // exactly the hijack the paragraph below refuses for a custom provider; that
+    // it was refused there and performed here was an accident of the condition's
+    // SHAPE, not a decision. searchTargetFor's own doc always said "any other
+    // og/ model is forced to…", and no test covered the cross-channel case.
+    // The og/ scope is also load-bearing for a reason that has nothing to do with
+    // scope: an og/ search request MUST ride zen's native /v1/messages (the swap
+    // rewrites the route to that passthrough below), because the server-side tool
+    // is not executed on the chat/completions translation this route otherwise
+    // uses (round-46 Medium #3). So this is not a reroute-anywhere machine with a
+    // narrow guard bolted on; it is the og/ search path.
+    if (webSearchToolChoice && body && route.kind === "opencode") {
       // A caller that already names a search-capable Flash-line model KEEPS it
       // (2026-09-10): zen/go runs web_search natively on the version-less lane
       // slug `deepseek-flash` that og/deepseek-v4.1-flash remaps to

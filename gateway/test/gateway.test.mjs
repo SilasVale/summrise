@@ -1721,6 +1721,37 @@ test("og web_search: og/deepseek-v4.1-flash stays on the V4 slug (no regression)
   assert.equal(sent.model, "deepseek-flash");
 });
 
+// The swap used to be a BLOCKLIST (`kind !== "commandgoat" && kind !== "custom"`),
+// so a forced web_search addressed to ds//nv//gmi//amd/ was answered by zen/go
+// under the user's OPENCODE key — the cross-provider hijack the very next clause
+// of that condition refuses for a custom provider. It is og/-scoped now, and
+// this is the pin: the request keeps its own upstream and its own model. The og/
+// tests above are the other half — the swap still fires there, and MUST, because
+// it is what puts an og/ search on zen's native /v1/messages instead of the
+// chat/completions translation, where the server-side tool is not executed.
+test("web_search: a forced search on ds/ is NOT rerouted to og/ (the swap is og/-scoped)", async () => {
+  const { env, token } = gwEnv();
+  let sentUrl, sent;
+  const res = await withFetch(async (url, init) => {
+    sentUrl = String(url);
+    sent = JSON.parse(String(init.body));
+    return new Response(JSON.stringify({
+      type: "message",
+      content: [{ type: "text", text: "ds search ok" }],
+      usage: { input_tokens: 3, output_tokens: 2 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }, () => post(env, token, {
+    model: "ds/deepseek-flash", max_tokens: 8,
+    tools: [{ type: "web_search_20250305", name: "web_search" }],
+    tool_choice: { type: "tool", name: "web_search" },
+    messages: [{ role: "user", content: "search this" }],
+  }));
+  assert.equal(res.status, 200);
+  assert.match(sentUrl, /api\.deepseek\.com/, "must dial ds's own upstream");
+  assert.doesNotMatch(sentUrl, /opencode\.ai/, "and NOT zen/go");
+  assert.equal(sent.model, "deepseek-flash", "under its own model");
+});
+
 // ── scanTopLevelModel / rawWithModel (CPU-safe model extraction) ──
 
 test("scanTopLevelModel: extracts top-level model", () => {
