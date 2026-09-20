@@ -203,7 +203,7 @@ export const PROBE_SOURCE = `(() => {
     const st = getComputedStyle(el);
     if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) === 0) continue;
     // AN SVG ELEMENT'S className IS NOT A STRING (round 93). It is an SVGAnimatedString, so the ternary below read
-    // every icon in the panel as `svg ""` — and the first run that measured icons reported ten findings that named
+    // every icon in the panel as svg "" — and the first run that measured icons reported ten findings that named
     // nothing an operator could find: "1.18 panel/Memory [dark] svg "" — painted rgb(0,0,0) (fill)". The same lesson
     // the idle pass learned in round 69 (naming the parent turned "6 mutations (#text x6)" into "span.approval-left
     // x6"): a finding that cannot be located is a finding that gets ignored. getAttribute works on both.
