@@ -2046,3 +2046,32 @@ already written in this ledger under other rounds:
 A FINDING THAT SURVIVES BOTH CORRECTIONS IS THE ONE WORTH REPORTING, and this round is the argument for measuring a
 clause a doc comment already claims: the hook's own header says "it fires on the event", and two of its three call
 sites in one card did not.
+
+### WHAT A LIST CANNOT ANSWER, AND WHAT A COUNTER CANNOT PROVE (round 20)
+
+Round 19 measured a curated pair of controls and found two with no acknowledgement at all. The obvious next question —
+how many others are there? — is one a list cannot answer, because the controls that answer nothing are exactly the
+ones nobody thought to name. So the pass now asks the DOM (chrome skipped, deduped by class+size, capped) and measures
+a second page: Memory, whose buttons write and delete device-local records.
+
+MEASURED, AND CLEAN — 14 rows, both densities, both themes, every reply delayed 900ms against a 100ms budget:
+
+    Settings  .monitor-btn 6/6/11/5/6ms via=data-busy    .monitor-add .btn 5/5/5/6ms via=data-busy
+    Memory    button.btn 4-9ms via=disabled              (discovered, not listed)
+
+AND ITS FIRST VERSION ACCUSED THREE INNOCENT CONTROLS. Settings renders the CONNECT FORM ahead of everything else, so
+a cap of eight spent itself on three tabs and three unnamed buttons — and the first tab is ALREADY ACTIVE, so clicking
+it has nothing to do. Three "never acknowledged" findings, three controls that had been asked to do nothing.
+
+THE OBVIOUS EXCUSE DOES NOT WORK. The pass counts `/api/` requests (`window.__calls`) to tell "nothing to wait for"
+from "late" — and on a page that POLLS (update, monitors, vitals, restarts, logs) that delta is unattributable: a
+background request lands in almost any window. `asked: false` still means something (no request at all in the window);
+`asked: true` does NOT mean this control asked. So the finding text says only what it can ("never acknowledged the
+press"), the row-level distinction is pinned in both directions, and the judge may still fail such a report on the
+floor — a pass whose only row asked nothing proves nothing about feedback, which is what the floor is for.
+
+THE SCOPE IS THE LESSON: a curated list stays where the work is known, discovery goes where every button does
+something, and a signal that another process can produce is not evidence about the control you pressed. That is the
+fourth time this session an added signal turned out to have a second producer (a request counter on a polling page, a
+hover rule mistaken for an acknowledgement, a floor calibrated for curated selectors, a stub answering a route nobody
+asked for) — and each time the fix was the same: name what the signal can and cannot support.
