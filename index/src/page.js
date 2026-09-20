@@ -289,6 +289,14 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
                 color var(--ds-transition-duration) var(--ds-ease-in-out);
   }
   .theme-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+  /* THE TOGGLE WAS THE ONE INPUT ON THIS PAGE THAT ANSWERED A HOVER AND IGNORED A PRESS (round 95). Measured on
+     the device, both schemes: hoverChanges=[background,color] and pressAddsBeyondHover=[] — while .btn-primary
+     adds a transform and every link adds opacity on the same page. The transform vocabulary is the one the panel
+     and the console already use for a press that RENDERS (translateY(1px)); it is not in this rule's transition
+     list, so the press lands on the event rather than easing in behind it.
+     (No backticks in this comment: it lives inside page.js's template literal — 50th time, and the emit guard
+     caught it before the commit.) */
+  .theme-toggle:active { transform: translateY(1px); }
   .theme-toggle svg { width: 16px; height: 16px; }
   .theme-toggle .icon-sun { display: none; }
   body[data-ds-dark-theme] .theme-toggle .icon-moon { display: none; }

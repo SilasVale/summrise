@@ -28,15 +28,28 @@ import { fileURLToPath } from "node:url";
  * BOTH FRONT ENDS. The console had NO press check at all until round 54 — 25 `:hover` selectors and a single
  * `:active` rule — while the panel has had this gate for hundreds of rounds. Each sheet carries its own floors,
  * because "a scan that read nothing" means something different in a sheet with 78 hovers and one with 25.
+ *
+ * AND THE LANDING IS THE THIRD (round 95). Its stylesheet is inline in `index/src/page.js` rather than in a .css
+ * file, which is exactly why it went unchecked: this file read two paths and the fourth surface was neither. The
+ * cost was measured on the device — `.theme-toggle` answered a hover and ignored a press, and the rendered pass
+ * could not see it either, because it measured the press against REST and the hover looked like the press (see
+ * `press-anchor-check.mjs`). `crop` takes the `<style>` block out of the module, so this reads the CSS that ships
+ * rather than a copy of it.
  */
 const SHEETS = [
   { label: "panel", path: fileURLToPath(new URL("../../agent/resources/panel/panel.css", import.meta.url)), src: fileURLToPath(new URL("../../agent/resources/panel-react/src", import.meta.url)), minHovers: 30, minPresses: 20, minTransitions: 10 },
   { label: "console", path: fileURLToPath(new URL("../../gateway/ui/src/styles/globals.css", import.meta.url)), src: fileURLToPath(new URL("../../gateway/ui/src", import.meta.url)), minHovers: 10, minPresses: 1, minTransitions: 3 },
+  { label: "landing", path: fileURLToPath(new URL("../../index/src/page.js", import.meta.url)), src: fileURLToPath(new URL("../../index/src", import.meta.url)), minHovers: 4, minPresses: 3, minTransitions: 3, crop: /<style>([\s\S]*?)<\/style>/ },
 ];
 
 /** Everything this file knows how to check, for ONE sheet. */
-function checkSheet(label, path, src, minHovers, minPresses, minTransitions) {
-  const css = readFileSync(path, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+function checkSheet(label, path, src, minHovers, minPresses, minTransitions, crop) {
+  const raw = readFileSync(path, "utf8");
+  const cropped = crop ? crop.exec(raw) : null;
+  if (crop && !cropped) {
+    return { fatal: `${label}: no <style> block found in ${path} — the extraction is reading the wrong thing, so this proves nothing` };
+  }
+  const css = (cropped ? cropped[1] : raw).replace(/\/\*[\s\S]*?\*\//g, "");
   // THE WHOLE SELECTOR LIST, NOT ITS LAST LINE. The idiom `.split("\n").pop()` is used elsewhere to drop a
   // banner line above a rule, and it silently discards every selector but the last when the sheet groups a comma
   // list across lines — which is exactly how the press layer is written, so the first run of this check saw 6
@@ -89,6 +102,7 @@ function checkSheet(label, path, src, minHovers, minPresses, minTransitions) {
     [".dev-card", "a device card — no onClick in the console's markup (round 54)"],
     [".list-row", "a list row — no onClick in the console's markup (round 54)"],
     [".lane", "a provider lane — no onClick in the console's markup (round 54)"],
+    [".step", "a numbered step CARD on the landing page — the markup is a plain div with no handler and no href (round 95); the links INSIDE it are the controls, and they carry a press state"],
   ]);
 
   // A PRESS STATE ON A BASE COVERS ITS VARIANTS, which is what CSS does: `.btn:active` matches an element that
@@ -187,8 +201,13 @@ function checkSheet(label, path, src, minHovers, minPresses, minTransitions) {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const full = dir + "/" + e.name;
       if (e.isDirectory()) walk(full);
-      else if (/\.tsx?$/.test(e.name)) {
-        for (const m of readFileSync(full, "utf8").matchAll(/className=\{?[`"']([^`"']+)[`"']/g)) classLists.push(m[1].split(/\s+/));
+      // BOTH SPELLINGS, AND BOTH EXTENSIONS. The panel and the console write `className="…"` in .tsx; the landing
+      // builds HTML strings in a .js module and writes `class="…"`. Visiting only .tsx made every landing variant
+      // invisible to the exemption below — which is silent, because a missing exemption only means a rule this check
+      // would have granted is reported as a gap instead (round 95).
+      else if (/\.(tsx?|js)$/.test(e.name)) {
+        const text = readFileSync(full, "utf8");
+        for (const m of text.matchAll(/(?:className=\{?|class=)[`"']([^`"']+)[`"']/g)) classLists.push(m[1].split(/\s+/));
       }
     }
   };
@@ -255,7 +274,7 @@ function checkSheet(label, path, src, minHovers, minPresses, minTransitions) {
 const allFailures = [];
 const summaries = [];
 for (const sheet of SHEETS) {
-  const r = checkSheet(sheet.label, sheet.path, sheet.src, sheet.minHovers, sheet.minPresses, sheet.minTransitions);
+  const r = checkSheet(sheet.label, sheet.path, sheet.src, sheet.minHovers, sheet.minPresses, sheet.minTransitions, sheet.crop);
   if (r.fatal) {
     console.error(`feedback-check: FAILED — ${r.fatal}`);
     process.exit(1);
