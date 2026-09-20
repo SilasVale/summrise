@@ -1189,41 +1189,15 @@ function judge(file) {
   // never meant to contrast with. Named here rather than silently dropped — the same rule the rest of
   // this suite follows — and the waived rows are PRINTED on every run so the exemption stays visible.
   const DECORATIVE = [
-    {
-      // THE WORKING DOT'S HALO. The probe prefers a ring over a fill when both are present (round 129), so
-      // `.rail-dot[data-state="working"]` is judged on its box-shadow — a SOFT token by design, measuring
-      // 2.33. The dot's FILL is --state-running and carries the meaning (the same rule the state palette
-      // follows everywhere else); the halo is emphasis around an already-legible mark.
-      // This surfaced only after round 156 made the SSE stream open: before that the rail dots never entered
-      // the working state at all, so the halo had never been measured.
-      // NOT ANCHORED TO THE ROW PATH, AND THE VALUE IS NAMED. This waiver was /^div\.rail-dot$/ — an exact
-      // match on the ROWS finding format — so it never reached the same dot when the HOVER pass reported it
-      // (round 214: "hover (panel/light): 1 element(s) below AA while hovered — div.rail-dot 2.33<3"). One
-      // exemption, two code paths, one of them unexempted: the "second home" shape again. Round 212 proved
-      // with measurements that the halo is emphasis and the dot's FILL clears 3:1 in BOTH themes, so the
-      // exemption is evidence-backed and belongs on both paths.
-      // WHAT THIS PATTERN ACTUALLY WAIVES, MEASURED RATHER THAN INTENDED (round 92). The consumer tests the
-      // pattern against THE ROW'S SELECTOR ALONE — DECORATIVE.find((d) => d.match.test(String(r.sel))) — so this
-      // entry sets aside EVERY ratio on div.rail-dot in the rows path, not only the 2.33 it was written for. The
-      // sentence that stood here ("only 2.33 is set aside, so a DIFFERENT ratio on the same element — in rows or
-      // on hover — is still a finding") is TRUE of the hover path, which reports through `ignore` with the value
-      // inside its pattern, and FALSE of this one. The dot's FILL — the channel that carries the state — is held
-      // at 3.00:1 by the panel gate, which is what makes a selector-wide waiver survivable here; making the rows
-      // path value-anchored like the hover path is its own piece of work and is recorded in the design ledger.
-      // THIS LIST IS THE ROWS WAIVER; the hover path reports through `ignore` instead, which is why the same dot
-      // was exempt in rows and a finding on hover (round 214). Both lists carry the exemption now; see `ignore`.
-      match: /^div\.rail-dot$/,
-      // THE BAND IS THE MEASUREMENT, and the entry is now worth exactly it (round 95). 2.33 is what the working
-      // dot's halo reports on the rail; the panel gate holds the dot's FILL at 3.00, so a halo that drifts is a
-      // question for a human rather than a suppression.
-      values: [[2.25, 2.45]],
-      // MEASURED, NOT ASSERTED (round 202). "The fill carries the state" was an assertion for fifty rounds:
-      // the probe prefers a ring over a fill, so the only row this mark produced measured the HALO at 2.33 and
-      // the fill was never measured at all. Computed with the tested maths: --accent #bf3a0a on the rail
-      // rgb(31,31,31) is EXACTLY 3.00:1 — the WCAG non-text threshold with zero margin — and the panel gate
-      // now holds it there, failing on a mutation to #8a2a07 at 1.90.
-      reason: "the working state's halo is emphasis, not the signal — the dot's FILL carries the state and measures 3.00:1, which the panel gate holds",
-    },
+    // PRUNED: THE WORKING DOT'S HALO WAIVER (round 21 of the standing goal). The entry was `/^div\.rail-dot$/`
+    // with the band 2.25-2.45, written when the rows path reported that mark by that class string. The mark
+    // language gained `data-live` and the row's selector became `div.mark.rail-dot`, so the pattern has matched
+    // NOTHING for several rounds — measured, not assumed: across the whole 126-surface report it matches 0 of
+    // 6,876 rows, and the 68 rows that DO name that element are all above their bar (6.50 light / 10.99 dark
+    // against 3, and the dot's fill is held at exactly 3.00 by the panel gate, which fails on a mutation to
+    // #8a2a07 at 1.90). Nothing needed the exemption any more, which is the definition of weight that stops
+    // earning its place. The HOVER path's exemption lives in `ignore` and is untouched; if the halo ever
+    // returns as a measured row, the band and its reason are in this file's history and in the design ledger.
     {
       // MEASURED, AND ONE WORD OF THE OLD REASON WAS WRONG (round 203). It read "its meaning is its text
       // (contrast-fixed for this chip already) and its dot" — THERE IS NO DOT. The chip is text plus a revoke
@@ -1361,6 +1335,28 @@ function judge(file) {
   }
   if (coverage.length) console.error(`\n${coverage.join("\n")}`);
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
+  // A WAIVER NOBODY USED IS DEAD WEIGHT IN THE ONE LIST A READER CONSULTS (round 21). Every entry in DECORATIVE is
+  // permission for an element at a measured ratio; when the element stops rendering under that selector (the mark
+  // language changed the class string, and `/^div\.rail-dot$/` matched nothing for several rounds) the entry is a
+  // reason nobody is using — and it is exactly the kind of sentence the next reader trusts without checking.
+  //
+  // A NOTE, NOT A FINDING: this list is judged per run, and a run that measures one axis (the ack pass alone) has
+  // rows from nothing else — every entry would look stale. The note says how many rows were looked at, so a reader
+  // can tell a real stale entry from a partial run.
+  {
+    const used = new Set();
+    for (const r of report.rows || []) {
+      const d = DECORATIVE.find((x) => x.match.test(String(r.sel)));
+      if (d) used.add(d);
+    }
+    const unmatched = DECORATIVE.filter((d) => !used.has(d));
+    if (unmatched.length) {
+      console.log(
+        `note: ${unmatched.length} of ${DECORATIVE.length} DECORATIVE entr(ies) matched NO row in this run (${(report.rows || []).length} rows over ${(report.surfaces || []).length} surface(s)) — a waiver nothing uses is weight; prune it or say why it stays:`,
+      );
+      for (const d of unmatched) console.log(`  ${String(d.match)}`);
+    }
+  }
   if (waived.length) {
     console.log(`note: ${waived.length} decorative graphic(s) set aside, each with its reason:`);
     for (const w of [...new Set(waived)]) console.log(`  ${w}`);

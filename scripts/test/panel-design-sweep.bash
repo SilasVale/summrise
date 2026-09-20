@@ -456,6 +456,54 @@ else
   fi
 fi
 
+# AND THE PRUNE ITSELF IS PINNED (round 21): the working dot's halo waiver was removed because it matched no row
+# in any run. The same row that it USED to excuse must now be a finding — a pruned exemption that still excused
+# something would be a prune in name only.
+python3 - "$TMP/clean.json" "$TMP/decorative-pruned.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["rows"][0].update({"sel": "div.rail-dot", "cr": 2.33, "need": 3, "size": 8, "weight": "400", "text": "",
+                     "kind": "graphic", "paint": "rgb(61, 40, 23) (ring)", "surface": "rgb(31, 31, 31)"})
+json.dump(r, open(sys.argv[2], "w"))
+PY
+if node "$TOOL" --judge "$TMP/decorative-pruned.json" > /dev/null 2>&1; then
+  bad "a row the deleted waiver used to excuse still passes — the prune changed nothing"
+else
+  ok "the pruned waiver no longer excuses its old row, which is now a finding"
+fi
+
+# A WAIVER NOBODY USED IS REPORTED (round 21). The DECORATIVE list is permission for an element at a measured
+# ratio; when the element stops rendering under that selector the entry is a reason nobody is using. It is a NOTE
+# rather than a finding — a run that measured one axis has rows from nothing else, so every entry would look stale —
+# and the note says how many rows were looked at, which is what lets a reader tell the two apart.
+python3 - "$TMP/clean.json" "$TMP/waivers-used.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["rows"] = [
+    {"cr": 1.19, "need": 3, "size": 44, "sel": "span.approval-grant", "text": "", "density": "panel", "theme": "light", "page": "Terminal"},
+    {"cr": 1.05, "need": 3, "size": 22, "sel": "span.nm-ico", "text": "", "density": "panel", "theme": "light", "page": "Terminal"},
+]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+if node "$TOOL" --judge "$TMP/waivers-used.json" > "$TMP/waivers-used.out" 2>&1; then
+  if grep -q "DECORATIVE entr" "$TMP/waivers-used.out"; then
+    bad "the judge called a waiver unused while the run had a row for it: $(grep -m1 'DECORATIVE entr' "$TMP/waivers-used.out")"
+  else
+    ok "a waiver the run used is not reported as stale"
+  fi
+else
+  bad "the used-waiver report failed for another reason: $(tail -2 "$TMP/waivers-used.out")"
+fi
+if node "$TOOL" --judge "$TMP/clean.json" > "$TMP/clean-waivers.out" 2>&1; then
+  if grep -q "matched NO row in this run (1 rows over 1 surface" "$TMP/clean-waivers.out"; then
+    ok "and a waiver no row matched is named, with the row count that makes it judgeable"
+  else
+    bad "an unused waiver went unmentioned: $(grep -c 'DECORATIVE' "$TMP/clean-waivers.out") line(s)"
+  fi
+else
+  bad "the clean report no longer passes with the staleness note present"
+fi
+
 # THE TARGET-SIZE VERDICT NAMES THE PAGE AND THE STATE (round 16). This axis measures two states now — the resting
 # page and the one a hover reveals — and a finding that says only "panel" cannot be reproduced. Planted on the
 # REVEAL entry, because that is the state that was previously reached by accident.
@@ -561,12 +609,16 @@ fi
 python3 - "$TMP/clean.json" "$TMP/decorative-waived.json" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
-r["rows"][0].update({"sel": "div.rail-dot", "cr": 2.33, "need": 3, "size": 8, "weight": "400", "text": "",
-                     "kind": "graphic", "paint": "rgb(61, 40, 23) (ring)", "surface": "rgb(31, 31, 31)"})
+# THE GRANT CHIP'S OUTLINE, whose entry still exists (its band is 1.10-1.35 and this is the 1.19 it was measured
+# at). This case used to plant `div.rail-dot 2.33` — that entry was PRUNED in round 21 because it matched no row in
+# any run since the mark language changed the selector to `div.mark.rail-dot`, so the rule it pinned now has a
+# different home: the prune is pinned below, and this case keeps pinning "a waiver at its measured ratio passes".
+r["rows"][0].update({"sel": "span.approval-grant", "cr": 1.19, "need": 3, "size": 44, "weight": "400", "text": "",
+                     "kind": "graphic", "paint": "rgb(229, 229, 234) (border)", "surface": "rgb(252, 251, 250)"})
 json.dump(r, open(sys.argv[2], "w"))
 PY
 if node "$TOOL" --judge "$TMP/decorative-waived.json" > "$TMP/decorative-waived.out" 2>&1; then
-  if grep -q "div.rail-dot 2.33" "$TMP/decorative-waived.out"; then
+  if grep -q "span.approval-grant 1.19" "$TMP/decorative-waived.out"; then
     ok "a waived element at the ratio it was measured at still passes, and the waiver is printed with its reason"
   else
     bad "the waived row passed but the note does not name it: $(tr '\n' ' ' < "$TMP/decorative-waived.out" | head -c 200)"
