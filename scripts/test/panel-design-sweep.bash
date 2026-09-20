@@ -289,6 +289,22 @@ elif which == "mark-ringfill":
     # it. That is how four broken `.plug-dot` arms survived every sweep until round 45: the probe reduced the mark to
     # one kind and called a fill inside a ring a "ring".
     r["surfaces"][0]["marks"] = {"families": [".plug-dot[warn]"], "collisions": [], "ringFill": [".plug-dot[warn]"]}
+elif which == "decorative-drift":
+    # A WAIVED ELEMENT AT A RATIO THE WAIVER DOES NOT COVER (round 95). The DECORATIVE entries matched on the
+    # SELECTOR alone, so the rail-dot entry set aside EVERY ratio that element could produce — while its own
+    # comment claimed only 2.33 was set aside. This plants the same selector at 1.50, outside the band the entry
+    # now carries, and the judge must fail it.
+    r["rows"][0]["sel"] = "div.rail-dot"
+    r["rows"][0]["cr"] = 1.5
+    r["rows"][0]["need"] = 3
+    r["rows"][0]["size"] = 8
+    r["rows"][0]["weight"] = "400"
+    r["rows"][0]["text"] = ""
+    r["rows"][0]["paint"] = "rgb(191, 58, 10) (ring)"
+    r["rows"][0]["surface"] = "rgb(31, 31, 31)"
+    # `kind` matters: without it the row is judged as TEXT and trips the type floor first, so the case would fail
+    # for the wrong reason and prove nothing about the waiver.
+    r["rows"][0]["kind"] = "graphic"
 elif which == "mark-collision":
     # TWO STATES OF ONE MARK PAINTING IDENTICALLY — the sheet can be right while the page is wrong (round 25's
     # `.plug-dot[error]` kept a stray halo through a unit test that passed).
@@ -366,7 +382,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
@@ -374,6 +390,26 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted mar
     ok "the judge fails a planted '$axis' defect"
   fi
 done
+
+# AND THE OTHER DIRECTION, which the loop above cannot see: a judge that fails EVERYTHING is as useless as one
+# that passes everything. The same element at the ratio its entry was MEASURED at must still be waived, and the
+# waiver must still be printed — a suppression nobody can see is a suppression nobody can review.
+python3 - "$TMP/clean.json" "$TMP/decorative-waived.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["rows"][0].update({"sel": "div.rail-dot", "cr": 2.33, "need": 3, "size": 8, "weight": "400", "text": "",
+                     "kind": "graphic", "paint": "rgb(61, 40, 23) (ring)", "surface": "rgb(31, 31, 31)"})
+json.dump(r, open(sys.argv[2], "w"))
+PY
+if node "$TOOL" --judge "$TMP/decorative-waived.json" > "$TMP/decorative-waived.out" 2>&1; then
+  if grep -q "div.rail-dot 2.33" "$TMP/decorative-waived.out"; then
+    ok "a waived element at the ratio it was measured at still passes, and the waiver is printed with its reason"
+  else
+    bad "the waived row passed but the note does not name it: $(tr '\n' ' ' < "$TMP/decorative-waived.out" | head -c 200)"
+  fi
+else
+  bad "the judge rejected a row whose ratio is inside its waiver band: $(tail -3 "$TMP/decorative-waived.out")"
+fi
 
 # ── 3c. the DIAGNOSTIC HELPER survives the escaping layers ─────────────────────────────────────
 # The sweep reports itself to the agent's diagnostic ring, and its first version emitted a regex with every

@@ -941,6 +941,10 @@ function judge(file) {
       // THIS LIST IS THE ROWS WAIVER; the hover path reports through `ignore` instead, which is why the same dot
       // was exempt in rows and a finding on hover (round 214). Both lists carry the exemption now; see `ignore`.
       match: /^div\.rail-dot$/,
+      // THE BAND IS THE MEASUREMENT, and the entry is now worth exactly it (round 95). 2.33 is what the working
+      // dot's halo reports on the rail; the panel gate holds the dot's FILL at 3.00, so a halo that drifts is a
+      // question for a human rather than a suppression.
+      values: [[2.25, 2.45]],
       // MEASURED, NOT ASSERTED (round 202). "The fill carries the state" was an assertion for fifty rounds:
       // the probe prefers a ring over a fill, so the only row this mark produced measured the HALO at 2.33 and
       // the fill was never measured at all. Computed with the tested maths: --accent #bf3a0a on the rail
@@ -956,21 +960,27 @@ function judge(file) {
       // contrast fixes the CSS documents — --muted at 4.31 for an 11px mono label, and --faint at 2.33 for the
       // one control that can undo a grant — both hold. The outline is the pill's edge; the word is the signal.
       match: /^span\.approval-grant$/,
+      // FOUR SURFACES, FOUR RATIOS — 1.19, 1.20, 1.25, 1.27, measured on the device round 95 — because the outline
+      // composites over a different surface on each. The band covers what was measured and nothing else.
+      values: [[1.1, 1.35]],
       reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
     },
     {
-      // THE MENU'S ICON CHIP: ITS BACKGROUND DELIMITS, AND THE SIGNAL IS NOT MEASURED AT ALL (round 92). The first
-      // photograph of the new-session menu reported span.nm-ico at 1.05 dark / 1.10 light — a 22px chip whose
-      // background is a subtle surface behind a coloured glyph, which is what a chip's background is for.
+      // THE MENU'S ICON CHIP: ITS BACKGROUND DELIMITS, AND ITS GLYPH IS NOW MEASURED TOO (round 92, corrected
+      // round 95). The first photograph of the new-session menu reported span.nm-ico at 1.05 dark / 1.10 light — a
+      // 22px chip whose background is a subtle surface behind a coloured glyph, which is what a chip's background is
+      // for. What this entry silences is THAT BACKGROUND.
       //
-      // AND THIS WAIVER DOES NOT CLAIM THE ICON WAS JUDGED, which is the part worth writing down rather than
-      // hiding. The graphic loop excludes SVG ON PURPOSE ("an icon's path inherits fill: black and its real colour
-      // comes from the svg above it, so every decorative glyph reported cr ~1"), so the per-kind colour that
-      // carries this menu's meaning — --lane-ds for ssh, --lane-or for serial, the lane vocabulary the rest of the
-      // panel uses — produces no row anywhere in this suite. Silencing a decorative background is what this entry
-      // does; closing the icon gap is a separate piece of work and is recorded as such in the design ledger.
+      // THE REASON IT CARRIED FOR FIFTY ROUNDS WAS TRUE WHEN WRITTEN AND IS NOW FALSE, which is why it is worth the
+      // line: "the GLYPH ITSELF IS NOT MEASURED — the probe excludes SVG by design". Rounds 93-94 changed exactly
+      // that — the svg ROOT is let through, and its paint counts where a shape computes it — so the per-kind lane
+      // colour that carries this menu's meaning (--lane-ds for ssh, --lane-or for serial) DOES have a row now, and it
+      // clears the 3:1 bar on every surface the sweep renders. A waiver that still claims its signal is unmeasured
+      // would stop the next reader looking for the finding that can now appear.
       match: /^span\.nm-ico$/,
-      reason: "the icon chip's background delimits a coloured glyph at 1.05/1.10; the GLYPH ITSELF IS NOT MEASURED — the probe excludes SVG by design, so the lane colour it carries has no row in this suite",
+      // 1.05 light / 1.10 dark, the chip's own background, and nothing else.
+      values: [[1.0, 1.15]],
+      reason: "the icon chip's BACKGROUND delimits a coloured glyph at 1.05/1.10; the glyph itself is measured by the SVG rule since round 94 and clears 3:1 — the lane colour it carries has its own row now",
     },
   ];
   const waived = [];
@@ -996,9 +1006,22 @@ function judge(file) {
     }
   }
   for (const r of failures(report.rows)) {
+    // A WAIVER IS FOR THE RATIO IT WAS MEASURED AT, NOT FOR THE ELEMENT (round 95). This used to be
+    // `DECORATIVE.find((d) => d.match.test(String(r.sel)))` and nothing else, so an entry written for one number set
+    // aside EVERY ratio that element could ever produce — which is what round 92 caught the rail-dot entry claiming
+    // it did not do ("only 2.33 is set aside, so a DIFFERENT ratio on the same element is still a finding": true of
+    // the hover path, false of this one). Each entry carries the band it was measured in now, a row outside every
+    // band is a finding, and the finding says which band refused it — otherwise the reader sees a bare ratio and
+    // cannot tell a new defect from a waiver that moved.
     const why = DECORATIVE.find((d) => d.match.test(String(r.sel)));
-    if (why) {
+    if (why && why.values.some(([lo, hi]) => typeof r.cr === "number" && r.cr >= lo && r.cr <= hi)) {
       waived.push(`${r.sel} ${r.cr} — ${why.reason}`);
+      continue;
+    }
+    if (why) {
+      findings.push(
+        `${r.sel} ${r.cr} on ${r.surface} — the DECORATIVE entry for this element waives ${why.values.map(([lo, hi]) => `${lo}-${hi}`).join(" / ")}, and this is a DIFFERENT value: a waiver is for the ratio it was measured at, not for the element`,
+      );
       continue;
     }
     if (findings.length < 10 + coverage.length) {
