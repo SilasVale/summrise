@@ -369,6 +369,31 @@ ${TIMING}
     report.names.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES)) });
   }
 
+  // THE NEW-SESSION MENU, WHICH ONLY A CLICK CAN RENDER (round 92). DesktopShell holds it: a .btn-new button with
+  // aria-expanded, and a popover of role=menuitem buttons, each with an .nm-ico span carrying data-kind. The sweep
+  // has PRESSED that button for many rounds — .btn-new is in the press targets — and never once photographed what
+  // it opens, so the menu's item contrast, its target sizes and the per-kind icon colours have been unmeasured since
+  // the menu replaced four buttons with one entry point. Desktop only, because the menu is: the panel density has no
+  // .desktop-new at all.
+  //
+  // The entrance animation is new-menu-in (declared ATTENTION in chrome-stillness-check), so the wait after the
+  // click is longer than the press pass's: this photographs the SETTLED menu, not its first frame.
+  for (const theme of wants("pages") ? ['light', 'dark'] : []) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('http://vale.test/desktop/?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1800);
+    await page.evaluate(() => { const b = document.querySelector('.btn-new'); if (b) b.click(); });
+    await page.waitForTimeout(700);
+    const pname = 'Desktop-NewMenu-' + theme;
+    const rows = await page.evaluate(PROBE);
+    for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'menu', page: pname });
+    report.surfaces.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(SURFACE)) });
+    report.names.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(NAMES)) });
+    report.sse.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(SSE)) });
+  }
+
   // THE PANEL DENSITY'S EMPTY STATE, RE-ADDED BECAUSE THE REASON IT WAS PRUNED HAS EXPIRED (round 91).
   //
   // Round 152 added this surface for the panel density and measured it "clean". Round 153 looked at what it had
