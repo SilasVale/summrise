@@ -1013,3 +1013,34 @@ surfaces, with each pass inlined from one shared source and each clause judged b
 `landing-check` keeps its job — it reads page.js's own values, which is how a STATIC claim about the palette and the
 heading structure is checked without a browser — and it is no longer the only thing standing behind the landing's
 reflow claim.
+
+### A NOTE THAT SAID THE OPPOSITE OF THE CODE, AND THE CHECK THAT REPLACED IT (round 86)
+
+The panel harness carried this paragraph for sixty rounds:
+
+    "WHAT THE HARNESS STILL DOES NOT DO, measured round 115 ... window.EventSource below is a NO-OP, so the panel's
+     SSE stream NEVER opens. Every SSE-driven surface therefore renders its 'Connection lost - reconnecting' state,
+     and has in every sweep this harness has ever produced."
+
+It was true when written. Round 156 added the `/api/events/term` branch — one empty frame, then close, which is what
+flips the app to connected — and the note BESIDE that branch says so: "round 156 made the panel render CONNECTED with
+this exact shape". Two paragraphs in one file, contradicting each other, and the stale one is the one a reader meets
+first. It very nearly made me "fix" a working fixture.
+
+MEASURED, NOT ARGUED: the harness now publishes `window.__sse = {opened, fail}` — a fact only it knows, because the
+app fetches a stream rather than using EventSource — the panel sweep reads it per surface, and the shared judge fails
+any surface that should be connected and was not. CI's next run, green:
+
+    4142 rows · 90 panel surfaces · every reporting surface opened: true
+
+So the harness does deliver the push and the panel does render connected, and the sentence that said otherwise is
+gone. The failure surfaces are exempt on purpose (`?fail=1` rejects every /api/ call, so they are SUPPOSED to read as
+reconnecting) and the harness reports that flag beside the other rather than leaving the judge to guess from a label.
+
+Proven both ways before shipping, on synthetic reports: `opened:false, fail:false` fails with "the harness never opened
+the SSE stream, so this surface was measured in the RECONNECTING state — the fixture failed, not the panel";
+`opened:false, fail:true` passes; the clean case passes.
+
+THE LESSON IS NOT "A COMMENT WAS STALE". It is that a claim about an INSTRUMENT sat in prose for sixty rounds with
+nothing checking it, while every other claim in this suite has a clause. A sentence about what a fixture does belongs
+in the same place as a sentence about what the product does: next to a check that fails when it stops being true.
