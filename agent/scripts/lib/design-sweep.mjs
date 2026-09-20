@@ -565,20 +565,42 @@ export async function pressPass(page, targets, label = {}) {
         // finding against a control that answered perfectly. The element is scrolled to the middle FIRST, and an
         // element that cannot be brought into view is reported as exactly that, because silence about a press is not
         // evidence of a missing one.
-        el.scrollIntoView({ block: "center", behavior: "instant" });
+        // SCROLL ONLY IF IT IS NOT ALREADY FULLY VISIBLE, and then by the MINIMUM amount (`nearest`): centring every
+        // element unconditionally moved controls that were already on screen — the rail buttons and session rows of a
+        // panel whose own containers scroll — and the press FLOOR reported it in CI ("the press pass measured 1
+        // control(s)"). An instrument may move the page to reach a control; it may not rearrange the page it is
+        // measuring.
+        const before = el.getBoundingClientRect();
+        if (before.top < 0 || before.bottom > innerHeight || before.left < 0 || before.right > innerWidth) {
+          el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+        }
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
-        if (r.top < 0 || r.bottom > innerHeight) {
+        // THE PRESS GOES TO THE VISIBLE PART, not to the element's mathematical centre: on a page that cannot scroll
+        // (the landing holds its height) a control near the bottom keeps only its top edge on screen, and refusing to
+        // press it there would be the same over-correction in the other direction — the first version of this fix
+        // dropped three of the landing's four controls and the press FLOOR caught it in CI ("the press pass measured
+        // 1 control(s)"). So: clamp the rect to the viewport, and ask the hit test about the point that results.
+        const left = Math.max(r.left, 0), right = Math.min(r.right, innerWidth);
+        const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
+        if (right - left < 4 || bottom - top < 4) {
           return { offscreen: true, top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: innerHeight, w: Math.round(r.width), h: Math.round(r.height) };
         }
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
+        const cx = (left + right) / 2, cy = (top + bottom) / 2;
+        const at = document.elementFromPoint(cx, cy);
+        const reaches = !!(at && (at === el || el.contains(at) || at.contains(el)));
+        return { x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), reaches, covered: reaches ? null : (at ? at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.trim().split(/\s+/)[0] : "") : "nothing") };
       }
       return null;
     }, sel);
     if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
     if (box.offscreen) {
       rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
+      continue;
+    }
+    if (box.reaches === false) {
+      rows.push({ sel, note: "the pointer cannot reach this control — " + box.covered + " is drawn over its visible part — NOT pressed, and that is not evidence about its press" });
       continue;
     }
     // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the

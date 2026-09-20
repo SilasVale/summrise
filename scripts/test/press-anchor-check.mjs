@@ -107,8 +107,13 @@ try {
       // is really its own blind spot is the one failure mode this file exists to prevent, so the three rules are
       // pinned here: scroll it into view first, refuse to measure one that will not fit, and say so when the point
       // resolves to something else.
-      assert.ok(src.includes('el.scrollIntoView({ block: "center", behavior: "instant" })'), `${name}: the element is not scrolled into view — a control below the fold will be "pressed" at a coordinate outside the page and reported as still`);
+      assert.ok(src.includes('el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" })'), `${name}: the element is not scrolled into view — a control below the fold will be "pressed" at a coordinate outside the page and reported as still`);
+      assert.ok(src.includes("if (before.top < 0 || before.bottom > innerHeight"), `${name}: every element is scrolled unconditionally — an instrument may move the page to REACH a control, it may not rearrange the page it is measuring`);
       assert.ok(src.includes("box.offscreen"), `${name}: an element that cannot be brought into view is measured anyway, which is how a blind spot becomes a finding`);
+      // AND THE PRESS GOES TO THE VISIBLE PART, not to a centre that may be off-screen: the first version of the
+      // refusal dropped three of the landing's four controls and CI's press FLOOR caught it ("measured 1 control(s)").
+      assert.ok(src.includes("Math.min(r.right, innerWidth)"), `${name}: the rect is not clamped to the viewport — a partially visible control will be refused or pressed at a coordinate outside the page`);
+      assert.ok(src.includes("the pointer cannot reach this control"), `${name}: a control drawn over by something else is reported as still rather than as unreachable`);
       assert.ok(src.includes("document.elementFromPoint"), `${name}: the hit test is gone — a covered element and a still element would read the same`);
       assert.ok(src.includes("the pointer never reached this element"), `${name}: a press the pointer never delivered is reported as an answer (or as its absence) instead of as a note`);
     });
