@@ -980,3 +980,36 @@ Wired with the pass inlined from the shared source and judged by the shared clau
 now measures contrast, marks, names, unstyled, targets, press, idle, reduced motion AND focus. The one axis left on a
 STATIC proxy is reflow — `landing-check` reads `page.js`'s own values for the 320px question, while the panel and the
 console measure the rendered document's scrollWidth. That is the next round's work.
+
+### THE LANDING MEASURES REFLOW AS RENDERED — AND THE FOUR SURFACES NOW COVER THE SAME AXES (round 85)
+
+The last axis on a static proxy. `landing-check` answered the 320px question by reading page.js's own values — a proxy
+for the measurement the panel and the console take from the rendered document — and WCAG 1.4.10 is a claim about what
+the BROWSER lays out. Wired this round: both widths the standard names, in BOTH installer states, because the npm-only
+state swaps a button for a sentence and that is exactly the change that pushes a line past the viewport.
+
+    landing design sweep OK: nothing above found a defect
+
+FOUR MEASUREMENTS, and the page passes at 640 and 320 in both states. The note the panel produces about toolbar
+scrollers belongs to the panel's own tab strip and does not appear for the landing — which is the right shape: the
+shared judge prints it only where it happens.
+
+THE COVERAGE TABLE FROM ROUND 80, COMPLETED. Every axis the objective names is now measured AS RENDERED on all four
+surfaces, with each pass inlined from one shared source and each clause judged by the shared judge:
+
+    axis              panel   console   landing
+    contrast            yes      yes       yes
+    marks/silhouette    yes      yes       yes
+    names               yes      yes       yes
+    unstyled            yes      yes       yes
+    targets             yes      yes       yes
+    press               yes      yes       yes
+    idle repaint        yes      yes       yes
+    reduced motion      yes      yes       yes
+    focus               yes      yes       yes
+    reflow              yes      yes       yes
+    loud/focal point    yes      yes       yes
+
+`landing-check` keeps its job — it reads page.js's own values, which is how a STATIC claim about the palette and the
+heading structure is checked without a browser — and it is no longer the only thing standing behind the landing's
+reflow claim.
