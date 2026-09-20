@@ -81,6 +81,22 @@ const CHECKS = [
     ],
   },
   {
+    // A STATE WITH NO SURFACE CANNOT BE MEASURED (round 96). `last_exit_code` crossed the wire and the panel
+    // draws a chip for a NON-ZERO code — and every seed this harness builds reports no code at all, so without
+    // a flag the chip has no rendered surface anywhere. That is the gap rounds 88-92 closed four times running.
+    // TWO FLAGS, because the state has three values and the third (exit ZERO) must render as EMPTY.
+    name: "?exitfail=1 and ?exitok=1 can express the last command's outcome",
+    test: (h) =>
+      /P\.get\('exitfail'\) === '1'/.test(h) &&
+      /SESSIONS\[0\]\.last_exit_code = 1;/.test(h) &&
+      /P\.get\('exitok'\) === '1'/.test(h) &&
+      /SESSIONS\[0\]\.last_exit_code = 0;/.test(h),
+    mutations: [
+      { why: "the failure flag stopped setting the code, so its only surface renders no chip", from: /SESSIONS\[0\]\.last_exit_code = 1;/, to: ";" },
+      { why: "exit ZERO stopped being expressible, so the state that must render as EMPTY has no surface", from: /SESSIONS\[0\]\.last_exit_code = 0;/, to: ";" },
+    ],
+  },
+  {
     name: "the status count follows the same number (the fixture cannot contradict itself)",
     test: (h) => /live_sessions: liveCount/.test(h),
     mutations: [

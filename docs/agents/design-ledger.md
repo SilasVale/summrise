@@ -1425,3 +1425,54 @@ instrument, not the instrument, was the defect.
 VERIFIED AGAINST THE REAL REPORT: the 5,038-row device report still judges clean with the bands in place — every
 waived row lands inside its band — and its only finding is the expected INCOMPLETE REPORT clause for a run that
 measured `pages,hover`.
+
+### THE DEVICE REPORTS THE OUTCOME, AND THE ROW WEARS IT (round 96)
+
+The gap was named by `liveness.ts` in its own comment, which is the objective's first clause written as a limitation:
+
+    THE VOCABULARY IS ONLY WHAT THE DEVICE CAN ACTUALLY REPORT ... "Failed" is not here because no field
+    reports it per session — inventing a state would put a shape on the screen that nothing can ever mean.
+
+The panel CAN read a failure out of the audit trail (`cardState` maps an exit code to ok/fail) but only for the
+session whose trail it has loaded, so the rail and every other tab could not say it — exactly the blindness
+`command_running` had before round 28, and the same answer: the device has known all along (`marker_code` at the end
+of the execute wait loop), so it says it on the list every client already polls.
+
+`TermSessionInfo.last_exit_code: Option<i32>`, omitted when absent, pinned from both ends by the shared fixture (the
+Rust serializer against it, the panel's mapper through it). THREE STATES, and the third is the design decision:
+
+    Some(0)   succeeded
+    Some(n)   failed, and the row says WHICH code
+    ABSENT    NO CODE WAS OBSERVED — no command yet, a wait that ended in a timeout or a partial read, or an
+              ssh/serial session, which has no marker injection at all
+
+It is CLEARED when a new command is written (at the point the command really reached the shell — the write-failure
+path returns before it) and SET only from the shell's own marker, the same value the audit line and the background
+job registry get. So a stale code can never be read as the new command's outcome, and a command whose fate is
+unknown reports nothing rather than guessing. A mark that lies is worse than a mark that is absent.
+
+THE PANEL WEARS IT AS A CHIP, NOT AS A MARK, AND THAT IS THE ROUND'S OTHER DECISION. One shape per LIVENESS state is
+the mark language's rule; a failure is not liveness — a session can be idle and have failed. A fifth silhouette would
+also collide with a question the operator has not answered yet (the console spells failure as a diamond and the panel
+spells WAITING as one — inbox item 17), so the shape decision stays open and the row says `exit 1` in the danger pair
+the sheet already uses for danger text. No new tokens, no new vocabulary, nothing pre-empted.
+
+MEASURED AS RENDERED, through a surface built for it: the harness grew `?exitfail=1` (and `?exitok=1` for the audit),
+the sweep grew a `LastFail-{light,dark}` surface, and the chip reports
+
+    light  span.side-exit  5.96  rgb(165, 29, 29) on rgb(252, 223, 214)   (AA needs 4.5)
+    dark   span.side-exit  5.65  rgb(255, 135, 135) on rgb(74, 40, 24)
+
+— 108 surfaces and 5,136 rows, up from 106 and 5,038, judged clean (the only finding is the expected INCOMPLETE
+REPORT clause for a `pages`-only run). The states that render IDENTICALLY are pinned by tests rather than pixels:
+exit 0 and absent both draw nothing, and that difference lives in `ContextRail.test.tsx`.
+
+THE SIXTH STATE THIS METHOD HAS ADDED, and the first one that needed the DEVICE to change first:
+
+    off / the tombstone           round 88  found: a mark collision, then three FILL-inside-a-RING defects
+    human / the held session      round 89  found: 2.53 on the graphic bar in dark
+    unset / the goal affordance   round 90  clean
+    empty / the panel density     round 91  re-added after its prune expired; clean
+    menu / the new-session popover round 92 clean, and a limit named (icons are not measured)
+    exitfail / the failed last command round 96  NEEDED A WIRE FIELD: no surface could render it, so none could
+                                                 measure it; now 5.96/5.65 rendered
