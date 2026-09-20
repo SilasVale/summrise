@@ -1869,3 +1869,48 @@ surfaces at 4 (panel) and 2 (desktop) controls; CI measures 1**, and the five mi
 this page" — so CI is pressing a page where only the rail button matches the curated list. The next things to print
 are the URL the mode loop is on when it presses, and the MODE in the press label (the judge prints density/theme, so
 a finding does not even say which iteration produced it).
+
+### THE MYSTERY WAS IN THE OUTPUT I HAD ALREADY COLLECTED (round 15)
+
+Round 103's instrument was taken back after CI failed three times, and the ledger recorded an "unexplained fact": the
+device measured four press surfaces at 4 controls and CI at 1. Round 15 found the answer by RE-READING MY OWN DEVICE
+OUTPUT, where it had been sitting in plain sight:
+
+    PRESS panel/light mode=rail page=panel-Browser measured=1 rows=1
+
+IT WAS NEVER THE MODE LOOP. CI printed `panel/light … measured 1 control(s)` once per density+theme, and I read that
+as the mode loop; the rail walk produces entries with the same density/theme label, and the harness's Browser page is
+an EXPLANATION PAGE with exactly one control (`BrowserPage` mounts its pane behind `window.valeEmbedded`, so a plain
+browser never sees the evidence drawer). A discovered pass that presses the one control such a page has is a COMPLETE
+pass. The floor of two — written for curated selectors on Terminal pages — called it vacuous.
+
+TWO LESSONS, both already in this ledger wearing other clothes:
+
+  * THE LABEL MUST NAME THE ITERATION. `density/theme` alone made a rail-walk finding indistinguishable from a
+    mode-loop one, and that ambiguity cost a round. The label carries `mode` and `page` now.
+  * THE FLOOR MUST BE SIZED TO THE PAGE. A discovered pass reports `found`; the floor is `min(2, found)`, and a page
+    with no content controls at all is carried as `found: 0` rather than as an empty set that reads like a vacuous
+    pass. "A pass that pressed nothing proves nothing" stays true — it just no longer accuses a page that had one
+    thing to press.
+
+WHAT THE RE-LANDED INSTRUMENT DOES, and each clause is the answer to a way it lied before:
+
+    scroll only if not fully visible, by the MINIMUM      (centring everything scrolled a panel out from under its rail)
+    press the VISIBLE part, carry whether the pointer     (the toggle at y=1582 in an 860px viewport was "pressed"
+      ARRIVED, never drop the row                          at a coordinate outside the page and read as still)
+    ask the DOM, deduped by class+size, SKIP THE CHROME   (without the skip the cap went to the rail: Settings has
+                                                            sixteen distinct controls and the first five were rail buttons)
+    report `found`, floor = min(2, found)                 (one control pressed on a one-control page is complete)
+
+MEASURED, FIRST RUN WITH FULL COVERAGE:
+
+    press: answering=158   dead=0
+    RAIL panel-Terminal 11/11 · panel-Settings 16/16 · panel-Browser 0/0 · desktop-Terminal 12/12
+    log-toggle: panel-Settings changed=true ["transform"] · desktop-Settings changed=true ["transform"]
+
+THE CONTROL THAT STARTED IT — `.device-logs-toggle`, which had no hover and no press until round 103 — is now
+discovered and held by the suite, not merely hand-verified once. That is the difference this round buys.
+
+AND THE EMITTERS NOW ASSERT WHAT THEY BORROW. `assertEmbedded` is shared by all three, because the failure that
+reached CI (a helper called but not embedded) is invisible to every local gate: they read the artifact's TEXT or judge
+a planted report, and none of them RUNS it.
