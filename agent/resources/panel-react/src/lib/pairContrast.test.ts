@@ -180,6 +180,49 @@ describe("colour pairs declared in one rule", () => {
     }
   });
 
+  it("an active tab's controls clear the 3:1 a glyph needs on the fill they sit on", () => {
+    // ROUND 94. `.tab-export, .tab-close` rest at --chrome-ink-dim, a CHROME ink, while `.tab.active` paints
+    // --chrome-active-bg — and the active tab is the one tab that shows both controls WITHOUT a hover
+    // (`visibility: visible`). In dark the pair measures **1.99:1**, under the 3:1 a control's glyph needs; the
+    // ink it was replaced with reaches 4.99 there and 4.90 in light. The rendered sweep found this in the same run
+    // whose ten SVG rows were false findings — the cap pushed it off the end of the report.
+    //
+    // IT READS THE RULE OUT OF THE BUILT SHEET rather than naming the token again, which is the same reason the
+    // suite embeds the real functions: repoint the rule at another surface, rename its ink, or delete it, and this
+    // fails. (A check that only restated the token would pass through every one of those.)
+    const css = builtCss();
+    const rules = new Map<string, string>();
+    for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const colour = /(?:^|;)\s*color\s*:\s*([^;]+);/.exec(m[2]);
+      if (!colour) continue;
+      for (const sel of m[1].split(",").map((s) => s.trim())) rules.set(sel, colour[1]);
+    }
+    const light = tokensIn(css, ":root");
+    const dark = { ...light, ...tokensIn(css, 'body[data-theme="dark"]') };
+    let checked = 0;
+    for (const [theme, tokens] of [["light", light], ["dark", dark]] as Array<[string, Record<string, string>]>) {
+      // The surface, composited the way the probe composites it: the token over the chrome behind it. The dark
+      // value is translucent (rgba(217,72,15,0.9)), so reading it as opaque would measure a colour nobody sees.
+      const fill = parseColour(resolve(tokens["--chrome-active-bg"] ?? "", tokens) ?? "");
+      const behind = parseColour(resolve(tokens["--chrome-bg"] ?? "", tokens) ?? "");
+      expect(fill && behind, `${theme}: --chrome-active-bg and --chrome-bg must both resolve`).toBeTruthy();
+      const surface = (fill!.a ?? 1) < 1 ? compositeStack([fill!], behind!) : fill!;
+      for (const sel of [".tab.active .tab-export", ".tab.active .tab-close"]) {
+        const declared = rules.get(sel);
+        expect(declared, `${sel} declares no colour — the active tab's controls and their surface moved apart`).toBeTruthy();
+        const ink = parseColour(resolve(declared!, tokens) ?? "");
+        expect(ink, `${sel}: ${declared} must resolve`).toBeTruthy();
+        const ratio = contrastRatio(ink!, surface);
+        expect(
+          ratio,
+          `${sel} (${theme}): ${ratio.toFixed(2)} on the active tab's fill — a control's glyph needs 3.0`,
+        ).toBeGreaterThanOrEqual(3);
+        checked++;
+      }
+    }
+    expect(checked, "this check must actually measure something").toBe(4);
+  });
+
   it("every one of them clears AA in both themes", () => {
     const css = builtCss();
     const themes: Record<string, Record<string, string>> = {

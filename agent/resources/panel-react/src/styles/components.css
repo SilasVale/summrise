@@ -643,6 +643,22 @@
 .tab:hover .tab-export, .tab:hover .tab-close, .tab.active .tab-export, .tab.active .tab-close { visibility: visible; }
 .tab-export:hover { color: var(--chrome-active-ink); }
 .tab-close:hover { color: var(--danger-on-soft); }
+/* AN ACTIVE TAB'S CONTROLS SIT ON THE ACCENT FILL, NOT ON THE CHROME. Both rest at --chrome-ink-dim, which is a
+   CHROME ink, and the active tab is not chrome: in dark the pair measures **1.99:1** (#a2a3ac on
+   rgba(217,72,15,0.9) over --chrome-bg #17181d = rgb(198,67,16)) against the 3:1 a control's glyph needs. The
+   active tab is also the one tab that shows these controls WITHOUT a hover (`visibility: visible` above), so the
+   defect is on screen whenever the tab is — and every one of the three inks that rule reaches fails there in one
+   theme or the other: --chrome-ink-dim 1.99 dark, --chrome-active-ink 1.10 light (it is #bf3a0a there), and
+   --danger-on-soft 2.16 dark.
+   THIS IS THE TWIN-RULE SHAPE AGAIN, and the desktop density already does it right: `button.dtab-close` inherits
+   its tab's colour, and `.dtab.active` sets --chrome-active-text. The panel's copies named their own ink instead.
+   So on an active tab both take the token the sheet already declares as readable ON that surface:
+   --chrome-active-text, 4.99 dark / 4.90 light. The ✕ keeps its shape — the first channel — and the danger hue
+   returns the moment the tab is not the active one.
+   ONE SELECTOR PER CONTROL, no :hover twins: this is (0,3,0) and the two hover rules above are (0,2,0), so it
+   covers the hover state too. Measured out of the BUILT sheet by pairContrast.test.ts. */
+.tab.active .tab-export,
+.tab.active .tab-close { color: var(--chrome-active-text); }
 .view-switch {
   flex: none;
   display: flex;
