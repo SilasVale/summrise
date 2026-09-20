@@ -1150,3 +1150,31 @@ first occurrence of the rule's text in the file, which was a DIFFERENT rule — 
 was green, and the test passed for the right reason while I read it as a hole in the test. Aimed at the actual line, it
 fails. A mutation that does not bite is evidence about the MUTATION first; the ledger has said so since round 44 and it
 has now been right five times.
+
+### THE UNSET GOAL'S FIRST PHOTOGRAPH: CLEAN, AND THAT IS THE RESULT (round 90)
+
+Third round running on the same method — find a state the vocabulary names, the sheet draws, and no fixture renders —
+and the third state found by it. GoalBar's own comment states both states and which one is normal:
+
+    "nothing stated -> a QUIET affordance. An unset goal is normal (most sessions ...)"
+
+The fixture gave EVERY session a goal, so the affordance had never been on screen while the state it replaces has been
+measured on every page since the harness was written. They are different ELEMENTS, not two colours of one: the unset
+button's only content is a bare text node, with no `.goal-text` inside it — and the harness's own REQUIRED list names
+`.goal-text` as a governance element it expects to find.
+
+    ?goal=none, both densities, both themes: NO FINDINGS.
+
+WHICH IS THE USEFUL ANSWER, and worth stating as plainly as a defect would be. The two previous rounds' surfaces each
+found a real defect within two runs (the tombstone's mark collided with idle because the probe could not see borders;
+the held dot measured 2.53 in dark because it used the solid-button token). This one found nothing: the dashed border,
+the dim ink and the target size were already right, and the sheet's choices survive being rendered.
+
+The difference between those outcomes is not the method's value — it is that "the sheet looks right" became "the screen
+is right" for the state MOST sessions are in. Three rounds, three states that no gate had ever seen, two defects and
+one clean bill.
+
+THE RUNNING LIST OF STATES THIS METHOD HAS ADDED, for the next round to extend rather than rediscover:
+    off / the tombstone          round 88  (found: a mark collision, then three FILL-inside-a-RING defects)
+    human / the held session     round 89  (found: 2.53 on the graphic bar in dark)
+    unset / the goal affordance  round 90  (clean)
