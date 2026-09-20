@@ -301,9 +301,17 @@
 .desktop-rail-status .dot {
   width: 9px; height: 9px;
   border-radius: 50%;
-  /* Unreachable is the warn colour: the agent is still starting or the shell
-     lost its transport. Kept as the base so a missing data-state degrades to
-     "not sure" rather than to a confident green. */
+}
+/* THE FALLBACK MUST NOT FIGHT THE STATE LAYER (round 88). The amber fill below is right for a mark with NO
+   data-state — "not sure" rather than a confident green, which is what the comment always said it was for — and at
+   EQUAL specificity with `.mark[data-live="idle"]` it won outright, because it is written later in this sheet. So the
+   desktop rail's status dot painted an amber FILL inside the state's RING: a mark that is two things at once, which
+   the vocabulary says is neither. It also overrode the working halo with its own amber glow.
+   The rendered probe could not see any of it until it learned that a border is a ring; the first run after that
+   reported mark[idle] and mark[off] as FILL-inside-a-RING on three desktop surfaces. Scoping the fallback to a mark
+   with no state is what the comment described in the first place, and it lets the shared `.mark` block draw the
+   silhouettes both densities are supposed to share. */
+.desktop-rail-status .dot:not([data-live]) {
   background: var(--warn);
   box-shadow: 0 0 6px rgba(180, 83, 9, 0.7);
 }
