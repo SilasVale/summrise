@@ -2168,3 +2168,37 @@ TWO ARITHMETIC NOTES worth keeping, because both produced a false reading before
 
 The full 126-surface report judges clean with no band note. The panel's remaining known weight is the `UNSTYLED`
 waivers, which is where the next round of this kind should look.
+
+### THE THIRD LIST, AND THE STALE ENTRY IT FOUND ON ITS FIRST RUN (round 24)
+
+Rounds 21-23 asked "is this exemption still earning its place?" of two lists: `DECORATIVE` (waived against ROWS) and
+`ignore` (waived against FINDINGS). The third is `implicitStates`, which waives classes that are ON SCREEN WITH NO
+MATCHING RULE — and it had no way to say an entry was unused either. An entry stops being used the moment its class
+leaves the markup OR gains a rule; either way the reason attached to it is kept for nothing.
+
+The instrument found one immediately. The unstyled pass (4 seconds, 1129 styled classes per density over two pages)
+reports ELEVEN unstyled names — the eight xterm ones, `composition-view`, `terminal`, `warn` — against a declared
+count of TWELVE:
+
+    serial: "a session-kind modifier; the element is painted by its [data-kind] rule"   <- NEVER SEEN
+
+The class no longer exists: the mark language's TabBar emits `className="mark tab-dot" data-kind={s.kind}` and the
+sheet paints the kind with `.tab-dot[data-kind="serial"]`, so nothing puts a bare `serial` on screen. The paragraph
+above the list still counted "eleven such names ... the last two are ours" from when it was written; the last two are
+`terminal` and `warn` now, which is what the same run says. Pruned, with that paragraph's correction recorded where
+the entry was.
+
+    A run that saw every declared class says NOTHING (verified against the real eleven)
+    A run that saw none names them all, with the reason each is kept, and the counts that make a partial run visible
+
+ALL THREE LISTS ANSWER THE SAME QUESTION NOW, and the three answers are worth keeping side by side because they are
+three different verdicts on the same kind of entry:
+
+    DECORATIVE      one waived ratio nothing had matched since a selector changed   PRUNED (round 21)
+    ignore          one used, one a GUARD whose pattern can still fire             DECLARED DORMANT (round 22)
+    implicitStates  one stale class name from pre-mark-language markup             PRUNED (round 24)
+
+THE COMMON SHAPE, for the next list somebody adds: an exemption is a promise about the future written from evidence
+about the past, and nothing in a suite naturally expires it. The expiry has to be asked for — and the cheapest place
+to ask is where the evidence is counted anyway, with the SIZES printed so a partial run cannot be mistaken for a
+stale entry. The panel's own instruction file now carries all three notes in its gate table.
