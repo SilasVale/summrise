@@ -1214,8 +1214,16 @@ function judge(file) {
       // one control that can undo a grant — both hold. The outline is the pill's edge; the word is the signal.
       match: /^span\.approval-grant$/,
       // FOUR SURFACES, FOUR RATIOS — 1.19, 1.20, 1.25, 1.27, measured on the device round 95 — because the outline
-      // composites over a different surface on each. The band covers what was measured and nothing else.
-      values: [[1.1, 1.35]],
+      // composites over a different surface on each.
+      //
+      // "AND NOTHING ELSE" IS TRUE NOW (round 23). The band was 1.10-1.35, which is ~0.09 wider on each side than any
+      // ratio this suite has ever seen: a drift to 1.12 or 1.33 — real movement toward the 3:1 bar — would have been
+      // waived silently. Measured across 32 rows on 126 surfaces: 1.19-1.27, four distinct values. The band is that
+      // range plus the declared slack, and the slack is the only margin left to argue about.
+      values: [[1.17, 1.29]],
+      // PROBE ROUNDING ONLY: the ratios are printed to two decimals, so a true 1.185 reports as 1.19 and a band
+      // written at the printed value would refuse it. Two hundredths is the smallest allowance that survives that.
+      slack: 0.02,
       reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
     },
     {
@@ -1231,8 +1239,10 @@ function judge(file) {
       // clears the 3:1 bar on every surface the sweep renders. A waiver that still claims its signal is unmeasured
       // would stop the next reader looking for the finding that can now appear.
       match: /^span\.nm-ico$/,
-      // 1.05 light / 1.10 dark, the chip's own background, and nothing else.
-      values: [[1.0, 1.15]],
+      // 1.05 light / 1.10 dark, the chip's own background — and the band is now that range plus the slack rather
+      // than 1.00-1.15, which carried 0.05 of margin on each side that no measurement justified (round 23).
+      values: [[1.03, 1.12]],
+      slack: 0.02,
       reason: "the icon chip's BACKGROUND delimits a coloured glyph at 1.05/1.10; the glyph itself is measured by the SVG rule since round 94 and clears 3:1 — the lane colour it carries has its own row now",
     },
   ];
@@ -1342,6 +1352,46 @@ function judge(file) {
   }
   if (coverage.length) console.error(`\n${coverage.join("\n")}`);
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
+  // HOW WIDE IS A BAND, MEASURED AGAINST WHAT THE RUN SAW (round 23). A DECORATIVE entry waives a RATIO, not an
+  // element (round 95), and the band is what decides: a row inside it is set aside, a row outside it is a finding.
+  // The failure that leaves no trace is the opposite direction — a band WIDER than its evidence excuses a drift
+  // nobody measured, and the grant chip's own reason claimed "the band covers what was measured and nothing else"
+  // while a run sees 1.19-1.27 inside a band of 1.10-1.35. Nine hundredths of unearned margin on each side is a
+  // quiet hole, so the note names the numbers for every banded entry, with the run's scope, and each entry declares
+  // the slack it needs for probe rounding.
+  const BAND_SLACK = 0.02;
+  {
+    const seen = new Map();
+    for (const r of report.rows || []) {
+      const d = DECORATIVE.find((x) => x.match.test(String(r.sel)));
+      if (!d || typeof r.cr !== "number") continue;
+      if (!seen.has(d)) seen.set(d, []);
+      seen.get(d).push(r.cr);
+    }
+    for (const d of DECORATIVE) {
+      const ratios = seen.get(d) || [];
+      if (!ratios.length || !d.values) continue;
+      const lo = Math.min(...ratios);
+      const hi = Math.max(...ratios);
+      const slack = typeof d.slack === "number" ? d.slack : BAND_SLACK;
+      // PER SIDE, NOT THE MINIMUM OF THE TWO. The first version took `Math.min(lo - bandLo, bandHi - hi)`, which
+      // lets a wide side hide behind a tight one: a run that saw a single 1.19 in a 1.17-1.29 band reported no margin
+      // at all, while the upper side carried a tenth nobody had measured — the exact hole this note exists to find,
+      // hidden by the arithmetic written to find it.
+      //
+      // AND AN EPSILON, because the margin is computed in binary floating point: 1.29 - 1.27 is 0.020000000000000018,
+      // so an exact band (observed range plus exactly the declared slack) reported itself as 0.02 over 0.02 — a
+      // warning about the arithmetic rather than about the band.
+      const worstBelow = Math.max(...d.values.map(([a]) => lo - a));
+      const worstAbove = Math.max(...d.values.map(([, b]) => b - hi));
+      if (worstBelow > slack + 1e-9 || worstAbove > slack + 1e-9) {
+        console.log(
+          `note: ${d.match} waives ${d.values.map(([a, b]) => `${a}-${b}`).join(" / ")} and this run saw ${lo}-${hi} (${new Set(ratios).size} distinct over ${ratios.length} row(s)) — margin ${worstBelow.toFixed(2)} below and ${worstAbove.toFixed(2)} above against a declared slack of ${slack}; tighten the band or say why the margin is real`,
+        );
+      }
+    }
+  }
+
   // A WAIVER NOBODY USED IS DEAD WEIGHT IN THE ONE LIST A READER CONSULTS (round 21). Every entry in DECORATIVE is
   // permission for an element at a measured ratio; when the element stops rendering under that selector (the mark
   // language changed the class string, and `/^div\.rail-dot$/` matched nothing for several rounds) the entry is a

@@ -504,6 +504,36 @@ else
   bad "the clean report no longer passes with the staleness note present"
 fi
 
+# A BAND IS MEASURED AGAINST WHAT THE RUN SAW (round 23). A DECORATIVE entry waives a RATIO, not an element, so a
+# band wider than its evidence is a hole that leaves no trace: a drift toward the bar inside the band is waived
+# silently. The grant chip's band was 1.10-1.35 while the four ratios this suite has ever seen are 1.19-1.27 — and the
+# entry's own reason claimed the band "covers what was measured and nothing else". Planted both ways, and PER SIDE:
+# a run that saw only the low end must still report the unmeasured margin above it (the min-of-both-sides version of
+# this check hid exactly that).
+python3 - "$TMP/clean.json" "$TMP/band-matched.json" "$TMP/band-one-side.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+def rows(crs):
+    return [{"cr": c, "need": 3, "size": 44, "sel": "span.approval-grant", "text": "", "density": "panel",
+             "theme": "light", "page": "Terminal"} for c in crs]
+r = json.loads(json.dumps(base)); r["rows"] = rows([1.19, 1.27])
+json.dump(r, open(sys.argv[2], "w"))
+r = json.loads(json.dumps(base)); r["rows"] = rows([1.19])
+json.dump(r, open(sys.argv[3], "w"))
+PY
+node "$TOOL" --judge "$TMP/band-matched.json" > "$TMP/band-matched.out" 2>&1 || true
+if grep -q "margin .* below" "$TMP/band-matched.out"; then
+  bad "a band matching its run's evidence was reported as wide: $(grep -m1 'margin .* below' "$TMP/band-matched.out")"
+else
+  ok "a band that matches the ratios the run saw says nothing"
+fi
+node "$TOOL" --judge "$TMP/band-one-side.json" > "$TMP/band-one-side.out" 2>&1 || true
+if grep -q "0.10 above" "$TMP/band-one-side.out"; then
+  ok "and a band whose far side nobody measured is reported per side, with the number"
+else
+  bad "a one-sided band reported nothing: $(grep -c 'margin' "$TMP/band-one-side.out") line(s)"
+fi
+
 # AN EXEMPTION NOTHING NEEDED EITHER ANSWERS FOR ITSELF OR IS ASKED ABOUT (round 22). `ignore` entries are consulted
 # against FINDINGS (the hover path's dot, the reflow harness artifact), and this report produced one finding which the
 # reflow entry set aside — so that entry is used and must NOT be reported, while the hover one matched nothing and,
