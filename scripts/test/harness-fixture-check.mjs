@@ -125,6 +125,18 @@ const CHECKS = [
     ],
   },
   {
+    // THE ENVELOPE IS STRUCTURAL NOW (round 100). It was a rule in a comment — "EVERY FIXTURE BELOW NEEDS ok:true
+    // ... the omission has cost three rounds" — and the fourth round still happened, because a note is not a
+    // mechanism. `J()` merges it into every object body that does not bring its own, so a fixture cannot forget
+    // it: a reader that requires `ok === true` gets it, a reader that ignores it is unaffected, and a stub that
+    // MEANS to express a failure passes ok:false and is left alone.
+    name: "every JSON fixture body carries the ok envelope by default",
+    test: (h) => /if \(obj && typeof obj === 'object' && !Array\.isArray\(obj\) && !\('ok' in obj\)\)/.test(h) && /Object\.assign\(\{ ok: true \}, obj\)/.test(h),
+    mutations: [
+      { why: "the envelope is a rule in a comment again, so the next stub can blame the device for answering", from: /if \(obj && typeof obj === 'object' && !Array\.isArray\(obj\) && !\('ok' in obj\)\) \{\n\s*obj = Object\.assign\(\{ ok: true \}, obj\);\n\s*\}/, to: "" },
+    ],
+  },
+  {
     name: "the status count follows the same number (the fixture cannot contradict itself)",
     test: (h) => /live_sessions: liveCount/.test(h),
     mutations: [

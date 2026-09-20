@@ -4027,7 +4027,15 @@ button.dtab-close:hover { opacity: 1; }
   font: 400 var(--fs-sm) var(--font);
   color: var(--chrome-ink);
 }
-.device-logs-verdict-ok { color: var(--state-ok); }
+/* A STATE COLOUR IS NOT A TEXT COLOUR, AND THIS ONE WAS BOTH (round 100). The verdict line rendered
+   --state-ok (#2f9e44) as a 13px sentence and measured **3.33:1** on the settings surface — under the 4.5 AA wants
+   for text. It was never seen because /api/logs was stubbed by NOTHING, so this card drew its failure branch on
+   every Settings surface since it existed (the same family as the restart, monitors and update cards). tokens.css
+   already names the readable weight for exactly this job: "--success-text: Status ink for SMALL TEXT. --success is
+   tuned for marks; as 11px text on their own soft wash they measure 4.27/3.45 in light and 3.63/5.34 in dark."
+   -warn keeps --danger-on-soft, which measures 6.5+ here and is the tone's own ink; -quiet is already a chrome ink.
+   Held by the rendered sweep's contrast clause, which is what found it. */
+.device-logs-verdict-ok { color: var(--success-text); }
 .device-logs-verdict-warn { color: var(--danger-on-soft); }
 .device-logs-verdict-quiet { color: var(--chrome-ink-dim); }
 .device-logs-receipt {

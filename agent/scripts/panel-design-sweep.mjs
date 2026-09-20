@@ -644,6 +644,31 @@ ${TIMING}
     }
   }
 
+  // THE OTHER VERDICT TONE ON THE DEVICE-LOGS CARD (round 100). The card derives its sentence from the four-way
+  // table over vale-update.log, so ONE payload can only ever render one tone: the default fixture has a receipt and
+  // a start (OK), and this one has the receipt with no start (WARN — the CLI reached the device and the swap never
+  // launched). The card's OK tone measured 3.33:1 as text the first time it was rendered at all; a tone with no
+  // surface is a tone no sweep can measure, which is the rule rounds 96-99 keep relearning.
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&logs=warn&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      const pname = 'LogsWarn-' + theme;
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => /settings/i.test((x.getAttribute('aria-label') || '') + x.textContent));
+        if (b) b.click();
+      });
+      await page.waitForTimeout(1500);
+      const rows = await page.evaluate(PROBE);
+      for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'logs-warn', page: pname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(NAMES)) });
+    }
+  }
+
   // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
   // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
   // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,

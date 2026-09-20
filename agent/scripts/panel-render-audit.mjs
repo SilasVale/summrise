@@ -265,6 +265,17 @@ function buildHarness() {
   // "unavailable" and "reconnecting", and window.__calls still grew because the counter pushes BEFORE the
   // guards run — which is why the count looked healthy while nothing was ever served.
   function J(obj) {
+    // EVERY JSON FIXTURE CLAIMS THE DEVICE ANSWERED, AND IT CANNOT FORGET TO (round 100). Several readers require
+    // ok === true and treat its absence as a FAILED READ — useBootHistory, useAgentVitals, the update card, the
+    // session list — so a stub that omitted it made the panel BLAME THE DEVICE for a question it had answered:
+    // the update card (round 110's note), the monitors (round 100), the restart history (round 99). Three rounds,
+    // one field. The rule was written down here and nothing enforced it, which is why it happened again.
+    // An OBJECT body gets the envelope unless it brings its own ok (a stub that MEANS to express a failure says
+    // ok:false, and this leaves it alone); an ARRAY body is passed through untouched, because a reader expecting
+    // a bare list would break on an object.
+    if (obj && typeof obj === 'object' && !Array.isArray(obj) && !('ok' in obj)) {
+      obj = Object.assign({ ok: true }, obj);
+    }
     return new Response(JSON.stringify(obj), { status: 200, headers: { 'content-type': 'application/json' } });
   }
   window.fetch = function(url, init){
@@ -397,6 +408,40 @@ function buildHarness() {
       { ts_ms: 1788900000000, kind: 'replaced', detail: '2026-09-12 09:00:00 +08:00 - replaced by vale update', uptime_secs: 0, gap_secs: 1, release: '1.2.433' },
       { ts_ms: 1788800000000, kind: 'first-run', detail: '2026-09-11 08:00:00 +08:00 - first run', release: null },
     ] }));
+  }
+  // THE DEVICE'S LOGS — THE FOURTH CARD IN THIS FAMILY TO HAVE NEVER RENDERED ITS REAL STATE (round 100).
+  // /api/logs was stubbed by NOTHING, so the DeviceLogsCard drew "The device did not answer, so its logs could not
+  // be read" on every Settings surface since it existed — the same false claim the restart card made (round 99) and
+  // the monitors card made (round 100), found this time by the sweep's new CLAIM clause rather than by hand. The
+  // real card renders a VERDICT derived from vale-update.log's tail (updateDiagnosis's four-way table), a receipt,
+  // the directory, and one row per log file with an ABSENT file named as absent. The payload below mirrors
+  // api_logs() in agent/src/web/mod.rs: ok, dir, logs[] with name/present/log. (No backticks: emitted template —
+  // and this one broke the EMITTER'S OWN MODULE rather than the emitted text, 57th time.)
+  if (u.indexOf('/api/logs') >= 0) {
+    // ?logs=warn — THE OTHER VERDICT TONE, which the default payload cannot show (round 100). The four-way table
+    // from updateDiagnosis gives cli-swap-launched/rust-swap an OK tone and cli-only/never-arrived a WARN one, so a
+    // fixture with a receipt AND a start can only ever render OK. This one has the receipt with NO start line: the
+    // CLI reached the device and the swap never launched, which is the state an operator investigating a stalled
+    // update actually sees.
+    var LOGS_WARN = P.get('logs') === 'warn';
+    var updateLog = LOGS_WARN
+      ? '2026-09-18 15:20:01 update requested 1.2.433 -> 1.2.435'
+      : '2026-09-18 15:20:01 update requested 1.2.433 -> 1.2.435' + String.fromCharCode(10) +
+        '2026-09-18 15:20:01 update start: swapping in 1.2.435' + String.fromCharCode(10) +
+        '2026-09-18 15:20:04 copy ok' + String.fromCharCode(10) +
+        '2026-09-18 15:20:06 restarting service';
+    return Promise.resolve(J({
+      dir: 'C:/ProgramData/Vale/logs',
+      logs: [
+        { name: 'vale-update.log', present: true, log: updateLog },
+        { name: 'agent.log', present: true, log: [
+          '2026-09-18 15:20:06 INFO vale_agent: serving on 127.0.0.1:18080',
+          '2026-09-18 15:20:07 INFO vale_agent::tunnel: tunnel up',
+        ].join(String.fromCharCode(10)) },
+        { name: 'startup.log', present: true, log: '2026-09-18 15:20:06 +08:00 - clean start after update' },
+        { name: 'vale-mcp.log', present: false, log: '' },
+      ],
+    }));
   }
   var DOWN = P.get('monitor') === 'down';
   if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {

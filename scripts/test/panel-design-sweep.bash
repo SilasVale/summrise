@@ -305,6 +305,11 @@ elif which == "decorative-drift":
     # `kind` matters: without it the row is judged as TEXT and trips the type floor first, so the case would fail
     # for the wrong reason and prove nothing about the waiver.
     r["rows"][0]["kind"] = "graphic"
+elif which == "false-claim":
+    # A SURFACE CLAIMING A READ FAILED WHILE THE FIXTURE ANSWERED EVERYTHING (round 100). The panel saying "could
+    # not be read" about a device that answered is the defect rounds 99 and 100 found by hand — the update card,
+    # the monitors, the restart history — and no gate was reading sentences at all.
+    r["surfaces"][0]["claims"] = ["p.muted: did not answer, so its restart history could not be read."]
 elif which == "mark-collision":
     # TWO STATES OF ONE MARK PAINTING IDENTICALLY — the sheet can be right while the page is wrong (round 25's
     # `.plug-dot[error]` kept a stray halo through a unit test that passed).
@@ -382,7 +387,7 @@ else:
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
@@ -390,6 +395,25 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted dec
     ok "the judge fails a planted '$axis' defect"
   fi
 done
+
+# AND THE CLAIM A FIXTURE MEANS: the same sentence on a surface whose run REJECTED every call (?fail=1) is TRUE,
+# and the judge must excuse it from the fixture's own answer rather than from a list inside the judge.
+python3 - "$TMP/clean.json" "$TMP/claim-excused.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["surfaces"][0]["claims"] = ["p.muted: did not answer, so its restart history could not be read."]
+r["sse"] = [{"page": "Terminal", "fail": True}]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+if node "$TOOL" --judge "$TMP/claim-excused.json" > "$TMP/claim-excused.out" 2>&1; then
+  if grep -q "true by construction" "$TMP/claim-excused.out"; then
+    ok "a read-failure claim on a ?fail=1 surface passes, and the note says why"
+  else
+    bad "the excused claim passed but was never printed: $(tr '\n' ' ' < "$TMP/claim-excused.out" | head -c 200)"
+  fi
+else
+  bad "the judge rejected a claim the fixture MEANT: $(tail -3 "$TMP/claim-excused.out")"
+fi
 
 # AND THE OTHER DIRECTION, which the loop above cannot see: a judge that fails EVERYTHING is as useless as one
 # that passes everything. The same element at the ratio its entry was MEASURED at must still be waived, and the

@@ -208,6 +208,29 @@ const SURFACE = \`(() => {
       }
       return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6), ringFill: ringFill.slice(0, 6) };
     })(),
+    // DOES THIS SURFACE CLAIM A READ FAILED? (round 100) The fixture serves EVERY call on a normal surface, so a
+    // page that says "could not be read" or "did not answer, so ..." is making a claim about the device that the
+    // fixture contradicts. That is not a cosmetic defect: it is the panel BLAMING THE DEVICE for a question it
+    // answered, and it has happened three times (the update card, the monitors in round 100, the restart history
+    // in round 99) with every gate green, because a sentence is not a contrast ratio and nothing was reading them.
+    // The judge pairs this with report.sse, which says whether the fixture rejected the calls on purpose.
+    claims: (function () {
+      const out = [];
+      for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+        const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => (n.textContent || '').trim()).join(' ').trim();
+        if (own.length < 12) continue;
+        // A CLAIM, NOT A MENTION: the panel explains these very distinctions in prose ("a device that has no watch
+        // list and a device that did not answer are different"), and an explanation must not be read as the claim.
+        // The claim shapes all name what could not be read, which is what these patterns match.
+        if (!/could not be read/i.test(own) && !/did not answer, so/i.test(own) && !/unavailable .{0,3} reconnecting/i.test(own)) continue;
+        const cls = (el.getAttribute && el.getAttribute('class')) || el.tagName.toLowerCase();
+        // THE DISPLAYED TEXT IS THE KEY, not the whole paragraph: the first run reported the same sentence FOUR times
+        // per surface, because the card's paragraph is split across sibling nodes that differ past the cut.
+        const claim = cls + ': ' + own.replace(/\s+/g, ' ').slice(0, 70);
+        if (out.indexOf(claim) < 0) out.push(claim);
+      }
+      return [...new Set(out)].slice(0, 5);
+    })(),
   };
 })()\`;
 
@@ -918,6 +941,34 @@ export function judgeReport(report, opts = {}) {
       findings.push(`${where}: the press pass measured ${row.measured || 0} control(s) — a press pass that pressed nothing proves nothing`);
     }
   }
+  // A SURFACE MAY NOT CLAIM A READ FAILED WHEN THE FIXTURE ANSWERED EVERY CALL (round 100).
+  //
+  // This is the clause that would have caught rounds 99 and 100 by machine. A normal surface serves every endpoint,
+  // so a page that says "could not be read" or "did not answer, so ..." is asserting something about the DEVICE that
+  // the fixture contradicts — the panel blaming the device for a question it answered. It happened three times (the
+  // update card, the monitors, the restart history) and no gate could see it: a sentence is not a contrast ratio,
+  // and every instrument here was reading numbers.
+  //
+  // THE SURFACES THAT MEAN IT ARE EXCUSED BY THE FIXTURE'S OWN ANSWER, not by a list here: report.sse carries
+  // whether the run rejected every API call on purpose (?fail=1), and on those pages the claim is TRUE.
+  const rejectedCalls = new Set((report.sse || []).filter((s) => s.fail).map((s) => s.page));
+  const excusedClaims = [];
+  for (const s of report.surfaces || []) {
+    const claims = s.claims || [];
+    if (!claims.length) continue;
+    if (rejectedCalls.has(s.page)) {
+      for (const c of claims) excusedClaims.push(`${s.page}: ${c}`);
+      continue;
+    }
+    for (const c of claims) {
+      findings.push(`${s.page} claims a read failed — "${c}" — while the fixture answered every call: either the panel is wrong about the device, or the fixture never stubbed an endpoint the card needs`);
+    }
+  }
+  if (excusedClaims.length) {
+    console.log(`note: ${excusedClaims.length} read-failure claim(s) on surfaces whose fixture REJECTS every call — true by construction:`);
+    for (const w of [...new Set(excusedClaims)].slice(0, 4)) console.log(`  ${w}`);
+  }
+
   // IDLE REPAINT (round 64). The objective lists it among the things a claim is verified by, and the measurement is
   // DOM mutations on a settled page under STATIC fixtures: React writes to the DOM only when the output differs, so
   // nothing changing means nothing written. The observer proves it is alive by seeing one deliberate mutation of the
