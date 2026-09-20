@@ -412,7 +412,7 @@ late = ack([{"sel": ".monitor-btn", "where": "button.btn.monitor-btn", "size": "
 json.dump(late, open(sys.argv[2], "w"))
 fast = json.loads(json.dumps(late)); fast["ack"][0]["msToAck"] = 24; fast["ack"][0]["msToClear"] = 905
 json.dump(fast, open(sys.argv[3], "w"))
-none = json.loads(json.dumps(late)); none["ack"][0].update({"acked": False, "via": None, "msToAck": None})
+none = json.loads(json.dumps(late)); none["ack"][0].update({"acked": False, "via": None, "msToAck": None, "asked": True})
 json.dump(none, open(sys.argv[4], "w"))
 PY
 if node "$TOOL" --judge "$TMP/ack-late.json" > "$TMP/ack-late.out" 2>&1; then
@@ -433,6 +433,27 @@ if node "$TOOL" --judge "$TMP/ack-none.json" > /dev/null 2>&1; then
   bad "the judge passed a control that never acknowledged the press"
 else
   ok "and a control that never acknowledges is a finding"
+fi
+# AND THE OTHER DIRECTION: a control that asked the device NOTHING cannot be late. The first survey called the
+# connect form's already-active tab a control that ignores a press, when clicking it had nothing to do — the row
+# must be a note, not a finding.
+python3 - "$TMP/ack-none.json" "$TMP/ack-idle.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["ack"][0].update({"asked": False, "calls": 0})
+json.dump(r, open(sys.argv[2], "w"))
+PY
+# The judge MAY still fail this report — and should: a pass whose only row asked the device nothing proves nothing
+# about feedback, which is what the floor is for. What must NOT happen is the row being called a silent control.
+node "$TOOL" --judge "$TMP/ack-idle.json" > "$TMP/ack-idle.out" 2>&1 || true
+if grep -q "never acknowledged the press" "$TMP/ack-idle.out"; then
+  bad "the judge accused a control that asked the device nothing: $(grep -m1 'never acknowledged' "$TMP/ack-idle.out")"
+else
+  if grep -q "nothing to acknowledge" "$TMP/ack-idle.out"; then
+    ok "a control that asked the device nothing is a note, not an accusation"
+  else
+    bad "the row was neither accused nor explained: $(head -2 "$TMP/ack-idle.out" | tr '\n' ' ')"
+  fi
 fi
 
 # THE TARGET-SIZE VERDICT NAMES THE PAGE AND THE STATE (round 16). This axis measures two states now — the resting

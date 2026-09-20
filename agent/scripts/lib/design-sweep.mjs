@@ -573,6 +573,16 @@ export async function discoverPressTargets(page, cap, skip) {
  */
 export async function ackPass(page, targets, budgetMs, label = {}) {
   const rows = [];
+  // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
+  // acknowledgement at all — which raises the obvious question the list cannot answer: how many others are there?
+  // A list can only contain what somebody thought of, and the controls that answer nothing are exactly the ones
+  // nobody thought about. `discover: N` takes every visible control (chrome skipped, deduped by class+size, capped),
+  // so the pass measures what the page HAS.
+  if (label.discover) {
+    const skip = [...targets.filter((t) => !t.includes(",")), ...(label.skip || [])];
+    const d = await discoverPressTargets(page, label.discover, skip);
+    targets = [...targets.filter((t) => !t.includes(",")), ...d.targets];
+  }
   const read = (sel) => page.evaluate((s) => {
     for (const el of document.querySelectorAll(s)) {
       const r = el.getBoundingClientRect();
@@ -634,6 +644,13 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     await page.mouse.move(box.x, box.y);
     await page.waitForTimeout(260);
     const before = await read(sel);
+    // DID THIS CONTROL ASK THE DEVICE ANYTHING? A discovery pass measures every visible control, and most of them
+    // do not talk to the device at all — a tab that switches which snippet is shown, a disclosure, a focus target.
+    // "No acknowledgement" is the right verdict only where there was something to wait for; elsewhere it is a NOTE.
+    // The fixture counts every /api/ request (`window.__calls`), which is what makes the difference measurable
+    // rather than guessed. (Round 20: the first survey called the connect form's already-active tab a control that
+    // ignores a press, when clicking it had nothing to do.)
+    const callsBefore = await page.evaluate(() => (window.__calls || []).length);
     const t0 = Date.now();
     await page.mouse.down();
     await page.mouse.up();
@@ -654,9 +671,15 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       if (now && !now.busy) { msToClear = Date.now() - t0; break; }
       await page.waitForTimeout(25);
     }
+    const callsAfter = await page.evaluate(() => (window.__calls || []).length);
+    const asked = callsAfter > callsBefore;
     rows.push({
       sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
       acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs,
+      asked, calls: callsAfter - callsBefore,
+      ...(acked || asked
+        ? {}
+        : { note: "this control asked the device nothing (0 /api/ calls in the window) — there is nothing to wait for, so this row is not evidence about feedback" }),
       ...label,
     });
     // AND PUT THE PAGE BACK: the next control is measured from rest, not from whatever this click did.

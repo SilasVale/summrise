@@ -823,10 +823,42 @@ ${TIMING}
         });
         await page.waitForTimeout(2200);
         const name = (density === 'desktop' ? 'Desktop-' : '') + 'Settings-ack-' + theme;
+        // THE CURATED PAIR STAYS ON THIS PAGE, AND THE REASON IS MEASURED (round 20). Discovery was tried here
+        // first: the Settings page renders the connect form's controls ahead of everything else, so a cap of eight
+        // spent itself on three tabs and three unnamed buttons — and the tabs are a FALSE ACCUSATION, because the
+        // first one is ALREADY ACTIVE and clicking it has nothing to do. The pass's __calls delta cannot excuse
+        // them either: this page polls (update, monitors, vitals, restarts, logs), so a background request lands in
+        // almost any window and "this control asked the device" becomes unattributable. The two controls below are
+        // the ones whose work is known; discovery belongs on a page where every button does something, which is the
+        // Memory page below.
         const rows = await ackPass(page, ['.monitor-btn', '.monitor-add .btn'], ACK_BUDGET_MS, { density, theme, mode: 'ack', page: name });
         report.ack = report.ack || [];
         for (const r of rows) report.ack.push(r);
       }
+    }
+  }
+
+  // AND THE MEMORY PAGE, whose buttons write and delete device-local records (round 20). One page is not a survey:
+  // the Settings surface answers for Settings, and the control nobody named is as likely to live here.
+  if (wants("ack")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(2200);
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => (x.getAttribute('aria-label') || '').toLowerCase() === 'memory');
+        if (b) b.click();
+      });
+      await page.waitForTimeout(2200);
+      const name = 'Memory-ack-' + theme;
+      const rows = await ackPass(page, [], ACK_BUDGET_MS, {
+        density: 'panel', theme, mode: 'ack', page: name, discover: 4,
+        skip: ['.rail-btn', '.desktop-rail-btn', '.tab', '.dtab', '.side-row', '.side-add'],
+      });
+      report.ack = report.ack || [];
+      for (const r of rows) report.ack.push(r);
     }
   }
 
@@ -1247,6 +1279,15 @@ function judge(file) {
     const where = `${a.density || '?'}${a.page ? ' ' + a.page : ''}`;
     if (a.note) { console.log(`note: ${where} ${a.sel} — ${a.note}`); continue; }
     if (!a.acked) {
+      // ONLY WHERE THERE WAS SOMETHING TO WAIT FOR. A control that asked the device nothing (a tab switching a
+      // snippet, a disclosure) cannot be late: its row says so rather than becoming a finding.
+      if (a.asked === false) {
+        console.log(`note: ${where} ${a.sel} — asked the device nothing, so there was nothing to acknowledge`);
+        continue;
+      }
+      // WHAT THIS CAN HONESTLY CLAIM: the control never acknowledged the press in the window. Whether it asked the
+      // device is NOT attributable from a request counter on a page that polls for its own reasons, so the finding
+      // does not say it did.
       findings.push(`${where}: ${a.sel} (${a.where}) never acknowledged the press — no busy state and no painted change within the window (${a.size})`);
       continue;
     }
