@@ -1833,3 +1833,39 @@ A NOTE ON THE TWO FAILURES OF THIS ROUND, since they are the same failure: the p
 coordinate outside the page, and the sweep CALLED a function it did not carry. Both are instruments making claims
 they had not earned, and both were caught by going one level down — `elementFromPoint` for the first, executing the
 artifact for the second.
+
+### AN INSTRUMENT THAT HAD TO BE TAKEN BACK (round 103, part three)
+
+The finding was real: `.device-logs-toggle` — a button that opens a log file's tail — carried `cursor: pointer` and
+NEITHER a hover nor a press. Neither gate could see that shape: `feedback-check` demands a press only where a HOVER
+exists, and the rendered press pass ran a curated list that did not name this card. Both rules were added and
+measured on the device:
+
+    light 720x28  rest border rgb(244,244,245)  hovered rgb(161,161,170)  pressed none -> matrix(1,0,0,1,0,1)
+    dark  720x28  rest border rgba(255,255,255,0.07)  hovered rgb(111,112,122)  pressed none -> matrix(1,0,0,1,0,1)
+
+THE INSTRUMENT THAT FOUND IT WAS TAKEN BACK, and the three shapes of its failure are the useful part:
+
+    1. THE EMITTED SWEEP CALLED A HELPER IT DID NOT DEFINE. `pressPass` gained a DOM-discovery helper; the emitter
+       borrows helpers BY NAME, and the new one was not on the list. The file PARSED — it throws when reached — so
+       the emitter's guard, `press-anchor-check`, `panel-design-sweep.bash`, `sweep-judges.bash` and the pre-commit
+       hook all passed, and CI died: "FATAL discoverPressTargets is not defined". THE GATES ARE JUDGES, AND A JUDGE
+       CANNOT SEE A RUN THAT NEVER REACHED IT.
+    2. CENTRING EVERY ELEMENT SCROLLED THE PANEL OUT FROM UNDER THE PASS. `scrollIntoView({block:'center'})` moves a
+       control that was already on screen inside a container that scrolls, and the FLOOR reported it: "the press pass
+       measured 1 control(s)". An instrument may move the page to REACH a control; it may not rearrange the page it
+       is measuring.
+    3. REFUSING WHAT IT COULD NOT REACH EMPTIED THE PASS. Scoping the refusal to "the pointer never arrived" still
+       cost the four CI press surfaces, because the pass had never had to ask that question before — and a pass that
+       presses nothing proves nothing.
+
+WHAT SHIPPED: the toggle's hover and press (measured), and the EMITTER GUARD — every helper the sweep borrows must be
+DEFINED in the text it produces, with the mutation proved. WHAT WAS REVERTED: `pressPass`, the rail walk's discovered
+targets and the judge's `reached` clause, because a change that reddens CI three times without a verified benefit has
+not earned its place yet.
+
+THE UNEXPLAINED FACT, written down so the next attempt does not re-derive it: **the device measures those four press
+surfaces at 4 (panel) and 2 (desktop) controls; CI measures 1**, and the five missing rows are all "not rendered on
+this page" — so CI is pressing a page where only the rail button matches the curated list. The next things to print
+are the URL the mode loop is on when it presses, and the MODE in the press label (the judge prints density/theme, so
+a finding does not even say which iteration produced it).
