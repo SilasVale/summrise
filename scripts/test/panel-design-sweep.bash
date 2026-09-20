@@ -398,6 +398,43 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted dec
   fi
 done
 
+# IMMEDIATE FEEDBACK HAS A BUDGET (round 19). The clause exists because the panel's acknowledgement mechanism
+# CLAIMS it fires on the event, and a source-shaped unit test cannot tell that from a handler that awaits the network
+# first. Planted both ways: an acknowledgement slower than the budget is a finding that NAMES the round trip, and one
+# inside it passes; a control that never acknowledges is a finding too.
+python3 - "$TMP/clean.json" "$TMP/ack-late.json" "$TMP/ack-fast.json" "$TMP/ack-none.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+def ack(rows):
+    r = dict(base); r["ack"] = rows; return r
+late = ack([{"sel": ".monitor-btn", "where": "button.btn.monitor-btn", "size": "79x31", "acked": True, "via": "data-busy",
+             "msToAck": 912, "msToClear": 1180, "budgetMs": 100, "density": "panel", "page": "Settings-ack-light"}])
+json.dump(late, open(sys.argv[2], "w"))
+fast = json.loads(json.dumps(late)); fast["ack"][0]["msToAck"] = 24; fast["ack"][0]["msToClear"] = 905
+json.dump(fast, open(sys.argv[3], "w"))
+none = json.loads(json.dumps(late)); none["ack"][0].update({"acked": False, "via": None, "msToAck": None})
+json.dump(none, open(sys.argv[4], "w"))
+PY
+if node "$TOOL" --judge "$TMP/ack-late.json" > "$TMP/ack-late.out" 2>&1; then
+  bad "the judge passed an acknowledgement that waited 912ms on a 100ms budget"
+else
+  if grep -q "912ms" "$TMP/ack-late.out" && grep -q "1180ms network round trip" "$TMP/ack-late.out"; then
+    ok "a late acknowledgement is a finding, and it names the round trip it waited on"
+  else
+    bad "the ack finding does not explain itself: $(grep -m1 'acknowledged the press' "$TMP/ack-late.out")"
+  fi
+fi
+if node "$TOOL" --judge "$TMP/ack-fast.json" > /dev/null 2>&1; then
+  ok "an acknowledgement inside the budget passes"
+else
+  bad "the judge failed an acknowledgement that fired on the event"
+fi
+if node "$TOOL" --judge "$TMP/ack-none.json" > /dev/null 2>&1; then
+  bad "the judge passed a control that never acknowledged the press"
+else
+  ok "and a control that never acknowledges is a finding"
+fi
+
 # THE TARGET-SIZE VERDICT NAMES THE PAGE AND THE STATE (round 16). This axis measures two states now — the resting
 # page and the one a hover reveals — and a finding that says only "panel" cannot be reproduced. Planted on the
 # REVEAL entry, because that is the state that was previously reached by accident.

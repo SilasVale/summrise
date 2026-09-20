@@ -264,6 +264,21 @@ function buildHarness() {
   // it every guard threw "J is not defined" on the first request: the app's calls failed, the cards said
   // "unavailable" and "reconnecting", and window.__calls still grew because the counter pushes BEFORE the
   // guards run — which is why the count looked healthy while nothing was ever served.
+  // A SLOW NETWORK, ON PURPOSE (round 19). The panel's acknowledgement mechanism claims the pressed control shows its
+  // busy state ON THE EVENT, before the request leaves (useAck: "setBusyOn(key) runs in the same tick as the
+  // click"). Nothing measured that clause, and a mechanism cannot be believed from its own comment: with every
+  // response delayed by ?slowms=N, a control whose feedback waits for the reply is distinguishable from one that
+  // answers immediately. The delay is applied to /api/* only — the SSE stream would otherwise break the page rather
+  // than slow it.
+  var SLOW = parseInt(P.get('slowms') || '0', 10) || 0;
+  function SLOWLY(resp) {
+    if (!SLOW) return resp;
+    var body = resp.clone();
+    return new Promise(function (resolve) {
+      setTimeout(function () { resolve(body); }, SLOW);
+    });
+  }
+
   function J(obj) {
     // EVERY JSON FIXTURE CLAIMS THE DEVICE ANSWERED, AND IT CANNOT FORGET TO (round 100). Several readers require
     // ok === true and treat its absence as a FAILED READ — useBootHistory, useAgentVitals, the update card, the
@@ -612,6 +627,16 @@ function buildHarness() {
     if (u.indexOf('/api/plugins/status') >= 0)         return Promise.resolve(J({plugins:[{name:'terminal',ok:true}]}));
     if (u.indexOf('/api/spec') >= 0)                   return Promise.resolve(J({plugins:[]}));
     if (u.indexOf('/api/') >= 0)                       return Promise.resolve(J({ok:true}));
+    // EVERY STUBBED REPLY GOES OUT SLOWLY when the page asked for it, so a control's acknowledgement can be timed
+    // against a network that is still in flight.
+    var stubbed = function (p) { return SLOW ? p.then(SLOWLY) : p; };
+    if (SLOW) {
+      var inner = window.fetch;
+      window.fetch = function (u2, i2) {
+        var r = inner(u2, i2);
+        return String(u2).indexOf('/api/') >= 0 && String(u2).indexOf('/api/events') < 0 ? stubbed(r) : r;
+      };
+    }
     return realFetch(url, init);
   };
   window.EventSource = function(){ this.addEventListener=function(){}; this.removeEventListener=function(){}; this.close=function(){}; };

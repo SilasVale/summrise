@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -240,6 +240,7 @@ const pressPass = ${pressPass.toString()};
 // (they plant defects in a report and judge it). The emitter checks its own output for exactly this now.
 const discoverPressTargets = ${discoverPressTargets.toString()};
 const revealPass = ${revealPass.toString()};
+const ackPass = ${ackPass.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -803,6 +804,32 @@ ${TIMING}
     }
   }
 
+  // THE ACKNOWLEDGEMENT'S LATENCY, MEASURED AGAINST A SLOW NETWORK (round 19). Every response is delayed by
+  // slowms, so a control whose feedback waits for the reply cannot hide: the panel's promise is that the pressed
+  // control shows its busy state ON THE EVENT. Two controls per density, both themes — the monitor row's check now
+  // (a network call with a visible result) and the add form's watch (a POST that also changes the page).
+  const ACK_BUDGET_MS = 100;
+  if (wants("ack")) {
+    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize(vp);
+        await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
+        await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+        await page.reload({ waitUntil: 'load' });
+        await page.waitForTimeout(2200);
+        await page.evaluate(() => {
+          const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => (x.getAttribute('aria-label') || '').toLowerCase() === 'settings');
+          if (b) b.click();
+        });
+        await page.waitForTimeout(2200);
+        const name = (density === 'desktop' ? 'Desktop-' : '') + 'Settings-ack-' + theme;
+        const rows = await ackPass(page, ['.monitor-btn', '.monitor-add .btn'], ACK_BUDGET_MS, { density, theme, mode: 'ack', page: name });
+        report.ack = report.ack || [];
+        for (const r of rows) report.ack.push(r);
+      }
+    }
+  }
+
   // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
   // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
   // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,
@@ -1211,6 +1238,29 @@ function judge(file) {
       findings.push(`theme: ${t.page} was navigated as "${t.intended}" and rendered "${seen}" — the report would be describing a page it did not render`);
     }
   }
+  // IMMEDIATE FEEDBACK HAS A BUDGET (round 19). "Pressed and acknowledged states fire on the EVENT, not on the
+  // network, inside a stated budget" — so the budget is stated (100ms, well under any round trip and about six
+  // frames) and the measurement is the gap between the press and the first visible acknowledgement, taken against a
+  // fixture that delays every reply by 900ms. A control that answers only after the reply cannot pass this: the
+  // point is not that the device is slow, it is that the interface must not be.
+  for (const a of report.ack || []) {
+    const where = `${a.density || '?'}${a.page ? ' ' + a.page : ''}`;
+    if (a.note) { console.log(`note: ${where} ${a.sel} — ${a.note}`); continue; }
+    if (!a.acked) {
+      findings.push(`${where}: ${a.sel} (${a.where}) never acknowledged the press — no busy state and no painted change within the window (${a.size})`);
+      continue;
+    }
+    if (typeof a.msToAck === "number" && typeof a.budgetMs === "number" && a.msToAck > a.budgetMs) {
+      findings.push(`${where}: ${a.sel} (${a.where}) acknowledged the press after ${a.msToAck}ms — the budget is ${a.budgetMs}ms, so this feedback waited on the ${a.msToClear}ms network round trip instead of firing on the event`);
+    }
+  }
+  {
+    const acked = (report.ack || []).filter((a) => a.acked);
+    if (report.ack && report.ack.length && !acked.length) {
+      findings.push(`the acknowledgement pass measured ${report.ack.length} control(s) and NONE acknowledged — a pass that proves nothing is not a pass`);
+    }
+  }
+
   for (const t of report.targets || []) {
     // THE LABEL NAMES THE PAGE AND THE STATE, because this axis now measures TWO of them: the resting page and the
     // state a hover reveals (`mode: 'reveal'`). A finding that says only "panel" cannot be reproduced.
@@ -1287,7 +1337,7 @@ if (mode === "--emit") {
   // THE EMITTER NAMES WHAT IT BORROWS, and a borrowed helper that CALLS another one needs that one embedded too:
   // missing it, the emitted file still parses (it throws when reached), every local gate passes because they read
   // the artifact's text, and CI finds out. The shared assertion is in lib/design-sweep.mjs.
-  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "revealPass", "idlePass", "motionPass"]);
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "revealPass", "ackPass", "idlePass", "motionPass"]);
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];

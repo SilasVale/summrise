@@ -152,6 +152,16 @@ const CHECKS = [
     ],
   },
   {
+    // A SLOW NETWORK IS A STATE THE FIXTURE MUST BE ABLE TO RENDER (round 19). The panel's acknowledgement claims it
+    // fires on the EVENT rather than on the reply; the only way to tell those apart as rendered is to make every
+    // stubbed reply slow, and a flag no fixture carries is a measurement nothing can take.
+    name: "the fixture can slow every API reply, so feedback that waits for the network is distinguishable",
+    test: (h) => h.includes("slowms") && /SLOW \? p\.then\(SLOWLY\) : p/.test(h),
+    mutations: [
+      { why: "the delay is never applied, so a control whose feedback waits for the reply measures as immediate", from: /SLOW \? p\.then\(SLOWLY\) : p/, to: "p" },
+    ],
+  },
+  {
     name: "the status count follows the same number (the fixture cannot contradict itself)",
     test: (h) => /live_sessions: liveCount/.test(h),
     mutations: [

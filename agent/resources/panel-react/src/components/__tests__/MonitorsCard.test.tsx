@@ -267,16 +267,36 @@ describe("MonitorsCard", () => {
     await waitFor(() => expect(host.value).toBe("10.0.0.2"));
   });
 
-  it("offers check-now and remove per target", async () => {
-    const onProbe = vi.fn();
+  it("offers check-now and remove per target, AND BOTH ACKNOWLEDGE THE PRESS", async () => {
+    // THE ACKNOWLEDGEMENT IS THE POINT OF THIS TEST NOW (round 19). These two buttons used to call their props
+    // directly: with every reply delayed 900ms, `watch` showed its busy state in 5-7ms and these showed NOTHING for
+    // the whole round trip — found by measuring, not by reading. The deferred promise below holds the call open so
+    // the busy state can be observed, which is exactly what the operator sees on a slow device.
+    let release!: () => void;
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    const onProbe = vi.fn(() => pending);
     const onRemove = vi.fn();
     render(
       <MonitorsCard monitors={monitors([target()])} onAdd={async () => ({ ok: true })} onRemove={onRemove} onProbe={onProbe} nowMs={now} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "check now" }));
-    fireEvent.click(screen.getByRole("button", { name: "remove" }));
-    expect(onProbe).toHaveBeenCalledWith("192.168.1.1:22");
-    expect(onRemove).toHaveBeenCalledWith("192.168.1.1:22");
+    const check = screen.getByRole("button", { name: "check now" }) as HTMLButtonElement;
+    fireEvent.click(check);
+    await waitFor(() => expect(onProbe).toHaveBeenCalledWith("192.168.1.1:22"));
+    // This project's `waitFor` takes one argument (the file uses it that way everywhere); its default timeout
+    // covers a React commit several times over.
+    await waitFor(() => expect(check.getAttribute("data-busy"), "assistive tech is told too").toBe("1"));
+    expect(check.getAttribute("aria-busy")).toBe("true");
+    // AND THE SIBLING STEPS BACK rather than wearing the same ring: the hook names the control that was pressed.
+    const remove = screen.getByRole("button", { name: "remove" }) as HTMLButtonElement;
+    expect(remove.getAttribute("data-busy"), "it is disabled while the row is busy, so a second click cannot race").toBe(null);
+    expect(remove.disabled).toBe(true);
+    release();
+    await waitFor(() => expect(check.getAttribute("data-busy")).toBe(null));
+
+    fireEvent.click(remove);
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith("192.168.1.1:22"));
   });
 });
 

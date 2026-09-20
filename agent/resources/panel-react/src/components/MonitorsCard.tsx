@@ -43,6 +43,9 @@ function TargetRow({
   onRemove: (id: string) => void;
   onProbe: (id: string) => void;
 }) {
+  // ONE ACK PER ROW, so the pressed control wears the ring and its SIBLING steps back — the hook's documented
+  // behaviour ("a row where everything dims equally cannot answer 'did my click register?'").
+  const { busy, ack, run } = useAck();
   const { summary, series, transitions, path: httpPath, expect: wantText } = target;
   // The URL an HTTP check is actually asking, which is the thing an operator copies into a browser
   // when the device says it is down.
@@ -89,14 +92,27 @@ function TargetRow({
         <span className={`monitor-state ${state}`}>
           {up ? "up" : down ? `down ${fmtSince(sinceMs)}` : "no readings"}
         </span>
-        <button type="button" className="btn btn-ghost monitor-btn" onClick={() => onProbe(target.id)}>
+        {/* BOTH ROW ACTIONS ACKNOWLEDGE THE PRESS, AND THEY DID NOT (round 19). The card wrapped its ADD
+            button in `run`/`ack` and left these two calling their props directly — which was invisible in the
+            source and measurable as rendered: with every reply delayed 900ms, `watch` showed its busy state in
+            5-7ms while `check now` and `remove` showed NOTHING for the whole round trip. The measurement is what
+            found it; the hook's own doc says why the ring must name the control ("did my click register?"). */}
+        <button
+          type="button"
+          className="btn btn-ghost monitor-btn"
+          disabled={busy}
+          {...ack("probe")}
+          onClick={() => void run("probe", async () => onProbe(target.id))}
+        >
           check now
         </button>
         <button
           type="button"
           className="btn btn-ghost monitor-btn"
           title="Stop watching this target"
-          onClick={() => onRemove(target.id)}
+          disabled={busy}
+          {...ack("remove")}
+          onClick={() => void run("remove", async () => onRemove(target.id))}
         >
           remove
         </button>

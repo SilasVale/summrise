@@ -558,6 +558,113 @@ export async function discoverPressTargets(page, cap, skip) {
 }
 
 /**
+/** HOW LONG UNTIL THE CONTROL ACKNOWLEDGES THE PRESS — measured, against a stated budget (round 19).
+ *
+ *  The objective's clause is "immediate feedback on every input (pressed and acknowledged states that fire on the
+ *  EVENT, not on the network ... inside a stated budget)". The panel has the mechanism (`useAck`: `setBusyOn(key)`
+ *  runs in the same tick as the click) and a unit test that pins its shape — and NOTHING measured the claim as
+ *  rendered, which is the only place it can be false: a handler that awaits anything before calling `run` looks
+ *  identical in the source and answers a full network round trip late.
+ *
+ *  So the fixture is made SLOW (`?slowms=N`) and this times the gap between the press and the first visible
+ *  acknowledgement on that control — `data-busy`, `aria-busy`, `disabled`, or any change in the painted properties
+ *  the press pass already watches. `msToAck` is compared against `budgetMs` by the judge; `msToClear` is reported
+ *  too, because that one is the network and the work, and it is NOT the promise being kept.
+ */
+export async function ackPass(page, targets, budgetMs, label = {}) {
+  const rows = [];
+  const read = (sel) => page.evaluate((s) => {
+    for (const el of document.querySelectorAll(s)) {
+      const r = el.getBoundingClientRect();
+      const st = getComputedStyle(el);
+      if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+      return {
+        busy: el.getAttribute("data-busy") === "1" || el.getAttribute("aria-busy") === "true" || el.disabled === true,
+        attr: el.getAttribute("data-busy") === "1" ? "data-busy" : el.disabled === true ? "disabled" : el.getAttribute("aria-busy") === "true" ? "aria-busy" : null,
+        transform: st.transform, opacity: st.opacity, background: st.backgroundColor,
+        where: el.tagName.toLowerCase() + (typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : ""),
+      };
+    }
+    return null;
+  }, sel);
+  for (const sel of targets) {
+    // SCROLL IT INTO VIEW FIRST, and clamp to the visible part — the rules the press pass learned the hard way
+    // (rounds 15-16). The first run of THIS pass measured `.monitor-btn` and the monitor form's button at
+    // y=1200-1430 in an 860px viewport: the clicks landed outside the page, nothing acknowledged, and the pass
+    // reported a finding against two controls it had never touched. An instrument may move the page to reach a
+    // control; it may not accuse one from a coordinate the control does not occupy.
+    const box = await page.evaluate((s) => {
+      for (const el of document.querySelectorAll(s)) {
+        const before = el.getBoundingClientRect();
+        const movedPage = before.top < 0 || before.bottom > innerHeight || before.left < 0 || before.right > innerWidth;
+        if (movedPage) el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        if (el.disabled === true) continue;
+        const left = Math.max(r.left, 0), right = Math.min(r.right, innerWidth);
+        const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
+        if (right - left < 4 || bottom - top < 4) {
+          return { offscreen: true, top: Math.round(r.top), viewport: innerHeight };
+        }
+        const cx = (left + right) / 2, cy = (top + bottom) / 2;
+        const at = document.elementFromPoint(cx, cy);
+        const reaches = !!(at && (at === el || el.contains(at) || at.contains(el)));
+        return {
+          x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), reaches, movedPage,
+          covered: reaches ? null : at ? at.tagName.toLowerCase() : "nothing",
+        };
+      }
+      return null;
+    }, sel);
+    if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
+    if (box.offscreen) {
+      rows.push({ sel, note: `could not be scrolled into the viewport (top=${box.top} of ${box.viewport}) — NOT pressed, and that is not evidence about its acknowledgement` });
+      continue;
+    }
+    if (box.reaches === false) {
+      rows.push({ sel, note: `${box.covered} is drawn over the point that would be pressed — NOT pressed, and that is not evidence about its acknowledgement` });
+      continue;
+    }
+    // THE BASELINE IS THE HOVER, NOT REST (the rule the press pass learned in round 95, applied here). Reading the
+    // control with the pointer parked away made its HOVER style look like an acknowledgement: `.monitor-btn` has a
+    // hover rule like every other control, so the first run of this pass reported "acked via=paint, 6ms" for a
+    // button whose only visible response was the pointer being over it. The pointer goes on FIRST, settles, and
+    // THEN the baseline is taken — so a painted change has to be something the press caused.
+    await page.mouse.move(box.x, box.y);
+    await page.waitForTimeout(260);
+    const before = await read(sel);
+    const t0 = Date.now();
+    await page.mouse.down();
+    await page.mouse.up();
+    let acked = null;
+    let msToAck = null;
+    for (let i = 0; i < 60; i++) {
+      const now = await read(sel);
+      // ACKNOWLEDGED means: the control says so (an attribute) OR it paints differently than it did at rest.
+      const painted = now && before && (now.transform !== before.transform || now.opacity !== before.opacity || now.background !== before.background);
+      if (now && (now.busy || painted)) { acked = now; msToAck = Date.now() - t0; break; }
+      await page.waitForTimeout(16);
+    }
+    // AND BACK: the acknowledgement must CLEAR, or a control that spins forever is indistinguishable from one that
+    // is still working. This is the network plus the work, so it is reported and not judged.
+    let msToClear = null;
+    for (let i = 0; i < 200; i++) {
+      const now = await read(sel);
+      if (now && !now.busy) { msToClear = Date.now() - t0; break; }
+      await page.waitForTimeout(25);
+    }
+    rows.push({
+      sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
+      acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs,
+      ...label,
+    });
+    // AND PUT THE PAGE BACK: the next control is measured from rest, not from whatever this click did.
+    await page.mouse.move(2, 2);
+  }
+  return rows;
+}
+
 /** MEASURE THE TARGETS A ROW REVEALS, ON PURPOSE (round 16 of the standing goal).
  *
  *  The target-size criterion is about what an operator can hit, and some of those targets exist only while their

@@ -133,6 +133,22 @@ try {
       // grows one, this assertion is where the next reader should widen the pass rather than guess.
       if (!name.startsWith("console") && !name.startsWith("landing")) {
         assert.ok(src.includes("function revealPass"), `${name}: the revealed state is not measured deliberately — a hover-revealed target is then measured only when the pointer happens to rest on its row`);
+        // AND THE ACKNOWLEDGEMENT'S LATENCY IS A PASS OF ITS OWN (round 19): the emitted script must carry it, or
+        // the "fires on the event, not on the network" clause is asserted nowhere but in a comment.
+        assert.ok(src.includes("function ackPass"), `${name}: the acknowledgement latency is not measured — the panel's promise that feedback fires on the EVENT is then only a claim in a doc comment`);
+        assert.ok(src.includes("msToAck"), `${name}: the acknowledgement pass does not report how long it took`);
+        // AND IT REACHES ITS CONTROL THE SAME WAY THE PRESS PASS DOES (round 19): the first run clicked two buttons
+        // at y=1200-1430 in an 860px viewport, measured nothing, and reported a finding. The same three rules —
+        // minimal scroll, clamp to the visible part, hit-test the point — are asserted here for the same reason.
+        assert.ok(src.includes('el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" })'), `${name}: the acknowledgement pass does not scroll its control into view — a click outside the page reads as "no acknowledgement"`);
+        assert.ok(src.includes("box.reaches === false"), `${name}: the acknowledgement pass presses controls the pointer cannot reach`);
+        // AND ITS BASELINE IS THE HOVER, not rest: read with the pointer away, a control's own hover rule looks
+        // like an acknowledgement and every control passes for free.
+        assert.ok(
+          src.indexOf("const before = await read(sel)") > src.indexOf("await page.mouse.move(box.x, box.y)\n    await page.waitForTimeout(260)"),
+          `${name}: the acknowledgement baseline is read before the hover — that is the resting anchor this rule exists for`,
+        );
+        assert.ok(src.includes("Math.min(r.right, innerWidth)"), `${name}: the acknowledgement pass does not clamp the rect to the viewport`);
       }
       // (The emitter's own guard — every borrowed helper must be DEFINED in the text it prints — is enforced where it
       // can bite: each `--emit` branch calls `assertEmbedded`, the pre-commit hook runs all of them, and
