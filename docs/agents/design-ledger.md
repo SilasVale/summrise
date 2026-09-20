@@ -1759,3 +1759,47 @@ between a photographed state and an unphotographed one. The running list of stat
     failed / the fifth silhouette  round 97   the shape, then the ink chosen by measuring the active tab (round 98)
     trajectory + path              round 101  found: a 2.56 muted ring, unreachable behind a shadowing stub
     archive + trail + runs         round 102  clean — and the third one needed a route that no stub answered
+
+### THE INSTRUMENT REPORTED ITS OWN BLIND SPOT AS A DEFECT (round 103)
+
+This round's finding was produced by the measuring tool, and the page was innocent.
+
+`.device-logs-toggle` — the button that opens a log file's tail, drawn for the first time in round 100 — came back
+PRESS-ADDS-NOTHING from a hand-run press measurement. It reads as a control with no `:active` rule. What had actually
+happened: the pass took the element's rect AS IT FOUND IT and pressed that coordinate, and **the toggle sits at
+y=1582 in an 860px viewport**. `document.elementFromPoint` at its centre returned null, the mouse moved to a point
+outside the page, nothing was hovered, nothing was pressed — and the row said the control adds nothing on press.
+
+THE PAGE DID HAVE A DEFECT, and reading the sheet is what established it (not the measurement): `cursor: pointer`,
+a real action, NO hover rule and NO press rule. `feedback-check` demands a press only where a HOVER exists, so a
+control with neither is invisible to the sheet gate — the same shape that hid the landing's theme toggle in round 95,
+one level down. Fixed with the panel's own vocabulary — `:hover` moves the border to `--chrome-ink-faint`, `:active`
+is the `translateY(1px)` every other control uses — and re-measured with the corrected instrument:
+
+    light 720x28  rest border rgb(244,244,245)   hovered rgb(161,161,170)   pressed none -> matrix(1,0,0,1,0,1)
+    dark  720x28  rest border rgba(255,255,255,0.07)  hovered rgb(111,112,122)  pressed none -> matrix(1,0,0,1,0,1)
+
+THE INSTRUMENT, fixed in its own commit:
+
+  * SCROLL INTO VIEW FIRST, then read the box. An element that will not fit is reported as exactly that — "could not
+    be scrolled into the viewport … NOT pressed, and that is not evidence about its press" — because silence about a
+    press is not evidence of a missing one.
+  * HIT-TEST THE POINT. `document.elementFromPoint` decides whether the pointer reached the element; when it did
+    not, the row carries a note instead of a verdict. A COVERED ELEMENT AND A STILL ELEMENT ARE DIFFERENT FACTS.
+  * ASK THE DOM FOR THE CONTROLS. `pressPass` takes `discover: N` — visible buttons, links and `[role=button|tab]`,
+    deduped by class+size (fifty archive rows cost one press) and capped — and the rail walk uses it. The control
+    that started this round had never been pressed because no curated list named it; a list can only contain what
+    somebody thought of.
+
+All four rules are pinned in `press-anchor-check` (9 checks), with the mutation proved: deleting the `scrollIntoView`
+line fails with "a control below the fold will be 'pressed' at a coordinate outside the page and reported as still".
+
+AND THE TWO AXES THE NEW RECORD VIEWS HAD NEVER BEEN CHECKED ON, measured as rendered while I was there:
+
+    reduced motion   Trajectory 17 -> 0 · Path 11 -> 0 · Settings 13 -> 0 · Archive 13 -> 0 · Runs 13 -> 0
+    press            .view-switch button, .traj-collapse, .archive-row, .side-add — all answer in both themes
+
+THE LESSON, for the third time this session and in its sharpest form yet: a measurement is a claim about the
+INSTRUMENT as much as about the page. The previous two were a dedupe key that hid a row (round 99) and a fixture
+that answered a question nobody asked (round 100). This one is worse, because the instrument did not stay silent —
+it ACCUSED.
