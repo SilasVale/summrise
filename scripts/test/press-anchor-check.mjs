@@ -108,7 +108,8 @@ try {
       // pinned here: scroll it into view first, refuse to measure one that will not fit, and say so when the point
       // resolves to something else.
       assert.ok(src.includes('el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" })'), `${name}: the element is not scrolled into view — a control below the fold will be "pressed" at a coordinate outside the page and reported as still`);
-      assert.ok(src.includes("if (before.top < 0 || before.bottom > innerHeight"), `${name}: every element is scrolled unconditionally — an instrument may move the page to REACH a control, it may not rearrange the page it is measuring`);
+      assert.ok(src.includes("const movedPage = before.top < 0 || before.bottom > innerHeight"), `${name}: every element is scrolled unconditionally — an instrument may move the page to REACH a control, it may not rearrange the page it is measuring`);
+      assert.ok(src.includes("box.movedPage && box.reaches === false"), `${name}: the hit test refuses controls the pass never had to fetch — a fully visible control must be measured the way it always was`);
       assert.ok(src.includes("box.offscreen"), `${name}: an element that cannot be brought into view is measured anyway, which is how a blind spot becomes a finding`);
       // AND THE PRESS GOES TO THE VISIBLE PART, not to a centre that may be off-screen: the first version of the
       // refusal dropped three of the landing's four controls and CI's press FLOOR caught it ("measured 1 control(s)").

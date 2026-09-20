@@ -571,7 +571,8 @@ export async function pressPass(page, targets, label = {}) {
         // control(s)"). An instrument may move the page to reach a control; it may not rearrange the page it is
         // measuring.
         const before = el.getBoundingClientRect();
-        if (before.top < 0 || before.bottom > innerHeight || before.left < 0 || before.right > innerWidth) {
+        const movedPage = before.top < 0 || before.bottom > innerHeight || before.left < 0 || before.right > innerWidth;
+        if (movedPage) {
           el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
         }
         const r = el.getBoundingClientRect();
@@ -590,7 +591,17 @@ export async function pressPass(page, targets, label = {}) {
         const cx = (left + right) / 2, cy = (top + bottom) / 2;
         const at = document.elementFromPoint(cx, cy);
         const reaches = !!(at && (at === el || el.contains(at) || at.contains(el)));
-        return { x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), reaches, covered: reaches ? null : (at ? at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.trim().split(/\s+/)[0] : "") : "nothing") };
+        // THE HIT TEST IS CONSULTED ONLY WHERE IT WAS WRITTEN TO BE (round 103). It exists for the control the pass
+        // had to FETCH — the one below the fold, or the one it clamped into view — because that is where "the pointer
+        // never arrived" and "the control did not answer" are easy to confuse. For a control that was fully visible
+        // before the pass touched anything, the old measurement is the right one: it presses the centre and reports
+        // what the control does. Refusing those too cost CI four press entries (the floor read "measured 1 control")
+        // on a page the device measures at 4 and 2 — the same over-correction as the unconditional scroll, one step
+        // further in.
+        return {
+          x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), movedPage,
+          reaches, covered: reaches ? null : (at ? at.tagName.toLowerCase() + (typeof at.className === "string" && at.className ? "." + at.className.trim().split(/\s+/)[0] : "") : "nothing"),
+        };
       }
       return null;
     }, sel);
@@ -599,7 +610,7 @@ export async function pressPass(page, targets, label = {}) {
       rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
       continue;
     }
-    if (box.reaches === false) {
+    if (box.movedPage && box.reaches === false) {
       rows.push({ sel, note: "the pointer cannot reach this control — " + box.covered + " is drawn over its visible part — NOT pressed, and that is not evidence about its press" });
       continue;
     }
@@ -621,7 +632,7 @@ export async function pressPass(page, targets, label = {}) {
     const props = pressDelta(hovered, pressed);
     // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED: if the pointer never reached the element (something
     // is drawn over it, or the read happened mid-scroll), the row says so instead of claiming a still control.
-    const reached = !(hovered && hovered.hit === false);
+    const reached = !(box.movedPage && hovered && hovered.hit === false);
     rows.push({
       sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
       changed: props.length > 0, props, hovered, pressed, reached,
@@ -1021,6 +1032,11 @@ export function judgeReport(report, opts = {}) {
     const where = `${row.density || "?"}/${row.theme || "?"}`;
     const dead = (row.rows || []).filter((r) => r.changed === false);
     for (const d of dead) findings.push(`${where}: ${d.sel} (${d.where}) renders NOTHING when pressed — before and during are identical (${d.size})`);
+    // AND WHAT THE PASS COULD NOT PRESS IS SAID OUT LOUD (round 103). A row that carries a note was not measured, and
+    // a floor that fires without saying why sends the next reader to the browser to re-derive it.
+    for (const r of row.rows || []) {
+      if (r.note && !/not rendered/.test(r.note)) console.log(`note: ${where} ${r.sel} — ${r.note}`);
+    }
     // A PASS THAT PRESSED NOTHING IS NOT A CLEAN PASS. Targets are per surface, and a page that renders none of them
     // would otherwise report zero dead presses forever.
     if ((row.measured || 0) < 2) {
