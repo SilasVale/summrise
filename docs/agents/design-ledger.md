@@ -1476,3 +1476,33 @@ THE SIXTH STATE THIS METHOD HAS ADDED, and the first one that needed the DEVICE 
     menu / the new-session popover round 92 clean, and a limit named (icons are not measured)
     exitfail / the failed last command round 96  NEEDED A WIRE FIELD: no surface could render it, so none could
                                                  measure it; now 5.96/5.65 rendered
+
+### THE e2e ASSERTION THAT WAS ABOUT THE RUNNER'S SHELL (round 96, continued)
+
+The wire field needed a drive through the real binary, and the first version of that check demanded a NUMBER. Running
+it locally (agent on loopback, `--only governance,terminal`) is what stopped it reaching CI, because the answer on
+this box is:
+
+    gov: the approved command ran  -- state=partial
+    terminal session execute       -- state=partial exit=null
+
+No shell marker fires on a bash PTY, so the caller is told NOTHING and the row carries NOTHING — which is the correct
+answer (`None` means "no code was observed"), not a missing feature. A check that required an exit code would have
+been a check about the runner's shell.
+
+SO THE ASSERTION IS AGREEMENT, IN BOTH DIRECTIONS, and it is a helper both sections share:
+
+    the caller was told a code  ->  the row carries the SAME code
+    the caller was told nothing ->  the row carries NOTHING
+
+That is the invariant that can break — one audience reporting a code the other never saw — and it holds on a runner
+with markers and without. The number itself is pinned where it can be: the device's unit test sets, replaces and
+clears it, and asserts the OMISSION, which is the difference between "nothing to say" and "exit 0".
+
+AND IT IS IN TWO SECTIONS ON PURPOSE: CI runs `--only governance,runs`, so a check written only in the terminal
+section is a check CI never invokes — the "test nobody runs" shape this repository has paid for before.
+
+WHAT IS NOT CLAIMED, because it would be easy to read the above as more than it is: no marker code has been observed
+on a real session BY THIS LOOP. This box's shells never produce one, so the exec.rs call site is verified by reading
+it (the value it records is the same `marker_code` the audit line and the job registry already get) and by the
+unit test on the setter, not by a live end-to-end run.
