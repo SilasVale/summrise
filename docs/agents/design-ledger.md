@@ -1044,3 +1044,29 @@ the SSE stream, so this surface was measured in the RECONNECTING state — the f
 THE LESSON IS NOT "A COMMENT WAS STALE". It is that a claim about an INSTRUMENT sat in prose for sixty rounds with
 nothing checking it, while every other claim in this suite has a clause. A sentence about what a fixture does belongs
 in the same place as a sentence about what the product does: next to a check that fails when it stops being true.
+
+### TWO WITNESSES FOR ONE FACT, AND THE SECOND STALE PARAGRAPH (round 87)
+
+Round 86 corrected the note that said the panel's stream never opens. Directly below it sat another, stale for the same
+reason:
+
+    "AN ATTEMPT TO OPEN THAT STREAM WAS MADE AND REVERTED ... with the stream shut, every panel measurement this
+     harness has ever produced was taken in a reconnecting state."
+
+Round 154's attempt was reverted; round 156 put it back and it has served the connected state since. The history is
+kept — the symptom (one empty frame put the app on the CONNECT SCREEN) is what a future reader needs to recognise —
+and the CONCLUSION is marked as belonging to round 154, because a reader who takes it for the present tense distrusts a
+fixture that works. That is the second time in two rounds that a sentence about an INSTRUMENT was the defect.
+
+AND THE FACT HAS TWO WITNESSES NOW, because one flag is one place to lie. The harness reports `{opened, fail}`; the
+judge ALSO reads the rendered text. "Sessions unavailable" is the panel's own sentence for a push that never arrived, so
+on a surface whose harness did not report the failure fixture, seeing it means the measurement describes a screen the
+operator never sees. The failure surfaces report their own flag rather than the judge guessing from a page name —
+`?fail=1` rejects every /api/ call, so they are SUPPOSED to say it.
+
+    MEASURED, CI green: panel 4142 text nodes · 90 surfaces · NOT ONE of them renders "Sessions unavailable" on a
+    surface whose harness did not report the failure fixture.
+
+So the harness delivers the push, the panel renders connected, and two independent clauses now say so — one about what
+the fixture did, one about what the panel concluded from it. Proven three ways on synthetic reports before shipping:
+clean passes, a missing push fails on BOTH witnesses, and the failure fixture passes.
