@@ -481,7 +481,20 @@ function buildHarness() {
   // ?rows=N — the ARCHIVE with content, at scale. Every sweep until round 69 answered /api/sessions
   // with a bare {} (the stub's generic branch), so the History page has only ever been measured
   // EMPTY: the page's cost with a device that has recorded hundreds of sessions was unknown.
-  if (u.indexOf('/api/sessions') >= 0) {
+  //
+  // AND THE MATCH IS EXACT NOW (round 101), because a BROAD MATCH SHADOWED THE SPECIFIC ONE BELOW: this was
+  // u.indexOf('/api/sessions') >= 0, which also matches /api/sessions/<sid> — so the per-session stub (the one
+  // that serves the audit trail) was UNREACHABLE, and every request for a session's events got this archive body
+  // instead. (58th backtick incident, caught by the emit before the commit.) With ok: true from the envelope change, the reader treated that as a SUCCESSFUL EMPTY READ: the
+  // Trajectory and Path views drew "No commands in this session yet" and "No path yet" on every surface that has
+  // ever shown them, and the panel's two most information-dense views were measured against an empty page. THE SAME
+  // DEFECT CLASS as the last three rounds — a fixture answering a question nobody asked — found this time by
+  // clicking a tab no sweep had clicked. (No backticks: emitted template.)
+  // NO REGEX AND NO BACKSLASHES, deliberately: three nesting levels (this template, the emitted stub, the
+  // browser) eat them, which is the lesson the diag helper records in this same file. A path COMPARISON says
+  // exactly what the broad indexOf could not: the route is /api/sessions and nothing beyond it.
+  var sessPath = u.split('?')[0];
+  if (sessPath.slice(-13) === '/api/sessions') {
     var want = parseInt(P.get('rows') || '0', 10);
     var rows = [];
     for (var r = 0; r < want; r++) {

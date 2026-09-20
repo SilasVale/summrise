@@ -669,6 +669,40 @@ ${TIMING}
     }
   }
 
+  // THE TWO RECORD VIEWS, WHICH NO SWEEP HAS EVER RENDERED (round 101). The per-session view switch has three
+  // tabs — Terminal, Trajectory (the raw audit timeline) and Path (the same work as steps, with a summary) — and
+  // every surface in this suite leaves it on Terminal. The harness DOES serve the events when asked
+  // (/api/sessions/<id> carries a goal, an approval armed/approved/granted, two commands with exit 0 and exit 1,
+  // and their output), so both views have real content to draw; nothing ever clicked the tab. Every style they
+  // use — the event dots and their states, the exit badges, the governance chips, the plan rows, the attention
+  // rows — has therefore been measured by nothing at all, which is the same hole the History page's empty archive
+  // sits in. ONE CLICK, and the cost of not making it was the panel's most information-dense two views.
+  if (wants("pages")) {
+    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
+      for (const theme of ['light', 'dark']) {
+        for (const tab of ['Trajectory', 'Path']) {
+          await page.setViewportSize(vp);
+          await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+          await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+          await page.reload({ waitUntil: 'load' });
+          await page.waitForTimeout(1500);
+          await page.evaluate((want) => {
+            const btn = [...document.querySelectorAll('.view-switch button, .desktop-view-switch button')]
+              .find((b) => (b.textContent || '').trim() === want);
+            if (btn) btn.click();
+          }, tab);
+          await page.waitForTimeout(1800);
+          const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme;
+          const rows = await page.evaluate(PROBE);
+          for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'record', page: pname });
+          report.surfaces.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SURFACE)) });
+          report.names.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(NAMES)) });
+          report.sse.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SSE)) });
+        }
+      }
+    }
+  }
+
   // THE UNSET GOAL, WHICH IS THE COMMON CASE (round 90). GoalBar's own comment calls an unset goal "normal (most
   // sessions)" and describes what it renders instead: "a QUIET affordance". Every fixture this harness has ever built
   // gave EVERY session a goal, so the affordance — a dashed-bordered button whose only content is a bare text node,

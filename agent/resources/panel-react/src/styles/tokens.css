@@ -128,10 +128,17 @@
   --state-ok: var(--success);
   --state-fail: var(--danger);
   --state-warn: var(--warn);
-  --state-muted: var(--faint);
   --state-running-soft: var(--accent-soft);
   --state-warn-soft: var(--warn-soft);
   --state-muted-soft: rgba(127, 127, 127, 0.12);
+  /* --muted, NOT --faint (round 101). This token is the INK OF A RING — the `muted` state of the command dot, the
+     trajectory event dot and the plugin dot are all `inset 0 0 0 1.5px var(--state-muted)` — and a ring is a
+     graphic, so it needs 3:1. `--faint` (#a1a1aa) measured **2.56:1** on the light card, and nothing could see it:
+     `statePalette.test.ts` asserts those dots agree on COLOUR between components, and the contrast contract walks
+     `--mark-ink`, which these rings do not use. The first photograph of the Trajectory and Path views (round 101 —
+     no sweep had ever clicked those tabs) reported it on both densities. `--muted` measures 4.83 there and 6.5 in
+     dark, and the shape still says "nothing concluded" — it is a hollow ring either way. */
+  --state-muted: var(--muted);
   /* THE INK A FAILURE **MARK** IS DRAWN IN, and it is not `--state-fail` — that token is a FILL, and a mark has to
      read on every surface a mark lands on, one of which is the accent-filled ACTIVE TAB. Measured (round 98) over
      the four surfaces a mark sits on plus that active fill:
@@ -375,6 +382,9 @@ body[data-theme="dark"] {
   /* Restated for the same computed-value reason as the tokens above — and here the VALUE changes, because the light
      ink cannot clear the accent fill this theme paints an active tab with. */
   --state-fail-ink: #ffc9c9;
+  /* Restated for the same computed-value reason as everything else in this block: without it the muted RING keeps
+     the light grey in dark, which passes but reads as a light-theme mark on a dark card. */
+  --state-muted: var(--muted);
   /* Restated for the same computed-value reason as the tokens above. */
   --accent-solid: #b03a0a;
   /* Status ink for SMALL TEXT. --danger and --success are tuned for marks

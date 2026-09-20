@@ -137,6 +137,21 @@ const CHECKS = [
     ],
   },
   {
+    // A BROAD MATCH MUST NOT SHADOW A SPECIFIC ONE (round 101). The archive stub was `u.indexOf('/api/sessions') >= 0`,
+    // which also matches `/api/sessions/<sid>` — so the per-session stub BELOW it, the one that serves a session's
+    // audit trail, could never be reached: every request for a session's events got the archive body, and with the
+    // envelope in place the reader treated that as a SUCCESSFUL EMPTY READ. The Trajectory and Path views drew "No
+    // commands in this session yet" on every surface that showed them.
+    name: "the archive stub matches its own route, so the per-session stub stays reachable",
+    // BOTH HALVES: the archive route compared as a PATH, and the per-session stub still present and still asking for
+    // the audit trail (the second pattern is the emitted regex, backslashes and all — a check written against the
+    // SOURCE spelling would fail on the artefact that matters).
+    test: (h) => h.includes("sessPath.slice(-13) === '/api/sessions'") && h.includes("id:SID, events:EVENTS"),
+    mutations: [
+      { why: "the broad match shadows the per-session stub again, so the record views read an empty archive", from: /sessPath\.slice\(-13\) === '\/api\/sessions'/, to: "u.indexOf('/api/sessions') >= 0" },
+    ],
+  },
+  {
     name: "the status count follows the same number (the fixture cannot contradict itself)",
     test: (h) => /live_sessions: liveCount/.test(h),
     mutations: [
