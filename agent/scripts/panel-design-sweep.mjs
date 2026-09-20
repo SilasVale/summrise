@@ -528,6 +528,11 @@ ${TIMING}
       for (const row of rows) report.rows.push({ ...row, density, theme: qTheme, mode: 'fixture', page: pname });
       report.surfaces.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(SURFACE)) });
       report.names.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(NAMES)) });
+      // THE FAILURE SURFACES REPORT TOO, and they are the reason the flag travels WITH the reading: ?fail=1 rejects
+      // every /api/ call, so this harness legitimately never opens the stream and the panel is SUPPOSED to say
+      // "Sessions unavailable". A judge that guessed that from a page name would be reading a label; this reads the
+      // fixture's own answer.
+      report.sse.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(SSE)) });
     }
   }
 

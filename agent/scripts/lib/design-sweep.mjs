@@ -1005,6 +1005,17 @@ export function judgeReport(report, opts = {}) {
   // failure surfaces, which are SUPPOSED to read as reconnecting). Nothing asserted which — so a fixture change that
   // shut the stream would silently turn every surface into a reconnecting panel and every finding into a statement
   // about a screen nobody sees. The harness publishes {opened, fail}; this is the clause that reads it.
+  // AND THE RENDERED TEXT IS THE SECOND WITNESS, independent of the flag above. "Sessions unavailable" is the
+  // panel's own sentence for a push that never arrived; on a surface whose harness did NOT report the failure
+  // fixture, seeing it means the measurement describes a screen the operator never sees. Two signals, one fact —
+  // the flag says what the fixture did, this says what the panel concluded from it, and a fixture that lies about
+  // itself would have to lie in both places to get past.
+  const harnessFailed = new Map((report.sse || []).map((r) => [r.page, r.fail === true]));
+  for (const row of report.rows || []) {
+    if (!/Sessions unavailable/i.test(String(row.text || ""))) continue;
+    if (harnessFailed.get(row.page) === true) continue;      // the failure fixture is meant to say exactly this
+    findings.push(`${row.page || "?"}: the panel renders "Sessions unavailable" and the harness did not report the failure fixture — this surface was measured with the push missing`);
+  }
   for (const row of report.sse || []) {
     if (row.fail === true) continue;                       // a failure surface is meant to be disconnected
     if (row.opened !== true) {

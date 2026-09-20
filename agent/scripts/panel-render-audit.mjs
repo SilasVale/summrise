@@ -150,13 +150,14 @@ function buildHarness() {
   // app does not use EventSource at all: useSSE fetches /api/events/term and reads a stream, flipping to
   // connected on any complete frame, even an empty one.
   //
-  // AN ATTEMPT TO OPEN THAT STREAM WAS MADE AND REVERTED, with both failures recorded so the next try
-  // starts ahead: serving one empty frame from /api/events/term put the app on the CONNECT SCREEN
-  // (connForm true, 5 text rows) whether the stream never ended or ended right after the frame. The cause
-  // was not found. THE CHEAP NEXT STEP IS window.__calls — it records every request the app makes, so
-  // diffing that list between this harness and one carrying the SSE branch names the request that broke —
-  // which was not captured while the branch was in. The reason to try is worth it: with the stream shut,
-  // every panel measurement this harness has ever produced was taken in a reconnecting state.
+  // THE ATTEMPT THAT WAS REVERTED, AND THEN MADE TO WORK (corrected round 87). Round 154 served one empty frame
+  // from /api/events/term and put the app on the CONNECT SCREEN (connForm true, 5 text rows) whether the stream
+  // never ended or ended right after the frame; the cause was not found and the branch came out. Round 156 put it
+  // back, read the page errors instead of guessing, and it has served the connected state ever since — so the
+  // sentence that ended this paragraph ("with the stream shut, every panel measurement this harness has ever
+  // produced was taken in a reconnecting state") describes round 154, not this file. The history is kept because
+  // the symptom is worth recognising; the CONCLUSION is not, and a reader who takes it for the present tense will
+  // distrust a fixture that works.
   // ?sessions=N — and ZERO IS THE POINT. This list was a fixed three, so the panel's EMPTY state (a fresh
   // install, a device with nothing open) could not be rendered at all, and therefore had never been
   // measured by anything. That is the same shape as rounds 148-149's findings: a real state no sweep
