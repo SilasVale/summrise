@@ -472,7 +472,13 @@
   top: 50%;
   transform: translateY(-50%);
   display: none;
-  gap: 0;
+  /* 24px BETWEEN THE CENTRES, OR 2.5.8 IS NOT MET (2026-09-21). These two buttons are 22x22 and sat edge to edge
+     (`gap: 0`), so a 24px circle centred on one overlapped the other — the criterion's own spacing clause, which is
+     the half a compact UI usually satisfies. The failing state is HOVER-REVEALED, which is why nothing had measured
+     it: the target-size probe reads what is on screen, and `.side-actions` is `display: none` until the row is
+     hovered. It surfaced when the press pass began asking the DOM for every control and the pointer it parked kept
+     a session row hovered across the next navigation. 22 + 4 = 26px between centres, and the row is 232px wide. */
+  gap: var(--sp-1);
 }
 .side-row:hover .side-actions { display: flex; }
 .side-row:hover .side-time { visibility: hidden; }
