@@ -1340,3 +1340,49 @@ THE WHOLE PANEL SWEEP, RE-RUN ON THE DEVICE against the same harness: 106 surfac
 of them `span.approval-grant` or `span.nm-ico`, both already waived with reasons — and ZERO under AA in the hover pass
 of all four density/theme combinations. The ten false rows are gone and no new SVG row took their place: the icons'
 inherited strokes all clear 3:1, which is the thing round 93 was trying to find out.
+
+### THE PRESS PASS WAS MEASURING HOVERS (round 95)
+
+`pressPass` is the only instrument that can see whether a press reaches the screen. `feedback-check.mjs` proves an
+`:active` RULE exists; the judge fails a row whose before and during snapshots are identical. It took its "before"
+snapshot with the pointer PARKED AWAY from the control, so a sheet that answered `:hover` and had no press rule at all
+still produced a difference — the hover made it — and the row read `changed: true`.
+
+FOUND BY ASKING THE LANDING THE QUESTION DIRECTLY, because the landing is where it had to be asked: `.theme-toggle`
+has a `:hover` rule and NO `:active` rule. Measured on the device, both schemes:
+
+    light .theme-toggle 32x32  hoverChanges=[background,color]  pressAddsBeyondHover=[]  PRESS-ADDS-NOTHING
+    dark  .theme-toggle 32x32  hoverChanges=[background,color]  pressAddsBeyondHover=[]  PRESS-ADDS-NOTHING
+
+while `.btn-primary` (transform) and every link (opacity) DO add something beyond their hover on the same page. So the
+toggle was the one input on that surface that answered a hover and ignored a press, and BOTH gates missed it: the
+rendered pass for the reason above, and the sheet check because the landing's stylesheet is INLINE IN
+`index/src/page.js` — a third kind of file that `feedback-check.mjs` had never opened.
+
+THE FIX IN THE INSTRUMENT IS AN ORDER AND A BASELINE: hover, let the transition settle (260ms; the old pass waited
+80ms), read the baseline, press. The verdict is `pressDelta(hovered, pressed)` — pure, so it has a test, the same
+split `svgRootPaints` uses. It refuses layout properties, because a press that moves `width` re-lays-out the page every
+frame and counting it would let exactly the press `feedback-check.mjs` bans pass here.
+
+AND THE FIRST VERSION OF THE ASSERTION DID NOT BITE. It checked "hovered is read before mouse.down()" — which a probe
+that reads the baseline BEFORE the hover also satisfies, so the mutation restoring the resting anchor PASSED. That is
+the fifth time this ledger has recorded "a mutation that does not bite is evidence about the MUTATION first", and the
+first time the fix was to make the assertion STRONGER rather than to re-aim it: it now requires move < read < press,
+and fails with "the baseline is read BEFORE the hover (move@54245, hovered@54205) — that is the resting anchor this
+check exists for".
+
+RENDERED AFTER, ALL FOUR SURFACES, with the stricter anchor — nothing was hiding behind the old one except the toggle:
+
+    panel    4 surfaces   12 controls   DEAD 0   .rail-btn 38x38 · .tab 96x34 · .side-row 232x34 · .side-add 30x21
+    desktop  (same run)                        .desktop-rail-btn 40x40 · .dtab 90x36            all [transform]
+    console  6 surfaces   21 controls   DEAD 0   .rail-btn [transform,opacity] · .btn · .card-link [opacity] ·
+                                               .dev-mini · .btn-dashed 1052x42 · .rail-avatar  [transform]
+    landing  2 schemes     3 controls   the toggle now reports [transform]; .btn-primary and a unchanged
+
+THE THIRD SHEET IS NOW READ, and that is what makes the gap un-reopenable: `crop` takes the `<style>` block out of the
+module, a missing block is FATAL rather than a silent zero, and `.step` — a plain div with no handler, whose links are
+the real controls — is listed as not-pressable with that reason. The markup walk also reads `class="…"` in `.js` now,
+not only `className="…"` in `.tsx`, because the landing builds HTML strings and every landing variant was invisible to
+the variant exemption.
+
+Mutation: delete the landing's `:active` rule and the check fails with "landing: no :active for .theme-toggle:hover".
