@@ -246,3 +246,21 @@ green, but the panel's own fix for the live defect below has NOT been verified a
     the ink fix is still unverified as rendered. That is the first thing the next session should finish.
   * The live probe itself earned its place — it is the only instrument that measured the running panel, and it found a
     defect every gate was blind to. Wiring it into a repeatable flow is the second thing.
+
+### THE LOOP CLOSED: THE LIVE PROBE FOUND IT, AND THE LIVE PROBE CONFIRMED THE FIX
+
+The one open item from §8 is finished, end to end, with the same instrument at both ends:
+
+    BEFORE   live probe on d1 (1.2.437)  graphicFailing: ["span.ag-dot 2.56<3"]   BOTH densities
+    FIX      #approval-arm .ag-dot[data-state="off"]  --faint -> --muted
+    RENDERED ApprovalOff-light 4.83 (need 3) · ApprovalOff-dark 6.71 — the new sweep surface, on the device
+    SHIPPED  1.2.438: GitHub release + CDN asset, `vale status` on d1 reports "this device is current"
+    AFTER    live probe on d1 (1.2.438)  graphicFailing: []                        BOTH densities
+
+The rendered half needed a surface that had never existed, and writing it exposed one more small truth: the `?appr=off`
+flag changed nothing at first because `SESSIONS` is built by COPYING the seed (`Object.assign({}, SESSION, …)`), so
+mutating `SESSION` afterwards reached nothing the panel reads. That is the third time this session a fixture edit was
+right in shape and wrong in reach — the device run said so each time, which is what the device run is for.
+
+The probe is now a documented step of the release runbook in `AGENTS.md` (it needs a browser and a running panel, so it
+cannot be a CI job), with its finding written beside it as the reason it earns the step.

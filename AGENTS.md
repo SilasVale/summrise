@@ -170,6 +170,15 @@ vale update
 vale status
 ```
 
+**AND MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the
+HARNESS (a stubbed device, this checkout's bundle); nothing measured the live panel until
+`agent/scripts/live-panel-probe.mjs` was pointed at `127.0.0.1:18080` on d1 — and it found, on the first run,
+`span.ag-dot 2.56<3`: the approval gate's DISARMED ring used `--faint`, the exact ink round 101 replaced in its three
+sibling rings, in a rule the harness could not see because it only ever rendered the gate ARMED. The fix shipped in
+1.2.438 and the same probe then reported `graphicFailing: []` on both densities. It needs a browser and a running
+panel, so it cannot be a CI job: run it on the device after a `vale update` (emit with `--emit`, hand the script to the
+device's node or to `browser_run_script`).
+
 Two things that cost a device restart when ignored: **never launch a second `vale-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
 kill/copy the exe inline over a PTY** — use the npm flow above.
