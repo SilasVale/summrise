@@ -239,8 +239,11 @@ const CASES = [
     gate: "scripts/test/console-derivation-check.mjs",
     file: "gateway/ui/src/views/Overview.tsx",
     why: "a SECOND version comparison appears — a second verdict, where the device is the one that answers (round 175's rule)",
-    from: "? `v${st.version || d.lastVersion || \"?\"}`",
-    to: "? `v${d.lastVersion !== st.version ? \"outdated\" : st.version}`",
+    // anchored on the SHORTEST unambiguous span: the longer version of this anchor compared equal by eye and failed by
+    // machine, which is the invisible-character lesson this repository has recorded twice (a non-breaking space in a
+    // selector, a typographic quote in a message). The mutation is the same either way.
+    from: "d.lastVersion ||",
+    to: "d.lastVersion !== st.version ? \"outdated\" : d.lastVersion ||",
   },
 
 ];
