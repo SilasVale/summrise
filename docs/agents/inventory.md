@@ -554,7 +554,21 @@ the mock env on the test domain and sends a shipped-default origin, and the work
 SO THE FIRST STEP IS THE WORKER, NOT THE FIXTURES: thread `env` through those ~17 stamping call sites (every one of them
 is inside a function that already has `env`), and only then can a test run on a test domain at all. That is the third time
 this session has measured a plan's order to be backwards — round 41 (a push cancels the run measuring it), round 48 (the
-gateway's own defaults before its fixtures) and now this. THE CONCLUSION IS ABOUT THE TOOL, NOT THE
+gateway's own defaults before its fixtures) and now this.
+
+**ROUND 94 MIGRATED `cors.test.mjs` — the first file off the list — AND ROUND 95 MEASURED WHAT THE REST COST.** The four
+smallest remaining files were attempted together and ALL FOUR were reverted: each needs its own env key
+(`DEVICE_HOST_SUFFIX`) AND every mention moved, including the **escaped spellings inside regular expressions**
+(`/^https:\/\/d1\.agent\.<domain>\/panel\/\?grant=…$/`), which a plain-string pass misses entirely — the fourth time a
+mechanical shortcut has failed on this migration, and the second time this loop has run four files at once against its own
+advice.
+
+**WHAT THE REMAINING 14 FILES ACTUALLY COST, so the next round can decide rather than discover:** one careful round each —
+read the file, move every mention INCLUDING regex spellings, add its env keys, run the file alone, then the suite, then
+remove it from the list. That is ~14 rounds for a cleanup whose only product is a shorter allowlist and a tree that no
+longer advertises the deployment's hosts. IT IS HONESTLY A JUDGEMENT CALL WHETHER THAT IS THE BEST USE OF FOURTEEN ROUNDS
+against the objective's other open ends, and it is written down here so the call is made deliberately rather than by
+momentum. THE CONCLUSION IS ABOUT THE TOOL, NOT THE
 PLAN — **this file has ~20 cases with at least three different intents (configure / assert-the-default / assert-the-rule),
 and it needs one careful pass that reads each case, not a mechanical one that matches patterns.** It is a round of its own,
 and it keeps being deferred to the end of a long session, which is how it has been attempted three times and finished
