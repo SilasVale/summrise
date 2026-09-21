@@ -380,6 +380,12 @@ function buildHarness() {
   if (u.indexOf('/api/plugins/status') >= 0) {
     return Promise.resolve(J({ ok: true, playwright: {
       version: '1.56.0', core: '1.56.0', installed: true, browser: 'chromium-1187',
+      // THE ongoing DOT IS STILL UNRENDERED, AND THAT IS RECORDED RATHER THAN FORCED (round 26). Setting
+      // playwright.running here is the obvious one-line fixture — the hook maps it straight to the ongoing state —
+      // and it HUNG the sweep on the device: the plugins page polls while a browser is running, the page never
+      // settles, and the run produced no report at all. A fixture that changes what the page DOES is not the same
+      // as a fixture that changes what it SHOWS, so the gap stays open and named by the judge's mark-coverage note
+      // until somebody can render it without starting a poll loop.
       ready: true, downloads: [{ name: 'chromium', state: 'ready' }],
     } }));
   }
@@ -462,6 +468,11 @@ function buildHarness() {
     opRows.push(mk('browser', 1789000001600, 'action', { script: 'click', text: 'Login' }));
     opRows.push(mk('terminal', 1789000002000, 'command/start', { session: 'term-arch-1', seq: 9, command: 'vlan 100', intent: 'apply the change' }));
     opRows.push(mk('terminal', 1789000002200, 'command/end', { session: 'term-arch-1', seq: 10, exit_code: 1, duration_ms: 200 }));
+    // A COMMAND THAT NEVER ENDED (round 26). The card's state vocabulary has six values — running, ok, fail,
+    // backgrounded, interrupted, muted — and the sweep had only ever rendered THREE of them, so half the cmd-dot
+    // silhouettes were verified by nothing painted. A trailing command/start with no matching end is the panel's
+    // own definition of "running" (useCommandEvents: "surface it as a LIVE card"), and it is one line of fixture.
+    opRows.push(mk('terminal', 1789000002800, 'command/start', { session: 'term-arch-2', seq: 12, command: 'reboot', intent: 'pick up the new firmware slot' }));
     return Promise.resolve(J({
       cursor_ms: 1789000003000,
       events: opRows,

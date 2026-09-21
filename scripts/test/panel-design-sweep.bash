@@ -534,6 +534,36 @@ else
   bad "an entirely unused unstyled-by-design list went unmentioned: $(grep -c 'unstyled' "$TMP/unstyled-none.out") line(s)"
 fi
 
+# WHICH MARK STATES THE RUN RENDERED, AGAINST WHICH THE SHEET DECLARES (round 26). The collision check compares only
+# the states a surface happens to render, so a family with six declared states and three rendered has half its
+# silhouettes unverified. The note names the missing ones, with the counts. Planted both ways below: a report whose
+# families cover the sheet says nothing, and one that renders a subset names what no surface showed.
+python3 - "$TMP/clean.json" "$TMP/marks-partial.json" "$TMP/marks-full.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+def with_marks(fams):
+    r = json.loads(json.dumps(base))
+    r["surfaces"] = [{"density": "panel", "theme": "light", "page": "Terminal", "marks": {"families": fams}}]
+    return r
+# The sheet declares six cmd-dot states (bg, fail, muted, ok, running, warn); two rendered leaves four unverified.
+json.dump(with_marks(["cmd-dot[fail,ok]"]), open(sys.argv[2], "w"))
+json.dump(with_marks(["cmd-dot[fail,ok,muted,running,warn,bg]"]), open(sys.argv[3], "w"))
+PY
+node "$TOOL" --judge "$TMP/marks-partial.json" > "$TMP/marks-partial.out" 2>&1 || true
+# The states are listed in ONE comma-separated clause, so the state name is asserted on its own — the first
+# version of this case looked for it at the head of the list and failed while the note was saying exactly that.
+if grep -q "NO SURFACE RENDERED" "$TMP/marks-partial.out" && grep -q "data-state=running" "$TMP/marks-partial.out"; then
+  ok "a mark state no surface rendered is named, with the family and the count"
+else
+  bad "an unrendered mark state went unmentioned: $(grep -m1 'mark family' "$TMP/marks-partial.out" || echo none)"
+fi
+node "$TOOL" --judge "$TMP/marks-full.json" > "$TMP/marks-full.out" 2>&1 || true
+if grep -q "mark family cmd-dot" "$TMP/marks-full.out"; then
+  bad "a family rendering every declared state was still reported: $(grep -m1 'mark family' "$TMP/marks-full.out")"
+else
+  ok "and a family that rendered every declared state says nothing"
+fi
+
 # A BAND IS MEASURED AGAINST WHAT THE RUN SAW (round 23). A DECORATIVE entry waives a RATIO, not an element, so a
 # band wider than its evidence is a hole that leaves no trace: a drift toward the bar inside the band is waived
 # silently. The grant chip's band was 1.10-1.35 while the four ratios this suite has ever seen are 1.19-1.27 — and the

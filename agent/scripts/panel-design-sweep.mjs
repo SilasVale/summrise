@@ -1359,6 +1359,54 @@ function judge(file) {
   }
   if (coverage.length) console.error(`\n${coverage.join("\n")}`);
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
+  // WHICH MARK STATES THE RUN RENDERED, AGAINST WHICH THE SHEET DECLARES (round 26). The collision check compares
+  // the silhouettes of the states a surface HAPPENS to render, so a family with six declared states and three
+  // rendered has half its shapes unverified — and a collision among the unrendered half cannot be seen at all. This
+  // is the round-96 rule ("a state with no surface cannot be measured") applied to the whole mark vocabulary, which
+  // is the one place the objective asks for a silhouette PER STATE.
+  //
+  // A NOTE, with the counts, for the same reason the other three notes carry theirs: a run that measured one axis
+  // renders few families, and every state then looks unrendered.
+  {
+    const seenByFamily = new Map();
+    for (const s of report.surfaces || []) {
+      for (const entry of (s.marks && s.marks.families) || []) {
+        const m = /^([^[]+)\[([^\]]*)\]$/.exec(String(entry));
+        if (!m) continue;
+        if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
+        for (const st of m[2].split(",")) if (st) seenByFamily.get(m[1]).add(st);
+      }
+    }
+    const sheetPath = "agent/resources/panel/panel.css";
+    let css = "";
+    try {
+      css = readFileSync(sheetPath, "utf8");
+    } catch (e) {
+      css = "";
+    }
+    if (css) {
+      // COMMENTS FIRST, so prose about a selector is not read as one (the lesson `css-vars-check` and
+      // `retired-colours-check` both record from their own first runs).
+      css = css.replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const [family, rendered] of seenByFamily) {
+        const declared = new Set();
+        const re = new RegExp("\\." + family.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\[[^\\]]+\\]|\\.[A-Za-z][\\w-]*)", "g");
+        let m;
+        while ((m = re.exec(css))) {
+          const sel = m[1];
+          if (sel.startsWith("[")) declared.add(sel.slice(1, -1).replace(/"/g, ""));
+          else declared.add(sel.slice(1));
+        }
+        const missing = [...declared].filter((d) => !rendered.has(d) && !rendered.has(d.replace(/^data-(state|live|kind)=/, "")));
+        if (missing.length) {
+          console.log(
+            `note: mark family ${family} declares ${declared.size} state(s) and this run rendered ${rendered.size} (${[...rendered].sort().join(", ") || "none"}) over ${(report.surfaces || []).length} surface(s) — NO SURFACE RENDERED ${missing.join(", ")}, so those silhouettes and their collisions are unverified`,
+          );
+        }
+      }
+    }
+  }
+
   // HOW WIDE IS A BAND, MEASURED AGAINST WHAT THE RUN SAW (round 23). A DECORATIVE entry waives a RATIO, not an
   // element (round 95), and the band is what decides: a row inside it is set aside, a row outside it is a finding.
   // The failure that leaves no trace is the opposite direction — a band WIDER than its evidence excuses a drift
