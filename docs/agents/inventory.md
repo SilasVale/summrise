@@ -563,7 +563,14 @@ smallest remaining files were attempted together and ALL FOUR were reverted: eac
 mechanical shortcut has failed on this migration, and the second time this loop has run four files at once against its own
 advice.
 
-**WHAT THE REMAINING 14 FILES ACTUALLY COST, so the next round can decide rather than discover:** one careful round each —
+**ROUND 110 MIGRATED THE SECOND FILE, AND THE KNOT WAS THE ONE ROUND 94 NAMED.** `device-probe.test.mjs` has ONE mention —
+its device hostname — and no env of its own: it calls `cachedDeviceProbe({}, dev(name))`, passing an EMPTY object in the env
+position, so the hostname could only ever match the DEFAULT suffix. Fifteen call sites now pass an env declaring
+`.agent.vale.test`, the host moved, the file is green on its own and the suite is 917/0 — and the second file left the
+declared list. The lesson is the same one a 502 taught in round 94: a device hostname and the rule that decides what a
+device hostname may be are ONE fixture, and moving half of it is what fails.
+
+**WHAT THE REMAINING 13 FILES ACTUALLY COST, so the next round can decide rather than discover:** one careful round each —
 read the file, move every mention INCLUDING regex spellings, add its env keys, run the file alone, then the suite, then
 remove it from the list. That is ~14 rounds for a cleanup whose only product is a shorter allowlist and a tree that no
 longer advertises the deployment's hosts. IT IS HONESTLY A JUDGEMENT CALL WHETHER THAT IS THE BEST USE OF FOURTEEN ROUNDS

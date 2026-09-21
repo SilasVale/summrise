@@ -10,14 +10,17 @@ import assert from "node:assert/strict";
 import { cachedDeviceProbe } from "../src/plugins/mcp.ts";
 import { withFetch, assertFetchCalls } from "./helpers.mjs";
 
-const dev = (name) => ({ name, hostname: "d1.agent.saisi.online", token: "tok-device-1" });
+// THIS FILE RUNS ON A TEST DOMAIN (round 110), which is what makes the probe's own hostname rule part of the fixture: the
+// device host below is only acceptable because the env says so, and that pairing is the one round 94 paid a 502 to learn.
+const ENV = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
+const dev = (name) => ({ name, hostname: "d1.agent.vale.test", token: "tok-device-1" });
 const statusJson = (obj) =>
   new Response(JSON.stringify(obj), { status: 200, headers: { "content-type": "application/json" } });
 
 test("tunnel down (fetch throws) → tunnel/agent false, no version", async () => {
   const p = await withFetch(async () => {
     throw new TypeError("fetch failed");
-  }, () => cachedDeviceProbe({}, dev("r31-down")));
+  }, () => cachedDeviceProbe(ENV, dev("r31-down")));
   assert.equal(p.tunnel, false, "round-101: unreachable tunnel must read false");
   assert.equal(p.agent, false);
   assert.equal(p.version, undefined);
@@ -37,7 +40,7 @@ test("the device's OWN update verdict is forwarded, and its absence is survivabl
       }
       return statusJson({ release: "1.2.436" });
     },
-    () => cachedDeviceProbe({}, dev("r29-verdict")),
+    () => cachedDeviceProbe(ENV, dev("r29-verdict")),
   );
   assert.deepEqual(
     withVerdict.update,
@@ -48,7 +51,7 @@ test("the device's OWN update verdict is forwarded, and its absence is survivabl
 
   const withoutVerdict = await withFetch(
     async (url) => (String(url).includes("/api/update") ? new Response("nope", { status: 404 }) : statusJson({ release: "1.2.436" })),
-    () => cachedDeviceProbe({}, dev("r29-noverdict")),
+    () => cachedDeviceProbe(ENV, dev("r29-noverdict")),
   );
   assert.equal(withoutVerdict.update, undefined, "an agent without /api/update leaves the field absent");
   assert.equal(withoutVerdict.agent, true, "and the probe still reports the device as up");
@@ -57,14 +60,14 @@ test("the device's OWN update verdict is forwarded, and its absence is survivabl
     async () => {
       throw new TypeError("fetch failed");
     },
-    () => cachedDeviceProbe({}, dev("r29-down")),
+    () => cachedDeviceProbe(ENV, dev("r29-down")),
   );
   assert.equal(down.update, undefined, "a down device costs one call and carries no verdict");
 });
 
 test("tunnel up, agent down (HTTP error, no unreachable shape) → split verdict", async () => {
   const p = await withFetch(async () => new Response("bad", { status: 500 }), () =>
-    cachedDeviceProbe({}, dev("r31-agentdown")),
+    cachedDeviceProbe(ENV, dev("r31-agentdown")),
   );
   assert.equal(p.tunnel, true, "an HTTP answer proves the tunnel");
   assert.equal(p.agent, false);
@@ -72,7 +75,7 @@ test("tunnel up, agent down (HTTP error, no unreachable shape) → split verdict
 
 test("healthy device: agent+tunnel true, npm release preferred, version fallback", async () => {
   const rel = await withFetch(async () => statusJson({ release: "1.2.307", version: "1.0.145" }), () =>
-    cachedDeviceProbe({}, dev("r31-rel")),
+    cachedDeviceProbe(ENV, dev("r31-rel")),
   );
   assert.equal(rel.agent, true);
   assert.equal(rel.tunnel, true);
@@ -80,11 +83,11 @@ test("healthy device: agent+tunnel true, npm release preferred, version fallback
   assert.ok(typeof rel.checkedAt === "number" && rel.checkedAt > 0);
 
   const leg = await withFetch(async () => statusJson({ version: "1.0.140" }), () =>
-    cachedDeviceProbe({}, dev("r31-leg")),
+    cachedDeviceProbe(ENV, dev("r31-leg")),
   );
   assert.equal(leg.version, "1.0.140", "pre-release agents fall back to version");
 
-  const bare = await withFetch(async () => statusJson({}), () => cachedDeviceProbe({}, dev("r31-bare")));
+  const bare = await withFetch(async () => statusJson({}), () => cachedDeviceProbe(ENV, dev("r31-bare")));
   assert.equal(bare.agent, true);
   assert.equal(bare.version, undefined, "no version fields → absent, not fabricated");
 });
@@ -94,12 +97,12 @@ test("30s cache: repeat probe makes no second fetch; fresh=1 bypasses", async ()
   // is about is unchanged — a REPEAT probe must make no call at all, and `fresh=1` must make a full one — so the
   // numbers moved from 1/2 to 2/4 rather than the assertion being loosened to "at least one".
   await withFetch(async () => statusJson({ release: "1.2.307" }), async () => {
-    const a = await cachedDeviceProbe({}, dev("r31-cache"));
-    const b = await cachedDeviceProbe({}, dev("r31-cache"));
+    const a = await cachedDeviceProbe(ENV, dev("r31-cache"));
+    const b = await cachedDeviceProbe(ENV, dev("r31-cache"));
     assert.equal(a.version, "1.2.307");
     assert.equal(b.version, "1.2.307");
     assertFetchCalls(2, "round-98: second poll served from cache (status + update for the FIRST one only)");
-    await cachedDeviceProbe({}, dev("r31-cache"), true);
+    await cachedDeviceProbe(ENV, dev("r31-cache"), true);
     assertFetchCalls(4, "fresh bypasses the read (console check-now)");
   });
 });
@@ -114,7 +117,7 @@ test("a crashed last run is carried; a replaced one is dropped", async () => {
     "run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s";
   const crashed = await withFetch(
     async () => statusJson({ release: "1.2.367", last_boot: crashLine, last_boot_kind: "crashed" }),
-    () => cachedDeviceProbe({}, dev("r256-crash")),
+    () => cachedDeviceProbe(ENV, dev("r256-crash")),
   );
   assert.equal(crashed.lastBootKind, "crashed");
   assert.equal(crashed.lastBoot, crashLine, "the device's own sentence rides along for the hover");
@@ -122,7 +125,7 @@ test("a crashed last run is carried; a replaced one is dropped", async () => {
   for (const kind of ["replaced", "clean-exit", "first-run", "machine-restart"]) {
     const p = await withFetch(
       async () => statusJson({ last_boot: "run journal: something", last_boot_kind: kind }),
-      () => cachedDeviceProbe({}, dev(`r256-${kind}`)),
+      () => cachedDeviceProbe(ENV, dev(`r256-${kind}`)),
     );
     assert.equal(p.lastBootKind, undefined, `${kind} must not decorate a fleet row`);
     assert.equal(p.lastBoot, undefined);
@@ -131,13 +134,13 @@ test("a crashed last run is carried; a replaced one is dropped", async () => {
   // A crash with no sentence: no kind either. The console keys its mark on the kind and
   // hangs the sentence on it, so a kind alone would render a mark nobody can interrogate.
   const mute = await withFetch(async () => statusJson({ last_boot_kind: "crashed" }), () =>
-    cachedDeviceProbe({}, dev("r256-mute")),
+    cachedDeviceProbe(ENV, dev("r256-mute")),
   );
   assert.equal(mute.lastBootKind, undefined, "no sentence → nothing to show");
 
   // And a device too old to send either field: absent, never fabricated.
   const legacy = await withFetch(async () => statusJson({ release: "1.2.366" }), () =>
-    cachedDeviceProbe({}, dev("r256-legacy")),
+    cachedDeviceProbe(ENV, dev("r256-legacy")),
   );
   assert.equal(legacy.lastBootKind, undefined);
 });
