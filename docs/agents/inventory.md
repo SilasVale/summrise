@@ -360,3 +360,30 @@ one look at the sweep's fetch handler, not another hypothesis hunt.
 AND A CORRECTION TO THIS LOOP'S OWN READING: the note says "over **56** surface(s)" here and "136" in the panel's log —
 the two sweeps have different surface counts, and rounds 52-57 quoted the panel's number as if it were the console's.
 The console's is the one this item lives in.
+
+## 11. The panel's two remaining gaps, and the two surfaces that did NOT close them
+
+The last green design job (136 panel surfaces) still reports:
+
+    mark family boot-mark declares 1 state(s) and this run rendered 1 (warn) — NO SURFACE RENDERED info
+    mark family plug-dot declares 4 state(s) and this run rendered 2 (success, warn) — NO SURFACE RENDERED error, ongoing
+
+**BOTH SURFACES ALREADY EXIST AND NEITHER WORKED**, which is the finding: round 36 added `?boot=replaced` (the harness
+reports `last_boot_kind: 'replaced'` with `uptime_secs: 90`, which is what `bootNotice` needs to say "just restarted") and
+round 42 added `?pwstart=fail` (the plugin card's Start POST answers 500, and `callApi` throws on that, which is what sets
+`actionError`). Both were pinned in `harness-fixture-check` so the FIXTURE cannot rot — and a pinned fixture that does not
+reach the surface is exactly the gap that pin cannot see.
+
+THE TWO CANDIDATES, both the same class the console just paid ten rounds for (a fixture that says something nothing
+hears):
+
+  * `boot-mark`: the harness sets `last_boot_kind` on **`/api/status`**, and the panel's chip may read the boot verdict
+    from a DIFFERENT answer (`/api/boots` or the vitals payload). One grep of `useAgentVitals` decides it — and the
+    contract vocabulary added in round 44 makes the field NAME checkable, not the endpoint it arrives on.
+  * `plug-dot error`: the sweep clicks a button found by a GUESSED selector
+    (`[class*="plugin"]` + text match), and the playwright card's controls may not match it. The fix is to read the
+    component's actual markup rather than to widen the guess — the same lesson round 57 taught about fixture keys.
+
+Both are one look each, and both are worth the same discipline the console's `prov-dot` got: find out which of the two
+the fixture is failing to say, fix THAT, and let the rendered axis confirm. `plug-dot ongoing` stays out of reach for a
+different reason (a running playwright starts the poll loop that hangs a sweep, recorded in round 26).
