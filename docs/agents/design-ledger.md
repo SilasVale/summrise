@@ -2783,3 +2783,16 @@ and running it found TWO MORE bugs of mine, both in the audit rather than in any
 
 TEN OF TEN BITE. And the shape of this round is worth naming: an audit that runs on every push keeps finding bugs — in
 itself, so far — because it is the only artifact in the suite whose subject is the OTHER artifacts.
+
+ROUND 107 PAID THE ONE DEBT IT RECORDED, AND THE DEBT WAS IMAGINARY. `sweep-fixture-dupes-check` was left out because its
+mutation "needs a two-key shape this list cannot express" — and the anchor that made it look that way was the multi-line
+`/api/health` block. A fixture key that sits on ONE line (`'/api/version': { version: '1.0.106' },`) duplicates in place with
+a plain from/to replacement, and the gate bites:
+
+    ok  sweep-fixture-dupes  a sweep's fixture table answers one endpoint TWICE,
+                             so the last key silently wins and a page renders what nobody meant it to
+    → 11 broken on purpose, every one bit
+
+That is round 104's lesson one step EARLIER in the process. There, a mutation that did not bite was aimed at the wrong
+text; here, the wrong text made me conclude the TOOL could not express a mutation it expresses perfectly. Both are the same
+act — deciding something about an artefact without reading it — and both cost a round.
