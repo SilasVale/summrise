@@ -39,14 +39,20 @@ const deviceSide = [
   .map((f) => readFileSync(f, "utf8"))
   .join("\n");
 
+/** THE MODULES WHOSE ANSWERS COME FROM A DEVICE, named because the alternative was measured and is wrong (round 123).
+ *
+ *  The obvious widening — walk every TypeScript file under the gateway's sources — reported 35 fields, and reading them settled it: `tool_use_id`, `media_type`, `max_tokens`, `prompt_tokens`, `cache_read_input_tokens` are the vocabulary of the UPSTREAM LLM PROVIDERS
+ *  (Anthropic, OpenAI, the relays), not of the agent. Three vocabularies share one field syntax, which is the same lesson
+ *  `one-derivation-check`'s first run taught about four vocabularies sharing a word: a broad pattern does not become a rule
+ *  by matching more.
+ *
+ *  So the list stays, and this is the reason it is short: these are the files that read the AGENT's own answers, and the
+ *  rule — every field must be spelled by the agent's Rust or a shared fixture — is about that end of the wire only. */
 const consumers = [
   "gateway/src/plugins/mcp.ts",
   "gateway/src/device-fetch.ts",
   "gateway/src/plugins/devices.ts",
 ];
-
-let reads = 0;
-const missing = [];
 for (const rel of consumers) {
   const text = readFileSync(join(ROOT, rel), "utf8");
   const seen = new Set();
@@ -81,4 +87,7 @@ if (missing.length) {
   );
   process.exit(1);
 }
-console.log(`gateway-device-field: ${reads} device field(s) read by the gateway, every one spelled by the agent or a fixture`);
+console.log(
+  `gateway-device-field: ${reads} device field(s) read across ${consumers.length} gateway module(s), every one spelled by ` +
+    `the agent or a fixture`,
+);
