@@ -78,6 +78,10 @@ for (const f of files(PANEL)) {
   if (SHARED_WORDS[rel]) continue;
   const lines = readFileSync(f, "utf8").split("\n");
   lines.forEach((line, i) => {
+    // COMMENTS ARE NOT DERIVATIONS (round 136), the same rule the mark clause below already applied to itself. Without it,
+    // a comment that QUOTES the pattern — which is how this file and the ledger explain the rule — is reported as a second
+    // derivation, and a gate that flags its own documentation is the kind that gets turned off.
+    if (line.trimStart().startsWith("//")) return;
     // a comparison or a switch case against an ending — the shape a second derivation takes
     for (const r of REASONS) {
       if (new RegExp(`[=!]==?\\s*"${r}"|case\\s+"${r}"\\s*:`).test(line)) {

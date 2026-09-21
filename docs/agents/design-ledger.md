@@ -2873,3 +2873,27 @@ SO THIS LINE IS VERIFIED RATHER THAN CHANGED, which is the honest outcome for a 
 derivation and finds none: the check existed, the rule was written at the point of derivation, and the three surfaces
 consume one value. Nothing to fix; one thing to record, because "we looked and it is clean" is a fact the next round should
 not have to re-establish.
+
+### WHICH GATES READ COMMENTS, AND WHICH DO SO ON PURPOSE (round 136)
+
+Round 135 found that all three field gates matched raw text, so a COMMENT could satisfy them — measured with a field carried
+by the harness, read by a hook, and mentioned in one `//` line of a Rust source: rc=0. That direction is a FALSE NEGATIVE
+(a requirement met by prose), and it is the dangerous one. This round measured the same property across the rest:
+
+    gate                        strips comments?   the direction of the risk, and the decision
+    wire-field family           YES (decomment)   was a false negative — fixed in round 135
+    console-wire-field family   YES (decomment)   same
+    gateway-device-field        YES (decomment)   same
+    one-derivation (endings)    NOW               a comment quoting the pattern was a FALSE POSITIVE; fixed here
+    one-derivation (mark states) already did      the clause was written with the skip
+    session-row                 no                flags a comment as an offender (noise) and can pad its own floor.
+                                                   Low risk in both directions; left, and recorded rather than assumed
+    production-host             NO, ON PURPOSE   a comment that spells the deployment's host is EXACTLY what this gate
+                                                   should flag: the rule applies to the record about the rule. Proven on
+                                                   this session's own inventory, which the gate refused until its notes
+                                                   stopped quoting the hosts
+    contract-vocabulary         no                counts occurrences in generated artifacts and Rust; a comment there
+                                                   would inflate a count rather than satisfy a check
+
+The lesson is the same one this objective keeps re-learning one layer down: a rule that matches TEXT is not yet a rule about
+the thing the text describes, and the fix is to decide, per gate and in writing, which direction of error is tolerable.
