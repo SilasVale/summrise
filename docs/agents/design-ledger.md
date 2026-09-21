@@ -2810,3 +2810,21 @@ which cost four lines of runner and closed the debt:
     ok  wire-field  a field a fixture carries and NO producer sends — it renders in the harness
                     and would be undefined on a device
     → 12 gate/branch pairs broken on purpose, every one bit
+
+### THE WIRE-FIELD RULE REACHES THE PRODUCER ON BOTH FRONT ENDS (rounds 108, 122)
+
+`wire-field-check` (the panel) accepted a field that "the harness or a fixture speaks" until round 108, when the rule was
+tightened to require a PRODUCER — the agent's Rust or the gateway. A field that exists only in a stub is the `prov-dot` /
+`verdict:` class this objective paid for twice, and after the tightening all 26 fields the panel's five parsers read are
+spelled by something that SENDS them.
+
+Round 122 did the same to the console, whose version accepted "the gateway or a fixture" — and its fixtures are the render
+smokes and the console sweep, which is exactly where a field can look real and answer `undefined` in production. Measured
+after: all 7 fields the console's twenty modules read come from `gateway/src` itself.
+
+AND THE TIGHTENING IS PROVEN, which the old mutation could not do: the audit's original console case planted a field
+NOTHING carries, so both the loose and the strict rule caught it. The new case plants one in the SWEEP's `/api/devices`
+payload and reads it in `DevicesPanel` — the fixture carries it, no producer does — and that case passes under the old rule
+and fails under this one. It needed the audit's multi-file `also`, added in round 109 for exactly this kind of debt.
+
+    → 13 gate/branch pairs broken on purpose, every one bit
