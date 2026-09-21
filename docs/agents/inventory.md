@@ -214,3 +214,35 @@ live gateway.
 |---|---|
 | `D:\Vale\vale-agent.yaml.bad` — **17,140,736 bytes whose first two bytes are `4D 5A` ("MZ")**: it is a Windows EXECUTABLE named as if it were a config file, dated 2026-09-10. Whatever quarantined it wrote a name that lies about what it holds. **DELETED 2026-09-21** (`Test-Path` false afterwards). | `[measured]` on d1 |
 | `C:\ProgramData\Vale\mcp_diag.log` (168,620 bytes) sat at the **pre-layout-v2** location while the live writer uses `C:\ProgramData\Vale\logs\mcp_diag.log` — a migration leftover that would never be appended again. **DELETED 2026-09-21.** | `[measured]` on d1: D: free 104,316.2 MB → 104,332.5 MB, live logs untouched |
+
+---
+
+## 8. What came of acting on it (2026-09-21, later the same day)
+
+Fixed and pushed, each with its own measurement — CI green at every push except where noted:
+
+| finding | what changed |
+|---|---|
+| 5.1 one backgrounded command wearing two states | `stateFromEnd` is THE derivation, in `lib/path.ts`; `cardState` is an adapter over it; the trajectory's private copy is gone; the `lib → component` import inversion went with it. Mutation: restoring the old mapping fails the new test |
+| 5.3 the desktop strip's accessible name | it uses the disambiguated label now, as the panel has since round 167. Mutation: restoring `s.label` fails it with `[null,null]` |
+| 3.7 the update verdict computed twice | the gateway forwards the device's own `/api/update` answer (one extra call, only when the status call answered); the console prefers it and keeps the comparison as the degraded path. Both directions pinned in the devices render smoke: d1 badged though its KV version matches, d2 unbadged though its KV version is older (it is pinned) |
+| 5.5 the hook's missing arms | `panel console landing` + the live probe; header says six, not four. Mutation: a backtick in the landing emitter makes the hook exit 1 |
+| 5.7 the release test blaming the wrong thing | it snapshots the tree and compares, instead of requiring a clean checkout. Mutation: appending a line to a tracked file fails it with the diff |
+| 5.2, and half of 5.5 | **WITHDRAWN** — nothing polls (the 2 s figure came from a stale comment), and the live probe checks its own emitted text |
+| §7's two device leftovers | deleted (17.1 MB + 168 KB), live logs untouched |
+| §7's Q1 (which tools clients call) | the incoming MCP server names the tool and the outcome now; the access log names every request. Both were unmeasurable from the device, which is why three questions sat open |
+| the panel job that failed with 804 passing tests | a frame polyfill in `test-setup.ts`; the flake never reproduced locally in eight runs, so the fix is a construction argument and CI is the measurement |
+
+**AND THE ONE THING STILL OPEN, recorded so it is not mistaken for done.** The console's device badge change reached CI
+green, but the panel's own fix for the live defect below has NOT been verified as rendered:
+
+  * `#approval-arm .ag-dot[data-state="off"]` used `var(--faint)` — 2.56:1 on the light surface, the exact ratio
+    `tokens.css` records against `--state-muted` for the three sibling rings fixed in round 101. **THIS RULE WAS
+    MISSED**, and the live-panel probe is what found it: the harness only ever rendered the gate ARMED, so the off state
+    had no surface, and no gate looked at ring ink. The token is changed to `var(--muted)`.
+  * The harness gained `?appr=off` and the sweep an `ApprovalOff-<theme>` surface so it is photographed every run —
+    **and that surface does not yet render the disarmed state** (measured on the device afterwards: all 34 `ag-dot`
+    rows are still the armed fill, 3.83 light / 3.23 dark). The flag reaches the fixture but not the gate's state, so
+    the ink fix is still unverified as rendered. That is the first thing the next session should finish.
+  * The live probe itself earned its place — it is the only instrument that measured the running panel, and it found a
+    defect every gate was blind to. Wiring it into a repeatable flow is the second thing.
