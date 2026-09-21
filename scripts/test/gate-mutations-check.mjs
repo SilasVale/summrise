@@ -246,6 +246,14 @@ const CASES = [
     to: "d.lastVersion !== st.version ? \"outdated\" : d.lastVersion ||",
   },
 
+  {
+    gate: "scripts/test/console-assets-check.mjs",
+    file: "gateway/public/index.html",
+    why: "a committed asset no longer matches the source — the round-177 inconsistency, reproduced in the smallest way",
+    from: "index-",
+    to: "index-STALE-",
+  },
+
 ];
 
 const run = (cmd, args) => {

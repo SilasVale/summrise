@@ -595,6 +595,11 @@ jobs:
       # round 78; the console had nothing, and round 172 found the prefix rule written nine times with two behaviours.
       - name: the console's derivations have one home each
         run: node scripts/test/console-derivation-check.mjs
+      # A CONSOLE SOURCE CHANGE OWES ITS BUILT ASSETS (round 178 of the standing goal). They are tracked, hashed and referenced
+      # by index.html; rounds 172-173 changed the source and left them stale, and nothing noticed. This rebuilds and requires
+      # that nothing git tracks changed.
+      - name: the console's committed assets match its source
+        run: node scripts/test/console-assets-check.mjs
       - name: every gate is broken on purpose and bites
         run: node scripts/test/gate-mutations-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
