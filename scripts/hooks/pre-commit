@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pre-commit — refuse a commit whose EMITTED scripts do not parse.
 #
-# WHY THIS EXISTS (round 225). Four emitters in this repository build a standalone script for the device inside
+# WHY THIS EXISTS (round 225). Six emitters in this repository build a standalone script for the device inside
 # a template literal, and a backtick anywhere inside that literal ends it early — the emitted file then stops
 # parsing somewhere in the middle of 30 KB. That has happened THIRTY-FOUR times in this project, and in the last
 # six of them the failing check was already on screen: `emit=1`, and the commit made anyway. CI caught every one
@@ -29,7 +29,12 @@ if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
 fi
 
 fail=0
-for f in panel console; do
+# SIX EMITTERS, NOT FOUR (round 29 of the standing goal). The audit pointed out that this loop covered panel, console,
+# the harness and the probe — while `landing-design-sweep.mjs` (a real emitter: a 72 KB script for the device) and
+# `live-panel-probe.mjs` were checked only by CI, or by nobody until somebody ran them. Both take `--emit`, both exit 0
+# on success, and the probe carries its OWN parse guard (it was the last of the five to get one), so the hook's job is
+# only to run them — which is what "the check is the emitter's own guard, not a copy of it" has always meant here.
+for f in panel console landing; do
   if ! node "agent/scripts/$f-design-sweep.mjs" --emit >/dev/null 2>/tmp/vale-hook-$f.err; then
     echo "pre-commit: the $f sweep does not emit — $(tail -1 /tmp/vale-hook-$f.err 2>/dev/null)" >&2
     fail=1
@@ -44,6 +49,12 @@ done
 node agent/scripts/panel-render-audit.mjs >/dev/null 2>/tmp/vale-hook-audit.err; rc=$?
 if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
   echo "pre-commit: the harness emitter exited $rc — $(tail -1 /tmp/vale-hook-audit.err 2>/dev/null)" >&2
+  fail=1
+fi
+
+# The live-panel probe emits a script for the device too, and its own guard throws on a bad parse.
+if ! node agent/scripts/live-panel-probe.mjs --emit >/dev/null 2>/tmp/vale-hook-live.err; then
+  echo "pre-commit: the live-panel probe does not emit — $(tail -1 /tmp/vale-hook-live.err 2>/dev/null)" >&2
   fail=1
 fi
 
