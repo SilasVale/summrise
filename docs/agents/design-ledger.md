@@ -2772,3 +2772,14 @@ skip, because that is exactly how the mutation and the predicate it is paired wi
 AND IT FOUND A BUG IN ITSELF ON THE FIRST RUN, which is the same lesson one level up: the harness emitter exits **2 on
 success** ("rc=2 (2=ok)", the convention every caller of it prints), so reading its exit code as pass/fail killed the audit
 on the single case that has to re-emit. The wrapper accepts 2 now.
+
+ROUND 106 EXTENDED IT TO TEN — the declared-hosts list (planting the deployment's host back into the file that just came
+off it, which is the regression a shrinking list can suffer) and `build-pins` (deleting a gate's invocation from ci.yml) —
+and running it found TWO MORE bugs of mine, both in the audit rather than in any gate:
+
+  * a placeholder object in the CASE list was an entry the loop cannot run (no file), and it crashed the run;
+  * every `gate` was fed to `node`, so `build-pins.bash` came back red BEFORE any mutation and the audit printed "the tree
+    must be green" — a true sentence about a false premise. The runner follows the file's extension now.
+
+TEN OF TEN BITE. And the shape of this round is worth naming: an audit that runs on every push keeps finding bugs — in
+itself, so far — because it is the only artifact in the suite whose subject is the OTHER artifacts.
