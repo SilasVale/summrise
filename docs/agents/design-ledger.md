@@ -2796,3 +2796,17 @@ a plain from/to replacement, and the gate bites:
 That is round 104's lesson one step EARLIER in the process. There, a mutation that did not bite was aimed at the wrong
 text; here, the wrong text made me conclude the TOOL could not express a mutation it expresses perfectly. Both are the same
 act — deciding something about an artefact without reading it — and both cost a round.
+
+ROUND 108 TIGHTENED THE RULE AND ROUND 109 PROVED IT. `wire-field-check` used to accept a field that "the harness or a
+fixture speaks", which is the TEST side — and a field that exists only there is exactly the `prov-dot`/`verdict:` class this
+session paid for twice. It now requires the name in something that SENDS it (the agent's Rust or the gateway), and measured:
+all 26 fields the panel's five parsers read have producers, so none of them renders only in a stub.
+
+That new branch was owed one round of proof rather than assumed, for a stated reason: exercising it needs a field planted in
+a hook AND in the harness while absent from every Rust and TypeScript source, and the audit's mutations edited one file
+each. Round 109 gave a case an optional `also` list — applied with the primary, restored with it in the same `finally` —
+which cost four lines of runner and closed the debt:
+
+    ok  wire-field  a field a fixture carries and NO producer sends — it renders in the harness
+                    and would be undefined on a device
+    → 12 gate/branch pairs broken on purpose, every one bit
