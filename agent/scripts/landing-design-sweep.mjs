@@ -16,6 +16,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { markCoverageNotes } from "./lib/design-sweep.mjs";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
 import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
@@ -201,6 +202,12 @@ function judge(file) {
   }
   const check = report.entryCheck || {};
   if (check.stale) findings.push(`the delivered entry is ${check.bytes} bytes / sha ${check.sha} but this sweep was emitted against ${check.expected && check.expected.bytes} / ${check.expected && check.expected.sha} — every measurement below is of a stale build`);
+  // THE STATES THIS SHEET DECLARES AND THIS RUN NEVER PAINTED (round 51 of the standing goal), the third and last
+  // surface to get the queue the panel has had since round 32. The landing's styles are not a sheet of their own: they
+  // are a `<style>` block inside `index/src/page.js`, so they are cropped out of the module — the same extraction
+  // `feedback-check.mjs` and `landing-check.mjs` already use, and it THROWS rather than measuring an empty string,
+  // because a note about zero declared families reads exactly like a clean surface.
+  for (const line of markCoverageNotes(landingStyles(), report)) console.log(line);
   console.log(reportSummary("landing", report));
   if (!findings.length) {
     console.log("landing design sweep OK: nothing above found a defect");
