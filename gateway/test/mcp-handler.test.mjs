@@ -14,12 +14,15 @@ import { handleMcp } from "../src/mcp.ts";
 import { __clearCaches } from "../src/store.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
-const DEVICE = { name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" };
+// The device hosts and the rule that accepts them are ONE fixture (round 117); the env declares it below.
+const ENV_EXTRA = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
+const DEVICE = { name: "d1", hostname: "d1.agent.vale.test", token: "devtok" };
 
 // admin: token:admintoken → admin (role admin); bob: token:usertoken → bob (role user)
 // Shared Map-KV stub (helpers.mjs) seeded with this file's MCP base.
 function makeEnv() {
   return makeBaseEnv({
+    extra: ENV_EXTRA,
     devices: [DEVICE],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
@@ -68,6 +71,7 @@ test("mcp: valid token but non-admin role → 401", async () => {
 
 test("mcp: disabled admin token → 401 (enabled check, cf. translate/session gates)", async () => {
   const env = makeBaseEnv({
+    extra: ENV_EXTRA,
     devices: [DEVICE],
     users: {
       // Distinct id/token: store.ts caches token→user module-wide.
@@ -173,7 +177,7 @@ test("mcp: tools/call terminal_execute → device /api/tools/terminal_execute wi
     // No gateway heartbeat since round-54: the agent's execute wait-loop
     // pings the session itself, so each execute is exactly ONE device fetch.
     assert.equal(calls.length, 2);
-    assert.equal(calls[0].url, "https://d1.agent.saisi.online/api/tools/terminal_execute");
+    assert.equal(calls[0].url, "https://d1.agent.vale.test/api/tools/terminal_execute");
     assert.deepEqual(JSON.parse(calls[0].init.body), {
       command: "ls -la",
       session_id: "s-1",
@@ -198,9 +202,10 @@ test("mcp: tools/call unknown device → -32602 listing registered devices (roun
   // the listing error only fires when several devices exist.
   __clearCaches();
   const env = makeBaseEnv({
+    extra: ENV_EXTRA,
     devices: [
-      { name: "d1", hostname: "d1.agent.saisi.online", token: "t1" },
-      { name: "d2", hostname: "d2.agent.saisi.online", token: "t2" },
+      { name: "d1", hostname: "d1.agent.vale.test", token: "t1" },
+      { name: "d2", hostname: "d2.agent.vale.test", token: "t2" },
     ],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
@@ -777,6 +782,7 @@ test("mcp: tools/call unknown tool → -32602 without touching the network", asy
 
 test("mcp: tools/call with no devices registered → -32602 guidance (not a dial)", async () => {
   const env = makeBaseEnv({
+    extra: ENV_EXTRA,
     devices: [],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
@@ -854,7 +860,7 @@ test("mcp: omitted device with exactly one registered executes on it (round-160 
       env,
     );
     assert.equal(res.status, 200);
-    assert.equal(dialed, "https://d1.agent.saisi.online/api/tools/terminal_list");
+    assert.equal(dialed, "https://d1.agent.vale.test/api/tools/terminal_list");
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -886,7 +892,8 @@ test("mcp: typo'd device with one registered → Unknown device, never executes 
 
 test("mcp: omitted device with several registered names them (round-398)", async () => {
   const env = makeBaseEnv({
-    devices: [DEVICE, { name: "d2", hostname: "d2.agent.saisi.online", token: "devtok2" }],
+    extra: ENV_EXTRA,
+    devices: [DEVICE, { name: "d2", hostname: "d2.agent.vale.test", token: "devtok2" }],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
     },

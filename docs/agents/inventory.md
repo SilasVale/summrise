@@ -640,3 +640,15 @@ A gate built on that heuristic would have been turned off within a day, which is
 records for its own noisy probes. The honest scope is therefore narrower than the candidate: a duplicate key can be caught
 by a gate only where the fixture is a SINGLE object literal the gate can delimit — which is true of the three sweeps'
 `const API = {…}` tables, and not true of arbitrary test files. The candidate is withdrawn, with its number.
+
+**ROUND 117 MIGRATED THE EIGHTH FILE AND DECLINES THE OTHER CANDIDATE, WITH ITS REASON.** `mcp-handler.test.mjs` had six
+mentions, all device hostnames, and FIVE env constructions — one helper and four direct `makeBaseEnv({...})` calls with
+different shapes. The extra was inserted BY LINE and only after checking the following lines for an existing `extra:`,
+which is why nothing was doubled: that check is round 115's defect turned into a precondition rather than a lesson.
+
+`registry.test.mjs` is NOT the same case and should not be migrated by this recipe: its six mentions are the DEFAULTS of
+`usProxyBase` and `museResponsesExit` (`https://v.saisi.online`, `https://oracle.saisi.online/v1/responses`, …), and the
+tests exist to pin those defaults. Moving them is a DESIGN change (make the base configurable), not a fixture change — so
+it stays on the declared list legitimately, and the list's reason for it is now accurate rather than incidental. That is
+the third kind of host this migration has found, after device hostnames and console origins: a **base URL the product
+chooses**.
