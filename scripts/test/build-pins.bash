@@ -93,5 +93,20 @@ for f in scripts/test/*; do
 done
 check "every scripts/test file is invoked from ci.yml" "${unwired:-none}" "none"
 
+# ── 4. and a step that CAN silently test nothing is the same defect one step in ──
+# Round 146's rule (above) covers a test no workflow invokes. This is its sibling: a step the workflow DOES invoke that
+# can decide at run time to test nothing and still exit 0 — a green that means nothing, which is the class of defect
+# `panel-audit-skip-check.mjs` exists for on the panel side. The installer's PowerShell logic cannot run on the Linux
+# box, so its step is the one place this could happen; round 40 of the standing goal turned its missing-pwsh branch from
+# a ::warning:: into a failure, and this keeps it that way.
+PWSH_BLOCK="$(awk '/installer integrity tests \(pwsh\)/{p=1} p{print} p && /ValeIntegrity.tests.ps1$/{exit}' .github/workflows/ci.yml)"
+[ -n "$PWSH_BLOCK" ] || { echo "FAIL: no installer-integrity step found in ci.yml"; exit 1; }
+has "the pwsh step still runs the integrity tests" "$PWSH_BLOCK" "ValeIntegrity.tests.ps1"
+has "a missing pwsh FAILS the step" "$PWSH_BLOCK" "exit 1"
+if grep -q '::warning::pwsh is not installed' .github/workflows/ci.yml; then
+  echo "FAIL: the pwsh step warns and continues again — that green means the installer's logic was never tested"
+  exit 1
+fi
+
 echo "build-pins: $PASS checks passed"
 
