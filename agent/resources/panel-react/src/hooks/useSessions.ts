@@ -173,6 +173,31 @@ const MAX_EXPORT_PAGES = 16;
  *  effect plus a "30 s" in two comments, which is how one number becomes three that can disagree. */
 const SESSIONS_SWEEP_MS = 30_000;
 
+/** ONE MAPPING FROM A DEVICE ROW TO A SESSION ROW (round 96). This 7-line object literal appeared TWICE in this file —
+ *  byte-identical apart from indentation — which is the spine's defect in its most literal form: one fact (how a device
+ *  row becomes a session row) written down twice, free to drift the moment one of them gains a field. It is also the
+ *  place the three "duplicate-looking" controls get their three DIFFERENT facts (`held_by_human`, `approval_required`,
+ *  `goal`), so a second copy is where they could quietly become one. */
+const mapRow = (s: any) => ({
+  sid: s.id,
+  label: s.label || s.id,
+  kind: s.kind || "pty",
+  closed: false,
+  savedOnly: false,
+  active: false,
+  idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0,
+  commandRunning: !!s.command_running,
+  lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null,
+  firstSeenAt: Date.now(),
+  closedAt: null,
+  heldByHuman: !!s.held_by_human,
+  approvalRequired: !!s.approval_required,
+  pendingApproval: mapPending(s),
+  approvalGrants: mapGrants(s),
+  goal: mapGoal(s),
+  plan: mapPlan(s),
+});
+
 export function useSessions(connected: boolean) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSid, setActiveSid] = useState<string | null>(null);
@@ -225,9 +250,7 @@ export function useSessions(connected: boolean) {
           for (const s of list as any[]) {
             const existing = next.find((x) => x.sid === s.id);
             if (!existing) {
-              next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
-                approvalRequired: !!s.approval_required, pendingApproval: mapPending(s),
-                approvalGrants: mapGrants(s), goal: mapGoal(s), plan: mapPlan(s) });
+              next.push(mapRow(s));
             } else if (existing.closed) {
               // round-245 (terminal-display audit HIGH-1): REVIVE a tombstone
               // whose sid reappears live. A fast AI session (open → one
@@ -326,9 +349,7 @@ export function useSessions(connected: boolean) {
           const missing = (list as any[]).filter((s) => !prev.some((x) => x.sid === s.id));
           const next = [...prev];
           for (const s of missing) {
-            next.push({ sid: s.id, label: s.label || s.id, kind: s.kind || "pty", closed: false, savedOnly: false, active: false, idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0, commandRunning: !!s.command_running, lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null, firstSeenAt: Date.now(), closedAt: null, heldByHuman: !!s.held_by_human,
-                approvalRequired: !!s.approval_required, pendingApproval: mapPending(s),
-                approvalGrants: mapGrants(s), goal: mapGoal(s), plan: mapPlan(s) });
+            next.push(mapRow(s));
           }
           if (!prev.some((x) => x.active) && next.some((x) => !x.closed && x.active === false)) {
             const liveTail = next.filter((x) => !x.closed);
