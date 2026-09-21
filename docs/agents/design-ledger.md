@@ -3262,3 +3262,20 @@ IT WAS CAUGHT TWICE ON THE DAY IT WAS ADDED, both times by gates this objective 
   * the audit reported it UNPROVEN, because the mutation's `to` string was over-escaped and produced `\\/` — a regex matching a
     literal backslash — rather than the hand-written strip the gate looks for. A mutation that does not bite is evidence about
     the mutation first (round 104), and this is the sixth time.
+
+### A CONSOLE SOURCE CHANGE OWES ITS BUILT ASSETS, AND NOTHING ENFORCES IT (round 177)
+
+A full re-verification caught a repository inconsistency that no gate had: rounds 172 and 173 changed console SOURCE
+(`barePrefix` and its call sites), and the built assets under `gateway/public/assets/` — which are TRACKED, hashed, and
+referenced by `gateway/public/index.html` — were left at the old revision. `git status` showed the shape plainly: one new
+hashed bundle, one deleted, and a modified `index.html`.
+
+The PANEL has a guard for exactly this, and it is the reason the two ends differ here: `agent/build.rs` refuses to compile when
+`resources/panel-react/src` is newer than `resources/panel/`, with a message that says the bundle is embedded at compile time.
+The console embeds nothing — its assets are served by the worker — so nothing compares them to the source, and CI's `ui` job
+cannot see it either: it rebuilds the same new file, runs the tests, and never asks whether the tree it built from was
+consistent.
+
+RECORDED WITH THE TWO THINGS IT IS WORTH: the assets are committed (the inconsistency is gone), and the gap is named — a
+freshly checked-out tree can serve a console built from older source, and the test that would notice is a comparison between
+the built assets and a rebuild, which is a candidate rather than something started here.
