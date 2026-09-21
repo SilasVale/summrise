@@ -2999,3 +2999,22 @@ round looked for them — and the answer is that `terminal` is served by TWO mec
 So the general rule this leaves behind: a second configuration is safe where the compiler sees BOTH sides of the split, and
 needs a gate exactly where it does not — which is a module-level `#[cfg]` choosing a whole file, because no single
 compilation unit ever contains both.
+
+### ROUND 150: THE WHOLE SYSTEM, MEASURED THE WAY CI MEASURES IT
+
+A milestone is a good place to answer the objective's last clause as a whole rather than clause by clause, so this round ran
+every command CI runs, in the working directory CI runs it from, and read each exit code:
+
+    panel   npm run build rc=0 · npm test rc=0 (806 in 103 files)
+    gateway npm run typecheck rc=0 · npm test rc=0 (917 pass / 0 fail) · npm run lint rc=0 · npm run format:check rc=0
+    ui      npm run build rc=0 · npm test rc=0
+    agent   cargo fmt --check rc=0 · clippy (default) rc=0 · clippy (terminal,keyring) rc=0 ·
+            test (default) rc=0 · test (terminal,keyring) rc=0, 13 test binaries ok
+
+    40 local gates run by exit code: 0 red
+    gate-mutations: 17 gate/branch pairs broken on purpose, every one bit
+
+TWO THINGS THIS NUMBER DOES NOT SAY, and both are the point of the rounds that produced it. First, "green" here means green in
+the configurations CI builds — which is only true since round 146 added the agent's DEFAULT config to CI, because before that
+one of the four ends had a configuration nobody built and it was broken. Second, the 17 mutations matter more than the 40
+gates: a gate that cannot fail is worse than no gate, and every one of those 17 is a defect this session actually met.
