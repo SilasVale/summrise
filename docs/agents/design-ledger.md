@@ -2937,3 +2937,24 @@ subject to the spine too.
 
 Both are the shape of result this objective should produce more of: a question worth asking, answered in two commands, and
 written down so the answer survives the round that asked it.
+
+### THE LAST CLAUSE I HAD NOT VERIFIED MYSELF: ONE FOCAL POINT PER SURFACE (round 142)
+
+Every other clause of this objective has been measured in front of me at some point this session — contrast, silhouette
+coverage, transition budgets, idle repaint, reduced motion, the wire contract. "One focal point per surface" had not, so I
+went looking for its instrument rather than assuming it had none. It has one, and it is older than the objective:
+
+    design-sweep.mjs 184   the loudness probe: every element's saturation and lightness, reported per surface (max 6)
+    panel-design-sweep.mjs 1288   "The loud axis exists to catch a page with two competing FOCAL POINTS"
+
+and it carries what a good axis carries: a MEASURED exemption rather than a tolerance — the rail pages legitimately show a
+second loud element because navigation is not a competing focal point, and the comment records the reading that settled it
+("light is 0 loud on six of six pages in both densities"). The axis is judged too: `panel-design-sweep.bash` plants a defect
+for it among the others.
+
+MY OWN ATTEMPT TO MEASURE THE DISTRIBUTION FAILED, for a reason worth one line: I grepped the stored CI logs for `"loud"` and
+found nothing, because the field is not spelled that way in the emitted rows. The instrument was there all along; the record
+of this round is that I checked instead of asserting, and that the check cost one grep once I asked the right file.
+
+THAT CLOSES §12's TABLE: every clause of the objective now has an instrument, a gate, or both, and the two that had only a
+measurement (this one and the live panel) also have a verdict.
