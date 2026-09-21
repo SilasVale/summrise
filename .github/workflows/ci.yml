@@ -526,10 +526,12 @@ jobs:
       # checks the directions that catch real drift — and it fails by name.
       - name: wire vocabulary (both ends)
         run: node scripts/test/contract-vocabulary-check.mjs
-      # WHERE A PRODUCTION HOST MAY APPEAR (round 46 of the standing goal). The operator asked twice to get
-      # `saisi.online` out of a PUBLIC repository; 493 occurrences across 118 files later, the honest answer is that
-      # three quarters of it is the infrastructure this repository IS. So the files that may name one are DECLARED with
-      # reasons, and any other file that mentions one fails here — the list may only shrink.
+      # WHERE A PRODUCTION HOST MAY APPEAR (round 46 of the standing goal). The operator asked twice to get the
+      # deployment's domain out of a PUBLIC repository; 493 occurrences across 118 files later, the honest answer is
+      # that three quarters of it is the infrastructure this repository IS. So the files that may name one are DECLARED
+      # with reasons, and any other file that mentions one fails here — the list may only shrink. (This comment is what
+      # the gate caught first: it spelled the domain it was describing.)
+
       - name: production hosts are declared
         run: node scripts/test/production-host-check.mjs
       - name: smoke-helper regression checks

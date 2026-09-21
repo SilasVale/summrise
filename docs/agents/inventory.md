@@ -99,7 +99,7 @@ The **same fact** ("is this device behind?") is derived in two places from two r
 `agent/src/plugins/update/tools.rs:280-315` answers `GET /api/update` with `{current, latest, update_available}` — the
 panel's `UpdateCard.tsx:143` renders that verbatim, pin-aware. The console does not read `/api/update` at all: it
 computes `outdated = d.lastVersion !== install.version` (`DevicesPanel.tsx:349`), where `install.version` comes from
-`/api/devices/install-cmd` → `agent.saisi.online/api/version` (`devices.ts:663`).
+`/api/devices/install-cmd` → the deployment's CDN host plus `/api/version` (`devices.ts:663`; the literal is a declared location in `scripts/test/production-host-check.mjs`).
 
 Both ultimately read the same published `version.json`, but the comparisons are different code: the device's uses
 `newer()` plus the rollback pin, the console's is a string `!==` over a KV value written **at most hourly**
@@ -275,3 +275,32 @@ right in shape and wrong in reach — the device run said so each time, which is
 
 The probe is now a documented step of the release runbook in `AGENTS.md` (it needs a browser and a running panel, so it
 cannot be a CI job), with its finding written beside it as the reason it earns the step.
+
+## 9. The production-host cleanup: what is left, measured, ready to execute
+
+`scripts/test/production-host-check.mjs` now enforces where the deployment's domain may appear: **38 declared
+locations**, each with a reason, and any other tracked file that mentions one fails by name. It caught its own author
+first — the comment in `ci.yml` that described the rule spelled the domain the rule is about.
+
+**WHAT MOVED SO FAR:** the cloudflared fallback is configuration rather than a constant (round 45); the script's own
+comment, the `ci.yml` step description and this inventory no longer spell it (round 47). **492 occurrences remain in
+117 files**, down from 493/118, and the honest bulk is still infrastructure.
+
+**THE ONE BIG MECHANICAL BLOCK, MEASURED AND NOT YET DONE — `gateway/test`, 145 occurrences in 20 files.** It is
+feasible and it is safe, and it was deliberately NOT rushed at the end of a long session:
+
+  * the rule is already configuration-driven: `hostAllowError` reads
+    `env.DEVICE_HOST_SUFFIX || ".agent.<domain>"` (`gateway/src/device-fetch.ts:62`), so a test can run under any suffix;
+  * **42 env construction sites** would each need `DEVICE_HOST_SUFFIX` (there is no central helper — each test file
+    builds its own `makeEnv`/inline `env`, which is why this is a careful round and not a sed);
+  * **the two deliberately-invalid hostnames must keep their RELATIVE meaning** — `moved.agent.<domain>` and
+    `renamed.agent.<domain>` are *valid* per the suffix rule and are rejected by something else, while the ones with no
+    `agent` label are invalid because of it. Swapping the suffix without preserving those relationships turns a
+    security test into a test of nothing.
+
+**WHAT STAYS, AND WHY** (each is a sentence in the gate): the shipped update channel and installer URLs, the CDN worker
+and its landing page, the release scripts' live smoke tests, the worker's own routing/config defaults, the console's
+own client and Source Viewer mirror, the operator-facing READMEs, and the tests whose subject IS the hostname rule. The
+domain is not a secret — it ships inside every exe and tarball — so the value here is a tree that can be shared without
+advertising the deployment's naming, not secrecy. A RENAME remains the operator's call: it touches the live update
+channel, the tunnel ingress and the fleet.

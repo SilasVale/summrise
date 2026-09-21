@@ -1,7 +1,7 @@
 // production-host-check.mjs — WHERE THE DEPLOYMENT'S HOSTNAMES MAY APPEAR, AND WHERE THEY MAY NOT.
 //
 // WHY THIS EXISTS (round 46 of the standing goal). The operator asked twice (round 95, then again this week) to get
-// `saisi.online` out of a PUBLIC repository. Measured before touching anything: **461 occurrences across 118 files**,
+// the deployment's domain out of a PUBLIC repository. Measured before touching anything: **493 occurrences across 118 files**,
 // and three quarters of it is infrastructure this repository genuinely IS — the update channel the agent ships with,
 // the CDN the release scripts smoke-test, the worker's routing suffix, the installer templates. A blind scrub breaks
 // the update path for real devices; a rename is a project with DNS in it.
@@ -39,7 +39,9 @@ const ALLOWED = [
   ["AGENTS.md", "the release section documents the shipped install command"],
   ["agent/AGENTS.md", "same, on the agent side"],
   ["docs/agents/ideas.md", "rows 21 and 23: the question, its measurements, and the decision"],
-  ["docs/agents/inventory.md", "the audit that measured where the hosts appear"],
+  // `docs/agents/inventory.md` WAS HERE UNTIL ITS ONE MENTION WAS REWORDED (round 47). The entry is gone rather than
+  // kept for a file that no longer needs it: an allowance that matches nothing is a stale debt, and the gate will say
+  // so the moment the file mentions a host again. The list may only shrink — this is it shrinking.
   ["docs/agents/design-ledger.md", "the long form's record of this decision"],
   // ── the agent's own runtime defaults and the config it ships with ──
   ["agent/config.yaml", "the embedded config a fresh install starts from: the update channel and console URL"],
