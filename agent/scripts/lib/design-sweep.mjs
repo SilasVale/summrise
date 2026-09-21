@@ -654,6 +654,10 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     const t0 = Date.now();
     await page.mouse.down();
     await page.mouse.up();
+    // THE PAGE'S OWN CLOCK, READ ONCE, RIGHT AFTER THE PRESS (round 26). Comparing the driver's clock with the
+    // page's would be a bug waiting for a timezone; asking the page how many requests arrived in a window AROUND
+    // that instant needs one clock and only one.
+    const t0page = await page.evaluate(() => Date.now());
     let acked = null;
     let msToAck = null;
     for (let i = 0; i < 60; i++) {
@@ -671,15 +675,24 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       if (now && !now.busy) { msToClear = Date.now() - t0; break; }
       await page.waitForTimeout(25);
     }
+    // ATTRIBUTED TO THE PRESS, NOT TO THE PAGE'S OWN POLLING. The first version counted a request counter across
+    // the whole window (`callsAfter > callsBefore`), and on a page that polls that is not evidence about the control
+    // you pressed: CI reported the Memory surface's Cancel button — which only closes a popover — as a control that
+    // never acknowledges, because a background request landed while it was being measured. This asks the page for
+    // requests issued in the 250ms AFTER the press (60ms of slack before it), which a poll can only rarely imitate.
+    const callsInPress = await page.evaluate(
+      (t) => (window.__callTimes || []).filter((x) => x >= t - 60 && x <= t + 250).length,
+      t0page,
+    );
     const callsAfter = await page.evaluate(() => (window.__calls || []).length);
-    const asked = callsAfter > callsBefore;
+    const asked = callsInPress > 0;
     rows.push({
       sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
       acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs,
-      asked, calls: callsAfter - callsBefore,
+      asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore,
       ...(acked || asked
         ? {}
-        : { note: "this control asked the device nothing (0 /api/ calls in the window) — there is nothing to wait for, so this row is not evidence about feedback" }),
+        : { note: "no request left this page in the 250ms after the press (0 of " + (callsAfter - callsBefore) + " in the whole window) — there is nothing this control was waiting for, so the row is not evidence about feedback" }),
       ...label,
     });
     // AND PUT THE PAGE BACK: the next control is measured from rest, not from whatever this click did.

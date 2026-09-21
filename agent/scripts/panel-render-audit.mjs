@@ -254,6 +254,7 @@ function buildHarness() {
 
   var FAIL = P.get('fail') === '1';
   window.__calls = [];
+  window.__callTimes = [];
   // DID THE STREAM OPEN? The panel's connected state comes from a COMPLETE FRAME on /api/events/term (the app
   // fetches a stream rather than using EventSource), so "the harness delivered the push" is a fact only this file
   // knows. It is published here for the sweep to assert, together with FAIL, because the failure surfaces reject
@@ -595,6 +596,12 @@ function buildHarness() {
     // Double backslash: this is inside a template literal, where a single \/ collapses to / and the
     // emitted regex becomes /^.*/api// — "Invalid regular expression flags", which killed the WHOLE
     // stub (no token, no sessions, no counter) and looked from the outside like a broken product.
+    // WHEN, not only WHAT (round 26). The acknowledgement pass asks whether a control that never showed a busy state
+    // had asked the device anything at all — and a bare count cannot answer that on a page that polls: the Memory
+    // surface's Cancel button (which only closes a popover) was reported as a silent control because a background
+    // request landed in the window. Times are recorded in a PARALLEL array so every existing reader of __calls keeps
+    // seeing strings.
+    if (window.__callTimes) window.__callTimes.push(Date.now());
     window.__calls.push(u.replace(/^.*\\/api\\//, '') + ' ' + body);
     if (u.indexOf('/api/tools/terminal_close') >= 0) {
       var closeSid = null;
