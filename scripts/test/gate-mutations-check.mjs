@@ -90,6 +90,26 @@ const CASES = [
     from: '"machine-restart"',
     to: '"machine-reboot"',
   },
+  {
+    gate: "scripts/test/production-host-check.mjs",
+    file: "gateway/test/cors.test.mjs",
+    why: "a file that just came OFF the declared-hosts list spells the deployment's host again — the regression a shrinking list can suffer",
+    from: 'const AI = "https://console.vale.test";',
+    to: 'const AI = "https://console.vale.test"; // https://agent.saisi.online',
+  },
+  {
+    gate: "scripts/test/build-pins.bash",
+    file: ".github/workflows/ci.yml",
+    why: "a gate is written and never invoked, so it guards nothing",
+    from: "      - name: every console wire field has a producer\n        run: node scripts/test/console-wire-field-check.mjs\n",
+    to: "",
+  },
+  {
+    // NOT YET IN THIS LIST: `sweep-fixture-dupes-check`, whose mutation is a fixture table answering one endpoint TWICE.
+    // That needs a two-key shape this list cannot express (replace one line with three, closing and reopening the object),
+    // and a mutation written badly is what round 104 cost two hours to — so it is recorded here rather than approximated.
+  },
+
 ];
 
 const run = (cmd, args) => {
