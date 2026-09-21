@@ -388,7 +388,19 @@ Both are one look each, and both are worth the same discipline the console's `pr
 the fixture is failing to say, fix THAT, and let the rendered axis confirm. `plug-dot ongoing` stays out of reach for a
 different reason (a running playwright starts the poll loop that hangs a sweep, recorded in round 26).
 
-**ROUND 69: THE CHIP HAS NO HOME, WHICH IS WHY ITS `info` TONE HAS NO SURFACE.**
+**ROUND 70 CORRECTS ROUND 69: THE CHIP *IS* MOUNTED.** Round 69 said `BootChip` has no caller, on the evidence of a
+`grep … | head -4` whose output was TRUNCATED before the shell's line — `DesktopShell.tsx:528` renders
+`<BootChip lastBoot={vitals.lastBoot} uptimeSecs={vitals.uptimeSecs} recentCrashes={…} />` beside `LoadChip`,
+`MonitorChip` and `WaitingChip`. The claim is withdrawn, and the way it was made is the lesson: this loop has spent the
+session telling itself to read exit codes and full output, and then read a truncated grep as a complete one.
+
+So the `info` tone is unreachable for a reason still not found, with three suspects now ELIMINATED by measurement: the
+fixture is right (`/api/status` carries `last_boot_kind: 'replaced'` and the sentence the parser requires), the surface
+exists (`BootReplaced-<theme>` passes `?boot=replaced`), and the component IS mounted. What is left is the data path
+between them — `vitals.uptimeSecs` being a number rather than a formatted string is the next thing to check, and it is
+one grep, not a hypothesis hunt.
+
+**THE OLD (WRONG) ROUND-69 NOTE FOLLOWS, KEPT AS THE RECORD OF HOW IT WENT WRONG:**
 
 `grep` over production `.tsx/.ts` finds exactly ONE renderer of `.boot-mark`: `BootChip.tsx` itself. **Nothing renders
 `BootChip`** — not the panel shell, not the desktop shell, not the settings page. The card that DOES exist
