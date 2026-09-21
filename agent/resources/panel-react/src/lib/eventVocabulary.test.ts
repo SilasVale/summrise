@@ -41,8 +41,13 @@ const rustText = filesUnder(AGENT_SRC, (f) => f.endsWith(".rs"))
 
 const listeners = new Set([...panelText.matchAll(/addEventListener\(\s*"(vale-[a-z-]+)"/g)].map((m) => m[1]));
 const dispatched = new Set([...panelText.matchAll(/CustomEvent\(\s*"(vale-[a-z-]+)"/g)].map((m) => m[1]));
-/** `vale-${frame.ev}` — the derived path, present or the whole SSE vocabulary is broken. */
-const derivesFromFrames = /CustomEvent\(\s*`vale-\$\{frame\.ev\}/.test(panelText);
+/** The derived path — the dispatch builds its event name from the FRAME's own `ev`, or the whole SSE vocabulary is
+ *  broken. Round 54 extracted that `ev` into a local (`const ev = frame.ev as Frame`) so the generated vocabulary types
+ *  it, so the pattern accepts either spelling: what this test is about is that the name is DERIVED rather than written
+ *  out, not how many lines the derivation takes. */
+const derivesFromFrames =
+  /CustomEvent\(\s*`vale-\$\{frame\.ev\}/.test(panelText) ||
+  /const ev = frame\.ev as Frame;[\s\S]{0,120}CustomEvent\(\s*`vale-\$\{ev\}`/.test(panelText);
 // LITERALS AND CONSTANTS. The device writes `{"ev": "monitor-change"}` in some places and
 // `{"ev": ACTIONS_CHANGED_EVENT}` in others — and the constant form is invisible to a literal-only
 // pattern, which made this contract report `vale-browser-actions-changed` as an orphan when the bus

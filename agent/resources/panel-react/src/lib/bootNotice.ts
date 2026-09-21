@@ -28,10 +28,18 @@
 // that fires after every routine reboot is one nobody reads by the time a real crash
 // arrives.
 import type { BootKind, LastBoot } from "../hooks/useAgentVitals";
+import { BOOT_KINDS } from "./contract.gen";
 
 /** The kinds, in words. ONE vocabulary for every surface that names a verdict — the chip's
  *  hover, the history card's rows — so a kind cannot be described two ways in one panel.
  *  `null` (an unrecognised kind) says so rather than borrowing another kind's wording. */
+/** IS THIS KIND ONE THE DEVICE CAN REPORT? The wire carries a string, and `BOOT_KINDS` is generated from the agent's
+ *  own enum — so a kind this build has never heard of is answered "no" here rather than being described with another
+ *  kind's words. (The file's own comment below is about that distinction: an unrecognised kind must render as SILENCE,
+ *  never as a guess.) */
+const isKnownKind = (kind: string | null | undefined): kind is BootKind =>
+  !!kind && (BOOT_KINDS as readonly string[]).includes(kind);
+
 export function bootKindLabel(kind: BootKind | null): string {
   switch (kind) {
     case "first-run":
@@ -86,6 +94,10 @@ export function bootNotice(
   recentCrashes?: number | null,
 ): BootNotice | null {
   if (!lastBoot) return null;
+  // A KIND THIS BUILD DOES NOT KNOW IS SILENCE, and `isKnownKind` is what says so: the list is generated from the
+  // agent's own enum, so a verdict a NEWER device invents cannot be described with an older one's words. This is the
+  // same outcome the default branch below reaches, stated where the decision belongs.
+  if (!isKnownKind(lastBoot.kind)) return null;
   switch (lastBoot.kind) {
     case "crashed": {
       const base = `${lastBoot.detail}\n\nThe agent is running now — this is how the run before it ended.`;

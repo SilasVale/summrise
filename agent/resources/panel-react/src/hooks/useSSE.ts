@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { callTool, getHost, getToken } from "../lib/api";
+import { FRAMES, type Frame } from "../lib/contract.gen";
 
 // SSE terminal stream — connects to /api/events/term, dispatches byte frames
 // to the matching session's xterm (via per-session write callbacks registered
@@ -230,12 +231,17 @@ export function useSSE(
               if (!dataText.trim()) continue;
               let frame;
               try { frame = JSON.parse(dataText.trim()); } catch { continue; }
-              if (typeof frame.ev === "string") {
+              // THE FRAMES THIS BUILD KNOWS (round 54). `FRAMES` is generated from the device's own vocabulary, so a
+              // frame a NEWER agent invents is ignored here instead of dispatching a `vale-<ev>` window event that
+              // nothing can be listening for. The panel's own synthesized frames (`term-output`) are dispatched
+              // elsewhere and do not travel through this branch.
+              if (typeof frame.ev === "string" && (FRAMES as readonly string[]).includes(frame.ev)) {
                 // round-163: control events (sessions-changed,
                 // playwright-changed) — the agent pushes them on the same
                 // stream; hooks subscribe via these window events. This is
                 // what replaced the 3s/5s status polls.
-                window.dispatchEvent(new CustomEvent(`vale-${frame.ev}`, { detail: frame }));
+                const ev = frame.ev as Frame;
+                window.dispatchEvent(new CustomEvent(`vale-${ev}`, { detail: frame }));
                 continue;
               }
               if (Array.isArray(frame.data) && frame.session_id) {
