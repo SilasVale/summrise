@@ -248,8 +248,16 @@ function buildHarness() {
   // change it at emit time — the first attempt of this edit put !APPR_OFF in the object literal and the emitter
   // died with "APPR_OFF is not defined", which is the emitted script telling me the flag was read in the wrong place.
   var APPR_OFF = P.get('appr') === 'off';
-  if (APPR_OFF) SESSION.approval_required = false;
-  if (APPR_OFF) SESSION.approval_grants = [];
+  // ON THE LIST ENTRIES, NOT ON SESSION. SESSIONS is built by COPYING SESSION (Object.assign({}, SESSION, ...)
+  // a few lines up), so mutating SESSION afterwards changes nothing the panel ever sees — which is what the device
+  // run measured: an ApprovalOff surface whose only ag-dot row was still the ARMED fill at 3.83. Every other flag
+  // mutates SESSIONS[i], and the rule is the same for this one.
+  if (APPR_OFF) {
+    for (var ai = 0; ai < SESSIONS.length; ai++) {
+      SESSIONS[ai].approval_required = false;
+      SESSIONS[ai].approval_grants = [];
+    }
+  }
   var EXIT_FAIL = P.get('exitfail') === '1';
   if (EXIT_FAIL && SESSIONS.length > 2) SESSIONS[2].last_exit_code = 1;
   // THE THIRD STATE, on its own surface because it is the one a surface must not get wrong: exit ZERO is an
