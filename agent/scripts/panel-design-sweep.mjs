@@ -662,9 +662,13 @@ ${TIMING}
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       await page.evaluate(() => {
-        const card = [...document.querySelectorAll('.plugin-card, .plug-card, [class*="plugin"]')]
-          .find((c) => /playwright/i.test(c.textContent || ''));
-        const btn = card && [...card.querySelectorAll('button')].find((b) => /^Start/.test((b.textContent || '').trim()));
+        // THE REAL MARKUP, NOT A GUESSED SELECTOR (round 68). The classes come from PluginsPage.tsx:
+        // .plug-actions holds the controls and each is a .plug-btn. The first version guessed
+        // [class*="plugin"] and matched nothing, so the surface clicked no button, no request failed, and
+        // plug-dot[error] had no surface while the fixture next to it was pinned and correct.
+        const card = [...document.querySelectorAll('.plug-card, .plugin-card, li')]
+          .find((c) => /playwright/i.test(c.textContent || '') && c.querySelector('.plug-btn'));
+        const btn = card && [...card.querySelectorAll('.plug-btn')].find((b) => /^Start/.test((b.textContent || '').trim()));
         if (btn) btn.click();
       });
       await page.waitForTimeout(1200);
