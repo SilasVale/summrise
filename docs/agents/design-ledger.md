@@ -2240,3 +2240,40 @@ than by reading:
 PINNED: `press-anchor-check` now requires the emitted console sweep to carry the Overview in the empty-fleet loop, and
 the mutation (dropping `['overview-empty', '#/']`) fails it with that sentence. The remaining unexercised declaration
 in either UI is none today — the panel's eleven are all seen, the console's one is now seen in both themes.
+
+### HALF THE SILHOUETTES WERE UNVERIFIED (round 26)
+
+The mark-collision check compares the states a surface HAPPENS to render. A family with six declared states and three
+rendered therefore has half its shapes unverified — and a collision among the unrendered half cannot be seen at all.
+That is the round-96 rule ("a state with no surface cannot be measured") applied to the whole mark vocabulary, which
+is the one place the objective asks for a silhouette PER STATE.
+
+WHAT THE MEASUREMENT SAYS, over 126 surfaces — the states NOTHING rendered:
+
+    cmd-dot        declares 6, rendered 3 (fail, muted, ok)     -> warn, running, bg      UNVERIFIED
+    traj-ev-dot    declares 6, rendered 1 (fail)                -> ok, warn, running, muted, bg
+    plug-dot       declares 4, rendered 2 (success, warn)       -> error, ongoing
+    ag-dot         declares 2, rendered 1 (armed)               -> off
+    monitor-mark   declares 2, rendered 1 (is-flapping)         -> is-up
+    boot-mark      declares 1, rendered 1 (warn)                -> info
+    mark           declares 5, rendered 5                       -> COMPLETE (round 96's exit-code flag did its job)
+    sc-dot, monitor-dot                                         -> COMPLETE
+
+The declared states are read from the BUILT SHEET with comments stripped first (prose about a selector is not a
+selector — the lesson `css-vars-check` and `retired-colours-check` each record from their own first run), and the note
+carries the row/surface counts so a single-axis run cannot be mistaken for a vocabulary that is entirely unrendered.
+
+ONE STATE GAINED A SURFACE: an unterminated `command/start` in the operation fixture is the panel's own definition of
+a LIVE card (useCommandEvents: "surface it as a LIVE card"), so cmd-dot's `running` is now painted by the row that
+means it. The rest stay NAMED rather than forced.
+
+AND ONE ATTEMPT WAS REVERTED, which is the part worth remembering: setting `playwright.running` in the plugins stub is
+the obvious one-line way to render plug-dot's `ongoing` — the hook maps that field straight to the state — and it HUNG
+the sweep. The plugins page polls while a browser is running, the page never settles, and the run produced no report at
+all; the device showed a live node process and no report file after four minutes. A FIXTURE THAT CHANGES WHAT THE PAGE
+DOES IS NOT A FIXTURE THAT CHANGES WHAT IT SHOWS. The failed attempt and its symptom are written where the fixture is,
+so the next reader does not spend a sweep rediscovering it.
+
+NEXT, in the order the note names them: `traj-ev-dot` is the same vocabulary as `cmd-dot` rendered in a second place,
+so whatever renders one should render the other; `plug-dot`'s `ongoing` needs a fixture that does not start a poll;
+`ag-dot`'s `off`, `monitor-mark`'s `is-up` and `boot-mark`'s `info` are each one state of a two-state family.
