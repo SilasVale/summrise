@@ -677,10 +677,30 @@ function buildHarness() {
       // CONNECTED with this exact shape, and round 194 found that a stream which stays open and sends a
       // second frame at 900ms puts four "reconnecting" rows back into the report. This prune removes the
       // ?activity=1 branch and NOTHING ELSE — a fixture change that alters behaviour is not a prune.
+      // ?monitorchange=up|down — THE ALERT STRIP'S TWO TONES (round 39 of the standing goal). This stream is the
+      // panel's ONE channel for device-initiated frames (useSSE dispatches every frame as vale-<ev>), and the
+      // monitor alert strip is the consumer of monitor-change: a watched host changing state is the one thing the
+      // device is allowed to interrupt with, so .monitor-mark.is-up (the recovery) and the base .monitor-mark (the
+      // outage) live ONLY here. Round 194 pruned the activity fixture from this stub because its consumer could not be
+      // rendered at all — this is the opposite case: the frame has a consumer on screen, and the mark-coverage note has
+      // been naming monitor-mark is-up for rounds while nothing could deliver one.
+      //
+      // THE FRAME GOES OUT BEFORE THE EMPTY ONE, IN THE SAME start(), so the stream still closes after its frames —
+      // the shape round 156 proved renders CONNECTED. A second frame LATER is what put four "reconnecting" rows into
+      // the report, not this.
+      var MC = P.get('monitorchange');
+      var mcData = MC
+        ? 'data:' + JSON.stringify({
+            ev: 'monitor-change', id: 'mon-router', host: '192.168.1.1', port: 22,
+            up: MC !== 'down', at_ms: 1789000000000, lasted_ms: 300000, ms: 9,
+            status: null, path: null, expect_ok: null,
+          }) + '\\n\\n'
+        : '';
       window.__sse.opened = true;
       var sseBody = new ReadableStream({
         start: function (c) {
           var enc = new TextEncoder();
+          if (mcData) c.enqueue(enc.encode(mcData));
           c.enqueue(enc.encode('data:\\n\\n'));
           c.close();
         },

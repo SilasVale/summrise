@@ -222,6 +222,32 @@ const CHECKS = [
     ],
   },
   {
+    // THE ALERT STRIP'S TWO TONES, WHICH EXIST ONLY BEHIND A DEVICE PUSH (round 39 of the standing goal). A watched
+    // host changing state is the ONE thing this panel lets the device interrupt with, and the strip that renders it
+    // reads `monitor-change` frames off the SSE stream — the same stream this stub serves one empty frame on. Both of
+    // its marks (the recovery `.monitor-mark.is-up`, the outage base rule) had therefore never been painted anywhere,
+    // and the mark-coverage note has been naming `is-up` for rounds. The frame goes out BEFORE the empty one, in the
+    // same start(), so the stream still closes after its frames — the shape round 156 proved renders CONNECTED.
+    name: "?monitorchange=up|down can deliver the device's alert frame",
+    test: (h) =>
+      /var MC = P\.get\('monitorchange'\)/.test(h) &&
+      /if \(mcData\) c\.enqueue\(enc\.encode\(mcData\)\);/.test(h) &&
+      /up: MC !== 'down'/.test(h) &&
+      /ev: 'monitor-change'/.test(h),
+    mutations: [
+      {
+        why: "the frame is built but never enqueued, so the strip stays empty and `is-up` renders nowhere again",
+        from: /if \(mcData\) c\.enqueue\(enc\.encode\(mcData\)\);/,
+        to: "",
+      },
+      {
+        why: "the frame always says UP, so the outage tone cannot be rendered at all",
+        from: /up: MC !== 'down'/,
+        to: "up: true",
+      },
+    ],
+  },
+  {
     // A SLOW NETWORK IS A STATE THE FIXTURE MUST BE ABLE TO RENDER (round 19). The panel's acknowledgement claims it
     // fires on the EVENT rather than on the reply; the only way to tell those apart as rendered is to make every
     // stubbed reply slow, and a flag no fixture carries is a measurement nothing can take.
