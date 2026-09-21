@@ -239,6 +239,14 @@ describe("TrajectoryView — a trimmed trail is not presented as complete", () =
     expect(note.textContent).toMatch(/keeps its most recent command onward/i);
   });
 
+  it("SAYS WHAT IT IS, ON THE ROW, WITHOUT A HOVER", () => {
+    // The tab strip shows "Trajectory" and "Path" side by side; the difference lived in a `title` attribute, and an
+    // operator asked the question out loud ("are these two the same?"). The caption answers it in the view itself.
+    mockCallApi.mockResolvedValue({ ok: true, events: [] });
+    render(<TrajectoryView events={evs} />);
+    expect(screen.getByText(/raw audit log/i)).toBeTruthy();
+  });
+
   it("stays silent when the trail begins at 1, and when the device did not say", () => {
     // `firstSeq` ABSENT means an older agent that does not report it — which is
     // not the same as "not trimmed", so the view claims nothing rather than

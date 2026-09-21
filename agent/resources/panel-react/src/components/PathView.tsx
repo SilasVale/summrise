@@ -295,6 +295,11 @@ export function PathView({
           <span className="path-summary-label">
             step{summary.steps === 1 ? "" : "s"}
           </span>
+          {/* THE OTHER HALF OF THE SAME PAIR (round 27). "Path" and "Trajectory" are the two names of the same
+              work seen two ways — this one summarises it and adds what the raw log cannot show: the declared plan,
+              the reasoning recorded per step, and who ran it. The caption says so where the view is read, so the
+              tab strip does not have to. */}
+          <span className="path-sub">plan, reasoning and who ran each step</span>
           {bad > 0 && (
             <span className="path-summary-bad">
               {summary.counts.fail > 0 && `${summary.counts.fail} failed`}

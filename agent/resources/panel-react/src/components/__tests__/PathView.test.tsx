@@ -366,6 +366,9 @@ describe("PathView", () => {
     const { container } = render(<PathView events={session()} />);
     // Scope the count query — "4" also appears as a step index.
     expect(container.querySelector(".path-summary-n")!.textContent).toBe("4");
+    // AND THE VIEW SAYS WHAT IT IS (round 27): the same question the Trajectory caption answers, because an
+    // operator looking at the two tabs together asked whether they were the same view twice.
+    expect(screen.getByText(/plan, reasoning and who ran each step/i)).toBeTruthy();
     expect(screen.getByText(/1 failed/)).toBeTruthy();
     expect(screen.getByText(/1 interrupted/)).toBeTruthy();
     expect(screen.getByText(/running now/)).toBeTruthy();

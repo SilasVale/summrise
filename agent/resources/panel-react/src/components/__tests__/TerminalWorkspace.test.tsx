@@ -163,6 +163,18 @@ describe("TerminalWorkspace", () => {
     expect(onControlledViewChange).toHaveBeenCalledWith("s1", "trajectory");
   });
 
+  it("NAMES THE CONTROL GROUP, SO THE ROW IS NOT THREE UNEXPLAINED PILLS", () => {
+    // An operator asked what "Take control", "Set a goal for this session" and "Ask before each command" DO. Each
+    // carries a `title`, which needs a hover: the row is an action, a prompt for a missing value and a policy
+    // toggle, and nothing on screen said they belonged to one thing. The label is that sentence, shortened.
+    const { container } = render(<TerminalWorkspace {...props({})} />);
+    const label = container.querySelector(".strip-label");
+    expect(label).toBeTruthy();
+    expect(label!.textContent).toBe("Session");
+    expect(container.querySelector("#session-control")).toBeTruthy();
+    expect(container.querySelector("#goal-bar")).toBeTruthy();
+  });
+
   it("desktop honors the controlled view value", () => {
     const base = props({
       density: "desktop",

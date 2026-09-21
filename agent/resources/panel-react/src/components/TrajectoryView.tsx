@@ -227,6 +227,12 @@ export function TrajectoryView({
       )}
       <div className="traj-header">
         <span className="traj-title">Trajectory</span>
+        {/* WHAT THIS VIEW IS, WHERE IT IS READ (round 27 of the standing goal). The tab strip shows
+            "Trajectory" and "Path" side by side and neither word says which is which: the difference lived in a
+            `title` attribute, which needs a hover, a wait, and a mouse. An operator looking at this window asked
+            the question directly — "are these two the same thing?" — and the answer was one hover away from
+            invisible. The caption costs a line of quiet text and answers it without being asked. */}
+        <span className="traj-sub">raw audit log — every event as it happened</span>
         <span className="traj-count">{rounds.length}</span>
         <input
           className="traj-search"

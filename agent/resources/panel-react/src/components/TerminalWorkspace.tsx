@@ -158,6 +158,12 @@ export function TerminalWorkspace({
           onChange={changeView}
           className={density === "desktop" ? "desktop-view-switch" : "view-switch"}
         />
+        {/* THE GROUP HAS A NAME (round 27 of the standing goal). Three controls sat here in a row wearing the
+            same pill: an ACTION (take this session's keyboard), a PROMPT for a missing value (set a goal), and a
+            POLICY toggle (ask before each command). Their explanations were all `title` attributes — hover-only —
+            so the row read as three unexplained buttons to anyone who did not already know. The label names what
+            the group IS; the individual tooltips still carry the detail. */}
+        <span className="strip-label">Session</span>
         <SessionControl
           held={!!activeSession.heldByHuman}
           onSet={(human) => onSetControl(activeSession.sid, human)}

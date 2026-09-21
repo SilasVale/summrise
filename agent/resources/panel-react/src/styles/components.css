@@ -1186,7 +1186,10 @@
   color: var(--accent-on-soft);
 }
 #session-control.failed { border-color: var(--danger); color: var(--danger-on-soft); }
-#session-control .sc-dot {
+#session-control /* THE CONTROL GROUP'S NAME (round 27). It labels the row of session controls (keyboard, goal, approval policy) so
+   the three pills read as settings of one thing rather than three unexplained buttons. Chrome, so it is quiet. */
+.strip-label { font-size: var(--fs-xs); color: var(--muted); margin-right: calc(-1 * var(--sp-1)); }
+.sc-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
 }
@@ -2083,6 +2086,10 @@
   border-bottom: 1px solid var(--line);
 }
 .traj-title { font-size: var(--fs-sm); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+/* WHAT THIS VIEW IS, ON THE ROW ITSELF (round 27). Quiet enough to be chrome — the caption answers a question the
+   tab strip cannot, it does not compete with the content — and in --muted rather than --faint, because it is TEXT
+   and AA wants 4.5 for it (the sweep measures this row on every run). */
+.traj-sub { font-size: var(--fs-xs); color: var(--muted); }
 .traj-count {
   font-size: var(--fs-xs);
   color: var(--chrome-ink-dim);
@@ -3059,6 +3066,9 @@
 .path-summary-main { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .path-summary-n { font: 650 var(--fs-lg) var(--font); letter-spacing: -0.02em; }
 .path-summary-label { font-size: var(--fs-sm); color: var(--muted); }
+/* The other half of the pair — see .traj-sub. Same size and ink, because they say the same KIND of thing about two
+   views of one session. */
+.path-sub { font-size: var(--fs-xs); color: var(--muted); }
 .path-summary-bad { font-size: var(--fs-sm); font-weight: var(--fw-semi); color: var(--danger-on-soft); }
 .path-summary-good { font-size: var(--fs-sm); color: var(--success-text); }
 .path-summary-live {
