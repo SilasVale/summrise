@@ -2571,3 +2571,36 @@ the run's actual conclusion was `cancelled`, and the surfaces I thought were bei
 The rule that follows is cheap and worth stating: **a push is not free while a run is measuring — either wait for the
 design job, or accept that only the last run's verdict exists.** The two surfaces above (boot tone, alert strip) are in
 the same tree now, so one run covers both; that is the shape to aim for deliberately rather than by accident.
+
+### THE THIRD COLLISION, AND WHY THE SURFACES KEEP PAYING (rounds 42-43)
+
+Adding the alert strip's fixture found the third instance of one defect class in a week:
+
+    MonitorUp-light/dark: states of one mark paint identically
+      monitor-mark: is-up and is-flapping paint identically (6px/rotated/-/ring)
+
+`.monitor-alert .monitor-mark.is-up` was `transparent` plus a green border — a HOLLOW DIAMOND — which is exactly what
+`.monitor-mark.is-flapping` draws in the status-bar chip. Two states of one mark, told apart by colour alone. The three
+instances in order, and what each was hiding:
+
+    cmd-dot        bg and MUTED painted identically        — a rule that did not exist at all, in a family rendering 4/6
+    traj-ev-dot    muted and OK painted identically        — an asymmetry kept for "texture", in a family rendering 0/6
+    monitor-mark   is-up and IS-FLAPPING painted identically — a hue swap, in a family rendering 1/2
+
+Every one was invisible until something rendered the state, and none of them was a regression: they had been true since
+the rules were written. That is the argument for the surfaces queue, stated three times in one week by three different
+marks.
+
+WHAT EACH SILHOUETTE MEANS is now written beside the rule (solid diamond = down, hollow diamond = unstable, solid circle
+= back up) so the next edit does not re-collide them by taste.
+
+AND THE PLUGIN DOT'S ERROR STATE IS REACHABLE AFTER ALL (round 42). Round 26 recorded that `plug-dot[data-state="ongoing"]`
+hangs a sweep — playwright actually RUNNING starts the poll loop — and left `error` looking equally out of reach. It is
+not: `error` comes from the card's Start/Stop POST FAILING, and a failed start never spawns a browser. `?pwstart=fail`
+answers that POST with a **500** carrying the agent's own message, because `callApi` throws only on an HTTP error status
+— a fixture answering 200 with `ok:false` would have rendered nothing and looked like a fixture that works. The sweep
+clicks Start against it, and the surface carries both the error silhouette and the device's words.
+
+ONE PUSH, THREE MEASUREMENTS, ON PURPOSE: the fix above, the alert-strip surfaces that found the collision, and the new
+plugin-fail surface all ship together, so a single design job reports on all three. Round 41's lesson — a push cancels
+the run that is measuring — is cheapest to obey by batching than by waiting.
