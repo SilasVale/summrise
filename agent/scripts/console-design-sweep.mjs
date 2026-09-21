@@ -159,6 +159,21 @@ const API = {
   // something nothing hears, so the crash row never rendered and sig-dot.err (ONE OF THREE STATES in that family) had
   // no surface in 136 sweeps. The gateway sends the real pair (plugins/mcp.ts forwards the probe's
   // lastBootKind/lastBoot), which is why this is a FIXTURE fix and not a product one: measured before changing it.
+  // THE PUBLIC ROUTES, WHICH THE MODELS PAGE CANNOT RENDER WITHOUT (round 57 of the standing goal). Its provider rows
+  // come from `api.getPublicRoutes()` (`/api/admin/public`), and `Models.tsx` sets `failed` when `info.models` is empty
+  // — so with no fixture for this endpoint the page rendered its failure banner and NO ROWS, which is why `prov-dot`
+  // (two declared states) had no surface in 136 sweeps while every other check stayed green. The body is the one the
+  // console's own `models-render-smoke.mjs` uses, which is what this fixture table claims to be: the same /api bodies
+  // the render smokes assert against in jsdom. `my/` pairs with the provider below it (keyReady) so `prov-dot.ok`
+  // renders, and the `og/` + `none` rows give `prov-dot.missing`.
+  '/api/admin/public': {
+    models: ['og/deepseek/deepseek-v4.1-flash', 'my/llama-3', 'deepseek/deepseek-v4.1-flash'],
+    routes: [
+      { prefix: 'og/', backend: 'og', models: ['deepseek/deepseek-v4.1-flash'] },
+      { prefix: 'my/', backend: 'my', models: ['llama-3'] },
+      { prefix: 'none', backend: '', models: ['deepseek/deepseek-v4.1-flash'] },
+    ],
+  },
   '/api/plugins/status': { devices: { d1: { online: false, agent_up: true, tunnel_up: true, version: '1.0.106', checked_at: now, last_boot_kind: 'crashed', last_boot: 'run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s' } } },
   // ALL FOUR CHANNELS, because the lane rules are per-channel: with only 'og' in the fixture the
   // three fills that do NOT flip with the theme never render, and a contrast fix for them could not
