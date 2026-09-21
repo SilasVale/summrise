@@ -2277,3 +2277,19 @@ so the next reader does not spend a sweep rediscovering it.
 NEXT, in the order the note names them: `traj-ev-dot` is the same vocabulary as `cmd-dot` rendered in a second place,
 so whatever renders one should render the other; `plug-dot`'s `ongoing` needs a fixture that does not start a poll;
 `ag-dot`'s `off`, `monitor-mark`'s `is-up` and `boot-mark`'s `info` are each one state of a two-state family.
+
+CORRECTION TO THE SECTION ABOVE, MADE AN HOUR LATER BY THE INSTRUMENT IT DESCRIBES. "ONE STATE GAINED A SURFACE" was
+wrong. CI's own log, on the commit that claimed it:
+
+    panel: 6938 text nodes · 126 surface(s)              (+18 rows, so the new event DID render content)
+    note: mark family cmd-dot declares 6 state(s) and this run rendered 3 (fail, muted, ok) — NO SURFACE RENDERED
+          data-state=warn, data-state=running, data-state=bg
+
+The unterminated `command/start` feeds `/api/operation`, which is the History page's RUNS scope; the command CARDS come
+from a session's audit events, which is a different stub. The row arrived and the state did not. So the note did not
+just measure the gap — it FALSIFIED THE ROUND'S OWN CLAIM, in the same log line as the evidence for the claim, and the
+fix is a corrected sentence where the claim was made rather than a quietly reworded summary here.
+
+ZERO of the six families moved this round; the count of unverified silhouettes is unchanged, and the note now says so
+on every run. That is the honest state of this thread, and it is why the note is a note: the loop's next attempt at
+`running` should start from the session audit stub, not from the operation feed.
