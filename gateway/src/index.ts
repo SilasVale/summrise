@@ -105,13 +105,13 @@ export async function handleGateway(request: Request, env: any, url: URL) {
       url,
       url.protocol === "https:",
     );
-    if (hit !== null) return withCors(request, await hit);
+    if (hit !== null) return withCors(request, await hit, env);
   }
   // No plugin matched (e.g. /v1/<unknown>) — the translate impl owns the
   // same 404/405 semantics the inline dispatcher had.
   // withCors: per-request reflect-if-allowlisted (default-closed otherwise).
   const res = await translateHandleGateway(request, env, url);
-  return withCors(request, res);
+  return withCors(request, res, env);
 }
 
 export default {
@@ -120,7 +120,7 @@ export default {
     // (device panels are SAME-SITE with the console; SameSite=Lax does not
     // help there). Bearer clients carry no cookie — untouched.
     if (csrfCookieViolation(request)) {
-      return withCors(request, jsonError(403, "Cross-site request blocked", "csrf_error"));
+      return withCors(request, jsonError(403, "Cross-site request blocked", "csrf_error"), env);
     }
     const url = new URL(request.url);
 
@@ -137,7 +137,7 @@ export default {
 
     if (request.method === "OPTIONS") {
       // Global preflight: reflect-if-allowlisted + Vary, NO ACAO otherwise.
-      return new Response(null, { headers: corsHeadersFor(request) });
+      return new Response(null, { headers: corsHeadersFor(request, env) });
     }
 
     try {
@@ -155,14 +155,18 @@ export default {
 
       // ---- Public tooling endpoints (any host) ----
       if (path === "/api/health") {
-        return withCors(request, jsonOk(await buildHealth(env)));
+        return withCors(request, jsonOk(await buildHealth(env)), env);
       }
       if (request.method === "POST" && path === "/api/vale-probe") {
         if (await probeRateLimited(env, request)) {
-          return withCors(request, jsonError(429, "probe rate limit exceeded", "rate_limit_error"));
+          return withCors(
+            request,
+            jsonError(429, "probe rate limit exceeded", "rate_limit_error"),
+            env,
+          );
         }
         const body = await readJson(request);
-        return withCors(request, await valeProbe(env, String(body.model || "")));
+        return withCors(request, await valeProbe(env, String(body.model || "")), env);
       }
       if (
         path === "/api/vale-cli" ||
@@ -171,7 +175,7 @@ export default {
       ) {
         const cli = await serveAssetText(env, "/vale");
         if (cli === null)
-          return withCors(request, jsonError(404, "vale CLI not found", "not_found_error"));
+          return withCors(request, jsonError(404, "vale CLI not found", "not_found_error"), env);
         // Genuinely-public installer payloads (curl|sh / irm|iex — CORS-
         // irrelevant non-browser clients): KEEP the ACAO:* wildcard so any
         // browser-hosted install helper keeps working. No session, no secret.
@@ -206,8 +210,8 @@ export default {
           url,
           url.protocol === "https:",
         );
-        if (hit !== null) return withCors(request, await hit);
-        return withCors(request, jsonError(404, "Not Found", "not_found_error"));
+        if (hit !== null) return withCors(request, await hit, env);
+        return withCors(request, jsonError(404, "Not Found", "not_found_error"), env);
       }
 
       // ---- OpenAI-compatible alias: /models → /v1/models, /chat/completions → /v1/chat/completions ----
@@ -219,11 +223,12 @@ export default {
 
       // ---- Static page (Workers Assets): non-/v1/ paths → ai domain only ----
       if (!path.startsWith("/v1/")) {
-        if (!isPageHost) return withCors(request, jsonError(404, "Not Found", "not_found_error"));
+        if (!isPageHost)
+          return withCors(request, jsonError(404, "Not Found", "not_found_error"), env);
         if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
-          return withCors(request, await env.ASSETS.fetch(request));
+          return withCors(request, await env.ASSETS.fetch(request), env);
         }
-        return withCors(request, jsonError(404, "Not Found", "not_found_error"));
+        return withCors(request, jsonError(404, "Not Found", "not_found_error"), env);
       }
 
       // ---- /v1/* gateway (both domains) ----
@@ -232,7 +237,7 @@ export default {
     } catch (error) {
       // Never echo raw error internals to clients (logged server-side).
       console.error("[gateway] unhandled:", error);
-      return withCors(request, jsonError(500, "Internal error", "api_error"));
+      return withCors(request, jsonError(500, "Internal error", "api_error"), env);
     }
   },
 };

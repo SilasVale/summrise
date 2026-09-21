@@ -217,7 +217,7 @@ export default {
       // responses are built bare (no CORS stamp); the front-door dispatch
       // re-stamps idempotently, but direct plugin consumers get CORS here.
       handler: async (request: Request, env: any) =>
-        withCors(request, await handleMcp(request, env)),
+        withCors(request, await handleMcp(request, env), env),
     });
     // ---- GET /api/plugins/status (was inside handleConsole, admin-gated) ----
     // round-83: the migration dropped the admin gate — the plugin route runs

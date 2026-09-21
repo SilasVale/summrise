@@ -459,7 +459,7 @@ export async function relayUpstreamResult(
   }
   if (routeKind === "opencode") await recordChannelSuccess(env);
   const headers = new Headers(upstream.headers);
-  stampCors(request, headers);
+  stampCors(request, headers, env);
   ctx.generationId = upstream.headers.get("x-generation-id") || undefined;
   return new Response(upstream.body, { status: upstream.status, headers });
 }

@@ -180,7 +180,7 @@ async function proxyDevice(
   // NO wildcard. The proxied panel runs at the console origin and can read
   // console APIs (accepted trust limitation, round-133/134 note below), so
   // an arbitrary cross-origin reader must not be invited in on top of that.
-  stampCors(request, outHeaders);
+  stampCors(request, outHeaders, env);
   const ct = String(outHeaders.get("content-type") || "").toLowerCase();
 
   if (resp.status === 101) {
