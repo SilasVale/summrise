@@ -219,6 +219,14 @@ const CASES = [
     to: '"frames": [\n    "a-state-nobody-emits",',
   },
 
+  {
+    gate: "scripts/test/contract-vocabulary-check.mjs",
+    file: "agent/resources/panel-react/src/lib/bootNotice.ts",
+    why: "an interface stops reading a value the device still emits — vocabulary spoken to nobody (round 157's symmetric clause)",
+    from: '"machine-restart"',
+    to: '"machine-restart-renamed"',
+  },
+
 ];
 
 const run = (cmd, args) => {

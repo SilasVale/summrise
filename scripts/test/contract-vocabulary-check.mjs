@@ -179,6 +179,42 @@ if (neverWritten.length) {
   );
 }
 
+// ── AND EVERY DECLARED VALUE IS READ BY AN INTERFACE (round 157), the symmetric half of the clause above. The artifact's
+// header claims both directions — "the strings the device writes and the interfaces read" — and round 156 checked the writing;
+// this checks the reading, because a value the device emits and nobody switches on is dead vocabulary that will drift out of
+// the language entirely.
+//
+// Measured before adding it: all 16 values are read somewhere (every one by the panel; three boot kinds additionally by the
+// gateway and the console). The gate's own `bootNotice.ts` clause compares against SEVEN kinds because that reader handles
+// retired ones for older devices — a superset, which is legitimate and is why both clauses can be true at once.
+const interfaceSources = [
+  "agent/resources/panel-react/src",
+  "gateway/src",
+  "gateway/ui/src",
+]
+  .flatMap((dir) =>
+    execFileSync("git", ["ls-files", dir], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean),
+  )
+  .filter((f) => /\.(ts|tsx)$/.test(f))
+  .map((f) => readFileSync(join(ROOT, f), "utf8"))
+  .join("\n");
+
+const neverRead = [];
+for (const [group, values] of Object.entries(contract)) {
+  if (!Array.isArray(values)) continue;
+  for (const v of values) {
+    if (!interfaceSources.includes(JSON.stringify(v))) neverRead.push(`${group}: ${v}`);
+  }
+}
+if (neverRead.length) {
+  fail += neverRead.length;
+  console.error(
+    `FAIL ${neverRead.length} declared value(s) no interface reads — vocabulary the device speaks to nobody:\n  ` +
+      neverRead.join("\n  ") +
+      `\n\nEither an interface switches on it, or the device has no reason to emit it.`,
+  );
+}
+
 if (fail) {
   console.error(`\ncontract-vocabulary: ${fail} problem(s) — the two ends do not spell one vocabulary`);
   process.exit(1);
