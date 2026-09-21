@@ -2701,3 +2701,22 @@ WHY IT IS WORTH A ROUND TO SAY THIS PLAINLY: forty rounds of work went past this
 silhouette collisions fixed, a generated contract wired through, seven gates added — and the only way to know the OPERATOR's
 surface is still clean is to measure the operator's surface. The suite's 142 harness surfaces and this one probe answer
 different questions, and the probe is the one that answers "is what you are looking at true".
+
+### THE LOCAL GATES, ALL THIRTY-NINE, AFTER A REFACTOR THAT REBUILT THE ARTIFACT THEY READ (round 102)
+
+The objective's own bar says "the existing design gates on all four surfaces green", and this round was spent checking
+that bar locally rather than assuming it — because the rounds just before it changed panel SOURCE and REBUILT the bundle,
+and seven of these gates read the BUILT panel sheet rather than the sources:
+
+    feedback-check · chrome-stillness-check · spacing-scale-check · state-colour-check · motion-check ·
+    css-vars-check · mark-vocabulary-check
+
+A refactor that moved the session-row mapping out of the hook body (`wireFields`, rounds 96-97) and regenerated
+`panel.js`/`panel.css` is exactly the kind of change that can leave those seven reading a sheet nobody meant to change.
+
+MEASURED: 39 of 39 green, each by its exit code, listed by name — 30 `.mjs` gates (the ten the standing objective added
+among them) and 9 `.bash` gates. The panel suite is 806 in 103 files, the gateway 917/0, and CI green on the same commit.
+
+WORTH A ROUND, WITH NO CODE CHANGED, because of what it rules out: a gate that reads an artifact is only as good as the
+last time somebody ran it against the artifact the current sources build, and seven of them had not been run since the
+rebuild.
