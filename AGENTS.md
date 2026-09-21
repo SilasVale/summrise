@@ -46,6 +46,15 @@ re-running it by another route: once on the burst-gate test (round 144) and once
 
 ### Which gates have been PROVEN to bite
 
+**THE STANDING OBJECTIVE'S TEN GATES ARE IN THE LEDGER, NOT HERE** (added across rounds 78-101 of that objective:
+`contract-vocabulary-check`, `one-derivation-check`, `session-row-check`, `wire-field-check`,
+`console-wire-field-check`, `gateway-device-field-check`, `device-verdict-check`, `sweep-fixture-dupes-check`,
+`production-host-check`, plus the `harness-fixture-check` changes). Each carries the mutation that must fail it, and each
+was written because the rule it holds had ALREADY cost a real defect. They live in `docs/agents/design-ledger.md` and
+`inventory.md` §12 rather than in this table, because THIS is the file that gets truncated when it grows — the rule below,
+applied to itself.
+
+
 A gate that cannot fail is worse than no gate, and the only way to know is to break the thing it
 guards and watch what happens. Every gate below was audited that way (rounds 65-68) — none of them is
 assumed:
