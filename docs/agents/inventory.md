@@ -696,3 +696,34 @@ WHAT REMAINS ON THE DECLARED LIST, AND WHY EACH STAYS: a base URL the PRODUCT ch
 and a test whose SUBJECT is the shipped default (`devices-validate`). Every one of the four now carries an accurate reason
 in the gate rather than an incidental one, which is what this line was for. The count went 493 occurrences in 118 files to
 **446 in 105**, and the declared list from 52 to **42**.
+
+## 13. The deployment-host migration: how it ended, in one place
+
+Eleven gateway test files now run on a TEST DOMAIN and name no deployment host; four remain, each with an accurate reason.
+Read this instead of the eleven rounds that produced it.
+
+**THE SHAPES A MENTION CAN TAKE — eight, each learned by being bitten:**
+
+    1. a plain string                      `hostname: "d1.agent.<host>"`
+    2. an ESCAPED regex                    `/^https:\/\/d1\.agent\.<host>\//`      ← invisible to a plain-string pass
+    3. a CAPITALISED spelling              `D1.Agent.Saisi.Online`                 ← invisible to a case-sensitive grep
+    4/5/6. the accepting rule declared in  one env · a SECOND directly-built env · an INLINE object literal
+    7. an env position holding `{}`        `callTool({…}, {}, DEVICE, …)`           ← the rule falls back to the default
+    8. an insert predicate too loose       matching `return {` as well as the constructor
+
+**AND THE RULE BEHIND ALL EIGHT: a host and the rule that accepts it are ONE fixture. Every failure above is a way of
+moving half of it** — which is why rounds 87 and 93, which made `INDEX_WORKER_URL` and the stamping sites actually READ
+their configuration, are what made round 120 possible at all.
+
+**THE FOUR THAT REMAIN, AND WHICH FACE OF THE THIRD KIND THEY ARE:**
+
+    devices-validate   FACE 1 — its first test is named "default suffix" and passes {} on purpose:
+                       the shipped default IS the subject. Migrating it deletes the thing under test.
+    gateway            FACE 2 — the relay and exit BASE URLs the product chooses.
+    registry           FACE 2 — the DEFAULTS of usProxyBase/museResponsesExit.
+    vale-cli           FACE 2 — the gateway base the CLI defaults to (VALE_GATEWAY).
+
+Face 2 is a DESIGN change (make the base configurable), not a fixture change; that distinction is why they stay, and the
+gate now says so per entry rather than with one generic sentence.
+
+**THE NUMBERS:** 493 occurrences in 118 files → **446 in 105**; the declared list 52 → **42**, and it may only shrink.
