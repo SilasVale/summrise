@@ -844,9 +844,14 @@ ${TIMING}
   if (wants("pages")) {
     for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
       for (const theme of ['light', 'dark']) {
+        // AND ONCE WITH A TRIMMED TRAIL (round 83): TrajectoryView renders .traj-trimmed when first_seq > 1, a fact
+        // only the device can state, and one no surface had ever carried — the wire-field-check gate found the field
+        // missing from every fixture on its first run. Panel density only: the state is about the trail, and both
+        // densities read the same view.
         for (const tab of ['Trajectory', 'Path']) {
+          for (const trimmed of density === 'panel' ? [false, true] : [false]) {
           await page.setViewportSize(vp);
-          await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+          await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp + (trimmed ? '&trimmed=1' : ''), { waitUntil: 'load' });
           await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
           await page.reload({ waitUntil: 'load' });
           await page.waitForTimeout(1500);
@@ -868,12 +873,14 @@ ${TIMING}
             await page.waitForTimeout(900);
           }
           await page.waitForTimeout(1800);
-          const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme;
+          const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme
+            + (trimmed ? '-trimmed' : '');
           const rows = await page.evaluate(PROBE);
           for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'record', page: pname });
           report.surfaces.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SURFACE)) });
           report.names.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(NAMES)) });
           report.sse.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SSE)) });
+          }
         }
       }
     }
