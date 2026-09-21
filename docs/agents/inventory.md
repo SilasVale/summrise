@@ -463,3 +463,16 @@ Loaded the emitted harness on the device at `?boot=replaced`, read the URL, the 
 
 This is what "ask the page instead of inferring" bought: three facts, one of them the death of a wrong suspicion, and a
 remaining hypothesis narrow enough to test in a line rather than argue about for a round.
+
+**CLOSED (round 73): `boot-mark info` RENDERS.** The fix was one line in the harness — `/api/status` re-reads the query per
+request instead of trusting a `URLSearchParams` parsed once at install — and the device measured both sides of it:
+
+    before   last_boot_kind "crashed"   uptime 5412   .boot-mark "boot-mark warn"
+    after    last_boot_kind "replaced"  uptime   90   .boot-mark "boot-mark info"
+
+Seven rounds for one state, and the shape of the seven is the useful part: six suspects ELIMINATED by measurement (fixture
+fields, endpoint, notice window, hook assignment, both density mounts, query parser), two WRONG conclusions published and
+withdrawn (a phantom probe in round 69, a truncated grep read as complete in round 70), and finally one device probe that
+asked the page directly and produced three facts in a single call. The fault was never in any of the six things examined;
+it was an evaluation happening in a document that was not the one the assertion saw — which is exactly the class of bug
+that inference cannot find and a rendered measurement finds immediately.
