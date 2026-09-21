@@ -375,7 +375,7 @@ async function handleFileUpload(request: Request, env: any, url: URL): Promise<R
 
 // Proxy the upload to the index worker, injecting the UPLOAD_KEY.
 async function proxyUploadToWorker(request: Request, env: any, url: URL): Promise<Response> {
-  const indexWorkerUrl = env.INDEX_WORKER_URL || "https://agent.saisi.online";
+  const indexWorkerUrl = indexWorkerBase(env); // one place decides this host (round 87)
   // Forward the QUERY, not just the path: the raw-stream PUT carries the
   // filename in ?name=, and dropping it silently renamed every upload
   // "file" on the download side.
@@ -660,7 +660,12 @@ async function handleRegKeyRevoke(request: Request, env: any, url: URL): Promise
 // worker's /api/version on agent.saisi.online. Fetched server-side (no CORS
 // concerns), cached 5 min in-isolate; a null version tells the UI to fall
 // back to its built-in constant.
-const INSTALL_SOURCE = "https://agent.saisi.online/api/version";
+/** THE INSTALL MANIFEST'S URL, DERIVED FROM THE SAME CONFIGURATION AS THE UPLOAD PROXY (round 87). This was a second
+ *  `const` carrying the same host the function below already computes (`env.INDEX_WORKER_URL || default`) — one fact,
+ *  two copies, which is the spine's defect in its smallest form: a deployment that points the index worker somewhere else
+ *  would proxy uploads to one host and read its install manifest from another, silently. */
+const indexWorkerBase = (env: any) => env.INDEX_WORKER_URL || "https://agent.saisi.online";
+const installSource = (env: any) => `${indexWorkerBase(env)}/api/version`;
 const INSTALL_CMD_TTL_MS = 5 * 60 * 1000;
 let installCmdCache: { at: number; version: string | null; download: string | null } | null = null;
 
@@ -671,7 +676,7 @@ async function handleInstallCmd(request: Request, env: any): Promise<Response> {
     let version: string | null = null;
     let download: string | null = null;
     try {
-      const res = await fetchWithTimeout(INSTALL_SOURCE, {}, 8000);
+      const res = await fetchWithTimeout(installSource(env), {}, 8000);
       if (res && res.ok) {
         const j: any = await res.json().catch(() => null);
         if (j && typeof j.version === "string") {
