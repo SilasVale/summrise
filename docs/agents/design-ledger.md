@@ -2202,3 +2202,41 @@ THE COMMON SHAPE, for the next list somebody adds: an exemption is a promise abo
 about the past, and nothing in a suite naturally expires it. The expiry has to be asked for — and the cheapest place
 to ask is where the evidence is counted anyway, with the SIZES printed so a partial run cannot be mistaken for a
 stale entry. The panel's own instruction file now carries all three notes in its gate table.
+
+### A DECLARATION IS EXERCISED BY THE PASS THAT ASKS (round 25)
+
+Round 24's instrument reported, in CI's own log, that the console declares ONE unstyled-by-design class and the run
+saw NONE:
+
+    note: 1 of 1 declared unstyled-by-design class(es) were not seen in this run (0 unstyled name(s) over 6 pages)
+      stat-off — the Overview's default tone: the base .stat-card::before already paints the faint bar that off means
+
+The declaration was correct and could still fire. The Overview builds a stat-card plus a stat-<tone> class, the sheet
+has rules for ok/warn/info only, and THREE of its four stats take the `off` tone when there is nothing to report — no
+device online, no channels, no keys. The empty-fleet fixture already existed and visited only `#/devices` and `#/keys`,
+so the one state that needs the declaration had never been rendered by anything.
+
+    FIX 1  #/ joins the empty-fleet surfaces: 54 -> 56 surfaces, 1632 -> 1732 rows, 30 -> 32 name checks, every axis
+           clean. THE NOTE DID NOT MOVE — because the CENSUS has its own page loop and walks the six POPULATED pages.
+           The state was rendered; the pass that asks the question was not looking at it.
+    FIX 2  the census visits the empty fleet too, and the note becomes what it should have been all along:
+             note: stat-off is unstyled by design — the Overview's default tone: (…)     (once per theme)
+
+THE LESSON IS NARROWER THAN "ADD A SURFACE", and it is the reason the first fix looked finished: A SUITE CAN RENDER A
+STATE AND STILL NOT MEASURE IT, and the summary line is what hides that — 56 surfaces and 1732 rows read as success
+whether or not the census that asks about a class ever saw the page. The rendered pass and the census are two
+instruments with two loops, and a state has to reach the one whose question it answers.
+
+FOUR PLACEMENTS WERE REJECTED BEFORE ONE LANDED, which is worth keeping because three were caught by machinery rather
+than by reading:
+
+  * a backtick in the comment (`stat-off`) — the emitter's own guard, 54th time this session;
+  * an interpolation-looking `stat-<tone>` written with a dollar-brace — inside these template literals that is CODE,
+    and it threw `tone is not defined` at emit time;
+  * the block at MODULE level, where `await` is a syntax error the emitted-script parse check caught immediately;
+  * the block inside the per-page loop, where it would have left the hover pass measuring a page it never navigated to
+    — caught by reading the loop rather than by a gate.
+
+PINNED: `press-anchor-check` now requires the emitted console sweep to carry the Overview in the empty-fleet loop, and
+the mutation (dropping `['overview-empty', '#/']`) fails it with that sentence. The remaining unexercised declaration
+in either UI is none today — the panel's eleven are all seen, the console's one is now seen in both themes.
