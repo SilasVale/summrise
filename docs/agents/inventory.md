@@ -530,3 +530,20 @@ nine were not the recipe's fault but its INCOMPLETENESS, in two ways worth keepi
 REVERTED TO GREEN (917/0) rather than landing a half-migrated file, which is round 48's lesson applied one file down. The
 next attempt starts from this correction: migrate the cases that CONFIGURE, leave the ones that assert the DEFAULT — and
 prove the latter against `ALLOWED_ORIGINS` rather than a literal.
+
+**ROUND 91 TRIED IT AGAIN, GOT TO 912/5, AND REVERTED AGAIN — WHICH IS THE FINDING.** Three attempts, three reverts, and
+each died on a DIFFERENT mechanical shortcut rather than on the plan:
+
+    1. a regex substitution mangled an empty call (`corsHeadersFor()` → `corsHeadersFor(, ORIGINS)`);
+    2. a constant rename (`AI` → `CONSOLE`) left thirteen live references, and the missing `ALLOWED_ORIGINS` import threw
+       once — the runner reports either as "the FILE failed", not as a case, which is why both took a manual `node --test`
+       to see;
+    3. the last pass renamed the mock-env FUNCTION's own parameter (`function corsEnv(ORIGINS, …)`), so every call site
+       silently kept the old signature.
+
+Each attempt made real progress (the file ends with no literal production host and a corrected header) and each was
+reverted for the same reason: the suite was red and the tree has to be green. THE CONCLUSION IS ABOUT THE TOOL, NOT THE
+PLAN — **this file has ~20 cases with at least three different intents (configure / assert-the-default / assert-the-rule),
+and it needs one careful pass that reads each case, not a mechanical one that matches patterns.** It is a round of its own,
+and it keeps being deferred to the end of a long session, which is how it has been attempted three times and finished
+zero.
