@@ -110,9 +110,13 @@ export function corsHeadersFor(
 }
 
 /** Stamp (or strip) ACAO on a mutable Headers object, per request origin. */
-export function stampCors(request: Request | null | undefined, headers: Headers): void {
+export function stampCors(
+  request: Request | null | undefined,
+  headers: Headers,
+  env?: { CONSOLE_ORIGINS?: string } | null,
+): void {
   const origin = request ? requestOrigin(request) : "";
-  if (isAllowedOrigin(origin, requestHost(request))) {
+  if (isAllowedOrigin(origin, requestHost(request), env)) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Vary", "Origin");
   } else {
@@ -125,11 +129,15 @@ export function stampCors(request: Request | null | undefined, headers: Headers)
  * allowlisted, Vary: Origin, no ACAO otherwise). WebSocket upgrades (101 /
  * webSocket) carry no mutable headers — returned untouched.
  */
-export function withCors(request: Request | null | undefined, response: Response): Response {
+export function withCors(
+  request: Request | null | undefined,
+  response: Response,
+  env?: { CONSOLE_ORIGINS?: string } | null,
+): Response {
   const r = response as Response & { webSocket?: unknown };
   if (r.status === 101 || r.webSocket) return response;
   const headers = new Headers(response.headers);
-  stampCors(request, headers);
+  stampCors(request, headers, env);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

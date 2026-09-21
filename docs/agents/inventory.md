@@ -542,7 +542,19 @@ each died on a DIFFERENT mechanical shortcut rather than on the plan:
        silently kept the old signature.
 
 Each attempt made real progress (the file ends with no literal production host and a corrected header) and each was
-reverted for the same reason: the suite was red and the tree has to be green. THE CONCLUSION IS ABOUT THE TOOL, NOT THE
+reverted for the same reason: the suite was red and the tree has to be green.
+
+**ROUND 92 FOUND THE REAL ORDER, AND IT IS NOT THE ONE EITHER PLAN HAD.** With the file finally reading no production
+domain at all (18 of its 20 cases green), ONE case could not pass and the reason is structural: it drives the WORKER with
+the mock env on the test domain and sends a shipped-default origin, and the worker rejects that as a CROSS-SITE request
+(403) — because the worker's own stamping path never receives the configured list. `isAllowedOrigin`, `corsHeadersFor`,
+`stampCors` and `withCors` all take the list as an OPTIONAL parameter (round 88's staging) and **~17 call sites inside
+`index.ts` and the plugins still call them without it**, so in production the configuration is INERT.
+
+SO THE FIRST STEP IS THE WORKER, NOT THE FIXTURES: thread `env` through those ~17 stamping call sites (every one of them
+is inside a function that already has `env`), and only then can a test run on a test domain at all. That is the third time
+this session has measured a plan's order to be backwards — round 41 (a push cancels the run measuring it), round 48 (the
+gateway's own defaults before its fixtures) and now this. THE CONCLUSION IS ABOUT THE TOOL, NOT THE
 PLAN — **this file has ~20 cases with at least three different intents (configure / assert-the-default / assert-the-rule),
 and it needs one careful pass that reads each case, not a mechanical one that matches patterns.** It is a round of its own,
 and it keeps being deferred to the end of a long session, which is how it has been attempted three times and finished
