@@ -44,11 +44,11 @@ The install dir is registry-first (`HKLM\SOFTWARE\Vale\Agent\InstallDir`); all p
 | `gateway/` | **Vale Gate** | Cloudflare Worker | console (login/roles), BYOK AI gateway, `/mcp` proxy to devices, device registry |
 | `agent/` | **Vale Agent** | Windows (Rust) | headless MCP server + `/api/tools` + panel + Electron desktop shell (`vale-desktop-electron/`) + npm distribution (`vale-agent-npm/`) |
 | `index/` | **Vale Index** | Cloudflare Worker | download distribution (`vale-dist`; hosts the npm tgz, see Quick start) |
-| ~~`studio/`~~ | RETIRED 2026-09-06 | — | replaced by code-server (vscode.saisi.online, behind Access); see docs/adr/0006 |
+| ~~`studio/`~~ | RETIRED 2026-09-06 | — | replaced by code-server (vscode.saisi.online, behind Access); the ADR that recorded it was pruned with the rest of `docs/adr/` — the retirement note here is now the only record |
 | `proxies/` | **Satellite proxies** | Cloudflare Worker + Oracle VPS (vrelay) | zen-go / zen-us AI egress + api-relay (`./scripts/build.sh proxies|api-relay`) |
 | `brand/` | **Brand assets** | static (satellite) | sunrise favicon / icon source (no build) |
 | `scripts/` | build/release | shell | unified build/publish entry (`build.sh`, `publish-release.sh`) |
-| `docs/` | docs | — | ADRs (`docs/adr/`) + agent contracts (`docs/agents/`) + research/superpowers (incl. `specs/`) |
+| `docs/` | docs | — | the operator's charter (`docs/CHARTER.md`), the agent inbox (`docs/agents/ideas.md`) and the round-by-round design ledger (`docs/agents/design-ledger.md`). The ADR and research trees this row used to name were pruned; the ledger carries what they recorded |
 
 ## Build & deploy
 
@@ -67,7 +67,7 @@ The install dir is registry-first (`HKLM\SOFTWARE\Vale\Agent\InstallDir`); all p
 ./scripts/publish-release.sh 1.2.N
 ```
 
-See `agent/AGENTS.md` (Rust build guide) and `docs/superpowers/specs/2026-08-28-vale-desktop-core-design.md` (desktop/core; `gateway/DEVICE-INTEGRATION.md` is a superseded 2026-08 design).
+See `AGENTS.md` (build, tests, the proven-gate table, release) and `agent/AGENTS.md` (the Rust-side guide). `gateway/DEVICE-INTEGRATION.md` is a superseded 2026-08 design, kept for the device/wire history; the desktop core's design notes were pruned, and `docs/agents/design-ledger.md` is where those decisions were re-measured.
 
 ## Core design
 
