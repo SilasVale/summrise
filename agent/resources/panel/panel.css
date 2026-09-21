@@ -2419,6 +2419,19 @@ h3 { font-size: var(--fs-base); }
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--state-muted);
 }
+/* BACKGROUNDED HAS ITS OWN SHAPE NOW, AND IT DID NOT UNTIL IT WAS PAINTED (round 31). There was no `bg` rule at all,
+   so the state fell to the base class and computed as `muted`'s hollow ring — the objective's "every state has its own
+   silhouette" was simply broken for two of this vocabulary's six states, and nothing could see it: `bg` was one of the
+   two `cmd-dot` states no fixture rendered, and the collision check can only compare states that are on screen. Adding
+   the surface (a backgrounded command in the audit trail) failed CI on its first run with exactly that pair.
+   THE SQUARE IS THE DIFFERENTIATOR: `warn` and `fail` already use `border-radius: 2px` here, so a RING THAT IS NOT
+   ROUND reads as "a ring, but not the quiet one" without inventing a channel — and the word beside the dot in the
+   command card says which ending it was. */
+.cmd-dot[data-state="bg"] {
+  background: transparent;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1.5px var(--state-muted);
+}
 /* NO ARM FOR `.plug-dot[muted]`: the plugin dot's BASE is its "nothing to report" state, so it is the ring — the
    same shape, one rule instead of two. The duplicated arm rendered a DISC inside a RING, because the base's
    `background: var(--faint)` was never overridden and `--faint` and `--state-muted` are the SAME VALUE (#a1a1aa):
@@ -3795,6 +3808,12 @@ h3 { font-size: var(--fs-base); }
 .path-step-tag.s-warn { color: var(--warn-ink); }
 .path-step-tag.s-running { color: var(--accent-on-soft); }
 .path-step-tag.s-muted { color: var(--muted); }
+/* AND THE PATH'S STEP TAG FOR A BACKGROUNDED STEP HAD NO INK AT ALL (round 31). Every other tone was listed; `bg` was
+   not, so the tag inherited the page's colour, which in the DARK theme computes to rgb(0, 0, 0) — 1.25:1 on the dark
+   surface, an invisible label on the one view whose job is to say how each step ended. Found by the same new surface,
+   on its first run, in both densities. The tag carries its state as a WORD, so the ink only has to be legible; it
+   matches `ok`/`muted` because "handed off, still running" is not a verdict. */
+.path-step-tag.s-bg { color: var(--muted); }
 .path-step-dur, .path-step-out { font: var(--fs-2xs) var(--font-mono); color: var(--muted); }
 
 /* ── Recipe save (design beat 6, "harvest") ──
