@@ -212,5 +212,5 @@ live gateway.
 
 | finding | measurement |
 |---|---|
-| `D:\Vale\vale-agent.yaml.bad` — **17,140,736 bytes whose first two bytes are `4D 5A` ("MZ")**: it is a Windows EXECUTABLE named as if it were a config file, dated 2026-09-10, and nothing has cleaned it up. Whatever quarantined it wrote a name that lies about what it holds. | `[measured]` on d1 |
-| `C:\ProgramData\Vale\mcp_diag.log` (168,620 bytes) sits at the **pre-layout-v2** location while the live writer uses `C:\ProgramData\Vale\logs\mcp_diag.log` — a migration leftover that will never be appended again. | `[measured]` on d1 |
+| `D:\Vale\vale-agent.yaml.bad` — **17,140,736 bytes whose first two bytes are `4D 5A` ("MZ")**: it is a Windows EXECUTABLE named as if it were a config file, dated 2026-09-10. Whatever quarantined it wrote a name that lies about what it holds. **DELETED 2026-09-21** (`Test-Path` false afterwards). | `[measured]` on d1 |
+| `C:\ProgramData\Vale\mcp_diag.log` (168,620 bytes) sat at the **pre-layout-v2** location while the live writer uses `C:\ProgramData\Vale\logs\mcp_diag.log` — a migration leftover that would never be appended again. **DELETED 2026-09-21.** | `[measured]` on d1: D: free 104,316.2 MB → 104,332.5 MB, live logs untouched |
