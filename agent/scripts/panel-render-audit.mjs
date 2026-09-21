@@ -725,7 +725,12 @@ function buildHarness() {
     if (u.indexOf('/api/tools/terminal_history') >= 0) return Promise.resolve(J({ok:true, result:[]}));
     if (u.indexOf('/api/tools/terminal_read') >= 0)    return Promise.resolve(J({ok:true, result:{text:'ONT 0/1 online', start:0, end:14, evicted:false}}));
     if (u.indexOf('/api/tools/') >= 0)                 return Promise.resolve(J({ok:true, result:'OK'}));
-    if (/\\/api\\/sessions\\/[^/]+$/.test(u))            return Promise.resolve(J({ok:true, id:SID, events:EVENTS}));
+    // first_seq IS A DEVICE FIELD NO FIXTURE CARRIED (round 82): the panel reads it and, at > 1, says the trail was
+    // TRIMMED — a fact only agent/src/web/mod.rs can state, and one this harness never spoke, so that branch has never
+    // rendered. The wire-field-check gate found it on its first run by comparing what the panel's parsers read against
+    // everything the other end says. 1 claims nothing (the panel's own default for an agent too old to send it); the
+    // > 1 state is a coverage item, recorded rather than faked.
+    if (/\\/api\\/sessions\\/[^/]+$/.test(u))            return Promise.resolve(J({ok:true, id:SID, first_seq:1, events:EVENTS}));
     // ?pwrun=1 — THE LAST OF THE PLUGIN DOT'S FOUR STATES (round 77 of the standing goal). Round 26 recorded that
   // ongoing was unreachable because a RUNNING playwright made the page poll and the poll hung the sweep — and round
   // 163 DELETED that poll ("the 5s status POLL is gone"; the status refreshes from the playwright-changed push now),

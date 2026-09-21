@@ -552,6 +552,13 @@ jobs:
       # console to computing it itself with every other suite still green.
       - name: the device's verdict still crosses the wire
         run: node scripts/test/device-verdict-check.mjs
+      # EVERY FIELD THE PANEL READS IS SPOKEN BY THE OTHER END (round 82 of the standing goal). Three of this session's
+      # defects were a field name only one end knew: a page looking up `h.id` against a fixture saying `prefix:`; a crash
+      # row waiting on `last_boot_kind` against `verdict:`; and `prov-dot` rendering nothing for three rounds. Its first
+      # run found a fourth: `first_seq`, which the device sends, no fixture carried, and whose `> 1` branch ("the trail
+      # was trimmed") had therefore never rendered anywhere.
+      - name: every wire field has a source
+        run: node scripts/test/wire-field-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
