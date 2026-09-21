@@ -576,6 +576,14 @@ and the rule that accepts the host can be declared (4) in one env, (5) in a SECO
 an INLINE object literal that no `makeBaseEnv` grep can see. The hosts and the rule are ONE fixture; every failure above is
 a way of moving half of it.
 
+ROUND 115 ADDED A SEVENTH, and it is the worst of them because it looks like success: **an edit that lands TWICE.** Both of
+this file's env helpers open their return with the same line (`CONSOLE_HOST: "x",`), so an anchored insert meant for the
+second hit the FIRST twice — the suite went green with `DEVICE_HOST_SUFFIX` declared twice in one object literal (legal
+JavaScript, first shadowed by an identical value, harmless today) while the helper that actually needed it still had none,
+and one test failed naming the production suffix in an error message. The duplicate is gone and each helper declares it
+once; the general lesson is the one `sweep-fixture-dupes-check` exists for, and it applies to TEST fixtures too — that gate
+reads the sweeps only, which is now a recorded candidate rather than an assumption.
+
 **WHAT THE REMAINING 11 FILES ACTUALLY COST, so the next round can decide rather than discover:** one careful round each —
 read the file, move every mention INCLUDING regex spellings, add its env keys, run the file alone, then the suite, then
 remove it from the list. That is ~14 rounds for a cleanup whose only product is a shorter allowlist and a tree that no
