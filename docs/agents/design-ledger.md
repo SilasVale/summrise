@@ -2404,3 +2404,26 @@ Every one was caught by a gate rather than by reading, which is the only reason 
 The rule for the next one: when a check greps for a NAME, put the context in the pattern (`mark family tab-dot
 declares`), and when it matches TEXT a program emitted, take the pattern from the emitted file rather than from the
 source that produced it.
+
+### THE AXIS THE DEFECT LIVED IN, MEASURED WHERE IT LIVES (round 30)
+
+Round 29 closed a loop with the live probe, and the loop taught one thing worth acting on: the defect it found
+(`ag-dot[off]` at 2.56:1) was in the MARK axis, while the probe measured only contrast — and the sweeps' own
+mark-coverage note counts six families the HARNESS never paints. The device's real states are not the harness's states,
+so the mark axis belongs on the live panel.
+
+    families  mark[working] · sc-dot[ai] · ag-dot[off]        ← measured on d1, both densities
+    collisions []   ringFill []   textFailing []   graphicFailing []   verdict { ok: true } → exit 0
+
+ONE IMPLEMENTATION, WHICH COST TWO FAILURES TO GET RIGHT. The IIFE was extracted into `marksSource(rootSelector)` so the
+sweeps and the probe cannot drift — and it then died twice before it ran:
+
+  * as a bare const it evaluated with `ROOT_SEL` undefined — the same failure the comment above `pageChecks` records
+    from the extension sweep, which is why the placeholder substitution exists at all;
+  * as an interpolation inside `PAGE_CHECKS_TEMPLATE` it read `rootSelector` at MODULE LOAD, where that name does not
+    exist ("Cannot access 'MARKS_SOURCE' before initialization" was the first symptom, "rootSelector is not defined" the
+    second). The template gets a placeholder of its own now and `pageChecks` substitutes it at call time.
+
+AND THE READING IS A GUARD: four lists must be empty, and a non-empty one is a non-zero exit. What that exit MEANS is
+written beside the step in `AGENTS.md`, because the live panel's state varies with what the device is doing — two
+sessions today, fourteen another day — so it says "look at this", not "the build is broken".

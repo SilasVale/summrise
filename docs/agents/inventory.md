@@ -245,7 +245,18 @@ green, but the panel's own fix for the live defect below has NOT been verified a
     rows are still the armed fill, 3.83 light / 3.23 dark). The flag reaches the fixture but not the gate's state, so
     the ink fix is still unverified as rendered. That is the first thing the next session should finish.
   * The live probe itself earned its place — it is the only instrument that measured the running panel, and it found a
-    defect every gate was blind to. Wiring it into a repeatable flow is the second thing.
+    defect every gate was blind to. **DONE (round 30):** it is a documented release step in `AGENTS.md`, it now measures
+    the MARK axis as well as contrast — the axis the `ag-dot` defect actually lived in, and one where the harness paints
+    six fewer families than the device does — and it EXITS NON-ZERO when any of its four lists is non-empty (failing
+    text, failing graphics, two states of one family painting identically, a mark that is both fill and ring), so the
+    step can be acted on rather than read. The mark source is one implementation shared with the sweeps
+    (`marksSource(rootSelector)`), not a second copy.
+
+    Measured on d1 (1.2.438, two live sessions), both densities:
+        families  mark[working] · sc-dot[ai] · ag-dot[off]     collisions []  ringFill []
+        textFailing []   graphicFailing []   verdict { ok: true }   → exit 0
+    `ag-dot[off]` in that list is the closure of the whole thread: one release earlier the same family measured 2.56 on
+    this panel and no instrument could say so.
 
 ### THE LOOP CLOSED: THE LIVE PROBE FOUND IT, AND THE LIVE PROBE CONFIRMED THE FIX
 
