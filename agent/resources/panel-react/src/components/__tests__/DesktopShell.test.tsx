@@ -255,6 +255,19 @@ describe("DesktopShell", () => {
     const names = [...document.querySelectorAll(".dtab-name")].map((e) => e.textContent);
     expect(names.length).toBeGreaterThan(1);
     expect(new Set(names).size, `labels must be distinguishable, got ${JSON.stringify(names)}`).toBe(names.length);
+
+    // AND THE NAME A SCREEN READER READS IS THE SAME STRING THE EYE SEES (round 29 of the standing goal). Round 170
+    // fixed the visible text and left `aria-label` on the RAW label (only set while waiting, and then with
+    // `s.label`), so the fix did not reach assistive tech: ten `pwsh` sessions looked different and sounded
+    // identical. The panel's own strip has carried the correct rule since round 167 (TabBar.tsx:99-106).
+    // SCOPED TO THIS STRIP: `role="tab"` is also the view switch's, whose accessible name is its visible text and
+    // needs no aria-label — the first version of this assertion counted those and failed on a correct page.
+    const labels = [...document.querySelectorAll('.dtab[role="tab"]')].map((e) => e.getAttribute("aria-label"));
+    expect(labels.length).toBeGreaterThan(1);
+    expect(
+      new Set(labels).size,
+      `accessible names must be distinguishable too, got ${JSON.stringify(labels)}`,
+    ).toBe(labels.length);
   });
 
   it("desktop strip: the fade flag is NOT always on when the tabs fit", () => {

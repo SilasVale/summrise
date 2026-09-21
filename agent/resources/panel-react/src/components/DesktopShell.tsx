@@ -300,15 +300,21 @@ export function DesktopShell({
                         aria-selected={s.sid === activeSid}
                         className={`dtab ${s.sid === activeSid ? "active" : ""}`}
                         data-active={s.sid === activeSid ? "1" : undefined}
+                        // THE ACCESSIBLE NAME IS THE DISAMBIGUATED LABEL (round 29 of the standing goal). The visible
+                        // text has been `shown` for rounds, and the panel density's strip puts `displayLabel` in
+                        // BOTH title and aria-label (TabBar.tsx:99-106) — but this strip kept passing `s.label`, the
+                        // RAW one, so for the ten-`pwsh` case `lib/sessionLabels.ts` was written for, a screen reader
+                        // heard ten identical tab names while the eye saw ten different ones. The same fix the panel
+                        // already carries, on the strip that did not get it.
                         title={
                           waiting
-                            ? `${s.sid} — waiting for your approval`
+                            ? `${shown} — waiting for your approval`
                             : s.sid
                         }
                         aria-label={
                           waiting
-                            ? `${s.label} — waiting for your approval`
-                            : undefined
+                            ? `${shown} — waiting for your approval`
+                            : shown
                         }
                         onClick={() => onActivate(s.sid)}
                       >
