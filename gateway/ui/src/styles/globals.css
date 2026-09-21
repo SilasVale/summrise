@@ -2369,7 +2369,7 @@ body[data-theme="dark"] .note.tip {
      CHILDREN shrink. Wrapping is the honest answer for a row of labels: nothing is hidden, nothing scrolls sideways,
      and 1.4.10's 320px case keeps working. */
   flex-wrap: wrap;
-  row-gap: 4px;
+  row-gap: var(--sp-1);
 }
 /* The lane bar the Routes page uses, so a channel looks the same everywhere. */
 .prov-lane {
