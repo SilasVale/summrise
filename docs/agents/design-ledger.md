@@ -2665,3 +2665,22 @@ and two wrong conclusions got `boot-mark info` nowhere; one device probe that re
 produced the cause in a single call. The corollary is the mistake this session named: **an absence is not evidence until
 the instrument is shown to see** — a truncated grep, a log without surface names, and a judge's output read instead of its
 exit code were the same error in three costumes.
+
+### THE GATE THAT PRODUCED ITS OWN COVERAGE ITEM (rounds 82-85)
+
+`wire-field-check` compares the fields the panel's parsers read against everything the other end speaks, and on its FIRST
+run it read 26 fields and found exactly one with no source: **`first_seq`** — which the device sends
+(`agent/src/web/mod.rs:1030`) and no fixture carried, so `TrajectoryView`'s `.traj-trimmed` branch ("this trail was
+TRIMMED", a fact only the device can state) had never rendered in any surface. Round 83 gave it one; round 85 measured the
+result on a green design job: **surfaces 136 → 142, rows 7772 → 8266, zero findings**, the six new ones being the two
+trimmed-trail tabs in both themes plus the plugin-running surface from round 77.
+
+AND THE ROUND AFTER THAT REMOVED THE CLASS RATHER THAN THE INSTANCE. Two flags had each been fixed by hand for the same
+reason — `boot` cost seven rounds, `pwrun` repeated it inside the round that added it — both because
+`var P = new URLSearchParams(location.search)` was parsed ONCE, in a document that is not the one the assertion sees. The
+parse is a function now (`P.get`/`P.has` re-read on every call), the two hand-fixed flags went back to the ordinary
+spelling, and `harness-fixture-check` pins the re-parsing `P` itself: its mutation restores the once-parsed form and names
+the fixture whose state stops rendering.
+
+A gate that finds a defect on its first run and whose sibling then removes the whole class is the shape this session was
+building toward: the measurement apparatus is not overhead next to the work, it is where the work comes from.
