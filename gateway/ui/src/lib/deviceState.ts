@@ -48,7 +48,7 @@ interface DeviceStatusLike {
  *  right — ABSENT IS NOT DOWN, which is the whole point of this module — but a second hand-written `=== false` is a place
  *  that can become `!st.tunnel_up` and start refusing devices nobody has checked. The rule belongs here, next to the signal
  *  that renders it. */
-export function tunnelKnownDown(status?: DeviceProbeStatus | null): boolean {
+export function tunnelKnownDown(status?: { tunnel_up?: boolean } | null): boolean {
   return status?.tunnel_up === false;
 }
 
@@ -58,6 +58,11 @@ export function deviceIsUp(status: DeviceStatusLike | undefined): boolean {
 
 /** A status row: what it is called, which of the three states it is in, and the word for it. */
 interface DeviceSignal {
+  /** THE ROW'S TWO FLAGS (rounds 133/144): the same answer `signal` carries, because the view spreads this row straight
+   *  into a list that renders `ok`/`err` classes. They were added to `signalOf`'s return type and NOT to this interface,
+   *  which `tsc -b` caught in CI while a local `tsc --noEmit` reported clean. */
+  ok: boolean;
+  err: boolean;
   label: string;
   signal: Signal;
   state: string;

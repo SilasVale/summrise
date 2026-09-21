@@ -23,7 +23,7 @@ export function channelSignal(ok: boolean): ChannelSignal {
  *  provider that says WHY is more useful than a label that says WHAT. */
 export function channelLabel(
   c: { ok: boolean; reason?: string },
-  t: (key: string) => string,
+  t: (key: "overview.healthOk" | "overview.healthDown") => string,
 ): string {
   return c.ok ? t("overview.healthOk") : c.reason || t("overview.healthDown");
 }
