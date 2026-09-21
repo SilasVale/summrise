@@ -16,6 +16,7 @@
 // than as a clean run.
 //
 // Run: node scripts/test/sweep-fixture-dupes-check.mjs
+import { decomment } from "./lib/decomment.mjs";
 import { readFileSync } from "node:fs";
 
 const SWEEPS = [

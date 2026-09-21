@@ -18,6 +18,7 @@
 //      comparison against a string the device never writes is a state that silently never renders.
 //
 // Exit 1 with a named file and value for any of them. Run: node scripts/test/contract-vocabulary-check.mjs
+import { decomment } from "./lib/decomment.mjs";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -73,7 +74,7 @@ const rust = rustFiles(join(ROOT, "agent/src"));
 const frames = new Set(contract.frames);
 let sawFrames = 0;
 for (const f of rust) {
-  const text = readFileSync(f, "utf8");
+  const text = decomment(readFileSync(f, "utf8"));
   text.split("\n").forEach((line, i) => {
     const m = /"ev"\s*:\s*"([a-z-]+)"/.exec(line);
     if (!m) return;
