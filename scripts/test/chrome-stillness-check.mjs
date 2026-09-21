@@ -45,10 +45,12 @@ const KINDS = {
 const PURPOSES = [
   // ── the panel ──────────────────────────────────────────────────────────────────────────────────
   { sheet: "panel", selector: '.cmd-dot[data-state="running"]', kind: "state", why: "a command is in flight — the running mark's motion channel" },
-  // '.traj-ev-dot[data-state="running"]' WAS HERE, AND ITS REMOVAL IS THE PRUNE (round 33): `eventDotState` maps every
-  // event through `stateFromEnd(true, …)`, so it cannot return `running` — the arm was unreachable, and this entry
-  // declared a purpose for an animation nothing could run. The gate said so the moment the rule went:
-  // "PURPOSES declares … and the sheet no longer animates it — a stale entry is a reason nobody is using".
+  // KEPT, AND THE ROUND-33 ATTEMPT TO DELETE THE RULE IT DECLARES IS WHY (see the sheet): `eventDotState` cannot return
+  // `running` today, but the vocabulary's rule is that every state has a channel in every renderer, so the arm is not
+  // dead weight — it is what stops a future producer from drawing an invisible dot. This gate said so the moment the
+  // rule went ("PURPOSES declares … and the sheet no longer animates it"), and four tests in `statePalette.test.ts`
+  // said it louder.
+  { sheet: "panel", selector: '.traj-ev-dot[data-state="running"]', kind: "state", why: "the same state inside the trajectory view — a CHANNEL the vocabulary requires, currently unreachable from eventDotState" },
   { sheet: "panel", selector: '.plug-dot[data-state="ongoing"]', kind: "state", why: "the plugin reports its work as ongoing" },
   { sheet: "panel", selector: ".browser-ai-dot", kind: "state", why: "rendered only while aiActive holds — the agent is operating the browser" },
   { sheet: "panel", selector: ".mem-busy", kind: "state", why: "the memory view is waiting on the device" },

@@ -198,8 +198,16 @@ describe("discrete state palette", () => {
     const railMuted = blockOf(css, `.traj-ev-dot[data-state="muted"]`)!;
     expect(railMuted, "rail muted should be a quiet FILLED dot, not a ring")
       .not.toContain("transparent");
+    // THE TOKEN CHANGED IN ROUND 33, THE RULE IT GUARDS DID NOT. This asserted `--ds-neutral` (the old "texture, not a
+    // marker" fill) and it was right to until the rendered measurement said what that texture cost: rgb(212,212,216)
+    // on the light surface is **1.42:1**, where a graphic needs 3 — an INVISIBLE dot, and an invisible dot carries no
+    // state at all. `--state-muted` is the token the three sibling muted rings already use (4.83 light / 6.5 dark), so
+    // the assertion is now the thing its own message always said: not a VERDICT colour. A neutral is still required,
+    // and the check below names the three verdicts rather than one blessed token, so the next edit cannot swap
+    // legibility for a hue that means something else.
     expect(railMuted, "rail muted must not borrow a verdict colour")
-      .toContain("--ds-neutral");
+      .not.toMatch(/--(state-)?(ok|fail|warn)\b/);
+    expect(railMuted, "rail muted should paint a neutral").toMatch(/--(state-)?muted|--ds-neutral/);
   });
 
   it("the reduced-motion premise still holds for every state dot", () => {
@@ -293,6 +301,12 @@ describe("the verdict vocabulary", () => {
     for (const s of STATES) {
       const a = shapeOf(css, ".cmd-dot", s);
       const b = shapeOf(css, ".traj-ev-dot", s);
+      // `running` IS IN THIS LOOP ON PURPOSE, AND IT WAS DEFENDED THE HARD WAY (round 33). `eventDotState` cannot
+      // return it today — every event goes through `stateFromEnd(true, …)` — so the rule looked unreachable and I
+      // deleted it. Four tests here refused, and they are right: EVERY state in the vocabulary must have a channel in
+      // EVERY renderer, so a state that becomes reachable later cannot draw an invisible dot. An unreachable STATE is
+      // the deriver's fact; the CHANNEL is the sheet's obligation. (The mark-coverage note's "no surface rendered
+      // running" is therefore true and is telling us about the deriver, not about a missing rule.)
       expect(a, `.traj-ev-dot[${s}] renders differently from .cmd-dot[${s}] — one vocabulary, two renderers`).toBe(b);
     }
     // `muted` IS EXCLUDED ON PURPOSE, and the next test pins why: in the command card it is rare and hollow, in the

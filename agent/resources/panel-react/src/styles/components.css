@@ -2262,12 +2262,19 @@
 .traj-ev-dot[data-state="fail"] {
   background: var(--state-fail);
 }
-/* NO `running` ARM FOR THE EVENT DOT, AND THAT IS A DELETION, NOT AN OVERSIGHT (round 33). `eventDotState` maps an
-   event to a state through `stateFromEnd(true, …)` on both of its branches — a `command/end` and a terminal status —
-   so it can return ok/fail/muted/bg/warn and NEVER `running`; the round marker above it carries that (a cmd-dot, which
-   does have the arm). The rule was unreachable, and its presence kept the mark-coverage note asking for a state no
-   surface could ever paint — a false gap that cost two rounds of looking. The shared `.cmd-dot[running]` /
-   `.plug-dot[ongoing]` arm above is untouched: those two producers are real. */
+/* THE `running` ARM STAYS, AND I TRIED TO DELETE IT (round 33). `eventDotState` maps every event through
+   `stateFromEnd(true, …)`, so TODAY it returns ok/fail/muted/bg/warn and never `running` — the round marker above the
+   rows carries that, and it is a `cmd-dot`. Deleting this rule looked like pruning an unreachable arm; four tests in
+   `statePalette.test.ts` refused, and their rule is the better one: EVERY state in the vocabulary must have a channel
+   in EVERY renderer, so that a state which becomes reachable — a new deriver, a new branch — can never render as an
+   invisible dot. The unreachable state is the DERIVER's fact, not the sheet's, and the mark-coverage note asking for it
+   is telling the truth. (The one thing the attempt got right is that it noticed: a rule nothing paints should be
+   explained, not silently kept.) */
+.traj-ev-dot[data-state="running"] {
+  background: var(--state-running);
+  box-shadow: 0 0 0 2px var(--state-running-soft);
+  animation: cmd-pulse 1.6s var(--ds-ease-in-out) infinite;
+}
 .traj-ev-content { min-width: 0; padding: 1px 0 6px; }
 .traj-ev-out {
   margin: 0;
