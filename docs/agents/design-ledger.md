@@ -3039,3 +3039,23 @@ choice between them is the whole content of the rule:
 HOW TO PICK, and this is the sentence to keep: **is the number a claim about the present, or a record of a measurement?** A
 claim about the present gets treatment 1 or 2 — because a reader will act on it — and a record of a measurement gets 3. The
 failure mode is a number that LOOKS like the second and is read as the first, which is exactly what "TEN GATES" was.
+
+### TWO BOOT KINDS HAVE ONE READER, AND THAT IS THE GOOD SHAPE (round 158)
+
+Round 157's measurement showed three boot kinds read by the panel AND the gateway/console (`clean-exit`, `replaced`,
+`crashed`) and two read by the panel alone (`first-run`, `machine-restart`). This round asked whether that is a defect or a
+decision, and looked at the code that decides.
+
+    gateway/src/plugins/mcp.ts:114   if (j.last_boot_kind === "crashed" && …)   → the crash row's payload
+    gateway/src/plugins/mcp.ts:194   last_boot_kind: probe.lastBootKind          → forwarded as a plain string
+
+It is a POSITIVE TEST for the one value the console acts on, not a WHITELIST of values that may pass. The difference matters
+for exactly the reason this objective keeps meeting: a whitelist would silently drop a boot kind added later, so the next
+vocabulary value would never reach the console and nothing would say so; a positive test lets it through and the console
+declines to render it, which is the deliberate rule that page records ("ONLY A CRASH GETS A ROW", round 33).
+
+So both single-reader values are DECISIONS rather than gaps, and the asymmetry is the design: the panel is the surface that
+says "this device just started for the first time" or "the machine restarted", and the fleet view is for exceptions.
+
+RECORDED RATHER THAN FIXED, which is the whole point of the round: the next reader who notices "two values have only one
+reader" will find this paragraph and the two line numbers instead of a defect to repair.
