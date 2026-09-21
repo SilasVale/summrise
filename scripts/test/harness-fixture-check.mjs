@@ -200,19 +200,30 @@ const CHECKS = [
     test: (h) =>
       /var APPR_OFF = P\.get\('appr'\) === 'off'/.test(h) &&
       /SESSIONS\[ai\]\.approval_required = false/.test(h) &&
-      /var BOOT_REPLACED = P\.get\('boot'\) === 'replaced'/.test(h) &&
-      /last_boot_kind: BOOT_REPLACED \? 'replaced' : 'crashed'/.test(h) &&
-      /uptime_secs: BOOT_REPLACED \? 90 : 5412/.test(h),
+      // THE STATUS BRANCH RE-READS THE QUERY PER REQUEST (round 73). The flag used to be read from a
+      // `URLSearchParams` parsed ONCE at install, and a device probe showed what that costs: the page's URL carried
+      // `?boot=replaced` while the branch answered `crashed`, because the stub was reading a location that is not the
+      // one the assertion sees. Both halves are pinned now — the per-request read AND the two fields it changes —
+      // because a fixture that reads the right flag in the wrong document is exactly the failure this check could not
+      // see for seven rounds.
+      /new URLSearchParams\(location\.search\)\.get\('boot'\) === 'replaced'/.test(h) &&
+      /last_boot_kind: BOOT_NOW \? 'replaced' : 'crashed'/.test(h) &&
+      /uptime_secs: BOOT_NOW \? 90 : 5412/.test(h),
     mutations: [
       {
         why: "the boot flag stops changing the kind, so `.boot-mark.info` renders nowhere again",
-        from: /last_boot_kind: BOOT_REPLACED \? 'replaced' : 'crashed',/,
+        from: /last_boot_kind: BOOT_NOW \? 'replaced' : 'crashed',/,
         to: "last_boot_kind: 'crashed',",
       },
       {
         why: "the boot flag leaves the uptime long, and the chip suppresses itself past REPLACED_NOTICE_SECS",
-        from: /uptime_secs: BOOT_REPLACED \? 90 : 5412/,
+        from: /uptime_secs: BOOT_NOW \? 90 : 5412/,
         to: "uptime_secs: 5412",
+      },
+      {
+        why: "the boot flag is read from the once-parsed query again, which is what made the page answer 'crashed' with the flag in its URL",
+        from: /new URLSearchParams\(location\.search\)\.get\('boot'\) === 'replaced'/,
+        to: "BOOT_NOW_PLACEHOLDER",
       },
       {
         why: "the approval flag mutates the SEED instead of the list entries — which is what its first version did, and it changed nothing on screen",
