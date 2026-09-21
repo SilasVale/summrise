@@ -573,3 +573,35 @@ PLAN — **this file has ~20 cases with at least three different intents (config
 and it needs one careful pass that reads each case, not a mechanical one that matches patterns.** It is a round of its own,
 and it keeps being deferred to the end of a long session, which is how it has been attempted three times and finished
 zero.
+
+## 12. Where the standing objective stands (a checkpoint at round 99)
+
+**THE SPINE, CLAUSE BY CLAUSE, WITH THE EVIDENCE THAT EACH ONE HOLDS.**
+
+| the objective's clause | where it stands | the evidence |
+|---|---|---|
+| one source of truth per fact | a generated vocabulary (Rust → two artifacts) that the panel's derivation is TYPED BY; one `stateFromEnd`; one session-row mapping section; the update verdict routed from the device through three files | `contract-vocabulary-check`, `one-derivation-check`, `session-row-check`, `device-verdict-check` — 4 gates, each mutation-proven |
+| the interface projects, never infers | the console prefers the device's own `/api/update` answer; the panel's `wireFields` reads each device field once; `hardcode`d production defaults became configuration and then actually reached all 17 stamping sites | `wire-field-check` + the gateway suite |
+| the DEVICE reports what the interface needs | the incoming MCP server names every tool it is asked for; the HTTP access log answers "who calls this route"; `first_seq`, `last_boot_kind`, `last_exit_code` and the update verdict all cross the wire | the device measured live (round 86) and the harness fixtures |
+| every state has its own SILHOUETTE | four colour-only collisions fixed (`cmd-dot` bg/muted, `traj-ev-dot` muted/ok, `monitor-mark` is-up/is-flapping, `prov-dot` ok/missing) plus two invisible marks and one invisible label | the rendered collision axis, the mark-coverage queue, and the LIVE probe |
+| every state has a SURFACE | the coverage queue runs on all three interfaces and is EMPTY; nine defects were found by giving states surfaces, and not one was a regression | `plug-dot` 4/4, `boot-mark` 2/2, the console's queue clear since round 66, the landing's empty by construction |
+| immediate feedback, chrome still, one focal point | unchanged this session, and still guarded | `feedback-check`, `chrome-stillness-check`, `motion-check`, the press/ack passes — all green |
+| verified by measurement on BOTH ends | 142 harness surfaces in CI **and** the live probe on the panel the device actually serves (clean, exit 0, round 86) | the design job + `live-panel-probe.mjs` |
+
+**NINE GATES** now hold the spine in `ci.yml` (the four above plus `sweep-fixture-dupes-check`,
+`production-host-check`, `harness-fixture-check`, `build-pins`, and the design job's own axes). Each was proven by breaking
+the thing it guards.
+
+**WHAT IS OWED TO THE OPERATOR, and has been for many rounds** — these are decisions, not work: the e2e cadence; the two
+dead citations in `CHARTER`; the pre-commit hook symlink in the global hooks directory; and the rename-or-not of the
+deployment's domain. Each is recorded with its measurement in `ideas.md` and §9-§11 above.
+
+**WHAT REMAINS SELF-DRIVABLE, in value order**: (1) the remaining 14 gateway test files, one careful round each, moving
+every mention INCLUDING regex spellings — the honest cost is in §9 and it is a judgement call; (2) more of the device-side
+field gates, the family that has found a real gap on its first run twice; (3) the access log, which needs runtime before
+it can answer "is this route dead".
+
+**AND THE METHOD, which is the part worth carrying forward**: ask the page instead of inferring (three times it beat six
+eliminations and two wrong conclusions); an absence is not evidence until the instrument is shown to see it; a push is not
+free while a run is measuring; and a gate and the commit must be joined by `&&`, because reading a gate's output instead of
+its exit code has cost this loop twice.
