@@ -61,6 +61,11 @@ describe("the design scale", () => {
       // places these families draw one.
       '.cmd-dot[data-state="warn"]',
       '.cmd-dot[data-state="fail"]',
+      // AND THE THIRD SHAPE THIS VOCABULARY GIVES A DOT (round 31 of the standing goal): a ring THAT IS NOT ROUND,
+      // for a command that was handed off to the background. It exists because the collision check found `bg` and
+      // `muted` painting identically — `bg` had no rule at all and fell to the base class — and the square corner is
+      // the same channel `warn` and `fail` already use, so this is the vocabulary's third shape, not a new idea.
+      '.cmd-dot[data-state="bg"]',
       '.rail-brand svg',
       '.desktop-rail-brand svg',
     ];
