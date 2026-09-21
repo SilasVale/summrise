@@ -2363,6 +2363,13 @@ body[data-theme="dark"] .note.tip {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  /* AT 320px THIS ROW COULD NOT SHRINK (round 61): the design job's reflow pass reported
+     "models@320px: overflow — span.prov-ident 72<161" the first time the Models page rendered in a sweep — the name,
+     the lane tag and the count add up to more than the column, and `min-width: 0` on the container does not let its
+     CHILDREN shrink. Wrapping is the honest answer for a row of labels: nothing is hidden, nothing scrolls sideways,
+     and 1.4.10's 320px case keeps working. */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 /* The lane bar the Routes page uses, so a channel looks the same everywhere. */
 .prov-lane {
@@ -2371,6 +2378,15 @@ body[data-theme="dark"] .note.tip {
   height: 18px;
   border-radius: 2px;
   background: var(--text-muted);
+}
+/* THE FALLBACK LANE IS A LANE TOO (round 61). `laneClass` returns `lane-def` for a prefix this console does not know,
+   and the sheet had rules for og/ds/or/qw/nv and none for it — so the class was ON SCREEN AND MATCHED BY NOTHING, which
+   the design job reported the first time the Models page rendered at all (the fixture that made it render is three
+   rounds old). A provider the console cannot name still gets a bar; it is the neutral one, which is what the base rule
+   already paints. Declared rather than dropped, because the class is what tells a reader the lane is UNKNOWN rather
+   than one of the named ones. */
+.prov-lane.lane-def {
+  background: var(--text-faint);
 }
 .prov-lane.lane-og {
   background: var(--accent);
