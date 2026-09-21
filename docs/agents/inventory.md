@@ -476,3 +476,20 @@ withdrawn (a phantom probe in round 69, a truncated grep read as complete in rou
 asked the page directly and produced three facts in a single call. The fault was never in any of the six things examined;
 it was an evaluation happening in a document that was not the one the assertion saw — which is exactly the class of bug
 that inference cannot find and a rendered measurement finds immediately.
+
+**CLOSED (round 76): `plug-dot error` RENDERS.** The measurement, three rounds after the surface was added:
+
+    plug-dot declares 4 state(s) and this run rendered 3 (error, success, warn) over 136 surfaces
+    boot-mark … (no note at all — both of its states render)
+
+and the design job is GREEN. The fix was not a selector and not a fixture: the surface had never opened the PAGE the
+card lives on. Three "one click the sweep never made" have now each cost rounds and each closed by asking the page:
+
+    1. the session view tabs (round 101, from the ledger): Trajectory and Path had never been rendered;
+    2. the trajectory ROUNDS (round 33): only the newest is open, so its event rows did not exist;
+    3. the Plugins PAGE (round 75): the plugin cards were never on screen, so `plug-dot[error]` could not be.
+
+THE PANEL'S COVERAGE QUEUE IS DOWN TO ONE ITEM: `plug-dot ongoing`, which is out of reach for a reason measured in round
+26 — a playwright that is actually RUNNING starts the poll loop that hangs a sweep. It needs a different way to make the
+state true (a fixture that reports `running` while the page's own polling is stubbed out, or a card rendered outside the
+sweep), and until then the note is honest: those silhouettes and their collisions are unverified.
