@@ -124,7 +124,11 @@ export async function cachedDeviceProbe(
     const up = await deviceFetch(env, device, "/api/update");
     if (up && up.ok && up.resp) {
       const u: any = await up.resp.json().catch(() => null);
-      if (u && typeof u === "object" && (typeof u.current === "string" || typeof u.latest === "string")) {
+      if (
+        u &&
+        typeof u === "object" &&
+        (typeof u.current === "string" || typeof u.latest === "string")
+      ) {
         state.update = {
           ...(typeof u.current === "string" ? { current: u.current } : {}),
           ...(typeof u.latest === "string" ? { latest: u.latest } : {}),
@@ -160,7 +164,12 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
       version?: string;
       last_boot_kind?: string;
       last_boot?: string;
-      update?: { current?: string; latest?: string; update_available: boolean; pinned_to: string | null };
+      update?: {
+        current?: string;
+        latest?: string;
+        update_available: boolean;
+        pinned_to: string | null;
+      };
       checked_at: number;
     }
   > = {};
