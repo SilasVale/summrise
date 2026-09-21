@@ -2633,3 +2633,35 @@ WHAT THIS COST AND WHAT IT BOUGHT: ten rounds for one dot, and five real defects
 with no rule, a 320px reflow overflow, an ink under 3:1, and a colour-only pair of states. Every one of them was
 invisible for exactly as long as the surface did not exist, which is the argument the coverage queue makes in one line:
 **a state with no surface is not an untested state, it is an unknown one.**
+
+### THE SURFACES QUEUE IS EMPTY (round 81): TWENTY-FIVE ROUNDS, NINE DEFECTS, THREE INTERFACES
+
+Measured, on a green design job: `plug-dot` appears in NO coverage note — all four of its states render, `ongoing`
+included — and neither does `boot-mark`, whose two tones both render. The panel's queue is empty. The console's has been
+empty since round 66. The landing's was empty by construction (it declares no state-mark families at all, verified).
+
+WHAT THE THREAD COST AND BOUGHT, as one list, because the shape is the argument:
+
+    the approval gate's disarmed ring     2.56:1, invisible, found by the LIVE probe (the only instrument that could)
+    cmd-dot's bg                           NO RULE AT ALL — it computed as muted, two of six states identical
+    the Path step tag for bg               black on black in dark (1.25:1), an invisible label
+    traj-ev-dot muted                      1.42:1 invisible, and identical to ok
+    the console's Models page              rendered NOTHING — a duplicate fixture key, three rounds to see
+    lane-def                               on screen, matched by nothing; then its ink at 2.54:1
+    models at 320px                        reflow overflow, the first time the page rendered at all
+    prov-dot ok/missing                    painted identically — the FOURTH silhouette collision
+    boot-mark info                         unreachable for seven rounds: six suspects eliminated, two wrong
+                                           conclusions withdrawn, and the cause a query parsed in the wrong document
+
+NINE DEFECTS, and every one was invisible for exactly as long as its surface did not exist. Three of the nine were
+colour-only silhouette collisions, a class whose other instances had been wrong since the day they were written.
+
+AND THE INSTRUMENTS THAT FOUND THEM ARE NOW LOAD-BEARING: the coverage queue runs on all three interfaces (rounds 50-51),
+the harness serves a state per flag and re-reads its flags per request (round 73), the checks that guard the fixtures and
+the derivation are seven gates in ci.yml, and the live probe measures the panel the device actually serves.
+
+THE METHOD THAT CLOSED THE HARD ONES, stated because it beat inference three times: **ask the page.** Six eliminations
+and two wrong conclusions got `boot-mark info` nowhere; one device probe that read the URL, the response and the DOM
+produced the cause in a single call. The corollary is the mistake this session named: **an absence is not evidence until
+the instrument is shown to see** — a truncated grep, a log without surface names, and a judge's output read instead of its
+exit code were the same error in three costumes.
