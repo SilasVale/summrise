@@ -133,9 +133,14 @@ build_agent() {
   # RETIRED (npm CLI replaced the tray; the Electron shell replaced the
   # Tauri desktop). They cost minutes per build_agent run and never enter
   # the npm tgz (CI builds vale-agent only).
-  # npm-only packaging (2026-08-28): the NSIS installer is retired — the
-  # npm tgz (vale-agent-npm/) is the single install/update channel, packed
-  # by scripts/publish-release.sh (round-320).
+  # npm-only packaging (2026-08-28): the npm tgz (vale-agent-npm/) is the single
+  # install/update channel, packed by scripts/publish-release.sh. THE NSIS
+  # INSTALLER IS **NOT** RETIRED, and this comment said it was for long enough
+  # that a reader would have believed it: round-320 deleted build-installer.sh
+  # (182a0347), a later round restored it for the online setup.exe (cf6b3383),
+  # and scripts/publish-release.sh:344 calls it on every release today. The
+  # manifest simply carries no `installer` field at the moment, which is why the
+  # landing shows no Setup.exe button — a publication state, not a retirement.
 }
 
 deploy_worker() {
@@ -146,7 +151,7 @@ deploy_worker() {
   # gateway/prettier runs, index skips with a note).
   maybe_format_check "$dir" "$name"
   # round-324: the gateway's public /code/ viewer mirrors gateway/src —
-  # build-installer.sh used to sync it (round-320 deleted that script).
+  # (build-installer.sh no longer syncs it — that job moved here).
   # Sync before deploy so the served sources never drift from live.
   #
   # round-241: and the SAME reasoning covers the gateway's SPA. gateway/ui/ builds
@@ -325,8 +330,12 @@ case "$cmd" in
   index)    deploy_worker index "Vale Index" ;;
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
-  # round-320: build-installer.sh retired (it staged the dead Vercel mirror
-  # + rewrote index.js + required retired Tauri exes — it always failed).
+  # build-installer.sh is ALIVE and is not part of `deploy` by design: it is a
+  # release step (scripts/publish-release.sh:344 runs it after staging the tgz).
+  # Round-320 deleted it (182a0347) because the version then staged a dead Vercel
+  # mirror and demanded retired Tauri exes; cf6b3383 restored it for the NSIS
+  # online setup.exe, and the landing's Setup.exe button is driven by the
+  # manifest's `installer` field.
   # Releases use scripts/publish-release.sh (CDN publish + last-5 prune);
   # `deploy` builds agent + deploys gateway/index + the two Cloudflare
   # proxies and api-relay are NOT deployed by `deploy` (deploy manually).

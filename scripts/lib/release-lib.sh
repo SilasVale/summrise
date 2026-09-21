@@ -145,6 +145,9 @@ retire_installers() {
 # survives this machine and shows up in review. The alternative — keeping it on
 # the CDN next to version.json — was rejected: a state file that only exists
 # where the publish puts it cannot fail a publish that has not happened yet.
+# NOT TRACKED, and the code tolerates that on purpose (`[ -f … ] || return 0` below) — the file records which
+# versions still owe a CDN-vs-GitHub reconcile, and it lives on this machine. An earlier comment here called it
+# "TRACKED in git"; `git ls-files docs/agents/` has never listed it.
 RECONCILE_LEDGER="${RECONCILE_LEDGER:-docs/agents/release-reconcile.txt}"
 
 # Echo the versions that owe a reconcile, one per line, in file order.

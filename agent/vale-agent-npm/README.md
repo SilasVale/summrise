@@ -57,9 +57,11 @@ vale <setup|status|start|stop|restart|update|uninstall|run|tunnel>
 
 - **OSC 633 shell integration** (VS Code approach): PowerShell prompts and
   command boundaries arrive as invisible sequences — clean display, exit codes.
-- **49 MCP tools**: terminal (26: PTY/SSH/serial, history with exit codes, SFTP,
-  saved connections, secrets, background jobs), memory (6), system (9),
-  mcp-client (4), update (agent_update), design (page_view).
+- **56 MCP tools**: terminal (27: PTY/SSH/serial, history with exit codes, SFTP,
+  saved connections, secrets, background jobs), system (9), memory (6),
+  mcp-client (4), monitor (4), playwright (2), runs (2), update (agent_update),
+  design (page_view). Measured from `agent/spec-tools.json`, which
+  `cargo test spec_snapshot` regenerates from the live registry.
 - **Electron desktop shell**: tray with live agent status, native menu,
   CDP :9333 for AI-driven UI.
 - **Memory plugin**: device-local knowledge base with multi-word search and
