@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -1503,53 +1503,7 @@ function judge(file) {
       // COMMENTS FIRST, so prose about a selector is not read as one (the lesson `css-vars-check` and
       // `retired-colours-check` both record from their own first runs).
       css = css.replace(/\/\*[\s\S]*?\*\//g, "");
-      // Every class the sheet gives a STATE rule to, by the probe's own family rule (a name ending in dot / dotcol /
-      // mark / led / chip / signal / state), so the two instruments cannot disagree about what a family is.
-      // THE CLASSES THE RUN PUT ON SCREEN, so a family with no painted states can be told apart from a family the
-      // probe attributes elsewhere: `mark tab-dot` is measured as `mark`, and reporting it as "no surface rendered
-      // tab-dot" would be a finding about the probe's naming, not about the page.
-      const onScreen = new Set();
-      for (const s2 of report.surfaces || []) for (const c of (s2.marks && s2.marks.present) || []) onScreen.add(c);
-      // A CLASS NAMED `*-state` IS NOT AUTOMATICALLY A MARK (round 32). The naming rule is deliberately loose, and it
-      // swept in three classes the sheet styles as a TEXT LINE — `.update-state` (a mono paragraph on the update card),
-      // `.notify-state` (the notifications card's line) and `.monitor-state` (the word beside the chip). Their
-      // is-error/is-ok/is-granted variants are INK on words, so the silhouette question does not apply to them and the
-      // colour-only distinction is fine: the text itself says which state it is. They are measured as TEXT by the
-      // contrast pass on every run. Declared here with a reason rather than filtered by a heuristic, because a
-      // heuristic would also hide the day one of them becomes a real mark.
-      const TEXT_STATE_CLASSES = {
-        'update-state': 'a mono paragraph on the update card — its is-error/is-ok are ink on words',
-        'notify-state': "the notifications card's line — is-granted/is-denied are ink on words",
-        'monitor-state': 'the word beside the reachability mark — the mark next to it carries the shape',
-      };
-      const familyRule = /(dot|dotcol|mark|led|chip|signal|state)$/;
-      for (const m of css.matchAll(/\.([A-Za-z][\w-]*)(\[[^\]]+\]|\.[A-Za-z][\w-]*)/g)) {
-        if (!familyRule.test(m[1])) continue;
-        if (TEXT_STATE_CLASSES[m[1]]) continue;
-        if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
-      }
-      for (const [family, rendered] of seenByFamily) {
-        const declared = new Set();
-        const re = new RegExp("\\." + family.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\[[^\\]]+\\]|\\.[A-Za-z][\\w-]*)", "g");
-        let m;
-        while ((m = re.exec(css))) {
-          const sel = m[1];
-          if (sel.startsWith("[")) declared.add(sel.slice(1, -1).replace(/"/g, ""));
-          else declared.add(sel.slice(1));
-        }
-        if (!rendered.size && onScreen.has(family)) {
-          console.log(
-            `note: mark family ${family} declares ${declared.size} state(s) and the CLASS IS ON SCREEN — the probe did not record it as a family of its own, either because its marks carry a state attribute (the family is then the FIRST class, which is how mark tab-dot is measured as mark) or because they are larger than the 40px the mark probe measures. Not a missing surface; a naming and sizing question.`,
-          );
-          continue;
-        }
-        const missing = [...declared].filter((d) => !rendered.has(d) && !rendered.has(d.replace(/^data-(state|live|kind)=/, "")));
-        if (missing.length) {
-          console.log(
-            `note: mark family ${family} declares ${declared.size} state(s) and this run rendered ${rendered.size} (${[...rendered].sort().join(", ") || "none"}) over ${(report.surfaces || []).length} surface(s) — NO SURFACE RENDERED ${missing.join(", ")}, so those silhouettes and their collisions are unverified`,
-          );
-        }
-      }
+      for (const line of markCoverageNotes(css, report)) console.log(line);
     }
   }
 

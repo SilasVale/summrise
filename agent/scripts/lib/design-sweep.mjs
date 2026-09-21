@@ -1617,3 +1617,79 @@ export function reportSummary(label, report) {
     (blind ? ` · ${blind} unmeasurable` : "")
   );
 }
+
+/**
+ * THE STATES A SHEET DECLARES AND THIS RUN NEVER PAINTED (round 32, made shared in round 50).
+ *
+ * The panel learned this the expensive way: `cmd-dot` rendered four of its six states for rounds, and the two that had
+ * no surface hid a missing rule and a colour-only pair. The note is the queue those rounds worked from — and until
+ * round 50 it lived INSIDE `panel-design-sweep.mjs`, so the console and the landing had no such queue at all and their
+ * unrendered states were silent. One implementation, three callers, because a second copy is how the two would drift.
+ *
+ * `cssText` is the sheet whose state rules define the families (the panel's BUILT sheet, the console's SOURCE sheets,
+ * the landing's cropped <style> block); `report` is the sweep report whose surfaces carry `marks.families`/`present`.
+ */
+export function markCoverageNotes(cssText, report) {
+  const out = [];
+  const css = String(cssText || "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const seenByFamily = new Map();
+  for (const s of report.surfaces || []) {
+    for (const fam of (s.marks && s.marks.families) || []) {
+      const m = /^([^[]+)\[([^\]]*)\]$/.exec(fam);
+      if (!m) continue;
+      if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
+      for (const st of m[2].split(",")) if (st) seenByFamily.get(m[1]).add(st);
+    }
+  }
+  {
+// Every class the sheet gives a STATE rule to, by the probe's own family rule (a name ending in dot / dotcol /
+// mark / led / chip / signal / state), so the two instruments cannot disagree about what a family is.
+// THE CLASSES THE RUN PUT ON SCREEN, so a family with no painted states can be told apart from a family the
+// probe attributes elsewhere: `mark tab-dot` is measured as `mark`, and reporting it as "no surface rendered
+// tab-dot" would be a finding about the probe's naming, not about the page.
+const onScreen = new Set();
+for (const s2 of report.surfaces || []) for (const c of (s2.marks && s2.marks.present) || []) onScreen.add(c);
+// A CLASS NAMED `*-state` IS NOT AUTOMATICALLY A MARK (round 32). The naming rule is deliberately loose, and it
+// swept in three classes the sheet styles as a TEXT LINE — `.update-state` (a mono paragraph on the update card),
+// `.notify-state` (the notifications card's line) and `.monitor-state` (the word beside the chip). Their
+// is-error/is-ok/is-granted variants are INK on words, so the silhouette question does not apply to them and the
+// colour-only distinction is fine: the text itself says which state it is. They are measured as TEXT by the
+// contrast pass on every run. Declared here with a reason rather than filtered by a heuristic, because a
+// heuristic would also hide the day one of them becomes a real mark.
+const TEXT_STATE_CLASSES = {
+  'update-state': 'a mono paragraph on the update card — its is-error/is-ok are ink on words',
+  'notify-state': "the notifications card's line — is-granted/is-denied are ink on words",
+  'monitor-state': 'the word beside the reachability mark — the mark next to it carries the shape',
+};
+const familyRule = /(dot|dotcol|mark|led|chip|signal|state)$/;
+for (const m of css.matchAll(/\.([A-Za-z][\w-]*)(\[[^\]]+\]|\.[A-Za-z][\w-]*)/g)) {
+  if (!familyRule.test(m[1])) continue;
+  if (TEXT_STATE_CLASSES[m[1]]) continue;
+  if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
+}
+for (const [family, rendered] of seenByFamily) {
+  const declared = new Set();
+  const re = new RegExp("\\." + family.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\[[^\\]]+\\]|\\.[A-Za-z][\\w-]*)", "g");
+  let m;
+  while ((m = re.exec(css))) {
+    const sel = m[1];
+    if (sel.startsWith("[")) declared.add(sel.slice(1, -1).replace(/"/g, ""));
+    else declared.add(sel.slice(1));
+  }
+  if (!rendered.size && onScreen.has(family)) {
+    out.push(
+      `note: mark family ${family} declares ${declared.size} state(s) and the CLASS IS ON SCREEN — the probe did not record it as a family of its own, either because its marks carry a state attribute (the family is then the FIRST class, which is how mark tab-dot is measured as mark) or because they are larger than the 40px the mark probe measures. Not a missing surface; a naming and sizing question.`,
+    );
+    continue;
+  }
+  const missing = [...declared].filter((d) => !rendered.has(d) && !rendered.has(d.replace(/^data-(state|live|kind)=/, "")));
+  if (missing.length) {
+    out.push(
+      `note: mark family ${family} declares ${declared.size} state(s) and this run rendered ${rendered.size} (${[...rendered].sort().join(", ") || "none"}) over ${(report.surfaces || []).length} surface(s) — NO SURFACE RENDERED ${missing.join(", ")}, so those silhouettes and their collisions are unverified`,
+    );
+  }
+}
+
+  }
+  return out;
+}

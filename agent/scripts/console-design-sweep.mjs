@@ -34,11 +34,11 @@
 // The browser gave the right answer when asked by hand; a check whose output I could not trust does
 // not ship. Whoever picks this up should report the STYLED count beside the unstyled list, so an
 // empty read can never look like a clean page.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
+import {markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 // WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
@@ -85,6 +85,16 @@ const ENTRY_STAMP = (() => {
     return { bytes: b.length, sha: createHash("sha256").update(b).digest("hex").slice(0, 12) };
   } catch (e) { return { bytes: -1, sha: "(unreadable)" }; }
 })();
+/** The console's state sheets, concatenated: its `dist` is a pruned build artifact, so the SOURCE sheets are what the
+ *  mark-coverage note reads (the same choice `console-marks-check.mjs` makes, for the same reason). */
+function consoleSheets() {
+  const dir = new URL("../../gateway/ui/src/styles/", import.meta.url).pathname;
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".css"))
+    .map((f) => readFileSync(dir + f, "utf8"))
+    .join("\n");
+}
+
 function browserScript() {
   const script = `const fs = require('fs');
 const path = require('path');
@@ -542,6 +552,12 @@ function judge(file) {
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}${r.width ? "@" + r.width + "px" : ""} ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }
+  // THE STATES THIS SHEET DECLARES AND THIS RUN NEVER PAINTED (round 50 of the standing goal). The panel has had this
+  // queue since round 32 — it is how `cmd-dot` was found rendering four of its six states, one of them with no rule at
+  // all — and until now it lived inside the panel's sweep, so the console's unrendered states were SILENT. Same
+  // implementation, this surface's sheets: the console's styles are SOURCE files (its dist is a pruned build artifact),
+  // which is the same choice `console-marks-check.mjs` makes for the same reason.
+  for (const line of markCoverageNotes(consoleSheets(), report)) console.log(line);
   console.log(reportSummary("console", report));
   if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
   if (!findings.length) {
