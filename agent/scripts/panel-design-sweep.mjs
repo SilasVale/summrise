@@ -661,6 +661,17 @@ ${TIMING}
       await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
+      // THE PAGE THE CARD LIVES ON, WHICH THIS SURFACE NEVER VISITED (round 75). A device probe asked the page and the
+      // page answered: with the plugin-fail flag loaded, the button and dot counts were both 0 and the body text was
+      // the TERMINAL view — the plugin cards are on the Plugins PAGE. That is the third "one click the sweep never
+      // made" (after the session view tabs in round 101 and the trajectory rounds in round 33), and the rail's buttons
+      // carry their destination in title, MEASURED rather than guessed:
+      // Terminal / History / Browser / Memory / Plugins / Settings.
+      await page.evaluate(() => {
+        const rail = document.querySelector('.rail-btn[title="Plugins"]');
+        if (rail) rail.click();
+      });
+      await page.waitForTimeout(900);
       await page.evaluate(() => {
         // THE REAL MARKUP, NOT A GUESSED SELECTOR (round 68). The classes come from PluginsPage.tsx:
         // .plug-actions holds the controls and each is a .plug-btn. The first version guessed
