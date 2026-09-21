@@ -31,6 +31,23 @@ cd gateway && npm test                           # gateway (own prettier gate)
 
 Green tests are the bar for a release.
 
+**AND RUN THE COMMAND THE OTHER END RUNS.** Round 144 is what it costs to skip this: six type errors passed a local
+`tsc --noEmit` in `gateway/ui` and failed CI, because the `ui` job runs `npm run build`, which is
+`tsc -b && vite build && prune-stale-assets` — a project-graph build, not a single-file check. The exact commands, by working
+directory, as of the run that verified them:
+
+| where | CI runs | and NOT |
+|---|---|---|
+| `gateway/` | `npm run typecheck` (= `tsc --noEmit`) · `npm test` · `npm run lint` (= `eslint src/`) · `npm run format:check` | — |
+| `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` | **not** `tsc --noEmit`, which is the check that missed them |
+| `agent/resources/panel-react/` | `npm run build` · `npm test` | — |
+| `agent/` | `cargo fmt --all -- --check` · `cargo clippy --all-targets -- -D warnings` · `cargo test` (both feature sets) | — |
+
+All four were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
+and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what
+CI invokes.
+
+
 **READ THE EXIT CODE, NOT THE OUTPUT.** The suites do not share a reporter, and grepping for the wrong
 one returns NOTHING — which looks exactly like a suite that passed silently:
 
