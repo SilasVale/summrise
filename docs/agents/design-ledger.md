@@ -2923,3 +2923,17 @@ stating together because each was learned by the gate being wrong in a way nobod
 AND THE GATES FELL FOUL OF THE OBJECTIVE'S OWN RULE ONCE: rounds 135 and 136 each wrote that strip into the gate that needed
 it, making three copies of one rule — the defect this objective removes — until round 137 made it a module. The gates are
 subject to the spine too.
+
+### TWO MEASUREMENTS THAT FOUND NOTHING, RECORDED SO THEY ARE NOT REPEATED (round 141)
+
+  1. **"The documentation claims a consumer that does not exist"** was worth a scan after round 140 found one — a docstring in
+     `Models.tsx` asserting its lane mapping was "the same mapping the Routes page uses", with no second copy anywhere. A
+     grep of both front ends for comments claiming another file shares a mapping / vocabulary / rule / list returns ten
+     hits, and NONE is that defect: nine explain a rule by analogy ("the same shape as ADOPT losing…"), and the tenth is the
+     comment round 140 corrected. The family is one instance wide, and it is fixed.
+  2. **The provider dot's states**: the sheet declares exactly two (`.prov-dot.ok`, `.prov-dot.missing`) plus the base, and
+     `Models.tsx` emits exactly those two (`ready ? " ok" : " missing"`). Aligned — and the sheet's own comment records the
+     round that made them distinguishable, which is why this took one grep to confirm rather than a rendered sweep.
+
+Both are the shape of result this objective should produce more of: a question worth asking, answered in two commands, and
+written down so the answer survives the round that asked it.
