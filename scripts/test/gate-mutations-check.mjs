@@ -30,7 +30,11 @@ if (dirty) {
   process.exit(1);
 }
 
-/** Each case: the gate, the file it reads, and the EXACT break that gate was proven with. */
+/** Each case: the gate, the file it reads, and the EXACT break that gate was proven with.
+ *
+ *  OWED, NOT FORGOTTEN: `sweep-fixture-dupes-check` belongs here too, and its mutation is a fixture table answering one
+ *  endpoint TWICE — a two-key shape this list cannot yet express (replace one line with three, closing and reopening the
+ *  object). It is owed rather than approximated because a mutation written badly is exactly what round 104 cost hours to. */
 const CASES = [
   {
     gate: "scripts/test/session-row-check.mjs",
@@ -104,11 +108,6 @@ const CASES = [
     from: "      - name: every console wire field has a producer\n        run: node scripts/test/console-wire-field-check.mjs\n",
     to: "",
   },
-  {
-    // NOT YET IN THIS LIST: `sweep-fixture-dupes-check`, whose mutation is a fixture table answering one endpoint TWICE.
-    // That needs a two-key shape this list cannot express (replace one line with three, closing and reopening the object),
-    // and a mutation written badly is what round 104 cost two hours to — so it is recorded here rather than approximated.
-  },
 
 ];
 
@@ -141,7 +140,11 @@ for (const c of CASES) {
     findings++;
     continue;
   }
-  const before = run("node", [c.gate]);
+  // THE RUNNER FOLLOWS THE FILE: this list holds `.mjs` gates and `.bash` ones, and the first version fed every `gate`
+  // to `node` — which made `build-pins.bash` red before any mutation and the audit reported it as "the tree must be
+  // green", a true sentence about a false premise.
+  const runner = c.gate.endsWith(".bash") ? "bash" : "node";
+  const before = run(runner, [c.gate]);
   if (before !== 0) {
     console.error(`FAIL ${c.gate} is RED before any mutation (rc=${before}) — the tree must be green for this to mean anything`);
     findings++;
@@ -150,7 +153,7 @@ for (const c of CASES) {
   try {
     writeFileSync(path, original.replace(c.from, c.to));
     if (c.emit) emit(c.emit);
-    const after = run("node", [c.gate]);
+    const after = run(runner, [c.gate]);
     if (after === 0) {
       console.error(`FAIL ${c.gate} did NOT bite: ${c.why} (it passed with the break in place)`);
       findings++;
