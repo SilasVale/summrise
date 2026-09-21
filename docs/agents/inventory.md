@@ -188,3 +188,29 @@ groupers. The only genuine duplication in that area is a **fetch** (§5.2).
     linked from the landing?
 16. **The six inbox rows still "waiting on you"** (`ideas.md`: 11, 12, 13, 17, 18, 22) — of these, row 17 (one shape,
     two meanings) and row 22 (the failed-session mark) are design decisions this inventory can measure but not take.
+
+---
+
+## 7. The operator's questions, after going and looking
+
+Every item below was "waiting on you" in §6. Most of them turned out to be answerable by measurement, and two turned
+out to be answerable only after a small change to the device. Measured 2026-09-21 against d1 (running 1.2.437) and the
+live gateway.
+
+| question | what the machine says |
+|---|---|
+| **1. Do external MCP clients call the 15 no-caller tools?** | **Not answerable until today, and that was the real finding.** d1's `mcp_diag.log` holds **320 `tools/call` lines and not one tool name** — every line came from the OUTGOING `mcp_client` bridge (the device calling playwright-mcp); the server external clients call recorded **nothing**. FIXED this round: `agent/src/mcp/server.rs` now writes `[call] tool=<name> ms=<n> ok\|error=…` to the same 1 MB-capped rotated file, arguments deliberately excluded (they carry credentials). The next release answers the question from traffic. `[measured]` |
+| **2. Which secret name wins?** | The gateway exposes the **bare** names (`secret_set/get/delete`) and marks the prefixed ones as aliases; the device registers both, with `terminal_secret_*` documented as canonical (`terminal/tools/mod.rs:83-85`). So the canonical name is the one no gateway client can reach. Recommendation: make the bare pair canonical (they are what the console and the MCP surface already use) rather than renaming clients. `[measured]` |
+| **3. Is `page_view`'s "the device has no browser" premise still true?** | **No.** d1's own log records `playwright auto-start: {"port":9229,"status":"started"}` at boot, the binaries live in `D:\Vale\components`, and `browser_run_script` is a live console tool. The premise in `design/tools.rs:135` is stale; `page_view` may still earn its place (it reads a page's SOURCE, which a browser does not hand you), but not for that reason. `[measured]` |
+| **4. Are `/api/events` and `/api/events/poll` retained for an out-of-repo client?** | Nothing in the repo reads them (the built bundle has zero references, the panel's own fetch was removed). The live usage cannot be measured — the agent keeps no HTTP access log — but the failure mode of deleting them is a **visible 404**, not a silent one. `[measured]` for the repo side, `[judgment]` for the risk |
+| **5. Does the console's version badge disagree with the device?** | **Not today, and here is exactly when it would.** The device reports `update_available:false, current:1.2.437, latest:1.2.437, pinned_to:null` with a fresh `checked_at`; the console's formula (`lastVersion !== install.version`) agrees because both sides read 1.2.437. They diverge when a rollback pin is set (the console ignores `pinned_to`) or when the KV `lastVersion` is up to an hour stale. `[measured]` |
+| **6. Is the browser density still used?** | **Yes, rarely, and the device can prove it**: `panel-grants-redeemed.txt` holds exactly **one** redeemed grant (`1789867510 45a705f3…`) — the console's "open panel" button mints those — and the desktop window is what an operator looks at day to day. One use is enough to keep the route; it is not enough to argue the desktop density should stay the poorer one. `[measured]` |
+| **7. `build-installer.sh`: script or comment?** | Settled: **the script is alive.** `182a0347` deleted it ("dead since the CDN rework"), `cf6b3383` restored it ("one setup.exe over the npm channel"), and `publish-release.sh:344` calls it on every release. The three comments in `build.sh` that called it retired are corrected in this round. What is true instead: the manifest currently carries no `installer` field, so the landing shows no Setup.exe button — a publication state. `[measured]` |
+| **8. Are five kept tarballs worth ~35 MB?** | The directory holds 1.2.432/434/435/436/437 (~6.9 MB each) while only `latest.tgz` is linked from the landing. They are what `vale rollback <x.y.z>` pins to, so the policy has a user; 1.2.432 predates every release this session made. `[measured]` |
+
+### Two things the device itself was carrying
+
+| finding | measurement |
+|---|---|
+| `D:\Vale\vale-agent.yaml.bad` — **17,140,736 bytes whose first two bytes are `4D 5A` ("MZ")**: it is a Windows EXECUTABLE named as if it were a config file, dated 2026-09-10, and nothing has cleaned it up. Whatever quarantined it wrote a name that lies about what it holds. | `[measured]` on d1 |
+| `C:\ProgramData\Vale\mcp_diag.log` (168,620 bytes) sits at the **pre-layout-v2** location while the live writer uses `C:\ProgramData\Vale\logs\mcp_diag.log` — a migration leftover that will never be appended again. | `[measured]` on d1 |
