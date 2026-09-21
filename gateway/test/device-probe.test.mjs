@@ -23,6 +23,45 @@ test("tunnel down (fetch throws) → tunnel/agent false, no version", async () =
   assert.equal(p.version, undefined);
 });
 
+test("the device's OWN update verdict is forwarded, and its absence is survivable", async () => {
+  // ROUND 29 OF THE STANDING GOAL. The console re-derived "is this device behind?" from a KV copy that can be an hour
+  // old and ignores the rollback pin, while the device answers the same question at /api/update with newer() plus the
+  // pin. The probe now carries the device's own answer; a device that does not give one must leave the field absent
+  // so the console can degrade to its old comparison instead of showing a verdict nobody computed.
+  const calls = [];
+  const withVerdict = await withFetch(
+    async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("/api/update")) {
+        return statusJson({ current: "1.2.436", latest: "1.2.437", update_available: true, pinned_to: "1.2.436" });
+      }
+      return statusJson({ release: "1.2.436" });
+    },
+    () => cachedDeviceProbe({}, dev("r29-verdict")),
+  );
+  assert.deepEqual(
+    withVerdict.update,
+    { current: "1.2.436", latest: "1.2.437", update_available: true, pinned_to: "1.2.436" },
+    "the device's verdict travels unchanged, pin included",
+  );
+  assert.equal(calls.filter((u) => u.includes("/api/update")).length, 1, "one update call per probe");
+
+  const withoutVerdict = await withFetch(
+    async (url) => (String(url).includes("/api/update") ? new Response("nope", { status: 404 }) : statusJson({ release: "1.2.436" })),
+    () => cachedDeviceProbe({}, dev("r29-noverdict")),
+  );
+  assert.equal(withoutVerdict.update, undefined, "an agent without /api/update leaves the field absent");
+  assert.equal(withoutVerdict.agent, true, "and the probe still reports the device as up");
+
+  const down = await withFetch(
+    async () => {
+      throw new TypeError("fetch failed");
+    },
+    () => cachedDeviceProbe({}, dev("r29-down")),
+  );
+  assert.equal(down.update, undefined, "a down device costs one call and carries no verdict");
+});
+
 test("tunnel up, agent down (HTTP error, no unreachable shape) → split verdict", async () => {
   const p = await withFetch(async () => new Response("bad", { status: 500 }), () =>
     cachedDeviceProbe({}, dev("r31-agentdown")),
@@ -51,14 +90,17 @@ test("healthy device: agent+tunnel true, npm release preferred, version fallback
 });
 
 test("30s cache: repeat probe makes no second fetch; fresh=1 bypasses", async () => {
+  // TWO CALLS PER PROBE SINCE ROUND 29: /api/status and the device's own /api/update verdict. The property this test
+  // is about is unchanged — a REPEAT probe must make no call at all, and `fresh=1` must make a full one — so the
+  // numbers moved from 1/2 to 2/4 rather than the assertion being loosened to "at least one".
   await withFetch(async () => statusJson({ release: "1.2.307" }), async () => {
     const a = await cachedDeviceProbe({}, dev("r31-cache"));
     const b = await cachedDeviceProbe({}, dev("r31-cache"));
     assert.equal(a.version, "1.2.307");
     assert.equal(b.version, "1.2.307");
-    assertFetchCalls(1, "round-98: second poll served from cache");
+    assertFetchCalls(2, "round-98: second poll served from cache (status + update for the FIRST one only)");
     await cachedDeviceProbe({}, dev("r31-cache"), true);
-    assertFetchCalls(2, "fresh bypasses the read (console check-now)");
+    assertFetchCalls(4, "fresh bypasses the read (console check-now)");
   });
 });
 

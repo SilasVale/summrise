@@ -35,6 +35,16 @@ interface DeviceProbeState {
   /// 1.0.145 and useless for update checks). Falls back to version for
   /// pre-1.2.276 agents that lack release.
   version?: string;
+  /// THE DEVICE'S OWN UPDATE VERDICT, forwarded instead of re-derived (round 29 of the standing goal). The console
+  /// computed `outdated = lastVersion !== install.version` from the KV copy it keeps — which ignores a rollback pin
+  /// and can be an hour stale (SEEN_WRITE_INTERVAL_MS) — while the device answers the same question at /api/update
+  /// with `newer()` plus the pin. Two computations of one fact, free to disagree; this carries the device's own.
+  update?: {
+    current?: string;
+    latest?: string;
+    update_available: boolean;
+    pinned_to: string | null;
+  };
   /// How the device's PREVIOUS run ended, straight from its /api/status
   /// (round 256). Two fields for one fact, and the split is deliberate: the
   /// fleet card has to DECIDE something (mark the row, or leave it alone), and
@@ -107,6 +117,23 @@ export async function cachedDeviceProbe(
       }
     }
   }
+  // A SECOND CALL, AND ONLY WHEN THE FIRST ANSWERED: a device that is down, or older than /api/update, costs one
+  // request rather than two. A device that answers but has no verdict (an agent before this route existed) leaves
+  // `update` absent, and the console falls back to its own comparison — degraded, not wrong.
+  if (res && res.ok) {
+    const up = await deviceFetch(env, device, "/api/update");
+    if (up && up.ok && up.resp) {
+      const u: any = await up.resp.json().catch(() => null);
+      if (u && typeof u === "object" && (typeof u.current === "string" || typeof u.latest === "string")) {
+        state.update = {
+          ...(typeof u.current === "string" ? { current: u.current } : {}),
+          ...(typeof u.latest === "string" ? { latest: u.latest } : {}),
+          update_available: u.update_available === true,
+          pinned_to: typeof u.pinned_to === "string" ? u.pinned_to : null,
+        };
+      }
+    }
+  }
   if (DEVICE_PROBE_CACHE.size >= 64) DEVICE_PROBE_CACHE.clear();
   DEVICE_PROBE_CACHE.set(device.name, state);
   return state;
@@ -133,6 +160,7 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
       version?: string;
       last_boot_kind?: string;
       last_boot?: string;
+      update?: { current?: string; latest?: string; update_available: boolean; pinned_to: string | null };
       checked_at: number;
     }
   > = {};
@@ -156,6 +184,9 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
       ...(probe.lastBootKind && probe.lastBoot
         ? { last_boot_kind: probe.lastBootKind, last_boot: probe.lastBoot }
         : {}),
+      // The device's own answer to "am I behind?", when it gave one. The console prefers it and only re-derives
+      // when this is absent.
+      ...(probe.update ? { update: probe.update } : {}),
       checked_at: probe.checkedAt,
     };
   }

@@ -78,7 +78,14 @@ const check = (name, ok) => checks.push([name, ok]);
     "/api/plugins/status": { devices: {} },
     "/api/admin/providers": { providers: [], apis: [], filePrefixes: [] },
   });
-  const card = doc.querySelector(".ov-firstrun");
+  // THE CARD IS FOUND BY ITS TITLE, NOT BY A CLASS THAT NO LONGER EXISTS (round 29 of the standing goal). This
+  // smoke looked for `.ov-firstrun` and the view renders `<Card title={t("overview.firstRun")}>` — no such class —
+  // so all three first-run checks failed against a page that was rendering the card correctly. Nothing runs this
+  // smoke in CI (`ci.yml` runs `render-smoke.mjs` only), which is why the drift survived.
+  const card =
+    [...doc.querySelectorAll(".card")].find((c) =>
+      (c.querySelector(".card-title")?.textContent || "").includes("从这里开始"),
+    ) || null;
   const text = card?.textContent || "";
   const hrefs = [...(card?.querySelectorAll("a") || [])].map((a) => a.getAttribute("href"));
   check("a fresh deployment is TOLD what to do (the card renders)", !!card);

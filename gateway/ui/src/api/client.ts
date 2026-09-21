@@ -184,6 +184,11 @@ export interface DeviceStatus {
   last_boot_kind?: string;
   /** The device's own sentence about that crash, for the row's tooltip. */
   last_boot?: string;
+  /** THE DEVICE'S OWN UPDATE VERDICT (round 29 of the standing goal), forwarded by the gateway's probe instead of
+   *  re-derived here. This page used to decide `lastVersion !== install.version` from the KV copy — which can be an
+   *  hour old and knows nothing about a rollback pin — while the device answers the same question live, pin-aware.
+   *  Absent for an agent older than the route; then the page falls back to the comparison. */
+  update?: { current?: string; latest?: string; update_available: boolean; pinned_to: string | null };
   checked_at?: number;
 }
 

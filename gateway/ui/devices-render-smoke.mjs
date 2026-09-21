@@ -25,9 +25,14 @@ const routes = {
       // `crashed` ever reaches this page: the gateway drops "replaced" (a normal update
       // restart) and "clean-exit" before they get here, so this mock carries exactly the
       // shape the page receives in production.
+      // THE TWO DIRECTIONS THIS PAGE GOT WRONG (round 29): d1's KV copy EQUALS the CDN version while the device
+      // itself says it is behind (a stale `lastVersion`), and d2's KV copy is OLDER than the CDN while the device
+      // says it is current — because it is PINNED to 1.0.100. The old comparison badged d2 and left d1 unmarked.
       d1: { online: false, agent_up: true, tunnel_up: true, version: "1.0.106", checked_at: now,
+            update: { current: "1.0.106", latest: "1.0.106", update_available: true, pinned_to: null },
             last_boot_kind: "crashed", last_boot: "run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s" },
-      d2: { online: false, agent_up: false, tunnel_up: false, checked_at: now },
+      d2: { online: false, agent_up: false, tunnel_up: false, checked_at: now,
+            update: { current: "1.0.100", latest: "1.0.106", update_available: false, pinned_to: "1.0.100" } },
     },
   },
   // version = agent (Cargo) scheme; the download filename carries the npm version.
@@ -84,7 +89,16 @@ const checks = [
       && [...doc.querySelectorAll(".dev-card")][1].textContent.indexOf("上次运行") === -1],
   ["d1 online LED + d2 offline LED", doc.querySelector(".dev-led.on") !== null && doc.querySelector(".dev-led.off") !== null],
   ["tunnel down state text", text.includes("隧道断开")],
-  ["outdated badge on d2 (1.0.100 → 1.0.106)", text.includes("可更新到 1.0.106")],
+  // THE DEVICE'S VERDICT, NOT THE PAGE'S ARITHMETIC. d1 is badged although its KV version equals the CDN (the
+  // device knows better); d2 is NOT badged although its KV version is older (it is pinned). One badge, on the
+  // device that earned it.
+  ["one outdated badge, on the device whose own verdict says so",
+    text.includes("可更新到 1.0.106")
+      && [...doc.querySelectorAll(".dev-card")].filter((c) => (c.textContent || "").includes("可更新到")).length === 1
+      && [...doc.querySelectorAll(".dev-card")][0].textContent.includes("可更新到")
+      && ![...doc.querySelectorAll(".dev-card")][1].textContent.includes("可更新到")],
+  ["a pinned device still shows its version, not a badge",
+    [...doc.querySelectorAll(".dev-card")][1].textContent.includes("v1.0.100")],
   ["relative last-seen on d1", text.includes("最近在线") && /最近在线 (刚刚|\d+ 分钟前)/.test(text)],
   ["ssh quick-copy on cards", doc.querySelectorAll('.dev-host .btn').length >= 2],
   ["reg key listed", text.includes("abcd1234")],

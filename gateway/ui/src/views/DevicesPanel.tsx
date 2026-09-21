@@ -346,7 +346,16 @@ export default function DevicesPanel() {
               // ONE CALL EACH, before the rows are built: the three-state answer is the same object the row needs.
               const agent = agentSignal(st, t);
               const tunnel = tunnelSignal(st, t);
-              const outdated = !!d.lastVersion && !!install?.version && d.lastVersion !== install.version;
+              // THE DEVICE'S OWN ANSWER WINS, AND THE COMPARISON IS THE FALLBACK (round 29 of the standing goal).
+              // `st.update` is what the device said when the gateway probed it (pin-aware, live); the comparison
+              // below is what this page can say from the KV copy, which lags up to an hour and ignores a rollback
+              // pin. Two computations of one fact are free to disagree, and the fleet badge is the surface where a
+              // disagreement is read as a fact about the device.
+              const verdict = st?.update;
+              const outdated = verdict
+                ? verdict.update_available
+                : !!d.lastVersion && !!install?.version && d.lastVersion !== install.version;
+              const behindTo = verdict?.latest ?? install?.version ?? null;
               const signals = [
                 // THREE STATES, NOT TWO: a device with no status entry has not been checked, and painting it red
                 // says its agent is down — a claim nothing has earned (round 35). The `.sig-dot.off` state existed
@@ -369,8 +378,8 @@ export default function DevicesPanel() {
                   <div className="dev-card-head">
                     <span className={`dev-led ${agentUp ? "on" : "off"}`} />
                     <span className="dev-name">{d.name}</span>
-                    {outdated ? (
-                      <Badge tone="warning">{t("devices.versionOutdated", { ver: install!.version! })}</Badge>
+                    {outdated && behindTo ? (
+                      <Badge tone="warning">{t("devices.versionOutdated", { ver: behindTo })}</Badge>
                     ) : (
                       <span className="dev-card-ver">
                         {d.lastVersion ? `v${d.lastVersion}` : t("devices.versionUnknown")}
