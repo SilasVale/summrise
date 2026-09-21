@@ -651,7 +651,7 @@ their configuration, are what made round 120 possible at all.
 Face 2 is a DESIGN change (make the base configurable), not a fixture change; that distinction is why they stay, and the
 gate now says so per entry rather than with one generic sentence.
 
-**THE NUMBERS:** 493 occurrences in 118 files → **446 in 105**; the declared list 52 → **42**, and it may only shrink.
+**THE NUMBERS ARE NOT WRITTEN HERE, because they drift.** The counts moved from 493 occurrences in 118 files to 446 in 105, and the declared list from 52 down — and the sentence that used to state the last figure said 42 while the gate counted 43, one round after it was written. `production-host-check` PRINTS its counts on every run; that is the one place they cannot go stale, and it may only shrink.
 
 ## 14. One fact, one derivation: the four ends, traced (rounds 96-130)
 
