@@ -119,7 +119,11 @@ for (const f of files(PANEL)) {
   readFileSync(f, "utf8").split("\n").forEach((line, i) => {
     if (line.trimStart().startsWith("//")) return;
     for (const [literal, home] of Object.entries(MARK_STATES)) {
-      if (new RegExp(`["'\`]${literal}["'\`]`).test(line)) {
+      // ANY string literal on the line, not just one that IS the literal: the shape that regressed was
+      // `className="monitor-mark is-flapping"` — the state buried inside a longer class list — and the first version of
+      // this pattern required a quote on both sides of it, so it passed the very mutation it was written for. Found by the
+      // audit, which is the argument for having one.
+      if (new RegExp(`["'\`][^"'\`]*\\b${literal}\\b[^"'\`]*["'\`]`).test(line)) {
         offenders.push(`${rel}:${i + 1} spells the mark state "${literal}", which ${home} derives`);
       }
     }

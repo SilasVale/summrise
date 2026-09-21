@@ -8,7 +8,7 @@
 // SILENT BY DEFAULT, like every other chip here: no targets, no probes yet, or everything up
 // renders nothing at all. Several down targets collapse to one chip with the first name and a
 // count — a strip is a line, not a list, and the card is one click away.
-import { monitorMarkClass } from "../lib/monitorMark";
+import { monitorMarkClass, monitorModifier } from "../lib/monitorMark";
 import { downTargets, fmtSince, unstableTargets, type Monitors } from "../hooks/useMonitors";
 
 export function MonitorChip({ monitors, nowMs = Date.now() }: { monitors?: Monitors | null; nowMs?: number }) {
@@ -28,7 +28,7 @@ export function MonitorChip({ monitors, nowMs = Date.now() }: { monitors?: Monit
         .map((u) => `${u.host}:${u.port} — ${u.summary.drops} drops in this window, up now`)
         .join("\n") + "\n\nThe Reachability card in Settings shows the probe history.";
     return (
-      <span className="monitor-chip is-flapping" title={title} data-drops={t.summary.drops ?? 0}>
+      <span className={`monitor-chip ${monitorModifier("flapping")}`} title={title} data-drops={t.summary.drops ?? 0}>
         <span className={monitorMarkClass("flapping")} aria-hidden="true" />
         {text}
       </span>
