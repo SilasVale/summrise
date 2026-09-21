@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useNow } from "../hooks/useNow";
 import type { CommandCard as CardData } from "../hooks/useCommandEvents";
-import { CopyButton, cardState, fmtDuration } from "./CommandCard";
+import { CopyButton, fmtDuration } from "./CommandCard";
+import { cardState } from "../lib/path";
 import { Icon } from "../ui/Icon";
 
 // Details column (round-admin-ui Task 4): the dsh single-call inspector —

@@ -26,7 +26,6 @@
 // It also cannot say WHO ran a step. `SessionEvent` carries no actor field, and
 // the panel's own keystrokes use the same terminal_write path the AI does — so
 // "who" is unknown by construction, not by omission.
-import { cardState } from "../components/CommandCard";
 import type { CommandCard as CardData } from "../hooks/useCommandEvents";
 import type { CommandEvent } from "../hooks/useCommandEvents";
 import type { TrajRound } from "../hooks/useTrajectory";
@@ -37,6 +36,46 @@ export const PATH_STATES = ["running", "ok", "fail", "warn", "bg", "muted"] as c
 
 export type PathState = (typeof PATH_STATES)[number];
 
+
+/** THE ONE DERIVATION OF A COMMAND'S STATE, from the three facts that decide it.
+ *
+ *  It lives here — not in a component — because three views read it: the command card, the details panel and the
+ *  path summary, plus the trajectory's per-event dot. It used to be `cardState` in `CommandCard.tsx`, with
+ *  `lib/path.ts` importing FROM a component (the only place this tree inverts its own layering), and `TrajectoryView`
+ *  keeping a SECOND private copy that mapped `backgrounded` to `warn`. The cost was measurable: one backgrounded
+ *  command wore `bg` in its round marker and `warn` in its own event row, in the same view, and `cardState`'s own
+ *  comment records the round where that mapping was fixed for the cards and left standing for the events.
+ *
+ *  `reason` is the STATUS string the trail carries (`backgrounded`, `closed`, `interrupted`, `exited:3`), which is
+ *  why feeding it through unchanged is what makes the two views agree. */
+export function stateFromEnd(
+  ended: boolean,
+  exitCode: number | null,
+  reason: string | null,
+): { state: PathState; label: string; compact: string } {
+  if (!ended) return { state: "running", label: "Running", compact: "running" };
+  if (exitCode !== null) {
+    return exitCode === 0
+      ? { state: "ok", label: "Success (exit 0)", compact: "0" }
+      : { state: "fail", label: `Failed (exit ${exitCode})`, compact: `exit ${exitCode}` };
+  }
+  switch (reason) {
+    // ITS OWN STATE, NOT `warn`. `warn` is the path summary's word for a step
+    // that ended badly, and folding a BACKGROUNDED command into it made the
+    // operator-facing line read "3 interrupted" for three commands that were
+    // still legitimately RUNNING — and lit the session's "bad" marker for work
+    // nothing had gone wrong with.
+    case "backgrounded": return { state: "bg", label: "Backgrounded", compact: "backgrounded" };
+    case "interrupted": return { state: "warn", label: "Interrupted", compact: "interrupted" };
+    case "closed": return { state: "muted", label: "Closed", compact: "closed" };
+    default: return { state: "muted", label: reason || "Ended", compact: reason || "ended" };
+  }
+}
+
+/** A command card's state — the same derivation, over the card's fields. */
+export function cardState(card: CardData): { state: PathState; label: string; compact: string } {
+  return stateFromEnd(card.ended, card.exitCode, card.reason);
+}
 type Owner = "ai" | "human";
 
 export interface PathStep {

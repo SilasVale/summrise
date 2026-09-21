@@ -6,10 +6,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import {
   fmtDuration,
-  cardState,
   CommandCard,
   CommandStream,
 } from "../CommandCard";
+// `cardState` moved to lib/path.ts (round 29): the derivation is shared by the card, the details panel, the path
+// summary and the trajectory's per-event dot, and living in a component made lib the only place in this tree that
+// imported UPWARD. The tests below are about the same function; only its address changed.
+import { cardState } from "../../lib/path";
 import type { CommandCard as CardData } from "../../hooks/useCommandEvents";
 
 const card = (over: Partial<CardData> = {}): CardData => ({

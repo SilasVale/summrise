@@ -29,6 +29,13 @@ const SRC = path.dirname(fileURLToPath(import.meta.url));
 const COMPONENTS = path.join(SRC, "..", "components");
 
 /** The fields a component must take from the model, and what to use instead. */
+// WHY `exitCode` / `reason` / `ended` ARE NOT ON THIS LIST, after a round that removed a duplicate deriver of exactly
+// them. This scan bans a FIELD wherever it appears in a .tsx, because the four session fields below are only ever
+// DERIVED from — a component that reads them is inventing a second opinion. The command facts are different: a
+// component legitimately PRINTS `exit 3` (ActivityPage's chip does, and so does the trajectory's end row), so a
+// blanket ban would forbid display to catch derivation. What replaced the ban is a single derivation
+// (`stateFromEnd` in lib/path.ts, called by cardState and by the trajectory's event dot) plus a test that pins the
+// mapping a second copy got wrong once (`backgrounded` → `bg`, not `warn`).
 const MODELLED = new Map([
   ["pendingApproval", "sessionWaiting() — the ONE predicate the mark, the title and the label read"],
   ["idleMs", "sessionActive() — it knows about command_running and WORKING_MS"],

@@ -7,7 +7,8 @@ import { terminalStatus } from "../hooks/useCommandEvents";
 import { useTrajectory } from "../hooks/useTrajectory";
 import type { TrajRound } from "../hooks/useTrajectory";
 import { stripAnsi } from "../lib/ansi";
-import { cardState, fmtDuration } from "./CommandCard";
+import { fmtDuration } from "./CommandCard";
+import { cardState, stateFromEnd } from "../lib/path";
 import type { CommandCard } from "../hooks/useCommandEvents";
 
 // dsh Trajectory-style raw event timeline (round-admin-ui Task 5): every
@@ -64,13 +65,18 @@ function roundMatches(r: TrajRound, needle: string): boolean {
   return r.command.toLowerCase().includes(needle) || r.events.some((ev) => evMatches(ev, needle));
 }
 
-/** Per-event dot state (timeline rail marker). */
-function eventDotState(ev: CommandEvent): "running" | "ok" | "fail" | "warn" | "muted" {
-  if (ev.kind === "command/end") return ev.exit_code === 0 ? "ok" : ev.exit_code != null ? "fail" : "muted";
+/** Per-event dot state (timeline rail marker) — THE SAME DERIVATION the cards and the summary use.
+ *
+ *  This used to be a private copy, and the copy is where the defect lived: it mapped `backgrounded` to `warn` while
+ *  `stateFromEnd` (then `cardState`) maps it to `bg` — so one backgrounded command wore `bg` in its round marker and
+ *  `warn` in its own event row, in this very view. `terminalStatus` already answers with the STATUS STRING as the
+ *  reason, which is exactly what the canonical derivation switches on, so passing it through unchanged is what makes
+ *  the two agree. */
+function eventDotState(ev: CommandEvent): PathState {
+  if (ev.kind === "command/end") return stateFromEnd(true, ev.exit_code ?? null, ev.reason ?? null).state;
   if (ev.kind === "status" && ev.status) {
-    if (ev.status === "backgrounded") return "warn";
     const term = terminalStatus(ev.status);
-    if (term) return term.exitCode === 0 ? "ok" : term.exitCode != null ? "fail" : "muted";
+    if (term) return stateFromEnd(true, term.exitCode, term.reason).state;
   }
   return "muted"; // output / session-level status (opened, …)
 }

@@ -239,6 +239,22 @@ describe("TrajectoryView — a trimmed trail is not presented as complete", () =
     expect(note.textContent).toMatch(/keeps its most recent command onward/i);
   });
 
+  it("A BACKGROUNDED COMMAND WEARS ONE STATE, NOT TWO", async () => {
+    // THE DEFECT THIS PINS (measured round 29 of the standing goal): `TrajectoryView` kept its own private event
+    // dot deriver, and that copy mapped `backgrounded` to `warn` while the round marker beside it — derived by
+    // `cardState`, now `stateFromEnd` in lib/path — mapped the same fact to `bg`. One command, one file, two
+    // states. The dot is `data-state` on `.traj-ev-dot`; the round marker is the state chip in the round header.
+    const evs = mockSession([
+      start(1, "tail -f /var/log/messages"),
+      { seq: 2, ts: 102, kind: "status", status: "backgrounded" },
+    ]);
+    const { container } = render(<TrajectoryView events={evs} />);
+    await waitFor(() => expect(container.querySelector(".traj-ev-dot")).toBeTruthy());
+    const dots = [...container.querySelectorAll(".traj-ev-dot")].map((d) => d.getAttribute("data-state"));
+    expect(dots).not.toContain("warn");
+    expect(container.querySelector('[data-state="bg"]')).toBeTruthy();
+  });
+
   it("SAYS WHAT IT IS, ON THE ROW, WITHOUT A HOVER", () => {
     // The tab strip shows "Trajectory" and "Path" side by side; the difference lived in a `title` attribute, and an
     // operator asked the question out loud ("are these two the same?"). The caption answers it in the view itself.
