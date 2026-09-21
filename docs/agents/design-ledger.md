@@ -3158,3 +3158,25 @@ this time the count was checked by eye BEFORE anything was changed.
 WHAT IS LEFT, honestly: the message QUALITY of the gates is good where it matters and no gate says only "FAILED" — and if a
 round wants to improve one, the shape to aim for is `retired-colours-check`'s: say what is wrong, and why it is wrong, which
 is more useful than an imperative verb.
+
+### FIVE TIMES A TEXT CHECK MISREAD THE ARTEFACT, AND THE RULE THAT COMES OUT OF IT (round 165)
+
+The question was whether each scanning gate states its own ERROR MODE where the next reader of that code will find it. The
+grep for phrases like "false positive" reported `console-wire-field-check` at ZERO, so the file was opened — and it states
+both modes plainly, with the measurement that established one of them ("passed `wire-field-check` with rc=0"). All five
+scanning gates state theirs. The grep was wrong, for the fifth time this session:
+
+    116  the duplicate-key heuristic          947 "candidates", essentially all two different objects at one indent
+    123  the gateway widening                 35 "defects", all the upstream PROVIDERS' vocabulary
+    135  a comment satisfying a field gate    measured right, but only because the plant was built by hand
+    164  the gates' failure messages          17 "without an instruction", incl. ones ending "Mirror it, or declare it"
+    165  this                                  0 hits for a file whose comment says it in as many words
+
+Each time, the correction was to READ THE ARTEFACT, and each time the grep had looked plausible. So the rule, stated as the
+thing to do rather than the thing to avoid: **a text scan is a way to CHOOSE WHAT TO READ, never a way to reach a verdict.**
+Every one of the five was cheap to resolve that way — one `grep -B2 -A6` in this round — and every one would have been
+expensive to resolve by acting on the count.
+
+AND THE VERIFICATION ITSELF IS RECORDED: five scanning gates, five statements of their error mode, each written by the round
+that was bitten by it. Nothing changed this round, which is what makes it worth a paragraph: the next reader who wonders
+whether these gates document their failure modes has an answer instead of a grep.
