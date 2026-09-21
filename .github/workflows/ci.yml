@@ -569,6 +569,12 @@ jobs:
       # on both sides still green. The same rule caught real gaps one layer in, twice.
       - name: the gateway forwards fields the device spells
         run: node scripts/test/gateway-device-field-check.mjs
+      # NO GATE IS ASSUMED TO BITE (round 105 of the standing goal): every gate above, broken on purpose, on every push.
+      # The mutations live in that file, paired with the gate each must fail, because round 104's re-audit produced two
+      # false alarms and both were the MUTATIONS rather than the gates — the fifth time in one session that a non-biting
+      # mutation was about the mutation.
+      - name: every gate is broken on purpose and bites
+        run: node scripts/test/gate-mutations-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
       # the same duplication twice in `useSessions.ts` — a byte-identical row mapper, then the device-owned half of it
       # written three times — and this is the rule that keeps it removed: outside that section, no device field is read.
