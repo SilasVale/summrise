@@ -2374,3 +2374,33 @@ on a phrase that exists twice cannot tell you which one you deleted.
 NEXT, in the order the note names them: the six zero-rendered families are the cheapest wins (each is a fixture state,
 not a code change), and `traj-ev-dot` — the same vocabulary as cmd-dot rendered in a second place — should follow its
 sibling automatically once its view is measured with a card in it.
+
+### ON SCREEN IS NOT UNRENDERED (round 28)
+
+Round 27's sheet-enumerated note counted TWELVE mark families and reported six with zero painted states. Three of the
+six are not gaps, and the device run this round measured why:
+
+    ON SCREEN — every state-mark class the probe saw, over 126 surfaces:
+      ag-dot, boot-mark, cmd-dot, dot, dtab-dot, mark, monitor-dot, monitor-mark, monitor-state, path-step-dot,
+      path-step-why-mark, plug-dot, rail-dot, sc-dot, side-dot, tab-dot, waiting-mark
+
+    tab-dot, side-dot   the class is on every tab, and the probe attributes it to `mark`: the state hangs off
+                        `data-live`, and the family is then the FIRST class. It IS measured — under another name.
+    monitor-state       on screen, and its elements are larger than the 40px the mark probe measures — a chip, not a
+                        mark. A sizing question, not a missing surface.
+
+The probe reports the classes it saw now (`marks.present`), and the note separates the two verdicts. THE REAL GAPS,
+which keep their numbers: `ag-dot off` · `boot-mark info` · `monitor-mark is-up` · `plug-dot error, ongoing` ·
+`cmd-dot warn, bg` · `update-state is-error/is-ok` · `monitor-chip is-flapping` · `notify-state is-granted/is-denied`.
+
+THREE PATTERN SLIPS IN TWO ROUNDS, all one shape — A PATTERN IS NOT A NAME UNTIL IT IS ANCHORED:
+
+  * the fixture mutation was written against the SOURCE form of a trail the harness EMITS as JSON on one line;
+  * the fixture predicate matched an intent string that round 26 had already put on a DIFFERENT feed, so it passed
+    with the audit entry deleted;
+  * this round's gate case grepped `tab-dot declares … NO SURFACE RENDERED` and matched `dtab-dot declares …`.
+
+Every one was caught by a gate rather than by reading, which is the only reason they cost minutes instead of a release.
+The rule for the next one: when a check greps for a NAME, put the context in the pattern (`mark family tab-dot
+declares`), and when it matches TEXT a program emitted, take the pattern from the emitted file rather than from the
+source that produced it.
