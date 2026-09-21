@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CONSOLE_POLL_MS, deviceIsUp, deviceTally } from "../lib/deviceState.ts";
+import { channelLabel, channelSignal } from "../lib/channelState.ts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useTranslation } from "../i18n.ts";
@@ -335,11 +336,11 @@ export default function Overview() {
             <div className="health-list">
               {channels.map((c) => (
                 <div key={c.id} className="health-row">
-                  <span className={`dot ${c.ok ? "ok" : "err"}`} />
+                  <span className={`dot ${channelSignal(c.ok)}`} />
                   <span className="health-id">{c.id}</span>
                   <span className="health-model">{c.model}</span>
-                  <span className={`health-state ${c.ok ? "ok" : "err"}`}>
-                    {c.ok ? t("overview.healthOk") : c.reason || t("overview.healthDown")}
+                  <span className={`health-state ${channelSignal(c.ok)}`}>
+                    {channelLabel(c, t)}
                   </span>
                 </div>
               ))}
