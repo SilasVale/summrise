@@ -539,6 +539,13 @@ jobs:
       # and the Models page rendered its failure banner for three rounds with every other axis green.
       - name: fixture tables have no duplicate keys
         run: node scripts/test/sweep-fixture-dupes-check.mjs
+      # ONE FACT, ONE DERIVATION (round 78 of the standing goal). The spine's rule was enforced by READING until now:
+      # round 29 deleted a private second derivation in the trajectory view that mapped a backgrounded command to `warn`
+      # while the canonical one said `bg`, so one command wore two states in one view. This fails, by file and line, any
+      # production module that compares against an ending the device can report — the endings come from the generated
+      # contract, and the files that merely share the WORDS are declared with their reasons.
+      - name: one derivation per fact
+        run: node scripts/test/one-derivation-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
