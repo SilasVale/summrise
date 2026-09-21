@@ -35,7 +35,7 @@ export function channelLabel(
  *
  *  `known` is separate from `total` because "we have not asked yet" is not "none are healthy" — the same distinction
  *  `deviceState.ts` records for a probe that has not answered, and the reason this takes three numbers rather than two. */
-export type DialTone = "ok" | "warn" | "off";
+type DialTone = "ok" | "warn" | "off";
 
 export function healthTone(known: boolean, ok: number, total: number): DialTone {
   if (!known || total === 0) return "off";

@@ -2897,3 +2897,29 @@ by the harness, read by a hook, and mentioned in one `//` line of a Rust source:
 
 The lesson is the same one this objective keeps re-learning one layer down: a rule that matches TEXT is not yet a rule about
 the thing the text describes, and the fix is to decide, per gate and in writing, which direction of error is tolerable.
+
+### THE THREE DISCIPLINES FOR A GATE THAT MATCHES TEXT (rounds 104-139, closing note)
+
+Sixteen gate/branch pairs are broken on purpose on every push, and six of them match SOURCE TEXT rather than running
+anything. Those six cost this stretch four rounds of correction, and the corrections reduce to three rules. They are worth
+stating together because each was learned by the gate being wrong in a way nobody would have predicted from its name:
+
+  1. **A MATCHING RULE IS NOT YET A RULE ABOUT THE THING IT MATCHES.** `gateway-device-field-check` widened to every
+     gateway source reported 35 defects; reading them showed the vocabulary of the UPSTREAM LLM PROVIDERS (`media_type`,
+     `prompt_tokens`, `cache_read_input_tokens`), not of the agent. `one-derivation`'s first run and the mark clause's first
+     run did the same thing with different words. A broad pattern does not become a rule by matching more — and the fix each
+     time was to keep the rule, declare the exception, and write the reason down.
+  2. **STRUCTURE, NOT PRESENCE.** `device-verdict-check` proved the console READS the device's verdict and could not see
+     whether its own comparison was still GUARDED by it; hoisting the comparison passed every pattern while making the
+     console answer for devices it cannot speak about. What a gate asserts must be the shape it cares about, not a word that
+     happens to appear.
+  3. **A COMMENT IS NOT A PRODUCER, AND WHICH DIRECTION THAT ERRORS IS A DECISION.** For the field gates a comment that
+     satisfied them was a FALSE NEGATIVE — a deleted producer kept alive by prose, measured with rc=0 — while for the
+     derivation gate a comment quoting the pattern was a FALSE POSITIVE. `production-host-check` refuses the strip on
+     purpose, because a comment spelling the deployment's host is exactly what it must flag; that is not a theory, it is what
+     this session's own inventory note was refused for. `scripts/test/lib/decomment.mjs` is the one definition, and each gate
+     says which direction it tolerates.
+
+AND THE GATES FELL FOUL OF THE OBJECTIVE'S OWN RULE ONCE: rounds 135 and 136 each wrote that strip into the gate that needed
+it, making three copies of one rule — the defect this objective removes — until round 137 made it a module. The gates are
+subject to the spine too.
