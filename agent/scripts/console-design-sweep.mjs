@@ -154,7 +154,12 @@ const API = {
   ] },
   '/api/devices/install-cmd': { ok: true, version: '1.0.106', download: 'https://v.saisi.online/vale-agent-latest.tgz' },
   '/api/devices/register-keys': { keys: [{ code: 'abcd1234', expiresAt: now + 3600000 }] },
-  '/api/plugins/status': { devices: { d1: { online: false, agent_up: true, tunnel_up: true, version: '1.0.106', checked_at: now, verdict: 'crashed' } } },
+  // THE FIELD THE PAGE ACTUALLY READS (round 53 of the standing goal). This said verdict: 'crashed', and
+  // DevicesPanel reads st?.last_boot_kind === "crashed" — a field name the page does not read is a fixture saying
+  // something nothing hears, so the crash row never rendered and sig-dot.err (ONE OF THREE STATES in that family) had
+  // no surface in 136 sweeps. The gateway sends the real pair (plugins/mcp.ts forwards the probe's
+  // lastBootKind/lastBoot), which is why this is a FIXTURE fix and not a product one: measured before changing it.
+  '/api/plugins/status': { devices: { d1: { online: false, agent_up: true, tunnel_up: true, version: '1.0.106', checked_at: now, last_boot_kind: 'crashed', last_boot: 'run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s' } } },
   // ALL FOUR CHANNELS, because the lane rules are per-channel: with only 'og' in the fixture the
   // three fills that do NOT flip with the theme never render, and a contrast fix for them could not
   // be seen. Measured round 79 — the ink/fill pairing differs per lane on purpose.
