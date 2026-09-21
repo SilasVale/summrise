@@ -101,6 +101,17 @@ const run = (cmd, args) => {
   }
 };
 
+/** The harness emitter's OWN convention is exit 2 on success (`rc=2 (2=ok)`, printed by every caller), so its exit code is
+ *  not a pass/fail signal and this must not read it as one — the first version did, and the audit died on the one case
+ *  that has to re-emit. */
+const emit = (script) => {
+  try {
+    execFileSync("node", [script], { cwd: ROOT, stdio: "pipe" });
+  } catch (e) {
+    if ((e.status ?? 1) !== 2) throw e;
+  }
+};
+
 let findings = 0;
 for (const c of CASES) {
   const path = `${ROOT}/${c.file}`;
@@ -118,7 +129,7 @@ for (const c of CASES) {
   }
   try {
     writeFileSync(path, original.replace(c.from, c.to));
-    if (c.emit) execFileSync("node", [c.emit], { cwd: ROOT, stdio: "pipe" });
+    if (c.emit) emit(c.emit);
     const after = run("node", [c.gate]);
     if (after === 0) {
       console.error(`FAIL ${c.gate} did NOT bite: ${c.why} (it passed with the break in place)`);
@@ -128,7 +139,7 @@ for (const c of CASES) {
     }
   } finally {
     writeFileSync(path, original);
-    if (c.emit) execFileSync("node", [c.emit], { cwd: ROOT, stdio: "pipe" });
+    if (c.emit) emit(c.emit);
   }
 }
 
