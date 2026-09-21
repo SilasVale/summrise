@@ -570,7 +570,13 @@ position, so the hostname could only ever match the DEFAULT suffix. Fifteen call
 declared list. The lesson is the same one a 502 taught in round 94: a device hostname and the rule that decides what a
 device hostname may be are ONE fixture, and moving half of it is what fails.
 
-**WHAT THE REMAINING 13 FILES ACTUALLY COST, so the next round can decide rather than discover:** one careful round each —
+**THE CHECKLIST THIS MIGRATION NOW HAS, SIX SHAPES DEEP, each learned by being bitten:** a mention can be (1) a plain
+string, (2) an ESCAPED regex, (3) a CAPITALISED spelling — which a case-sensitive `grep saisi` misses, and did in round 114;
+and the rule that accepts the host can be declared (4) in one env, (5) in a SECOND env the file builds directly, or (6) in
+an INLINE object literal that no `makeBaseEnv` grep can see. The hosts and the rule are ONE fixture; every failure above is
+a way of moving half of it.
+
+**WHAT THE REMAINING 11 FILES ACTUALLY COST, so the next round can decide rather than discover:** one careful round each —
 read the file, move every mention INCLUDING regex spellings, add its env keys, run the file alone, then the suite, then
 remove it from the list. That is ~14 rounds for a cleanup whose only product is a shorter allowlist and a tree that no
 longer advertises the deployment's hosts. IT IS HONESTLY A JUDGEMENT CALL WHETHER THAT IS THE BEST USE OF FOURTEEN ROUNDS

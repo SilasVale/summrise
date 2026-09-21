@@ -43,7 +43,9 @@ test("classic guards unchanged: loopback, mapped, metadata, public", () => {
   ]) {
     assert.match(deviceHostError(h) || "", /private\/internal/, `${h} blocked`);
   }
-  for (const h of ["d1.agent.saisi.online", "example.com", "8.8.8.8"]) {
+  // This list is the SSRF guard's business (public vs private), NOT the suffix rule — `deviceHostError` takes no env, so
+  // the host only has to be public (round 114).
+  for (const h of ["d1.agent.vale.test", "example.com", "8.8.8.8"]) {
     assert.equal(deviceHostError(h), null, `${h} allowed`);
   }
 });
@@ -52,7 +54,9 @@ test("classic guards unchanged: loopback, mapped, metadata, public", () => {
 // The authority-prefix gate + hostname-equality gate had NO direct tests
 // (only indirect exercise via mcp-handler). Stub globalThis.fetch: the
 // module calls it through fetchWithTimeout, which uses the global.
-const DEV = { hostname: "d1.agent.saisi.online", token: "tok-device-1" };
+// The device dials through an env that must accept its hostname: the two are one fixture (rounds 94-113).
+const ENV = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
+const DEV = { hostname: "d1.agent.vale.test", token: "tok-device-1" };
 
 async function withStubFetch(handler, fn) {
   const real = globalThis.fetch;
@@ -75,7 +79,7 @@ test("deviceFetch: userinfo smuggling (@evil) → 400, upstream never called (ro
     async () => {
       throw new Error("must not be called");
     },
-    () => deviceFetch({}, DEV, "@evil.example/x"),
+    () => deviceFetch(ENV, DEV, "@evil.example/x"),
   );
   assert.equal(r.status, 400);
   assert.equal(r.error, "invalid proxy path");
@@ -88,7 +92,7 @@ test("deviceFetch: leading scheme in path → 400 (round-120)", async () => {
       async () => {
         throw new Error("must not be called");
       },
-      () => deviceFetch({}, DEV, p),
+      () => deviceFetch(ENV, DEV, p),
     );
     assert.equal(r.status, 400, p);
   }
@@ -97,17 +101,17 @@ test("deviceFetch: leading scheme in path → 400 (round-120)", async () => {
 test("deviceFetch: @ in a query string is legitimate → passes through (round-121 narrowing)", async () => {
   const seen = {};
   const r = await withStubFetch(okUpstream(seen), () =>
-    deviceFetch({}, DEV, "/api/x?user=a@b.com"),
+    deviceFetch(ENV, DEV, "/api/x?user=a@b.com"),
   );
   assert.equal(r.status, 200);
   assert.match(seen.url, /\/api\/x\?user=a@b\.com/, "query preserved verbatim");
-  assert.match(seen.url, /^https:\/\/d1\.agent\.saisi\.online\//, "host is the device's own");
+  assert.match(seen.url, /^https:\/\/d1\.agent\.vale\.test\//, "host is the device's own");
 });
 
 test("deviceFetch: header hygiene — host/cookie stripped, device Bearer injected", async () => {
   const seen = {};
   await withStubFetch(okUpstream(seen), () =>
-    deviceFetch({}, DEV, "/api/tools/x", {
+    deviceFetch(ENV, DEV, "/api/tools/x", {
       headers: { host: "attacker.example", cookie: "sess=1", "x-keep": "yes" },
     }),
   );
@@ -120,10 +124,12 @@ test("deviceFetch: header hygiene — host/cookie stripped, device Bearer inject
 
 test("deviceFetch: uppercase registration hostname still dials (round-121 case-insensitive)", async () => {
   const seen = {};
-  const upper = { hostname: "D1.Agent.Saisi.Online", token: "tok-device-1" };
-  const r = await withStubFetch(okUpstream(seen), () => deviceFetch({}, upper, "/api/status"));
+  // CAPITALISED ON PURPOSE — the rule lowercases both sides (device-fetch.ts), so this case only works if the fixture and
+  // the declared suffix agree in every spelling, which is why `grep -i` is the checklist for this migration (round 114).
+  const upper = { hostname: "D1.Agent.Vale.Test", token: "tok-device-1" };
+  const r = await withStubFetch(okUpstream(seen), () => deviceFetch(ENV, upper, "/api/status"));
   assert.equal(r.status, 200);
-  assert.match(seen.url, /^https:\/\/d1\.agent\.saisi\.online\//i);
+  assert.match(seen.url, /^https:\/\/d1\.agent\.vale\.test\//i);
 });
 
 test("deviceFetch: private device hostname → 400 via deviceHostError, never dialed", async () => {
@@ -131,7 +137,7 @@ test("deviceFetch: private device hostname → 400 via deviceHostError, never di
     async () => {
       throw new Error("must not be called");
     },
-    () => deviceFetch({}, { hostname: "169.254.169.254", token: "tok-x" }, "/api/status"),
+    () => deviceFetch(ENV, { hostname: "169.254.169.254", token: "tok-x" }, "/api/status"),
   );
   assert.equal(r.status, 400);
   assert.match(r.error || "", /private\/internal/);
@@ -142,7 +148,7 @@ test("deviceFetch: unreachable device → 502 with reason, no throw", async () =
     async () => {
       throw new TypeError("fetch failed");
     },
-    () => deviceFetch({}, DEV, "/api/status"),
+    () => deviceFetch(ENV, DEV, "/api/status"),
   );
   assert.equal(r.status, 502);
   assert.equal(r.ok, false);
@@ -169,8 +175,8 @@ test("device dial: the request is issued with redirect:'manual', never 'follow'"
   };
   try {
     await deviceFetch(
-      {},
-      { name: "d1", hostname: "d1.agent.saisi.online", token: "t".repeat(64) },
+      ENV,
+      { name: "d1", hostname: "d1.agent.vale.test", token: "t".repeat(64) },
       "/api/status",
       {},
     );
