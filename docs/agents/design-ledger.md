@@ -3018,3 +3018,24 @@ TWO THINGS THIS NUMBER DOES NOT SAY, and both are the point of the rounds that p
 the configurations CI builds — which is only true since round 146 added the agent's DEFAULT config to CI, because before that
 one of the four ends had a configuration nobody built and it was broken. Second, the 17 mutations matter more than the 40
 gates: a gate that cannot fail is worse than no gate, and every one of those 17 is a defect this session actually met.
+
+### A NUMBER IN PROSE: THREE TREATMENTS, AND HOW TO PICK (rounds 151-154)
+
+Three rounds in a row caught a COUNT that had drifted, and the fixes were not the same fix. Written together because the
+choice between them is the whole content of the rule:
+
+  1. **MAKE IT CHECKABLE.** AGENTS.md carried a table of "the exact commands, by working directory", and it said the agent's
+     checks run in "both feature sets" while the workflow ran one — the missing configuration was broken at the time.
+     `ci-command-table-check.mjs` now compares the two in BOTH directions, and its own first run found three disagreements.
+  2. **REMOVE IT.** The paragraph over the gate table said "TEN GATES"; a round later there were twelve.
+     `numbered-claims-check.mjs` holds the checkable half (every wired gate is a NAMED gate) and the number is gone. The
+     same treatment went to the migration note's "446 in 105; the declared list 52 → 42", which the computing gate printed
+     as 374 in 102 and 41 — off by three files and one file, one round after it was written.
+  3. **DATE IT AND WARN.** This one was already in the file, and finding it is what turned two options into three: the
+     sweep's cell says "79 checks **as measured on 2026-09-21** — the axis list below is the part that stays accurate, the
+     NUMBER is what drifts", and the animation and mark counts sit inside "Measured 2026-09-18". A measurement of a MOMENT
+     is honest when it says which moment; a claim about NOW is not, because nothing recomputes it.
+
+HOW TO PICK, and this is the sentence to keep: **is the number a claim about the present, or a record of a measurement?** A
+claim about the present gets treatment 1 or 2 — because a reader will act on it — and a record of a measurement gets 3. The
+failure mode is a number that LOOKS like the second and is read as the first, which is exactly what "TEN GATES" was.
