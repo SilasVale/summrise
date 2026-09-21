@@ -41,7 +41,7 @@ directory, as of the run that verified them:
 | `gateway/` | `npm run typecheck` (= `tsc --noEmit`) · `npm test` · `npm run lint` (= `eslint src/`) · `npm run format:check` | — |
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` | **not** `tsc --noEmit`, which is the check that missed them |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` | — |
-| `agent/` | `cargo fmt --all -- --check` · `cargo clippy --all-targets -- -D warnings` · `cargo test` (both feature sets) | — |
+| `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p vale-agent --all-targets -- -D warnings` (**default AND** `--features terminal,keyring`) · `cargo test -p vale-agent` (same two) · `cargo test -p vale-agent-core` | — |
 
 All four were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
 and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what

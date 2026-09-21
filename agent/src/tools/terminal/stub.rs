@@ -167,6 +167,14 @@ impl TerminalManager {
     pub async fn term_exit_code(&self, _sid: &str) -> Option<i32> {
         None
     }
+
+    /// THE STUB'S MIRROR OF THE REAL METHOD (round 146). The device learned to RECORD an exit code it did not observe — a
+    /// marker line, a cancelled command — and `plugins/terminal/tools/exec.rs` calls this in three places. Only the real
+    /// backend had it, so the DEFAULT build (`cargo test`, no features) stopped compiling while
+    /// `--features terminal,keyring` stayed green: a configuration nobody ran was broken, and CI does not run it either.
+    /// The stub records nothing, as it records no exit codes at all — but it must have the method, because the callers are
+    /// feature-independent.
+    pub async fn term_note_exit_code(&self, _sid: &str, _code: Option<i32>) {}
     pub async fn term_select(&self, _sid: &str) -> Result<(), DeviceError> {
         Err(disabled_err())
     }

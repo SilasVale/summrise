@@ -162,11 +162,17 @@ jobs:
         # `netstat` on d1) say `127.0.0.1`, a claim this very file records as disproven.
         # An ungated foundation crate is a test suite that reports nothing.
         run: |
+          # THE DEFAULT CONFIG TOO (round 146 of the standing goal). Only the feature set was ever exercised, so the
+          # no-feature build silently stopped compiling: `exec.rs` calls `term_note_exit_code`, only the REAL terminal
+          # backend had it, and the stub did not — three errors that no job could see. A configuration nobody builds is a
+          # configuration that is broken.
+          cargo test -p vale-agent
           cargo test -p vale-agent --features terminal,keyring
           cargo test -p vale-agent-core
         working-directory: agent
       - name: Clippy (zero warnings)
         run: |
+          cargo clippy -p vale-agent --all-targets -- -D warnings
           cargo clippy -p vale-agent --features terminal,keyring --all-targets -- -D warnings
           cargo clippy -p vale-agent-core --all-targets -- -D warnings
         working-directory: agent
