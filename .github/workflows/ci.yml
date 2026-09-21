@@ -581,6 +581,11 @@ jobs:
       # mutation was about the mutation.
       - name: the two backends offer the same surface
         run: node scripts/test/stub-surface-check.mjs
+      # THE TABLE THAT SAYS WHAT CI RUNS MUST MATCH WHAT CI RUNS (round 151 of the standing goal). Round 146 drifted exactly
+      # here: AGENTS.md claimed the agent's checks run in "both feature sets" while the workflow ran one, and the missing
+      # configuration was broken at the time.
+      - name: the command table matches the workflow
+        run: node scripts/test/ci-command-table-check.mjs
       - name: every gate is broken on purpose and bites
         run: node scripts/test/gate-mutations-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed

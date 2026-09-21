@@ -195,6 +195,14 @@ const CASES = [
     to: "",
   },
 
+  {
+    gate: "scripts/test/ci-command-table-check.mjs",
+    file: ".github/workflows/ci.yml",
+    why: "a check the table names stops being run by CI — the round-146 drift, in the direction that reads as coverage",
+    from: "          cargo test -p vale-agent --features terminal,keyring\n",
+    to: "",
+  },
+
 ];
 
 const run = (cmd, args) => {
