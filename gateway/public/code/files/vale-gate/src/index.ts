@@ -159,7 +159,11 @@ export default {
       }
       if (request.method === "POST" && path === "/api/vale-probe") {
         if (await probeRateLimited(env, request)) {
-          return withCors(request, jsonError(429, "probe rate limit exceeded", "rate_limit_error"), env);
+          return withCors(
+            request,
+            jsonError(429, "probe rate limit exceeded", "rate_limit_error"),
+            env,
+          );
         }
         const body = await readJson(request);
         return withCors(request, await valeProbe(env, String(body.model || "")), env);
@@ -219,7 +223,8 @@ export default {
 
       // ---- Static page (Workers Assets): non-/v1/ paths → ai domain only ----
       if (!path.startsWith("/v1/")) {
-        if (!isPageHost) return withCors(request, jsonError(404, "Not Found", "not_found_error"), env);
+        if (!isPageHost)
+          return withCors(request, jsonError(404, "Not Found", "not_found_error"), env);
         if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
           return withCors(request, await env.ASSETS.fetch(request), env);
         }

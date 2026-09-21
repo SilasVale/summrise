@@ -502,7 +502,7 @@ default). What the next attempt needs, measured rather than discovered again:
 
   * **THREE production constants** in that file (`AI`, `API` — and `DSH`, which is deliberately NOT allowed and must stay
     a non-production host either way), plus `EVIL` (already `example.com`, unrelated);
-  * **A SECOND CONFIG KEY MOVES WITH IT**: the mock env sets `CONSOLE_HOST: "ai.saisi.online,api.saisi.online"`, which is
+  * **A SECOND CONFIG KEY MOVES WITH IT**: the mock env sets `CONSOLE_HOST` to the two production hosts, which is
     what `requestHost` compares a loopback Origin against — so a test domain needs BOTH `CONSOLE_ORIGINS` (what may read
     answers) and `CONSOLE_HOST` (where the console is served). Migrating one without the other turns a loopback case into
     a different test, silently;

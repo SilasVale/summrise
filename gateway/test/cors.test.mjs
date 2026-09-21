@@ -11,6 +11,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
 import {
+  ALLOWED_ORIGINS,
   CORS_HEADERS,
   corsHeadersFor,
   isAllowedOrigin,
@@ -27,12 +28,28 @@ import { createPluginContext, registerPlugins, dispatch } from "../src/plugins/r
 import mcpPlugin from "../src/plugins/mcp.ts";
 
 const ADMIN_PW = "test-admin-password";
-const AI = "https://ai.saisi.online";
-const API = "https://api.saisi.online";
+// THIS FILE RUNS ON A TEST DOMAIN (round 94). The staging is complete — `CONSOLE_ORIGINS` reaches the rule, the header
+// builder AND every stamping site inside the worker (round 93) — so the file no longer needs to spell a production host to
+// exercise the rule. One case asserts the SHIPPED DEFAULT, and it does that through a member of the imported
+// ALLOWED_ORIGINS rather than a literal.
+const AI = "https://console.vale.test";
+const API = "https://api.vale.test";
+/** Both keys move together: CONSOLE_ORIGINS decides what may READ answers; CONSOLE_HOST decides which request host a
+ *  loopback Origin is compared against. */
+const ORIGINS = {
+  CONSOLE_ORIGINS: AI + "," + API,
+  CONSOLE_HOST: "console.vale.test,api.vale.test",
+  // AND THE DEVICE SUFFIX, because the mock device is on the test domain too: `hostAllowError` refuses a hostname outside
+  // it, and the device-fetch stub keys off the same rule. A migration that moves the console domain and not this one gets
+  // a 502 from a device the stub never intercepts — which is exactly what this case did.
+  DEVICE_HOST_SUFFIX: ".agent.vale.test",
+};
+/** A member of the SHIPPED default, for the case that asserts it. */
+const SHIPPED = [...ALLOWED_ORIGINS][0];
 // The origin the Vale Code Links extension used. It was allowed until round 243 removed the extension;
 // it is kept here as a NEGATIVE case, because "the grant we deliberately withdrew still works" is a
 // regression nothing else would notice.
-const DSH = "https://dsh.saisi.online";
+const DSH = "https://dsh.vale.test";
 const EVIL = "https://evil.example";
 const LOOPBACK = "http://localhost:8787";
 
@@ -41,12 +58,12 @@ const LOOPBACK = "http://localhost:8787";
 // (installer payloads are served from Workers Assets (/vale)).
 function corsEnv(extra = {}) {
   return makeBaseEnv({
-    devices: [{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }],
+    devices: [{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }],
     links: {},
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
     kv: { "auth:admin_password": ADMIN_PW, _admin_seeded: "1" },
     extra: {
-      CONSOLE_HOST: "ai.saisi.online,api.saisi.online",
+      ...ORIGINS,
       ASSETS: {
         async fetch() {
           return new Response("#!/bin/sh\necho vale\n", { status: 200 });
@@ -57,7 +74,7 @@ function corsEnv(extra = {}) {
   });
 }
 
-const get = (path, origin, host = "https://ai.saisi.online") =>
+const get = (path, origin, host = AI) =>
   new Request(host + path, origin ? { headers: { origin } } : {});
 
 /* ---- unit: shared helper surface ---- */
@@ -70,67 +87,66 @@ test("CORS_HEADERS carries no wildcard (origin reflected per request)", () => {
 // behaviour it had; this one proves the override works, which is what lets a test run against a test domain instead of a
 // production one — the 76 failures round 48 measured when the fixtures stopped spelling the real host.
 test("isAllowedOrigin: a configured origin list replaces the default", () => {
-  const env = { CONSOLE_ORIGINS: "https://console.vale.test, https://api.vale.test" };
-  assert.equal(isAllowedOrigin("https://console.vale.test", undefined, env), true);
-  assert.equal(isAllowedOrigin("https://api.vale.test", undefined, env), true);
-  assert.equal(isAllowedOrigin(AI, undefined, env), false, "the default list is REPLACED, not extended");
-  // and with no env, nothing changes
-  assert.equal(isAllowedOrigin(AI), true);
-  assert.equal(isAllowedOrigin("https://console.vale.test"), false);
+  assert.equal(isAllowedOrigin(AI, undefined, ORIGINS), true);
+  assert.equal(isAllowedOrigin(API, undefined, ORIGINS), true);
+  assert.equal(isAllowedOrigin(SHIPPED, undefined, ORIGINS), false, "the default list is REPLACED, not extended");
+  // and with NO env, the shipped default is exactly what it was
+  assert.equal(isAllowedOrigin(SHIPPED), true);
+  assert.equal(isAllowedOrigin(AI), false);
 });
 
 test("isAllowedOrigin: console origins pass; loopback only with a loopback request host", () => {
-  assert.equal(isAllowedOrigin(AI), true);
-  assert.equal(isAllowedOrigin(API), true);
-  assert.equal(isAllowedOrigin(DSH), false);
-  assert.equal(isAllowedOrigin(EVIL), false);
-  assert.equal(isAllowedOrigin(""), false);
-  assert.equal(isAllowedOrigin("https://ai.saisi.online.evil.example"), false);
+  assert.equal(isAllowedOrigin(AI, undefined, ORIGINS), true);
+  assert.equal(isAllowedOrigin(API, undefined, ORIGINS), true);
+  assert.equal(isAllowedOrigin(DSH, undefined, ORIGINS), false);
+  assert.equal(isAllowedOrigin(EVIL, undefined, ORIGINS), false);
+  assert.equal(isAllowedOrigin("", undefined, ORIGINS), false);
+  assert.equal(isAllowedOrigin(AI + ".evil.example", undefined, ORIGINS), false);
   assert.equal(isLoopbackOrigin(LOOPBACK), true);
   assert.equal(isLoopbackOrigin("https://127.0.0.1:8787"), true);
   assert.equal(isLoopbackOrigin("ftp://localhost/x"), false);
   // Loopback origins are a wrangler-dev affordance: allowed only when the
   // request itself targets a loopback host (audit P2 — production used to
   // reflect ANY localhost origin).
-  assert.equal(isAllowedOrigin(LOOPBACK), false, "no request host → production default: closed");
-  assert.equal(isAllowedOrigin(LOOPBACK, "ai.saisi.online"), false);
-  assert.equal(isAllowedOrigin(LOOPBACK, "localhost"), true);
-  assert.equal(isAllowedOrigin(LOOPBACK, "127.0.0.1"), true);
+  assert.equal(isAllowedOrigin(LOOPBACK, undefined, ORIGINS), false, "no request host → closed");
+  assert.equal(isAllowedOrigin(LOOPBACK, "console.vale.test", ORIGINS), false);
+  assert.equal(isAllowedOrigin(LOOPBACK, "localhost", ORIGINS), true);
+  assert.equal(isAllowedOrigin(LOOPBACK, "127.0.0.1", ORIGINS), true);
 });
 
 test("corsHeadersFor: reflect + Vary when allowed, no ACAO otherwise", () => {
-  const mk = (origin, host = "https://ai.saisi.online") =>
+  const mk = (origin, host = AI) =>
     new Request(host + "/api/health", origin ? { headers: { origin } } : {});
-  const ok = corsHeadersFor(mk(AI));
+  const ok = corsHeadersFor(mk(AI), ORIGINS);
   assert.equal(ok["Access-Control-Allow-Origin"], AI);
   assert.equal(ok["Vary"], "Origin");
   // A loopback Origin at the deployed console host is a foreign local page:
   // no reflection.
-  assert.equal(corsHeadersFor(mk(LOOPBACK))["Access-Control-Allow-Origin"], undefined);
+  assert.equal(corsHeadersFor(mk(LOOPBACK), ORIGINS)["Access-Control-Allow-Origin"], undefined);
   // The same loopback Origin at a loopback host is local wrangler dev:
   // reflected.
-  const dev = corsHeadersFor(mk(LOOPBACK, "http://localhost:8787"));
+  const dev = corsHeadersFor(mk(LOOPBACK, "http://localhost:8787"), ORIGINS);
   assert.equal(dev["Access-Control-Allow-Origin"], LOOPBACK);
-  assert.equal(corsHeadersFor(mk(EVIL))["Access-Control-Allow-Origin"], undefined);
-  assert.equal(corsHeadersFor(mk(null))["Access-Control-Allow-Origin"], undefined);
-  assert.equal(corsHeadersFor()["Access-Control-Allow-Origin"], undefined);
+  assert.equal(corsHeadersFor(mk(EVIL), ORIGINS)["Access-Control-Allow-Origin"], undefined);
+  assert.equal(corsHeadersFor(mk(null), ORIGINS)["Access-Control-Allow-Origin"], undefined);
+  assert.equal(corsHeadersFor(undefined, ORIGINS)["Access-Control-Allow-Origin"], undefined);
 });
 
 test("stampCors/withCors: set-or-strip on live headers, upgrades untouched", async () => {
   const h = new Headers({ "Access-Control-Allow-Origin": "*" });
-  stampCors(get("/api/health", AI), h);
+  stampCors(get("/api/health", AI), h, ORIGINS);
   assert.equal(h.get("Access-Control-Allow-Origin"), AI);
   assert.equal(h.get("Vary"), "Origin");
-  stampCors(get("/api/health", EVIL), h);
+  stampCors(get("/api/health", EVIL), h, ORIGINS);
   assert.equal(h.get("Access-Control-Allow-Origin"), null);
   // withCors rebuilds the response; a 101 upgrade (or webSocket) passes
   // through as-is. (Node's undici cannot construct a 101 Response, so the
   // guard is exercised with the shape workerd hands back from upgrades.)
   const upgraded = { status: 101, headers: new Headers(), body: null };
-  assert.equal(withCors(get("/x", EVIL), upgraded), upgraded);
+  assert.equal(withCors(get("/x", EVIL), upgraded, ORIGINS), upgraded);
   const socketed = { status: 200, webSocket: {}, headers: new Headers(), body: null };
-  assert.equal(withCors(get("/x", AI), socketed), socketed);
-  const rebuilt = withCors(get("/x", AI), new Response("{}", { headers: { "content-type": "application/json" } }));
+  assert.equal(withCors(get("/x", AI), socketed, ORIGINS), socketed);
+  const rebuilt = withCors(get("/x", AI), new Response("{}", { headers: { "content-type": "application/json" } }), ORIGINS);
   assert.equal(rebuilt.headers.get("Access-Control-Allow-Origin"), AI);
   assert.equal(await rebuilt.text(), "{}");
 });
@@ -139,7 +155,7 @@ test("stampCors/withCors: set-or-strip on live headers, upgrades untouched", asy
 
 test("OPTIONS preflight: allowed origin reflected, disallowed gets no ACAO", async () => {
   const env = corsEnv();
-  const preflight = (origin, host = "https://ai.saisi.online") =>
+  const preflight = (origin, host = AI) =>
     worker.fetch(
       new Request(host + "/api/me", {
         method: "OPTIONS",
@@ -217,7 +233,7 @@ test("device proxy: ACAO reflected for console origin, absent for disallowed", a
   const admin = await issueSessionToken(ADMIN_PW, "admin", "admin");
   const proxy = (origin) =>
     worker.fetch(
-      new Request("https://ai.saisi.online/api/devices/d1/proxy/api/tools/terminal_list", {
+      new Request(AI + "/api/devices/d1/proxy/api/tools/terminal_list", {
         headers: { cookie: `${SESSION_COOKIE}=${admin}`, ...(origin ? { origin } : {}) },
       }),
       env,
@@ -248,7 +264,7 @@ function mcpPluginCtx() {
 test("/mcp plugin: bare 401 (bad token) is stamped with CORS for console origin", async () => {
   const ctx = mcpPluginCtx();
   const env = corsEnv();
-  const req = new Request("https://ai.saisi.online/mcp", {
+  const req = new Request(AI + "/mcp", {
     method: "POST",
     headers: { origin: AI, authorization: "Bearer bad", "content-type": "application/json" },
     body: "{}",
@@ -262,7 +278,7 @@ test("/mcp plugin: bare 401 (bad token) is stamped with CORS for console origin"
 test("/mcp plugin: disallowed origin gets no ACAO (default-closed)", async () => {
   const ctx = mcpPluginCtx();
   const env = corsEnv();
-  const req = new Request("https://ai.saisi.online/mcp", {
+  const req = new Request(AI + "/mcp", {
     method: "POST",
     headers: { origin: EVIL, authorization: "Bearer bad", "content-type": "application/json" },
     body: "{}",
