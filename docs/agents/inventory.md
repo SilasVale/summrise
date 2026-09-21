@@ -629,3 +629,14 @@ it can answer "is this route dead".
 eliminations and two wrong conclusions); an absence is not evidence until the instrument is shown to see it; a push is not
 free while a run is measuring; and a gate and the commit must be joined by `&&`, because reading a gate's output instead of
 its exit code has cost this loop twice.
+
+**ROUND 116 MEASURED THE CANDIDATE AND REJECTED IT.** The idea was to point the duplicate-key gate at the gateway's test
+fixtures, since round 115 produced a real duplicate in one. The measurement — a heuristic that groups `key:` lines by
+indentation within a file — reported **947 candidates across `gateway/test/`**, and essentially all of them are two
+DIFFERENT objects that happen to share an indentation level (`{ id, username, role }` twice in a file is not a duplicate
+key). The one real duplicate it did find is the one round 115 had already removed by hand.
+
+A gate built on that heuristic would have been turned off within a day, which is exactly the failure mode this repository
+records for its own noisy probes. The honest scope is therefore narrower than the candidate: a duplicate key can be caught
+by a gate only where the fixture is a SINGLE object literal the gate can delimit — which is true of the three sweeps'
+`const API = {…}` tables, and not true of arbitrary test files. The candidate is withdrawn, with its number.
