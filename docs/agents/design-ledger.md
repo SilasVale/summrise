@@ -2852,3 +2852,24 @@ The one mistake in that stretch was caught by the audit alone: a careless edit r
 the emitted scripts' template literals, not that file's syntax; CI had not run yet; the audit refused to start on a dirty
 tree and then reported "1 gate(s) unproven". **An artifact whose subject is the other artifacts is the only one that notices
 when an artifact stops working.**
+
+### THE FAILURE FACT, TRACED END TO END (round 125): ONE SOURCE, ONE DERIVATION, THREE CONSUMERS
+
+The device learned to report `last_exit_code` per session in round 96, and the objective's spine says a surface may PROJECT
+that fact and never recompute it. Traced, not assumed:
+
+    device row            last_exit_code
+      → wireFields        the ONE place a device field is read in useSessions.ts   (guarded by session-row-check)
+      → sessionFailed     the ONE derivation, with its rule written down:
+                          "ABSENT IS NOT FAILURE and not success: null means the device did not say"
+      → sessionLiveness   composes it with closed / pendingApproval / idleMs
+      → THREE consumers   TabBar · ContextRail · DesktopShell — all read `data-live`, none recompute
+
+and the tests pin the whole matrix that rule implies: absent, `0`, `130`, closed, approval-pending, idle. The fifth
+silhouette the objective asked about is not open: `failed` is one of the FIVE panel states `mark-vocabulary-check` has held
+since round 97, deliberately NOT the diamond the console spends on failure, because the panel spends that on a QUESTION.
+
+SO THIS LINE IS VERIFIED RATHER THAN CHANGED, which is the honest outcome for a round that goes looking for a second
+derivation and finds none: the check existed, the rule was written at the point of derivation, and the three surfaces
+consume one value. Nothing to fix; one thing to record, because "we looked and it is clean" is a fact the next round should
+not have to re-establish.
