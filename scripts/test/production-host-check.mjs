@@ -76,7 +76,6 @@ const ALLOWED = [
   ["gateway/test/mcp-browser.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/mcp-gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/mcp-handler.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
-  ["gateway/test/panel-grant.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/proxy-auth.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/registry.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/security-fixes.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
