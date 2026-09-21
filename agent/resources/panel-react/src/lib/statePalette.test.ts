@@ -183,12 +183,16 @@ describe("discrete state palette", () => {
     }
   });
 
-  it("muted reads as ABSENCE, tailored to each renderer's density", () => {
-    // The one deliberate asymmetry, pinned so it stays a decision:
-    //   command card — muted is rare (a command ended without a verdict), so
-    //                  it is a HOLLOW ring: "nothing concluded here".
-    //   trajectory   — muted is the MAJORITY (every raw output line), so it is
-    //                  a quiet FILLED dot: texture, not a marker.
+  it("muted reads as ABSENCE, and it is the SAME absence in both renderers", () => {
+    // THE ASYMMETRY THIS USED TO PIN IS GONE, AND THE MEASUREMENTS ARE WHY (round 33). It said: the command card's
+    // muted is rare (a command ended without a verdict) so it is a HOLLOW ring, while the trajectory's is the
+    // MAJORITY (every raw output line) so it was a quiet FILLED dot — "texture, not a marker". Then:
+    //   1. that fill measured **1.42:1** on the light surface (rgb(212,212,216)), where a graphic needs 3;
+    //   2. corrected to `--state-muted`, the mark-collision check found `traj-ev-dot: muted and ok paint identically
+    //      (50%/flat/-/solid)` — two states of one mark with the same silhouette, distinguishable only by colour,
+    //      which the objective forbids and which had been true since the asymmetry was written. It was invisible only
+    //      because the family rendered 0 of its 6 states.
+    // A density decision cannot outrank "state survives colour loss".
     const css = builtCss();
     const cardMuted = blockOf(css, `.cmd-dot[data-state="muted"]`)!;
     expect(cardMuted, "card muted should be unfilled").toContain("transparent");
@@ -196,18 +200,18 @@ describe("discrete state palette", () => {
       .toMatch(/box-shadow\s*:\s*inset/);
 
     const railMuted = blockOf(css, `.traj-ev-dot[data-state="muted"]`)!;
-    expect(railMuted, "rail muted should be a quiet FILLED dot, not a ring")
-      .not.toContain("transparent");
-    // THE TOKEN CHANGED IN ROUND 33, THE RULE IT GUARDS DID NOT. This asserted `--ds-neutral` (the old "texture, not a
-    // marker" fill) and it was right to until the rendered measurement said what that texture cost: rgb(212,212,216)
-    // on the light surface is **1.42:1**, where a graphic needs 3 — an INVISIBLE dot, and an invisible dot carries no
-    // state at all. `--state-muted` is the token the three sibling muted rings already use (4.83 light / 6.5 dark), so
-    // the assertion is now the thing its own message always said: not a VERDICT colour. A neutral is still required,
-    // and the check below names the three verdicts rather than one blessed token, so the next edit cannot swap
-    // legibility for a hue that means something else.
+    expect(railMuted, "rail muted is a RING now, the same shape the command card means by muted")
+      .toContain("transparent");
+    expect(railMuted, "rail muted should keep a visible outline").toMatch(/box-shadow\s*:\s*inset/);
     expect(railMuted, "rail muted must not borrow a verdict colour")
       .not.toMatch(/--(state-)?(ok|fail|warn)\b/);
     expect(railMuted, "rail muted should paint a neutral").toMatch(/--(state-)?muted|--ds-neutral/);
+    // AND THE SHAPE IS THE SAME, which is the property the collision check enforces on screen and this one enforces
+    // in the sheet: strip the colour from two muted dots in different views and they are one mark.
+    expect(
+      cardMuted.replace(/--[a-z-]+/g, "TOKEN").replace(/\s+/g, " "),
+      "the two renderers' muted dots diverge — colour alone must not be what tells them apart",
+    ).toBe(railMuted.replace(/--[a-z-]+/g, "TOKEN").replace(/\s+/g, " "));
   });
 
   it("the reduced-motion premise still holds for every state dot", () => {

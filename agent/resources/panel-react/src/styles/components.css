@@ -1810,12 +1810,20 @@
    here"; in the TRAJECTORY it is the MAJORITY (every raw output line) so it is a quiet FILLED dot, which reads as
    texture rather than as a marker. Two hundred rings down a rail would be noise. The verdict vocabulary below
    applies to VERDICTS; a density decision outranks uniformity. */
-/* AND THE MUTED FILL CLEARS ITS BAR (round 33). The comment below defends a "quiet FILLED dot, which reads as texture
-   rather than as a marker" — and the rendered measurement says what that cost: rgb(212, 212, 216) on the light surface
-   is **1.42:1**, an invisible dot. The texture argument is about WEIGHT, not about being unmeasurable, and
-   `--state-muted` is the token the three sibling muted rings already use (4.83 light / 6.5 dark). The rail keeps its
-   density; the dots stop disappearing. */
-.traj-ev-dot[data-state="muted"] { background: var(--state-muted); }
+/* MUTED IS THE SAME HOLLOW RING IN BOTH RENDERERS NOW (round 33), AND TWO MEASUREMENTS FORCED IT.
+   The comment below defends a deliberate asymmetry — in the trajectory, muted is the MAJORITY of dots (every raw
+   output line), so it was a "quiet FILLED dot: texture, not a marker". What the rendered suite then said, in order:
+     1. the fill was rgb(212,212,216) — **1.42:1** on the light surface, an INVISIBLE dot (a graphic needs 3);
+     2. with that corrected to `--state-muted`, the mark-collision check found `traj-ev-dot: muted and ok paint
+        identically (50%/flat/-/solid)` — TWO STATES OF ONE MARK WITH THE SAME SILHOUETTE, told apart only by colour.
+        That collision had been there since the asymmetry was written; it was invisible for exactly as long as the
+        family rendered 0 of its 6 states.
+   A density argument cannot outrank "state survives colour loss", and the ring is what the command card already means
+   by muted, so the asymmetry is gone rather than patched: 4.83 light / 6.5 dark, one vocabulary, two renderers. */
+.traj-ev-dot[data-state="muted"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--state-muted);
+}
 .cmd-dot[data-state="muted"] {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--state-muted);
