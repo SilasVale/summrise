@@ -643,7 +643,11 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     // THEN the baseline is taken — so a painted change has to be something the press caused.
     await page.mouse.move(box.x, box.y);
     await page.waitForTimeout(260);
-    const before = await read(sel);
+    // LET, NOT CONST: the retry below re-reads the baseline it compares against, and the emitted pass died in CI
+    // with "Assignment to constant variable" — a RUNTIME error that --emit's syntax check cannot see, on a pass
+    // whose every local gate passed. The device run that would have caught it was skipped because the change
+    // looked like a judge-side one.
+    let before = await read(sel);
     // DID THIS CONTROL ASK THE DEVICE ANYTHING? A discovery pass measures every visible control, and most of them
     // do not talk to the device at all — a tab that switches which snippet is shown, a disclosure, a focus target.
     // "No acknowledgement" is the right verdict only where there was something to wait for; elsewhere it is a NOTE.
