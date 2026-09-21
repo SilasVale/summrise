@@ -146,7 +146,7 @@ const CHECKS = [
     // BOTH HALVES: the archive route compared as a PATH, and the per-session stub still present and still asking for
     // the audit trail (the second pattern is the emitted regex, backslashes and all — a check written against the
     // SOURCE spelling would fail on the artefact that matters).
-    test: (h) => h.includes("sessPath.slice(-13) === '/api/sessions'") && h.includes("id:SID, events:EVENTS"),
+    test: (h) => h.includes("sessPath.slice(-13) === '/api/sessions'") && h.includes("id:SID, first_seq:"),
     mutations: [
       { why: "the broad match shadows the per-session stub again, so the record views read an empty archive", from: /sessPath\.slice\(-13\) === '\/api\/sessions'/, to: "u.indexOf('/api/sessions') >= 0" },
     ],
@@ -206,7 +206,8 @@ const CHECKS = [
       // one the assertion sees. Both halves are pinned now — the per-request read AND the two fields it changes —
       // because a fixture that reads the right flag in the wrong document is exactly the failure this check could not
       // see for seven rounds.
-      /new URLSearchParams\(location\.search\)\.get\('boot'\) === 'replaced'/.test(h) &&
+      /var P = \{ get: function \(n\) \{ return new URLSearchParams\(location\.search\)\.get\(n\); \}/.test(h) &&
+      /var BOOT_NOW = P\.get\('boot'\) === 'replaced'/.test(h) &&
       /last_boot_kind: BOOT_NOW \? 'replaced' : 'crashed'/.test(h) &&
       /uptime_secs: BOOT_NOW \? 90 : 5412/.test(h),
     mutations: [
@@ -221,9 +222,9 @@ const CHECKS = [
         to: "uptime_secs: 5412",
       },
       {
-        why: "the boot flag is read from the once-parsed query again, which is what made the page answer 'crashed' with the flag in its URL",
-        from: /new URLSearchParams\(location\.search\)\.get\('boot'\) === 'replaced'/,
-        to: "BOOT_NOW_PLACEHOLDER",
+        why: "the query is parsed ONCE again, which is what made the page answer 'crashed' with the flag in its URL",
+        from: /var P = \{ get: function \(n\) \{ return new URLSearchParams\(location\.search\)\.get\(n\); \}/,
+        to: "var P = new URLSearchParams(location.search)",
       },
       {
         why: "the approval flag mutates the SEED instead of the list entries — which is what its first version did, and it changed nothing on screen",

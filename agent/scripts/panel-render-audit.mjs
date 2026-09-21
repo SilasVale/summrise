@@ -141,7 +141,13 @@ function buildHarness() {
 // and the rest of this stub is silently dropped by the parser (measured: round 41, three times,
 // twice in comments that were explaining something else). Quote identifiers with 'single quotes'.
 (function(){
-  var P = new URLSearchParams(location.search);
+  // EVERY FLAG IS READ PER USE, NOT ONCE AT INSTALL (round 84). This was var P = new URLSearchParams(location.search),
+  // parsed once — and a device probe showed what that costs: a page whose URL carried ?boot=replaced got crashed
+  // from the stub, because the stub was reading a location that is not the one the assertion sees (round 73). Two flags
+  // have now been fixed one at a time for exactly this reason (boot, then pwrun), so the parse itself is a function:
+  // there is no longer a stale P to read.
+  var P = { get: function (n) { return new URLSearchParams(location.search).get(n); },
+            has: function (n) { return new URLSearchParams(location.search).has(n); } };
   var THEME = P.get('theme') || 'light', MODE = P.get('mode') || 'pending';
   try { localStorage.setItem('vale-theme', THEME); } catch(e){}
   window.__PANEL_TOKEN__ = 'audit-token';
@@ -426,7 +432,7 @@ function buildHarness() {
       // READ PER REQUEST, not from the once-parsed P — the bug that cost seven rounds on the boot flag, made again in
       // this one's first version (the page settled and every dot stayed success, because the flag was false by the time
       // the branch ran). Device-measured, not assumed.
-      running: new URLSearchParams(location.search).get('pwrun') === '1',
+      running: P.get('pwrun') === '1',
       // THE ongoing DOT IS STILL UNRENDERED, AND THAT IS RECORDED RATHER THAN FORCED (round 26). Setting
       // playwright.running here is the obvious one-line fixture — the hook maps it straight to the ongoing state —
       // and it HUNG the sweep on the device: the plugins page polls while a browser is running, the page never
@@ -461,7 +467,7 @@ function buildHarness() {
     // device probe showed what that costs: the page's URL carried ?boot=replaced while this very branch answered
     // last_boot_kind: "crashed" — the stub was reading a location that is not the one the assertion sees. Re-reading
     // it here can only make a flag MORE visible, which is why it is the safe half of the fix to try first.
-    var BOOT_NOW = new URLSearchParams(location.search).get('boot') === 'replaced';
+    var BOOT_NOW = P.get('boot') === 'replaced';   // per request, because P re-parses now
     return Promise.resolve(J({
       ok: true, version: '1.2.433', port: 18080, uptime_secs: BOOT_NOW ? 90 : 5412, live_sessions: liveCount, serial_ports: ['COM4'],
       release: '1.2.433', cpu_pct: 12.5, mem_pct: 41.7, mem_total_mb: 16384, pending_approvals: 1,
