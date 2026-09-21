@@ -19,7 +19,19 @@ const LANE_CLASSES: Record<string, string> = {
   amd: "lane-amd",
 };
 
+/** THE BARE PREFIX (`or/` and `or` are one channel) — ONE definition, eight call sites (round 172).
+ *
+ *  The rule was written out at eight places in `Models.tsx` and here, and with TWO different regexes: `/\/$/` strips one
+ *  trailing slash and `/\/+$/` strips all of them, so two of the eight already disagreed about what a prefix is. This is the
+ *  spine's first clause in its smallest form, and the fix is the one this repository uses everywhere: name it once.
+ *
+ *  It strips ALL trailing slashes, which is the wider of the two behaviours and the one a name wants — a prefix is a name and
+ *  `/` is the separator, so `or//` and `or/` and `or` are the same channel. */
+export function barePrefix(prefix: string): string {
+  return String(prefix ?? "").replace(/\/+$/, "");
+}
+
 /** The lane class for a channel prefix, with its trailing slash ignored (`or/` and `or` are one channel). */
 export function laneClass(prefix: string): string {
-  return LANE_CLASSES[prefix.replace(/\/$/, "")] ?? "lane-def";
+  return LANE_CLASSES[barePrefix(prefix)] ?? "lane-def";
 }

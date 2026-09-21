@@ -39,7 +39,7 @@ import {
   type ModelFacets,
 } from "../api/client.ts";
 import { PageHeader, Badge, Modal, CopyButton } from "../components/ui.tsx";
-import { laneClass } from "../lib/lane.ts";
+import { barePrefix, laneClass } from "../lib/lane.ts";
 
 
 /** ONE model entry in a provider re-post, rebuilt from a FORM.
@@ -487,7 +487,7 @@ export default function ModelsView() {
   // Health is reported per channel PREFIX; the catalogue is the authority on which
   // channels exist, so an id with no health entry is "not checked", not "down".
   const healthFor = (prefix: string) =>
-    health.find((h) => h.id === prefix || h.id === prefix.replace(/\/$/, ""));
+    health.find((h) => h.id === prefix || h.id === barePrefix(prefix));
 
   /** Ask the upstream what it serves. `checked:false` carries a REASON and is shown
    *  as such — the server refuses to turn "could not look" into "offers nothing", and
@@ -517,7 +517,7 @@ export default function ModelsView() {
       setAdding(true);
       try {
         if (pv) {
-          const bare = qid.slice(pv.prefix.replace(/\/+$/, "").length + 1);
+          const bare = qid.slice(barePrefix(pv.prefix).length + 1);
           await api.addProvider({
             prefix: pv.prefix,
             label: pv.label,
@@ -561,7 +561,7 @@ export default function ModelsView() {
   };
 
   const providerFor = (prefix: string) =>
-    providers.find((p) => p.prefix.replace(/\/$/, "") === prefix.replace(/\/$/, ""));
+    providers.find((p) => barePrefix(p.prefix) === barePrefix(prefix));
 
   return (
     <>
@@ -623,7 +623,7 @@ export default function ModelsView() {
                   <span className={`prov-lane ${laneClass(prefix)}`} aria-hidden="true" />
                   <span className="prov-name">{r.backend || prefix}</span>
                   {isCustom && <span className="prov-tag">{t("models.customTag")}</span>}
-                  {filePrefixes.includes(prefix.replace(/\/$/, "")) && (
+                  {filePrefixes.includes(barePrefix(prefix)) && (
                     <span className="prov-tag" title={t("models.fileOwnedHint")}>
                       {t("models.fileOwned")}
                     </span>
@@ -665,11 +665,11 @@ export default function ModelsView() {
                       type="button"
                       className="btn btn-danger-text btn-sm"
                       title={
-                        filePrefixes.includes(prefix.replace(/\/$/, ""))
+                        filePrefixes.includes(barePrefix(prefix))
                           ? t("models.fileOwnedHint")
                           : undefined
                       }
-                      disabled={busy === prefix || filePrefixes.includes(prefix.replace(/\/$/, ""))}
+                      disabled={busy === prefix || filePrefixes.includes(barePrefix(prefix))}
                       onClick={() => void removeProvider(prefix)}
                     >
                       {t("models.removeProvider")}
@@ -740,7 +740,7 @@ export default function ModelsView() {
                                 save answered 400 "unknown channel prefix" — a button whose only
                                 possible outcome is an error is worse than no button. */}
                             {isAdmin &&
-                              !filePrefixes.includes(prefix.replace(/\/$/, "")) &&
+                              !filePrefixes.includes(barePrefix(prefix)) &&
                               !fileIds.includes(id) &&
                               (isCustom || (prefix !== "none" && custom.includes(id))) && (
                               <button
