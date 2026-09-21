@@ -559,6 +559,11 @@ jobs:
       # was trimmed") had therefore never rendered anywhere.
       - name: every wire field has a source
         run: node scripts/test/wire-field-check.mjs
+      # AND THE SAME RULE ON THE CONSOLE (round 100 of the standing goal), where TWO of this session's defects happened:
+      # a page looking a device's health up by `h.id` against a fixture saying `prefix:`, and a crash row waiting on
+      # `last_boot_kind` against `verdict:`. Both cost rounds to find by hand; the panel already had the gate.
+      - name: every console wire field has a producer
+        run: node scripts/test/console-wire-field-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
       # the same duplication twice in `useSessions.ts` — a byte-identical row mapper, then the device-owned half of it
       # written three times — and this is the rule that keeps it removed: outside that section, no device field is read.
