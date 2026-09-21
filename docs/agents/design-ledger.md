@@ -2958,3 +2958,26 @@ of this round is that I checked instead of asserting, and that the check cost on
 
 THAT CLOSES §12's TABLE: every clause of the objective now has an instrument, a gate, or both, and the two that had only a
 measurement (this one and the live panel) also have a verdict.
+
+### OTHER CONFIGURATIONS NOBODY RUNS: A SCAN, AND FOUR NEGATIVE RESULTS (round 147)
+
+Round 146 found that the agent's DEFAULT feature config had not compiled for a long time, because CI only ever built one
+configuration. That is a class, not an instance, so this round asked where else a configuration is never exercised. Four
+candidates, measured:
+
+    cargo check -p vale-agent --features terminal          rc=0   green
+    cargo check -p vale-agent --features keyring           rc=0   green
+    cargo check -p vale-agent --features terminal,keyring  rc=0   green (and CI runs test+clippy on it)
+    cargo check -p vale-agent                              rc=0   green — was rc=101 until round 146 fixed the stub
+
+    release.yml          no cargo test/clippy/build step at all; it goes through scripts/build.sh, so there is no
+                         second configuration to keep green
+    panel desktop mode   NOT a build: `desktop` is a runtime density the harness serves by URL, and package.json has no
+                         desktop script. Nothing to keep green
+
+So the stub-versus-real split exists in exactly ONE configuration — the no-feature one — and that one is now built by CI.
+
+THE METHOD IS THE PART THAT GENERALISES, and it is the same one that found the defect: for each configuration, ask what
+would have to be true for a break to be invisible, then run it. The no-feature build was invisible because CI ran only the
+full one; the single-feature builds were equally invisible and happen to be fine; the release pipeline has no cargo step to
+be invisible in; and the desktop density is not a configuration at all.
