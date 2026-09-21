@@ -34,12 +34,11 @@ function files(dir, test) {
   return out;
 }
 
-/** The console's producers: what the gateway sends, and what its fixtures serve. */
-const producers = [
-  ...files(join(ROOT, "gateway/src"), (n) => n.endsWith(".ts")),
-  ...files(join(ROOT, "gateway/ui"), (n) => n.endsWith("-render-smoke.mjs")),
-  join(ROOT, "agent/scripts/console-design-sweep.mjs"),
-]
+/** WHAT THE GATEWAY ITSELF SENDS — the producer, and the only source that counts (round 122). The first version also
+ *  accepted the render smokes and the console sweep, which are FIXTURES: a field only they carry renders in a test and
+ *  answers `undefined` against the deployed worker, which is the `prov-dot`/`verdict:` class this gate exists for. The
+ *  panel's version of this rule was tightened the same way in round 108. */
+const producers = files(join(ROOT, "gateway/src"), (n) => n.endsWith(".ts"))
   .map((f) => readFileSync(f, "utf8"))
   .join("\n");
 
@@ -80,5 +79,6 @@ if (missing.length) {
   process.exit(1);
 }
 console.log(
-  `console-wire-field: ${reads} field(s) read across ${readers.length} console module(s), every one spoken by the gateway or a fixture`,
+  `console-wire-field: ${reads} field(s) read across ${readers.length} console module(s) — every one spoken by the ` +
+    `gateway ITSELF, so none of them renders only in a smoke or a sweep fixture`,
 );

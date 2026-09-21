@@ -136,6 +136,21 @@ const CASES = [
     to: "const _stub = (j: any) => j.stub_only_field;\nexport function useAgentVitals",
   },
 
+  {
+    gate: "scripts/test/console-wire-field-check.mjs",
+    file: "gateway/ui/src/views/DevicesPanel.tsx",
+    also: [
+      {
+        file: "agent/scripts/console-design-sweep.mjs",
+        from: "tunnel_up: true,",
+        to: "tunnel_up: true, only_in_the_sweep: true,",
+      },
+    ],
+    why: "a field only the SWEEP's fixture carries — it renders in the sweep and is undefined against the deployed worker",
+    from: "const verdict = st?.update;",
+    to: "const verdict = st?.update; const _s = st?.only_in_the_sweep; void _s;",
+  },
+
 ];
 
 const run = (cmd, args) => {
