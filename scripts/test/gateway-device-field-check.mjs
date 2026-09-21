@@ -17,6 +17,7 @@
 // Only that the NAME exists where the device would have to spell it.
 //
 // Run: node scripts/test/gateway-device-field-check.mjs
+import { decomment } from "./lib/decomment.mjs";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -39,13 +40,6 @@ function files(dir, test) {
  *
  *  The strip is deliberately conservative because `//` also opens a URL: whole-line comments and block comments always go,
  *  and a trailing `// …` goes only when it is not preceded by a colon. */
-const decomment = (text) =>
-  text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split("\n")
-    .map((line) => (line.trimStart().startsWith("//") ? "" : line.replace(/(^|[^:])\/\/.*$/, "$1")))
-    .join("\n");
-
 const deviceSide = [
   ...files(join(ROOT, "agent/src"), (n) => n.endsWith(".rs")),
   ...files(join(ROOT, "agent/tests/fixtures"), (n) => n.endsWith(".json")),

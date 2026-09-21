@@ -15,6 +15,7 @@
 // round 73 records what it cost), or the console's parsers, which have their own fixtures.
 //
 // Run: node scripts/test/wire-field-check.mjs
+import { decomment } from "./lib/decomment.mjs";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -42,13 +43,6 @@ const NOT_DEVICE_FIELDS = new Set([
  *
  *  The strip is deliberately conservative because `//` also opens a URL: whole-line comments and block comments always go,
  *  and a trailing `// …` goes only when it is not preceded by a colon. */
-const decomment = (text) =>
-  text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split("\n")
-    .map((line) => (line.trimStart().startsWith("//") ? "" : line.replace(/(^|[^:])\/\/.*$/, "$1")))
-    .join("\n");
-
 const harness = readFileSync(join(ROOT, "agent/scripts/panel-render-audit.mjs"), "utf8");
 const fixtures = readdirSync(join(ROOT, "agent/tests/fixtures"))
   .filter((f) => f.endsWith(".json"))

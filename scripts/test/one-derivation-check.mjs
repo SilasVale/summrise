@@ -15,6 +15,7 @@
 // checks), or anything about the console — its device state is a different fact with its own fixtures.
 //
 // Run: node scripts/test/one-derivation-check.mjs
+import { decomment } from "./lib/decomment.mjs";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 

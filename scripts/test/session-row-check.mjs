@@ -16,6 +16,7 @@
 // and the three call sites are for.
 //
 // Run: node scripts/test/session-row-check.mjs
+import { decomment } from "./lib/decomment.mjs";
 import { readFileSync } from "node:fs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
@@ -48,7 +49,8 @@ let inside = 0;
 let outside = 0;
 const offenders = [];
 lines.forEach((line, i) => {
-  const reads = line.match(READ);
+  // the same strip the field gates use (round 137): a comment naming a read is neither a read nor a floor
+  const reads = decomment(line).match(READ);
   if (!reads) return;
   if (i >= start && i <= end) {
     inside += reads.length;
