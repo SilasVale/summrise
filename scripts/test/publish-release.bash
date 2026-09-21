@@ -9,6 +9,8 @@ PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf 'ok   %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf 'FAIL %s\n' "$1"; }
 
+TREE_BEFORE=$(git status --porcelain --untracked-files=no | sort)
+
 # 1. --audit-only with no version must REFUSE, and the refusal must name the usage.
 #    Asserting only "non-zero" would not do: without the guard the script would
 #    stumble into the audit with an empty version and still exit non-zero, so the
@@ -22,12 +24,15 @@ else
 fi
 
 # 2. It must refuse BEFORE touching the tree. A guard that fires after the first
-#    side effect is not a guard: assert the run left the worktree as it found it.
-# --untracked-files=no: an untracked file could be the TEST ITSELF (it was, the
-# first time this ran), and "a new file exists" is not a side effect of the script.
-dirty=$(git status --porcelain --untracked-files=no | head -5)
-[ -z "$dirty" ] && ok "the refusal left the worktree clean" \
-  || bad "the refusal modified the tree: $dirty"
+#    side effect is not a guard: assert the run left the worktree as it FOUND it.
+#    THE FIRST VERSION REQUIRED A CLEAN TREE and blamed the refusal for any dirt — it failed on a checkout carrying an
+#    unrelated operator edit while naming the wrong cause, and could not reproduce in CI because a CI checkout is clean.
+TREE_AFTER=$(git status --porcelain --untracked-files=no | sort)
+if [ "$TREE_BEFORE" = "$TREE_AFTER" ]; then
+  ok "the refusal left the worktree as it found it"
+else
+  bad "the refusal changed the worktree: $(diff <(printf '%s\n' "$TREE_BEFORE") <(printf '%s\n' "$TREE_AFTER") | head -5 | tr '\n' ' ')"
+fi
 
 # 3. The script must not reach wrangler/npm on a refusal — the whole point of a
 #    fail-closed entry is that no build starts. Detected by effect: a refusal that
