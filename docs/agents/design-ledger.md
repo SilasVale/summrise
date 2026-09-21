@@ -2528,3 +2528,46 @@ WHAT THE CLICK THEN EXPOSED, in the order it arrived:
 FOUR DEFECTS FROM ONE CLICK, three of them in code that had been there for rounds, and one of them mine. The pattern
 from the last three rounds holds: a state with no surface hides whatever is wrong with it, and the hit rate has not
 dropped yet.
+
+### THE SURFACES QUEUE, CONTINUED: A BOOT TONE, A DEVICE PUSH, AND A SKIP THAT READ AS A PASS (rounds 34-41)
+
+Four more states had declared silhouettes and no surface anywhere. Each got one, and the pins are the point:
+
+  * **`boot-mark info`** (rounds 34/36). The chip is a mark with two tones and only the fault was ever painted:
+    `.boot-mark` is the base rule (a warn TRIANGLE) and `.boot-mark.info` the exception (a DOT for "just restarted").
+    `info` needs BOTH `last_boot_kind: 'replaced'` AND an uptime under `REPLACED_NOTICE_SECS` — a restart the operator is
+    meant to notice because it just happened — so `?boot=replaced` moves both fields together, and the sweep gained
+    `BootReplaced-<theme>`.
+  * **The alert strip's two tones** (round 39). `monitor-mark` declares two states and only the flapping one inside the
+    chip was ever painted; the OTHER two uses live in the alert strip (`.monitor-mark.is-up` for a recovery, the base
+    rule for an outage) and that strip reads `monitor-change` frames off the SSE stream — the panel's ONE channel for
+    device-initiated frames (`useSSE` dispatches every frame as `vale-<ev>`). The stub served exactly one EMPTY frame, so
+    a state the device genuinely pushes had no surface. `?monitorchange=up|down` builds the device's own frame shape (the
+    fields `monitor.rs` emits, so `parseMonitorChange` accepts it) and enqueues it BEFORE the empty frame, in the same
+    `start()` — the stream still closes after its frames, the shape round 156 proved renders CONNECTED. This is the
+    opposite of round 194's prune: that fixture's consumer could not be rendered at all; this frame has a consumer on
+    screen and simply nothing to deliver it.
+  * **A SKIP THAT READ AS A PASS** (round 40), which is this repository's oldest recurring defect, found this time in CI
+    itself rather than in a surface. The installer-integrity step ran on a conditional: without pwsh it printed
+    `::warning::…the LOGIC was NOT tested here` and **exited 0** — so the one step that tests the installer's SHA-256
+    verification could decide at run time to test nothing and the run would still pass. A `::warning::` is a green. It
+    exits 1 now, and `build-pins.bash` holds it: that gate already enforced round 146's rule ("every scripts/test file is
+    invoked from ci.yml"), and this is that rule's sibling one step further in — a step the workflow DOES invoke that can
+    still test nothing. Mutation: restoring the warning-and-continue branch fails with "FAIL: a missing pwsh FAILS the
+    step" (measured: mutated rc=1, restored rc=0).
+
+    AND THE FIXTURE PINS CORRECTED A CLAIM. Round 29's commit message said the fixture check pinned `?appr=off`; it did
+    not — the case added that round was for the command endings. `harness-fixture-check` now holds `?appr=off` AND
+    `?boot=replaced` with three mutations, including the one that reproduces that flag's own first bug (mutating the
+    SEED instead of the list entries copied from it, which changed nothing on screen while looking correct).
+
+### AND A MEASUREMENT I INVALIDATED MYSELF: THE DESIGN VERDICT I KEPT REPORTING AS "IN PROGRESS" (round 41)
+
+`ci.yml` carries `concurrency: {group: ci-${{ github.ref }}, cancel-in-progress: true}`. Every push therefore CANCELS the
+run still in flight — including its design job. Three times this session I committed the next round's work while the
+design job was measuring the previous round's surfaces, watched the run sit at "in progress", and reported it as such;
+the run's actual conclusion was `cancelled`, and the surfaces I thought were being measured never were.
+
+The rule that follows is cheap and worth stating: **a push is not free while a run is measuring — either wait for the
+design job, or accept that only the last run's verdict exists.** The two surfaces above (boot tone, alert strip) are in
+the same tree now, so one run covers both; that is the shape to aim for deliberately rather than by accident.
