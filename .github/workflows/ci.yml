@@ -591,6 +591,10 @@ jobs:
       # check count. The count is gone; this holds the part that can be checked.
       - name: every wired gate is named in the docs
         run: node scripts/test/numbered-claims-check.mjs
+      # THE CONSOLE'S SIDE OF "ONE FACT, ONE DERIVATION" (round 173 of the standing goal). The panel has had that gate since
+      # round 78; the console had nothing, and round 172 found the prefix rule written nine times with two behaviours.
+      - name: the console's derivations have one home each
+        run: node scripts/test/console-derivation-check.mjs
       - name: every gate is broken on purpose and bites
         run: node scripts/test/gate-mutations-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed

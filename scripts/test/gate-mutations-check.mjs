@@ -227,6 +227,14 @@ const CASES = [
     to: '"machine-restart-renamed"',
   },
 
+  {
+    gate: "scripts/test/console-derivation-check.mjs",
+    file: "gateway/ui/src/views/Models.tsx",
+    why: "a second copy of the prefix rule appears in the console — the round-172 defect, one call site at a time",
+    from: "barePrefix(prefix)",
+    to: 'prefix.replace(/\\/$/, "")',
+  },
+
 ];
 
 const run = (cmd, args) => {
