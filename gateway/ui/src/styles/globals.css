@@ -2399,7 +2399,11 @@ body[data-theme="dark"] .note.tip {
   background: var(--chan-ds);
 }
 .prov-lane.lane-or {
-  background: var(--chan-or);
+  /* 2.95:1 IN DARK, MEASURED (round 65). The rendered check reported
+     "2.95 models-dark@1440px span.prov-lane.lane-or" the round after the `or/` row started rendering at all — a 3px bar
+     is a graphic, so 3 is the bar, and `--chan-or` sits a twentieth under it on the dark surface. The lane keeps its
+     identity through the tag beside it; the bar takes the readable lane ink. */
+  background: color-mix(in srgb, var(--chan-or) 80%, var(--text-muted));
 }
 .prov-lane.lane-qw {
   background: var(--warning);
@@ -2446,8 +2450,14 @@ body[data-theme="dark"] .note.tip {
   box-shadow: 0 0 0 2.5px var(--success-bg);
 }
 .prov-dot.missing {
-  background: var(--warning);
-  box-shadow: 0 0 0 2.5px var(--warning-bg);
+  /* A RING, NOT A FILL IN ANOTHER COLOUR (round 65). The rendered collision check reported
+     "prov-dot: ok and missing paint identically (50%/flat/-/halo)" on all six widths the moment both states were on
+     screen together for the first time — which took a duplicated fixture key, a wrongly-keyed health fixture and three
+     rounds to arrange. Two states of one mark told apart by hue alone is the one thing the objective forbids, and the
+     console already HAS the word for this state: its `.sig-dot.off` is a ring, because absent is a shape. `missing`
+     means the lane has no key, so it is hollow — `ok` keeps the fill. */
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--warning);
 }
 .prov-count {
   font-size: var(--fs-2xs);
