@@ -32,7 +32,10 @@ export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
 export function allowedOrigins(env?: { CONSOLE_ORIGINS?: string } | null): ReadonlySet<string> {
   const configured = env?.CONSOLE_ORIGINS;
   if (!configured) return ALLOWED_ORIGINS;
-  const list = configured.split(",").map((o) => o.trim()).filter(Boolean);
+  const list = configured
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
   return list.length ? new Set(list) : ALLOWED_ORIGINS;
 }
 
