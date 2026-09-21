@@ -2331,3 +2331,46 @@ THE LESSON, which is the same one this ledger has recorded about the marks and t
 ON HOVER IS A MEANING THE SCREEN DOES NOT CARRY. Three tooltips were written, tested and correct; the operator still
 had to ask. Where a label cannot say it, a caption on the row can — and the test that pins it renders the component,
 which is the only way to notice a sentence nobody can see.
+
+### THE STATE THAT GAINED A SURFACE, AND THE SIX FAMILIES THAT NEVER HAD ONE (round 27)
+
+Round 26 claimed cmd-dot's `running` had gained a surface. The mark-coverage note said otherwise in the same CI log —
+"rendered 3 (fail, muted, ok)" — because the event was added to the OPERATION feed (the History page's Runs scope)
+while the command CARDS are built from the session's AUDIT TRAIL. The trail is where it belongs, and one trailing
+`command/start` is the panel's own definition of a live card:
+
+    MEASURED ON THE DEVICE, 126 surfaces / 7014 rows / stale=false
+      cmd-dot   rendered: fail, muted, ok, RUNNING          (was: fail, muted, ok)
+
+AND THAT RUN EXPOSED A BLIND SPOT IN THE NOTE ITSELF, which is the part worth keeping. It enumerated the families the
+REPORT contained, so a family that renders NOWHERE simply did not appear — and `traj-ev-dot` left the list instead of
+being reported at zero. The families now come from the SHEET, by the probe's own naming rule, and the count went from
+six to TWELVE:
+
+    cmd-dot       6 declared, 4 rendered   warn, bg                    unverified
+    traj-ev-dot   6 declared, 0 RENDERED   every state                 unverified
+    plug-dot      4 declared, 2 rendered   error, ongoing              unverified
+    ag-dot        2 declared, 1 rendered   off                         unverified
+    monitor-mark  2 declared, 1 rendered   is-up                       unverified
+    boot-mark     1 declared, 1 rendered   info                        unverified
+    side-dot      2 declared, 0 RENDERED   data-kind ssh/serial        unverified
+    tab-dot       2 declared, 0 RENDERED   data-kind ssh/serial        unverified
+    update-state  2 declared, 0 RENDERED   is-error, is-ok             unverified
+    monitor-state 2 declared, 0 RENDERED   up, down                    unverified
+    monitor-chip  1 declared, 0 RENDERED   is-flapping                 unverified
+    notify-state  2 declared, 0 RENDERED   is-granted, is-denied       unverified
+    mark          5 declared, 5 rendered   COMPLETE
+    sc-dot, monitor-dot                    COMPLETE
+
+SIX FAMILIES WITH NO SURFACE AT ALL is the round-96 rule one level up: a family nothing paints is as unmeasured as a
+state nothing paints, and the collision check — which compares the states of one family — can say nothing about either.
+
+TWO GATES CAUGHT TWO PATTERNS RATHER THAN TWO DEFECTS, and both are the same mistake in different clothes:
+`harness-fixture-check`'s mutation was written against the SOURCE form of the trail while the harness EMITS it as JSON
+on one line (its own self-test refused to run, which is why that self-test exists), and the predicate then matched an
+intent string that round 26 had ALREADY put on the operation feed — so it passed with the audit entry deleted. A check
+on a phrase that exists twice cannot tell you which one you deleted.
+
+NEXT, in the order the note names them: the six zero-rendered families are the cheapest wins (each is a fixture state,
+not a code change), and `traj-ev-dot` — the same vocabulary as cmd-dot rendered in a second place — should follow its
+sibling automatically once its view is measured with a card in it.
