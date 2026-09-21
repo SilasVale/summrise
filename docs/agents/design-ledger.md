@@ -3130,6 +3130,7 @@ the index is here so the sixth round does not re-walk the first five:
 | the channel's health (r132) | ok / err per provider channel | ONE row rendered the same answer three times — unified into `channelSignal` + `channelLabel` |
 | the dial's tone (r132) | some-but-not-all healthy | two tiles answering one question differently — unified into `healthTone` |
 | the run family (r163) | the device's `run_begin`/`run_end` grouping | one module (`lib/runs.ts`), ONE consumer (`RunStrip.tsx`); a `"running"` comparison elsewhere belongs to the CONNECTION PROBE, a different fact |
+| the update verdict (r174) | is this device behind? | NOT parsed in the console at all: the DEVICE answers it, and the console's own string comparison survives only as a guarded fallback — which `device-verdict-check`'s structural clause holds in place (round 134). Searched for a version parser (`split(".")`, `localeCompare`, semver) and found none: the three hits are a JWT split, an access token and a hostname's second label |
 | the activity timeline (r166) | each record's source / kind / session / seq / exit | the SAME module — `rowFromEvent` builds a row, and its doc says it in as many words: "Every field is the device's own value or `null`; nothing here is inferred from a neighbouring record". The two `kind` comparisons live in one `kindNote`, which is presentation over the row's own field rather than a second computation of a wire fact |
 
 THE PATTERN WORTH KEEPING: three of the six found a real duplicate and three found none, and the ones that found something
