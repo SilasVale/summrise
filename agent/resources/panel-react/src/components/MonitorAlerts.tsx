@@ -13,7 +13,7 @@
 // `role="status"` rather than `role="alert"` so a screen reader is not interrupted mid-sentence,
 // and it sits above the workspace instead of over it — a console session underneath keeps its
 // keystrokes.
-import { monitorMarkClass } from "../lib/monitorMark";
+import { monitorMarkClass, monitorModifier } from "../lib/monitorMark";
 import { fmtSince, type MonitorAlert } from "../hooks/useMonitors";
 import { shouldNotify } from "../lib/attention";
 
@@ -28,7 +28,7 @@ export function MonitorAlerts({ alerts }: { alerts: MonitorAlert[] }) {
   return (
     <div className="monitor-alerts" role="status" aria-live="polite">
       {alerts.map((a) => (
-        <div key={a.key} className={`monitor-alert ${a.up ? "is-up" : "is-down"}`}>
+        <div key={a.key} className={`monitor-alert ${monitorModifier(a.up ? "up" : "down")}`}>
           <span className={monitorMarkClass(a.up ? "up" : "down")} aria-hidden="true" />
           <span className="monitor-alert-text">
             <strong>

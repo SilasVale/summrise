@@ -151,6 +151,14 @@ const CASES = [
     to: "const verdict = st?.update; const _s = st?.only_in_the_sweep; void _s;",
   },
 
+  {
+    gate: "scripts/test/one-derivation-check.mjs",
+    file: "agent/resources/panel-react/src/components/MonitorChip.tsx",
+    why: "a mark's CSS state spelled by hand in a component instead of by lib/monitorMark.ts (round 129's clause)",
+    from: '<span className={monitorMarkClass("flapping")} aria-hidden="true" />',
+    to: '<span className="monitor-mark is-flapping" aria-hidden="true" />',
+  },
+
 ];
 
 const run = (cmd, args) => {

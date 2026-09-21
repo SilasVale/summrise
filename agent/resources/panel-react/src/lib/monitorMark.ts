@@ -11,9 +11,17 @@
 // rendering of the family cannot invent a fourth spelling.
 type MonitorMarkState = "up" | "down" | "flapping";
 
+/** THE MODIFIER ALONE — the same state, for the elements that carry the family's vocabulary without being the mark itself.
+ *
+ *  `MonitorAlerts` renders `<div className={"monitor-alert " + …}>` around a `<span className="monitor-mark …">`, and both
+ *  describe ONE fact: this alert is up or down. Round 126 gave the mark the derivation and left the container spelling the
+ *  words by hand — the gate this module is guarded by found it on its next run, which is what it is for. */
+export function monitorModifier(state: MonitorMarkState): string {
+  return state === "up" ? "is-up" : state === "down" ? "is-down" : "is-flapping";
+}
+
 /** The class list for a monitor mark. `flapping` wins over `up`: a target that is up now but has been dropping is the
  *  thing the chip exists to say. */
 export function monitorMarkClass(state: MonitorMarkState, extra = ""): string {
-  const modifier = state === "up" ? "is-up" : state === "down" ? "is-down" : "is-flapping";
-  return ["monitor-mark", modifier, extra].filter(Boolean).join(" ");
+  return ["monitor-mark", monitorModifier(state), extra].filter(Boolean).join(" ");
 }

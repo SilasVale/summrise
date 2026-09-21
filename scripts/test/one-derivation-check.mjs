@@ -90,6 +90,42 @@ for (const f of files(PANEL)) {
   });
 }
 
+// ── AND THE MARK FAMILIES' CSS STATES (round 129). The clause above guards command ENDINGS; this one guards the states a
+// MARK can be in, which rounds 126-128 each had to unify by hand: the monitor family computed `is-up`/`is-down`/`is-flapping`
+// in two components with three spellings, and the plugin row paired its state with its label twice. Both now have one home,
+// and nothing stopped a fourth spelling from appearing until this clause.
+//
+// The rule is absolute and cheap: a mark's CSS state literal may appear ONLY in the module that derives it. `is-flapping` in
+// a component means that component decides a state the derivation owns.
+const MARK_STATES = {
+  "is-flapping": "lib/monitorMark.ts",
+  "is-up": "lib/monitorMark.ts",
+  "is-down": "lib/monitorMark.ts",
+};
+/** SHARED WORDS, DIFFERENT FACTS — declared with reasons, because this clause's first run flagged a file that is right.
+ *
+ *   - `MonitorsCard`'s LOG ROWS spell `is-up`/`is-down` for a `<li>`, not for a mark: the element is a transition entry and
+ *     its own stylesheet rule is about log rows. The marks in that file already come from the derivation.
+ *
+ *  This is the third time in one session that a rule matching a WORD was narrower than the rule it was trying to state — the
+ *  others being `one-derivation`'s own first run (four vocabularies sharing a word) and `gateway-device-field-check`'s
+ *  widening (the upstream providers' vocabulary). Every one was resolved the same way: keep the rule, declare the exception,
+ *  write the reason. */
+const MARK_STATE_EXCEPTIONS = { "components/MonitorsCard.tsx": "log rows, not marks" };
+for (const f of files(PANEL)) {
+  const rel = relative(PANEL, f);
+  if (rel === "lib/monitorMark.ts" || rel.startsWith("lib/") && rel.endsWith(".test.ts")) continue;
+  if (MARK_STATE_EXCEPTIONS[rel]) continue;
+  readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+    if (line.trimStart().startsWith("//")) return;
+    for (const [literal, home] of Object.entries(MARK_STATES)) {
+      if (new RegExp(`["'\`]${literal}["'\`]`).test(line)) {
+        offenders.push(`${rel}:${i + 1} spells the mark state "${literal}", which ${home} derives`);
+      }
+    }
+  });
+}
+
 if (scanned < 60) {
   console.error(`FAIL scanned only ${scanned} panel module(s) — the tree moved, so this proves nothing`);
   process.exit(1);
