@@ -32,11 +32,25 @@ function files(dir, test) {
   return out;
 }
 
+/** COMMENTS ARE NOT PRODUCERS (round 135). Every field gate matched the RAW text of the files it read, so a field named only
+ *  in a COMMENT satisfied it — measured: a harness field plus a hook read plus `// only_a_comment_field …` in a Rust source
+ *  passed `wire-field-check` with rc=0. A deleted producer can be kept alive by a comment, which is the opposite of what
+ *  these gates are for.
+ *
+ *  The strip is deliberately conservative because `//` also opens a URL: whole-line comments and block comments always go,
+ *  and a trailing `// …` goes only when it is not preceded by a colon. */
+const decomment = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("//") ? "" : line.replace(/(^|[^:])\/\/.*$/, "$1")))
+    .join("\n");
+
 const deviceSide = [
   ...files(join(ROOT, "agent/src"), (n) => n.endsWith(".rs")),
   ...files(join(ROOT, "agent/tests/fixtures"), (n) => n.endsWith(".json")),
 ]
-  .map((f) => readFileSync(f, "utf8"))
+  .map((f) => decomment(readFileSync(f, "utf8")))
   .join("\n");
 
 /** THE MODULES WHOSE ANSWERS COME FROM A DEVICE, named because the alternative was measured and is wrong (round 123).
@@ -57,7 +71,7 @@ const consumers = [
 let reads = 0;
 const missing = [];
 for (const rel of consumers) {
-  const text = readFileSync(join(ROOT, rel), "utf8");
+  const text = decomment(readFileSync(join(ROOT, rel), "utf8"));
   const seen = new Set();
   // ANY receiver, for the reason the panel's and the console's versions of this gate record: each of these files names
   // its answer differently (`j`, `u`, `probe`, `raw`, …), and the narrow first list matched five fields where the tree has

@@ -167,6 +167,26 @@ const CASES = [
     to: "              const outdated = !!d.lastVersion && !!install?.version && d.lastVersion !== install.version || !!verdict?.update_available;",
   },
 
+  {
+    gate: "scripts/test/wire-field-check.mjs",
+    file: "agent/resources/panel-react/src/hooks/useAgentVitals.ts",
+    also: [
+      {
+        file: "agent/scripts/panel-render-audit.mjs",
+        from: "      running: P.get('pwrun') === '1',",
+        to: "      running: P.get('pwrun') === '1', only_a_comment_field: 1,",
+      },
+      {
+        file: "agent/src/vocabulary.rs",
+        from: "pub const EXITED_PREFIX",
+        to: "// only_a_comment_field: a comment is not a producer\npub const EXITED_PREFIX",
+      },
+    ],
+    why: "a field carried by the harness and read by a hook, whose only 'producer' is a COMMENT in the Rust (round 135)",
+    from: "export function useAgentVitals",
+    to: "const _c = (j: any) => j.only_a_comment_field;\nexport function useAgentVitals",
+  },
+
 ];
 
 const run = (cmd, args) => {

@@ -38,8 +38,22 @@ function files(dir, test) {
  *  accepted the render smokes and the console sweep, which are FIXTURES: a field only they carry renders in a test and
  *  answers `undefined` against the deployed worker, which is the `prov-dot`/`verdict:` class this gate exists for. The
  *  panel's version of this rule was tightened the same way in round 108. */
+/** COMMENTS ARE NOT PRODUCERS (round 135). Every field gate matched the RAW text of the files it read, so a field named only
+ *  in a COMMENT satisfied it — measured: a harness field plus a hook read plus `// only_a_comment_field …` in a Rust source
+ *  passed `wire-field-check` with rc=0. A deleted producer can be kept alive by a comment, which is the opposite of what
+ *  these gates are for.
+ *
+ *  The strip is deliberately conservative because `//` also opens a URL: whole-line comments and block comments always go,
+ *  and a trailing `// …` goes only when it is not preceded by a colon. */
+const decomment = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("//") ? "" : line.replace(/(^|[^:])\/\/.*$/, "$1")))
+    .join("\n");
+
 const producers = files(join(ROOT, "gateway/src"), (n) => n.endsWith(".ts"))
-  .map((f) => readFileSync(f, "utf8"))
+  .map((f) => decomment(readFileSync(f, "utf8")))
   .join("\n");
 
 /** The console's readers, excluding its own tests (they assert, they do not parse the wire). */
@@ -50,7 +64,7 @@ const missing = [];
 for (const f of readers) {
   const rel = relative(ROOT, f);
   const seen = new Set();
-  for (const m of readFileSync(f, "utf8").matchAll(/\b\w{1,10}\??\.([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b/g)) {
+  for (const m of decomment(readFileSync(f, "utf8")).matchAll(/\b\w{1,10}\??\.([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b/g)) {
     const field = m[1];
     if (seen.has(field)) continue;
     seen.add(field);

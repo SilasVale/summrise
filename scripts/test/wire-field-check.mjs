@@ -35,6 +35,20 @@ const NOT_DEVICE_FIELDS = new Set([
   "session_id", "ev",
 ]);
 
+/** COMMENTS ARE NOT PRODUCERS (round 135). Every field gate matched the RAW text of the files it read, so a field named only
+ *  in a COMMENT satisfied it — measured: a harness field plus a hook read plus `// only_a_comment_field …` in a Rust source
+ *  passed `wire-field-check` with rc=0. A deleted producer can be kept alive by a comment, which is the opposite of what
+ *  these gates are for.
+ *
+ *  The strip is deliberately conservative because `//` also opens a URL: whole-line comments and block comments always go,
+ *  and a trailing `// …` goes only when it is not preceded by a colon. */
+const decomment = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("//") ? "" : line.replace(/(^|[^:])\/\/.*$/, "$1")))
+    .join("\n");
+
 const harness = readFileSync(join(ROOT, "agent/scripts/panel-render-audit.mjs"), "utf8");
 const fixtures = readdirSync(join(ROOT, "agent/tests/fixtures"))
   .filter((f) => f.endsWith(".json"))
@@ -53,7 +67,7 @@ function producerText() {
     for (const name of readdirSync(dir)) {
       const p = join(dir, name);
       if (statSync(p).isDirectory()) walk(p, test);
-      else if (test(name)) out.push(readFileSync(p, "utf8"));
+      else if (test(name)) out.push(decomment(readFileSync(p, "utf8")));
     }
   };
   walk(join(ROOT, "agent/src"), (n) => n.endsWith(".rs"));
@@ -65,7 +79,7 @@ const producers = producerText();
 let reads = 0;
 const missing = [];
 for (const rel of PARSERS) {
-  const text = readFileSync(join(ROOT, rel), "utf8");
+  const text = decomment(readFileSync(join(ROOT, rel), "utf8"));
   const seen = new Set();
   // ANY receiver, because the hooks name their answers differently (`j`, `d`, `st`, `row`, `next`, …) — the narrow
   // first version matched ten fields and its own floor said so. A snake_case property is the signal: the panel is
