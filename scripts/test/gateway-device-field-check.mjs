@@ -53,6 +53,9 @@ const consumers = [
   "gateway/src/device-fetch.ts",
   "gateway/src/plugins/devices.ts",
 ];
+
+let reads = 0;
+const missing = [];
 for (const rel of consumers) {
   const text = readFileSync(join(ROOT, rel), "utf8");
   const seen = new Set();
