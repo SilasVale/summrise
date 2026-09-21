@@ -3115,3 +3115,23 @@ RECORDED AS A VERIFICATION, which is what this round is: nothing changed, and a 
 family has a second derivation can read this instead of re-tracing it. Three families have now been walked this way
 (session liveness in round 125, the monitor mark in 126, this) and each time the walking found either one duplicate or none —
 which is itself the argument for walking them rather than assuming.
+
+### THE FAMILIES WALKED FOR A SECOND DERIVATION, AND WHAT EACH ONE FOUND (rounds 125-163)
+
+The spine's first clause is "no surface computing its own version of the same fact", and the way this session checked it was
+to WALK a family: find the fact, follow it to every consumer, and look for a second computation. Five families so far, and
+the index is here so the sixth round does not re-walk the first five:
+
+| family | the fact | what the walk found |
+|---|---|---|
+| session liveness (r125) | `last_exit_code` → failed / idle / off | one read (`wireFields`), one derivation (`sessionFailed`), three consumers |
+| the monitor MARK (r126) | up / down / flapping | TWO components, THREE spellings — unified into `monitorMarkClass` |
+| the monitor family (r162) | the alerts list | one hook (`useMonitors.ts:268-283`), two consumers, nothing computed twice |
+| the channel's health (r132) | ok / err per provider channel | ONE row rendered the same answer three times — unified into `channelSignal` + `channelLabel` |
+| the dial's tone (r132) | some-but-not-all healthy | two tiles answering one question differently — unified into `healthTone` |
+| the run family (r163) | the device's `run_begin`/`run_end` grouping | one module (`lib/runs.ts`), ONE consumer (`RunStrip.tsx`); a `"running"` comparison elsewhere belongs to the CONNECTION PROBE, a different fact |
+
+THE PATTERN WORTH KEEPING: three of the six found a real duplicate and three found none, and the ones that found something
+found it in a place nobody would have guessed from the sheet — two components spelling one state three ways, one row
+computing one answer three times, two tiles disagreeing about what "some are well" means. Walking is cheap (a grep and a
+read); assuming is what costs rounds, in both directions.
