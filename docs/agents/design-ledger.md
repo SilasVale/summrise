@@ -3077,3 +3077,23 @@ A NEGATIVE RESULT, recorded with the two commands, because this is the file a fu
 thing. The `first_seq` case was found by a GATE (`wire-field-check`, round 82) rather than by looking, which is the argument
 for the gates over the hunting: this round cost two commands and found nothing, and the one that mattered was found by a
 program that never gets bored.
+
+### THE TOOL-REACHABILITY QUESTION, MEASURED, AND WHY IT IS NOT YET A FINDING (round 160)
+
+AGENTS.md carries a rule for a new MCP tool: it "must be registered in `gateway/src/mcp-tools.ts` AND matched by
+`isDeviceDirectTool()`". Asked mechanically — the device's own list is `agent/spec-tools.json` (JSONC, comment-headed like the
+vocabulary artifact) — the numbers are:
+
+    56 device tools
+    19 of them are NOT NAMED in mcp-tools.ts   (mcp_client_*, memory_*, system_*, terminal_secret_*)
+    49 of them are NOT NAMED in mcp.ts         (the 7 that are named look like the explicit exceptions)
+
+THE SECOND NUMBER IS AN ARTEFACT OF THE METHOD: `isDeviceDirectTool()` matches by PREFIX for whole families
+(`terminal_*` and friends), so "not named" says nothing about reachability. And the first number cannot be read as a defect
+either, because a tool may be deliberately absent — `mcp_client_*` would invite recursion, `memory_*` is the device's own
+store — and NOTHING IN THE REPOSITORY STATES WHICH IS WHICH.
+
+So this is a measurement without a verdict, recorded rather than dressed up. The checkable form it points at is the pattern
+this repository uses everywhere else: a DECLARED list of the tools that are deliberately not console-reachable, each with its
+reason, so that "absent" becomes a decision and a forgotten registration becomes a failure. That is a round of its own, and
+it is written here rather than started at the end of one.
