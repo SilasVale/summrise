@@ -2453,3 +2453,31 @@ WHAT IS STILL WITHOUT A SURFACE, from the note's own list, so the next round doe
 `traj-ev-dot` (all six states — the trajectory view renders no dot in the pages pass), `plug-dot` (error, ongoing),
 `monitor-mark` (is-up), `boot-mark` (info), `update-state` (is-error, is-ok), `monitor-chip` (is-flapping),
 `notify-state` (is-granted, is-denied). [`ag-dot` and `cmd-dot` are complete as of this round.]
+
+### THE SURFACE FOUND TWO DEFECTS ON ITS FIRST RUN (round 31, continued)
+
+Giving `cmd-dot`'s last two states a surface did not merely complete a count. CI's design job failed on the next run
+with two defects that had been invisible for exactly as long as `bg` was unrendered:
+
+    Trajectory-light/dark · Desktop-Trajectory-light/dark
+      states of one mark paint identically — cmd-dot: muted and bg paint identically (50%/flat/-/ring)
+    Path-dark · Desktop-Path-dark
+      span.path-step-tag.s-bg "backgrounded" — painted rgb(0, 0, 0) on rgb(28, 29, 34), 11px text, needs 4.5   → 1.25:1
+
+1. THERE WAS NO `.cmd-dot[data-state="bg"]` RULE AT ALL. The state fell to the base class and computed as `muted`'s
+   hollow ring, so two of this vocabulary's six states were the same shape — the objective's "every state has its own
+   silhouette" broken precisely where nothing was looking. It is a RING THAT IS NOT ROUND now (radius 2px, the channel
+   `warn` and `fail` already use), and `designScale.test.ts` refused the raw radius until the selector joined the SHAPE
+   exemption list with its reason — which is the gate doing its job: an exemption is by selector so a stray `2px`
+   cannot ride along on it.
+
+2. THE PATH'S STEP TAG HAD NO INK FOR `bg`. Every other tone was listed (`s-ok`, `s-fail`, `s-warn`, `s-running`,
+   `s-muted`) and `s-bg` was not, so the tag inherited the page colour — black in the dark theme, on the one view whose
+   job is to say how each step ended. Invisible, in both densities, since the tone was added.
+
+BOTH WERE FOUND BY THE SAME ACT, WITHIN A MINUTE OF EACH OTHER: adding a surface for a state nothing rendered. That is
+now the third time (`?exitfail=1` → the failure mark's ink, `?appr=off` → the disarmed ring's 2.56, this → a collision
+and an invisible label), and the hit rate suggests the remaining list is not housekeeping but a queue of defects:
+
+    traj-ev-dot (all six) · plug-dot (error, ongoing) · monitor-mark (is-up) · boot-mark (info) ·
+    update-state (is-error, is-ok) · monitor-chip (is-flapping) · notify-state (is-granted, is-denied)
