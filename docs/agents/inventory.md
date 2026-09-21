@@ -647,7 +647,7 @@ different shapes. The extra was inserted BY LINE and only after checking the fol
 which is why nothing was doubled: that check is round 115's defect turned into a precondition rather than a lesson.
 
 `registry.test.mjs` is NOT the same case and should not be migrated by this recipe: its six mentions are the DEFAULTS of
-`usProxyBase` and `museResponsesExit` (`https://v.saisi.online`, `https://oracle.saisi.online/v1/responses`, …), and the
+`usProxyBase` and `museResponsesExit` (`https://v.<deployment>`, `https://oracle.<deployment>/v1/responses`, …), and the
 tests exist to pin those defaults. Moving them is a DESIGN change (make the base configurable), not a fixture change — so
 it stays on the declared list legitimately, and the list's reason for it is now accurate rather than incidental. That is
 the third kind of host this migration has found, after device hostnames and console origins: a **base URL the product
