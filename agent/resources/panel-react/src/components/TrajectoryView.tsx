@@ -134,7 +134,14 @@ export function TrajectoryView({
   /** The `seq` of the first event the DEVICE still has, from the route's
    *  `first_seq`. Greater than 1 means earlier events are not on either side of
    *  the wire, and this view must say so rather than let the trail read as
-   *  complete — see the notice below. */
+   *  complete — see the notice below.
+   *
+   *  OPTIONAL FOR THE SAME REASON `readState` IS, and the reason is stated here because this prop did not have one (round
+   *  103): the tests and the archive mount this view holding events in hand, and for them `undefined` means "the read did
+   *  not say", which is TRUE — an absent value cannot claim the trail is complete. What must never happen is a mount that
+   *  HAS a `first_seq` and drops it, and that is held upstream, where `CommandEvents.firstSeq` is REQUIRED so the hop
+   *  through `App` cannot be the one that forgets. The difference between the two is worth keeping: required at the
+   *  source, optional at the leaf, with the reason written down at both ends. */
   firstSeq?: number;
   /** Whether the read behind `events` succeeded. DEFAULTS TO `"ok"` because this
    *  view is also mounted directly by tests and by callers that hold events in
