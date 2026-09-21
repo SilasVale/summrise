@@ -3135,3 +3135,26 @@ THE PATTERN WORTH KEEPING: three of the six found a real duplicate and three fou
 found it in a place nobody would have guessed from the sheet — two components spelling one state three ways, one row
 computing one answer three times, two tiles disagreeing about what "some are well" means. Walking is cheap (a grep and a
 read); assuming is what costs rounds, in both directions.
+
+### DO THE GATES' FAILURE MESSAGES TELL A READER WHAT TO DO? MEASURED, AND THE MEASUREMENT WAS THE PROBLEM (round 164)
+
+The question is worth asking — a gate whose failure says only "FAILED" makes its reader open the file to learn what it wanted —
+so it was measured: 34 gates, of which 10 have a message containing an actionable verb, 7 have no `console.error` at all, and
+17 fail "without an instruction".
+
+THE NUMBERS ARE THE MEASUREMENT'S FAULT, not the gates'. Reading three by eye:
+
+  * `retired-colours-check` prints "FAILED — a value that was replaced for a measured reason is back:" and then, per hit,
+    "retired because …". It tells the reader WHY it is wrong, which is what makes the next step obvious without an imperative.
+  * `spacing-scale-check` has a terse header ("spacing scale: FAILED") and rows that carry the story ("off-scale spacing rose
+    from 305 to 306"), which names both what changed and what is expected.
+  * `stub-surface-check` — which my scan also listed — ends "Mirror it, or declare it here with the reason it cannot be".
+
+The regex looked for imperative verbs in `console.error(...)` calls, and it missed multi-line templates, nested parentheses and
+messages that carry a REASON instead of an instruction. That is the third time this session a text heuristic was mistaken for
+a rule (the duplicate-key scan in round 116 reported 947 false positives; the gateway widening in round 123 reported 35), and
+this time the count was checked by eye BEFORE anything was changed.
+
+WHAT IS LEFT, honestly: the message QUALITY of the gates is good where it matters and no gate says only "FAILED" — and if a
+round wants to improve one, the shape to aim for is `retired-colours-check`'s: say what is wrong, and why it is wrong, which
+is more useful than an imperative verb.
