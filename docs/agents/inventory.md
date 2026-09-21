@@ -595,107 +595,32 @@ and it needs one careful pass that reads each case, not a mechanical one that ma
 and it keeps being deferred to the end of a long session, which is how it has been attempted three times and finished
 zero.
 
-## 12. Where the standing objective stands (a checkpoint at round 99)
+## 12. Where the standing objective stands (a checkpoint at round 143)
 
-**THE SPINE, CLAUSE BY CLAUSE, WITH THE EVIDENCE THAT EACH ONE HOLDS.**
+This table is the one to read first. It was written at round 99 with four gates and a queue; both have grown, and every
+clause below now names the INSTRUMENT that measures it and the VERDICT it currently returns. A clause with no instrument
+would say so — that is the point of writing it this way.
 
-| the objective's clause | where it stands | the evidence |
+| the objective's clause | the instrument | the verdict now |
 |---|---|---|
-| one source of truth per fact | a generated vocabulary (Rust → two artifacts) that the panel's derivation is TYPED BY; one `stateFromEnd`; one session-row mapping section; the update verdict routed from the device through three files | `contract-vocabulary-check`, `one-derivation-check`, `session-row-check`, `device-verdict-check` — 4 gates, each mutation-proven |
-| the interface projects, never infers | the console prefers the device's own `/api/update` answer; the panel's `wireFields` reads each device field once; `hardcode`d production defaults became configuration and then actually reached all 17 stamping sites | `wire-field-check` + the gateway suite |
-| the DEVICE reports what the interface needs | the incoming MCP server names every tool it is asked for; the HTTP access log answers "who calls this route"; `first_seq`, `last_boot_kind`, `last_exit_code` and the update verdict all cross the wire | the device measured live (round 86) and the harness fixtures |
-| every state has its own SILHOUETTE | four colour-only collisions fixed (`cmd-dot` bg/muted, `traj-ev-dot` muted/ok, `monitor-mark` is-up/is-flapping, `prov-dot` ok/missing) plus two invisible marks and one invisible label | the rendered collision axis, the mark-coverage queue, and the LIVE probe |
-| every state has a SURFACE | the coverage queue runs on all three interfaces and is EMPTY; nine defects were found by giving states surfaces, and not one was a regression | `plug-dot` 4/4, `boot-mark` 2/2, the console's queue clear since round 66, the landing's empty by construction |
-| immediate feedback, chrome still, one focal point | unchanged this session, and still guarded | `feedback-check`, `chrome-stillness-check`, `motion-check`, the press/ack passes — all green |
-| verified by measurement on BOTH ends | 142 harness surfaces in CI **and** the live probe on the panel the device actually serves (clean, exit 0, round 86) | the design job + `live-panel-probe.mjs` |
+| one source of truth per fact | `contract-vocabulary-check` · `one-derivation-check` (endings AND mark states) · `session-row-check` · `device-verdict-check` · §14's four-end trace | green; ten facts, each with one home and a named "what stays with the caller" |
+| the interface projects, never infers | `wire-field-check` · `console-wire-field-check` · `gateway-device-field-check` · `device-verdict-check`'s structural clause | green; 26 panel + 7 console + 5 gateway fields, each with a PRODUCER, and the console's old update comparison provably still inside its fallback |
+| the DEVICE reports what the interface needs | the three field gates again, pointed the other way · `first_seq` / `last_boot_kind` / `last_exit_code` / the update verdict all crossing the wire | green; the `traj-trimmed` branch that had never rendered now has a surface |
+| every state has its own SILHOUETTE | the rendered mark-collision axis · `mark-vocabulary-check` · `console-marks-check` · the coverage queue on all three interfaces | green; four colour-only collisions were found and fixed, and the queue is EMPTY on panel, console and landing |
+| the chrome is neutral and still | `chrome-stillness-check` (15 animations, each with a declared purpose) · `state-colour-check` · `spacing-scale-check` | green |
+| immediate feedback on every input | `feedback-check` (three sheets) · `press-anchor-check` · the rendered press/ack passes with a stated 100 ms budget | green; 158 presses measured on the device, zero dead |
+| one focal point per surface | the loudness probe in `design-sweep.mjs`, judged by the sweep's axis loop, with a MEASURED exemption for navigation | green (round 142 verified the instrument exists rather than assuming it did not) |
+| verified by measurement on BOTH ends | 142 harness surfaces in CI **and** `live-panel-probe.mjs` against the panel the device actually serves | green; the live probe reports no failing text or graphics on either density |
+| all four surfaces' gates and suites | the design job + panel 806/103 + gateway 917/0 + the Rust suite | green on the pushed commit |
 
-**TEN GATES** now hold the spine in `ci.yml` — the four above, plus `sweep-fixture-dupes-check`,
-`production-host-check`, `harness-fixture-check`, `build-pins`, `console-wire-field-check` and
-`gateway-device-field-check` (the last two apply the SAME rule at the layer where the console and then the two LANGUAGES
-meet; both were written because that rule had already caught a real gap one layer in, twice). Each was proven by breaking
-the thing it guards, and the mutation for each is recorded in `docs/agents/design-ledger.md` beside the defect that
-produced it.
+**THE GATE COUNT, AND WHY IT IS NOT THE MEASURE**: sixteen gate/branch pairs are broken on purpose on every push
+(`gate-mutations-check`), six of them match source text and each says which direction of error it tolerates, and the three
+disciplines those six taught are in the ledger. What follows from this table is not more gates — it is that every clause has
+something that can FAIL, which is the only kind of evidence this objective accepts.
 
-**WHAT IS OWED TO THE OPERATOR, and has been for many rounds** — these are decisions, not work: the e2e cadence; the two
-dead citations in `CHARTER`; the pre-commit hook symlink in the global hooks directory; and the rename-or-not of the
-deployment's domain. Each is recorded with its measurement in `ideas.md` and §9-§11 above.
-
-**WHAT REMAINS SELF-DRIVABLE, in value order**: (1) the remaining 14 gateway test files, one careful round each, moving
-every mention INCLUDING regex spellings — the honest cost is in §9 and it is a judgement call; (2) more of the device-side
-field gates, the family that has found a real gap on its first run twice; (3) the access log, which needs runtime before
-it can answer "is this route dead".
-
-**AND THE METHOD, which is the part worth carrying forward**: ask the page instead of inferring (three times it beat six
-eliminations and two wrong conclusions); an absence is not evidence until the instrument is shown to see it; a push is not
-free while a run is measuring; and a gate and the commit must be joined by `&&`, because reading a gate's output instead of
-its exit code has cost this loop twice.
-
-**ROUND 116 MEASURED THE CANDIDATE AND REJECTED IT.** The idea was to point the duplicate-key gate at the gateway's test
-fixtures, since round 115 produced a real duplicate in one. The measurement — a heuristic that groups `key:` lines by
-indentation within a file — reported **947 candidates across `gateway/test/`**, and essentially all of them are two
-DIFFERENT objects that happen to share an indentation level (`{ id, username, role }` twice in a file is not a duplicate
-key). The one real duplicate it did find is the one round 115 had already removed by hand.
-
-A gate built on that heuristic would have been turned off within a day, which is exactly the failure mode this repository
-records for its own noisy probes. The honest scope is therefore narrower than the candidate: a duplicate key can be caught
-by a gate only where the fixture is a SINGLE object literal the gate can delimit — which is true of the three sweeps'
-`const API = {…}` tables, and not true of arbitrary test files. The candidate is withdrawn, with its number.
-
-**ROUND 117 MIGRATED THE EIGHTH FILE AND DECLINES THE OTHER CANDIDATE, WITH ITS REASON.** `mcp-handler.test.mjs` had six
-mentions, all device hostnames, and FIVE env constructions — one helper and four direct `makeBaseEnv({...})` calls with
-different shapes. The extra was inserted BY LINE and only after checking the following lines for an existing `extra:`,
-which is why nothing was doubled: that check is round 115's defect turned into a precondition rather than a lesson.
-
-`registry.test.mjs` is NOT the same case and should not be migrated by this recipe: its six mentions are the DEFAULTS of
-`usProxyBase` and `museResponsesExit` (`https://v.<deployment>`, `https://oracle.<deployment>/v1/responses`, …), and the
-tests exist to pin those defaults. Moving them is a DESIGN change (make the base configurable), not a fixture change — so
-it stays on the declared list legitimately, and the list's reason for it is now accurate rather than incidental. That is
-the third kind of host this migration has found, after device hostnames and console origins: a **base URL the product
-chooses**.
-
-**ROUND 118: THE NINTH FILE, AND AN EIGHTH SHAPE THAT WAS LOUD INSTEAD OF SILENT.** `mcp-browser.test.mjs` moved eight
-device hostnames (including three NEGATIVE cases — a host with a port, with userinfo, with a path) and needed the suffix in
-five places. Two shapes were new:
-
-  * **an insert predicate that is too loose.** Matching `return {` as well as `makeBaseEnv({` put `extra: ENV_EXTRA` into
-    `return { calls, impl };` and two stub handlers — a syntax error, so the file failed to load and reported 0 pass
-    instead of lying. Narrowing it to `makeBaseEnv({` was the whole fix. This is the GOOD failure mode: round 115's
-    over-broad edit produced a silent duplicate key and a green suite.
-  * **`{}, ` in the env position, TWENTY times.** `callTool({ name }, {}, DEVICE, …)` is round 110's `device-probe` shape
-    exactly — an empty object where the env goes — and it took two passes because the first replacement matched `, {}, DEVICE,`
-    and missed the one call that passed a different device record.
-
-`gateway.test.mjs` is DECLINED with its reason, the third-kind case: its nine mentions are the relay/exit BASE URLs
-(`oracle.<host>`, `zen-us.<host>`, `v.<host>`) that the product chooses, and those tests exist to pin them.
-
-**ROUND 119: THE TENTH FILE, AND THE THIRD KIND GETS A SECOND FACE.** `mcp-gateway.test.mjs` was the simplest shape this
-migration has had — thirteen mentions, ALL device hostnames (call sites and string assertions alike), ONE env helper — and
-it moved in a single pass.
-
-`devices-validate.test.mjs` is DECLINED, and its reason is different from `registry`'s: its FIRST test is named "default
-suffix, case-insensitive, bare suffix refused" and passes `{}` on purpose, because **the shipped default IS its subject**.
-Migrating it would not move a fixture, it would delete the thing under test. Only the NEGATIVE case in its second test is
-incidental, and moving that alone would leave the file on the list anyway.
-
-So the third kind of host has two faces now: a base URL the PRODUCT chooses (`registry`, `gateway`, `vale-cli`) and a test
-whose SUBJECT is the default (`devices-validate`). Both stay, and both now have an accurate reason in the gate rather than
-an incidental one.
-
-**ROUND 120: THE BIGGEST FILE IS DONE, AND THE MIGRATION LINE IS FINISHED.** `devices.test.mjs` had 57 device-domain
-mentions — the largest single holder — and they split two ways: 53 device hostnames (`d.`, `pv.`, `renamed.`, `db.`,
-`moved.`, `dfresh.`, `dFresh.`) and 2 uses of the INSTALL BASE (`agent.<host>/api/version`). Both are configuration now, and
-both were made so BY THIS OBJECTIVE: `DEVICE_HOST_SUFFIX` (the rule that accepts a device hostname) and `INDEX_WORKER_URL`
-(round 87, when the install manifest was found reading a host written twice). Two env sites declare the pair, 59 mentions
-moved, and the file is green: 49 pass on its own, suite 917/0.
-
-THE LAST TWO WERE ESCAPED REGEXES, which is shape 2 of the checklist this migration wrote after being bitten by it five
-rounds earlier — and they were the last two of fifty-nine. A checklist does not stop you being bitten; it stops you being
-bitten by the same thing twice.
-
-WHAT REMAINS ON THE DECLARED LIST, AND WHY EACH STAYS: a base URL the PRODUCT chooses (`registry`, `gateway`, `vale-cli`)
-and a test whose SUBJECT is the shipped default (`devices-validate`). Every one of the four now carries an accurate reason
-in the gate rather than an incidental one, which is what this line was for. The count went 493 occurrences in 118 files to
-**446 in 105**, and the declared list from 52 to **42**.
+**WHAT IS OWED TO THE OPERATOR** (decisions, not work): the e2e cadence; the two dead citations in `CHARTER`; the
+pre-commit hook's symlink in the global hooks directory; and whether to rename the deployment's domain (measured in
+`ideas.md` row 23).
 
 ## 13. The deployment-host migration: how it ended, in one place
 
