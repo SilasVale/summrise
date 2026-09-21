@@ -2981,3 +2981,21 @@ THE METHOD IS THE PART THAT GENERALISES, and it is the same one that found the d
 would have to be true for a break to be invisible, then run it. The no-feature build was invisible because CI ran only the
 full one; the single-feature builds were equally invisible and happen to be fine; the release pipeline has no cargo step to
 be invisible in; and the desktop density is not a configuration at all.
+
+### HOW THIS PROJECT SERVES A SECOND CONFIGURATION, AND WHY ONLY ONE HALF NEEDED A GATE (round 149)
+
+Round 148 gated the stub's surface. The obvious next question is whether other feature splits hide the same hole, so this
+round looked for them — and the answer is that `terminal` is served by TWO mechanisms, with very different safety:
+
+  1. **a STUB MODULE** (`tools/terminal/stub.rs`) — the whole backend, in one file, chosen by `#[cfg]` at the module. Its
+     surface is what round 148's gate now compares, because a hole in it compiles in one configuration and fails in the
+     other. `term_note_exit_code` was exactly that.
+  2. **per-call-site fallbacks** — `#[cfg(not(feature = "terminal"))]` appears in `connections.rs`, `files.rs` and `mod.rs`,
+     and each body is an honest "nothing here": `Err(DeviceError::Internal { message: "terminal support not compiled
+     in" })`, `Ok(tool_error(…))`, or an empty list. **These are compiled in the DEFAULT configuration**, so a fallback that
+     disagrees with the real path is a TYPE ERROR, not a silent hole — the strongest check there is, and the reason they need
+     no gate.
+
+So the general rule this leaves behind: a second configuration is safe where the compiler sees BOTH sides of the split, and
+needs a gate exactly where it does not — which is a module-level `#[cfg]` choosing a whole file, because no single
+compilation unit ever contains both.
