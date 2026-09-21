@@ -203,6 +203,14 @@ const CASES = [
     to: "",
   },
 
+  {
+    gate: "scripts/test/production-host-check.mjs",
+    file: "scripts/test/production-host-check.mjs",
+    why: "the declared list GROWS — the sentence 'the list may only shrink' had no gate until round 155",
+    from: "const MAX_ALLOWED = 41;",
+    to: "const MAX_ALLOWED = 9;",
+  },
+
 ];
 
 const run = (cmd, args) => {

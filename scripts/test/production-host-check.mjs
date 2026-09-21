@@ -80,6 +80,27 @@ const ALLOWED = [
   ["agent/resources/panel-react/src", "panel fixtures and tests that render device rows"],
 ];
 
+// THE LIST MAY ONLY SHRINK, AND THAT SENTENCE HAD NO GATE (round 155). It was written twice in this file and nothing enforced
+// it: adding an entry passed silently, which is a debt that could grow while the comment claimed otherwise. The ratchet is
+// the sentence made mechanical — it goes DOWN whenever an entry leaves, and UP never. If a file genuinely must name a
+// deployment host, that is a conversation, not an edit.
+const MAX_ALLOWED = 41;
+if (ALLOWED.length > MAX_ALLOWED) {
+  console.error(
+    `production-host: the declared list GREW to ${ALLOWED.length} from ${MAX_ALLOWED}. This list is a debt with owners, not ` +
+      `a permission: it may only shrink. Take the hostname out of the file, or change this constant in a commit that says why.`,
+  );
+  process.exit(1);
+}
+if (ALLOWED.length < MAX_ALLOWED) {
+  console.error(
+    `production-host: the declared list SHRANK to ${ALLOWED.length} from ${MAX_ALLOWED} — lower MAX_ALLOWED to ` +
+      `${ALLOWED.length} in this commit, so the ratchet keeps the ground it gained.`,
+  );
+  process.exit(1);
+}
+
+
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
 const tracked = execSync("git ls-files", { encoding: "utf8", cwd: ROOT })
   .split("\n")
