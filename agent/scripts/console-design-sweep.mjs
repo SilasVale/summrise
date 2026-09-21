@@ -166,7 +166,13 @@ const API = {
   // console's own models-render-smoke.mjs uses, which is what this fixture table claims to be: the same /api bodies
   // the render smokes assert against in jsdom. my/ pairs with the provider below it (keyReady) so prov-dot.ok
   // renders, and the og/ + none rows give prov-dot.missing.
+  // ONE ENTRY, NOT TWO (round 59). This key was in the table TWICE: the body below, and a later { enabled: false }
+  // stub — and in a JS object literal the LAST key wins, so the real body never reached the page. Models.tsx needs
+  // models/routes (it sets failed without them) while something else read enabled, so both fields live here.
+  // A duplicate key in a fixture table is the two-copies-of-one-fact defect this objective exists to remove, and this
+  // one was MINE: round 57 added the body without checking whether the key already existed.
   '/api/admin/public': {
+    enabled: false,
     models: ['og/deepseek/deepseek-v4.1-flash', 'my/llama-3', 'deepseek/deepseek-v4.1-flash'],
     routes: [
       { prefix: 'og/', backend: 'og', models: ['deepseek/deepseek-v4.1-flash'] },
@@ -188,7 +194,6 @@ const API = {
   '/api/admin/models': { models: [{ id: 'my/llama-3', label: 'llama-3' }] },
   '/api/admin/catalogue': { models: [{ id: 'my/llama-3', label: 'llama-3' }] },
   '/api/admin/users': { users: [{ username: 'operator', role: 'admin', createdAt: now - 86400000 }, { username: 'guest', role: 'user', createdAt: now - 3600000 }] },
-  '/api/admin/public': { enabled: false },
 };
 // The console's own route table (gateway/ui/src/App.tsx) — every authenticated page it has.
 const PAGES = [
