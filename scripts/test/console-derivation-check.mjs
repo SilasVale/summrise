@@ -9,6 +9,11 @@
 // THE RULES, each with the round that paid for it:
 //
 //   1. `barePrefix` (the trailing-slash strip) is written ONCE, in `lib/lane.ts` (round 172).
+//   2. The update VERDICT is computed in ONE place, `views/DevicesPanel.tsx` (round 175). The device answers the question at
+//      `/api/update`, the console reads that answer, and its own comparison survives only as the guarded fallback that
+//      `device-verdict-check`'s structural clause holds in place (round 134). Mentions of a version are fine — `client.ts`
+//      declares the type, `Overview` displays it, and both were read before this rule was written; a COMPARISON is the
+//      verdict, and a second one is a second verdict.
 //
 // WHAT IT DOES NOT CHECK: the panel (its own gate), the Rust, or the shape of the console's marks (`console-marks-check`).
 //
@@ -44,6 +49,14 @@ for (const rel of files) {
       if (/replace\(\/\\\/\+\$|replace\(\/\\\/\$/.test(line)) {
         offenders.push(`${short}:${i + 1} strips a trailing slash by hand — ${HOMES["lib/lane.ts"]}`);
       }
+      // a COMPARISON involving a version, not a mention of one
+      if (/(lastVersion|install\??\.version|update_available)\s*(!==|===|<|>)|(!==|===|<|>)\s*(lastVersion|install\??\.version|update_available)/.test(line) &&
+          short !== "views/DevicesPanel.tsx") {
+        offenders.push(
+          `${short}:${i + 1} compares a version outside views/DevicesPanel.tsx — the device ANSWERS this question, and a ` +
+            `second comparison is a second verdict (round 175)`,
+        );
+      }
     });
 }
 
@@ -61,4 +74,7 @@ if (offenders.length) {
   );
   process.exit(1);
 }
-console.log(`console-derivation: ${scanned} console module(s) scanned, and the prefix rule lives only in lib/lane.ts`);
+console.log(
+  `console-derivation: ${scanned} console module(s) scanned — the prefix rule lives only in lib/lane.ts, and the update ` +
+    `verdict is compared only in views/DevicesPanel.tsx`,
+);

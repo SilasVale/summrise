@@ -235,6 +235,14 @@ const CASES = [
     to: 'prefix.replace(/\\/$/, "")',
   },
 
+  {
+    gate: "scripts/test/console-derivation-check.mjs",
+    file: "gateway/ui/src/views/Overview.tsx",
+    why: "a SECOND version comparison appears — a second verdict, where the device is the one that answers (round 175's rule)",
+    from: "? `v${st.version || d.lastVersion || \"?\"}`",
+    to: "? `v${d.lastVersion !== st.version ? \"outdated\" : st.version}`",
+  },
+
 ];
 
 const run = (cmd, args) => {
