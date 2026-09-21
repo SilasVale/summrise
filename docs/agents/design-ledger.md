@@ -2828,3 +2828,27 @@ payload and reads it in `DevicesPanel` — the fixture carries it, no producer d
 and fails under this one. It needed the audit's multi-file `also`, added in round 109 for exactly this kind of debt.
 
     → 13 gate/branch pairs broken on purpose, every one bit
+
+### THE PRODUCER RULE, THREE ENDS, AND A FULL RE-VERIFICATION (round 124)
+
+ONE RULE, at every layer where a name crosses: **a field an interface reads must be spelled by something that SENDS it.**
+Three gates hold it now, each with a mutation that must fail it:
+
+    wire-field-check             the panel's 26 fields   → the agent's Rust or the gateway    (rounds 82, 108)
+    console-wire-field-check     the console's 7 fields  → the gateway ITSELF, not a fixture  (rounds 100, 122)
+    gateway-device-field-check   the gateway's 5 fields  → the agent's Rust or a fixture      (rounds 101, 123)
+
+TWO OF THE THREE WERE TIGHTENED AFTER BEING WRITTEN, and in both cases the tightening needed a NEW mutation to be provable:
+the original cases planted fields NOTHING carried, which the loose and the strict rule both catch. The cases that prove the
+tightening plant a field a FIXTURE carries and no producer does — the exact defect the rule exists for (a page that renders
+in a stub and answers `undefined` in production).
+
+AND A FULL RE-VERIFICATION AFTER THE WORK, because rounds 103-123 changed eleven gateway test files and four gates: every
+local gate re-run by exit code — NONE RED — and the audit reporting THIRTEEN gate/branch pairs broken on purpose, every one
+bit. The suites: panel 806 in 103 files, gateway 917/0.
+
+The one mistake in that stretch was caught by the audit alone: a careless edit removed two lines from
+`gateway-device-field-check` and pushed a commit where it threw `ReferenceError` on every run. The pre-commit hook guards
+the emitted scripts' template literals, not that file's syntax; CI had not run yet; the audit refused to start on a dirty
+tree and then reported "1 gate(s) unproven". **An artifact whose subject is the other artifacts is the only one that notices
+when an artifact stops working.**
