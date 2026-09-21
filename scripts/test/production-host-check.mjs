@@ -65,7 +65,25 @@ const ALLOWED = [
   ["gateway/src/store/", "store defaults that name the deployment's own hosts"],
   [".github/workflows/release.yml", "the release job that must reach the live CDN and gateway"],
   // ── tests whose SUBJECT is the hostname rule ──
-  ["gateway/test/", "routing, SSRF and host-allow tests: the hostname IS the input under test"],
+  // NAMED INDIVIDUALLY, NOT AS A DIRECTORY (round 49). Five files in `gateway/test` used the production host only as an
+  // INPUT (a device row, a tunnel name) and now use the reserved test domain `vale.test`; the fifteen below assert the
+  // deployment's own identity — a default, an allowlist, the suffix rule — so they keep it, and a NEW test file cannot
+  // inherit the allowance by living in the same directory.
+  ["gateway/test/cors.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/device-fetch.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/device-probe.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/devices-validate.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/devices.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/mcp-browser.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/mcp-gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/mcp-handler.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/panel-grant.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/proxy-auth.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/registry.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/security-fixes.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/translate-units.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  ["gateway/test/vale-cli.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["agent/resources/panel-react/src", "panel fixtures and tests that render device rows"],
 ];
 

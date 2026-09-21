@@ -2,7 +2,7 @@
 //
 // `gateway/public/code/files/vale-gate/` is a TRACKED mirror of `gateway/src`,
 // served as worker assets (`wrangler.jsonc`: assets.directory "./public") at
-// https://api.saisi.online/code/files/vale-gate/src/… . It is refreshed ONLY by
+// https://api.vale.test/code/files/vale-gate/src/… . It is refreshed ONLY by
 // `scripts/build.sh` at deploy time (through `scripts/sync-code-viewer.sh`).
 //
 // Nothing compared the two. Observed 2026-09-12: the mirror was **13 commits

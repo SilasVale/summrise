@@ -32,7 +32,7 @@ async function harness() {
   const call = (method, path, { auth = true, body } = {}) => {
     const headers = { "content-type": "application/json" };
     if (auth) headers.cookie = `${SESSION_COOKIE}=${cookie}`;
-    const url = `https://api.saisi.online${path}`;
+    const url = `https://api.vale.test${path}`;
     const req = new Request(url, {
       method,
       headers,

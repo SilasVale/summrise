@@ -59,7 +59,7 @@ async function harness(extraKv = {}, extraEnv = {}) {
     const headers = { "content-type": "application/json" };
     if (auth) headers.cookie = `${SESSION_COOKIE}=${cookie}`;
     else if (token) headers["x-api-key"] = token;
-    const url = `https://api.saisi.online${path}`;
+    const url = `https://api.vale.test${path}`;
     const req = new Request(url, {
       method,
       headers,

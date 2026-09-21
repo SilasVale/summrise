@@ -288,7 +288,7 @@ comment, the `ci.yml` step description and this inventory no longer spell it (ro
 
 **THE ONE BIG MECHANICAL BLOCK — ATTEMPTED IN ROUND 48 AND REVERTED, AND THE REASON CHANGES THE ORDER OF WORK.**
 
-I did it: 146 occurrences replaced across 20 files (`saisi.online` → `vale.test`, RFC 6761's reserved test TLD) and the
+I did it: 146 occurrences replaced across 20 files (the production suffix → `vale.test`, RFC 6761's reserved test TLD) and the
 suite run. **76 of 916 tests failed** — not because the replacement was wrong, but because those tests assert the
 worker's OWN configuration identity: `isAllowedOrigin` compares against the hardcoded console origins in
 `gateway/src/http.ts`, and the channel, upstream, provider and install-source defaults are asserted the same way. A
@@ -300,8 +300,16 @@ is:
        `store/providers.ts` — each is a declared location in the gate today for exactly this reason;
     2. THEN the fixtures move, and the `gateway/test/` allowance comes off the list (145 occurrences).
 
-Reverted to a green suite (916 pass / 0 fail) rather than landing half of it. What the first attempt DID establish,
-now measured rather than estimated:
+**ROUND 49 FOUND THE SHAPE OF IT, AND IT IS NARROWER THAN EITHER PLAN SAID.** Applied selectively — reverting the
+fifteen files whose subject IS the deployment's own identity (`cors`, `device-fetch`, `device-probe`, `devices`,
+`devices-validate`, `gateway`, `mcp-browser`, `mcp-gateway`, `mcp-handler`, `panel-grant`, `proxy-auth`, `registry`,
+`security-fixes`, `translate-units`, `vale-cli`) — the suite is green (916/0) and **only five occurrences actually
+moved**: the other 141 live in those fifteen files, because what they assert IS the default, the allowlist or the suffix
+rule. So this block does not shrink by renaming fixtures; it shrinks by making the gateway's defaults CONFIGURABLE
+first, after which a test can supply its own — which is step 1 below, unchanged and still the whole job.
+
+The allowance is now FIFTEEN NAMED FILES rather than the `gateway/test/` directory, so a new test file cannot inherit
+it by living in the same place. What the first full attempt established, now measured rather than estimated:
 
   * the rule is already configuration-driven: `hostAllowError` reads
     `env.DEVICE_HOST_SUFFIX || ".agent.<domain>"` (`gateway/src/device-fetch.ts:62`), so a test can run under any suffix;
