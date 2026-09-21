@@ -559,6 +559,11 @@ jobs:
       # was trimmed") had therefore never rendered anywhere.
       - name: every wire field has a source
         run: node scripts/test/wire-field-check.mjs
+      # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
+      # the same duplication twice in `useSessions.ts` — a byte-identical row mapper, then the device-owned half of it
+      # written three times — and this is the rule that keeps it removed: outside that section, no device field is read.
+      - name: one place reads the device's session row
+        run: node scripts/test/session-row-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
