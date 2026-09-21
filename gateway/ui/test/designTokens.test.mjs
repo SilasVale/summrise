@@ -93,11 +93,17 @@ test("the lane classes the TS can emit are the ones the stylesheet defines", () 
   // it carefully (white on the dark accent: 1.90) — and then discovered NOTHING IN THE REPO EMITS
   // `lane-port` OR `models-prefix`. Eighteen lines of dead CSS, and a fix that changed nothing on
   // screen. They are pruned; this test now checks the family that IS rendered.
+  // THE MAPPING MOVED TO `lib/lane.ts` IN ROUND 140 — from eight `if` lines to a TABLE, because a mapping written as control
+  // flow hides which prefixes have a lane and that everything else falls to `lane-def`. The subject here is unchanged (the
+  // classes the TS can emit versus the ones the sheet defines), so only the extraction follows it.
   const tsx = readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "views", "Models.tsx"),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "lane.ts"),
     "utf8",
   );
-  const emitted = new Set([...tsx.matchAll(/return "(lane-[a-z]+)";/g)].map((m) => m[1]));
+  // EVERY quoted `lane-…` string, because the fallback is `?? "lane-def"` — no colon in front of it — and a pattern keyed
+  // on the table's rows alone reported the base rule as dead CSS. The module's own comments name real lanes, which is
+  // harmless here: this set is compared against the sheet in both directions, and both names have rules.
+  const emitted = new Set([...tsx.matchAll(/"(lane-[a-z]+)"/g)].map((m) => m[1]));
   assert.ok(emitted.size >= 8, `expected the channel mapping, found ${emitted.size} classes`);
   const defined = new Set([...bare.matchAll(/\.prov-lane\.(lane-[a-z]+)/g)].map((m) => m[1]));
   // `lane-def` is emitted BY the mapping and defined BY the base rule, so it is exempt from the

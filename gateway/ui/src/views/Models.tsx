@@ -39,21 +39,8 @@ import {
   type ModelFacets,
 } from "../api/client.ts";
 import { PageHeader, Badge, Modal, CopyButton } from "../components/ui.tsx";
+import { laneClass } from "../lib/lane.ts";
 
-/** The lane colour for a channel prefix — the same mapping the Routes page uses,
- *  so a channel looks the same wherever it appears. */
-function laneClass(prefix: string): string {
-  const p = prefix.replace(/\/$/, "");
-  if (p === "og") return "lane-og";
-  if (p === "ds") return "lane-ds";
-  if (p === "or") return "lane-or";
-  if (p === "qw") return "lane-qw";
-  if (p === "nv") return "lane-nv";
-  if (p === "gmi") return "lane-gmi";
-  if (p === "cm") return "lane-cm";
-  if (p === "amd") return "lane-amd";
-  return "lane-def";
-}
 
 /** ONE model entry in a provider re-post, rebuilt from a FORM.
  *
