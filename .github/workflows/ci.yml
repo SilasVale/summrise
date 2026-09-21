@@ -534,6 +534,11 @@ jobs:
 
       - name: production hosts are declared
         run: node scripts/test/production-host-check.mjs
+      # A FIXTURE TABLE MUST NOT SAY ONE THING TWICE (round 60 of the standing goal). Round 59's `prov-dot` hunt ended
+      # on a duplicate key: in a JS object the LAST one wins, so a fixture body added in round 57 never reached the page
+      # and the Models page rendered its failure banner for three rounds with every other axis green.
+      - name: fixture tables have no duplicate keys
+        run: node scripts/test/sweep-fixture-dupes-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
