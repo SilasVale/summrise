@@ -70,7 +70,6 @@ const ALLOWED = [
   // deployment's own identity — a default, an allowlist, the suffix rule — so they keep it, and a NEW test file cannot
   // inherit the allowance by living in the same directory.
   ["gateway/test/devices-validate.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
-  ["gateway/test/devices.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/registry.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/vale-cli.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],

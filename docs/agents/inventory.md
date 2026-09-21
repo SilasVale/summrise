@@ -680,3 +680,19 @@ incidental, and moving that alone would leave the file on the list anyway.
 So the third kind of host has two faces now: a base URL the PRODUCT chooses (`registry`, `gateway`, `vale-cli`) and a test
 whose SUBJECT is the default (`devices-validate`). Both stay, and both now have an accurate reason in the gate rather than
 an incidental one.
+
+**ROUND 120: THE BIGGEST FILE IS DONE, AND THE MIGRATION LINE IS FINISHED.** `devices.test.mjs` had 57 device-domain
+mentions — the largest single holder — and they split two ways: 53 device hostnames (`d.`, `pv.`, `renamed.`, `db.`,
+`moved.`, `dfresh.`, `dFresh.`) and 2 uses of the INSTALL BASE (`agent.<host>/api/version`). Both are configuration now, and
+both were made so BY THIS OBJECTIVE: `DEVICE_HOST_SUFFIX` (the rule that accepts a device hostname) and `INDEX_WORKER_URL`
+(round 87, when the install manifest was found reading a host written twice). Two env sites declare the pair, 59 mentions
+moved, and the file is green: 49 pass on its own, suite 917/0.
+
+THE LAST TWO WERE ESCAPED REGEXES, which is shape 2 of the checklist this migration wrote after being bitten by it five
+rounds earlier — and they were the last two of fifty-nine. A checklist does not stop you being bitten; it stops you being
+bitten by the same thing twice.
+
+WHAT REMAINS ON THE DECLARED LIST, AND WHY EACH STAYS: a base URL the PRODUCT chooses (`registry`, `gateway`, `vale-cli`)
+and a test whose SUBJECT is the shipped default (`devices-validate`). Every one of the four now carries an accurate reason
+in the gate rather than an incidental one, which is what this line was for. The count went 493 occurrences in 118 files to
+**446 in 105**, and the declared list from 52 to **42**.
