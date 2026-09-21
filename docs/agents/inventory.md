@@ -326,3 +326,25 @@ own client and Source Viewer mirror, the operator-facing READMEs, and the tests 
 domain is not a secret — it ships inside every exe and tarball — so the value here is a tree that can be shared without
 advertising the deployment's naming, not secrecy. A RENAME remains the operator's call: it touches the live update
 channel, the tunnel ingress and the fleet.
+
+## 10. Open: the console's `prov-dot` (2 states declared, 0 rendered in 136 surfaces)
+
+The mark-coverage queue reached the console in round 50 and its second item is `prov-dot`: **declared 2 states (`ok`,
+`missing`), rendered ZERO** — not a missing state but a family with no surface at all, which is worse.
+
+**WHAT IS ALREADY MEASURED, so the next attempt does not re-test it:**
+
+  * **the producer EXISTS** — `gateway/ui/src/views/Models.tsx:645` renders
+    `className={`prov-dot${ready ? " ok" : " missing"}`}` with `role="img"` and a label, and the stylesheet paints both
+    states (`.prov-dot.ok`, `.prov-dot.missing`, each a fill with its own halo). This is NOT dead CSS.
+  * **the console client does NOT require an `ok` envelope** — `gateway/ui/src/api/client.ts` checks the HTTP status and
+    only 401/`!res.ok` throw, so a fixture body without `ok: true` is not treated as a failed read. (The panel's harness
+    had exactly that failure mode in round 99, which is why it was the first hypothesis — and it is WRONG here.)
+  * **the fixture HAS a provider** — the sweep's `/api/admin/providers` carries one with `keyReady: true`, and the sweep
+    DOES visit `#/models` (route table, line ~182).
+  * **nothing has ever rendered it**: `models-render-smoke.mjs` does not mention `prov-dot` at all, so this is the same
+    shape as `cmd-dot`'s missing rule — a state whose surface nothing ever built.
+
+So the cause is one of: the provider section needs a click/tab the sweep does not make, or the row is filtered by
+something the fixture leaves empty (`apis` and `filePrefixes` are both `[]`). The next round starts from those two,
+with the three eliminations above already paid for.
