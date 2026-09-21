@@ -665,6 +665,7 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     let acked = null;
     let msToAck = null;
     let attempts = 1;
+    let msFirstPress = null;
     for (let i = 0; i < 60; i++) {
       const now = await read(sel);
       // ACKNOWLEDGED means: the control says so (an attribute) OR it paints differently than it did at rest.
@@ -684,12 +685,18 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       await page.waitForTimeout(120);
       const again = await read(sel);
       if (again) before = again;
+      // THE SECOND PRESS IS THE ONE THAT COUNTS, AND IT IS TIMED FROM ITSELF. CI reported every row as
+      // "acknowledged the press after 1513ms — the budget is 100ms" because the metric ran from the FIRST press,
+      // which on that runner never registered at all (the control answered in ~5ms to the second one). Timing from a
+      // press the page never received measures the harness, not the control; `attempts` is what records that the
+      // first one was lost, and the judge reports it as its own note.
+      const t1 = Date.now();
       await page.mouse.down();
       await page.mouse.up();
       for (let i = 0; i < 60; i++) {
         const now = await read(sel);
         const painted = now && before && (now.transform !== before.transform || now.opacity !== before.opacity || now.background !== before.background);
-        if (now && (now.busy || painted)) { acked = now; msToAck = Date.now() - t0; break; }
+        if (now && (now.busy || painted)) { acked = now; msToAck = Date.now() - t1; msFirstPress = t1 - t0; break; }
         await page.waitForTimeout(16);
       }
     }
@@ -714,7 +721,7 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     const asked = callsInPress > 0;
     rows.push({
       sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
-      acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs, attempts,
+      acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs, attempts, msFirstPress,
       asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore,
       ...(acked || asked
         ? {}
