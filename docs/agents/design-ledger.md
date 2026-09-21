@@ -2479,5 +2479,14 @@ BOTH WERE FOUND BY THE SAME ACT, WITHIN A MINUTE OF EACH OTHER: adding a surface
 now the third time (`?exitfail=1` → the failure mark's ink, `?appr=off` → the disarmed ring's 2.56, this → a collision
 and an invisible label), and the hit rate suggests the remaining list is not housekeeping but a queue of defects:
 
-    traj-ev-dot (all six) · plug-dot (error, ongoing) · monitor-mark (is-up) · boot-mark (info) ·
-    update-state (is-error, is-ok) · monitor-chip (is-flapping) · notify-state (is-granted, is-denied)
+    traj-ev-dot (all six) · plug-dot (error, ongoing) · monitor-mark (is-up) · boot-mark (info)
+
+THAT LIST WAS WRONG WHEN FIRST WRITTEN, IN THE WAY THIS LEDGER KEEPS RECORDING (round 32). It named nine entries; three
+(`update-state`, `notify-state`, `monitor-state`) are TEXT LINES — a mono paragraph, a card's sentence, a word beside a
+mark — whose is-error/is-ok/is-granted variants are ink on words, where the silhouette question does not apply because
+the word IS the state. Two more (`run-row-state`, `archive-state`) are full-width ROWS. They were reported as gaps
+because the judge's family rule is a NAME rule (`*-state` matches) and because `present` — the set that answers "is this
+class on screen at all" — was collected only from elements small enough to be marks. The rule now carries three declared
+text classes with reasons (a heuristic would also hide the day one of them becomes a real mark), `present` is collected
+BEFORE the size filter, and the queue is four entries — each a state of a family that really is a mark. Eight surfaces
+of false queue cost a round; the fix cost twenty lines.

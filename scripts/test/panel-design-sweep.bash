@@ -594,6 +594,16 @@ if grep -q "mark family tab-dot declares .* CLASS IS ON SCREEN" "$TMP/marks-onsc
 else
   bad "the note still calls an on-screen class unrendered — tab-dot line: [$(grep -m1 'mark family tab-dot' "$TMP/marks-onscreen.out")]"
 fi
+# AND THREE CLASSES NAMED `*-state` ARE WORDS, NOT MARKS (round 32). The naming rule is deliberately loose and it swept
+# in `.update-state` (a mono paragraph), `.notify-state` (the notifications card's line) and `.monitor-state` (the word
+# beside the chip) — three false entries in a queue that is supposed to be a list of defects. They are declared with
+# their reasons and skipped; their legibility is the contrast pass's business, which measures them as text.
+node "$TOOL" --judge "$TMP/clean.json" > "$TMP/text-states.out" 2>&1 || true
+if grep -qE "mark family (update-state|notify-state|monitor-state)" "$TMP/text-states.out"; then
+  bad "a text state class is still reported as a mark family: $(grep -m1 -E 'mark family (update-state|notify-state|monitor-state)' "$TMP/text-states.out")"
+else
+  ok "a class named -state that the sheet styles as TEXT is not counted as a mark"
+fi
 node "$TOOL" --judge "$TMP/marks-full.json" > "$TMP/marks-full.out" 2>&1 || true
 if grep -q "mark family cmd-dot" "$TMP/marks-full.out"; then
   bad "a family rendering every declared state was still reported: $(grep -m1 'mark family' "$TMP/marks-full.out")"

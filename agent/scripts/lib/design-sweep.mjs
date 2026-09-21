@@ -46,9 +46,14 @@ const MARKS_TEMPLATE = `(() => {
         const st = getComputedStyle(el);
         if (st.display === 'none' || st.visibility === 'hidden') continue;
         const r = el.getBoundingClientRect();
-        if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
+        // WHAT IS ON SCREEN IS COLLECTED BEFORE THE SIZE FILTER, because the two questions are different: present
+        // answers "does this class exist on this page at all", and the filter below answers "is this a MARK". A
+        // class on a full-width ROW (.run-row-state, .archive-state, .monitor-state) is on screen and is not a
+        // mark, and collecting only from small elements made the judge call those "NO SURFACE RENDERED" — a queue of
+        // false gaps, which is worse than no queue (round 32).
         const cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/) : [];
         for (const c of cls) if (/(dot|dotcol|mark|led|chip|signal|state)$/.test(c)) present.add(c);
+        if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
         const state = el.getAttribute('data-state') || el.getAttribute('data-live');
         // the family is the class the STATE rules hang off: with a data-attribute it is the first class, with a
         // modifier class it is everything except the last one

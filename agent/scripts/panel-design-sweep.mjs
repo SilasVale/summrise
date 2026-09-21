@@ -1429,9 +1429,22 @@ function judge(file) {
       // tab-dot" would be a finding about the probe's naming, not about the page.
       const onScreen = new Set();
       for (const s2 of report.surfaces || []) for (const c of (s2.marks && s2.marks.present) || []) onScreen.add(c);
+      // A CLASS NAMED `*-state` IS NOT AUTOMATICALLY A MARK (round 32). The naming rule is deliberately loose, and it
+      // swept in three classes the sheet styles as a TEXT LINE — `.update-state` (a mono paragraph on the update card),
+      // `.notify-state` (the notifications card's line) and `.monitor-state` (the word beside the chip). Their
+      // is-error/is-ok/is-granted variants are INK on words, so the silhouette question does not apply to them and the
+      // colour-only distinction is fine: the text itself says which state it is. They are measured as TEXT by the
+      // contrast pass on every run. Declared here with a reason rather than filtered by a heuristic, because a
+      // heuristic would also hide the day one of them becomes a real mark.
+      const TEXT_STATE_CLASSES = {
+        'update-state': 'a mono paragraph on the update card — its is-error/is-ok are ink on words',
+        'notify-state': "the notifications card's line — is-granted/is-denied are ink on words",
+        'monitor-state': 'the word beside the reachability mark — the mark next to it carries the shape',
+      };
       const familyRule = /(dot|dotcol|mark|led|chip|signal|state)$/;
       for (const m of css.matchAll(/\.([A-Za-z][\w-]*)(\[[^\]]+\]|\.[A-Za-z][\w-]*)/g)) {
         if (!familyRule.test(m[1])) continue;
+        if (TEXT_STATE_CLASSES[m[1]]) continue;
         if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
       }
       for (const [family, rendered] of seenByFamily) {
