@@ -564,6 +564,11 @@ jobs:
       # `last_boot_kind` against `verdict:`. Both cost rounds to find by hand; the panel already had the gate.
       - name: every console wire field has a producer
         run: node scripts/test/console-wire-field-check.mjs
+      # AND THE LINK WHERE THE TWO LANGUAGES MEET (round 101 of the standing goal): the gateway forwards a device's answer
+      # field by field BY HAND, so a name the device stopped sending becomes `undefined` on the console with every suite
+      # on both sides still green. The same rule caught real gaps one layer in, twice.
+      - name: the gateway forwards fields the device spells
+        run: node scripts/test/gateway-device-field-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
       # the same duplication twice in `useSessions.ts` — a byte-identical row mapper, then the device-owned half of it
       # written three times — and this is the rule that keeps it removed: outside that section, no device field is read.
