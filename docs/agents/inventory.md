@@ -345,6 +345,18 @@ The mark-coverage queue reached the console in round 50 and its second item is `
   * **nothing has ever rendered it**: `models-render-smoke.mjs` does not mention `prov-dot` at all, so this is the same
     shape as `cmd-dot`'s missing rule — a state whose surface nothing ever built.
 
-So the cause is one of: the provider section needs a click/tab the sweep does not make, or the row is filtered by
-something the fixture leaves empty (`apis` and `filePrefixes` are both `[]`). The next round starts from those two,
-with the three eliminations above already paid for.
+**ROUND 57 FOUND THE CAUSE AND ADDED THE MISSING FIXTURE — AND ROUND 58 MEASURED THAT IT STILL RENDERS 0.**
+
+The cause was a fourth hypothesis the three eliminations cleared the way to: `Models.tsx` builds its provider rows from
+`api.getPublicRoutes()` (`/api/admin/public`) and sets `failed` when `info.models` is empty, and **the sweep had no
+fixture for that endpoint at all** — so the page rendered its "could not be read" banner and no rows. The body was added
+from the console's own `models-render-smoke.mjs`, which has carried it all along, and it pairs `my/` with the provider
+already in the table so BOTH states should be reachable.
+
+It still reports `rendered 0 (none)`, so the next thing to check is how the sweep's route table is MATCHED — exact path
+against a request that carries a query or a trailing segment would explain a stub that exists and never answers. That is
+one look at the sweep's fetch handler, not another hypothesis hunt.
+
+AND A CORRECTION TO THIS LOOP'S OWN READING: the note says "over **56** surface(s)" here and "136" in the panel's log —
+the two sweeps have different surface counts, and rounds 52-57 quoted the panel's number as if it were the console's.
+The console's is the one this item lives in.
