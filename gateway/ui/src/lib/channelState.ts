@@ -27,3 +27,17 @@ export function channelLabel(
 ): string {
   return c.ok ? t("overview.healthOk") : c.reason || t("overview.healthDown");
 }
+
+/** A DIAL'S TONE, from "how many of N are well" — the same question the channels tile and the devices tile both ask (round
+ *  132). They answered it differently: channels showed `warn` when some were down, devices showed `ok` while a device was
+ *  down, because its expression had no middle term. A count that is SOME-but-not-all healthy is not "ok", and the state
+ *  layer exists so that sentence is true on every surface.
+ *
+ *  `known` is separate from `total` because "we have not asked yet" is not "none are healthy" — the same distinction
+ *  `deviceState.ts` records for a probe that has not answered, and the reason this takes three numbers rather than two. */
+export type DialTone = "ok" | "warn" | "off";
+
+export function healthTone(known: boolean, ok: number, total: number): DialTone {
+  if (!known || total === 0) return "off";
+  return ok === total ? "ok" : ok > 0 ? "warn" : "off";
+}

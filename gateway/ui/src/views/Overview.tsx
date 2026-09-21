@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CONSOLE_POLL_MS, deviceIsUp, deviceTally } from "../lib/deviceState.ts";
-import { channelLabel, channelSignal } from "../lib/channelState.ts";
+import { channelLabel, channelSignal, healthTone } from "../lib/channelState.ts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useTranslation } from "../i18n.ts";
@@ -164,14 +164,13 @@ export default function Overview() {
       // "—" when we do not know, never "0/0" — and no link for a non-admin, who would
       // be redirected straight back to this page by `AdminOnly`.
       value: devices === null ? "—" : `${onlineCount}/${devices.length}`,
-      tone: devices === null ? "off" : onlineCount > 0 ? "ok" : "off",
+      tone: healthTone(devices !== null, onlineCount, devices?.length ?? 0),
       to: isAdmin ? "/devices" : undefined,
     },
     {
       label: t("stat.channels"),
       value: channels.length ? `${channelsOk}/${channels.length}` : "—",
-      tone:
-        channels.length && channelsOk === channels.length ? "ok" : channels.length ? "warn" : "off",
+      tone: healthTone(true, channelsOk, channels.length),
       // `/models` is where channel health lives (per-channel up/down/not-probed).
       // `/keys` contains no channel information at all — a tile about CHANNELS sent
       // you to a page about credentials.
