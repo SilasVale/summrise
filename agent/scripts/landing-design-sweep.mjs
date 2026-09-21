@@ -28,6 +28,20 @@ const OUT = process.env.VALE_LANDING_OUT || "/tmp/vale-landing";
 const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "").slice("--passes=".length).split(",").filter(Boolean);
 const mode = process.argv[2] || "";
 
+/** The landing's CSS, cropped out of the module that ships it. It THROWS rather than returning an empty string: the
+ *  mark-coverage note reads a sheet to answer "which states does this declare", and an empty sheet answers "none" —
+ *  which is indistinguishable from a clean surface. (Round 51 wrote this call without the helper, the judge threw at
+ *  runtime, and the local check that missed it read the OUTPUT instead of the exit code — the rule this repository's
+ *  AGENTS.md states in bold, broken by the loop that quotes it.) */
+function landingStyles() {
+  const src = readFileSync(new URL("../../index/src/page.js", import.meta.url), "utf8");
+  const m = /<style>([\s\S]*?)<\/style>/.exec(src);
+  if (!m) {
+    throw new Error("the landing's <style> block was not found — the coverage note would be reading an empty sheet and reporting a clean surface");
+  }
+  return m[1];
+}
+
 // THE TWO STATES A RELEASE CAN PRODUCE, and the reason a rendered arm is worth its cost. When a release publishes no
 // installer the page swaps the primary button for a hint — a different element, a different size, a different
 // contrast question — and nothing has ever looked at it in a browser.
