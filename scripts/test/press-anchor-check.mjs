@@ -156,8 +156,11 @@ try {
         assert.ok(src.includes("box.reaches === false"), `${name}: the acknowledgement pass presses controls the pointer cannot reach`);
         // AND ITS BASELINE IS THE HOVER, not rest: read with the pointer away, a control's own hover rule looks
         // like an acknowledgement and every control passes for free.
+        // DECLARATION-AGNOSTIC, and that is not fussiness: this assertion matched the literal `const before` and went
+        // red in CI the moment the baseline became `let` so the retry could re-read it. A gate that pins a keyword
+        // instead of an ORDER reports the edit rather than the rule.
         assert.ok(
-          src.indexOf("const before = await read(sel)") > src.indexOf("await page.mouse.move(box.x, box.y)\n    await page.waitForTimeout(260)"),
+          src.indexOf("before = await read(sel)") > src.indexOf("await page.mouse.move(box.x, box.y)\n    await page.waitForTimeout(260)"),
           `${name}: the acknowledgement baseline is read before the hover — that is the resting anchor this rule exists for`,
         );
         assert.ok(src.includes("Math.min(r.right, innerWidth)"), `${name}: the acknowledgement pass does not clamp the rect to the viewport`);
