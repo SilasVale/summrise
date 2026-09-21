@@ -82,27 +82,9 @@ pub(crate) fn diag_log(line: &str) {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    // plugin audit: same unbounded-append class as the deleted round-132
-    // diag.log — cap generations at 1 MB.
-    if let Ok(m) = std::fs::metadata(diag_path()) {
-        if m.len() > 1_000_000 {
-            let _ = std::fs::rename(diag_path(), diag_path().with_extension("log.old"));
-        }
-    }
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(diag_path())
-        .and_then(|mut f| {
-            use std::io::Write;
-            writeln!(f, "[{ts}] {line}")
-        });
-}
-
-/// Diagnostic log path — under the DATA dir (C1: registry DataDir, else exe
-/// dir). Works on Windows AND in tests on other platforms.
-pub(crate) fn diag_path() -> std::path::PathBuf {
-    crate::paths::logs_dir().join("mcp_diag.log")
+    // THE CAP IS SHARED NOW (round 29): `paths::append_log` owns "when does a log rotate", so this file and the
+    // access log cannot drift into two policies — which is how the deleted round-132 diag.log ended up unbounded.
+    crate::paths::append_log("mcp_diag.log", &format!("[{ts}] {line}"));
 }
 
 /// Single entry point for a JSON-RPC call, dispatched by transport.

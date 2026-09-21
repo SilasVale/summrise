@@ -672,7 +672,38 @@ async fn route_pre_dispatch(
     None
 }
 
+/// THE ACCESS LOG (round 29 of the standing goal): one line per request — method, path, status, milliseconds.
+///
+/// WHY IT EXISTS. The inventory could not answer "does anything still call `/api/events`?" or "is the browser panel
+/// density used at all?": the agent kept no record of what was asked for, so a route with no client anywhere in the
+/// tree was unmeasurable from the machine that serves it. This is that record, and it is also the only way to tell the
+/// three front ends apart in production (the desktop window, a browser panel, the console's proxy, an MCP client).
+///
+/// WHAT IT DELIBERATELY DOES NOT RECORD: the query string. `?grant=` carries a one-time panel token and other routes
+/// take credentials in the query; a log that collects them is a credential store nobody meant to create. The panel and
+/// desktop STATIC assets are skipped too — they would be most of the lines and answer nothing.
+fn access_log(method: &str, path: &str, status: u16, ms: u128) {
+    if path.starts_with("/panel") || path.starts_with("/desktop") {
+        return;
+    }
+    crate::paths::append_log("access.log", &format!("{method} {path} {status} {ms}ms"));
+}
+
 pub(super) async fn handle_request(req: Request<Body>, state: Arc<AppState>) -> Response {
+    let started = std::time::Instant::now();
+    let method = req.method().to_string();
+    let path = req.uri().path().to_string();
+    let resp = handle_request_inner(req, state).await;
+    access_log(
+        &method,
+        &path,
+        resp.status().as_u16(),
+        started.elapsed().as_millis(),
+    );
+    resp
+}
+
+async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Response {
     // NOTE: no CORS preflight handler — the panel is same-origin (never
     // preflights); cross-origin calls must NOT be allowed, and the gateway
     // proxy adds its own ACAO when required. (The old handler advertised

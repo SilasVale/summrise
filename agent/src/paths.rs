@@ -195,6 +195,39 @@ pub fn logs_dir() -> PathBuf {
     data_dir().join("logs")
 }
 
+/// Append one line to a log file under `logs_dir()`, with THE ONE rotation policy this crate has: past 1 MB the file
+/// is renamed to `<name>.old` (one generation) and a fresh one starts.
+///
+/// WHY THIS IS SHARED RATHER THAN COPIED (round 29 of the standing goal): `mcp_diag.log` grew its own cap in the
+/// mcp_client plugin, and the access log this round adds needs the same rule. Two copies of "when does a log rotate"
+/// is how one of them ends up unbounded — the failure mode the mcp_client's comment records from the deleted
+/// round-132 diag.log, which had no cap at all.
+pub fn append_log(name: &str, line: &str) {
+    // THE DIRECTORY FIRST, AND THIS IS NOT DEFENSIVE PROGRAMMING: `OpenOptions::create(true)` creates the FILE, not its
+    // parent, so on a device where nothing had written a log yet the first lines went nowhere — silently, because the
+    // result is discarded. The test below failed on a CI runner for exactly that reason and passed on this box only
+    // because the directory already existed here. A log that loses its first entries is worse than no log: it makes an
+    // empty file look like a quiet device.
+    let _ = std::fs::create_dir_all(logs_dir());
+    let path = logs_dir().join(name);
+    if let Ok(m) = std::fs::metadata(&path) {
+        if m.len() > LOG_CAP_BYTES {
+            let _ = std::fs::rename(&path, path.with_extension("log.old"));
+        }
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// The cap every log under `logs_dir()` respects. 1 MB, one `.old` generation.
+pub const LOG_CAP_BYTES: u64 = 1_000_000;
+
 /// AI evidence (screenshots, transfers served by /api/browser/pwshots) —
 /// runtime data, not program. Was the install-root `pwout\` dir.
 pub fn evidence_dir() -> PathBuf {
@@ -573,6 +606,41 @@ mod harden_tests {
             std::env::temp_dir().join(format!("vale-harden-missing-{}", std::process::id()));
         let _ = std::fs::remove_file(&missing);
         assert!(harden_file(&missing).is_err());
+    }
+}
+
+#[cfg(test)]
+mod log_tests {
+    //! The shared log cap (round 29). Two writers respect it now — `mcp_diag.log` and the new `access.log` — so the
+    //! policy itself is worth a pin: an unbounded log is the failure this replaced.
+    use super::*;
+
+    #[test]
+    fn append_log_rotates_once_past_the_cap_and_keeps_appending() {
+        let name = "access-test.log";
+        let path = logs_dir().join(name);
+        let old = path.with_extension("log.old");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&old);
+
+        append_log(name, "first");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("first"));
+
+        append_log(name, &"x".repeat(LOG_CAP_BYTES as usize));
+        append_log(name, "after-rotation");
+        assert!(old.exists(), "past the cap the file rotates to .old");
+        let now = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            now.contains("after-rotation"),
+            "and the new file keeps taking lines"
+        );
+        assert!(
+            !now.contains("first"),
+            "the rotated generation is the big one, not the fresh one"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&old);
     }
 }
 
