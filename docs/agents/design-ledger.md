@@ -3278,6 +3278,13 @@ consistent.
 
 ROUND 179 CHECKED THE OTHER TWO SURFACES and the gap is exactly one surface wide. The LANDING has no build output at all: `index/public/` holds static files (headers, icons, the installer scripts) and `index/src/page.js` is the page itself — inline, with `"scripts"` in its package.json holding only `test`, because that page has no bundler (round 95 recorded the same fact from the other direction). The INDEX WORKER serves those files; nothing is generated, so nothing can be stale. The PANEL is guarded by `build.rs`, the CONSOLE by this check, and the landing needs neither.
 
+ROUND 180 CLOSED THE SURVEY, and the RELEASE CHAIN is the fourth answer: `agent/vale-agent-npm/vale-agent.exe` is NOT tracked (the package's gitignore covers it; `git ls-files` lists only the readme, the json, `bin/` and `src/`), so the repository cannot hold a stale exe — the release flow builds it fresh, `publish-release.bash` drives it, and `build-pins.bash` pins that the WORKFLOW never carries one. Four surfaces, four answers:
+
+    panel          generates, TRACKS, and is guarded by `build.rs` (the bundle is embedded at compile time)
+    console        generates, TRACKS, and is guarded by `console-assets-check.mjs` (round 178)
+    landing/index  generates NOTHING to track — the page is inline and the worker serves static files (round 179)
+    npm package    generates and does NOT track the exe — nothing can go stale (round 180)
+
 RECORDED WITH THE TWO THINGS IT IS WORTH: the assets are committed (the inconsistency is gone), and the gap is named — a
 freshly checked-out tree can serve a console built from older source, and the test that would notice is a comparison between
 the built assets and a rebuild, which is a candidate rather than something started here.
