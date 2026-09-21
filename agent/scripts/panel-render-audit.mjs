@@ -417,6 +417,16 @@ function buildHarness() {
   if (u.indexOf('/api/plugins/status') >= 0) {
     return Promise.resolve(J({ ok: true, playwright: {
       version: '1.56.0', core: '1.56.0', installed: true, browser: 'chromium-1187',
+      // AND THE RUNNING FLAG ITSELF (round 77). The comment below records why this was left out in round 26: setting it
+      // HUNG the sweep, because the plugins page polled while a browser was running. **Round 163 DELETED that poll** —
+      // usePlugins says so in as many words ("the 5s status POLL is gone"; the status refreshes from the
+      // playwright-changed push) — so the obstacle the note describes has not existed for fifty rounds. Behind a
+      // flag, for the reason the note gives: a fixture that changes what the page DOES is not the same as one that
+      // changes what it SHOWS, and only a surface that asks for it should get it.
+      // READ PER REQUEST, not from the once-parsed P — the bug that cost seven rounds on the boot flag, made again in
+      // this one's first version (the page settled and every dot stayed success, because the flag was false by the time
+      // the branch ran). Device-measured, not assumed.
+      running: new URLSearchParams(location.search).get('pwrun') === '1',
       // THE ongoing DOT IS STILL UNRENDERED, AND THAT IS RECORDED RATHER THAN FORCED (round 26). Setting
       // playwright.running here is the obvious one-line fixture — the hook maps it straight to the ongoing state —
       // and it HUNG the sweep on the device: the plugins page polls while a browser is running, the page never
@@ -716,7 +726,13 @@ function buildHarness() {
     if (u.indexOf('/api/tools/terminal_read') >= 0)    return Promise.resolve(J({ok:true, result:{text:'ONT 0/1 online', start:0, end:14, evicted:false}}));
     if (u.indexOf('/api/tools/') >= 0)                 return Promise.resolve(J({ok:true, result:'OK'}));
     if (/\\/api\\/sessions\\/[^/]+$/.test(u))            return Promise.resolve(J({ok:true, id:SID, events:EVENTS}));
-    // ?pwstart=fail — THE PLUGIN DOT'S ERROR STATE (round 42 of the standing goal). plug-dot[data-state="error"] is
+    // ?pwrun=1 — THE LAST OF THE PLUGIN DOT'S FOUR STATES (round 77 of the standing goal). Round 26 recorded that
+  // ongoing was unreachable because a RUNNING playwright made the page poll and the poll hung the sweep — and round
+  // 163 DELETED that poll ("the 5s status POLL is gone"; the status refreshes from the playwright-changed push now),
+  // so the obstacle the note describes has not existed for fifty rounds. The state is a fixture field away: the page
+  // reads playwright.running from /api/plugins/status.
+
+  // ?pwstart=fail — THE PLUGIN DOT'S ERROR STATE (round 42 of the standing goal). plug-dot[data-state="error"] is
     // reachable in exactly one way: the playwright card's Start/Stop POST failing, which sets actionError and turns
     // that row's dot into the error silhouette AS WELL AS printing the device's own words beneath it. It is the only
     // one of plug-dot's four declared states with no surface, and it is reachable here WITHOUT the trap round 26
@@ -732,7 +748,6 @@ function buildHarness() {
         { status: 500, headers: { 'content-type': 'application/json' } },
       ));
     }
-    if (u.indexOf('/api/plugins/status') >= 0)         return Promise.resolve(J({plugins:[{name:'terminal',ok:true}]}));
     if (u.indexOf('/api/spec') >= 0)                   return Promise.resolve(J({plugins:[]}));
     if (u.indexOf('/api/') >= 0)                       return Promise.resolve(J({ok:true}));
     // EVERY STUBBED REPLY GOES OUT SLOWLY when the page asked for it, so a control's acknowledgement can be timed

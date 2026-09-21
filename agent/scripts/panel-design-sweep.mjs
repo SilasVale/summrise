@@ -649,6 +649,29 @@ ${TIMING}
   // so its hollow ring — a GRAPHIC, so 3:1 — had never been measured by anything, and the live-panel probe found it at
   // 2.56 on the light surface. This surface exists so that state is photographed on every run: the extra rows are the
   // ring's cost, and the alternative was a defect the gates cannot see.
+  // THE PLUGIN DOT'S LAST STATE (round 77 of the standing goal): ongoing. Same page click as the error surface, a
+  // different fixture flag — and round 163's deletion of the plugins poll is what makes it safe to render at all.
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwrun=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => {
+        const rail = document.querySelector('.rail-btn[title="Plugins"]');
+        if (rail) rail.click();
+      });
+      await page.waitForTimeout(1200);
+      const rname = 'PluginRunning-' + theme;
+      const rrows = await page.evaluate(PROBE);
+      for (const row of rrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-running', page: rname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE PLUGIN DOT'S ERROR STATE (round 42 of the standing goal). One click, one failing reply: the playwright card's
   // Start POST answers 500 with the device's own words, so the row's dot takes the error silhouette AND the message is
   // printed beneath it. callApi only throws on an HTTP error status, so a fixture answering 200 with ok:false would
