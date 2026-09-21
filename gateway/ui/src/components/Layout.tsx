@@ -245,7 +245,11 @@ export default function Layout() {
       {userOpen && (
         <div className="user-pop" ref={userRef}>
           <div className="user-pop-head">
-            <div className="topbar-avatar">{userInitial}</div>
+            {/* NAMED FOR WHERE IT LIVES, not for where it sounds like it lives (round 170): this sits in the user
+                POPOVER's head, beside `.user-pop-name` and `.user-pop-role`, and it is the avatar SLOT — a hook with
+                no rule of its own, because the parent flex row owns the layout and the initial reads fine as text. It
+                keeps its place for that reason; it loses the misleading half of its name. */}
+            <div className="user-pop-avatar">{userInitial}</div>
             <div>
               <div className="user-pop-name">{user?.username}</div>
               <div className="user-pop-role">
