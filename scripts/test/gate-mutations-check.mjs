@@ -187,6 +187,14 @@ const CASES = [
     to: "const _c = (j: any) => j.only_a_comment_field;\nexport function useAgentVitals",
   },
 
+  {
+    gate: "scripts/test/stub-surface-check.mjs",
+    file: "agent/src/tools/terminal/stub.rs",
+    why: "the stub loses a method the real backend offers — the round-146 defect, which broke ONE configuration for a long time",
+    from: "    pub async fn term_permit_count(&self, _sid: &str) -> usize {\n        0\n    }\n",
+    to: "",
+  },
+
 ];
 
 const run = (cmd, args) => {

@@ -175,6 +175,20 @@ impl TerminalManager {
     /// The stub records nothing, as it records no exit codes at all — but it must have the method, because the callers are
     /// feature-independent.
     pub async fn term_note_exit_code(&self, _sid: &str, _code: Option<i32>) {}
+
+    /// THE REST OF THE REAL SURFACE, so that ANY caller compiles in either configuration (round 148). These were the
+    /// remaining names only the feature-gated backend had; nothing feature-independent calls them TODAY, which is exactly
+    /// why nobody noticed — and `term_note_exit_code` was in the same position until a caller appeared and the default build
+    /// stopped compiling. A stub that answers with "nothing here" is cheap; a stub with a hole in its surface is a build
+    /// that breaks in one configuration only.
+    ///
+    /// `sweep_idle` is NOT mirrored, and the reason is in `stub-surface-check.mjs`: its return type is defined inside the
+    /// feature-gated module, so a stub mirror cannot name it without moving the type, and no feature-independent caller
+    /// exists. That exception is declared rather than silent.
+    pub async fn term_permit_count(&self, _sid: &str) -> usize {
+        0
+    }
+    pub async fn term_test_age_pending(&self, _sid: &str, _by_ms: u64) {}
     pub async fn term_select(&self, _sid: &str) -> Result<(), DeviceError> {
         Err(disabled_err())
     }
