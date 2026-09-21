@@ -2684,3 +2684,20 @@ the fixture whose state stops rendering.
 
 A gate that finds a defect on its first run and whose sibling then removes the whole class is the shape this session was
 building toward: the measurement apparatus is not overhead next to the work, it is where the work comes from.
+
+### THE LIVE PANEL, RE-MEASURED AFTER FORTY ROUNDS (round 86)
+
+The live probe is the one instrument that measures the panel the DEVICE actually serves — the harness renders a stubbed
+device, and every sweep in this suite points at that. It found the `ag-dot` ring at 2.56:1 in round 29, it shipped in
+1.2.438, and it has not been run since. Re-run on d1 (1.2.438), both densities, exit 0:
+
+    panel    61 rows (50 text, 11 graphics)  textFailing []  graphicFailing []  unmeasurable 0
+             marks: mark[working] · sc-dot[ai] · ag-dot[off]   collisions []   ringFill []
+    desktop  28 rows (17 text, 11 graphics)  textFailing []  graphicFailing []  unmeasurable 0
+             same three families, same empty verdicts
+    verdict  { ok: true }
+
+WHY IT IS WORTH A ROUND TO SAY THIS PLAINLY: forty rounds of work went past this panel — a derivation unified, four
+silhouette collisions fixed, a generated contract wired through, seven gates added — and the only way to know the OPERATOR's
+surface is still clean is to measure the operator's surface. The suite's 142 harness surfaces and this one probe answer
+different questions, and the probe is the one that answers "is what you are looking at true".
