@@ -38,7 +38,7 @@ export function CopyButton({ text, title = "Copy output" }: { text: string; titl
     });
   };
   return (
-    <button className={`cmd-btn cmd-copy${copied ? " copied" : ""}`} title={title} onClick={onCopy}>
+    <button className={`cmd-btn${copied ? " copied" : ""}`} title={title} onClick={onCopy}>
       {copied ? "Copied" : "Copy"}
     </button>
   );
