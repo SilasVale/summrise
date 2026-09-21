@@ -42,6 +42,26 @@ const LINKS = [
     // passed, because both words survive in the fallback and the variable. This asks for the READ: the verdict assigned
     // FROM the probed status, which is the link the mutation broke.
     test: (t) => /\bverdict\s*=\s*st\?\.\s*update\b/.test(t) && /verdict\s*\?\s*verdict\.update_available/.test(t),
+    // AND THE OLD COMPARISON STAYS INSIDE THE FALLBACK (round 134). The clause above proves the device's verdict is READ;
+    // it cannot see whether the console's own comparison is still GUARDED by it. Hoisting it — making the comparison come
+    // FIRST and the device's answer second — passes every pattern above while the console answers for devices it cannot
+    // speak about, which is the round-29 defect in a new costume. So: the comparison must appear AFTER the guarded ternary
+    // in the file, which is where a fallback lives and a hoist cannot.
+    also: (t) => {
+      const guarded = t.search(/verdict\s*\?\s*verdict\.update_available/);
+      const compares = t.search(/lastVersion\s*!==\s*install/);
+      return guarded >= 0 && compares > guarded;
+    },
+    // AND THE OLD COMPARISON STAYS INSIDE THE FALLBACK (round 134). The clause above proves the device's verdict is READ;
+    // it cannot see whether the console's own comparison is still GUARDED by it. Hoisting it — `d.lastVersion !==
+    // install.version || verdict?.update_available` — passes every pattern above while making the console answer for
+    // devices it cannot speak about, which is the round-29 defect in a new costume. So: the comparison must appear AFTER
+    // the guarded ternary in the file, which is where a fallback lives and a hoist cannot.
+    also: (t) => {
+      const guarded = t.search(/verdict\s*\?\s*verdict\.update_available/);
+      const compares = t.search(/lastVersion\s*!==\s*install/);
+      return guarded >= 0 && compares > guarded;
+    },
   },
 ];
 
@@ -55,7 +75,7 @@ for (const l of LINKS) {
     fail++;
     continue;
   }
-  if (l.test(text)) {
+  if (l.test(text) && (!l.also || l.also(text))) {
     console.log(`ok   ${l.file}: ${l.what}`);
   } else {
     console.error(

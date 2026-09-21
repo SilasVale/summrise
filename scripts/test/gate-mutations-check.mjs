@@ -159,6 +159,14 @@ const CASES = [
     to: '<span className="monitor-mark is-flapping" aria-hidden="true" />',
   },
 
+  {
+    gate: "scripts/test/device-verdict-check.mjs",
+    file: "gateway/ui/src/views/DevicesPanel.tsx",
+    why: "the old comparison HOISTED out of the guarded fallback — the console answers for devices it cannot speak about (round 134)",
+    from: "              const outdated = verdict\n                ? verdict.update_available\n                : !!d.lastVersion && !!install?.version && d.lastVersion !== install.version;",
+    to: "              const outdated = !!d.lastVersion && !!install?.version && d.lastVersion !== install.version || !!verdict?.update_available;",
+  },
+
 ];
 
 const run = (cmd, args) => {
