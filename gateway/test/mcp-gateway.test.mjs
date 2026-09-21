@@ -20,6 +20,9 @@ const ADMIN_TOKEN = "test-admin-mcp-token";
 // the fixed gateway-token mapping; keeps the makeEnv(devices, links) shape.
 function makeEnv(devices, links = {}) {
   return makeBaseEnv({
+    // ONE env helper, so the hostname rule is declared once (round 119). Every mention in this file is a device host —
+    // call sites and string assertions alike — which is the simplest shape this migration has had.
+    extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test" },
     devices,
     links,
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
@@ -41,7 +44,7 @@ async function callTool(env, name, args) {
 }
 
 test("tools/call without a device arg resolves the single registered device", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   // terminal_list hits the device — stub the probe/list fetches.
   const real = globalThis.fetch;
   const paths = [];
@@ -53,14 +56,14 @@ test("tools/call without a device arg resolves the single registered device", as
     const j = await callTool(env, "terminal_list", {});
     assert.equal(j.error, undefined, JSON.stringify(j));
     assert.ok(j.result?.content?.length >= 1);
-    assert.ok(paths.some((u) => u.includes("d1.agent.saisi.online/api/tools/terminal_list")), "must proxy to the resolved device");
+    assert.ok(paths.some((u) => u.includes("d1.agent.vale.test/api/tools/terminal_list")), "must proxy to the resolved device");
   } finally { globalThis.fetch = real; }
 });
 
 test("a misguessed device name with multiple devices lists them in the error", async () => {
   const env = makeEnv([
-    { name: "d1", hostname: "d1.agent.saisi.online", token: "t1" },
-    { name: "d2", hostname: "d2.agent.saisi.online", token: "t2" },
+    { name: "d1", hostname: "d1.agent.vale.test", token: "t1" },
+    { name: "d2", hostname: "d2.agent.vale.test", token: "t2" },
   ]);
   const j = await callTool(env, "terminal_list", { device: "og" });
   assert.equal(j.error?.code, -32602);
@@ -69,7 +72,7 @@ test("a misguessed device name with multiple devices lists them in the error", a
 });
 
 test("terminal_execute on a stale session retargets to the single live session", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init) => {
@@ -100,7 +103,7 @@ test("terminal_execute on a stale session retargets to the single live session",
 });
 
 test("terminal_close on an already-dead session succeeds (no retarget, nothing closed)", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   const closes = [];
   globalThis.fetch = async (url, init) => {
@@ -124,7 +127,7 @@ test("terminal_close on an already-dead session succeeds (no retarget, nothing c
 });
 
 test("secret_get routes to the DEVICE agent, not the browser extension", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   const hits = [];
   globalThis.fetch = async (url) => {
@@ -140,7 +143,7 @@ test("secret_get routes to the DEVICE agent, not the browser extension", async (
     assert.equal(j.error, undefined, JSON.stringify(j).slice(0, 300));
     const text = j.result?.content?.[0]?.text || "";
     assert.match(text, /the-password/);
-    assert.ok(hits.some((u) => u.includes("d1.agent.saisi.online/api/tools/secret_get")), "must fetch from the device agent");
+    assert.ok(hits.some((u) => u.includes("d1.agent.vale.test/api/tools/secret_get")), "must fetch from the device agent");
     // No PluginHubDO in env — an extension route would have thrown instead of succeeding.
   } finally { globalThis.fetch = real; }
 });
@@ -149,7 +152,7 @@ test("secret_get routes to the DEVICE agent, not the browser extension", async (
 // guidance, data-URL unwrap, timeout-vs-unreachable had no direct pins) ──
 
 test("stale session with zero live sessions points at terminal_open", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
@@ -171,7 +174,7 @@ test("stale session with zero live sessions points at terminal_open", async () =
 });
 
 test("stale session with several live sessions lists them (no guessing)", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   const execSids = [];
   globalThis.fetch = async (url, init) => {
@@ -194,7 +197,7 @@ test("stale session with several live sessions lists them (no guessing)", async 
 });
 
 test("data-URL string result unwraps to an MCP image block (round-118)", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   const png = `data:image/png;base64,${"A".repeat(64)}`;
   globalThis.fetch = async (url) => {
@@ -214,7 +217,7 @@ test("data-URL string result unwraps to an MCP image block (round-118)", async (
 });
 
 test("dial timeout vs refusal map to TIMEOUT vs DEVICE_UNREACHABLE (round-55)", async () => {
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const real = globalThis.fetch;
   try {
     globalThis.fetch = async () => {
@@ -237,7 +240,7 @@ test("dial timeout vs refusal map to TIMEOUT vs DEVICE_UNREACHABLE (round-55)", 
 // defensive-only (not deterministically triggerable).
 test("mcp GET: SSE stream opens and cancels without leaking the timer", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }]);
   const res = await worker.fetch(new Request("https://x/mcp", {
     headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
   }), env);

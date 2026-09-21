@@ -72,7 +72,6 @@ const ALLOWED = [
   ["gateway/test/devices-validate.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/devices.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
-  ["gateway/test/mcp-gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/registry.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["gateway/test/vale-cli.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
   ["agent/resources/panel-react/src", "panel fixtures and tests that render device rows"],

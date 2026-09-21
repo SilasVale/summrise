@@ -667,3 +667,16 @@ five places. Two shapes were new:
 
 `gateway.test.mjs` is DECLINED with its reason, the third-kind case: its nine mentions are the relay/exit BASE URLs
 (`oracle.<host>`, `zen-us.<host>`, `v.<host>`) that the product chooses, and those tests exist to pin them.
+
+**ROUND 119: THE TENTH FILE, AND THE THIRD KIND GETS A SECOND FACE.** `mcp-gateway.test.mjs` was the simplest shape this
+migration has had — thirteen mentions, ALL device hostnames (call sites and string assertions alike), ONE env helper — and
+it moved in a single pass.
+
+`devices-validate.test.mjs` is DECLINED, and its reason is different from `registry`'s: its FIRST test is named "default
+suffix, case-insensitive, bare suffix refused" and passes `{}` on purpose, because **the shipped default IS its subject**.
+Migrating it would not move a fixture, it would delete the thing under test. Only the NEGATIVE case in its second test is
+incidental, and moving that alone would leave the file on the list anyway.
+
+So the third kind of host has two faces now: a base URL the PRODUCT chooses (`registry`, `gateway`, `vale-cli`) and a test
+whose SUBJECT is the default (`devices-validate`). Both stay, and both now have an accurate reason in the gate rather than
+an incidental one.
