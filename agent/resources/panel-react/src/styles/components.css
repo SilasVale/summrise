@@ -1653,7 +1653,24 @@
 .monitor-alert.is-up { border-left-color: var(--state-ok); }
 .monitor-alert.is-down .monitor-alert-text strong { color: var(--danger-on-soft); }
 .monitor-alert .monitor-mark { background: var(--warn-ink); }
-.monitor-alert .monitor-mark.is-up { background: transparent; border: 1.5px solid var(--state-ok); }
+/* A RECOVERY IS A SOLID UPRIGHT DOT NOW, BECAUSE A HOLLOW DIAMOND WAS ALREADY TAKEN (round 43 of the standing goal).
+   This rule used to be `transparent` + a green border, which is the SAME SILHOUETTE as `.monitor-mark.is-flapping` in
+   the status-bar chip (a hollow diamond in warn ink) — two states of one mark, told apart by colour alone. The rendered
+   collision check found it on all four `MonitorUp-<theme>`/`MonitorDown-<theme>` surfaces the moment the alert strip got
+   a fixture for a device push, and it is the THIRD instance of this class this week (`cmd-dot` bg/muted,
+   `traj-ev-dot` muted/ok).
+   WHAT EACH SILHOUETTE MEANS HERE, so the next edit does not re-collide them:
+     base  `.monitor-mark`          — SOLID DIAMOND (warn ink): the host is down. Attention shape, solid = concluded.
+     `.is-flapping`                 — HOLLOW DIAMOND (warn ink): unstable link. Attention shape, hollow = not settled.
+     `.is-up` (this rule)           — SOLID CIRCLE (ok ink): it came back. The panel's "fine" shape, and the only one
+                                      of the three that is neither rotated nor hollow.
+   The alert strip's left border already carries the same verdict in its ink, so the mark does not have to. */
+.monitor-alert .monitor-mark.is-up {
+  background: var(--state-ok);
+  border: none;
+  border-radius: 50%;
+  transform: none;
+}
 /* The outage log inside a target's row: the chart's facts, in words with clock times. */
 .monitor-log { margin: var(--sp-0-5) 0 0; padding: 0 0 0 var(--sp-0-5); list-style: none; display: flex; flex-direction: column; gap: var(--sp-0-5); }
 .monitor-log li { display: flex; gap: var(--sp-2); font: 400 var(--fs-xs) var(--font-mono); color: var(--chrome-ink-dim); }

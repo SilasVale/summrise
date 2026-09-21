@@ -248,6 +248,25 @@ const CHECKS = [
     ],
   },
   {
+    // THE PLUGIN DOT'S ERROR STATE, REACHABLE WITHOUT THE TRAP ROUND 26 RECORDED (round 42 of the standing goal).
+    // `plug-dot[data-state="error"]` comes from the playwright card's Start/Stop POST failing; `ongoing` (a browser
+    // actually running) is the state that hangs a sweep, and a FAILED start never spawns one. The reply is a 500 on
+    // purpose — `callApi` throws only on an HTTP error status, so a fixture answering 200 with `ok:false` renders
+    // NOTHING and would look like a fixture that works.
+    name: "?pwstart=fail can make the plugin start fail",
+    test: (h) =>
+      /P\.get\('pwstart'\) === 'fail'/.test(h) &&
+      /status: 500/.test(h) &&
+      /playwright-mcp did not start/.test(h),
+    mutations: [
+      {
+        why: "the failing route answers 200, so `callApi` returns the body instead of throwing and the error dot renders nowhere again",
+        from: /\{ status: 500, headers: \{ 'content-type': 'application\/json' \} \}/,
+        to: "{ status: 200, headers: { 'content-type': 'application/json' } }",
+      },
+    ],
+  },
+  {
     // A SLOW NETWORK IS A STATE THE FIXTURE MUST BE ABLE TO RENDER (round 19). The panel's acknowledgement claims it
     // fires on the EVENT rather than on the reply; the only way to tell those apart as rendered is to make every
     // stubbed reply slow, and a flag no fixture carries is a measurement nothing can take.

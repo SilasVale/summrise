@@ -711,6 +711,22 @@ function buildHarness() {
     if (u.indexOf('/api/tools/terminal_read') >= 0)    return Promise.resolve(J({ok:true, result:{text:'ONT 0/1 online', start:0, end:14, evicted:false}}));
     if (u.indexOf('/api/tools/') >= 0)                 return Promise.resolve(J({ok:true, result:'OK'}));
     if (/\\/api\\/sessions\\/[^/]+$/.test(u))            return Promise.resolve(J({ok:true, id:SID, events:EVENTS}));
+    // ?pwstart=fail — THE PLUGIN DOT'S ERROR STATE (round 42 of the standing goal). plug-dot[data-state="error"] is
+    // reachable in exactly one way: the playwright card's Start/Stop POST failing, which sets actionError and turns
+    // that row's dot into the error silhouette AS WELL AS printing the device's own words beneath it. It is the only
+    // one of plug-dot's four declared states with no surface, and it is reachable here WITHOUT the trap round 26
+    // recorded: a FAILED start never spawns a browser, so the poll loop that hangs a sweep never begins.
+    //
+    // 500 AND NOT {ok:false}: callApi only throws on an HTTP error status — a JSON body carrying ok:false is
+    // returned as an ordinary value — so a fixture that answered 200 with an error field would render NOTHING and look
+    // like a fixture that works. The body carries the message the real agent sends, because callApi surfaces
+    // j.error verbatim when the body parses.
+    if (u.indexOf('/api/plugins/playwright/start') >= 0 && P.get('pwstart') === 'fail') {
+      return Promise.resolve(new Response(
+        JSON.stringify({ ok: false, error: 'playwright-mcp did not start: spawn ENOENT (fixture)' }),
+        { status: 500, headers: { 'content-type': 'application/json' } },
+      ));
+    }
     if (u.indexOf('/api/plugins/status') >= 0)         return Promise.resolve(J({plugins:[{name:'terminal',ok:true}]}));
     if (u.indexOf('/api/spec') >= 0)                   return Promise.resolve(J({plugins:[]}));
     if (u.indexOf('/api/') >= 0)                       return Promise.resolve(J({ok:true}));

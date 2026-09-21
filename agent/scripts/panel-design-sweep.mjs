@@ -649,6 +649,34 @@ ${TIMING}
   // so its hollow ring — a GRAPHIC, so 3:1 — had never been measured by anything, and the live-panel probe found it at
   // 2.56 on the light surface. This surface exists so that state is photographed on every run: the extra rows are the
   // ring's cost, and the alternative was a defect the gates cannot see.
+  // THE PLUGIN DOT'S ERROR STATE (round 42 of the standing goal). One click, one failing reply: the playwright card's
+  // Start POST answers 500 with the device's own words, so the row's dot takes the error silhouette AND the message is
+  // printed beneath it. callApi only throws on an HTTP error status, so a fixture answering 200 with ok:false would
+  // have rendered nothing at all. Round 26 recorded that ongoing (playwright RUNNING) hangs a sweep; this is the
+  // opposite end of the same control and cannot: a FAILED start never spawns a browser.
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwstart=fail&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      await page.evaluate(() => {
+        const card = [...document.querySelectorAll('.plugin-card, .plug-card, [class*="plugin"]')]
+          .find((c) => /playwright/i.test(c.textContent || ''));
+        const btn = card && [...card.querySelectorAll('button')].find((b) => /^Start/.test((b.textContent || '').trim()));
+        if (btn) btn.click();
+      });
+      await page.waitForTimeout(1200);
+      const fname = 'PluginStartFail-' + theme;
+      const frows = await page.evaluate(PROBE);
+      for (const row of frows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-fail', page: fname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   // THE MONITOR ALERT STRIP'S TWO TONES (round 39 of the standing goal). The device pushes a monitor-change frame
   // when a watched host changes state, and the strip that renders it is the ONE thing in this panel the device is
   // allowed to interrupt with — so both of its marks (the recovery, .monitor-mark.is-up, and the outage, the base
