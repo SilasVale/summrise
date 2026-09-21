@@ -36,10 +36,9 @@ if (dirty) {
  *  ONE line duplicated in place is a plain from/to replacement. (The earlier note assumed the `/api/health` block, which is
  *  multi-line — the wrong anchor made the shape look impossible.)
  *
- *  OWED, AND THIS TIME FOR A REAL REASON: `wire-field-check`'s second branch (round 108) — a field that a fixture carries
- *  and NO producer sends — is not represented here, because exercising it needs a field planted in a hook AND in the
- *  harness while absent from every Rust and TypeScript source, and this list's mutations edit ONE file each. The branch ran
- *  and found nothing (all 26 fields have producers); proving it bites is the next step, not an assumption. */
+ *  A case may carry `also`: further edits applied with the primary and restored with it, which is what let round 109
+ *  represent `wire-field-check`'s second branch — a field planted in a hook AND in the harness while absent from every Rust
+ *  and TypeScript source. That shape was owed for one round and paid for with four lines of the runner. */
 const CASES = [
   {
     gate: "scripts/test/session-row-check.mjs",
@@ -122,6 +121,21 @@ const CASES = [
     to: "  '/api/version': { version: '1.0.106' },\n  '/api/version': { version: '9.9.9' },\n",
   },
 
+  {
+    gate: "scripts/test/wire-field-check.mjs",
+    file: "agent/resources/panel-react/src/hooks/useAgentVitals.ts",
+    also: [
+      {
+        file: "agent/scripts/panel-render-audit.mjs",
+        from: "      running: P.get('pwrun') === '1',",
+        to: "      running: P.get('pwrun') === '1', stub_only_field: 1,",
+      },
+    ],
+    why: "a field a fixture carries and NO producer sends — it renders in the harness and would be undefined on a device",
+    from: "export function useAgentVitals",
+    to: "const _stub = (j: any) => j.stub_only_field;\nexport function useAgentVitals",
+  },
+
 ];
 
 const run = (cmd, args) => {
@@ -146,8 +160,17 @@ const emit = (script) => {
 
 let findings = 0;
 for (const c of CASES) {
+  const paths = [c.file, ...(c.also ?? []).map((a) => a.file)];
+  const originals = new Map(paths.map((f) => [f, readFileSync(`${ROOT}/${f}`, "utf8")]));
+  const anchors = [[c.file, c.from], ...(c.also ?? []).map((a) => [a.file, a.from])];
+  const broken = anchors.find(([f, from]) => !originals.get(f).includes(from));
+  if (broken) {
+    console.error(`FAIL ${c.gate}: its mutation's anchor is GONE from ${broken[0]} — re-pair it, or the gate is unproven`);
+    findings++;
+    continue;
+  }
   const path = `${ROOT}/${c.file}`;
-  const original = readFileSync(path, "utf8");
+  const original = originals.get(c.file);
   if (!original.includes(c.from)) {
     console.error(`FAIL ${c.gate}: its mutation's anchor is GONE from ${c.file} — re-pair it, or the gate is unproven`);
     findings++;
@@ -165,6 +188,7 @@ for (const c of CASES) {
   }
   try {
     writeFileSync(path, original.replace(c.from, c.to));
+    for (const a of c.also ?? []) writeFileSync(`${ROOT}/${a.file}`, originals.get(a.file).replace(a.from, a.to));
     if (c.emit) emit(c.emit);
     const after = run(runner, [c.gate]);
     if (after === 0) {
@@ -174,7 +198,7 @@ for (const c of CASES) {
       console.log(`ok   ${c.gate} bites — ${c.why}`);
     }
   } finally {
-    writeFileSync(path, original);
+    for (const [f, text] of originals) writeFileSync(`${ROOT}/${f}`, text);
     if (c.emit) emit(c.emit);
   }
 }
