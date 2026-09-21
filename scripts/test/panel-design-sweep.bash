@@ -557,6 +557,22 @@ if grep -q "NO SURFACE RENDERED" "$TMP/marks-partial.out" && grep -q "data-state
 else
   bad "an unrendered mark state went unmentioned: $(grep -m1 'mark family' "$TMP/marks-partial.out" || echo none)"
 fi
+# AND A FAMILY THE RUN NEVER MENTIONS AT ALL IS THE CASE THE FIRST VERSION COULD NOT SEE: it enumerated what the
+# REPORT contained, so a family rendering nowhere simply did not appear — and the device run that rendered cmd-dot's
+# `running` showed it by LOSING traj-ev-dot from the list instead of reporting it at zero. The families come from the
+# sheet now; `tab-dot` is one of the six this found.
+python3 - "$TMP/clean.json" "$TMP/marks-absent.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["surfaces"] = [{"density": "panel", "theme": "light", "page": "Terminal", "marks": {"families": ["cmd-dot[fail,ok,muted,running,warn,bg]"]}}]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+node "$TOOL" --judge "$TMP/marks-absent.json" > "$TMP/marks-absent.out" 2>&1 || true
+if grep -q "mark family tab-dot declares .* rendered 0" "$TMP/marks-absent.out"; then
+  ok "a mark family NO surface rendered is named at zero, not silently missing"
+else
+  bad "an unrendered family went unmentioned: $(grep -c 'mark family' "$TMP/marks-absent.out") family line(s)"
+fi
 node "$TOOL" --judge "$TMP/marks-full.json" > "$TMP/marks-full.out" 2>&1 || true
 if grep -q "mark family cmd-dot" "$TMP/marks-full.out"; then
   bad "a family rendering every declared state was still reported: $(grep -m1 'mark family' "$TMP/marks-full.out")"

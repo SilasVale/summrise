@@ -152,6 +152,27 @@ const CHECKS = [
     ],
   },
   {
+    // A COMMAND THAT NEVER ENDED IS A STATE THE TRAIL MUST CARRY (round 27). cmd-dot's `running` is one of six states
+    // the sheet declares and, until this trail entry, no surface had ever painted — the mark-coverage note asked for
+    // it on every run. The entry is a trailing `command/start` with no matching end, which is the panel's own
+    // definition of a live card (useCommandEvents: "surface it as a LIVE card").
+    name: "the session trail ends with a command that never ended, so a live card has a surface",
+    // THE PREDICATE NAMES THE TRAIL'S OWN FRAGMENT, not the intent string: round 26 had already put the same words on
+    // the OPERATION feed, so a check on the phrase passed with the audit entry deleted — which is what this gate's
+    // self-test said, in as many words.
+    test: (h) => /"seq":12,[^}]*"kind":"command\/start","command":"reboot"/.test(h),
+    // THE MUTATION TARGETS THE EMITTED FORM, which is the lesson this check's own self-test just taught: the source
+    // writes the trail as a JS array and the harness emits it as JSON on one line, so a pattern copied from the
+    // source matches nothing and the check proves nothing. This is the fragment the browser actually reads.
+    mutations: [
+      {
+        why: "the live card loses its trail entry, and cmd-dot's running state goes back to rendering nowhere",
+        from: /\{"seq":12,"ts":1789000041,"kind":"command\/start","command":"reboot","intent":"pick up the new firmware slot"\}/,
+        to: "null",
+      },
+    ],
+  },
+  {
     // A SLOW NETWORK IS A STATE THE FIXTURE MUST BE ABLE TO RENDER (round 19). The panel's acknowledgement claims it
     // fires on the EVENT rather than on the reply; the only way to tell those apart as rendered is to make every
     // stubbed reply slow, and a flag no fixture carries is a measurement nothing can take.

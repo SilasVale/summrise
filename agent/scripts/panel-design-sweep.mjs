@@ -1387,6 +1387,10 @@ function judge(file) {
         for (const st of m[2].split(",")) if (st) seenByFamily.get(m[1]).add(st);
       }
     }
+    // THE FAMILIES COME FROM THE SHEET, NOT FROM THE RUN (round 27). Enumerating what rendered hides the worst case:
+    // a family that renders NOWHERE simply does not appear, so the note cannot name it — and the device run that
+    // rendered cmd-dot's `running` showed exactly that, because `traj-ev-dot` had disappeared from the list instead
+    // of being reported at zero. The sheet's state selectors are the vocabulary; the run is the evidence about it.
     const sheetPath = "agent/resources/panel/panel.css";
     let css = "";
     try {
@@ -1398,6 +1402,13 @@ function judge(file) {
       // COMMENTS FIRST, so prose about a selector is not read as one (the lesson `css-vars-check` and
       // `retired-colours-check` both record from their own first runs).
       css = css.replace(/\/\*[\s\S]*?\*\//g, "");
+      // Every class the sheet gives a STATE rule to, by the probe's own family rule (a name ending in dot / dotcol /
+      // mark / led / chip / signal / state), so the two instruments cannot disagree about what a family is.
+      const familyRule = /(dot|dotcol|mark|led|chip|signal|state)$/;
+      for (const m of css.matchAll(/\.([A-Za-z][\w-]*)(\[[^\]]+\]|\.[A-Za-z][\w-]*)/g)) {
+        if (!familyRule.test(m[1])) continue;
+        if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
+      }
       for (const [family, rendered] of seenByFamily) {
         const declared = new Set();
         const re = new RegExp("\\." + family.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\[[^\\]]+\\]|\\.[A-Za-z][\\w-]*)", "g");

@@ -65,6 +65,14 @@ const EVENTS = [
   { seq: 8, ts: 1789000021, kind: "approval", status: "granted", text: "vlan" },
   { seq: 9, ts: 1789000030, kind: "command/start", command: "vlan 100", intent: "apply the change" },
   { seq: 10, ts: 1789000031, kind: "command/end", exit_code: 1, duration_ms: 200 },
+  // A COMMAND THAT NEVER ENDED, AND WHY IT LIVES HERE (round 27). Round 26 added this to the OPERATION feed and
+  // claimed cmd-dot's `running` state was then rendered; the mark-coverage note said otherwise, in the same CI log
+  // ("cmd-dot ... rendered 3 (fail, muted, ok)"), because the operation feed is the History page's Runs scope and
+  // the command CARDS are built from THIS trail (useCommandEvents: "A trailing start with no end: still running ...
+  // surface it as a LIVE card"). One of the six cmd-dot states had never been painted anywhere; this is the stub
+  // that paints it, and the note is what says whether it worked.
+  { seq: 11, ts: 1789000040, kind: "output", text: "waiting for the uplink to settle" },
+  { seq: 12, ts: 1789000041, kind: "command/start", command: "reboot", intent: "pick up the new firmware slot" },
 ];
 
 const SESSION = {
