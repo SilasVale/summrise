@@ -493,3 +493,23 @@ THE PANEL'S COVERAGE QUEUE IS DOWN TO ONE ITEM: `plug-dot ongoing`, which is out
 26 — a playwright that is actually RUNNING starts the poll loop that hangs a sweep. It needs a different way to make the
 state true (a fixture that reports `running` while the page's own polling is stubbed out, or a card rendered outside the
 sweep), and until then the note is honest: those silhouettes and their collisions are unverified.
+
+**ROUND 89: THE GATEWAY FIXTURE MIGRATION'S RECIPE, MEASURED ON ITS FIRST FILE.**
+
+`gateway/test/cors.test.mjs` is the file the 76 failures came from, and half of its entanglement is now removable: round 88
+made the allowed-origin list configuration (`env.CONSOLE_ORIGINS`, optional, with the production set as the unchanged
+default). What the next attempt needs, measured rather than discovered again:
+
+  * **THREE production constants** in that file (`AI`, `API` — and `DSH`, which is deliberately NOT allowed and must stay
+    a non-production host either way), plus `EVIL` (already `example.com`, unrelated);
+  * **A SECOND CONFIG KEY MOVES WITH IT**: the mock env sets `CONSOLE_HOST: "ai.saisi.online,api.saisi.online"`, which is
+    what `requestHost` compares a loopback Origin against — so a test domain needs BOTH `CONSOLE_ORIGINS` (what may read
+    answers) and `CONSOLE_HOST` (where the console is served). Migrating one without the other turns a loopback case into
+    a different test, silently;
+  * **~15 assertions and a `get(path, origin, host)` helper** whose default host is the production one;
+  * and every `isAllowedOrigin(origin, host)` / `corsHeadersFor(request)` call in the file must be given the `env` to see
+    the test list at all — the functions default to the production set when no env is passed, by design.
+
+That is one careful round for ONE file, and it is worth doing that way: round 48 replaced all twenty files at once and 76
+tests failed in a single run, which told us the fixtures were entangled but not WHICH knot to untie first. This recipe is
+that knot, written down.
