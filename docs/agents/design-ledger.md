@@ -3059,3 +3059,21 @@ says "this device just started for the first time" or "the machine restarted", a
 
 RECORDED RATHER THAN FIXED, which is the whole point of the round: the next reader who notices "two values have only one
 reader" will find this paragraph and the two line numbers instead of a defect to repair.
+
+### LOOKING FOR A FACT THE INTERFACE WANTS AND THE DEVICE DOES NOT REPORT (round 159)
+
+`first_seq` was the shape worth hunting: the panel said a trail was TRIMMED only after the device learned to report where the
+survivors begin. The same question asked of the panel's time-based logic:
+
+    grep -E "Date\.now\(\) *- *[a-zA-Z_.]+ *[<>]"   →  nothing
+    the thresholds that do exist:  bootNotice.ts:69   REPLACED_NOTICE_SECS = 300
+                                   liveness.ts        (a quiet-session threshold, over the device's idle_ms)
+
+Both are PRESENTATION WINDOWS over facts the device already states — `uptime_secs` and `idle_ms` — and that distinction is
+the point: the device reports the fact, the surface decides how long to keep saying it, and a threshold is the right shape
+for the second job and the wrong shape for the first. Nothing wants a fact the device is not reporting.
+
+A NEGATIVE RESULT, recorded with the two commands, because this is the file a future round reads before hunting the same
+thing. The `first_seq` case was found by a GATE (`wire-field-check`, round 82) rather than by looking, which is the argument
+for the gates over the hunting: this round cost two commands and found nothing, and the one that mattered was found by a
+program that never gets bored.
