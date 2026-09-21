@@ -383,7 +383,7 @@ export default function ModelsView() {
   /** Declare a custom provider: prefix + endpoint + protocol + key. Upsert by
    *  prefix, which is how an operator edits the record they already own. */
   const submitProvider = useCallback(async () => {
-    const bare = newProvider.prefix.trim().replace(/\/+$/, "");
+    const bare = barePrefix(newProvider.prefix.trim());
     if (!bare || !newProvider.baseURL.trim()) return;
     setAdding(true);
     try {

@@ -38,7 +38,10 @@ for (const rel of files) {
     .split("\n")
     .forEach((line, i) => {
       // the trailing-slash strip, in either of the two spellings the console used
-      if (/replace\(\/\\\/\+\?\$\/, *""\)/.test(line)) {
+      // `/\/+?$/` as a PATTERN: slash, one-or-more backslash-escaped slashes, end, comma, quotes. The first version wrote
+      // the quantifier as `\+\?` — a literal "+?" — so it could never match the very line its mutation creates, and the
+      // audit said so instead of the count looking fine. (Round 173, and the seventh time a scan's own bug was the finding.)
+      if (/replace\(\/\\\/\+\$|replace\(\/\\\/\$/.test(line)) {
         offenders.push(`${short}:${i + 1} strips a trailing slash by hand — ${HOMES["lib/lane.ts"]}`);
       }
     });
