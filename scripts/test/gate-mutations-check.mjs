@@ -211,6 +211,14 @@ const CASES = [
     to: "const MAX_ALLOWED = 9;",
   },
 
+  {
+    gate: "scripts/test/contract-vocabulary-check.mjs",
+    file: "agent/src/vocabulary.rs",
+    why: "a value DECLARED and never written — the state that silently never renders (round 156's clause)",
+    from: "pub const EXITED_PREFIX",
+    to: "pub const NEVER_WRITTEN_ANYWHERE: &str = \"a-state-nobody-emits\";\npub const EXITED_PREFIX",
+  },
+
 ];
 
 const run = (cmd, args) => {

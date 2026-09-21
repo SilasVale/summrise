@@ -19,6 +19,7 @@
 //
 // Exit 1 with a named file and value for any of them. Run: node scripts/test/contract-vocabulary-check.mjs
 import { decomment } from "./lib/decomment.mjs";
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -147,6 +148,35 @@ if (tableKeys.length === 0) {
   }
   if (!pathTs.includes("EXITED_PREFIX")) bad("path.ts no longer reads the generated EXITED_PREFIX");
   ok(`${tableKeys.length} end reason(s) in the derivation's table, every one in the vocabulary (and the type is generated)`);
+}
+
+// ── AND EVERY DECLARED VALUE IS ONE THE DEVICE ACTUALLY WRITES (round 156). The artifact's own header says it holds "the
+// strings the device writes and the interfaces read", and this file's header has always claimed that "a state the device
+// never writes is a state that silently never renders" — but nothing checked the WRITING half: the clauses above compare the
+// two ends for agreement, and a value declared in `vocabulary.rs` and emitted nowhere would agree with itself perfectly.
+// Measured before adding this: all 16 values (5 boot kinds, 6 end reasons, 5 frames) appear as string literals in `agent/src`.
+// THE FILE LIST COMES FROM GIT, the way `production-host-check` does it: a hand-rolled walk recursed until the stack blew
+// (a symlink, most likely), and `git ls-files` is authoritative, ordered and cannot loop.
+const rustSources = execFileSync("git", ["ls-files", "agent/src"], { cwd: ROOT, encoding: "utf8" })
+  .split("\n")
+  .filter((f) => f.endsWith(".rs"))
+  .map((f) => readFileSync(join(ROOT, f), "utf8"))
+  .join("\n");
+
+const neverWritten = [];
+for (const [group, values] of Object.entries(contract)) {
+  if (!Array.isArray(values)) continue;
+  for (const v of values) {
+    if (!rustSources.includes(JSON.stringify(v))) neverWritten.push(`${group}: ${v}`);
+  }
+}
+if (neverWritten.length) {
+  fail += neverWritten.length;
+  console.error(
+    `FAIL ${neverWritten.length} declared value(s) the device never writes — a state that silently never renders:\n  ` +
+      neverWritten.join("\n  ") +
+      `\n\nEither the device emits it somewhere in agent/src, or it is a name only the interfaces know.`,
+  );
 }
 
 if (fail) {
