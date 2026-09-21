@@ -513,3 +513,20 @@ default). What the next attempt needs, measured rather than discovered again:
 That is one careful round for ONE file, and it is worth doing that way: round 48 replaced all twenty files at once and 76
 tests failed in a single run, which told us the fixtures were entangled but not WHICH knot to untie first. This recipe is
 that knot, written down.
+
+**ROUND 90 TRIED IT, AND THE ATTEMPT CORRECTED THE RECIPE.** The mechanical half worked — constants, the mock env (both
+keys moved together), the `get` helper's default host, the device hostname — and the suite went from 917/0 to 908/9. The
+nine were not the recipe's fault but its INCOMPLETENESS, in two ways worth keeping:
+
+  * **"every call must be given the env" is wrong for a whole CLASS of case.** Some tests assert the SHIPPED DEFAULT —
+    that a production origin is allowed when nothing is configured. Those must receive NO env, and the honest way to
+    write them is against a MEMBER of `ALLOWED_ORIGINS` (imported) rather than a literal host, so the file proves what the
+    default does without spelling the deployment's domain. A regex pass cannot tell those from the cases that configure
+    their own list; that distinction is per-case INTENT.
+  * **a mechanical substitution mangled the file**: `corsHeadersFor()` — an empty call — became `corsHeadersFor(, ORIGINS)`
+    and the file stopped loading, which the runner reported as the FILE failing rather than a case. Both fixed by hand,
+    the suite reached 909/8, and the remainder are the default-asserting cases above.
+
+REVERTED TO GREEN (917/0) rather than landing a half-migrated file, which is round 48's lesson applied one file down. The
+next attempt starts from this correction: migrate the cases that CONFIGURE, leave the ones that assert the DEFAULT — and
+prove the latter against `ALLOWED_ORIGINS` rather than a literal.
