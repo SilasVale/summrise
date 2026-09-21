@@ -37,14 +37,27 @@ pub const FRAMES: &[&str] = &[
 /// FIVE, NOT FOUR: this list was first written with `crashed` as the last entry and `machine-restart` was missing
 /// entirely — a kind the device has emitted since it learned to tell "the host rebooted" from "the process died". The
 /// test below compares this against `BootKind::ALL`, which is how it was caught inside the same round.
-pub const BOOT_KINDS: &[&str] = &["first-run", "clean-exit", "replaced", "machine-restart", "crashed"];
+pub const BOOT_KINDS: &[&str] = &[
+    "first-run",
+    "clean-exit",
+    "replaced",
+    "machine-restart",
+    "crashed",
+];
 
 /// Why a command ended, as recorded on `command/end` and switched on by the panel's `stateFromEnd`.
 ///
 /// `exited` is a PREFIX, not a value: the device writes `exited:<code>` with its own number, which is why
 /// [`EXITED_PREFIX`] is separate. The panel's own type comment lists the same seven (`marker / idle / timeout /
 /// interrupted / backgrounded / closed / exited:N`) — that comment is what this constant makes checkable.
-pub const END_REASONS: &[&str] = &["marker", "idle", "timeout", "interrupted", "backgrounded", "closed"];
+pub const END_REASONS: &[&str] = &[
+    "marker",
+    "idle",
+    "timeout",
+    "interrupted",
+    "backgrounded",
+    "closed",
+];
 pub const EXITED_PREFIX: &str = "exited:";
 
 /// The JSON artifact `contract-vocabulary-check.mjs` reads. Written by `contract_vocabulary_snapshot`.
@@ -66,7 +79,10 @@ mod tests {
     /// to stay in step — which is the whole reason this module exists.
     #[test]
     fn boot_kinds_match_the_enum() {
-        let from_enum: Vec<&str> = crate::runstate::BootKind::ALL.iter().map(|k| k.as_str()).collect();
+        let from_enum: Vec<&str> = crate::runstate::BootKind::ALL
+            .iter()
+            .map(|k| k.as_str())
+            .collect();
         let mut mine = BOOT_KINDS.to_vec();
         let mut theirs = from_enum.clone();
         mine.sort_unstable();
@@ -81,7 +97,10 @@ mod tests {
     /// compare against a literal that never appears; and the prefix must not be one of the values either.
     #[test]
     fn the_exited_prefix_is_not_also_a_value() {
-        assert!(EXITED_PREFIX.ends_with(':'), "the prefix must be recognisable as one");
+        assert!(
+            EXITED_PREFIX.ends_with(':'),
+            "the prefix must be recognisable as one"
+        );
         assert!(
             !END_REASONS.contains(&EXITED_PREFIX.trim_end_matches(':')),
             "`exited` is listed as a value AND used as a prefix"

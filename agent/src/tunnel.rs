@@ -65,12 +65,22 @@ fn cloudflared_download_url() -> String {
     )
 }
 
-/// Reachability fallback for devices where GitHub is blocked (GFW etc.) —
-/// the pre-existing gateway proxy of the official release. STILL hash-gated:
-/// it tracks `latest`, so once upstream moves past the pin a proxied
-/// download fails CLOSED with the mismatch log below (the signal to run the
-/// HOW-TO-UPDATE steps above), exactly like a tampered binary would.
-const CLOUDFLARED_PROXY_URL: &str = "https://agent.saisi.online/vale-agent/cloudflared.exe";
+/// Reachability fallback for devices where GitHub is blocked (GFW etc.) — the deployment's own proxy of the official
+/// release, at the same host that serves the agent's updates. STILL hash-gated: it tracks `latest`, so once upstream
+/// moves past the pin a proxied download fails CLOSED with the mismatch log below (the signal to run the HOW-TO-UPDATE
+/// steps above), exactly like a tampered binary would.
+///
+/// DERIVED FROM CONFIGURATION, NOT HARDCODED (round 45 of the standing goal). This was a `const` carrying the
+/// production host, which made the repository a second place that host was written down — the first being the device's
+/// own config, where a deployment's URLs belong. A build with no `download_url` configured now has no proxy fallback at
+/// all, which is the honest behaviour: the upstream GitHub URL is the primary candidate, and a device that has not been
+/// told where its download site is cannot be told where a proxy of it is either.
+fn cloudflared_proxy_url(download_url: &str) -> String {
+    format!(
+        "{}/vale-agent/cloudflared.exe",
+        download_url.trim_end_matches('/')
+    )
+}
 
 /// True only when `bytes` hash to `expected_hex`. Malformed expectations
 /// (wrong length, non-hex) NEVER match — fail closed, never fail open.
@@ -142,7 +152,11 @@ pub(crate) fn write_verified_bytes(
 /// string for the API response. Best-effort — failures are reported, not fatal.
 /// `port` is the agent's configured bind port — the ingress must point where
 /// the agent actually listens (a hardcoded 18080 502s custom-port installs).
-pub(crate) async fn provision_tunnel(cf_token: &str, port: u16) -> String {
+pub(crate) async fn provision_tunnel(
+    cf_token: &str,
+    port: u16,
+    download_url: Option<&str>,
+) -> String {
     let cf = crate::paths::cloudflared_bin();
     if !cf.exists() {
         // components\cloudflared.exe absent (the boxed tgz binary normally covers
@@ -166,10 +180,11 @@ pub(crate) async fn provision_tunnel(cf_token: &str, port: u16) -> String {
         // never reach the write below.
         let mut verified: Option<bytes::Bytes> = None;
         let mut last_err = String::new();
-        for url in [
-            cloudflared_download_url(),
-            CLOUDFLARED_PROXY_URL.to_string(),
-        ] {
+        let mut candidates = vec![cloudflared_download_url()];
+        if let Some(site) = download_url.filter(|s| !s.trim().is_empty()) {
+            candidates.push(cloudflared_proxy_url(site));
+        }
+        for url in candidates {
             match download_and_verify(&client, &url).await {
                 Ok(b) => {
                     verified = Some(b);
@@ -605,6 +620,22 @@ mod tests {
         assert!(!CLOUDFLARED_VERSION.contains("latest"));
         assert_eq!(CLOUDFLARED_SHA256.len(), 64);
         assert!(CLOUDFLARED_SHA256.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
+
+    /// THE FALLBACK IS THE CONFIGURED SITE, JOINED — and the join is where a double slash would live: a deployment that
+    /// writes `https://host/` in its config must not produce `https://host//vale-agent/...`. Pinned here because the
+    /// value now comes from a human's config file rather than from a constant this file controls.
+    #[test]
+    fn the_proxy_fallback_joins_the_configured_site() {
+        assert_eq!(
+            cloudflared_proxy_url("https://cdn.example.com"),
+            "https://cdn.example.com/vale-agent/cloudflared.exe"
+        );
+        assert_eq!(
+            cloudflared_proxy_url("https://cdn.example.com/"),
+            "https://cdn.example.com/vale-agent/cloudflared.exe",
+            "a trailing slash in the config must not double up"
+        );
     }
 
     #[test]

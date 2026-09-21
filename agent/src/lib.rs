@@ -202,7 +202,6 @@ pub(crate) mod operation;
 pub mod paths;
 pub mod plugins;
 pub mod runstate;
-pub mod vocabulary;
 pub mod session_log;
 pub mod state;
 /// Internal-only (no embedding consumer): byte-budget text clipping, shared by
@@ -210,6 +209,7 @@ pub mod state;
 pub(crate) mod text;
 pub mod tools;
 pub mod tunnel;
+pub mod vocabulary;
 pub mod web;
 
 /// Default config.yaml embedded at compile time.

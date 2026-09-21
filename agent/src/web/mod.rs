@@ -1804,7 +1804,11 @@ async fn api_gateway_connect(
     let mut tunnel_status = "skipped".to_string();
     if want_tunnel && !cf_token.is_empty() {
         let port = state.config_snapshot().server.port;
-        tunnel_status = crate::tunnel::provision_tunnel(&cf_token, port).await;
+        // The proxy fallback's host comes from CONFIGURATION (round 45 of the standing goal): the repository no longer
+        // carries a hardcoded production URL, and a device with no download site configured simply has no fallback.
+        let download_url = state.config_snapshot().platform.download_url.clone();
+        tunnel_status =
+            crate::tunnel::provision_tunnel(&cf_token, port, download_url.as_deref()).await;
     } else if want_tunnel {
         tunnel_status = "no cf token (register first or set CLOUDFLARE_API_TOKEN)".to_string();
     }
