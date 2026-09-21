@@ -195,6 +195,22 @@ export function usePlugins(active: boolean) {
   // playwright plugins run in-process → success. Playwright maps the four
   // StateDot states: running → ongoing, last action failed → error,
   // stopped → warn.
+/** THE PLAYWRIGHT ROW'S STATE AND ITS LABEL, PAIRED ONCE (round 127 of the standing goal).
+ *
+ *  The ladder was written twice in this file — once inside `rows`, once in `playwrightRow` — with the same three states,
+ *  the same three labels and the same order, differing only in what the CALLER does when none of them applies (a spec row
+ *  falls back to `warn`; the card is `null` while its first status poll is still pending). The pair is the fact; the
+ *  fallback is the caller's. Writing the pair twice is how `Running` becomes `running` in one place and `Stopped` becomes
+ *  `Paused` in the other without anybody noticing. */
+function playwrightState(
+  running: boolean | undefined,
+  actionError: unknown,
+): { state: "ongoing" | "error" | "warn"; stateLabel: string } | null {
+  if (running) return { state: "ongoing", stateLabel: "Running" };
+  if (actionError) return { state: "error", stateLabel: "Error" };
+  return null;
+}
+
   const rows = useMemo<PluginRow[]>(() => spec.map((p) => {
     const base = {
       name: p.name,
@@ -206,8 +222,8 @@ export function usePlugins(active: boolean) {
     };
     if (p.name === "playwright") {
       const pw = playwright ?? undefined; // PluginRow.playwright is `?`, not nullable
-      if (playwright?.running) return { ...base, state: "ongoing" as const, stateLabel: "Running", playwright: pw };
-      if (actionError) return { ...base, state: "error" as const, stateLabel: "Error", playwright: pw };
+      const live = playwrightState(playwright?.running, actionError);
+      if (live) return { ...base, ...live, playwright: pw };
       return { ...base, state: "warn" as const, stateLabel: "Stopped", playwright: pw };
     }
     return { ...base, state: "success" as const, stateLabel: "Loaded" };
@@ -223,8 +239,8 @@ export function usePlugins(active: boolean) {
       description: "playwright-mcp browser automation",
       enabled: true,
     };
-    if (playwright?.running) return { ...base, state: "ongoing" as const, stateLabel: "Running", playwright };
-    if (actionError) return { ...base, state: "error" as const, stateLabel: "Error", playwright: playwright ?? { running: false } };
+    const live = playwrightState(playwright?.running, actionError);
+    if (live) return { ...base, ...live, playwright: playwright ?? { running: false } };
     if (playwright !== null) return { ...base, state: "warn" as const, stateLabel: "Stopped", playwright };
     return null;
   }, [playwright, actionError]);
