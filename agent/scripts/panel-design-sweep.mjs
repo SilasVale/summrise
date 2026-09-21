@@ -1289,6 +1289,16 @@ function judge(file) {
       findings.push(`${where}: ${a.sel} (${a.where}) never acknowledged the press — no busy state and no painted change within the window (${a.size})`);
       continue;
     }
+    // EVERY ROW'S NUMBERS, ON EVERY RUN (round 26). The judge reported only the failures, so a CI-only failure could
+    // not be compared with a clean device run without re-running both by hand: eight controls "never acknowledged"
+    // in CI and answered in 6-13ms on the device, same sweep, same fixture. A measurement nobody can read is a
+    // measurement nobody can check.
+    console.log(
+      `note: ack ${where} ${a.sel} — acked=${a.acked} via=${a.via || "none"} ms=${a.msToAck === null ? "-" : a.msToAck} budget=${a.budgetMs} presses=${a.attempts || 1} asked=${a.asked !== false} calls=${a.calls}/${a.callsInWindow}`,
+    );
+    if (a.acked && (a.attempts || 1) > 1) {
+      console.log(`note: ${where} ${a.sel} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded machine is a timing artifact and on a slow device is a real delay worth watching`);
+    }
     if (typeof a.msToAck === "number" && typeof a.budgetMs === "number" && a.msToAck > a.budgetMs) {
       findings.push(`${where}: ${a.sel} (${a.where}) acknowledged the press after ${a.msToAck}ms — the budget is ${a.budgetMs}ms, so this feedback waited on the ${a.msToClear}ms network round trip instead of firing on the event`);
     }

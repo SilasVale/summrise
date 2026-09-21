@@ -660,12 +660,34 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     const t0page = await page.evaluate(() => Date.now());
     let acked = null;
     let msToAck = null;
+    let attempts = 1;
     for (let i = 0; i < 60; i++) {
       const now = await read(sel);
       // ACKNOWLEDGED means: the control says so (an attribute) OR it paints differently than it did at rest.
       const painted = now && before && (now.transform !== before.transform || now.opacity !== before.opacity || now.background !== before.background);
       if (now && (now.busy || painted)) { acked = now; msToAck = Date.now() - t0; break; }
       await page.waitForTimeout(16);
+    }
+    // AND NEVER ACCUSE ON ONE SAMPLE (round 26). A control is judged "never acknowledged" from a single press, and a
+    // loaded CI runner produced eight of those for controls that answer in 6-13ms on the device — same sweep, same
+    // fixture, different machine. One retry, after a settle, is the difference between a measurement and a coin
+    // flip: the row records how many presses it took, so a control that needs two is not silently reported as fine.
+    if (acked === null) {
+      attempts = 2;
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(300);
+      await page.mouse.move(box.x, box.y);
+      await page.waitForTimeout(120);
+      const again = await read(sel);
+      if (again) before = again;
+      await page.mouse.down();
+      await page.mouse.up();
+      for (let i = 0; i < 60; i++) {
+        const now = await read(sel);
+        const painted = now && before && (now.transform !== before.transform || now.opacity !== before.opacity || now.background !== before.background);
+        if (now && (now.busy || painted)) { acked = now; msToAck = Date.now() - t0; break; }
+        await page.waitForTimeout(16);
+      }
     }
     // AND BACK: the acknowledgement must CLEAR, or a control that spins forever is indistinguishable from one that
     // is still working. This is the network plus the work, so it is reported and not judged.
@@ -688,7 +710,7 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     const asked = callsInPress > 0;
     rows.push({
       sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
-      acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs,
+      acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs, attempts,
       asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore,
       ...(acked || asked
         ? {}
