@@ -71,6 +71,15 @@ const EVENTS = [
   // the command CARDS are built from THIS trail (useCommandEvents: "A trailing start with no end: still running ...
   // surface it as a LIVE card"). One of the six cmd-dot states had never been painted anywhere; this is the stub
   // that paints it, and the note is what says whether it worked.
+  // THE TWO ENDINGS THAT WERE NEVER PAINTED (round 31 of the standing goal). The mark-coverage note has reported
+  // `cmd-dot` as "rendered 4 (fail, muted, ok, running)" for rounds — the interrupter and the backgrounded command are
+  // the two states of the same six-value vocabulary that no surface produced, and `bg` is precisely the state round 29
+  // had to stop the trajectory from renaming to `warn`. The reason string travels on `command/end` and is what
+  // `stateFromEnd` switches on, so two pairs of events are all it takes to give both a surface.
+  { seq: 13, ts: 1789000050, kind: "command/start", command: "ping -t 192.168.1.1", intent: "watch the link while the config is saved" },
+  { seq: 14, ts: 1789000051, kind: "command/end", reason: "backgrounded", duration_ms: 400 },
+  { seq: 15, ts: 1789000060, kind: "command/start", command: "scp firmware.bin stc@192.168.1.1:/tmp/", intent: "stage the image" },
+  { seq: 16, ts: 1789000061, kind: "command/end", reason: "interrupted", duration_ms: 1500 },
   { seq: 11, ts: 1789000040, kind: "output", text: "waiting for the uplink to settle" },
   { seq: 12, ts: 1789000041, kind: "command/start", command: "reboot", intent: "pick up the new firmware slot" },
 ];

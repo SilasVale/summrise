@@ -173,6 +173,23 @@ const CHECKS = [
     ],
   },
   {
+    // THE TWO COMMAND ENDINGS THAT WERE NEVER PAINTED (round 31 of the standing goal). The mark-coverage note reported
+    // `cmd-dot` as "rendered 4 (fail, muted, ok, running)" for rounds: the interrupt and the BACKGROUNDED command are
+    // two of its six states, and `bg` is the one round 29 had to stop the trajectory from renaming to `warn`. Both
+    // travel as a `reason` on `command/end`, which is what `stateFromEnd` switches on.
+    name: "the trail carries a backgrounded and an interrupted command, so cmd-dot's last two states render",
+    test: (h) =>
+      /"seq":14,[^}]*"kind":"command\/end","reason":"backgrounded"/.test(h) &&
+      /"seq":16,[^}]*"kind":"command\/end","reason":"interrupted"/.test(h),
+    mutations: [
+      {
+        why: "the backgrounded ending loses its reason, and cmd-dot's `bg` state goes back to rendering nowhere",
+        from: /"reason":"backgrounded",/,
+        to: "",
+      },
+    ],
+  },
+  {
     // A SLOW NETWORK IS A STATE THE FIXTURE MUST BE ABLE TO RENDER (round 19). The panel's acknowledgement claims it
     // fires on the EVENT rather than on the reply; the only way to tell those apart as rendered is to make every
     // stubbed reply slow, and a flag no fixture carries is a measurement nothing can take.
