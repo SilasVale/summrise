@@ -26,8 +26,17 @@ test("a device with NO status is OFF — not checked is not down", () => {
 });
 
 test("a checked device is ok or err, and never off", () => {
-  assert.deepEqual(agentSignal({ agent_up: true }, t), { label: "devices.statusAgent", signal: "ok", state: "devices.online" });
-  assert.deepEqual(agentSignal({ agent_up: false }, t), { label: "devices.statusAgent", signal: "err", state: "devices.offline" });
+  // THE FLAGS ARE PART OF THE ANSWER NOW (round 133), so this pin says so: the view used to unpack the signal back into
+  // `ok`/`err` at the call site, twice, and a fourth signal value would have been silently absent from both.
+  assert.deepEqual(agentSignal({ agent_up: true }, t), {
+    label: "devices.statusAgent", signal: "ok", ok: true, err: false, state: "devices.online",
+  });
+  assert.deepEqual(agentSignal({ agent_up: false }, t), {
+    label: "devices.statusAgent", signal: "err", ok: false, err: true, state: "devices.offline",
+  });
+  assert.deepEqual(agentSignal(undefined, t), {
+    label: "devices.statusAgent", signal: "off", ok: false, err: false, state: "devices.notChecked",
+  });
   assert.equal(deviceIsUp({ agent_up: true }), true);
   assert.equal(deviceIsUp({ agent_up: false }), false);
 });

@@ -78,9 +78,15 @@ type DeviceKey =
   | "devices.notChecked";
 type Translate = (key: DeviceKey) => string;
 
-function signalOf(value: boolean | undefined, t: Translate, yes: DeviceKey, no: DeviceKey): { signal: Signal; state: string } {
-  if (value === undefined) return { signal: "off", state: t("devices.notChecked") };
-  return value ? { signal: "ok", state: t(yes) } : { signal: "err", state: t(no) };
+function signalOf(value: boolean | undefined, t: Translate, yes: DeviceKey, no: DeviceKey): {
+  // THE ROW'S TWO FLAGS COME FROM HERE TOO (round 133). The view built them at the call site —
+  // `{ ...agent, ok: agent.signal === "ok", err: agent.signal === "err" }` — twice, which is the signal re-derived one
+  // step after it was derived, and a place where a fourth signal value would be silently absent from both flags.
+ signal: Signal; ok: boolean; err: boolean; state: string } {
+  if (value === undefined) return { signal: "off", ok: false, err: false, state: t("devices.notChecked") };
+  return value
+    ? { signal: "ok", ok: true, err: false, state: t(yes) }
+    : { signal: "err", ok: false, err: true, state: t(no) };
 }
 
 /** The agent row. */

@@ -362,8 +362,9 @@ export default function DevicesPanel() {
                 // THREE STATES, NOT TWO: a device with no status entry has not been checked, and painting it red
                 // says its agent is down — a claim nothing has earned (round 35). The `.sig-dot.off` state existed
                 // in the stylesheet for this and had no producer until now.
-                { ...agent, ok: agent.signal === "ok", err: agent.signal === "err" },
-                { ...tunnel, ok: tunnel.signal === "ok", err: tunnel.signal === "err" },
+                // THE FLAGS COME WITH THE DERIVATION NOW (round 133): they are its answer, not a re-reading of it.
+                agent,
+                tunnel,
                 // ONLY A CRASH GETS A ROW (round 256). The device also reports "replaced"
                 // (its normal update restart) and "clean-exit"; the gateway drops those
                 // before they ever reach this page — a fleet view is for exceptions, and a
