@@ -546,6 +546,12 @@ jobs:
       # contract, and the files that merely share the WORDS are declared with their reasons.
       - name: one derivation per fact
         run: node scripts/test/one-derivation-check.mjs
+      # THE UPDATE VERDICT'S CHAIN (round 79 of the standing goal). Round 29's defect was a second computation of a fact
+      # the DEVICE answers, and it got the answer backwards for two devices at once. The fix routes the verdict through
+      # four links in three files; this asserts all three still carry it, because one deleted field anywhere returns the
+      # console to computing it itself with every other suite still green.
+      - name: the device's verdict still crosses the wire
+        run: node scripts/test/device-verdict-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
