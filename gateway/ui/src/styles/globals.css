@@ -2384,9 +2384,13 @@ body[data-theme="dark"] .note.tip {
    the design job reported the first time the Models page rendered at all (the fixture that made it render is three
    rounds old). A provider the console cannot name still gets a bar; it is the neutral one, which is what the base rule
    already paints. Declared rather than dropped, because the class is what tells a reader the lane is UNKNOWN rather
-   than one of the named ones. */
+   than one of the named ones. And the ink is `--text-muted`, NOT `--text-faint`: the rendered check measured the first
+   version at 2.54:1 on every width (320/640/720/900), which is the same defect the panel's ag-dot carried for rounds —
+   a mark painted with a token that does not clear the 3:1 a graphic needs. The console's own `console-marks-check`
+   could not see it: `.prov-lane` is not one of the families it reads, which is why the RENDERED axis is the one that
+   found it, one round after the page started rendering at all. */
 .prov-lane.lane-def {
-  background: var(--text-faint);
+  background: var(--text-muted);
 }
 .prov-lane.lane-og {
   background: var(--accent);

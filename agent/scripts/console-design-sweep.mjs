@@ -189,11 +189,15 @@ const API = {
   // ALL FOUR CHANNELS, because the lane rules are per-channel: with only 'og' in the fixture the
   // three fills that do NOT flip with the theme never render, and a contrast fix for them could not
   // be seen. Measured round 79 — the ink/fill pairing differs per lane on purpose.
+  // THE CHANNELS ARE KEYED BY id, WHICH IS WHAT THE PAGE READS (round 64): Models.tsx looks a row's health up with
+  // health.find((h) => h.id === prefix || h.id === prefix.replace(/\/$/, "")), and this fixture wrote prefix:
+  // instead — so every lookup missed, h was undefined, h?.ok !== false was TRUE, and prov-dot.missing could not
+  // render however many failing channels the fixture carried. (or/ is the failing one; the others are healthy.)
   '/api/health': { channels: [
-    { prefix: 'og/', ok: true },
-    { prefix: 'ds/', ok: true },
-    { prefix: 'or/', ok: false },
-    { prefix: 'qw/', ok: true },
+    { id: 'og/', ok: true },
+    { id: 'ds/', ok: true },
+    { id: 'or/', ok: false },
+    { id: 'qw/', ok: true },
   ] },
   '/api/admin/providers': { providers: [{ prefix: 'my/', label: 'My Provider', baseURL: 'https://api.example.com', api: 'openai-completions', models: [{ id: 'llama-3' }], advertised: ['my/llama-3'], keyEnv: '', keyMasked: 'sk-9876', keyReady: true }], apis: [], filePrefixes: [] },
   '/api/admin/models': { models: [{ id: 'my/llama-3', label: 'llama-3' }] },
