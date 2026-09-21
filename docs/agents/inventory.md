@@ -727,3 +727,38 @@ Face 2 is a DESIGN change (make the base configurable), not a fixture change; th
 gate now says so per entry rather than with one generic sentence.
 
 **THE NUMBERS:** 493 occurrences in 118 files → **446 in 105**; the declared list 52 → **42**, and it may only shrink.
+
+## 14. One fact, one derivation: the four ends, traced (rounds 96-130)
+
+The spine's first clause — "no surface computing its own version of the same fact" — was ENFORCED BY READING until round
+78, and then by four gates. This is the state of it after tracing every front end, with what each derivation keeps for its
+callers.
+
+| the fact | its one home | what stays with the caller | held by |
+|---|---|---|---|
+| device row → session row | `mapRow` + `wireFields` (`useSessions.ts`) | identity fields, `firstSeenAt` | `session-row-check` |
+| a command's ending → its state | `stateFromEnd` (`lib/path.ts`) | `cardState` is its two-line adapter | `one-derivation-check` |
+| a session's failure | `sessionFailed` (`lib/liveness.ts`) | "absent is neither failure nor success" | its own test matrix |
+| a monitor's mark state | `monitorMarkClass` / `monitorModifier` (`lib/monitorMark.ts`) | the fallback when no state applies | `one-derivation-check`'s mark clause |
+| a plugin row's state + label | `playwrightState` (`usePlugins.ts`) | the `null` for "poll still pending" | panel tests |
+| the console's device signal | `deviceState.ts` (`deviceSignal`/`signalOf`) | nothing — three views import it | `console-wire-field-check` |
+| the tunnel's tri-state | `tunnelKnownDown` (`deviceState.ts`) | the modal it opens | `console-wire-field-check` |
+| the update verdict | the DEVICE's `/api/update`, forwarded through three files | the console's old comparison, as a guarded fallback | `device-verdict-check` |
+| the install base URL | `indexWorkerBase` (`devices.ts`) | nothing | `production-host-check` |
+| the wire vocabulary itself | `agent/src/vocabulary.rs` → two generated artifacts | — | `contract-vocabulary-check` |
+
+**TWO THINGS WORTH CARRYING FORWARD FROM TRACING IT:**
+
+1. **Every trace found the same secondary question — what stays with the caller — and every answer was different.** The
+   plugin row keeps a `null` for a pending poll; the monitor mark keeps its fallback; the session row keeps its identity
+   fields. A derivation that absorbs those does not unify the fact, it hides a second one.
+2. **A rule that matches a WORD is narrower than the rule it tries to state, and this happened THREE times**: the ending
+   gate's first run (four vocabularies sharing a word), the gateway/device gate's widening (the upstream providers'
+   vocabulary), and the mark clause's first run (a log row spelling the same two words for a different element). Each was
+   resolved the same way — keep the rule, declare the exception, write the reason — and the third one also exposed that the
+   clause itself had been toothless until the audit broke it.
+
+**AND THE CONSOLE'S REMAINING RENDER-SITE SPELLINGS ARE A CANDIDATE WITH A MEASUREMENT**, not a defect: `Overview` spells
+`c.ok ? "ok" : "err"` for a channel dot and a dial's `tone`, and those are DIFFERENT families from the device signal, which
+is already derived. Unifying them means a per-family derivation in that front end — a design step, recorded here so it is
+taken deliberately rather than discovered by a gate that flags three innocent files on its first run.
