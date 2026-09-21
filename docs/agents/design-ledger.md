@@ -2747,3 +2747,28 @@ from `.dot.err`: "a mutation that does not bite is evidence about the MUTATION f
 specific: **an audit must use the mutation the gate was PROVEN with, not an equivalent-looking one** — which is why
 `harness-fixture-check` keeps its mutations IN the file, where they cannot drift from the predicate they are paired with,
 and why the other five should eventually do the same.
+
+### THE AUDIT IS NOW AN ARTIFACT: EIGHT GATES BROKEN ON PURPOSE, ON EVERY PUSH (round 105)
+
+Round 104 re-audited six gates by hand and two came back "DOES NOT BITE" — both because of MY mutations, not the gates.
+The lesson was written down; this round made it structural. `scripts/test/gate-mutations-check.mjs` holds eight mutations in
+ONE place, each paired with the gate it must fail, the file it edits and the reason, and it runs in CI:
+
+    ok  session-row          a device field read outside the mapping section
+    ok  one-derivation       a second mapping from an ending to a state
+    ok  wire-field           a field the device harness and every fixture never speak
+    ok  console-wire-field   a console field nobody produces (the round-100 shape, in the spelling the scan can see)
+    ok  gateway-device-field the gateway forwards a field the device never spells
+    ok  device-verdict       the console stops reading the device's own verdict
+    ok  harness-fixture      the query is parsed ONCE again
+    ok  contract-vocabulary  one artifact's vocabulary diverges from the other's
+    → 8 broken on purpose, every one bit
+
+THREE PROPERTIES MAKE IT SAFE TO RUN UNATTENDED, and each was a decision rather than a default: it REFUSES to start on a
+dirty tree, so a mutation can never be mistaken for somebody's work; it restores every file in a `finally` and re-asserts
+the tree is clean when it finishes; and a case whose recorded mutation no longer matches its file is a FINDING rather than a
+skip, because that is exactly how the mutation and the predicate it is paired with drift apart.
+
+AND IT FOUND A BUG IN ITSELF ON THE FIRST RUN, which is the same lesson one level up: the harness emitter exits **2 on
+success** ("rc=2 (2=ok)", the convention every caller of it prints), so reading its exit code as pass/fail killed the audit
+on the single case that has to re-emit. The wrapper accepts 2 now.
