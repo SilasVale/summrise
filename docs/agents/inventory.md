@@ -387,3 +387,25 @@ hears):
 Both are one look each, and both are worth the same discipline the console's `prov-dot` got: find out which of the two
 the fixture is failing to say, fix THAT, and let the rendered axis confirm. `plug-dot ongoing` stays out of reach for a
 different reason (a running playwright starts the poll loop that hangs a sweep, recorded in round 26).
+
+**ROUND 69: THE CHIP HAS NO HOME, WHICH IS WHY ITS `info` TONE HAS NO SURFACE.**
+
+`grep` over production `.tsx/.ts` finds exactly ONE renderer of `.boot-mark`: `BootChip.tsx` itself. **Nothing renders
+`BootChip`** — not the panel shell, not the desktop shell, not the settings page. The card that DOES exist
+(`RestartHistoryCard`) draws its own `.restart-row-kind` and never a `.boot-mark`. So the family's second tone is not
+missing a fixture and not missing an endpoint: **the component has no caller**, and its `info` branch cannot run
+anywhere.
+
+TWO DISPOSITIONS, and they are a product choice rather than a bug fix:
+
+  * **give it a home** — the panel already carries `WaitingChip` and `MonitorChip` in the shell, and "this device was
+    replaced by an update 90 seconds ago" is the same kind of news. The console surfaces the same fact as a crash ROW;
+    the panel designed a CHIP and never mounted it.
+  * **prune it** — the component, its sheet rules (`.boot-chip`, `.boot-mark`, `.boot-mark.info`), its tests, and the
+    `bootNotice` tone branch that only it reads. The objective's rule is that whatever stops earning its place goes, and
+    a component nobody mounts is the clearest case of it.
+
+ONE THING I CANNOT YET EXPLAIN, recorded rather than asserted: the coverage note says the family rendered 1 state
+(`warn`) over 136 surfaces. If nothing renders `.boot-mark`, that count should be 0. Either the probe is catching a
+`.boot-mark` I have not found, or the family's `rendered` set is being seeded somewhere else — and that is the next
+thing to look at, BEFORE choosing between the two dispositions above.
