@@ -2293,3 +2293,41 @@ fix is a corrected sentence where the claim was made rather than a quietly rewor
 ZERO of the six families moved this round; the count of unverified silhouettes is unchanged, and the note now says so
 on every run. That is the honest state of this thread, and it is why the note is a note: the loop's next attempt at
 `running` should start from the session audit stub, not from the operation feed.
+
+### THE CHROME THAT DID NOT SAY WHAT IT WAS (round 27)
+
+An operator looking at the desktop window asked three questions about chrome no instrument in this suite had ever been
+pointed at — which is itself the finding, because all three were answerable from the code and none of them from the
+screen:
+
+    "(2) Vale Agent"                        what is the 2?
+    "Trajectory" beside "Path"              are these the same thing twice?
+    "Take control" / "+ Set a goal…" /      what do these DO?
+    "Ask before each command"
+
+1. THE 2 IS BY DESIGN, and the design is right for a browser TAB: `titleFor` puts the count first because a tab
+   truncates from the right ("a title that ends in `…` before the number is a title that told nobody anything"), and
+   it reads `(N) [⚠] Vale Agent`. The two items are the two monitors the chip at the bottom left names. Nothing
+   changed; the question is recorded here because the next person will ask it in a WINDOW, where that rationale does
+   not apply and the bare number is still cryptic.
+
+2. THE TWO VIEWS ARE NOT THE SAME, AND NOTHING VISIBLE SAID SO. `Trajectory` is the RAW audit log — every event as
+   it happened, status events included. `Path` is the same work SUMMARISED, with the declared plan, the reasoning
+   recorded per step, and who ran each step (from the `control` audit events). The difference lived in a `title`
+   attribute: one hover, one wait and one mouse away from invisible. Each view now carries a caption on its own row —
+   "raw audit log — every event as it happened" and "plan, reasoning and who ran each step".
+
+3. THE THREE CONTROLS WEAR THE SAME PILL AND ARE THREE DIFFERENT KINDS OF THING: an ACTION (take this session's
+   keyboard), a PROMPT for a missing value (set a goal), and a POLICY toggle (ask before each command). All three
+   explanations were `title` attributes. The group is labelled "Session" now, so the row reads as settings of one
+   thing; the tooltips still carry the detail.
+
+MEASURED AFTER: the design job's panel summary moved 6938 -> 6990 text nodes over the same 126 surfaces, and no row
+naming `traj-sub`, `path-sub` or `strip-label` appears among its findings — the three captions clear AA on every
+surface they render on. All three are chrome, so they are quiet and still: 11px, `--muted` (TEXT, so AA wants 4.5),
+no transition and no animation.
+
+THE LESSON, which is the same one this ledger has recorded about the marks and the wire: A MEANING THAT ONLY APPEARS
+ON HOVER IS A MEANING THE SCREEN DOES NOT CARRY. Three tooltips were written, tested and correct; the operator still
+had to ask. Where a label cannot say it, a caption on the row can — and the test that pins it renders the component,
+which is the only way to notice a sentence nobody can see.
