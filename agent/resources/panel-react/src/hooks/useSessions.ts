@@ -178,6 +178,20 @@ const SESSIONS_SWEEP_MS = 30_000;
  *  row becomes a session row) written down twice, free to drift the moment one of them gains a field. It is also the
  *  place the three "duplicate-looking" controls get their three DIFFERENT facts (`held_by_human`, `approval_required`,
  *  `goal`), so a second copy is where they could quietly become one. */
+/** EVERY FIELD THAT IS THE DEVICE'S TO SAY, defined once (round 97). `mapRow` builds a whole row; the two paths that
+ *  REFRESH an existing one — reviving a tombstone whose sid reappeared, and syncing a hold that changed without an event —
+ *  need exactly this part and must not restate it. They did: the same seven fields were written a second and a third
+ *  time, so a field added to the wire would have reached a new row and neither of the refreshed ones. */
+const wireFields = (s: any) => ({
+  heldByHuman: !!s.held_by_human,
+  approvalRequired: !!s.approval_required,
+  pendingApproval: mapPending(s),
+  approvalGrants: mapGrants(s),
+  goal: mapGoal(s),
+  plan: mapPlan(s),
+  lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null,
+});
+
 const mapRow = (s: any) => ({
   sid: s.id,
   label: s.label || s.id,
@@ -187,15 +201,9 @@ const mapRow = (s: any) => ({
   active: false,
   idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0,
   commandRunning: !!s.command_running,
-  lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null,
   firstSeenAt: Date.now(),
   closedAt: null,
-  heldByHuman: !!s.held_by_human,
-  approvalRequired: !!s.approval_required,
-  pendingApproval: mapPending(s),
-  approvalGrants: mapGrants(s),
-  goal: mapGoal(s),
-  plan: mapPlan(s),
+  ...wireFields(s),
 });
 
 export function useSessions(connected: boolean) {
@@ -258,36 +266,24 @@ export function useSessions(connected: boolean) {
               // the agent's close emit, and NOTHING ever revived it — the tab
               // sat dead forever (activate() refuses closed entries). A live
               // reappearance means the session is real: un-tombstone it.
-              const revived = { ...existing, closed: false, closedAt: null,
-                heldByHuman: !!s.held_by_human, approvalRequired: !!s.approval_required,
-                pendingApproval: mapPending(s), approvalGrants: mapGrants(s), goal: mapGoal(s),
-                plan: mapPlan(s),
-                lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null };
+              const revived = { ...existing, closed: false, closedAt: null, ...wireFields(s) };
               next[next.indexOf(existing)] = revived;
             } else if (
-              existing.heldByHuman !== !!s.held_by_human ||
-              existing.approvalRequired !== !!s.approval_required ||
-              (existing.lastExitCode ?? null) !== (typeof s.last_exit_code === "number" ? s.last_exit_code : null) ||
-              existing.pendingApproval?.id !== mapPending(s)?.id
-              || existing.approvalGrants.join("\u0000") !== mapGrants(s).join("\u0000")
-              || existing.goal !== mapGoal(s)
-              || existing.plan.join("\u0000") !== mapPlan(s).join("\u0000")
+              ((fresh) =>
+                existing.heldByHuman !== fresh.heldByHuman ||
+                existing.approvalRequired !== fresh.approvalRequired ||
+                (existing.lastExitCode ?? null) !== fresh.lastExitCode ||
+                existing.pendingApproval?.id !== fresh.pendingApproval?.id ||
+                existing.approvalGrants.join("\u0000") !== fresh.approvalGrants.join("\u0000") ||
+                existing.goal !== fresh.goal ||
+                existing.plan.join("\u0000") !== fresh.plan.join("\u0000"))(wireFields(s))
             ) {
               // The hold is server-owned and can change WITHOUT a sessions-changed
               // event (this panel's own control button, or another client).
               // Syncing it here is what keeps the indicator honest. Placed AFTER
               // the revive branch on purpose: a closed tombstone whose hold
               // differs must still be REVIVED, not merely have its flag synced.
-              next[next.indexOf(existing)] = {
-                ...existing,
-                heldByHuman: !!s.held_by_human,
-                approvalRequired: !!s.approval_required,
-                pendingApproval: mapPending(s),
-                approvalGrants: mapGrants(s),
-                goal: mapGoal(s),
-                plan: mapPlan(s),
-                lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null,
-              };
+              next[next.indexOf(existing)] = { ...existing, ...wireFields(s) };
             }
           }
           // Mark gone sessions closed (retained history shows as tombstone).
