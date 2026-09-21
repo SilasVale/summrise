@@ -441,3 +441,25 @@ endpoint `/api/status`, the `bootNotice` window, the hook's numeric assignment, 
 props, and the query parser) and one measurement still owed: **ask the page directly.** The rendered answer is one device
 check (load the emitted harness at `?boot=replaced`, read what `/api/status` returns and what the chip renders) — and the
 next round does that INSTEAD of a seventh inference.
+
+**ROUND 72 ASKED THE PAGE, AND THE PAGE ANSWERED THREE THINGS.**
+
+Loaded the emitted harness on the device at `?boot=replaced`, read the URL, the `/api/status` body and the chip's DOM:
+
+    location.search  ?theme=light&mode=idle&sessions=3&boot=replaced&cb=…     ← the flag IS in the URL, before and after reload
+    /api/status      last_boot_kind: "crashed", uptime_secs: 5412            ← the STUB did not see it
+    .boot-mark       class "boot-mark warn", parent "boot-chip warn"         ← the chip IS rendered
+
+1. **The chip renders, on every page, with the default `crashed` fixture** — so the coverage note's "rendered 1 (warn)"
+   was TRUE all along, and the suspicion that the probe was catching something it should not (round 69) was wrong. The
+   `info` tone is missing because the response never said `replaced`.
+2. **The fixture is not at fault**: `/api/status` carries the fields, the parser requires a sentence and gets one, the
+   window is 300s against an uptime of 90. All six round-69/71 suspects stand eliminated.
+3. **The query parser is not at fault either** — the flag is in `location.search` at probe time — so `P.get('boot')` inside
+   the stub is reading a location that is NOT this one: the harness's `var P = new URLSearchParams(location.search)` runs
+   ONCE, at install, and whatever document that is, it is not the document the assertion sees. That is the whole
+   remaining hypothesis, and it is testable in one line: read the query **per request** instead of once, or have the stub
+   log what it saw.
+
+This is what "ask the page instead of inferring" bought: three facts, one of them the death of a wrong suspicion, and a
+remaining hypothesis narrow enough to test in a line rather than argue about for a round.
