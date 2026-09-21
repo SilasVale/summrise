@@ -3218,3 +3218,30 @@ IT ALSO EXPLAINS AN ASYMMETRY THAT LOOKED ARBITRARY: `mark-vocabulary-check` rea
 while `console-marks-check` reads the console's as PAINTED (its sheet, matching class rules). That difference is not a
 preference — it is the only way to read each end, because one keeps its vocabulary in TypeScript and the other in CSS class
 names. Two gates that looked like they should be one had a reason, and now the reason is written down.
+
+### SOMETHING WRITTEN THAT NOBODY READS: FOUR ROUNDS, FOUR OUTCOMES, AND THE ORDER THAT PRODUCES THEM (rounds 167-171)
+
+The objective's last clause is "whatever stops earning its place pruned", and the question it implies is mechanical: this
+attribute, this class — does anything READ it? Four rounds asked it of four targets, and the answers were not the same answer:
+
+    167  the panel's data-* attributes        FOUR pruned   (data-drops, data-down, data-ready, data-crashes)
+    168  the console's data-* attributes      NONE          — it does not use them at all; its marks put the state in the
+                                                            CLASS list, which is also why `console-marks-check` reads a
+                                                            sheet while `mark-vocabulary-check` reads a module
+    169  the panel's class names              ONE pruned    (cmd-copy, while .cmd-btn carries the control)
+    170  the console's class names            ONE KEPT AND RENAMED (topbar-avatar → user-pop-avatar)
+
+THE ORDER THAT PRODUCES THESE, and it is the round-165 rule applied to a new subject:
+
+  1. **FIND EVERY READER FIRST**, and widen the scope until the count stops moving. Both scans were wrong before they were
+     right — twice for the panel's classes (fragments of template literals; readers in `*.test.tsx` and under `agent/scripts`
+     invisible) and once here — and the wrong versions reported 17 and 39.
+  2. **READ THE ARTEFACT BEFORE JUDGING.** In 167 that showed the fields were still read elsewhere; in 168 it explained a
+     zero that looked like a bug; in 170 it changed the verdict twice, from "unstyled control" to "a slot the parent lays out,
+     whose name is the only thing wrong".
+  3. **THEN PRUNE, KEEP, OR RENAME** — and a KEEP is a result too, which is why the four outcomes differ. `user-pop-avatar`
+     keeps its place because an avatar slot is a name worth having; `cmd-copy` loses its because `.cmd-btn` already names the
+     control and the extra hook changed nothing.
+
+VERIFIED AFTER: 42 local gates by exit code, none red, and the audit reporting 21 gate/branch pairs breaking on purpose and
+every one biting.
