@@ -280,14 +280,17 @@ function relayBreakerEnv() {
   };
   return {
     calls,
-    env: { BREAKER: { idFromName: (n) => n, get: () => stub } },
+    // THE ORIGIN THIS FILE USES IS CONFIGURATION NOW (round 113): `stampCors` reaches the allowed-origin list through the
+    // env since round 93, so a test domain has to be declared here or the assertion below would be checking the DEFAULT
+    // list while sending a host it does not contain.
+    env: { BREAKER: { idFromName: (n) => n, get: () => stub }, CONSOLE_ORIGINS: "https://console.vale.test" },
   };
 }
 const relayReq = () =>
   new Request("https://x/v1/messages", {
     method: "POST",
     // Allowlisted console origin: stampCors echoes it (no Origin → no ACAO).
-    headers: { origin: "https://ai.saisi.online" },
+    headers: { origin: "https://console.vale.test" },
   });
 async function quiet(fn) {
   const orig = console.error;
@@ -353,7 +356,7 @@ test("relay: ok relays body + CORS + generation id; opencode resets", async () =
     assert.equal(ctx.generationId, "gen-1", "generation id captured");
     assert.equal(
       r.headers.get("access-control-allow-origin"),
-      "https://ai.saisi.online",
+      "https://console.vale.test",
       "allowlisted origin echoed",
     );
     assert.equal(
