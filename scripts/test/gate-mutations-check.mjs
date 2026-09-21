@@ -213,10 +213,10 @@ const CASES = [
 
   {
     gate: "scripts/test/contract-vocabulary-check.mjs",
-    file: "agent/src/vocabulary.rs",
-    why: "a value DECLARED and never written — the state that silently never renders (round 156's clause)",
-    from: "pub const EXITED_PREFIX",
-    to: "pub const NEVER_WRITTEN_ANYWHERE: &str = \"a-state-nobody-emits\";\npub const EXITED_PREFIX",
+    file: "agent/contract-vocabulary.json",
+    why: "the artifact claims a value the device never writes — the state that silently never renders (round 156's clause)",
+    from: '"frames": [',
+    to: '"frames": [\n    "a-state-nobody-emits",',
   },
 
 ];
