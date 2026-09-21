@@ -258,7 +258,7 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
         id={slotId}
         ref={slotRef}
         className={`browser-viewport browser-embedded-slot${evOpen ? " drawer-open" : ""}`}
-        data-ready={ready ? "1" : "0"}
+        
       >
         {!ready && !goneReason && (
           <div className="browser-placeholder">

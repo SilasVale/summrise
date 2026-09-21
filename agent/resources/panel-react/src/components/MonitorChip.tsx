@@ -28,7 +28,7 @@ export function MonitorChip({ monitors, nowMs = Date.now() }: { monitors?: Monit
         .map((u) => `${u.host}:${u.port} — ${u.summary.drops} drops in this window, up now`)
         .join("\n") + "\n\nThe Reachability card in Settings shows the probe history.";
     return (
-      <span className={`monitor-chip ${monitorModifier("flapping")}`} title={title} data-drops={t.summary.drops ?? 0}>
+      <span className={`monitor-chip ${monitorModifier("flapping")}`} title={title}>
         <span className={monitorMarkClass("flapping")} aria-hidden="true" />
         {text}
       </span>
@@ -44,7 +44,7 @@ export function MonitorChip({ monitors, nowMs = Date.now() }: { monitors?: Monit
       .map((d) => `${d.target.host}:${d.target.port} — down for ${fmtSince(d.sinceMs)}`)
       .join("\n") + "\n\nThe Reachability card in Settings shows the probe history.";
   return (
-    <span className="monitor-chip" title={title} data-down={down.length}>
+    <span className="monitor-chip" title={title}>
       <span className={monitorMarkClass("down")} aria-hidden="true" />
       {text}
     </span>

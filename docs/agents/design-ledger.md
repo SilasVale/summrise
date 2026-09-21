@@ -3181,3 +3181,22 @@ expensive to resolve by acting on the count.
 AND THE VERIFICATION ITSELF IS RECORDED: five scanning gates, five statements of their error mode, each written by the round
 that was bitten by it. Nothing changed this round, which is what makes it worth a paragraph: the next reader who wonders
 whether these gates document their failure modes has an answer instead of a grep.
+
+### FOUR DATA ATTRIBUTES NOBODY READ, PRUNED — AND A SCAN THAT WAS WRONG TWICE FIRST (round 167)
+
+The objective's last clause is "whatever stops earning its place pruned", so the panel's `data-*` attributes were asked the
+same question the marks were: does anything READ you? 32 attributes are set; four are read by neither the built sheet, nor the
+TypeScript, nor the tests, nor the sweeps or the render harness:
+
+    data-drops    MonitorChip's flapping chip — its `title` already carries the drops and the window
+    data-down     MonitorChip's down chip — the parent's class already says which state it is
+    data-ready    EmbeddedBrowserPane — the `ready` flag drives five other things in that component
+    data-crashes  RestartHistoryCard — the count is still read twice (the class and the label)
+
+All four pruned, panel 806 green, tsc silent, bundle rebuilt, and the fields they were carrying are still read elsewhere, which
+was checked rather than assumed.
+
+THE SCAN WAS WRONG TWICE BEFORE IT WAS RIGHT, and both corrections are the round-165 rule in action. Its first version read
+only `src/**/*.tsx` and `*.ts` — so `data-testid`-style readers in `*.test.tsx` and every probe in `agent/scripts` were
+invisible, and 17 attributes looked dead. Its second version added the tests and still missed the sweeps. Only then was the
+list read by hand, four at a time, which is what the rule says a scan is for.

@@ -93,7 +93,7 @@ export function RestartHistoryCard({
         <>
           <p
             className={`restart-summary${summary.crashes > 0 ? " has-crashes" : ""}`}
-            data-crashes={summary.crashes}
+            
           >
             {plural(summary.boots, "restart", "restarts")} in the last{" "}
             {Math.round(summary.windowSecs / 3600)}h
