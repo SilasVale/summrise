@@ -2427,3 +2427,29 @@ sweeps and the probe cannot drift — and it then died twice before it ran:
 AND THE READING IS A GUARD: four lists must be empty, and a non-empty one is a non-zero exit. What that exit MEANS is
 written beside the step in `AGENTS.md`, because the live panel's state varies with what the device is doing — two
 sessions today, fourteen another day — so it says "look at this", not "the build is broken".
+
+### TWO STATES OF SIX, AND THE RULE THAT KEEPS FINDING THEM (round 31)
+
+The mark-coverage note has reported `cmd-dot` as "rendered 4 (fail, muted, ok, running)" since it was written. Two of
+the six states had no surface anywhere in the suite — and one of them is the state round 29 was about: `bg` is what
+`stateFromEnd` maps a BACKGROUNDED command to, and what the trajectory's private copy used to rename to `warn`. The
+fixture needed two pairs of events, because the reason travels on `command/end`, which is the field the derivation
+switches on:
+
+    {"seq":14,…,"kind":"command/end","reason":"backgrounded","duration_ms":400}
+    {"seq":16,…,"kind":"command/end","reason":"interrupted","duration_ms":1500}
+
+    MEASURED ON THE DEVICE (128 surfaces, 7189 rows, stale=false):
+      cmd-dot   bg, fail, muted, ok, running, warn      was: fail, muted, ok, running
+      ag-dot    armed, off                              round 29's disarmed ring
+
+THIS IS THE THIRD TIME THE SAME RULE HAS ADDED A SURFACE, and the pattern is now cheap enough to state: `?exitfail=1`
+(round 96, the failure mark), `?appr=off` (round 29, the disarmed ring), and this (round 31, the last two command
+endings). Each was a state the vocabulary declared, that no fixture could produce, and that therefore no gate could see —
+and each is pinned in `harness-fixture-check`, the check whose subject IS that rule, with a mutation that removes the
+ability to render it.
+
+WHAT IS STILL WITHOUT A SURFACE, from the note's own list, so the next round does not have to rediscover it:
+`traj-ev-dot` (all six states — the trajectory view renders no dot in the pages pass), `plug-dot` (error, ongoing),
+`monitor-mark` (is-up), `boot-mark` (info), `update-state` (is-error, is-ok), `monitor-chip` (is-flapping),
+`notify-state` (is-granted, is-denied). [`ag-dot` and `cmd-dot` are complete as of this round.]
