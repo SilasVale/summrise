@@ -34,7 +34,12 @@ if (dirty) {
  *
  *  The owed `sweep-fixture-dupes-check` case arrived in round 107, and it needed no new shape after all: a fixture key on
  *  ONE line duplicated in place is a plain from/to replacement. (The earlier note assumed the `/api/health` block, which is
- *  multi-line — the wrong anchor made the shape look impossible.) */
+ *  multi-line — the wrong anchor made the shape look impossible.)
+ *
+ *  OWED, AND THIS TIME FOR A REAL REASON: `wire-field-check`'s second branch (round 108) — a field that a fixture carries
+ *  and NO producer sends — is not represented here, because exercising it needs a field planted in a hook AND in the
+ *  harness while absent from every Rust and TypeScript source, and this list's mutations edit ONE file each. The branch ran
+ *  and found nothing (all 26 fields have producers); proving it bites is the next step, not an assumption. */
 const CASES = [
   {
     gate: "scripts/test/session-row-check.mjs",

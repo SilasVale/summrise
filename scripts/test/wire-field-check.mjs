@@ -15,7 +15,7 @@
 // round 73 records what it cost), or the console's parsers, which have their own fixtures.
 //
 // Run: node scripts/test/wire-field-check.mjs
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
@@ -42,6 +42,26 @@ const fixtures = readdirSync(join(ROOT, "agent/tests/fixtures"))
   .join("\n");
 const otherEnd = harness + "\n" + fixtures;
 
+/** THE PRODUCERS, which are what actually matters (round 108). `otherEnd` above is the TEST side — a stub and fixtures —
+ *  and a field that exists ONLY there is a field the device may not send at all, which is precisely the class that cost
+ *  this session `prov-dot` (a page looking health up by `h.id` while the fixture said `prefix:`) and the console's crash
+ *  row (`last_boot_kind` against `verdict:`). A wire field has to be spelled by something that SENDS it: the agent's Rust
+ *  or the gateway's TypeScript. */
+function producerText() {
+  const out = [];
+  const walk = (dir, test) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p, test);
+      else if (test(name)) out.push(readFileSync(p, "utf8"));
+    }
+  };
+  walk(join(ROOT, "agent/src"), (n) => n.endsWith(".rs"));
+  walk(join(ROOT, "gateway/src"), (n) => n.endsWith(".ts"));
+  return out.join("\n");
+}
+const producers = producerText();
+
 let reads = 0;
 const missing = [];
 for (const rel of PARSERS) {
@@ -57,6 +77,9 @@ for (const rel of PARSERS) {
     reads++;
     if (!new RegExp(`\\b${field}\\b`).test(otherEnd)) {
       missing.push(`${rel}: reads "${field}", which neither the device harness nor any fixture carries`);
+    } else if (!new RegExp(`\\b${field}\\b`).test(producers)) {
+      // IN A FIXTURE BUT IN NO PRODUCER: the page can render it in the harness and nowhere else.
+      missing.push(`${rel}: reads "${field}", which only a fixture carries — no Rust or gateway source sends it`);
     }
   }
 }
@@ -76,4 +99,7 @@ if (missing.length) {
   );
   process.exit(1);
 }
-console.log(`wire-field: ${reads} field(s) read by ${PARSERS.length} panel parser(s), every one spoken by the harness or a fixture`);
+console.log(
+  `wire-field: ${reads} field(s) read by ${PARSERS.length} panel parser(s) — every one spoken by the harness or a fixture ` +
+    `AND by a producer (the agent's Rust or the gateway), so none of them renders only in a stub`,
+);
