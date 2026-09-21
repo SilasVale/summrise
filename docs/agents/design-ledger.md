@@ -3245,3 +3245,18 @@ THE ORDER THAT PRODUCES THESE, and it is the round-165 rule applied to a new sub
 
 VERIFIED AFTER: 42 local gates by exit code, none red, and the audit reporting 21 gate/branch pairs breaking on purpose and
 every one biting.
+
+### THE CONSOLE'S DERIVATION GATE, AND ITS FIRST DAY (round 173)
+
+`console-derivation-check.mjs` is the console's side of "one fact, one derivation" — the panel has had its version since
+round 78, the console had nothing, and round 172 found the prefix rule written nine times with two behaviours. Its first
+clause: a trailing-slash strip outside `lib/lane.ts` is a second derivation, by file and line.
+
+IT WAS CAUGHT TWICE ON THE DAY IT WAS ADDED, both times by gates this objective wrote:
+
+  * `numbered-claims-check` (round 152) refused it: "console-derivation-check — invoked by the workflow, absent from AGENTS.md,
+    the ledger and the inventory". A gate whose job is to notice an unnamed gate noticed its own successor, which is the
+    clearest demonstration that family has had.
+  * the audit reported it UNPROVEN, because the mutation's `to` string was over-escaped and produced `\\/` — a regex matching a
+    literal backslash — rather than the hand-written strip the gate looks for. A mutation that does not bite is evidence about
+    the mutation first (round 104), and this is the sixth time.
