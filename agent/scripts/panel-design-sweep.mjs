@@ -748,6 +748,18 @@ ${TIMING}
               .find((b) => (b.textContent || '').trim() === want);
             if (btn) btn.click();
           }, tab);
+          // AND OPEN THE ROUNDS, WHICH IS THE CLICK THAT WAS STILL MISSING (round 33). Only the NEWEST round is
+          // open by default, and the newest round is the fixture's live reboot — a command with no output yet — so
+          // its body is (no output yet) and every event row (and its .traj-ev-dot) lived inside a COLLAPSED
+          // round: the family measured 0 of 6 states across 128 surfaces while the view rendered perfectly. The note
+          // only started saying so after round 31 added that trailing command, which is a fair illustration of how a
+          // fixture change can hide a family: the sweep opened the tab (round 101) but never a round.
+          if (tab === 'Trajectory') {
+            await page.evaluate(() => {
+              for (const head of [...document.querySelectorAll('.traj-round-head')].slice(0, 12)) head.click();
+            });
+            await page.waitForTimeout(900);
+          }
           await page.waitForTimeout(1800);
           const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme;
           const rows = await page.evaluate(PROBE);

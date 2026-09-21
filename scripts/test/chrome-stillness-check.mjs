@@ -45,7 +45,10 @@ const KINDS = {
 const PURPOSES = [
   // ── the panel ──────────────────────────────────────────────────────────────────────────────────
   { sheet: "panel", selector: '.cmd-dot[data-state="running"]', kind: "state", why: "a command is in flight — the running mark's motion channel" },
-  { sheet: "panel", selector: '.traj-ev-dot[data-state="running"]', kind: "state", why: "the same state inside the trajectory view" },
+  // '.traj-ev-dot[data-state="running"]' WAS HERE, AND ITS REMOVAL IS THE PRUNE (round 33): `eventDotState` maps every
+  // event through `stateFromEnd(true, …)`, so it cannot return `running` — the arm was unreachable, and this entry
+  // declared a purpose for an animation nothing could run. The gate said so the moment the rule went:
+  // "PURPOSES declares … and the sheet no longer animates it — a stale entry is a reason nobody is using".
   { sheet: "panel", selector: '.plug-dot[data-state="ongoing"]', kind: "state", why: "the plugin reports its work as ongoing" },
   { sheet: "panel", selector: ".browser-ai-dot", kind: "state", why: "rendered only while aiActive holds — the agent is operating the browser" },
   { sheet: "panel", selector: ".mem-busy", kind: "state", why: "the memory view is waiting on the device" },

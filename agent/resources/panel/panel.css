@@ -2414,7 +2414,12 @@ h3 { font-size: var(--fs-base); }
    here"; in the TRAJECTORY it is the MAJORITY (every raw output line) so it is a quiet FILLED dot, which reads as
    texture rather than as a marker. Two hundred rings down a rail would be noise. The verdict vocabulary below
    applies to VERDICTS; a density decision outranks uniformity. */
-.traj-ev-dot[data-state="muted"] { background: var(--ds-neutral-300); }
+/* AND THE MUTED FILL CLEARS ITS BAR (round 33). The comment below defends a "quiet FILLED dot, which reads as texture
+   rather than as a marker" — and the rendered measurement says what that cost: rgb(212, 212, 216) on the light surface
+   is **1.42:1**, an invisible dot. The texture argument is about WEIGHT, not about being unmeasurable, and
+   `--state-muted` is the token the three sibling muted rings already use (4.83 light / 6.5 dark). The rail keeps its
+   density; the dots stop disappearing. */
+.traj-ev-dot[data-state="muted"] { background: var(--state-muted); }
 .cmd-dot[data-state="muted"] {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--state-muted);
@@ -2861,11 +2866,12 @@ h3 { font-size: var(--fs-base); }
 .traj-ev-dot[data-state="fail"] {
   background: var(--state-fail);
 }
-.traj-ev-dot[data-state="running"] {
-  background: var(--state-running);
-  box-shadow: 0 0 0 2px var(--state-running-soft);
-  animation: cmd-pulse 1.6s var(--ds-ease-in-out) infinite;
-}
+/* NO `running` ARM FOR THE EVENT DOT, AND THAT IS A DELETION, NOT AN OVERSIGHT (round 33). `eventDotState` maps an
+   event to a state through `stateFromEnd(true, …)` on both of its branches — a `command/end` and a terminal status —
+   so it can return ok/fail/muted/bg/warn and NEVER `running`; the round marker above it carries that (a cmd-dot, which
+   does have the arm). The rule was unreachable, and its presence kept the mark-coverage note asking for a state no
+   surface could ever paint — a false gap that cost two rounds of looking. The shared `.cmd-dot[running]` /
+   `.plug-dot[ongoing]` arm above is untouched: those two producers are real. */
 .traj-ev-content { min-width: 0; padding: 1px 0 6px; }
 .traj-ev-out {
   margin: 0;
