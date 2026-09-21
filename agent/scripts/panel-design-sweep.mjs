@@ -1404,6 +1404,11 @@ function judge(file) {
       css = css.replace(/\/\*[\s\S]*?\*\//g, "");
       // Every class the sheet gives a STATE rule to, by the probe's own family rule (a name ending in dot / dotcol /
       // mark / led / chip / signal / state), so the two instruments cannot disagree about what a family is.
+      // THE CLASSES THE RUN PUT ON SCREEN, so a family with no painted states can be told apart from a family the
+      // probe attributes elsewhere: `mark tab-dot` is measured as `mark`, and reporting it as "no surface rendered
+      // tab-dot" would be a finding about the probe's naming, not about the page.
+      const onScreen = new Set();
+      for (const s2 of report.surfaces || []) for (const c of (s2.marks && s2.marks.present) || []) onScreen.add(c);
       const familyRule = /(dot|dotcol|mark|led|chip|signal|state)$/;
       for (const m of css.matchAll(/\.([A-Za-z][\w-]*)(\[[^\]]+\]|\.[A-Za-z][\w-]*)/g)) {
         if (!familyRule.test(m[1])) continue;
@@ -1417,6 +1422,12 @@ function judge(file) {
           const sel = m[1];
           if (sel.startsWith("[")) declared.add(sel.slice(1, -1).replace(/"/g, ""));
           else declared.add(sel.slice(1));
+        }
+        if (!rendered.size && onScreen.has(family)) {
+          console.log(
+            `note: mark family ${family} declares ${declared.size} state(s) and the CLASS IS ON SCREEN — the probe did not record it as a family of its own, either because its marks carry a state attribute (the family is then the FIRST class, which is how mark tab-dot is measured as mark) or because they are larger than the 40px the mark probe measures. Not a missing surface; a naming and sizing question.`,
+          );
+          continue;
         }
         const missing = [...declared].filter((d) => !rendered.has(d) && !rendered.has(d.replace(/^data-(state|live|kind)=/, "")));
         if (missing.length) {

@@ -117,12 +117,19 @@ const SURFACE = \`(() => {
     // fill — because colour is the SECOND channel and this check exists for the user who cannot read it.
     marks: (() => {
       const families = new Map();
+      // WHICH STATE-MARK CLASSES ARE ON SCREEN AT ALL (round 28). The probe attributes a mark to the family its
+      // STATE hangs off — a mark tab-dot element with data-live is family mark — so a class like tab-dot can be
+      // rendered on every tab and still never appear as a family of its own. Without this set, a judge asking "did
+      // anything render family X?" cannot tell A CLASS NOTHING PUTS ON SCREEN from ONE THE PROBE ATTRIBUTES
+      // ELSEWHERE, and the sheet-enumerated note reported both as gaps.
+      const present = new Set();
       for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
         const st = getComputedStyle(el);
         if (st.display === 'none' || st.visibility === 'hidden') continue;
         const r = el.getBoundingClientRect();
         if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
         const cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/) : [];
+        for (const c of cls) if (/(dot|dotcol|mark|led|chip|signal|state)$/.test(c)) present.add(c);
         const state = el.getAttribute('data-state') || el.getAttribute('data-live');
         // the family is the class the STATE rules hang off: with a data-attribute it is the first class, with a
         // modifier class it is everything except the last one
@@ -206,7 +213,12 @@ const SURFACE = \`(() => {
       for (const [fam, states] of families) {
         for (const [state, sig] of states) if (sig.indexOf('ring+fill') >= 0) ringFill.push(fam + '[' + state + ']');
       }
-      return { families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'), collisions: collisions.slice(0, 6), ringFill: ringFill.slice(0, 6) };
+      return {
+        families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'),
+        collisions: collisions.slice(0, 6),
+        ringFill: ringFill.slice(0, 6),
+        present: [...present].sort(),
+      };
     })(),
     // DOES THIS SURFACE CLAIM A READ FAILED? (round 100) The fixture serves EVERY call on a normal surface, so a
     // page that says "could not be read" or "did not answer, so ..." is making a claim about the device that the

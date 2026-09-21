@@ -573,6 +573,27 @@ if grep -q "mark family tab-dot declares .* rendered 0" "$TMP/marks-absent.out";
 else
   bad "an unrendered family went unmentioned: $(grep -c 'mark family' "$TMP/marks-absent.out") family line(s)"
 fi
+# AND THE TWO REASONS A FAMILY WITH NO PAINTED STATES IS NOT A GAP (round 28). The probe attributes a mark to the
+# family its STATE hangs off (`mark tab-dot` is family `mark`), and it measures marks between 4 and 40px — so a class
+# can be on every tab and never appear as a family. Reporting those as "no surface rendered" was a finding about the
+# probe's naming, not about the page; the note separates them now, from the classes the probe reports ON SCREEN.
+python3 - "$TMP/clean.json" "$TMP/marks-onscreen.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+r["surfaces"] = [{"density": "panel", "theme": "light", "page": "Terminal",
+                  "marks": {"families": ["cmd-dot[fail,ok,muted,running,warn,bg]"], "present": ["tab-dot", "mark"]}}]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+node "$TOOL" --judge "$TMP/marks-onscreen.json" > "$TMP/marks-onscreen.out" 2>&1 || true
+# ANCHORED ON THE FAMILY NAME: the first version's second pattern was `tab-dot declares ... NO SURFACE RENDERED`,
+# which `dtab-dot declares ...` matches as a SUBSTRING — so the case failed while the note it was testing was correct.
+# The same class of mistake as the mutation that matched an intent string already on another feed: a pattern is not a
+# name until it is anchored.
+if grep -q "mark family tab-dot declares .* CLASS IS ON SCREEN" "$TMP/marks-onscreen.out" && ! grep -q "mark family tab-dot declares .* NO SURFACE RENDERED" "$TMP/marks-onscreen.out"; then
+  ok "a class on screen but measured under another family is reported as naming, not as a missing surface"
+else
+  bad "the note still calls an on-screen class unrendered — tab-dot line: [$(grep -m1 'mark family tab-dot' "$TMP/marks-onscreen.out")]"
+fi
 node "$TOOL" --judge "$TMP/marks-full.json" > "$TMP/marks-full.out" 2>&1 || true
 if grep -q "mark family cmd-dot" "$TMP/marks-full.out"; then
   bad "a family rendering every declared state was still reported: $(grep -m1 'mark family' "$TMP/marks-full.out")"
