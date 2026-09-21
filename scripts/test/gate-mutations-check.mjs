@@ -32,9 +32,9 @@ if (dirty) {
 
 /** Each case: the gate, the file it reads, and the EXACT break that gate was proven with.
  *
- *  OWED, NOT FORGOTTEN: `sweep-fixture-dupes-check` belongs here too, and its mutation is a fixture table answering one
- *  endpoint TWICE — a two-key shape this list cannot yet express (replace one line with three, closing and reopening the
- *  object). It is owed rather than approximated because a mutation written badly is exactly what round 104 cost hours to. */
+ *  The owed `sweep-fixture-dupes-check` case arrived in round 107, and it needed no new shape after all: a fixture key on
+ *  ONE line duplicated in place is a plain from/to replacement. (The earlier note assumed the `/api/health` block, which is
+ *  multi-line — the wrong anchor made the shape look impossible.) */
 const CASES = [
   {
     gate: "scripts/test/session-row-check.mjs",
@@ -107,6 +107,14 @@ const CASES = [
     why: "a gate is written and never invoked, so it guards nothing",
     from: "      - name: every console wire field has a producer\n        run: node scripts/test/console-wire-field-check.mjs\n",
     to: "",
+  },
+
+  {
+    gate: "scripts/test/sweep-fixture-dupes-check.mjs",
+    file: "agent/scripts/console-design-sweep.mjs",
+    why: "a sweep's fixture table answers one endpoint TWICE, so the last key silently wins and a page renders what nobody meant it to",
+    from: "  '/api/version': { version: '1.0.106' },\n",
+    to: "  '/api/version': { version: '1.0.106' },\n  '/api/version': { version: '9.9.9' },\n",
   },
 
 ];
