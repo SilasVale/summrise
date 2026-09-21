@@ -2604,3 +2604,32 @@ clicks Start against it, and the surface carries both the error silhouette and t
 ONE PUSH, THREE MEASUREMENTS, ON PURPOSE: the fix above, the alert-strip surfaces that found the collision, and the new
 plugin-fail surface all ship together, so a single design job reports on all three. Round 41's lesson — a push cancels
 the run that is measuring — is cheapest to obey by batching than by waiting.
+
+### ONE DUPLICATE KEY, FIVE DEFECTS, TEN ROUNDS: THE MODELS PAGE (rounds 57-66)
+
+The console's mark-coverage queue (round 50) named ten families; the worst was `prov-dot` — **2 states declared, ZERO
+rendered in 56 surfaces**, which is worse than a missing state because every axis is blind to a family that never
+appears. What it took to see it, in order, each layer hidden by the one above it:
+
+  1. **the fixture key `/api/admin/public` was in the sweep's table TWICE** (round 59). In a JS object literal the LAST
+     key wins, so the body added in round 57 never reached the page, `Models.tsx` set `failed`, and it rendered its
+     "could not be read" banner — for three rounds, with every other check green.
+  2. **the duplicate-key gate** (round 60) — written because of that, mutation-proven, wired into ci.yml.
+  3. with the page rendering: **`lane-def` on screen and matched by nothing**, and **`span.prov-ident 72<161` at 320px**
+     (round 61) — a page nothing had ever looked at, paying out immediately.
+  4. the health fixture was keyed **`prefix:`** where the page reads **`h.id`** (round 64), so every lookup missed,
+     `h?.ok !== false` was true, and `missing` could not render however many failing channels the fixture carried.
+  5. the rule added in (3) painted the fallback lane with `--text-faint` — **2.54:1**, the token the console's own marks
+     check already recorded as under the bar (round 64).
+  6. and with BOTH states finally on screen together for the first time: **`prov-dot: ok and missing paint identically
+     (50%/flat/-/halo)`** (round 65) — the **fourth** collision of this class, after `cmd-dot` bg/muted, `traj-ev-dot`
+     muted/ok and `monitor-mark` is-up/is-flapping. Two of those four had been wrong since the day they were written.
+
+CLOSED BY MEASUREMENT (round 66): the design job is green, `prov-dot` no longer appears in any note, and the two lane
+findings are gone. The console's queue is down to its naming/sizing notes, which are statements about the probe rather
+than about the page.
+
+WHAT THIS COST AND WHAT IT BOUGHT: ten rounds for one dot, and five real defects — a page that rendered nothing, a class
+with no rule, a 320px reflow overflow, an ink under 3:1, and a colour-only pair of states. Every one of them was
+invisible for exactly as long as the surface did not exist, which is the argument the coverage queue makes in one line:
+**a state with no surface is not an untested state, it is an unknown one.**
