@@ -1,3 +1,5 @@
+// The hostname and the rule that accepts it are ONE fixture (round 118).
+const ENV_EXTRA = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
 // Browser-tool routing tests: callTool forwards browser tools to the device's
 // own HTTP API (/api/tools/mcp_client_call → playwright-mcp via the agent's
 // mcp_client plugin), maps gateway tool names to playwright names, and
@@ -14,7 +16,7 @@ import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 // A REALISTIC hostname: the dial path now applies the suffix allowlist (it used to be
 // registration-only, so this fixture got away with a placeholder), and no device can be
 // registered under `example.com`. The check is what a production dial actually faces.
-const DEVICE = { name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" };
+const DEVICE = { name: "d1", hostname: "d1.agent.vale.test", token: "devtok" };
 
 // fetch stub: records every call, replies from a handler per URL.
 function makeFetch(handler) {
@@ -43,11 +45,11 @@ const okJson = (result) => ({
 
 test("browser tool routes to the device mcp_client_call API with mapped name + bearer", async () => {
   const { calls, impl } = makeFetch((url) => {
-    assert.equal(url, "https://d1.agent.saisi.online/api/tools/mcp_client_call");
+    assert.equal(url, "https://d1.agent.vale.test/api/tools/mcp_client_call");
     return okJson({ title: "Vale" });
   });
   await withFetch(impl, () =>
-    callTool({ name: "browser_open" }, {}, DEVICE, { device: "d1", url: "https://example.com" }),
+    callTool({ name: "browser_open" }, ENV_EXTRA, DEVICE, { device: "d1", url: "https://example.com" }),
   );
   assert.equal(calls.length, 1);
   const body = JSON.parse(calls[0].init.body);
@@ -68,7 +70,7 @@ test("browser tool routes to the device mcp_client_call API with mapped name + b
 test("run_id is lifted OUT of the playwright arguments to the device call's top level", async () => {
   const { calls, impl } = makeFetch(() => okJson({ title: "Vale" }));
   await withFetch(impl, () =>
-    callTool({ name: "browser_click" }, {}, DEVICE, {
+    callTool({ name: "browser_click" }, ENV_EXTRA, DEVICE, {
       device: "d1",
       element_ref: 6,
       run_id: "run-1700000000000-abc123",
@@ -96,7 +98,7 @@ test("run_id is lifted OUT of the playwright arguments to the device call's top 
 test("a browser call with no run_id sends no run_id key at all", async () => {
   const { calls, impl } = makeFetch(() => okJson({ title: "Vale" }));
   await withFetch(impl, () =>
-    callTool({ name: "browser_open" }, {}, DEVICE, { device: "d1", url: "https://example.com" }),
+    callTool({ name: "browser_open" }, ENV_EXTRA, DEVICE, { device: "d1", url: "https://example.com" }),
   );
   const body = JSON.parse(calls[0].init.body);
   assert.ok(
@@ -112,7 +114,7 @@ test("a browser call with no run_id sends no run_id key at all", async () => {
 test("device tools bypass the bridge: browser_run_script/pw_info hit the device API", async () => {
   for (const name of ["browser_run_script", "browser_pw_info"]) {
     const { calls, impl } = makeFetch((url) => {
-      assert.equal(url, `https://d1.agent.saisi.online/api/tools/${name}`);
+      assert.equal(url, `https://d1.agent.vale.test/api/tools/${name}`);
       return new Response(JSON.stringify({ ok: true, result: { ran: true } }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -120,7 +122,7 @@ test("device tools bypass the bridge: browser_run_script/pw_info hit the device 
     });
     // deviceFetch injects the device Bearer internally (device-fetch.test.mjs
     // pins the hygiene); here the URL proves the bridge was bypassed.
-    const out = await withFetch(impl, () => callTool({ name }, {}, DEVICE, { device: "d1" }));
+    const out = await withFetch(impl, () => callTool({ name }, ENV_EXTRA, DEVICE, { device: "d1" }));
     assert.equal(calls.length, 1, `${name} dialed the device directly`);
     assert.deepEqual(out, { ok: true, result: { ran: true } });
   }
@@ -152,7 +154,7 @@ test("self-heal: not connected → playwright/start + mcp_client_connect → ret
     return okJson({ status: "started" });
   });
   const result = await withFetch(impl, () =>
-    callTool({ name: "browser_snapshot" }, {}, DEVICE, { device: "d1" }),
+    callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, { device: "d1" }),
   );
   assert.deepEqual(result, { ok: true, result: { elements: [] } });
   // order: call → start → connect → retry(call)
@@ -162,11 +164,11 @@ test("self-heal: not connected → playwright/start + mcp_client_connect → ret
 
 test("browser_click element_ref integer 7 → playwright target e7", async () => {
   const { calls, impl } = makeFetch((url) => {
-    assert.equal(url, "https://d1.agent.saisi.online/api/tools/mcp_client_call");
+    assert.equal(url, "https://d1.agent.vale.test/api/tools/mcp_client_call");
     return okJson({ ok: true });
   });
   const res = await withFetch(impl, () =>
-    callTool({ name: "browser_click" }, {}, DEVICE, { device: "d1", element_ref: 7 }),
+    callTool({ name: "browser_click" }, ENV_EXTRA, DEVICE, { device: "d1", element_ref: 7 }),
   );
   assert.equal(res.ok, true);
   const body = JSON.parse(calls[0].init.body);
@@ -178,7 +180,7 @@ test("browser_click element_ref integer 7 → playwright target e7", async () =>
 test("browser_click element_ref e7 passes through as target", async () => {
   const { calls, impl } = makeFetch(() => okJson({ ok: true }));
   await withFetch(impl, () =>
-    callTool({ name: "browser_click" }, {}, DEVICE, { device: "d1", element_ref: "e7" }),
+    callTool({ name: "browser_click" }, ENV_EXTRA, DEVICE, { device: "d1", element_ref: "e7" }),
   );
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.arguments.target, "e7");
@@ -187,7 +189,7 @@ test("browser_click element_ref e7 passes through as target", async () => {
 test("browser_click without element_ref forwards args unchanged", async () => {
   const { calls, impl } = makeFetch(() => okJson({ ok: true }));
   await withFetch(impl, () =>
-    callTool({ name: "browser_click" }, {}, DEVICE, { device: "d1", target: "f1e6" }),
+    callTool({ name: "browser_click" }, ENV_EXTRA, DEVICE, { device: "d1", target: "f1e6" }),
   );
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.arguments.target, "f1e6");
@@ -197,7 +199,7 @@ test("browser_click without element_ref forwards args unchanged", async () => {
 test("browser_type element_ref converts to target and keeps text", async () => {
   const { calls, impl } = makeFetch(() => okJson({ ok: true }));
   await withFetch(impl, () =>
-    callTool({ name: "browser_type" }, {}, DEVICE, { device: "d1", element_ref: 3, text: "hello" }),
+    callTool({ name: "browser_type" }, ENV_EXTRA, DEVICE, { device: "d1", element_ref: 3, text: "hello" }),
   );
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.tool, "browser_type");
@@ -213,7 +215,7 @@ test("persistent failure after heal → rejects with the device error", async ()
   }));
   await withFetch(impl, () =>
     assert.rejects(
-      callTool({ name: "browser_click" }, {}, DEVICE, { device: "d1" }),
+      callTool({ name: "browser_click" }, ENV_EXTRA, DEVICE, { device: "d1" }),
       /MCP connect failed: refused/,
     ),
   );
@@ -253,6 +255,7 @@ test("mcp: browser_screenshot data-URL → MCP image content block", async () =>
 // seeded with this file's MCP base.
 function makeEnv() {
   return makeBaseEnv({
+    extra: ENV_EXTRA,
     devices: [DEVICE],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
@@ -272,13 +275,13 @@ test("timeout_secs clamps to 1..300 before reaching the device (M2 audit)", asyn
     return impl(url, init);
   };
   await withFetch(saving, () =>
-    callTool({ name: "browser_snapshot" }, {}, DEVICE, { timeout_secs: 99999 }),
+    callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, { timeout_secs: 99999 }),
   );
   await withFetch(saving, () =>
-    callTool({ name: "browser_snapshot" }, {}, DEVICE, { timeout_secs: 0 }),
+    callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, { timeout_secs: 0 }),
   );
   await withFetch(saving, () =>
-    callTool({ name: "browser_snapshot" }, {}, DEVICE, { timeout_secs: 12.9 }),
+    callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, { timeout_secs: 12.9 }),
   );
   assert.equal(bodies[0].timeout_secs, 300, "huge timeout clamps to the 300s ceiling");
   assert.equal(bodies[1].timeout_secs, 1, "zero timeout floors to 1s");
@@ -287,7 +290,7 @@ test("timeout_secs clamps to 1..300 before reaching the device (M2 audit)", asyn
 
 test("unknown browser tool name passes through verbatim (toolMap fallback)", async () => {
   const { calls, impl } = makeFetch(() => okJson({}));
-  await withFetch(impl, () => callTool({ name: "browser_future_tool" }, {}, DEVICE, { foo: 1 }));
+  await withFetch(impl, () => callTool({ name: "browser_future_tool" }, ENV_EXTRA, DEVICE, { foo: 1 }));
   assert.equal(calls.length, 1);
   assert.equal(JSON.parse(calls[0].init.body).tool, "browser_future_tool");
 });
@@ -312,9 +315,9 @@ test("private device hostname → DEVICE_UNREACHABLE before any fetch", async ()
 // smuggling a port/userinfo/path past the IP guards) had ZERO pins.
 test("hostname with port/userinfo/path → DEVICE_UNREACHABLE before any fetch", async () => {
   for (const hostname of [
-    "d1.agent.saisi.online:8443",
-    "u@d1.agent.saisi.online",
-    "d1.agent.saisi.online/evil",
+    "d1.agent.vale.test:8443",
+    "u@d1.agent.vale.test",
+    "d1.agent.vale.test/evil",
   ]) {
     const evil = { name: "evil", hostname, token: "tok" };
     let fetched = false;
@@ -347,7 +350,7 @@ test("5th concurrent browser call on one device → SESSION_BUSY (semaphore of 4
       headers: { "content-type": "application/json" },
     });
   const impl = () => gate.then(() => failJson());
-  const run = () => callTool({ name: "browser_snapshot" }, {}, DEVICE, {}).catch((e) => e);
+  const run = () => callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, {}).catch((e) => e);
   await withFetch(impl, async () => {
     const flying = [run(), run(), run(), run()];
     // Let the four calls park inside their slots (microtask drain, no sleep).
@@ -388,7 +391,7 @@ test("self-heal: 'session not found' (round-132 idle reclaim) heals like 'not co
     return okJson({ status: "started" });
   });
   const result = await withFetch(impl, () =>
-    callTool({ name: "browser_snapshot" }, {}, DEVICE, { device: "d1" }),
+    callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, { device: "d1" }),
   );
   assert.deepEqual(result, { ok: true, result: { elements: [] } });
   const urls = calls.map((c) => c.url.split("/").pop());
@@ -403,7 +406,7 @@ test("non-JSON device body throws mcp_client_call failed with the status", async
     },
   }));
   const err = await withFetch(impl, () =>
-    callTool({ name: "browser_snapshot" }, {}, DEVICE, { device: "d1" }).catch((e) => e),
+    callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, { device: "d1" }).catch((e) => e),
   );
   assert.match(String(err?.message || err), /mcp_client_call failed: 502/);
 });
@@ -422,13 +425,13 @@ test("slot released after a failed call: same device serves the next call", asyn
     // 4 concurrent failures occupy then release all slots …
     const errs = await Promise.all(
       [1, 2, 3, 4].map(() =>
-        callTool({ name: "browser_snapshot" }, {}, DEVICE, {}).catch((e) => e),
+        callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, {}).catch((e) => e),
       ),
     );
     assert.ok(errs.every((e) => String(e?.message || e).includes("permanent boom")));
     // … so the next call is NOT SESSION_BUSY and succeeds.
     mode = "ok";
-    const result = await callTool({ name: "browser_snapshot" }, {}, DEVICE, {});
+    const result = await callTool({ name: "browser_snapshot" }, ENV_EXTRA, DEVICE, {});
     assert.deepEqual(result, { ok: true, result: { done: true } });
   });
 });
@@ -465,12 +468,12 @@ test("a device record outside the suffix allowlist is never dialled, token inclu
 });
 
 test("...and a record INSIDE the allowlist still dials (the guard is a filter, not a wall)", async () => {
-  const ok = { name: "ok1", hostname: "ok1.agent.saisi.online", token: "t" };
+  const ok = { name: "ok1", hostname: "ok1.agent.vale.test", token: "t" };
   const calls = [];
   const impl = async (url) => {
     calls.push(String(url));
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   };
-  await withFetch(impl, () => callTool({ name: "browser_run_script" }, {}, ok, { device: "ok1" }));
+  await withFetch(impl, () => callTool({ name: "browser_run_script" }, ENV_EXTRA, ok, { device: "ok1" }));
   assert.equal(calls.length, 1, "a legitimate device must still be dialled");
 });

@@ -652,3 +652,18 @@ tests exist to pin those defaults. Moving them is a DESIGN change (make the base
 it stays on the declared list legitimately, and the list's reason for it is now accurate rather than incidental. That is
 the third kind of host this migration has found, after device hostnames and console origins: a **base URL the product
 chooses**.
+
+**ROUND 118: THE NINTH FILE, AND AN EIGHTH SHAPE THAT WAS LOUD INSTEAD OF SILENT.** `mcp-browser.test.mjs` moved eight
+device hostnames (including three NEGATIVE cases — a host with a port, with userinfo, with a path) and needed the suffix in
+five places. Two shapes were new:
+
+  * **an insert predicate that is too loose.** Matching `return {` as well as `makeBaseEnv({` put `extra: ENV_EXTRA` into
+    `return { calls, impl };` and two stub handlers — a syntax error, so the file failed to load and reported 0 pass
+    instead of lying. Narrowing it to `makeBaseEnv({` was the whole fix. This is the GOOD failure mode: round 115's
+    over-broad edit produced a silent duplicate key and a green suite.
+  * **`{}, ` in the env position, TWENTY times.** `callTool({ name }, {}, DEVICE, …)` is round 110's `device-probe` shape
+    exactly — an empty object where the env goes — and it took two passes because the first replacement matched `, {}, DEVICE,`
+    and missed the one call that passed a different device record.
+
+`gateway.test.mjs` is DECLINED with its reason, the third-kind case: its nine mentions are the relay/exit BASE URLs
+(`oracle.<host>`, `zen-us.<host>`, `v.<host>`) that the product chooses, and those tests exist to pin them.
