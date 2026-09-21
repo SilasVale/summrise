@@ -10,7 +10,7 @@ import {
   type RegKeyInfo,
 } from "../api/client.ts";
 import { maskToken } from "../lib/format.ts";
-import { CONSOLE_POLL_MS, agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../lib/deviceState.ts";
+import { CONSOLE_POLL_MS, agentSignal, deviceIsUp, deviceTally, tunnelKnownDown, tunnelSignal } from "../lib/deviceState.ts";
 import {
   Card,
   PageHeader,
@@ -219,7 +219,9 @@ export default function DevicesPanel() {
   // hostname.
   const openPanel = async (name: string) => {
     const st = deviceStatuses[name];
-    if (st && st.tunnel_up === false) {
+    // `tunnelKnownDown` OWNS THE TRI-STATE RULE (round 128): absent is not down, and a hand-written comparison here is where
+    // that becomes `!st.tunnel_up` and starts refusing devices nobody has checked.
+    if (tunnelKnownDown(st)) {
       setModal({ kind: "tunnelDown", device: name });
       return;
     }

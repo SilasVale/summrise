@@ -42,6 +42,16 @@ interface DeviceStatusLike {
  * IS THE AGENT ANSWERING. `false` for a device with no status entry, which is why a caller that needs to say
  * "offline" rather than "not checked" must read the SIGNAL below instead of this boolean.
  */
+/** THE TUNNEL IS KNOWN DOWN — the tri-state rule, in one place (round 128 of the standing goal).
+ *
+ *  `openPanel` refused to open a device's page when `st.tunnel_up === false`, written by hand at the call site. The test is
+ *  right — ABSENT IS NOT DOWN, which is the whole point of this module — but a second hand-written `=== false` is a place
+ *  that can become `!st.tunnel_up` and start refusing devices nobody has checked. The rule belongs here, next to the signal
+ *  that renders it. */
+export function tunnelKnownDown(status?: DeviceProbeStatus | null): boolean {
+  return status?.tunnel_up === false;
+}
+
 export function deviceIsUp(status: DeviceStatusLike | undefined): boolean {
   return !!status?.agent_up;
 }
