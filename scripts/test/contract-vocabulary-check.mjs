@@ -124,19 +124,28 @@ if (sawKinds < 2) {
 const pathTs = read("agent/resources/panel-react/src/lib/path.ts");
 const reasons = new Set(contract.end_reasons);
 let sawReasons = 0;
-// The derivation is a SWITCH over the reason (its own comment explains why `backgrounded` is not folded into `warn`),
-// so the scan reads `case "…":` — the first version looked for `reason === "…"`, found nothing, and the floor below
-// ("compares against no end reason at all") is what said so instead of reporting a clean pass over an empty set.
-for (const m of pathTs.matchAll(/^\s*case "([a-z:]+)":/gm)) {
-  sawReasons++;
-  if (!reasons.has(m[1])) {
-    bad(`path.ts derives a state for end reason "${m[1]}", which contract-vocabulary.json does not list`);
-  }
-}
-if (sawReasons === 0) {
-  bad("path.ts compares against no end reason at all — the derivation moved and this scan proves nothing");
+// THE DERIVATION READS THE GENERATED VOCABULARY NOW (round 52), so the scan reads its TABLE rather than a switch: the
+// endings are keys of `END_STATE`, keyed by the generated `EndReason` union, which means a reason the device adds and
+// the table does not name is a TYPESCRIPT error — stricter than this gate. What the gate still owns is the direction
+// TypeScript cannot see: every reason the vocabulary lists must be a key of that table (a missing one would make the
+// union wider than the table and fail the build, but a STALE table with extra keys would not), and the prefix must be
+// the generated one rather than a literal.
+// The table's entries are indented under `const END_STATE … = {`; the first version of this scan asked for exactly two
+// spaces and found nothing, which its own floor reported as "the derivation moved" rather than as a clean pass.
+// (`END_LABEL` has the same keys and different values, so requiring a STATE value is what tells the two tables apart.)
+const tableKeys = [...pathTs.matchAll(/^\s+([a-z]+):\s*"(muted|warn|bg|ok|fail|running)",/gm)].map((m) => m[1]);
+if (tableKeys.length === 0) {
+  bad("path.ts has no end-state table — the derivation moved and this scan proves nothing");
 } else {
-  ok(`${sawReasons} end-reason comparison(s) in the derivation, all named by contract-vocabulary.json`);
+  const named = new Set(tableKeys);
+  for (const r of contract.end_reasons) {
+    if (!named.has(r)) bad(`path.ts's table does not name the end reason "${r}" the device writes`);
+  }
+  for (const r of named) {
+    if (!contract.end_reasons.includes(r)) bad(`path.ts's table names "${r}", which contract-vocabulary.json does not list`);
+  }
+  if (!pathTs.includes("EXITED_PREFIX")) bad("path.ts no longer reads the generated EXITED_PREFIX");
+  ok(`${tableKeys.length} end reason(s) in the derivation's table, every one in the vocabulary (and the type is generated)`);
 }
 
 if (fail) {

@@ -29,6 +29,7 @@
 import type { CommandCard as CardData } from "../hooks/useCommandEvents";
 import type { CommandEvent } from "../hooks/useCommandEvents";
 import type { TrajRound } from "../hooks/useTrajectory";
+import { END_REASONS, EXITED_PREFIX, type EndReason } from "./contract.gen";
 
 /** The five-state vocabulary, re-exported so the path view and the command
  *  cards cannot drift apart on what a state is called. */
@@ -59,17 +60,38 @@ export function stateFromEnd(
       ? { state: "ok", label: "Success (exit 0)", compact: "0" }
       : { state: "fail", label: `Failed (exit ${exitCode})`, compact: `exit ${exitCode}` };
   }
-  switch (reason) {
-    // ITS OWN STATE, NOT `warn`. `warn` is the path summary's word for a step
-    // that ended badly, and folding a BACKGROUNDED command into it made the
-    // operator-facing line read "3 interrupted" for three commands that were
-    // still legitimately RUNNING — and lit the session's "bad" marker for work
-    // nothing had gone wrong with.
-    case "backgrounded": return { state: "bg", label: "Backgrounded", compact: "backgrounded" };
-    case "interrupted": return { state: "warn", label: "Interrupted", compact: "interrupted" };
-    case "closed": return { state: "muted", label: "Closed", compact: "closed" };
-    default: return { state: "muted", label: reason || "Ended", compact: reason || "ended" };
+  // THE ENDINGS THE DEVICE CAN REPORT, AS A TABLE KEYED BY THE GENERATED VOCABULARY (round 52). The cases were
+  // literals here and the same literals in `agent/src/vocabulary.rs`, which is the two-copies-of-one-fact shape this
+  // objective exists to remove; `END_REASONS` is generated from that file, so a reason the device adds and this table
+  // does not name is a COMPILE ERROR rather than a state that silently renders as `muted`.
+  //
+  // ITS OWN STATE, NOT `warn`: `warn` is the path summary's word for a step that ended badly, and folding a
+  // BACKGROUNDED command into it made the operator-facing line read "3 interrupted" for three commands that were still
+  // legitimately RUNNING — and lit the session's "bad" marker for work nothing had gone wrong with.
+  const END_STATE: Record<EndReason, PathState> = {
+    marker: "muted",
+    idle: "muted",
+    timeout: "muted",
+    interrupted: "warn",
+    backgrounded: "bg",
+    closed: "muted",
+  };
+  const END_LABEL: Record<EndReason, string> = {
+    marker: "Ended",
+    idle: "Idle",
+    timeout: "Timed out",
+    interrupted: "Interrupted",
+    backgrounded: "Backgrounded",
+    closed: "Closed",
+  };
+  const named = reason && (END_REASONS as readonly string[]).includes(reason) ? (reason as EndReason) : null;
+  if (named) {
+    return { state: END_STATE[named], label: END_LABEL[named], compact: named };
   }
+  // `exited:3` and anything a newer device invents: the prefix is the vocabulary's, the number is the device's, and an
+  // ending this build cannot name is `muted` with its own words rather than a guess.
+  const known = reason?.startsWith(EXITED_PREFIX) ? reason : null;
+  return { state: "muted", label: known || reason || "Ended", compact: known || reason || "ended" };
 }
 
 /** A command card's state — the same derivation, over the card's fields. */
