@@ -16,7 +16,7 @@ import { issueSessionToken, SESSION_COOKIE } from "../src/auth.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
 const ADMIN_PW = "test-admin-password";
-const DEVICE = { name: "d1", hostname: "d1.agent.saisi.online", token: "devtok" };
+const DEVICE = { name: "d1", hostname: "d1.agent.vale.test", token: "devtok" };
 
 // KV stub: device registry, plugin links (plugins:v1 token → {device}),
 // admin password + users for the session path. `_admin_seeded` keeps
@@ -35,6 +35,9 @@ function makeEnv() {
       bob: { id: "bob", username: "bob", role: "user", enabled: true, token: "" },
     },
     kv: { "auth:admin_password": ADMIN_PW, _admin_seeded: "1" },
+    // The device host and the rule that accepts it move together (round 112) — the pairing rounds 94, 110 and 111 each paid
+    // for once.
+    extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test" },
   });
 }
 
@@ -70,7 +73,7 @@ test("proxy: paired plugin token → proxied; device Bearer injected server-side
     const res = await worker.fetch(new Request(PROXY_URL, { headers: { authorization: "Bearer tok-d1" } }), makeEnv());
     assert.equal(res.status, 200);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://d1.agent.saisi.online/api/tools/terminal_list");
+    assert.equal(calls[0].url, "https://d1.agent.vale.test/api/tools/terminal_list");
     assert.equal(calls[0].init.headers.get("authorization"), "Bearer devtok"); // device token, not the plugin token
     assert.equal(calls[0].init.headers.get("cookie"), null); // console session never forwarded
     assert.equal(calls[0].init.method, "GET");
@@ -334,6 +337,9 @@ test("rewriteDeviceBody via proxy: mount insert, token scrub, no double-prefix",
     devices: [DEVICE],
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
     kv: { _admin_seeded: "1", "auth:admin_password": ADMIN_PW },
+    // THIS FILE BUILDS ITS ENV IN TWO PLACES, which is the shape round 111 recorded for `panel-grant`: the helper above and
+    // this direct call. Both must declare the suffix, because the device host and the rule that accepts it are one fixture.
+    extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test" },
   });
   const cookie = await issueSessionToken(ADMIN_PW, "admin", "admin");
   const html = [
