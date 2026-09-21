@@ -448,9 +448,12 @@ function buildHarness() {
   // OLDEST FIRST with ts_ms in milliseconds, and boot records NEWEST FIRST with the kind vocabulary.
   if (u.indexOf('/api/status') >= 0) {
     return Promise.resolve(J({
-      ok: true, version: '1.2.433', port: 18080, uptime_secs: 5412, live_sessions: liveCount, serial_ports: ['COM4'],
+      ok: true, version: '1.2.433', port: 18080, uptime_secs: BOOT_REPLACED ? 90 : 5412, live_sessions: liveCount, serial_ports: ['COM4'],
       release: '1.2.433', cpu_pct: 12.5, mem_pct: 41.7, mem_total_mb: 16384, pending_approvals: 1,
-      last_boot: '2026-09-13 04:12:03 +08:00 - unexpected exit', last_boot_kind: 'crashed',
+      last_boot: BOOT_REPLACED
+        ? '2026-09-21 19:40:00 +08:00 - replaced by vale update'
+        : '2026-09-13 04:12:03 +08:00 - unexpected exit',
+      last_boot_kind: BOOT_REPLACED ? 'replaced' : 'crashed',
     }));
   }
   if (u.indexOf('/api/vitals/history') >= 0) {
@@ -557,6 +560,13 @@ function buildHarness() {
       ],
     }));
   }
+  // ?boot=replaced — THE BOOT CHIP'S NEWS TONE (round 34 of the standing goal). The chip renders ONLY while there is
+  // something to say, and the two things it can say are a SHAPE apart by design: a triangle for the fault (.boot-mark,
+  // the base rule) and a DOT for the news (.boot-mark.info). The fixture only ever reported crashed, so the dot had
+  // never been painted anywhere and the mark-coverage note has been asking for it for rounds. info needs BOTH a
+  // replaced kind and an uptime under REPLACED_NOTICE_SECS — a restart the operator is meant to notice because it
+  // just happened — so both fields move together here.
+  var BOOT_REPLACED = P.get('boot') === 'replaced';
   var DOWN = P.get('monitor') === 'down';
   if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {
     var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };

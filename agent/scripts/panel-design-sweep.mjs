@@ -649,6 +649,25 @@ ${TIMING}
   // so its hollow ring — a GRAPHIC, so 3:1 — had never been measured by anything, and the live-panel probe found it at
   // 2.56 on the light surface. This surface exists so that state is photographed on every run: the extra rows are the
   // ring's cost, and the alternative was a defect the gates cannot see.
+  // THE BOOT CHIP'S OTHER TONE (round 34 of the standing goal), for the same reason as the approval gate's off state
+  // one round earlier: a mark with two tones where only one is ever painted has one unmeasured silhouette, and the
+  // note has been naming boot-mark info for rounds.
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&boot=replaced&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      const bname = 'BootReplaced-' + theme;
+      const brows = await page.evaluate(PROBE);
+      for (const row of brows) report.rows.push({ ...row, density: 'panel', theme, mode: 'boot-replaced', page: bname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });

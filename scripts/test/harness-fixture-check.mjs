@@ -190,6 +190,38 @@ const CHECKS = [
     ],
   },
   {
+    // THE TWO STATES ADDED SINCE THIS FILE LAST LOOKED, AND ONE OF THEM WAS CLAIMED BEFORE IT EXISTED. Round 29 gave
+    // the approval gate's DISARMED state a surface (`?appr=off`) and its commit message said it was pinned here — it
+    // was not; the case added that round was for the command endings. Round 34 adds the boot chip's news tone
+    // (`?boot=replaced` plus a short uptime, which is what makes `.boot-mark.info` reachable at all). Both are the
+    // rule this file exists for: A STATE THE FIXTURE CANNOT RENDER IS A STATE NO GATE CAN SEE. Pinned together because
+    // they are one idea — and because a claim in a commit message is not a pin.
+    name: "?appr=off and ?boot=replaced can each render the state they were added for",
+    test: (h) =>
+      /var APPR_OFF = P\.get\('appr'\) === 'off'/.test(h) &&
+      /SESSIONS\[ai\]\.approval_required = false/.test(h) &&
+      /var BOOT_REPLACED = P\.get\('boot'\) === 'replaced'/.test(h) &&
+      /last_boot_kind: BOOT_REPLACED \? 'replaced' : 'crashed'/.test(h) &&
+      /uptime_secs: BOOT_REPLACED \? 90 : 5412/.test(h),
+    mutations: [
+      {
+        why: "the boot flag stops changing the kind, so `.boot-mark.info` renders nowhere again",
+        from: /last_boot_kind: BOOT_REPLACED \? 'replaced' : 'crashed',/,
+        to: "last_boot_kind: 'crashed',",
+      },
+      {
+        why: "the boot flag leaves the uptime long, and the chip suppresses itself past REPLACED_NOTICE_SECS",
+        from: /uptime_secs: BOOT_REPLACED \? 90 : 5412/,
+        to: "uptime_secs: 5412",
+      },
+      {
+        why: "the approval flag mutates the SEED instead of the list entries — which is what its first version did, and it changed nothing on screen",
+        from: /SESSIONS\[ai\]\.approval_required = false;/,
+        to: "SESSION.approval_required = false;",
+      },
+    ],
+  },
+  {
     // A SLOW NETWORK IS A STATE THE FIXTURE MUST BE ABLE TO RENDER (round 19). The panel's acknowledgement claims it
     // fires on the EVENT rather than on the reply; the only way to tell those apart as rendered is to make every
     // stubbed reply slow, and a flag no fixture carries is a measurement nothing can take.
