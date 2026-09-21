@@ -588,9 +588,12 @@ zero.
 | immediate feedback, chrome still, one focal point | unchanged this session, and still guarded | `feedback-check`, `chrome-stillness-check`, `motion-check`, the press/ack passes — all green |
 | verified by measurement on BOTH ends | 142 harness surfaces in CI **and** the live probe on the panel the device actually serves (clean, exit 0, round 86) | the design job + `live-panel-probe.mjs` |
 
-**NINE GATES** now hold the spine in `ci.yml` (the four above plus `sweep-fixture-dupes-check`,
-`production-host-check`, `harness-fixture-check`, `build-pins`, and the design job's own axes). Each was proven by breaking
-the thing it guards.
+**TEN GATES** now hold the spine in `ci.yml` — the four above, plus `sweep-fixture-dupes-check`,
+`production-host-check`, `harness-fixture-check`, `build-pins`, `console-wire-field-check` and
+`gateway-device-field-check` (the last two apply the SAME rule at the layer where the console and then the two LANGUAGES
+meet; both were written because that rule had already caught a real gap one layer in, twice). Each was proven by breaking
+the thing it guards, and the mutation for each is recorded in `docs/agents/design-ledger.md` beside the defect that
+produced it.
 
 **WHAT IS OWED TO THE OPERATOR, and has been for many rounds** — these are decisions, not work: the e2e cadence; the two
 dead citations in `CHARTER`; the pre-commit hook symlink in the global hooks directory; and the rename-or-not of the
