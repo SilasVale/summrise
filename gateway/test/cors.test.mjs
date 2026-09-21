@@ -66,6 +66,19 @@ test("CORS_HEADERS carries no wildcard (origin reflected per request)", () => {
   assert.ok(!("Access-Control-Allow-Origin" in CORS_HEADERS));
 });
 
+// AND THE LIST IS CONFIGURATION NOW (round 88). The parameter is optional, so every existing case above keeps the exact
+// behaviour it had; this one proves the override works, which is what lets a test run against a test domain instead of a
+// production one — the 76 failures round 48 measured when the fixtures stopped spelling the real host.
+test("isAllowedOrigin: a configured origin list replaces the default", () => {
+  const env = { CONSOLE_ORIGINS: "https://console.vale.test, https://api.vale.test" };
+  assert.equal(isAllowedOrigin("https://console.vale.test", undefined, env), true);
+  assert.equal(isAllowedOrigin("https://api.vale.test", undefined, env), true);
+  assert.equal(isAllowedOrigin(AI, undefined, env), false, "the default list is REPLACED, not extended");
+  // and with no env, nothing changes
+  assert.equal(isAllowedOrigin(AI), true);
+  assert.equal(isAllowedOrigin("https://console.vale.test"), false);
+});
+
 test("isAllowedOrigin: console origins pass; loopback only with a loopback request host", () => {
   assert.equal(isAllowedOrigin(AI), true);
   assert.equal(isAllowedOrigin(API), true);

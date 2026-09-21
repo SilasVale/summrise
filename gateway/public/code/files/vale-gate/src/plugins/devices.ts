@@ -375,7 +375,7 @@ async function handleFileUpload(request: Request, env: any, url: URL): Promise<R
 
 // Proxy the upload to the index worker, injecting the UPLOAD_KEY.
 async function proxyUploadToWorker(request: Request, env: any, url: URL): Promise<Response> {
-  const indexWorkerUrl = indexWorkerBase(env);   // one place decides this host (round 87)
+  const indexWorkerUrl = indexWorkerBase(env); // one place decides this host (round 87)
   // Forward the QUERY, not just the path: the raw-stream PUT carries the
   // filename in ?name=, and dropping it silently renamed every upload
   // "file" on the download side.

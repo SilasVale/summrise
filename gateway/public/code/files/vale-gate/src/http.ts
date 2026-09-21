@@ -21,6 +21,21 @@ export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "https://api.saisi.online",
 ]);
 
+/** THE ORIGINS THIS DEPLOYMENT ALLOWS, from configuration when it is given (round 88). The set above is the DEFAULT and
+ *  is unchanged; `env.CONSOLE_ORIGINS` (comma-separated) overrides it. The parameter is optional on purpose, and that is
+ *  the staging: every existing caller keeps the exact behaviour it had, and the callers that HAVE an `env` adopt it as
+ *  they are touched — because this list is a security surface (it is what a browser is allowed to read answers from), and
+ *  threading it through every response-stamping path in one commit is how a CORS grant gets widened by accident.
+ *
+ *  WHY IT EXISTS AT ALL: the gateway's tests must be able to run against a test domain instead of a production one, and
+ *  today they cannot — 76 of 916 fail the moment the fixtures stop spelling the real host (round 48's measurement). */
+export function allowedOrigins(env?: { CONSOLE_ORIGINS?: string } | null): ReadonlySet<string> {
+  const configured = env?.CONSOLE_ORIGINS;
+  if (!configured) return ALLOWED_ORIGINS;
+  const list = configured.split(",").map((o) => o.trim()).filter(Boolean);
+  return list.length ? new Set(list) : ALLOWED_ORIGINS;
+}
+
 export function isLoopbackOrigin(origin: string): boolean {
   try {
     const u = new URL(origin);
@@ -37,9 +52,13 @@ export function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
-export function isAllowedOrigin(origin: string, requestHost?: string): boolean {
+export function isAllowedOrigin(
+  origin: string,
+  requestHost?: string,
+  env?: { CONSOLE_ORIGINS?: string } | null,
+): boolean {
   if (!origin) return false;
-  if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (allowedOrigins(env).has(origin)) return true;
   // Loopback origins are a `wrangler dev` affordance, not a production grant:
   // a request to http://localhost:<port> whose Origin is also loopback is
   // local dev; the SAME Origin arriving at the deployed console host is just
@@ -74,10 +93,13 @@ export const CORS_HEADERS: Record<string, string> = {
 };
 
 /** Per-request CORS headers: reflect-if-allowlisted + Vary, else no ACAO. */
-export function corsHeadersFor(request?: Request | null): Record<string, string> {
+export function corsHeadersFor(
+  request?: Request | null,
+  env?: { CONSOLE_ORIGINS?: string } | null,
+): Record<string, string> {
   const headers: Record<string, string> = { ...CORS_HEADERS };
   const origin = requestOrigin(request);
-  if (isAllowedOrigin(origin, requestHost(request))) {
+  if (isAllowedOrigin(origin, requestHost(request), env)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Vary"] = "Origin";
   }
