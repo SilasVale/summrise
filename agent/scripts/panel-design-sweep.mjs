@@ -645,6 +645,26 @@ ${TIMING}
   // PANEL DENSITY ONLY: the desktop shell renders its own tab strip and no side list, so the chip has no
   // desktop surface to photograph — measured, not assumed (the press pass reports .side-row as NOT RENDERED
   // in that density).
+  // THE APPROVAL GATE'S DISARMED STATE (round 29 of the standing goal). The harness only ever rendered the gate ARMED,
+  // so its hollow ring — a GRAPHIC, so 3:1 — had never been measured by anything, and the live-panel probe found it at
+  // 2.56 on the light surface. This surface exists so that state is photographed on every run: the extra rows are the
+  // ring's cost, and the alternative was a defect the gates cannot see.
+  if (wants("pages")) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 1280, height: 860 });
+      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&appr=off&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(1800);
+      const aname = 'ApprovalOff-' + theme;
+      const arows = await page.evaluate(PROBE);
+      for (const row of arows) report.rows.push({ ...row, density: 'panel', theme, mode: 'approval-off', page: aname });
+      report.surfaces.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(SURFACE)) });
+      report.names.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(NAMES)) });
+      report.sse.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(SSE)) });
+    }
+  }
+
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });

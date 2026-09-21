@@ -1580,7 +1580,14 @@ h3 { font-size: var(--fs-base); }
 #approval-arm .ag-dot[data-state="armed"] { background: var(--accent-ink); }   /* same: 2.53 on the wash */
 #approval-arm .ag-dot[data-state="off"] {
   background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--faint);
+  /* --muted, NOT --faint, FOR THE REASON ROUND 101 WROTE DOWN ONE TOKEN OVER: a ring is a GRAPHIC, so it needs 3:1,
+     and `--faint` (#a1a1aa) measures **2.56:1** on the light surface — the exact number `tokens.css` records against
+     `--state-muted` when the three sibling rings (command dot, trajectory event dot, plugin dot) were fixed. THIS
+     RULE WAS MISSED, and nothing could see it: the harness renders the approval gate ARMED only, so the sweep has
+     never painted this state, and the contrast contract walks `--mark-ink`, which these rings do not use. It took the
+     live-panel probe measuring the panel that is actually running (2.56 on white, both densities) to find a defect
+     the gates had been blind to since the rule was written. `--muted` measures 4.83 there. */
+  box-shadow: inset 0 0 0 1.5px var(--muted);
 }
 
 .approval-prompt {

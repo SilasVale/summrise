@@ -239,6 +239,17 @@ function buildHarness() {
   // mode=pending the first seed is the one holding the question (WAITING outranks everything) and the second is
   // the busy serial session (WORKING), so a failure on either of those would be invisible. Index 2 is the quiet
   // ssh row — idle by every other measure — which is exactly the session a failure mark has to describe.
+  // ?appr=off — THE APPROVAL GATE'S OTHER STATE, WHICH NO SWEEP HAD EVER PAINTED (round 29 of the standing goal). The
+  // gate renders a filled dot when armed and a HOLLOW RING when not; the fixture only ever produced armed, so the
+  // ring's ink was measured by nothing — and the live-panel probe found it at **2.56:1** on the light surface, the
+  // exact ratio tokens.css records against --faint when the three SIBLING rings were fixed in round 101. One rule
+  // was missed, and the blindness was the state never being rendered. A state with no surface cannot be measured.
+  // APPLIED INSIDE THE STUB, LIKE EVERY OTHER FLAG: SESSION is emitted as a literal, so a URL parameter cannot
+  // change it at emit time — the first attempt of this edit put !APPR_OFF in the object literal and the emitter
+  // died with "APPR_OFF is not defined", which is the emitted script telling me the flag was read in the wrong place.
+  var APPR_OFF = P.get('appr') === 'off';
+  if (APPR_OFF) SESSION.approval_required = false;
+  if (APPR_OFF) SESSION.approval_grants = [];
   var EXIT_FAIL = P.get('exitfail') === '1';
   if (EXIT_FAIL && SESSIONS.length > 2) SESSIONS[2].last_exit_code = 1;
   // THE THIRD STATE, on its own surface because it is the one a surface must not get wrong: exit ZERO is an
