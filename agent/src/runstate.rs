@@ -146,6 +146,19 @@ pub enum BootKind {
 }
 
 impl BootKind {
+    /// EVERY kind, in one place, so a list of them cannot drift from the enum: `vocabulary::BOOT_KINDS` (which the
+    /// generated wire artifact carries) is checked against this, and this is checked against `as_str` by the same test.
+    /// Added in round 44 of the standing goal, when the vocabulary module was written with FOUR kinds and the enum had
+    /// five — `machine-restart` was the one nobody remembered, which is the whole argument for deriving rather than
+    /// retyping these.
+    pub const ALL: [BootKind; 5] = [
+        BootKind::FirstRun,
+        BootKind::CleanExit,
+        BootKind::Replaced,
+        BootKind::MachineRestart,
+        BootKind::Crashed,
+    ];
+
     /// The wire spelling: `/api/status` carries it as `last_boot_kind` and the panel and the
     /// console branch on it, so this is a contract rather than a debug string — lowercase and
     /// hyphenated like every other enum this API spells out.

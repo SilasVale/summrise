@@ -1,0 +1,31 @@
+// The wire vocabulary: the strings the device writes and the interfaces read.
+// Generated from agent/src/vocabulary.rs by
+// vocabulary::tests::contract_vocabulary_snapshot.
+// The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked by
+// scripts/test/contract-vocabulary-check.mjs.
+// Do not hand-edit: VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.
+{
+  "boot_kinds": [
+    "first-run",
+    "clean-exit",
+    "replaced",
+    "machine-restart",
+    "crashed"
+  ],
+  "end_reasons": [
+    "marker",
+    "idle",
+    "timeout",
+    "interrupted",
+    "backgrounded",
+    "closed"
+  ],
+  "exited_prefix": "exited:",
+  "frames": [
+    "sessions-changed",
+    "term-output",
+    "session-evicted",
+    "playwright-changed",
+    "monitor-change"
+  ]
+}
