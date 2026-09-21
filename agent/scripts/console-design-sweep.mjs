@@ -174,9 +174,14 @@ const API = {
   '/api/admin/public': {
     enabled: false,
     models: ['og/deepseek/deepseek-v4.1-flash', 'my/llama-3', 'deepseek/deepseek-v4.1-flash'],
+    // or/ IS THE ROW THE OTHER DOT STATE NEEDS (round 62): /api/health already reports that channel as
+    // ok: false, and ready = h?.ok !== false is what turns that into prov-dot.missing. Without a route for it the
+    // failing channel had nothing to mark, which is why the family rendered only ok — a fixture that exists and no
+    // row to apply it to, one step past the duplicate-key bug that hid the whole page.
     routes: [
       { prefix: 'og/', backend: 'og', models: ['deepseek/deepseek-v4.1-flash'] },
       { prefix: 'my/', backend: 'my', models: ['llama-3'] },
+      { prefix: 'or/', backend: 'or', models: ['deepseek/deepseek-v4.1-flash'] },
       { prefix: 'none', backend: '', models: ['deepseek/deepseek-v4.1-flash'] },
     ],
   },
