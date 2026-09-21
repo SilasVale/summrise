@@ -586,6 +586,11 @@ jobs:
       # configuration was broken at the time.
       - name: the command table matches the workflow
         run: node scripts/test/ci-command-table-check.mjs
+      # A GATE THAT RUNS MUST BE A GATE SOMEBODY NAMED (round 152 of the standing goal). AGENTS.md said "ten gates" while
+      # the objective was at ten and a round later there were twelve — the drift that file itself records for the sweep's
+      # check count. The count is gone; this holds the part that can be checked.
+      - name: every wired gate is named in the docs
+        run: node scripts/test/numbered-claims-check.mjs
       - name: every gate is broken on purpose and bites
         run: node scripts/test/gate-mutations-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
