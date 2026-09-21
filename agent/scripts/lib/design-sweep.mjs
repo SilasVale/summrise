@@ -22,100 +22,19 @@
  *  simply undefined there — measured: the extension sweep died on `ROOT_SEL is not defined` while
  *  the Node script defined it perfectly well. Inlining the selector at emit time makes that
  *  impossible to get wrong. */
-export function pageChecks(rootSelector) {
-  const text = PAGE_CHECKS_TEMPLATE.replaceAll("ROOT_SEL", JSON.stringify(rootSelector));
-  // EVERY PROBE GOES OUT AS A JSON STRING, not as a template literal (round 57). The emitted script does not run
-  // this text — it WRITES it into a file, and a probe left as a template literal there loses one more level of
-  // escaping on the way to the page: `/^color\(/` in the emitted file reached the browser as `/^color(/` and threw
-  // "Unterminated group", and the same mechanism turned `\s` into `s` for thirty-seven rounds. JSON.stringify has no
-  // levels to lose, which is why the contrast probe has been shipped this way since round 88.
-  return text.replace(/const (\w+) = `([\s\S]*?)`;/g, (_, name, body) => `const ${name} = ${JSON.stringify(body)};`);
+// THE MARK-AXIS SOURCE, EXTRACTED SO THERE IS ONE COPY (round 30 of the standing goal). The live-panel probe needs
+// the same measurement the sweeps' surface probe makes — families, per-state silhouettes, collisions — and a second
+// implementation would drift from this one the first time either changed. `pageChecks` interpolates this constant, and
+// `live-panel-probe.mjs` evaluates it against the device that is actually running.
+export function marksSource(rootSelector) {
+  // THE SAME PLACEHOLDER SUBSTITUTION `pageChecks` USES, and it has to be: this code runs inside the BROWSER, so an
+  // identifier from the Node side is simply undefined there — the first version of this extraction was a bare const
+  // and the live probe died on "ROOT_SEL is not defined", which is the same failure the comment above `pageChecks`
+  // records from the extension sweep.
+  return MARKS_TEMPLATE.replaceAll("ROOT_SEL", JSON.stringify(rootSelector));
 }
 
-const PAGE_CHECKS_TEMPLATE = `
-const SURFACE = \`(() => {
-  const desc = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\\\s+/).slice(0,2).join('.') : '') + (el.id ? '#' + el.id : '');
-  const heads = [...document.querySelectorAll('h1,h2,h3,h4')];
-  const lv = heads.map((e) => Number(e.tagName.slice(1)));
-  let skipped = 0;
-  for (let i = 1; i < lv.length; i++) if (lv[i] - lv[i - 1] > 1) skipped++;
-  const over = [], clipped = [], slivers = [];
-  for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-    const st = getComputedStyle(el);
-    if (st.display === 'none' || st.visibility === 'hidden') continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) continue;
-    const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
-    const scrolls = st.overflowX === 'auto' || st.overflowX === 'scroll';
-    const ellipsises = st.textOverflow === 'ellipsis';
-    if (el.scrollWidth > el.clientWidth + 1 && !scrolls && !ellipsises) over.push(desc(el) + ' ' + el.clientWidth + '<' + el.scrollWidth);
-    if (own && el.scrollWidth > el.clientWidth + 1 && !ellipsises) clipped.push(desc(el));
-    const text = (el.textContent || '').trim();
-    if (own && text.length > 24 && r.width < 60) slivers.push(desc(el) + ' w=' + Math.round(r.width));
-  }
-  const loudResult = (() => {
-    // FOUR SYNTAXES, because the browser does not hand back the one this was written for (round 57). Besides
-    // rgb(r, g, b) and rgba(r, g, b, a) it returns rgb(r g b / a) and — for any colour the sheet declares with a
-    // modern function — color(srgb 0.09 0.09 0.11 / 0.88), whose components are 0-1 floats. The old parser read those
-    // as raw 0-255 numbers, produced garbage, and (before the fail-closed guard above) counted them.
-    // (No backticks in this comment: it is inside PAGE_CHECKS_TEMPLATE — 41st time.)
-    const parse = (c) => {
-      const m = /(?:rgba?|color)\\(([^)]+)\\)/.exec(c);
-      if (!m) return null;
-      const parts = m[1].split(/[\\s,/]+/).filter(Boolean);
-      // ONLY THE NUMBERS: color(srgb 0.95 0.95 0.96 / 0.88) puts the COLOUR SPACE NAME first, and taking p[0] as r
-      // made it NaN — which the fail-closed guard above then counted (six of them, measured round 59, every one of
-      // them this one syntax). Filtering to finite numbers reads all four syntaxes with one rule.
-      // (No backticks in this comment: it lives inside PAGE_CHECKS_TEMPLATE — 42nd time.)
-      const p = parts.map(Number).filter(Number.isFinite);
-      const srgb = /^color\\(/.test(c);
-      const scale = srgb && p.length >= 3 && p[0] <= 1 && p[1] <= 1 && p[2] <= 1 ? 255 : 1;
-      return { r: p[0] * scale, g: p[1] * scale, b: p[2] * scale, a: p.length > 3 ? p[3] : 1 };
-    };
-    const isLoud = ${loudnessOf.toString()};
-    const loud = [];
-    let unreadable = 0;
-    const unreadableSamples = [];
-    for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-      const st = getComputedStyle(el);
-      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
-      const c = parse(st.backgroundColor);
-      if (!c || c.a < 0.5) continue;
-      const { sat, l, loud: shouts } = isLoud(c);
-      if (!Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; if (unreadableSamples.length < 3) unreadableSamples.push(st.backgroundColor); continue; }
-      if (!shouts) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
-      loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
-    }
-    return { list: [...new Set(loud)].slice(0, 6), unreadable, unreadableSamples };
-  })();
-  return {
-    loud: loudResult.list,
-    loudUnreadable: loudResult.unreadable,
-    loudUnreadableSamples: loudResult.unreadableSamples,
-    h1Count: heads.filter((e) => e.tagName === 'H1').length,
-    firstIsH1: heads.length > 0 && heads[0].tagName === 'H1',
-    skipped, mains: document.querySelectorAll('main').length, navs: document.querySelectorAll('nav').length,
-    over: [...new Set(over)].slice(0, 8), clipped: [...new Set(clipped)].slice(0, 8), slivers: [...new Set(slivers)].slice(0, 8),
-    // ── HOW MANY THINGS ON THIS PAGE ARE SHOUTING ─────────────────────────────────────────────────────────
-    // "One focal point per surface" is the last clause of the spine and the only one with no continuous check:
-    // it was measured by hand on four surfaces (panel Terminal 1, panel Settings 0, console Overview 0, landing 1
-    // — the download CTA) and then not measured again. LOUD is an element whose FILL is genuinely saturated
-    // (not white, black or grey) and big enough to be a surface rather than a dot. ONE is a page with something
-    // to say; ZERO is a page that is all context, which is right for a form or a dashboard; TWO means nothing on
-    // it is the focal point, because two things are asking to be looked at first.
-    // ── THE MARK LANGUAGE, AS THE BROWSER ACTUALLY PAINTS IT ────────────────────────────────────────────────
-    // The silhouettes are asserted against the SHEET by unit tests, and round 25 showed what that cannot see: a
-    // rule later in the cascade overrode '.plug-dot[error]''s diamond and left a stray halo around it. The sheet
-    // was right and the page was wrong. This reads the COMPUTED style of every state mark on the page, groups by
-    // family, and reports any family whose states share a shape.
-    //
-    // A FAMILY is a mark's class without its state qualifier ('.cmd-dot[data-state="fail"]' → '.cmd-dot'), and a
-    // STATE is whatever the element carries: 'data-state', 'data-live', or the second class. The signature is the
-    // geometry that survives colour blindness — radius, rotation, and whether it is a fill, a ring or a haloed
-    // fill — because colour is the SECOND channel and this check exists for the user who cannot read it.
-    marks: (() => {
+const MARKS_TEMPLATE = `(() => {
       const families = new Map();
       // WHICH STATE-MARK CLASSES ARE ON SCREEN AT ALL (round 28). The probe attributes a mark to the family its
       // STATE hangs off — a mark tab-dot element with data-live is family mark — so a class like tab-dot can be
@@ -219,7 +138,107 @@ const SURFACE = \`(() => {
         ringFill: ringFill.slice(0, 6),
         present: [...present].sort(),
       };
-    })(),
+    })()`;
+
+export function pageChecks(rootSelector) {
+  // TWO SUBSTITUTIONS, because the mark axis lives in its own exported source now (one copy, shared with the
+  // live-panel probe). The placeholder is replaced with the real expression here rather than interpolated in the
+  // template, which is evaluated at module load where `rootSelector` does not exist yet.
+  const text = PAGE_CHECKS_TEMPLATE
+    .replaceAll("ROOT_SEL", JSON.stringify(rootSelector))
+    .replace("/* MARKS_PLACEHOLDER */ {}", marksSource(rootSelector));
+  // EVERY PROBE GOES OUT AS A JSON STRING, not as a template literal (round 57). The emitted script does not run
+  // this text — it WRITES it into a file, and a probe left as a template literal there loses one more level of
+  // escaping on the way to the page: `/^color\(/` in the emitted file reached the browser as `/^color(/` and threw
+  // "Unterminated group", and the same mechanism turned `\s` into `s` for thirty-seven rounds. JSON.stringify has no
+  // levels to lose, which is why the contrast probe has been shipped this way since round 88.
+  return text.replace(/const (\w+) = `([\s\S]*?)`;/g, (_, name, body) => `const ${name} = ${JSON.stringify(body)};`);
+}
+
+const PAGE_CHECKS_TEMPLATE = `
+const SURFACE = \`(() => {
+  const desc = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\\\s+/).slice(0,2).join('.') : '') + (el.id ? '#' + el.id : '');
+  const heads = [...document.querySelectorAll('h1,h2,h3,h4')];
+  const lv = heads.map((e) => Number(e.tagName.slice(1)));
+  let skipped = 0;
+  for (let i = 1; i < lv.length; i++) if (lv[i] - lv[i - 1] > 1) skipped++;
+  const over = [], clipped = [], slivers = [];
+  for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
+    const scrolls = st.overflowX === 'auto' || st.overflowX === 'scroll';
+    const ellipsises = st.textOverflow === 'ellipsis';
+    if (el.scrollWidth > el.clientWidth + 1 && !scrolls && !ellipsises) over.push(desc(el) + ' ' + el.clientWidth + '<' + el.scrollWidth);
+    if (own && el.scrollWidth > el.clientWidth + 1 && !ellipsises) clipped.push(desc(el));
+    const text = (el.textContent || '').trim();
+    if (own && text.length > 24 && r.width < 60) slivers.push(desc(el) + ' w=' + Math.round(r.width));
+  }
+  const loudResult = (() => {
+    // FOUR SYNTAXES, because the browser does not hand back the one this was written for (round 57). Besides
+    // rgb(r, g, b) and rgba(r, g, b, a) it returns rgb(r g b / a) and — for any colour the sheet declares with a
+    // modern function — color(srgb 0.09 0.09 0.11 / 0.88), whose components are 0-1 floats. The old parser read those
+    // as raw 0-255 numbers, produced garbage, and (before the fail-closed guard above) counted them.
+    // (No backticks in this comment: it is inside PAGE_CHECKS_TEMPLATE — 41st time.)
+    const parse = (c) => {
+      const m = /(?:rgba?|color)\\(([^)]+)\\)/.exec(c);
+      if (!m) return null;
+      const parts = m[1].split(/[\\s,/]+/).filter(Boolean);
+      // ONLY THE NUMBERS: color(srgb 0.95 0.95 0.96 / 0.88) puts the COLOUR SPACE NAME first, and taking p[0] as r
+      // made it NaN — which the fail-closed guard above then counted (six of them, measured round 59, every one of
+      // them this one syntax). Filtering to finite numbers reads all four syntaxes with one rule.
+      // (No backticks in this comment: it lives inside PAGE_CHECKS_TEMPLATE — 42nd time.)
+      const p = parts.map(Number).filter(Number.isFinite);
+      const srgb = /^color\\(/.test(c);
+      const scale = srgb && p.length >= 3 && p[0] <= 1 && p[1] <= 1 && p[2] <= 1 ? 255 : 1;
+      return { r: p[0] * scale, g: p[1] * scale, b: p[2] * scale, a: p.length > 3 ? p[3] : 1 };
+    };
+    const isLoud = ${loudnessOf.toString()};
+    const loud = [];
+    let unreadable = 0;
+    const unreadableSamples = [];
+    for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+      const st = getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
+      const c = parse(st.backgroundColor);
+      if (!c || c.a < 0.5) continue;
+      const { sat, l, loud: shouts } = isLoud(c);
+      if (!Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; if (unreadableSamples.length < 3) unreadableSamples.push(st.backgroundColor); continue; }
+      if (!shouts) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
+      loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
+    }
+    return { list: [...new Set(loud)].slice(0, 6), unreadable, unreadableSamples };
+  })();
+  return {
+    loud: loudResult.list,
+    loudUnreadable: loudResult.unreadable,
+    loudUnreadableSamples: loudResult.unreadableSamples,
+    h1Count: heads.filter((e) => e.tagName === 'H1').length,
+    firstIsH1: heads.length > 0 && heads[0].tagName === 'H1',
+    skipped, mains: document.querySelectorAll('main').length, navs: document.querySelectorAll('nav').length,
+    over: [...new Set(over)].slice(0, 8), clipped: [...new Set(clipped)].slice(0, 8), slivers: [...new Set(slivers)].slice(0, 8),
+    // ── HOW MANY THINGS ON THIS PAGE ARE SHOUTING ─────────────────────────────────────────────────────────
+    // "One focal point per surface" is the last clause of the spine and the only one with no continuous check:
+    // it was measured by hand on four surfaces (panel Terminal 1, panel Settings 0, console Overview 0, landing 1
+    // — the download CTA) and then not measured again. LOUD is an element whose FILL is genuinely saturated
+    // (not white, black or grey) and big enough to be a surface rather than a dot. ONE is a page with something
+    // to say; ZERO is a page that is all context, which is right for a form or a dashboard; TWO means nothing on
+    // it is the focal point, because two things are asking to be looked at first.
+    // ── THE MARK LANGUAGE, AS THE BROWSER ACTUALLY PAINTS IT ────────────────────────────────────────────────
+    // The silhouettes are asserted against the SHEET by unit tests, and round 25 showed what that cannot see: a
+    // rule later in the cascade overrode '.plug-dot[error]''s diamond and left a stray halo around it. The sheet
+    // was right and the page was wrong. This reads the COMPUTED style of every state mark on the page, groups by
+    // family, and reports any family whose states share a shape.
+    //
+    // A FAMILY is a mark's class without its state qualifier ('.cmd-dot[data-state="fail"]' → '.cmd-dot'), and a
+    // STATE is whatever the element carries: 'data-state', 'data-live', or the second class. The signature is the
+    // geometry that survives colour blindness — radius, rotation, and whether it is a fill, a ring or a haloed
+    // fill — because colour is the SECOND channel and this check exists for the user who cannot read it.
+marks: /* MARKS_PLACEHOLDER */ {},
     // DOES THIS SURFACE CLAIM A READ FAILED? (round 100) The fixture serves EVERY call on a normal surface, so a
     // page that says "could not be read" or "did not answer, so ..." is making a claim about the device that the
     // fixture contradicts. That is not a cosmetic defect: it is the panel BLAMING THE DEVICE for a question it
@@ -308,6 +327,7 @@ const REFLOW = \`(() => ({
  *
  *  `styledClasses` is returned BESIDE the list on purpose: a read that found no stylesheets proves
  *  nothing, and a caller must be able to tell that apart from a page with nothing to report. */
+
 export const UNSTYLED_SOURCE = `(() => {
   const styled = new Set();
   const collect = (rules) => {

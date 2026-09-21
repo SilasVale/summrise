@@ -12,6 +12,10 @@
 // THE TOKEN IS READ FROM THE DEVICE'S OWN CONFIG IN-PROCESS and never printed — not to stdout, not into the
 // report. If the config moves, the script says where it looked rather than failing silently.
 import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
+// THE SAME MARK AXIS THE SWEEPS RUN, not a second copy of it (round 30 of the standing goal). The sweeps measure the
+// HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
+// live one renders (the approval gate's disarmed ring is one — it measured 2.56 here and nothing else could see it).
+import { marksSource } from "./lib/design-sweep.mjs";
 
 const CONFIG_PATHS = [
   "D:\\\\Vale\\\\etc\\\\config.yaml", // layout-v2 (where it is today)
@@ -22,6 +26,7 @@ const CONFIG_PATHS = [
 function emitted() {
   const script = `const fs = require('fs');
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
+const MARKS = ${JSON.stringify(marksSource("#root"))};
 const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
 (async () => {
   let token = null, where = null;
@@ -49,6 +54,7 @@ const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
       tabs: document.querySelectorAll('.tab, .dtab').length,
       railDots: [...document.querySelectorAll('.rail-dot, .dtab-dot')].map((d) => d.getAttribute('data-state')).slice(0, 8),
     }));
+    const marks = await page.evaluate(MARKS);
     const rows = await page.evaluate(PROBE);
     const text = rows.filter((r) => r.kind !== 'graphic');
     const graphics = rows.filter((r) => r.kind === 'graphic');
@@ -60,11 +66,31 @@ const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
       textFailing: text.filter((r) => !r.inactive && r.cr < r.need).map((r) => r.sel + ' ' + r.cr + '<' + r.need),
       graphicFailing: graphics.filter((r) => !r.inactive && r.cr < r.need).map((r) => r.sel + ' ' + r.cr + '<' + r.need),
       unmeasurable: rows.filter((r) => r.cr === null || r.cr === undefined).length,
+      // WHAT THE LIVE PANEL PAINTS, family by family, and any two states of one family that paint IDENTICALLY. The
+      // harness reports the same shape; the value here is that these are the states the DEVICE renders, which is not
+      // the same set — the sweeps' mark-coverage note counts six families the harness never paints.
+      marks,
     };
   }
   out.errors = errors.slice(0, 4);
+  // A READING BECOMES A GUARD (round 30 of the standing goal). Everything this probe collects is a list that must be
+  // EMPTY on a healthy panel: failing text, failing graphics, and the two mark-axis verdicts the sweeps also make —
+  // two states of one family painting identically, and a mark that is both a fill and a ring. Printing them and
+  // exiting 0 would make the probe a report nobody has to answer; the exit code is what the runbook step can act on.
+  // Note what a non-zero exit MEANS here: the live panel's state varies with what the device is doing (two sessions
+  // today, fourteen another day), so it says "look at this", not "the build is broken".
+  const bad = [];
+  for (const [density, d] of Object.entries(out.densities)) {
+    for (const key of ['textFailing', 'graphicFailing']) {
+      for (const f of d[key]) bad.push(density + ' ' + key + ': ' + f);
+    }
+    if (d.marks && d.marks.collisions) for (const c of d.marks.collisions) bad.push(density + ' mark collision: ' + c);
+    if (d.marks && d.marks.ringFill) for (const c of d.marks.ringFill) bad.push(density + ' ring+fill: ' + c);
+  }
+  out.verdict = bad.length ? { ok: false, problems: bad } : { ok: true };
   console.log(JSON.stringify(out, null, 1));
   await close();
+  process.exit(bad.length ? 1 : 0);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
 
   // THE EMITTED SCRIPT MUST PARSE — the last of the five emitters in this repository to get the check the
@@ -85,7 +111,8 @@ if (process.argv.includes("--emit")) {
   console.log("usage: live-panel-probe.mjs --emit   # writes the device-side script to stdout");
   console.log("");
   console.log("Then, on the device: run it with the bundled Playwright runtime (browser_run_script).");
-  console.log("Round 167 baseline, for comparison:");
+  console.log("Round 30 baseline (d1, 1.2.438, two sessions): panel 3 mark families [mark[working], sc-dot[ai],");
+  console.log("  ag-dot[off]] · 0 collisions · 0 failing rows; desktop the same. ROUND 167's, for comparison:");
   console.log("  panel    1488 root nodes · 14 tabs · 32 rows (29 text, 3 graphics) · 0 failing");
   console.log("  harness   366 root nodes ·  3 tabs · 51 rows (42 text, 9 graphics) · 0 failing");
 }
