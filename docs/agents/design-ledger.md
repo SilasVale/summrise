@@ -2720,3 +2720,30 @@ among them) and 9 `.bash` gates. The panel suite is 806 in 103 files, the gatewa
 WORTH A ROUND, WITH NO CODE CHANGED, because of what it rules out: a gate that reads an artifact is only as good as the
 last time somebody ran it against the artifact the current sources build, and seven of them had not been run since the
 rebuild.
+
+### AUDITING THE TEN GATES, AND TWO FALSE ALARMS THAT WERE MINE (round 104)
+
+This repository's standard is that no gate is ASSUMED to bite — each is proven by breaking the thing it guards. The ten the
+standing objective added were each proven when written, but rounds 93-97 then refactored two of their subjects (the
+gateway's stamping sites, and `useSessions`), so six were re-audited with their breaks planted again:
+
+    session-row          a device field read outside the mapping section          rc=1  BITES
+    one-derivation       a second ending→state mapping                            rc=1  BITES
+    wire-field           a field the other end never speaks                       rc=1  BITES
+    gateway-device-field the gateway forwards a field the device never spells      rc=1  BITES
+    harness-fixture      …first attempt: a COMMENT appended to the P definition    rc=0  did not bite
+    console-wire-field   …first attempt: `(st as any)?.last_boot_verdict`          rc=0  did not bite
+
+**BOTH ALARMS WERE MY MUTATIONS, NOT THE GATES**, and each for a reason worth keeping:
+
+  * `harness-fixture` pins the query as a re-parsing `P` by PATTERN, so appending `// noop` to that definition leaves the
+    pattern matching and the gate correctly green. Re-planted as the real thing — `var P = new URLSearchParams(location.search)`
+    — it fails with the fixture whose state stops rendering, rc=1. The gate is sound; my mutation was cosmetic.
+  * `console-wire-field` matches `\w{1,8}\??\.field`, and `(st as any)?.last_boot_verdict` has `)` for a receiver, so the
+    scan cannot see it. The plain `st?.last_boot_verdict` that round 101 proved the gate with bites, rc=1.
+
+THIS IS THE FIFTH TIME THIS SESSION THAT A NON-BITING MUTATION WAS ABOUT THE MUTATION (AGENTS.md records the same lesson
+from `.dot.err`: "a mutation that does not bite is evidence about the MUTATION first"). The operational consequence is
+specific: **an audit must use the mutation the gate was PROVEN with, not an equivalent-looking one** — which is why
+`harness-fixture-check` keeps its mutations IN the file, where they cannot drift from the predicate they are paired with,
+and why the other five should eventually do the same.
