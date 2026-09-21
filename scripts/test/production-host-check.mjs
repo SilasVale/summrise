@@ -69,10 +69,14 @@ const ALLOWED = [
   // INPUT (a device row, a tunnel name) and now use the reserved test domain `vale.test`; the fifteen below assert the
   // deployment's own identity — a default, an allowlist, the suffix rule — so they keep it, and a NEW test file cannot
   // inherit the allowance by living in the same directory.
-  ["gateway/test/devices-validate.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
-  ["gateway/test/gateway.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
-  ["gateway/test/registry.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
-  ["gateway/test/vale-cli.test.mjs", "its subject IS the deployment's own identity — it asserts a default, an allowlist or the hostname rule"],
+  // THE THIRD KIND OF HOST HAS TWO FACES (rounds 117-121), and each entry below says WHICH FACE it is, because a generic
+  // reason is the kind that stops being true without anybody noticing.
+  // Face 1: a test whose SUBJECT is the shipped default — migrating it would delete the thing under test.
+  ["gateway/test/devices-validate.test.mjs", "face 1 — its first test is named \"default suffix\" and passes {} on purpose: the shipped default IS the subject"],
+  // Face 2: a base URL the PRODUCT chooses (the relay/exit endpoints), which those tests exist to pin.
+  ["gateway/test/gateway.test.mjs", "face 2 — the relay and exit BASE URLs the product chooses; the tests exist to pin them"],
+  ["gateway/test/registry.test.mjs", "face 2 — the DEFAULTS of usProxyBase/museResponsesExit; moving them is a design change, not a fixture one"],
+  ["gateway/test/vale-cli.test.mjs", "face 2 — the gateway base the CLI defaults to (VALE_GATEWAY), which the test asserts"],
   ["agent/resources/panel-react/src", "panel fixtures and tests that render device rows"],
 ];
 
