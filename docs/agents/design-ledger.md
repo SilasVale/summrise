@@ -3097,3 +3097,21 @@ So this is a measurement without a verdict, recorded rather than dressed up. The
 this repository uses everywhere else: a DECLARED list of the tools that are deliberately not console-reachable, each with its
 reason, so that "absent" becomes a decision and a forgotten registration becomes a failure. That is a round of its own, and
 it is written here rather than started at the end of one.
+
+### THE MONITOR FAMILY, TRACED TO THE END (round 162)
+
+Round 126 unified the monitor MARK's state (two components, three spellings); this round asked the same question of the rest
+of the family, and the answer is that the duplicate was the only one:
+
+    useMonitors.ts:268-283   the ALERTS list is built here — one hook, one place, expiring on its own
+    MonitorAlerts.tsx        consumes it and renders; it computes nothing
+    MonitorChip.tsx          consumes the down/flapping lists; same
+    MonitorChip / Alerts     both call `monitorMarkClass` for the mark (round 126, and the container's `monitorModifier`)
+
+So the family's facts — up/down/flapping, the alert list, and the mark's vocabulary — each have one home, and the one
+duplicate was found by tracing rather than by reading the sheet.
+
+RECORDED AS A VERIFICATION, which is what this round is: nothing changed, and a future round that wonders whether the monitor
+family has a second derivation can read this instead of re-tracing it. Three families have now been walked this way
+(session liveness in round 125, the monitor mark in 126, this) and each time the walking found either one duplicate or none —
+which is itself the argument for walking them rather than assuming.
