@@ -3200,3 +3200,21 @@ THE SCAN WAS WRONG TWICE BEFORE IT WAS RIGHT, and both corrections are the round
 only `src/**/*.tsx` and `*.ts` — so `data-testid`-style readers in `*.test.tsx` and every probe in `agent/scripts` were
 invisible, and 17 attributes looked dead. Its second version added the tests and still missed the sweeps. Only then was the
 list read by hand, four at a time, which is what the rule says a scan is for.
+
+### THE TWO FRONT ENDS SPELL STATE DIFFERENTLY, AND THAT EXPLAINS TWO GATES (round 168)
+
+Round 167 pruned four unread `data-*` attributes from the panel. The same ruler on the console returns ZERO — and reading the
+artefact, as the round-165 rule requires, shows why: the console's TSX contains `data-` exactly ONCE, in a comment about
+`body[data-theme]`, which a theme script sets before the first paint. Its state marks are spelled with CLASSES
+
+    Overview.tsx:338   <span className={`dot ${channelSignal(c.ok)}`} />        (round 131)
+    Overview.tsx:341   <span className={`health-state ${channelSignal(c.ok)}`}>
+
+So the two front ends answer "which state is this mark in?" with different mechanisms — the panel puts a `data-state` (and
+friends) on the element and styles it by attribute, the console writes the state INTO the class list — and both are internally
+consistent, which is why neither is a defect and why this is recorded rather than unified.
+
+IT ALSO EXPLAINS AN ASYMMETRY THAT LOOKED ARBITRARY: `mark-vocabulary-check` reads the panel's vocabulary as DATA (a module)
+while `console-marks-check` reads the console's as PAINTED (its sheet, matching class rules). That difference is not a
+preference — it is the only way to read each end, because one keeps its vocabulary in TypeScript and the other in CSS class
+names. Two gates that looked like they should be one had a reason, and now the reason is written down.
