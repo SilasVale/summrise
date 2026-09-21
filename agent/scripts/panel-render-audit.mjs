@@ -468,10 +468,13 @@ function buildHarness() {
     opRows.push(mk('browser', 1789000001600, 'action', { script: 'click', text: 'Login' }));
     opRows.push(mk('terminal', 1789000002000, 'command/start', { session: 'term-arch-1', seq: 9, command: 'vlan 100', intent: 'apply the change' }));
     opRows.push(mk('terminal', 1789000002200, 'command/end', { session: 'term-arch-1', seq: 10, exit_code: 1, duration_ms: 200 }));
-    // A COMMAND THAT NEVER ENDED (round 26). The card's state vocabulary has six values — running, ok, fail,
-    // backgrounded, interrupted, muted — and the sweep had only ever rendered THREE of them, so half the cmd-dot
-    // silhouettes were verified by nothing painted. A trailing command/start with no matching end is the panel's
-    // own definition of "running" (useCommandEvents: "surface it as a LIVE card"), and it is one line of fixture.
+    // A COMMAND THAT NEVER ENDED (round 26). It is the panel's own definition of a LIVE card
+    // (useCommandEvents: "surface it as a LIVE card"), so this is where cmd-dot's running state was expected to
+    // come from. IT DID NOT, AND THE MARK-COVERAGE NOTE IS WHAT SAID SO: CI measured 6938 rows (+18 from this event,
+    // so the row arrived) while cmd-dot still reported "rendered 3 (fail, muted, ok) ... NO SURFACE RENDERED
+    // data-state=running". The operation feed is the RUNS scope; the command CARDS come from the session's audit
+    // events, which is a different stub. Kept because the extra row is real content and harmless — and because the
+    // sentence that used to stand here claimed a surface this event does not create.
     opRows.push(mk('terminal', 1789000002800, 'command/start', { session: 'term-arch-2', seq: 12, command: 'reboot', intent: 'pick up the new firmware slot' }));
     return Promise.resolve(J({
       cursor_ms: 1789000003000,
