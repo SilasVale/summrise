@@ -2490,3 +2490,41 @@ class on screen at all" — was collected only from elements small enough to be 
 text classes with reasons (a heuristic would also hide the day one of them becomes a real mark), `present` is collected
 BEFORE the size filter, and the queue is four entries — each a state of a family that really is a mark. Eight surfaces
 of false queue cost a round; the fix cost twenty lines.
+
+### ONE CLICK, FOUR DEFECTS, AND A PRUNE THE GATES REFUSED (round 33)
+
+`traj-ev-dot` measured **0 of its 6 states across 128 surfaces** while the view rendered perfectly — six round headers,
+no event rows. The cause was the click this suite never made: only the NEWEST round is open by default, and the newest
+round is the fixture's live `reboot`, a command with no output yet, so its body was `(no output yet)` and every event
+row lived inside a COLLAPSED round. The suite opened the TAB in round 101; it opens the ROUNDS now. The note only began
+reporting 0 after round 31 added that trailing command — a fixture change can hide a family as easily as reveal one.
+
+WHAT THE CLICK THEN EXPOSED, in the order it arrived:
+
+  1. THE MUTED EVENT DOT WAS INVISIBLE. `--ds-neutral-300` is rgb(212,212,216): **1.42:1** on the light surface where a
+     graphic needs 3. The sheet's defence — "a quiet FILLED dot: texture, not a marker" — is an argument about WEIGHT,
+     and an invisible dot carries no state at all. `--state-muted` (4.83 light / 6.5 dark) is what its three sibling
+     rings already used. Verified on the device: 8 rows, **BELOW BAR: 0**.
+  2. MUTED AND OK DREW THE SAME SILHOUETTE. With the fill corrected, the collision check fired on all four trajectory
+     surfaces: `traj-ev-dot: muted and ok paint identically (50%/flat/-/solid)`. Two states of one mark, told apart by
+     colour alone — forbidden by the objective, and TRUE SINCE THE ASYMMETRY WAS WRITTEN. It was invisible only because
+     the family rendered nothing. The asymmetry is gone: the rail's muted is the same hollow ring as the command card's,
+     and `statePalette.test.ts` now compares the two rules with their tokens masked, so colour can never again be what
+     tells two muted dots apart.
+  3. AND A PRUNE THE GATES REFUSED, WHICH IS THE PART WORTH KEEPING. `.traj-ev-dot[data-state="running"]` looked
+     unreachable — `eventDotState` maps every event through `stateFromEnd(true, …)`, so it returns verdicts and never
+     `running` — and I deleted it. Four tests in `statePalette.test.ts` refused: "EVERY state has a visual channel in
+     the BUILT sheet", "the four VERDICT states agree across both renderers", "running and ok differ WITHOUT relying on
+     animation", "no two states collapse onto one colour". Their rule is the better one and it is now written down:
+
+         An unreachable STATE is the DERIVER's fact. The CHANNEL is the SHEET's obligation.
+
+     Every state in the vocabulary must have a channel in every renderer, so a state that becomes reachable later — a
+     new deriver, a new branch — cannot render as an invisible dot. Deleting the arm would have removed the guard
+     against the very defect this round fixed two lines away. The arm, its `PURPOSES` entry and the test loop are
+     restored, each carrying the story of the attempt; the mark-coverage note's "no surface rendered running" is a true
+     statement about the DERIVER.
+
+FOUR DEFECTS FROM ONE CLICK, three of them in code that had been there for rounds, and one of them mine. The pattern
+from the last three rounds holds: a state with no surface hides whatever is wrong with it, and the hit rate has not
+dropped yet.
