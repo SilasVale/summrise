@@ -421,3 +421,23 @@ ONE THING I CANNOT YET EXPLAIN, recorded rather than asserted: the coverage note
 (`warn`) over 136 surfaces. If nothing renders `.boot-mark`, that count should be 0. Either the probe is catching a
 `.boot-mark` I have not found, or the family's `rendered` set is being seeded somewhere else — and that is the next
 thing to look at, BEFORE choosing between the two dispositions above.
+
+**THE MISTAKE THIS LOOP KEEPS MAKING, NAMED (round 71): AN ABSENCE IS NOT EVIDENCE UNLESS YOU HAVE SHOWN THE
+INSTRUMENT CAN SEE.**
+
+Three times in this session, the same error in three costumes:
+
+  * round 55: read a judge's OUTPUT and missed that it had thrown — a ReferenceError scrolled past, exit code unread;
+  * round 58: quoted the PANEL's surface count (136) as the console's (56) — two logs, one number;
+  * round 71: grepped the design log for `BootReplaced`, got 0, and concluded the surface never ran — **surface names are
+    not in that log at all** (`Trajectory-light` returns 0 too).
+
+The rule that would have caught all three, and that the repository already states about gates: **check the instrument on a
+case you KNOW is positive before reading a negative.** For a grep, that is a control string; for a gate, that is the
+mutation; for a log, that is a name the log certainly contains.
+
+WHERE THAT LEAVES `boot-mark info`, with six suspects now eliminated by measurement (fixture fields and their values, the
+endpoint `/api/status`, the `bootNotice` window, the hook's numeric assignment, both density shells' mounts and their
+props, and the query parser) and one measurement still owed: **ask the page directly.** The rendered answer is one device
+check (load the emitted harness at `?boot=replaced`, read what `/api/status` returns and what the chip renders) — and the
+next round does that INSTEAD of a seventh inference.
