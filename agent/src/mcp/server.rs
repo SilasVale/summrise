@@ -63,6 +63,13 @@ impl ServerHandler for DeviceServer {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let tool_name = request.name.as_ref();
+        // WHICH TOOLS THE CLIENTS ACTUALLY CALL, RECORDED (round 29 of the standing goal). The device's own
+        // mcp_diag.log recorded 320 `tools/call` lines for the OUTGOING mcp_client bridge and NOTHING for this
+        // server — so the one question that decides whether fifteen of the fifty-six tools earn their place ("does
+        // anything call this?") could not be answered from the machine that answers everything else. The line names
+        // the tool and, after the call, whether it succeeded; arguments are deliberately NOT logged (they carry
+        // credentials and customer data), and the file is the same 1 MB-capped, rotated one the bridge already uses.
+        let started = std::time::Instant::now();
         let tool = self
             .state
             .plugin_registry
@@ -120,6 +127,15 @@ impl ServerHandler for DeviceServer {
                 Err(DeviceError::Internal { message: "tool call cancelled by client".into() })
             }
         };
+        let outcome = match &result {
+            Ok(_) => "ok".to_string(),
+            Err(e) => format!("error={}", crate::text::clip(&e.to_string(), 120)),
+        };
+        crate::plugins::mcp_client::tools::diag_log(&call_diag_line(
+            tool_name,
+            started.elapsed().as_millis(),
+            &outcome,
+        ));
         match result {
             Ok(result) => {
                 let mut r = CallToolResult::default();
@@ -159,6 +175,12 @@ impl ServerHandler for DeviceServer {
             .find_tool(name)
             .map(|t| to_mcp_tool(&t))
     }
+}
+
+/// The diagnostic line for one incoming tool call. Tool name, duration, outcome — no arguments (they carry
+/// credentials and customer data, and this file is read by whoever is debugging a device).
+fn call_diag_line(tool: &str, ms: u128, outcome: &str) -> String {
+    format!("[call] tool={tool} ms={ms} {outcome}")
 }
 
 /// ToolDef → rmcp Tool conversion (shared by list_tools and get_tool).
@@ -337,6 +359,22 @@ mod tests {
         assert!(
             t.input_schema.is_empty(),
             "non-object schema → empty object"
+        );
+    }
+
+    // THE LINE THE INCOMING SERVER RECORDS FOR ONE CALL (round 29). Extracted so the shape is testable without a live
+    // server, and so the one property that matters is visible in the signature: it takes the TOOL NAME, a duration
+    // and an outcome — never the arguments, which carry credentials and customer data and would end up in a log file
+    // support reads.
+    #[test]
+    fn the_call_diag_line_names_the_tool_and_nothing_else() {
+        assert_eq!(
+            call_diag_line("terminal_execute", 12, "ok"),
+            "[call] tool=terminal_execute ms=12 ok"
+        );
+        assert_eq!(
+            call_diag_line("system_file_read", 3, "error=denied"),
+            "[call] tool=system_file_read ms=3 error=denied"
         );
     }
 

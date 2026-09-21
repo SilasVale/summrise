@@ -77,7 +77,7 @@ static SESSION: Mutex<Option<McpSession>> = Mutex::const_new(None);
 /// Timestamped diagnostic log (the mcp_diag.log introduced in round-132;
 /// round-137 added timestamps and [heal]/[restore] markers — before that
 /// there were no timestamps to align with real-device probes).
-fn diag_log(line: &str) {
+pub(crate) fn diag_log(line: &str) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -101,7 +101,7 @@ fn diag_log(line: &str) {
 
 /// Diagnostic log path — under the DATA dir (C1: registry DataDir, else exe
 /// dir). Works on Windows AND in tests on other platforms.
-fn diag_path() -> std::path::PathBuf {
+pub(crate) fn diag_path() -> std::path::PathBuf {
     crate::paths::logs_dir().join("mcp_diag.log")
 }
 
