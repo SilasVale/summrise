@@ -3276,6 +3276,8 @@ The console embeds nothing — its assets are served by the worker — so nothin
 cannot see it either: it rebuilds the same new file, runs the tests, and never asks whether the tree it built from was
 consistent.
 
+ROUND 179 CHECKED THE OTHER TWO SURFACES and the gap is exactly one surface wide. The LANDING has no build output at all: `index/public/` holds static files (headers, icons, the installer scripts) and `index/src/page.js` is the page itself — inline, with `"scripts"` in its package.json holding only `test`, because that page has no bundler (round 95 recorded the same fact from the other direction). The INDEX WORKER serves those files; nothing is generated, so nothing can be stale. The PANEL is guarded by `build.rs`, the CONSOLE by this check, and the landing needs neither.
+
 RECORDED WITH THE TWO THINGS IT IS WORTH: the assets are committed (the inconsistency is gone), and the gap is named — a
 freshly checked-out tree can serve a console built from older source, and the test that would notice is a comparison between
 the built assets and a rebuild, which is a candidate rather than something started here.
