@@ -286,8 +286,22 @@ first — the comment in `ci.yml` that described the rule spelled the domain the
 comment, the `ci.yml` step description and this inventory no longer spell it (round 47). **492 occurrences remain in
 117 files**, down from 493/118, and the honest bulk is still infrastructure.
 
-**THE ONE BIG MECHANICAL BLOCK, MEASURED AND NOT YET DONE — `gateway/test`, 145 occurrences in 20 files.** It is
-feasible and it is safe, and it was deliberately NOT rushed at the end of a long session:
+**THE ONE BIG MECHANICAL BLOCK — ATTEMPTED IN ROUND 48 AND REVERTED, AND THE REASON CHANGES THE ORDER OF WORK.**
+
+I did it: 146 occurrences replaced across 20 files (`saisi.online` → `vale.test`, RFC 6761's reserved test TLD) and the
+suite run. **76 of 916 tests failed** — not because the replacement was wrong, but because those tests assert the
+worker's OWN configuration identity: `isAllowedOrigin` compares against the hardcoded console origins in
+`gateway/src/http.ts`, and the channel, upstream, provider and install-source defaults are asserted the same way. A
+fixture cannot be renamed while the SOURCE it is checked against still spells the production host, which means the order
+is:
+
+    1. the gateway's production defaults become CONFIGURATION (env with the current value as the fallback):
+       `http.ts` origins, `channels.ts`, `upstream.ts`, `devices.ts`'s INDEX_WORKER_URL and INSTALL_SOURCE,
+       `store/providers.ts` — each is a declared location in the gate today for exactly this reason;
+    2. THEN the fixtures move, and the `gateway/test/` allowance comes off the list (145 occurrences).
+
+Reverted to a green suite (916 pass / 0 fail) rather than landing half of it. What the first attempt DID establish,
+now measured rather than estimated:
 
   * the rule is already configuration-driven: `hostAllowError` reads
     `env.DEVICE_HOST_SUFFIX || ".agent.<domain>"` (`gateway/src/device-fetch.ts:62`), so a test can run under any suffix;
