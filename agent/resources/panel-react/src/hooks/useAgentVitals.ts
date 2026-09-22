@@ -15,6 +15,10 @@ import { callApi } from "../lib/api";
 import { releaseVersion } from "../lib/agentVersion";
 
 export interface AgentVitals {
+  /** THE RELAY, AS THE DEVICE REPORTS IT (round 207). `configured: false` means this device has no relay — which is the
+   *  default and is NOT the same as "a relay that is broken", and the difference is the whole reason the field exists.
+   *  Null until the first sample, like every other reading here. */
+  relay?: { configured: boolean; connected: boolean; failures: number; lastError: string | null } | null;
   /** Release the device reports (NOT the Cargo version — see lib/agentVersion.ts). */
   release: string;
   /** Human uptime, already formatted. Empty until the first sample. */
@@ -102,6 +106,17 @@ export function useAgentVitals(intervalMs = 15000): AgentVitals {
             next.uptime = fmtUptime(j.uptime_secs);
             next.uptimeSecs = j.uptime_secs;
           }
+          // CLEARED RATHER THAN KEPT, like the field below it: a relay that stops being reported must not leave the strip
+          // claiming a connection. `configured: false` is a real answer and is kept as one — it renders as nothing.
+          next.relay =
+            j.relay && typeof j.relay === "object"
+              ? {
+                  configured: j.relay.configured === true,
+                  connected: j.relay.connected === true,
+                  failures: Number(j.relay.consecutive_failures || 0),
+                  lastError: typeof j.relay.last_error === "string" ? j.relay.last_error : null,
+                }
+              : null;
           if (typeof j.cpu_pct === "number") next.cpu = j.cpu_pct;
           if (typeof j.mem_pct === "number") next.mem = j.mem_pct;
           // THE ONE FIELD THAT IS CLEARED RATHER THAN KEPT. Every other reading here

@@ -28,7 +28,8 @@
     "version",
     "release",
     "last_boot",
-    "last_boot_kind"
+    "last_boot_kind",
+    "relay"
   ],
   "example": {
     "ok": true,
