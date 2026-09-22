@@ -19,10 +19,14 @@
 import { decomment } from "./lib/decomment.mjs";
 import { readFileSync } from "node:fs";
 
+// THE PAYLOAD MODULES, NOT THE EMITTERS (round 268). Each sweep's inline `const API = {...}` fixture table now lives in
+// the device-side program it belongs to (`agent/scripts/lib/sweep/<ui>-run.cjs`) — the emitters no longer hold markup at
+// all. Scanning the old paths found ZERO tables and reported "no duplicates" across nothing, which is the shape this
+// file's own floor (below) exists to refuse.
 const SWEEPS = [
-  "agent/scripts/console-design-sweep.mjs",
-  "agent/scripts/landing-design-sweep.mjs",
-  "agent/scripts/panel-design-sweep.mjs",
+  "agent/scripts/lib/sweep/console-run.cjs",
+  "agent/scripts/lib/sweep/landing-run.cjs",
+  "agent/scripts/lib/sweep/panel-run.cjs",
 ];
 
 let fail = 0;
@@ -67,6 +71,14 @@ for (const path of SWEEPS) {
 
 if (fail) {
   console.error(`\nsweep-fixture-dupes: ${fail} problem(s)`);
+  process.exit(1);
+}
+// A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN (round 268). The per-file floor above cannot see this: every path can
+// legitimately `skip` (a UI with no inline table), so the whole run can print "0 fixture key(s) … no duplicates" and
+// exit 0 — which is what happened for one round after the console's table moved into its payload module while this
+// list still named the emitters. It now refuses to report success having read nothing.
+if (totalKeys === 0) {
+  console.error(`\nsweep-fixture-dupes: read 0 fixture key(s) across ${SWEEPS.length} sweep(s) — every path was skipped, so this proves nothing`);
   process.exit(1);
 }
 console.log(`\nsweep-fixture-dupes: ${totalKeys} fixture key(s) across ${SWEEPS.length} sweep(s), no duplicates`);

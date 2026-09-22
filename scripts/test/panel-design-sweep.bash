@@ -63,92 +63,72 @@ cat > "$TMP/probe-check.mjs" <<'JS'
 // Round 57 lost three rounds to this: the emitted script embedded its probes as TEMPLATE LITERALS, every nesting level
 // ate one backslash, `/^color\(/` reached the browser as `/^color(/`, and the loud axis counted EVERY element over
 // 400px2 for thirty-seven rounds while reporting a clean-looking six. The fix then was "probes go out as JSON strings,
-// spliced as `const NAME = ...` declarations", and this check pinned THAT SPELLING. Round 267 moved the payload into
-// real modules assembled by lib/sweep-bundle.mjs, so the probes now travel inside a generated pieces module — the rule
-// is the same, the spelling is not. So this reads the pieces module OUT OF THE ARTIFACT, evaluates it, and compares
-// every value with what the core produces, byte for byte. It also keeps the general form of the round-55 bug: no
-// template literal in the emitted script may contain a single (eaten) backslash.
+// spliced as `const NAME = ...` declarations", and this gate pinned THAT SPELLING — so it failed a payload whose probes
+// arrive byte-identically once the emitters moved to real modules (rounds 266-268).
+//
+// WHAT IT CHECKS NOW, for WHICHEVER sweep artifact it is handed: every value the shared core produces — the four
+// probes, the three page-check texts, the diag helper, and every pass the artifact's pieces module carries — must be
+// present byte for byte, in the encoding it actually crosses by (a string as JSON, which is what makes it lossless; a
+// function as code). Plus the general form of the round-55 bug: no template literal in the artifact may contain a
+// single (eaten) backslash.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+// THE HELPER IS IMPORTED BY ABSOLUTE URL: this program runs from a temp directory, so a relative specifier would
+// resolve against THAT, and the failure reads as a node module-resolution stack rather than as a missing file.
+const { piecesOf } = await import(pathToFileURL((process.argv[2] || ".") + "/scripts/test/lib/emitted-pieces.mjs").href);
 const [, , root, emittedPath] = process.argv;
 const core = await import(pathToFileURL(root + "/agent/scripts/lib/design-sweep.mjs").href);
 const probeLib = await import(pathToFileURL(root + "/agent/scripts/lib/contrast-probe.mjs").href);
 const emitted = readFileSync(emittedPath, "utf8");
 const problems = [];
-
-// ── the pieces module, as the artifact carries it ─────────────────────────────────────────────────────────────
-const MARK = '__factories["pieces.cjs"] = function (module, exports, require) {';
-const at = emitted.indexOf(MARK);
+let expected = [];
 let pieces = null;
-if (at < 0) {
-  problems.push("the emitted artifact carries no pieces module — every probe value below would go unchecked");
-} else {
-  const bodyStart = at + MARK.length;
-  // THE END IS THE LAST `};` BEFORE THE NEXT REGISTRATION, not the first `\n};` after the start: a factory body
-  // contains functions of its own, and the first match cut the module in half ("Unexpected token ')'").
-  const nextReg = [emitted.indexOf("\n__factories[", bodyStart), emitted.indexOf("\n__require(", bodyStart)]
-    .filter((x) => x > 0).sort((a, b) => a - b)[0] ?? emitted.length;
-  const bodyEnd = emitted.lastIndexOf("\n};", nextReg);
-  if (bodyEnd < 0) problems.push("the pieces module has no end — the artifact was truncated");
-  else {
-    const body = emitted.slice(bodyStart, bodyEnd);
-    const mod = { exports: {} };
-    try {
-      // A REQUIRE THAT REFUSES: the pieces module is declarations plus one export; anything it tries to load at
-      // load time is a bug, and swallowing it here would hide exactly that.
-      new Function("module", "exports", "require", body)(mod, mod.exports, (spec) => {
-        throw new Error("the pieces module required " + spec + " at load time");
-      });
-      pieces = mod.exports;
-    } catch (e) {
-      problems.push("the pieces module does not evaluate: " + String(e.message).slice(0, 120));
+try {
+  pieces = piecesOf(emitted, emittedPath.split(/[\\/]/).pop());
+} catch (e) {
+  problems.push(String(e.message).slice(0, 200));
+}
+if (pieces) {
+  const checks = new Function(core.pageChecks("#root") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+  expected = [
+    ["probe", probeLib.PROBE_SOURCE],
+    ["unstyled", core.UNSTYLED_SOURCE],
+    ["targets", core.TARGETS_SOURCE],
+    ["theme", core.THEME_SOURCE],
+    ["checks.SURFACE", checks.SURFACE],
+    ["checks.NAMES", checks.NAMES],
+    ["checks.REFLOW", checks.REFLOW],
+    ["diag", core.DIAG_SOURCE],
+  ];
+  // EVERY PASS THE PIECES CARRY, compared with the core's own function of that name. One program for both sweeps: the
+  // panel carries nine passes and two extra probe strings, the console eight, and neither needs its own list here.
+  for (const [name, fn] of Object.entries(pieces.passes || {})) {
+    if (typeof core[name] !== "function") {
+      problems.push(`pieces.passes.${name} has no counterpart in the core — a pass that is not the shared one`);
+    } else if (typeof fn !== "function") {
+      problems.push(`pieces.passes.${name} is not a function in the artifact`);
+    } else {
+      expected.push(["passes." + name, core[name].toString()]);
     }
   }
+  if (expected.length < 12) problems.push(`only ${expected.length} value(s) to compare — this proves nothing`);
+  const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
+  for (const [name, want] of expected) {
+    const got = get(pieces, name);
+    if (got == null) { problems.push(name + " is MISSING from the pieces module"); continue; }
+    const gotText = typeof got === "function" ? got.toString() : String(got);
+    if (gotText !== want) {
+      problems.push(`${name} reaches the page CHANGED (${gotText.length} vs ${want.length} chars)`);
+      continue;
+    }
+    if (typeof got !== "function" && !emitted.includes(JSON.stringify(want))) {
+      problems.push(name + " does not cross as a JSON string — one escaping level can be eaten");
+    }
+  }
+  if (pieces.config == null) problems.push("the pieces module carries no config (the artifact would run with undefined paths)");
 }
 
-// ── what the core produces for the same inputs ───────────────────────────────────────────────────────────────
-const checks = new Function(core.pageChecks("#root") + "\nreturn { SURFACE, NAMES, REFLOW };")();
-const expected = [
-  ["probe", probeLib.PROBE_SOURCE],
-  ["unstyled", core.UNSTYLED_SOURCE],
-  ["targets", core.TARGETS_SOURCE],
-  ["theme", core.THEME_SOURCE],
-  ["checks.SURFACE", checks.SURFACE],
-  ["checks.NAMES", checks.NAMES],
-  ["checks.REFLOW", checks.REFLOW],
-  ["passes.focusPass", core.focusPass.toString()],
-  ["passes.pressDelta", core.pressDelta.toString()],
-  ["passes.discoverPressTargets", core.discoverPressTargets.toString()],
-  ["passes.pressPass", core.pressPass.toString()],
-  ["passes.revealPass", core.revealPass.toString()],
-  ["passes.ackPass", core.ackPass.toString()],
-  ["passes.ackNotes", core.ackNotes.toString()],
-  ["passes.idlePass", core.idlePass.toString()],
-  ["passes.motionPass", core.motionPass.toString()],
-  ["diag", core.DIAG_SOURCE],
-];
-if (expected.length < 15) problems.push(`the core produced only ${expected.length} value(s) to compare — this proves nothing`);
-
-const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
-for (const [name, want] of expected) {
-  if (!pieces) break;
-  const got = get(pieces, name);
-  if (got == null) { problems.push(name + " is MISSING from the pieces module"); continue; }
-  const gotText = typeof got === "function" ? got.toString() : String(got);
-  if (gotText !== want) {
-    problems.push(`${name} reaches the page CHANGED (${gotText.length} vs ${want.length} chars, first difference at ${[...gotText].findIndex((c, i) => c !== want[i])})`);
-    continue;
-  }
-  // AND A STRING VALUE MUST CROSS AS JSON: that is what makes it lossless, and it is the property round 57 bought.
-  // FUNCTIONS CROSS AS CODE (that is what a function IS in a module), so the equivalent guarantee for them is the
-  // backslash walk below, which refuses an eaten escape anywhere in the artifact's template literals.
-  if (typeof got !== "function" && !emitted.includes(JSON.stringify(want))) {
-    problems.push(name + " does not cross as a JSON string — one escaping level can be eaten");
-  }
-}
-if (pieces && pieces.config == null) problems.push("the pieces module carries no config (the artifact would run with undefined paths)");
-
-// ── and no template literal in the artifact may contain an eaten backslash ───────────────────────────────────
+// ── AND NO TEMPLATE LITERAL IN THE ARTIFACT MAY CONTAIN AN EATEN BACKSLASH ──────────────────────────────────
 {
   let inside = false, line = 1, i = 0;
   while (i < emitted.length) {
@@ -954,9 +934,20 @@ if node "$CONSOLE" --emit > "$TMP/csweep.js" 2>"$TMP/csweep.err" && node --check
 else
   bad "console --emit failed: $(head -3 "$TMP/csweep.err")"
 fi
-for helper in "const SURFACE" "const NAMES" "const API" "const PAGES"; do
+# AND THE CONSOLE'S PROBES REACH THE PAGE UNCHANGED TOO — the same value-level check the panel gets, run against this
+# artifact. One program serves both: it reads whichever pieces module the artifact carries.
+if node "$TMP/probe-check.mjs" "$PWD" "$TMP/csweep.js" > "$TMP/probe-check-console.out" 2>&1; then
+  ok "console: $(tail -1 "$TMP/probe-check-console.out")"
+else
+  bad "the emitted console probes do not reach the page unchanged: $(head -4 "$TMP/probe-check-console.out")"
+fi
+# THE CONSOLE'S OWN FIXTURE DEFINITIONS. SURFACE and NAMES come from the shared page checks and are compared as VALUES
+# by the probe check above (which now runs for this artifact too); API and PAGES are the payload's own definitions, so
+# they must still be IN the emitted payload. This used to be four `grep -qF` calls over the artifact, which pinned the
+# carrying convention rather than the requirement and failed a payload whose checks arrive as data (round 268).
+for helper in "const API = {" "const PAGES = ["; do
   if grep -qF "$helper" "$TMP/csweep.js"; then
-    ok "the console sweep defines: $helper"
+    ok "the console sweep still defines its own: $helper"
   else
     bad "the console sweep USES but does not define: $helper (it would report nothing)"
   fi

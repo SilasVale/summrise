@@ -3660,6 +3660,44 @@ failure read "Unexpected token ')'"), and the JSON assertion was first applied t
 `pageChecks`/`marksSource` become functions taking the root selector (the panel's pieces module evaluates them once and
 says so); only then can the four remaining guards, the bash backslash walk and the hook arm be deleted.
 
+### THE EMIT SEAM, THIRD SLICE: THE CONSOLE'S PAYLOAD, AND THREE GATES THAT PINNED A SPELLING (round 268)
+
+The console emitter was next: 484 of its 652 lines (74%) were the emitted program, sixteen interpolations, and a parse
+guard copied from the panel after a backtick in a COMMENT here had already cost two `node --check` cycles.
+`agent/scripts/lib/sweep/console-run.cjs` is that program as ordinary code now, with the pieces module beside it and
+`bundleSweep` assembling the two.
+
+**IT ALSO CAUGHT A REAL ESCAPING BUG IN THE PANEL'S MIGRATION — and the way it was caught is the lesson.** I had been
+copying the template literal's SOURCE TEXT into the new module, and a template literal's source is not its value: the
+console's route handler is written `p.replace(/^\\//, '')` in the emitter (one escaping level for the literal), so the
+module needs `/^\//` — the text the device actually ran. The panel and the landing had escaped this only by luck (the
+panel's route serves one file and never strips a path; the landing's was hand-written from the ARTIFACT). The fix is a
+check, not care: every payload line must appear VERBATIM in the artifact the old emitter produced, and it found exactly
+six escape-residue lines in the console module (two of them comments carrying `C:\\ProgramData`) beside the nineteen
+bindings that were meant to change.
+
+**EQUIVALENCE.** Structure: 16/16 pieces byte-identical in both artifacts, 474/474 payload lines present. Behaviour: the
+old and new console sweeps run against the same built console on d1 and their reports are compared field by field —
+the numbers are in the commit message and, like the panel's, the only differences are the ones wall-clock produces.
+
+**AND THREE GATES HAD PINNED THE SPELLING RATHER THAN THE RULE, each failing a payload that was right:**
+  * `panel-design-sweep.bash` looked for `const SURFACE` / `const NAMES` in the emitted console script (the page checks
+    now arrive as data) and for `assertEmbedded(out` in the landing (which now gets the assembler's compile instead).
+    The probe check is now ONE program that reads whichever pieces module an artifact carries and compares every value
+    the core produces — 17 for the panel, 16 for the console — in the encoding it actually crosses by.
+  * `sweep-judges.bash` regexed `EXPECTED_ENTRY = ({...})` out of the console artifact to build its staleness fixtures;
+    after the move the read came back EMPTY and the failure surfaced as a python `SyntaxError` in a fixture, which
+    names neither the gate nor the cause. It reads the digest from the pieces module now, and says what it could not
+    read.
+  * `sweep-fixture-dupes-check.mjs` scanned the EMITTERS for `const API = {`; the console's fixture table now lives in
+    its payload module, so the scan read ZERO tables and printed "0 fixture key(s) … no duplicates" — exit 0. The
+    per-file floor could not see it (every path may legitimately `skip`), so the run now refuses to report success
+    having read nothing, and the mutation that points the list back at the emitters fails it.
+
+WHAT REMAINS: the harness emitter (`panel-render-audit.mjs`, 646 lines that produce an HTML harness rather than a
+script — it has one guard that must stay, `/</script/`, because the stub is inline HTML), then the live probe (68);
+then `pageChecks`/`marksSource` become functions taking the root selector; then the guards.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.

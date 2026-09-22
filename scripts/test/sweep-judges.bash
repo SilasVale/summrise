@@ -109,17 +109,23 @@ fi
 # afternoon to a stale panel harness. The entry's digest is baked at emit time and checked at run time; these
 # plant the mismatch, and the digest is read FROM the emitted script rather than copied here, so a rebuild
 # cannot make this fixture agree with a build it was not written for.
-read -r BYTES SHA < <(python3 - "$TMP/console-design-sweep.js" <<'PY2'
-import json, re, sys
-# PARSED, NOT GREPPED: a first attempt pulled the sha out with a character class and matched the "a" in `"sha"`,
-# so the fixture was built from a two-line value and python refused it. Read the object as an object.
-m = re.search(r"EXPECTED_ENTRY = (\{[^}]*\})", open(sys.argv[1]).read())
-d = json.loads(m.group(1)) if m else {}
-print(d.get("bytes", ""), d.get("sha", ""))
-PY2
-)
+read -r BYTES SHA < <(node -e '
+// THE STAMP IS READ FROM THE ARTIFACT AS DATA (round 268). This used to regex `EXPECTED_ENTRY = ({...})` out of the
+// emitted output — the spelling the console payload used while it was a template literal — so after the payload moved
+// into a module the read came back empty, the fixtures below were built with a blank digest, and python refused the
+// file with "invalid syntax" instead of the gate saying what it could not read.
+const { readFileSync } = require("fs");
+const { pathToFileURL } = require("url");
+(async () => {
+  const { piecesOf } = await import(pathToFileURL(process.argv[1] + "/scripts/test/lib/emitted-pieces.mjs").href);
+  const p = piecesOf(readFileSync(process.argv[2], "utf8"), "the emitted console script");
+  const e = p.config && p.config.expectedEntry;
+  if (!e || typeof e.bytes !== "number" || !e.sha) throw new Error("the pieces carry no expectedEntry digest");
+  console.log(e.bytes + " " + e.sha);
+})().catch((err) => { console.error(err.message); process.exit(1); });
+' "$PWD" "$TMP/console-design-sweep.js")
 [ -n "$BYTES" ] && [ -n "$SHA" ] && ok "the emitted console script names the entry it was built against ($BYTES / $SHA)" \
-  || bad "could not read EXPECTED_ENTRY from the emitted console script — the fixtures below would prove nothing"
+  || bad "could not read the baked entry digest from the emitted console script — the fixtures below would prove nothing"
 
 write_con "$TMP/con-stale.json" "r['entryCheck'] = {'bytes': 1, 'sha': 'deadbeef0000', 'expected': {'bytes': $BYTES, 'sha': '$SHA'}, 'stale': True}"
 [ "$(judge "$CON" "$TMP/con-stale.json")" = "1" ] && ok "console: the judge fails a stale delivered entry" || bad "console: a stale entry was NOT a finding"
