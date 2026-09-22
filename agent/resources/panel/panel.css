@@ -2135,7 +2135,9 @@ h3 { font-size: var(--fs-base); }
   flex-wrap: wrap;
   margin: var(--sp-2) 0 0;
 }
-.update-note { font-size: var(--fs-sm); }
+/* The measure every other lede on this page carries (round 265): on the LIVE panel at 1440px this note
+   rendered a 93-character line, three past the floor the sweep enforces. */
+.update-note { font-size: var(--fs-sm); max-width: 66ch; }
 .update-state {
   margin: var(--sp-2) 0 0;
   font: 400 var(--fs-sm) var(--font-mono);

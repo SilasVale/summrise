@@ -3535,6 +3535,15 @@ carries the npm package's version (1.2.449) and FileDescription `Vale Agent`, be
 at release time (the release flow bumps it before building) while the crate's own 1.0.x is not — and a process with no
 FileDescription is listed as `vale-agent.exe`, which is what the operator saw.
 
+**AND THE AXIS HAD A BLIND SPOT OF ITS OWN, FOUND BY MEASURING THE DEVICE RATHER THAN THE HARNESS.** The live panel at
+1440px (1.2.450, after the update) still reported two uncapped classes: `.update-note` at 93 characters per line — real,
+and capped now — and `.plug-desc` at 129, which is NOT a defect: that row's description is `white-space: nowrap` with
+`text-overflow: ellipsis` and the full text on its title, i.e. a LABEL, and a measure would truncate it sooner rather
+than make it readable. The overflow axis has always treated that idiom as legitimate; the measure axis excludes it now.
+THE BOUNDARY IS DELIBERATE AND NAMED: a paragraph could in principle be silenced by ellipsising it, and neither axis
+would report it — the human-visible ellipsis is the detector for that, and building a third counter for a shape nobody
+has produced was not worth the surface this round.
+
 **AND THE LAST RED JOB WAS THE INSTRUMENT'S OWN BLIND SPOT, NOT THE PANEL'S.** With prose clean, the design job still
 failed on twelve identical findings: `button.connect-tab (button.connect-tab.on) renders NOTHING when pressed`. The device
 said otherwise — pressing it in a relaxed-mode surface reported `transform: none -> matrix(1, 0, 0, 1, 0, 1)` — and

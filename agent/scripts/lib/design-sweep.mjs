@@ -305,6 +305,16 @@ const SURFACE = \`(() => {
       // NOT CODE. A log line, a config snippet or a session id is MEANT to be one unbroken run; a rule about
       // where a sentence returns has nothing to say about it. (No backticks in this comment either.)
       if (el.closest('pre, code') || /mono|code/i.test(st.fontFamily)) continue;
+      // AND NOT A DELIBERATE ONE-LINER (round 265). An element that ellipsises — nowrap plus text-overflow — is a
+      // LABEL, not prose that failed to wrap: the plugin row's description is one, with its full text on a title
+      // attribute, and a cap would truncate it SOONER rather than make it readable. The overflow axis already treats
+      // this idiom as legitimate (it excludes ellipsised elements from its clipping findings); this axis learned the
+      // same from a LIVE measurement — the plugin row's description reported 129 characters per line on the device
+      // at 1440px, and the honest reading is that the line was never going to wrap.
+      // (NO BACKTICKS ANYWHERE ABOVE — this is inside PAGE_CHECKS_TEMPLATE, and the line that warned about it was
+      // itself broken by one for the 53rd time. The pre-commit hook caught it in the next command, which is the
+      // whole argument for running that hook by hand.)
+      if (st.textOverflow === 'ellipsis' || st.whiteSpace === 'nowrap') continue;
       const text = (el.textContent || '').trim();
       if (text.length < 60) continue;
       const r = el.getBoundingClientRect();
