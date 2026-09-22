@@ -15,6 +15,67 @@
 // Each UI supplies only what is genuinely its own: the URL to serve, the page list, the API
 // fixtures, and whether it has a nav at all.
 
+// THE PANEL'S DECORATIVE WAIVERS, SHARED BY BOTH INSTRUMENTS (round 265).
+//
+// WHY THEY MOVED HERE. These entries were local to `panel-design-sweep.mjs`'s judge, and the other instrument
+// that reads the same measurements — `panel-render-audit.mjs` — had never run (it crashed on a missing import
+// until this round), so nobody had seen them disagree. The first run that worked reported TWO failures that the
+// sweep waives on purpose: `span.approval-grant` at 1.19 light / 1.25 dark, the grant pill's outline, waived in
+// a measured band with the reason that the pill's TEXT carries the signal. Two instruments, one measurement, two
+// verdicts — so the policy lives in ONE place and both read it. The band semantics are the judge's: an entry
+// waives the RATIOS it was measured at, and a row matching the selector at a DIFFERENT ratio is still a finding.
+export const DECORATIVE_WAIVERS = [
+  // PRUNED: THE WORKING DOT'S HALO WAIVER (round 21 of the standing goal). The entry was `/^div\.rail-dot$/`
+  // with the band 2.25-2.45, written when the rows path reported that mark by that class string. The mark
+  // language gained `data-live` and the row's selector became `div.mark.rail-dot`, so the pattern has matched
+  // NOTHING for several rounds — measured, not assumed: across the whole 126-surface report it matches 0 of
+  // 6,876 rows, and the 68 rows that DO name that element are all above their bar (6.50 light / 10.99 dark
+  // against 3, and the dot's fill is held at exactly 3.00 by the panel gate, which fails on a mutation to
+  // #8a2a07 at 1.90). Nothing needed the exemption any more, which is the definition of weight that stops
+  // earning its place. The HOVER path's exemption lives in `ignore` and is untouched; if the halo ever
+  // returns as a measured row, the band and its reason are in this file's history and in the design ledger.
+  {
+    // MEASURED, AND ONE WORD OF THE OLD REASON WAS WRONG (round 203). It read "its meaning is its text
+    // (contrast-fixed for this chip already) and its dot" — THERE IS NO DOT. The chip is text plus a revoke
+    // button, and the numbers this run produces are: the waived outline at 1.19 (it delimits the pill), the
+    // command text at worst 5.53 of 4.5 across 88 rows, and the revoke control at 5.33 of 4.5. The two
+    // contrast fixes the CSS documents — --muted at 4.31 for an 11px mono label, and --faint at 2.33 for the
+    // one control that can undo a grant — both hold. The outline is the pill's edge; the word is the signal.
+    match: /^span\.approval-grant$/,
+    // FOUR SURFACES, FOUR RATIOS — 1.19, 1.20, 1.25, 1.27, measured on the device round 95 — because the outline
+    // composites over a different surface on each.
+    //
+    // "AND NOTHING ELSE" IS TRUE NOW (round 23). The band was 1.10-1.35, which is ~0.09 wider on each side than any
+    // ratio this suite has ever seen: a drift to 1.12 or 1.33 — real movement toward the 3:1 bar — would have been
+    // waived silently. Measured across 32 rows on 126 surfaces: 1.19-1.27, four distinct values. The band is that
+    // range plus the declared slack, and the slack is the only margin left to argue about.
+    values: [[1.17, 1.29]],
+    // PROBE ROUNDING ONLY: the ratios are printed to two decimals, so a true 1.185 reports as 1.19 and a band
+    // written at the printed value would refuse it. Two hundredths is the smallest allowance that survives that.
+    slack: 0.02,
+    reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
+  },
+  {
+    // THE MENU'S ICON CHIP: ITS BACKGROUND DELIMITS, AND ITS GLYPH IS NOW MEASURED TOO (round 92, corrected
+    // round 95). The first photograph of the new-session menu reported span.nm-ico at 1.05 dark / 1.10 light — a
+    // 22px chip whose background is a subtle surface behind a coloured glyph, which is what a chip's background is
+    // for. What this entry silences is THAT BACKGROUND.
+    //
+    // THE REASON IT CARRIED FOR FIFTY ROUNDS WAS TRUE WHEN WRITTEN AND IS NOW FALSE, which is why it is worth the
+    // line: "the GLYPH ITSELF IS NOT MEASURED — the probe excludes SVG by design". Rounds 93-94 changed exactly
+    // that — the svg ROOT is let through, and its paint counts where a shape computes it — so the per-kind lane
+    // colour that carries this menu's meaning (--lane-ds for ssh, --lane-or for serial) DOES have a row now, and it
+    // clears the 3:1 bar on every surface the sweep renders. A waiver that still claims its signal is unmeasured
+    // would stop the next reader looking for the finding that can now appear.
+    match: /^span\.nm-ico$/,
+    // 1.05 light / 1.10 dark, the chip's own background — and the band is now that range plus the slack rather
+    // than 1.00-1.15, which carried 0.05 of margin on each side that no measurement justified (round 23).
+    values: [[1.03, 1.12]],
+    slack: 0.02,
+    reason: "the icon chip's BACKGROUND delimits a coloured glyph at 1.05/1.10; the glyph itself is measured by the SVG rule since round 94 and clears 3:1 — the lane colour it carries has its own row now",
+  },
+];
+
 /** The in-page checks, as source text for the emitted browser script.
  *
  *  A FUNCTION OF THE ROOT SELECTOR, not a constant. These checks are evaluated IN THE PAGE by
@@ -218,7 +279,47 @@ const SURFACE = \`(() => {
     }
     return { list: [...new Set(loud)].slice(0, 6), unreadable, unreadableSamples };
   })();
+  // ── HOW LONG IS A LINE OF PROSE ─────────────────────────────────────────────────────────────────────
+  // THE MEASURE (round 265). A line is read by its return: past roughly ninety characters the eye loses the
+  // start of the next one, which is why this sheet caps its ledes at 52ch / 56ch / 66ch / 72ch in five places.
+  // NOTHING MEASURED THAT. A paragraph could be added with no cap at all and every axis stayed green — which is
+  // exactly what the live panel showed: twelve single-line paragraphs of 93-206 characters on the Settings page
+  // at 1440px, in both densities, three blocks away from a History lede that had carried 66ch all along.
+  // COUNTED HERE, JUDGED BY THE CALLER (opts.proseFloor): the console and the landing carry the same numbers in
+  // their reports and are not failed by a floor somebody else chose until their own surfaces are measured.
+  const measureResult = (() => {
+    const lineCount = (el) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const rects = [...r.getClientRects()].filter((x) => x.width > 4 && x.height > 4);
+      return Math.max(1, new Set(rects.map((x) => Math.round(x.top))).size);
+    };
+    const rows = [];
+    let measured = 0;
+    for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+      const st = getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden') continue;
+      // OWN text, not a container's: a row is a dozen spans, and its "line" is the row, not a sentence.
+      const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
+      if (!own) continue;
+      // NOT CODE. A log line, a config snippet or a session id is MEANT to be one unbroken run; a rule about
+      // where a sentence returns has nothing to say about it. (No backticks in this comment either.)
+      if (el.closest('pre, code') || /mono|code/i.test(st.fontFamily)) continue;
+      const text = (el.textContent || '').trim();
+      if (text.length < 60) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 60 || r.height < 4) continue;
+      measured++;
+      const lines = lineCount(el);
+      rows.push({ sel: desc(el), cpl: Math.round(text.length / lines), chars: text.length, lines, w: Math.round(r.width), fs: Math.round(parseFloat(st.fontSize)), maxw: st.maxWidth });
+    }
+    // WORST FIRST, and the WIDTH AND MAX-WIDTH travel with each row: the finding has to say whether the line is
+    // long because the surface is wide or because nothing capped it, and those are different repairs.
+    rows.sort((a, b) => b.cpl - a.cpl);
+    return { measured, worst: rows.slice(0, 5) };
+  })();
   return {
+    measure: measureResult,
     loud: loudResult.list,
     loudUnreadable: loudResult.unreadable,
     loudUnreadableSamples: loudResult.unreadableSamples,
@@ -1220,6 +1321,16 @@ export function judgeReport(report, opts = {}) {
     for (const [kind, list] of [["overflow", s.over], ["clipping", s.clipped], ["sliver", s.slivers]]) {
       if (list && list.length) findings.push(`${where}: ${kind} — ${list.join("; ")}`);
     }
+    // PROSE HAS A MEASURE, WHEN THE CALLER ASKS FOR ONE (round 265). A policy rather than a law of nature — a
+    // dashboard's own answer may differ — so the floor travels in the caller's options and a UI that has not
+    // measured this axis is not failed by a number somebody else picked. The row carries the width and the
+    // computed max-width, because "this line is 206 characters because the surface is 1339px wide" and "because
+    // no cap was ever written" want different repairs.
+    if (opts.proseFloor) {
+      for (const row of ((s.measure && s.measure.worst) || []).filter((x) => x.cpl > opts.proseFloor)) {
+        findings.push(`${where}: ${row.sel} renders ${row.cpl} characters on ONE line (${row.chars} chars in ${row.lines} line(s) over ${row.w}px at ${row.fs}px, max-width ${row.maxw}) — past ${opts.proseFloor} a reader loses the line return; this sheet's own ledes cap at 66ch`);
+      }
+    }
     // THE MARK LANGUAGE AS PAINTED. A family whose two states render identically is colour-only wherever a cascade
     // override or a missing rule made it so — the sheet can be right while the page is wrong, which is exactly how
     // `.plug-dot[error]` kept a stray halo through a unit test that passed (round 25).
@@ -1642,9 +1753,16 @@ export function judgeReport(report, opts = {}) {
 export function reportSummary(label, report) {
   const surfaces = report.surfaces.length;
   const blind = (report.rows || []).filter((r) => r.cr === null).length;
+  // THE WORST LINE OF PROSE, in the summary, because a floor that only SPEAKS when it is crossed tells a reader
+  // nothing about how close the rest of the run is to it (round 265). Absent when a sweep did not measure it.
+  const prose = (report.surfaces || []).reduce((acc, s) => {
+    const worst = ((s.measure && s.measure.worst) || [])[0];
+    return worst && worst.cpl > acc.cpl ? worst : acc;
+  }, { cpl: 0 });
   return (
     `${label}: ${(report.rows || []).length} text nodes · ${surfaces} surface(s) · ` +
     `${(report.names || []).length} name checks` +
+    (prose.cpl ? ` · worst prose line ${prose.cpl} chars (${prose.sel})` : "") +
     (blind ? ` · ${blind} unmeasurable` : "")
   );
 }

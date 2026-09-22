@@ -37,6 +37,21 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
+// THE PROBE IS IMPORTED, NOT REFERENCED (round 265). This file's own emit message has said "the PROBE moved out of this
+// file so its math can be UNIT TESTED" — and the audit half kept calling a bare `PROBE` that no longer exists, so the
+// run that a browser makes possible died on `PROBE is not defined` before measuring one row. Nothing caught it: CI runs
+// the emit path (no browser), the skip-path gate pins exit 2, and the only environment that reaches line 911 is a
+// device — where the failure looked like the audit being broken rather than a missing import.
+// ALIASED ON PURPOSE: this file counts its own `failures`, and shadowing that name with the helper would be a
+// redeclaration error rather than a bug anybody could read.
+import { PROBE_SOURCE, failures as contrastFailures, unmeasurable } from "./lib/contrast-probe.mjs";
+// AND THE SAME WAIVER POLICY THE SWEEP JUDGES WITH (round 265). The first run of this audit that ever completed
+// reported two failures the design sweep waives on purpose — `span.approval-grant` at 1.19 light / 1.25 dark: the
+// grant pill's outline, whose signal is the TEXT inside it and whose band the sweep measured and wrote down. Two
+// instruments reading one measurement and reaching two verdicts is a policy kept in the wrong place; the list lives
+// in `lib/design-sweep.mjs` now and both read it, band semantics included (a row matching a waived selector at a
+// DIFFERENT ratio is still a failure — a waiver is for the ratio it was measured at).
+import { DECORATIVE_WAIVERS } from "./lib/design-sweep.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PANEL = join(ROOT, "agent", "resources", "panel");
@@ -908,11 +923,34 @@ async function main() {
       await page.goto(`http://vale.test/panel/?theme=${theme}&mode=${mode}`, { waitUntil: "load" });
       await page.waitForTimeout(1800);
 
-      const rows = await page.evaluate(PROBE);
-      const under = rows.filter((r) => r.cr < 4.5);
+      // THE SHARED JUDGEMENT, NOT A LOCAL `cr < 4.5` (round 265). The audit's own filter predated the probe's
+      // `need` / `inactive` fields: it asked 4.5 of every row including GRAPHICS (which need 3, so it would have
+      // reported false failures) and counted an UNREADABLE row as passing (every comparison against null is false),
+      // which is the "an absence is not evidence" rule this suite applies everywhere else.
+      const rows = await page.evaluate(PROBE_SOURCE);
+      const all = contrastFailures(rows);
+      const blind = unmeasurable(rows);
       measured += rows.length;
+      // A WAIVED ROW IS PRINTED, NOT COUNTED — and a waived SELECTOR at a ratio outside its measured band stays a
+      // failure, which is the half that keeps the exemption from quietly widening (the sweep learned that in round
+      // 95: an entry written for one number set aside every ratio that element could ever produce).
+      const waivedHere = [];
+      const under = [];
+      for (const r of all) {
+        const why = DECORATIVE_WAIVERS.find((d) => d.match.test(String(r.sel)));
+        if (why && (why.values || []).some(([lo, hi]) => typeof r.cr === "number" && r.cr >= lo && r.cr <= hi)) {
+          waivedHere.push(`${r.sel} ${r.cr} — ${why.reason}`);
+          continue;
+        }
+        under.push(r);
+      }
       low += under.length;
-      console.log(`\n--- ${theme} / ${mode}: ${rows.length} text nodes, ${under.length} under AA ---`);
+      console.log(`\n--- ${theme} / ${mode}: ${rows.length} nodes, ${under.length} failing${blind.length ? `, ${blind.length} UNMEASURABLE` : ""}${waivedHere.length ? `, ${waivedHere.length} waived` : ""} ---`);
+      for (const w of waivedHere) console.log(`  WAIVED ${w}`);
+      if (blind.length) {
+        failures++;
+        console.log(`  UNMEASURABLE ${blind.length} row(s) — a reading nobody could take is not a pass: ${blind.slice(0, 3).map((r) => r.sel).join(", ")}`);
+      }
       for (const r of under) {
         failures++;
         console.log(`  LOW ${String(r.cr).padStart(5)}  ${String(r.size).padStart(4)}px  ${r.sel.slice(0, 46)}  "${r.text}"`);
@@ -944,7 +982,9 @@ async function main() {
     }
   }
 
-  console.log(`\n== ${measured} text nodes measured, ${low} under AA, ${failures} failure(s) ==`);
+  // NODES, NOT "TEXT NODES": the probe reads graphic rows too (a mark, a ring, a chip's fill), and they are judged
+  // at 3:1 rather than 4.5 — so "under AA" was the wrong noun for a count that includes them (round 265).
+  console.log(`\n== ${measured} nodes measured, ${low} failing, ${failures} failure(s) ==`);
   console.log(`screenshots: ${OUT}/panel-light.png, ${OUT}/panel-dark.png`);
   await close();
   process.exit(failures ? 1 : 0);

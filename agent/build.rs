@@ -72,6 +72,7 @@ fn main() {
         // A release exe needs no PDB: drop the debug directory and the output
         // becomes a pure function of its inputs.
         println!("cargo:rustc-link-arg-bins=/DEBUG:NONE");
+        embed_windows_icon(&manifest);
     }
 
     staleness_gate(&panel_dir, &src_dir);
@@ -169,4 +170,214 @@ fn fnv1a64(bytes: &[u8], mut hash: u64) -> u64 {
         hash = hash.wrapping_mul(PRIME);
     }
     hash
+}
+
+// ── THE PROGRAM'S OWN ICON, INSIDE THE PROGRAM (round 265) ────────────────────────────────────────────────
+//
+// THE DEFECT: `vale-agent.exe` carried NO resource of any kind, so Windows had nothing to draw and Task
+// Manager showed the generic process glyph for the agent the whole product is about. Nothing in the
+// repository could catch it: no test reads a PE resource table, the icon existed in `brand/` (rendered by
+// `scripts/render-brand-icon.py` for exactly this purpose) and was wired into the desktop app and the
+// installer — and the SERVICE binary, the one Task Manager actually lists, was never given it.
+//
+// HOW: one `ICON` statement in a generated .rc, compiled to a COFF object by LLVM's resource compiler and
+// handed to the linker. No new crate: this build script stays pure std, which is what lets the Windows
+// cross-compile run with nothing installed but the toolchain cargo-xwin already sets up.
+//
+// WHERE THE COMPILER COMES FROM, and why it is looked for this way: `llvm-rc` is one of the five tools
+// cargo-xwin ALREADY puts in `~/.cache/cargo-xwin` (release.yml symlinks clang-cl, lld-link, llvm-rc,
+// llvm-lib, llvm-dlltool there), and `llvm-windres` — the driver that can emit COFF rather than a .res —
+// sits BESIDE the real `llvm-rc` in LLVM's bin directory. Resolving the symlink and looking next to it is
+// what makes this work in CI without adding another symlink to the workflow.
+fn embed_windows_icon(manifest: &Path) {
+    // THE BRAND MARK IS THE REPO'S, not a copy made for the exe: one source, so the taskbar, the installer
+    // and the landing cannot drift apart. Its 16/24/32/48 frames are the set the renderer deliberately
+    // produces (it refuses a 256px frame: Pillow would PNG-compress it, which Chromium's ICO parser choked
+    // on — Windows itself is happy to scale 48 up for the large view).
+    let ico = manifest.join("..").join("brand").join("icon.ico");
+    if !ico.is_file() {
+        panic!(
+            "vale-agent build: brand/icon.ico is missing ({}), so the exe would ship with NO icon and \
+             Task Manager would show a generic glyph — restore it with scripts/render-brand-icon.py",
+            ico.display()
+        );
+    }
+    println!("cargo:rerun-if-changed={}", ico.display());
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
+    let rc = out_dir.join("vale-agent.rc");
+    // RC STRING PATHS: forward slashes, and the version resource below is the one Task Manager's Name column
+    // reads — a process with no FileDescription is listed as `vale-agent.exe`, which is what the operator saw.
+    let ico_rc = ico.to_string_lossy().replace('\\', "/");
+    let version = product_version(manifest);
+    std::fs::write(
+        &rc,
+        format!(
+            "1 ICON \"{ico_rc}\"\n\
+             \n\
+             1 VERSIONINFO\n\
+             FILEVERSION {v}\n\
+             PRODUCTVERSION {v}\n\
+             FILEFLAGSMASK 0x3fL\n\
+             FILEFLAGS 0x0L\n\
+             FILEOS 0x40004L\n\
+             FILETYPE 0x1L\n\
+             FILESUBTYPE 0x0L\n\
+             BEGIN\n\
+             \x20   BLOCK \"StringFileInfo\"\n\
+             \x20   BEGIN\n\
+             \x20       BLOCK \"040904b0\"\n\
+             \x20       BEGIN\n\
+             \x20           VALUE \"CompanyName\", \"Vale\"\n\
+             \x20           VALUE \"FileDescription\", \"Vale Agent\"\n\
+             \x20           VALUE \"FileVersion\", \"{ver}\"\n\
+             \x20           VALUE \"InternalName\", \"vale-agent\"\n\
+             \x20           VALUE \"OriginalFilename\", \"vale-agent.exe\"\n\
+             \x20           VALUE \"ProductName\", \"Vale Agent\"\n\
+             \x20           VALUE \"ProductVersion\", \"{ver}\"\n\
+             \x20       END\n\
+             \x20   END\n\
+             \x20   BLOCK \"VarFileInfo\"\n\
+             \x20   BEGIN\n\
+             \x20       VALUE \"Translation\", 0x409, 1200\n\
+             \x20   END\n\
+             END\n",
+            v = version.replace('.', ","),
+            ver = version,
+        ),
+    )
+    .unwrap_or_else(|e| panic!("vale-agent build: cannot write {}: {e}", rc.display()));
+
+    // TWO COMPILERS, TWO OUTPUT FORMATS, ONE LINK ARG. LLVM's windres emits a COFF object; MSVC's rc.exe
+    // emits a `.res`, which lld-link accepts directly (measured: a .res handed to lld-link lands in the image
+    // as RT_GROUP_ICON + RT_ICON). Either artifact goes to the linker — without the `rustc-link-arg-bins`
+    // line at the end of this function the resource is compiled and thrown away, which is the shape of "the
+    // fix is in the build script but not in the binary" this repository keeps finding.
+    let (tool, obj, args) = match find_resource_compiler() {
+        ResourceCompiler::Windres(path) => (
+            path,
+            out_dir.join("vale-agent.res.o"),
+            vec![
+                rc.clone(),
+                "-O".into(),
+                "coff".into(),
+                "--target".into(),
+                "pe-x86-64".into(),
+                "-o".into(),
+                out_dir.join("vale-agent.res.o"),
+            ],
+        ),
+        ResourceCompiler::Rc(path) => (
+            path,
+            out_dir.join("vale-agent.res"),
+            vec![
+                "/nologo".into(),
+                "/fo".into(),
+                out_dir.join("vale-agent.res"),
+                rc.clone(),
+            ],
+        ),
+    };
+    let out = std::process::Command::new(&tool).args(&args).output().unwrap_or_else(|e| {
+        panic!(
+            "vale-agent build: cannot run {} ({e}) — it is the resource compiler that turns brand/icon.ico \
+             into something the linker can attach. Point VALE_LLVM_WINDRES at LLVM's llvm-windres, or put \
+             llvm-windres (or MSVC's rc.exe) on PATH",
+            tool.display()
+        )
+    });
+    if !out.status.success() {
+        panic!(
+            "vale-agent build: {} failed on {}: {}{}",
+            tool.display(),
+            rc.display(),
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+    }
+    println!("cargo:rustc-link-arg-bins={}", obj.display());
+}
+
+/// THE VERSION THE EXE REPORTS. It is the npm package's, not `CARGO_PKG_VERSION`: the crate's own version is
+/// an internal 1.0.x that no user has ever seen, while the release flow bumps
+/// `vale-agent-npm/package.json` to 1.2.N BEFORE it builds — so at release time that file IS this binary's
+/// version, and the Properties dialog and Task Manager agree with `vale status` instead of contradicting it.
+/// A dev build reports the last released version, which is the honest answer to "which release line is this".
+fn product_version(manifest: &Path) -> String {
+    let pkg = manifest.join("vale-agent-npm").join("package.json");
+    println!("cargo:rerun-if-changed={}", pkg.display());
+    let fallback = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
+    let Ok(text) = std::fs::read_to_string(&pkg) else {
+        return fallback;
+    };
+    // No serde in a build script: the first `"version": "x.y.z"` is the package's own, and a version that
+    // does not look like one is not worth guessing at — the fallback is a real number either way.
+    let needle = "\"version\":";
+    let Some(at) = text.find(needle) else {
+        return fallback;
+    };
+    let rest = &text[at + needle.len()..];
+    let Some(open) = rest.find('"') else {
+        return fallback;
+    };
+    let Some(close) = rest[open + 1..].find('"') else {
+        return fallback;
+    };
+    let v = &rest[open + 1..open + 1 + close];
+    let numeric = !v.is_empty()
+        && v.split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
+    if numeric && v.matches('.').count() >= 2 {
+        v.to_string()
+    } else {
+        fallback
+    }
+}
+
+/// THE RESOURCE COMPILER, and which output it produces. LLVM's `windres` and MSVC's `rc.exe` take the same
+/// .rc and write different things — a COFF object and a `.res` respectively — so the caller has to know which
+/// one it got (the flags and the link argument both differ).
+enum ResourceCompiler {
+    Windres(PathBuf),
+    Rc(PathBuf),
+}
+
+/// Find a resource compiler: an explicit override, then PATH, then the cargo-xwin toolchain directory —
+/// resolving the `llvm-rc` symlink that IS already there and looking beside its real path, because both
+/// binaries ship in the same LLVM `bin/`. MSVC's `rc.exe` is the last resort, for a native Windows build.
+fn find_resource_compiler() -> ResourceCompiler {
+    if let Ok(p) = std::env::var("VALE_LLVM_WINDRES") {
+        return ResourceCompiler::Windres(PathBuf::from(p));
+    }
+    let on_path = PathBuf::from("llvm-windres");
+    if std::process::Command::new(&on_path)
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
+        return ResourceCompiler::Windres(on_path);
+    }
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    // THE SYMLINK CARGO-XWIN ALREADY MAKES (release.yml points llvm-rc, clang-cl, lld-link, llvm-lib and
+    // llvm-dlltool at LLVM's bin/): canonicalising it lands in that bin directory, where llvm-windres is.
+    let rc = PathBuf::from(&home)
+        .join(".cache")
+        .join("cargo-xwin")
+        .join("llvm-rc");
+    if let Ok(real) = std::fs::canonicalize(&rc) {
+        if let Some(dir) = real.parent() {
+            let sibling = dir.join("llvm-windres");
+            if sibling.is_file() {
+                return ResourceCompiler::Windres(sibling);
+            }
+        }
+    }
+    let msrc = PathBuf::from("rc.exe");
+    if std::process::Command::new(&msrc).arg("/?").output().is_ok() {
+        return ResourceCompiler::Rc(msrc);
+    }
+    // Last resort: the name, so the error the caller prints names the tool rather than a path.
+    ResourceCompiler::Windres(PathBuf::from("llvm-windres"))
 }

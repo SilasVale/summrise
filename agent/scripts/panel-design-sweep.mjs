@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { DECORATIVE_WAIVERS, markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -1298,6 +1298,17 @@ function judge(file) {
     // not hiding a known defect, but a change that made THAT page shout would pass because of this entry. Said out
     // loud here because a suppression that quietly widens is the thing this ledger keeps warning about.
     twoloud: ["panel-Terminal", "desktop-Terminal"],
+    // PROSE HAS A MEASURE, AND THIS ROUND MEASURED WHETHER IT DOES (round 265). A line is read by its return:
+    // the panel's own ledes cap at 52/56/66/72ch and this sheet has said so in five places for as long as they
+    // have existed — but nothing MEASURED it, so the Settings page rendered twelve paragraphs as SINGLE lines of
+    // 93-206 characters at 1440px, in both densities, three blocks from a History lede that wraps at 73.
+    // THE FLOOR IS 90, and it is the defect class that chose it: the twelve offenders start at 93, the panel's own
+    // capped ledes render 70-73, and 90 leaves a fifth of headroom over the rule (66ch) rather than encoding the
+    // rule itself — a `ch` cap and a measured `cpl` are different units (the cap is the box, `cpl` is the average
+    // glyph), and judging the unit the READER experiences is the point. The console and the landing carry the same
+    // numbers in their reports and are NOT failed by this floor: neither has been measured on this axis, and a
+    // threshold somebody else picked is not a finding about them.
+    proseFloor: 90,
     // THIS HARNESS'S OWN BLIND SPOT, named rather than filtered silently. `#tabs` measures ~0-185px
     // in a plain browser and 211px on the device, so the tab strip's children report as overflowing
     // containers here and nowhere else; and the 320px document scroll is the SAME artifact (round 50
@@ -1348,61 +1359,31 @@ function judge(file) {
       },
     ],
   })];
+  // A MEASUREMENT THAT FOUND NOTHING TO MEASURE IS NOT A PASS (round 265). The prose axis is only as good as the
+  // text blocks it matched: a selector change, a probe that stopped counting, or a harness that rendered an empty
+  // page would ALL report "no long lines", and this suite has caught exactly that shape in its own checks before
+  // (a pass that ran nothing, an axis that measured zero). The six live pages alone produce dozens of blocks, so
+  // the floor is deliberately far below the real number: this guards the INSTRUMENT, not the panel.
+  // SCOPED TO THE RUN THAT PRODUCES SURFACES: a report from `--passes=focus` has none, and that is the coverage
+  // clause's business (it fails a run missing a pass the caller asked for) rather than this axis's — a floor that
+  // fired there would be a finding about a page nobody rendered.
+  {
+    const pagesRan = report.passes === "all" || String(report.passes || "").split(",").map((p) => p.trim()).includes("pages");
+    const measured = (report.surfaces || []).reduce((n, s) => n + ((s.measure && s.measure.measured) || 0), 0);
+    if (pagesRan && measured < 12) {
+      findings.push(
+        `the prose-measure axis matched only ${measured} text block(s) across ${(report.surfaces || []).length} surface(s) — a run that measured nothing cannot clear this axis`,
+      );
+    }
+  }
   // DECORATIVE GRAPHICS: drawn to DELIMIT, not to inform. WCAG 1.4.11 applies to a non-text element that
   // CARRIES MEANING; a chip's 1px hairline does not, and this one measures 1.2 against a surface it was
   // never meant to contrast with. Named here rather than silently dropped — the same rule the rest of
   // this suite follows — and the waived rows are PRINTED on every run so the exemption stays visible.
-  const DECORATIVE = [
-    // PRUNED: THE WORKING DOT'S HALO WAIVER (round 21 of the standing goal). The entry was `/^div\.rail-dot$/`
-    // with the band 2.25-2.45, written when the rows path reported that mark by that class string. The mark
-    // language gained `data-live` and the row's selector became `div.mark.rail-dot`, so the pattern has matched
-    // NOTHING for several rounds — measured, not assumed: across the whole 126-surface report it matches 0 of
-    // 6,876 rows, and the 68 rows that DO name that element are all above their bar (6.50 light / 10.99 dark
-    // against 3, and the dot's fill is held at exactly 3.00 by the panel gate, which fails on a mutation to
-    // #8a2a07 at 1.90). Nothing needed the exemption any more, which is the definition of weight that stops
-    // earning its place. The HOVER path's exemption lives in `ignore` and is untouched; if the halo ever
-    // returns as a measured row, the band and its reason are in this file's history and in the design ledger.
-    {
-      // MEASURED, AND ONE WORD OF THE OLD REASON WAS WRONG (round 203). It read "its meaning is its text
-      // (contrast-fixed for this chip already) and its dot" — THERE IS NO DOT. The chip is text plus a revoke
-      // button, and the numbers this run produces are: the waived outline at 1.19 (it delimits the pill), the
-      // command text at worst 5.53 of 4.5 across 88 rows, and the revoke control at 5.33 of 4.5. The two
-      // contrast fixes the CSS documents — --muted at 4.31 for an 11px mono label, and --faint at 2.33 for the
-      // one control that can undo a grant — both hold. The outline is the pill's edge; the word is the signal.
-      match: /^span\.approval-grant$/,
-      // FOUR SURFACES, FOUR RATIOS — 1.19, 1.20, 1.25, 1.27, measured on the device round 95 — because the outline
-      // composites over a different surface on each.
-      //
-      // "AND NOTHING ELSE" IS TRUE NOW (round 23). The band was 1.10-1.35, which is ~0.09 wider on each side than any
-      // ratio this suite has ever seen: a drift to 1.12 or 1.33 — real movement toward the 3:1 bar — would have been
-      // waived silently. Measured across 32 rows on 126 surfaces: 1.19-1.27, four distinct values. The band is that
-      // range plus the declared slack, and the slack is the only margin left to argue about.
-      values: [[1.17, 1.29]],
-      // PROBE ROUNDING ONLY: the ratios are printed to two decimals, so a true 1.185 reports as 1.19 and a band
-      // written at the printed value would refuse it. Two hundredths is the smallest allowance that survives that.
-      slack: 0.02,
-      reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
-    },
-    {
-      // THE MENU'S ICON CHIP: ITS BACKGROUND DELIMITS, AND ITS GLYPH IS NOW MEASURED TOO (round 92, corrected
-      // round 95). The first photograph of the new-session menu reported span.nm-ico at 1.05 dark / 1.10 light — a
-      // 22px chip whose background is a subtle surface behind a coloured glyph, which is what a chip's background is
-      // for. What this entry silences is THAT BACKGROUND.
-      //
-      // THE REASON IT CARRIED FOR FIFTY ROUNDS WAS TRUE WHEN WRITTEN AND IS NOW FALSE, which is why it is worth the
-      // line: "the GLYPH ITSELF IS NOT MEASURED — the probe excludes SVG by design". Rounds 93-94 changed exactly
-      // that — the svg ROOT is let through, and its paint counts where a shape computes it — so the per-kind lane
-      // colour that carries this menu's meaning (--lane-ds for ssh, --lane-or for serial) DOES have a row now, and it
-      // clears the 3:1 bar on every surface the sweep renders. A waiver that still claims its signal is unmeasured
-      // would stop the next reader looking for the finding that can now appear.
-      match: /^span\.nm-ico$/,
-      // 1.05 light / 1.10 dark, the chip's own background — and the band is now that range plus the slack rather
-      // than 1.00-1.15, which carried 0.05 of margin on each side that no measurement justified (round 23).
-      values: [[1.03, 1.12]],
-      slack: 0.02,
-      reason: "the icon chip's BACKGROUND delimits a coloured glyph at 1.05/1.10; the glyph itself is measured by the SVG rule since round 94 and clears 3:1 — the lane colour it carries has its own row now",
-    },
-  ];
+  // THE WAIVERS THEMSELVES LIVE IN THE SHARED LIB (round 265), because the panel's OTHER instrument reads the
+  // same rows: the audit reported two of these elements as failures the moment it was made to run, which is a
+  // policy disagreement between two tools rather than a defect in the panel. One list, two readers.
+  const DECORATIVE = DECORATIVE_WAIVERS;
   const waived = [];
   // TARGET SIZE, WCAG 2.5.8, AS WRITTEN: undersized AND without the spacing that would save it. A check
   // that stopped at the size would flag a dozen compact-but-fine controls and be turned off within a week,

@@ -2400,7 +2400,9 @@
 }
 .plug-header { flex: none; }
 .plug-title { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); letter-spacing: -0.01em; }
-.plug-sub { margin: var(--sp-0-5) 0 0; font-size: var(--fs-sm); color: var(--muted); }
+/* The measure, not the width: this lede rendered as ONE 85-character line at 1440px until round 265,
+   beside ledes that have carried 66ch since they were written (see `.desktop-settings p.muted`). */
+.plug-sub { margin: var(--sp-0-5) 0 0; font-size: var(--fs-sm); color: var(--muted); max-width: 66ch; }
 .plug-search-wrap {
   flex: none;
   display: flex;
@@ -3047,6 +3049,18 @@
 .desktop-settings h2 { font-size: var(--fs-lg); margin: 0 0 var(--sp-1); }
 .desktop-settings h3 { font-size: var(--fs-md); margin: var(--sp-4) 0 6px; }
 .settings-section { margin-bottom: var(--sp-2); }
+/* PROSE HAS A MEASURE, AND THIS PAGE HAD NONE (round 265). Measured on the live panel at 1440px, in BOTH
+   densities: twelve paragraphs on this page rendered as SINGLE lines of 93-206 characters
+   (`.muted monitor-lede` 206, `.muted notify-hint` 193, `.muted restart-note` 188, `.muted` 151 / 135 / 123,
+   …), because nothing here capped the width — while the History page's own lede, three blocks away, has
+   carried `max-width: 66ch` since it was written and wraps at 73 characters. A line is read by its return:
+   past roughly 90 characters the eye loses the next line's start, which is why this sheet already answers
+   the same question with 52ch / 56ch / 66ch / 72ch in five other places. This is that convention applied
+   where it was simply never written, not a new one.
+   AND THE RULE IS MEASURED NOW, not remembered: the panel design sweep reports the worst rendered line per
+   surface (`measure`) and its judge fails any surface over `proseFloor` — 90 — so the next uncapped lede
+   fails a run instead of waiting for somebody to notice it in a screenshot. */
+.desktop-settings p.muted { max-width: 66ch; }
 
 
 
@@ -3076,9 +3090,9 @@
    whose content the user cannot get anywhere else. Styled with the same
    restrained vocabulary as the rest of this sheet: no new colours, no
    decoration — the tool counts and the snippet carry the weight. */
-.connect-lede { margin: 0 0 10px; font-size: var(--fs-base); color: var(--muted); line-height: 1.55; }
+.connect-lede { margin: 0 0 10px; font-size: var(--fs-base); color: var(--muted); line-height: 1.55; max-width: 66ch; }
 .connect-lede b { color: var(--ink); }
-.connect-muted { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--muted); }
+.connect-muted { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--muted); max-width: 66ch; }
 .connect-total { font-size: var(--fs-base); color: var(--muted); margin-bottom: 7px; }
 .connect-total b { font-size: var(--fs-lg); color: var(--ink); font-weight: var(--fw-semi); }
 .connect-families { list-style: none; margin: 0; padding: 0; }
@@ -4135,6 +4149,9 @@ button.dtab-close:hover { opacity: 1; }
   margin: var(--sp-1) 0 var(--sp-2);
   font: 400 var(--fs-sm) var(--font);
   color: var(--chrome-ink);
+  /* The measure every lede on this page carries (round 265): this verdict rendered 93 characters on
+     ONE line at 1440px. */
+  max-width: 66ch;
 }
 /* A STATE COLOUR IS NOT A TEXT COLOUR, AND THIS ONE WAS BOTH (round 100). The verdict line rendered
    --state-ok (#2f9e44) as a 13px sentence and measured **3.33:1** on the settings surface — under the 4.5 AA wants
@@ -4520,3 +4537,10 @@ button.dtab-close:hover { opacity: 1; }
    does not exist — the build's `build-css` step refused it by name, which is what that step is for. A doorway does not need its
    own ink; only its hover does. */
 .settings-fold > summary:hover { text-decoration: underline; }
+/* AND THE PRESS, BECAUSE A HOVER THAT ANSWERS AND A PRESS THAT DOES NOT IS THE GAP ITSELF (round 265). This
+   doorway was added with an underline on hover and nothing on press, and `feedback-check` found it on the next
+   run — while the sheet's own vocabulary for a press is `translateY(1px)`, the one every other control uses
+   (rounds 51-52 measured it: a press whose every property is shadowed by a later equal-specificity rule cannot
+   be seen, which is how the ACTIVE TAB was dead while its sheet looked right). A summary is a block, so the
+   transform moves it; the underline stays, because the hover is a different channel from the press. */
+.settings-fold > summary:active { transform: translateY(1px); }

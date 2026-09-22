@@ -148,7 +148,9 @@ clean_idle() {
     {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
   ],
   "surfaces": [
-    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": [],
+     "_measure_note": "THE PROSE MEASURE (round 265). `measured` is how many text blocks this axis MATCHED on the surface and `worst` is its five longest lines — the row here is real, taken from the live panel (the History page's own lede, which has carried max-width 66ch all along and wraps at 73). A surface with no measure block is not silently clean: the panel's judge fails a pages run that matched fewer than twelve blocks in total, and the clean fixture has to satisfy that floor like a real report does.",
+     "measure": {"measured": 24, "worst": [{"sel": "p.archive-lede", "cpl": 73, "chars": 218, "lines": 3, "w": 464, "fs": 12, "maxw": "464.449px"}]}}
   ],
   "names": [
     {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
@@ -174,7 +176,9 @@ cat > "$TMP/idle-busy.json" <<'JSON'
     {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
   ],
   "surfaces": [
-    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": [],
+     "_measure_note": "THE PROSE MEASURE (round 265). `measured` is how many text blocks this axis MATCHED on the surface and `worst` is its five longest lines — the row here is real, taken from the live panel (the History page's own lede, which has carried max-width 66ch all along and wraps at 73). A surface with no measure block is not silently clean: the panel's judge fails a pages run that matched fewer than twelve blocks in total, and the clean fixture has to satisfy that floor like a real report does.",
+     "measure": {"measured": 24, "worst": [{"sel": "p.archive-lede", "cpl": 73, "chars": 218, "lines": 3, "w": 464, "fs": 12, "maxw": "464.449px"}]}}
   ],
   "names": [
     {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
@@ -198,7 +202,9 @@ cat > "$TMP/idle-blind.json" <<'JSON'
     {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
   ],
   "surfaces": [
-    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": [],
+     "_measure_note": "THE PROSE MEASURE (round 265). `measured` is how many text blocks this axis MATCHED on the surface and `worst` is its five longest lines — the row here is real, taken from the live panel (the History page's own lede, which has carried max-width 66ch all along and wraps at 73). A surface with no measure block is not silently clean: the panel's judge fails a pages run that matched fewer than twelve blocks in total, and the clean fixture has to satisfy that floor like a real report does.",
+     "measure": {"measured": 24, "worst": [{"sel": "p.archive-lede", "cpl": 73, "chars": 218, "lines": 3, "w": 464, "fs": 12, "maxw": "464.449px"}]}}
   ],
   "names": [
     {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
@@ -224,7 +230,9 @@ cat > "$TMP/clean.json" <<'JSON'
     {"cr": 7.03, "need": 4.5, "size": 11, "sel": "span.ok", "text": "hello", "density": "panel", "theme": "light", "page": "Terminal"}
   ],
   "surfaces": [
-    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": []}
+    {"density": "panel", "theme": "light", "page": "Terminal", "h1Count": 1, "firstIsH1": true, "skipped": 0, "mains": 1, "navs": 1, "over": [], "clipped": [], "slivers": [],
+     "_measure_note": "THE PROSE MEASURE (round 265). `measured` is how many text blocks this axis MATCHED on the surface and `worst` is its five longest lines — the row here is real, taken from the live panel (the History page's own lede, which has carried max-width 66ch all along and wraps at 73). A surface with no measure block is not silently clean: the panel's judge fails a pages run that matched fewer than twelve blocks in total, and the clean fixture has to satisfy that floor like a real report does.",
+     "measure": {"measured": 24, "worst": [{"sel": "p.archive-lede", "cpl": 73, "chars": 218, "lines": 3, "w": 464, "fs": 12, "maxw": "464.449px"}]}}
   ],
   "names": [
     {"density": "panel", "theme": "light", "page": "Terminal", "checked": 12, "unnamed": [], "titleOnly": []}
@@ -384,12 +392,26 @@ elif which == "focus-empty":
     # A RUN THAT LANDED NOWHERE: 14 presses, every one escaping to the body. Clean by the old rule
     # (missing == 0) and must still be a finding.
     r["focus"] = [{"density": "panel", "theme": "light", "pressed": 14, "landed": 0, "escaped": 14, "missing": 0}]
+elif which == "prose":
+    # A LINE NOBODY CAN READ TO ITS END (round 265). The Settings page shipped TWELVE paragraphs as single lines of
+    # 93-206 characters at 1440px, in both densities, because nothing measured the measure: the sheet caps its ledes
+    # at 52/56/66/72ch and no gate had ever asked whether a rendered line obeyed any of them. This plants the worst
+    # one the live panel produced (206 characters on one line) — and, in the same fixture, the two things a finding
+    # has to name: the width it happened at and the computed max-width that says nothing capped it.
+    r["surfaces"][0]["measure"] = {"measured": 24, "worst": [
+        {"sel": "p.muted.monitor-lede", "cpl": 206, "chars": 206, "lines": 1, "w": 1339, "fs": 13, "maxw": "none"},
+        {"sel": "p.archive-lede", "cpl": 73, "chars": 218, "lines": 3, "w": 464, "fs": 12, "maxw": "464.449px"}]}
+elif which == "prose-none":
+    # THE INSTRUMENT, NOT THE PANEL: a pages run whose prose axis matched NOTHING reports "no long lines" and reads
+    # exactly like a clean one. This is the failure this suite keeps finding in its own checks (a pass that ran
+    # nothing), so the floor is planted as an empty measurement rather than as a defect.
+    r["surfaces"][0]["measure"] = {"measured": 0, "worst": []}
 else:
     raise SystemExit("unknown axis " + which)
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable prose prose-none; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"

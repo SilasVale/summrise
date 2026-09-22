@@ -61,3 +61,56 @@ test("the three exit codes are distinct and documented in the script", async () 
   assert.match(src, /exit\(2\)/, "nothing actually exits 2");
   void run;
 });
+
+// ── THE HALF THAT NEEDS A BROWSER, CHECKED AS SOURCE (round 265) ─────────────────────────────────────────
+// Every test above pins the SKIP. The audit's other half — the one that measures — runs only where a Playwright
+// runtime exists, and there it died on `PROBE is not defined`: the probe moved to `lib/contrast-probe.mjs` (this
+// file's own emit message says so) and the audit kept calling a bare `PROBE`. Nothing in the repository could
+// fail on it: CI takes the emit path, which exits 2 before that line, and the tests above pin that exit. The
+// crash was reached for the first time by a DEVICE, and it read like the audit being broken rather than like a
+// missing import. So the check reads the source: every name handed to `page.evaluate()` must exist in the file.
+test("every name the audit evaluates in the page is defined in the file", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(SCRIPT, "utf8");
+  const defined = new Set();
+  for (const m of src.matchAll(/import\s*\{([^}]+)\}\s*from/g)) {
+    for (const part of m[1].split(",")) {
+      const name = part.trim().split(/\s+as\s+/).pop().trim();
+      if (name) defined.add(name);
+    }
+  }
+  for (const m of src.matchAll(/(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)) defined.add(m[1]);
+  // BARE IDENTIFIERS ONLY: `page.evaluate((sels) => …, REQUIRED)` passes a function, and there is nothing to look
+  // up for it — the regex requires the argument to start with a name, so those calls are not matched at all.
+  const evaluated = [...src.matchAll(/page\.evaluate\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g)].map((m) => m[1]);
+  assert.ok(
+    evaluated.length >= 2,
+    `found ${evaluated.length} page.evaluate(<name>) call(s) — a scan that matches nothing proves nothing`,
+  );
+  for (const name of new Set(evaluated)) {
+    assert.ok(
+      defined.has(name),
+      `page.evaluate(${name}) — ${name} is neither imported nor declared in this file. This is the crash a device reaches and CI cannot: the emit path exits before it.`,
+    );
+  }
+});
+
+test("the audit judges contrast with the shared probe, not with a local literal", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { decomment } = await import("./lib/decomment.mjs");
+  // COMMENTS ARE STRIPPED FIRST (the lesson `retired-colours-check` records from its own first run): the file's own
+  // explanation of this repair QUOTES the defect — "not a local `cr < 4.5`" — and a scan that flags its own
+  // documentation would have to be switched off. What is checked is the CODE.
+  const src = decomment(readFileSync(SCRIPT, "utf8"));
+  // A local `cr < 4.5` is what this file used to do, and it was wrong in two directions at once: it asked 4.5 of
+  // GRAPHIC rows (which need 3, so a healthy ring was reported as a failure) and it counted a row nobody could
+  // read as a pass — every comparison against null is false. `failures()` knows `need` and `inactive`;
+  // `unmeasurable()` is the count that must be zero for a reading to mean anything.
+  assert.doesNotMatch(
+    src,
+    /cr\s*<\s*4\.5/,
+    "a local `cr < 4.5` asks text's threshold of graphics and counts an unreadable row as passing — use the shared helpers",
+  );
+  assert.match(src, /contrastFailures\(rows\)/, "the shared judgement must actually be applied");
+  assert.match(src, /unmeasurable\(rows\)/, "an unmeasurable row must be reported, not silently counted as a pass");
+});

@@ -3453,3 +3453,78 @@ own wording describes, and the reason it is a note and not a finding.
 
 The run is GREEN: nothing exceeded the budget and nothing is silently dead. What the console's feedback clause needed was the
 measurement, and it now has one.
+
+### "CAN YOU OPTIMIZE THE PANEL DISPLAY?" — THE ANSWER WAS A MEASURE (round 265)
+
+Asked in the session, with a second ask arriving mid-round: "任务管理器没有vale agent logo". The operator chose
+**measure first, fix what is objectively wrong** over naming a page, so nothing was changed until the six live pages had
+been captured and probed (device, 1.2.449, 1280x800 and 1440x900, BOTH densities).
+
+WHAT SURVIVED THE FIRST PASS, and what did not — worth writing down because three of the four candidates were the
+instrument's fault, not the panel's:
+
+  * the missing `<h1>`s were MY probe's: it filtered `.sr-only` out by size, and every page does name itself (the
+    outline contract in `documentOutline.test.ts` is intact). The tenth time this suite has had to read the artefact
+    before believing the instrument.
+  * the 10px meta text is ON the declared floor (`designScale.test.ts` pins 10), so it is not a defect.
+  * 19-23px controls pass WCAG 2.5.8's spacing clause, which is the criterion as written (undersized AND unspaced).
+
+THE DEFECT: PROSE WITH NO MEASURE. At 1440px, in both densities, the Settings page rendered **twelve paragraphs as
+single lines of 93-206 characters** (`.muted monitor-lede` 206, `.muted notify-hint` 193, `.muted restart-note` 188,
+`.muted` 151 / 143 / 135 / 123 / 120 / 118 / 112 / 104 / 93) and the Plugins subtitle as one 85-character line. What
+makes that a defect rather than taste is that **the sheet already answered the question three blocks away**:
+`.archive-lede` and `.activity-lede` have carried `max-width: 66ch` since they were written and wrap at 73. The rule
+existed; it had simply never been applied to these surfaces.
+
+THE FIX, and the rendered numbers that say it worked (harness built from these bytes on the device, stamp
+`260716-290d0a71a7f4`):
+
+    panel/Settings      worst 206 -> 76 cpl   (every capped paragraph now 503.153px = 66ch at 13px, 16 blocks measured)
+    desktop/Settings    worst 206 -> 76 cpl   (17 blocks)
+    Plugins .plug-sub   85 on ONE line -> 43 over two (464.449px)
+    audit (same build)  294 nodes, 0 failing, 2 waived — where the same page reported 206-char lines before
+
+THE GATE, because a rule nobody measures is exactly how this shipped: the sweep's SURFACE probe now reports
+`measure { measured, worst }` per surface and the panel judge fails any row over **`proseFloor: 90`**. The floor came
+from the defect class, not from a preference: the twelve offenders start at 93 and the sheet's own capped ledes render
+70-73. There is a floor on the INSTRUMENT too — a pages run that matched fewer than twelve blocks fails, because a run
+that measured nothing reports "no long lines" and reads exactly like a clean one. The console and the landing carry the
+same numbers in their reports and are NOT judged by this floor: neither has been measured on this axis, and a threshold
+somebody else picked is not a finding about them. Mutations in `scripts/test/panel-design-sweep.bash`: `prose` (a
+planted 206-character line) and `prose-none` (measured: 0) — both proven to fail the judge.
+
+TWO MORE DEFECTS, FOUND BY MAKING THE INSTRUMENTS RUN:
+
+  * **`panel-render-audit.mjs` HAD NEVER RUN.** It called a bare `PROBE` that moved to `lib/contrast-probe.mjs`, and
+    nothing could see it: CI only takes the emit path (which exits 2 before that line), the skip gate pins that exit,
+    and the only environment that reaches the call is a device — where it died on `PROBE is not defined` and read as
+    "the audit is broken" rather than "an import is missing". Fixed by importing it, and by judging with the shared
+    `failures()` / `unmeasurable()` instead of its own `cr < 4.5`, which asked text's 4.5 of GRAPHIC rows and counted a
+    row nobody could read as a pass. Gate: `panel-audit-skip-check.mjs` now reads the SOURCE — every name handed to
+    `page.evaluate()` must be imported or declared — and both mutations were run (delete the import; restore the local
+    literal) and both bite.
+  * **TWO INSTRUMENTS, ONE MEASUREMENT, TWO VERDICTS.** The audit's first working run reported `span.approval-grant`
+    at 1.19 light / 1.25 dark as failures; the sweep waives that exact element in a measured band, because the grant
+    pill's signal is its text (5.53 of 4.5) and its revoke control (5.33). A policy kept in one tool is a policy the
+    other one contradicts, so the waiver list moved into `lib/design-sweep.mjs` and both read it — the audit now prints
+    waived rows WITH the reason and keeps the judge's semantics (a waived selector at a ratio outside its band is still
+    a failure).
+
+AND THE SHEET HAD A PRESS GAP, RED AT HEAD: `.settings-fold > summary` carried a hover and no `:active`, and
+`feedback-check` failed on it. Verified pre-existing by restoring the committed sheet and re-running (same failure),
+then fixed with `transform: translateY(1px)` — the vocabulary every other press in this sheet uses.
+
+THE SECOND ASK: THE EXE HAD NO ICON AT ALL. Task Manager drew a generic glyph because `vale-agent.exe` carried no
+resource of any kind — the brand mark existed in `brand/icon.ico` and was wired into the desktop app and the installer,
+never into the service binary the operator actually looks at. `agent/build.rs` now generates a `.rc`, compiles it with
+LLVM's `windres` (the sibling of the `llvm-rc` cargo-xwin already symlinks, so CI needs no new setup) and hands the
+object to the linker; MSVC's `rc.exe` + a `.res` — which lld-link accepts directly, measured — is the fallback. On the
+built exe: **6 resources, all four brand frames byte-present** (16/24/32/48), **no absolute path embedded** (0
+occurrences — the dual-builder audit's premise holds), and **two forced re-links are byte-identical**. The VERSIONINFO
+carries the npm package's version (1.2.449) and FileDescription `Vale Agent`, because that file IS this binary's version
+at release time (the release flow bumps it before building) while the crate's own 1.0.x is not — and a process with no
+FileDescription is listed as `vale-agent.exe`, which is what the operator saw.
+
+WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
+per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
+branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
