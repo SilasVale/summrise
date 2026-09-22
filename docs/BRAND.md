@@ -203,6 +203,15 @@ data contradicted.
 | CDN content | `/summrise-agent/version.json` → `1.2.452`; `/summrise-agent/summrise-agent-latest.tgz` → 200 (6,690,379 B); `/vale-agent/*` → **404**, which is the design: the reinstall *is* the migration |
 | Release | `summrise-agent-1.2.452.tgz` published; landing page 200 |
 | Repo | three commits pushed — `9acb2db1` (the rename), `28887dd4` (the Access fix), `24bcc049` (prettier + mirror) |
+| CI | **green, 10/10 jobs** on `e2ba1990`, the commit the tag points at (the two failures on the first run were the stale console bundle, fixed by committing the rebuild, and three production hosts named here, fixed by rewording rather than by growing the gate's list) |
+| Release | tag `v1.2.452` → `release.yml` → GitHub release with `summrise-agent-1.2.452.tgz`; **byte-for-byte identical to the CDN** — `4e48905a4b0fae8b7dc38712a9f995a3959e43274190eff82a4406db8b49580a`, 6,690,379 B, which is also the sha256 `version.json` records |
+
+One environment note so it is not mistaken for a broken release:
+`publish-release.sh --audit-only` downloads the asset from a **direct `github.com` URL**,
+and this network drops that host (`curl: (52) Empty reply from server`) — the same failure
+the git remote works around with the `v.saisi.online` proxy. The identical comparison run
+against the **API asset URL** (`api.github.com/.../releases/assets/<id>`) passes, which is
+what the hashes above are from.
 
 **Two infrastructure names keep the old spelling. Neither is a brand surface.**
 
