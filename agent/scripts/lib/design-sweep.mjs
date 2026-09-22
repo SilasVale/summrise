@@ -144,8 +144,6 @@ export function marksProbe(root) {
       // sweep's marks axis would have died in CI on the next push. It survived because round 46 verified the RULE
       // with a reimplementation on the device instead of running THIS probe, and the judge's self-test feeds the
       // judge a synthetic report rather than the probe's output. A reimplementation is not a test of the original.
-      // (No backticks here: this body is carried in the ONE template literal that withHelpers() reads — see the note
-      // on withHelpers. Everything else in this file is an ordinary function and does not care.)
       const inset = /inset/.test(shadow);
       // A FILL AND A RING AT ONCE IS ITS OWN KIND (round 46). Until now 'inset' won outright, so a mark that set a
       // background and inherited an inset shadow computed as 'ring' — distinct from a solid, and therefore passing.
@@ -159,7 +157,7 @@ export function marksProbe(root) {
       // beside idle and the collision was immediate.
       //
       // DASHED IS ITS OWN KIND, because that is the whole design decision the 'off' state encodes — a dash and not
-      // a fade — and "shape first, colour second" means the signature must carry the dash. (No backticks: inside
+      // a fade — and "shape first, colour second" means the signature must carry the dash. (Inside
       // the emitted template.)
       const bw = parseFloat(st.borderTopWidth) || 0;
       const bstyle = bw > 0 ? st.borderTopStyle : 'none';
@@ -180,7 +178,6 @@ export function marksProbe(root) {
       // differently (or, worse, called a real collision clean). The four shape channels a mark can use are now all
       // in the signature: corner radius, rotation, clip, and the fill/ring/halo/dash KIND. The whole clip string is
       // carried rather than a boolean, because a second clipped shape would otherwise collide with this one.
-      // (No backticks: this probe is a template literal — 53rd time, caught by the emit.)
       const clip = st.clipPath && st.clipPath !== 'none' ? st.clipPath : '-';
       const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', clip, kind].join('/');
       const key = base;
@@ -1243,7 +1240,7 @@ export async function motionPass(page, render, label = {}) {
  *
  *  THE BANDS ARE MEASURED, NOT CHOSEN: saturation 0.35 with a lightness between 0.2 and 0.9 is what an operator reads
  *  as "something shouting". HSL saturation is d / (1 - |2l - 1|), which is the form the probe has always used — and
- *  the one the probe's own gate checks. (No backticks: this function is inlined into an emitted template.) */
+ *  the one the probe's own gate checks. */
 export function loudnessOf(colour) {
   const [R, G, B] = [colour.r / 255, colour.g / 255, colour.b / 255];
   const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
