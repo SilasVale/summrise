@@ -32,6 +32,12 @@ if (dirty) {
 
 /** Each case: the gate, the file it reads, and the EXACT break that gate was proven with.
  *
+ *  ONE GATE IS AUDITED ELSEWHERE, and this is where that is declared rather than silently missing:
+ *  `console-assets-check` REBUILDS the console, so it needs `gateway/ui` dependencies — which this job does not install (its
+ *  first placement failed here with "Cannot find type definition file for 'vite/client'", which is a missing dependency and
+ *  not a stale asset). Its proof is therefore the inconsistency it was written for (rounds 177-178) and the `ui` job, which is
+ *  the only place it can run at all.
+ *
  *  The owed `sweep-fixture-dupes-check` case arrived in round 107, and it needed no new shape after all: a fixture key on
  *  ONE line duplicated in place is a plain from/to replacement. (The earlier note assumed the `/api/health` block, which is
  *  multi-line — the wrong anchor made the shape look impossible.)
@@ -246,13 +252,6 @@ const CASES = [
     to: "d.lastVersion !== st.version ? \"outdated\" : d.lastVersion ||",
   },
 
-  {
-    gate: "scripts/test/console-assets-check.mjs",
-    file: "gateway/public/index.html",
-    why: "a committed asset no longer matches the source — the round-177 inconsistency, reproduced in the smallest way",
-    from: "index-",
-    to: "index-STALE-",
-  },
 
 ];
 

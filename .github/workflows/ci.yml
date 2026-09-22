@@ -77,7 +77,7 @@ jobs:
       # repo-wide gates: it runs `npm run build`, which needs this job's `npm ci`, and its first placement failed in
       # pack-chain with "Cannot find type definition file for 'vite/client'" — a missing dependency, not a stale asset.
       - name: the console's committed assets match its source
-        run: node ../../scripts/test/console-assets-check.mjs
+        run: node ${{ github.workspace }}/scripts/test/console-assets-check.mjs
 
   panel:
     name: panel (vitest)
