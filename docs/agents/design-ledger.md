@@ -3398,3 +3398,21 @@ budget — while the panel measures 158 presses at 4-9 ms.
 THE CANDIDATE IS NOW ONE CALL SITE, and it is written here rather than started at the end of a round: add `ackPass` to the
 console sweep with `discover: N`, exactly as the panel does, and let the next design job measure what it finds. Its first run
 may well find controls that answer nothing — which is what the panel's first run found, and what the instrument exists for.
+
+### THE CONSOLE'S ACK PASS RUNS AND REPORTS NOTHING — AND THE IDLE FINDINGS ARE GONE (round 193)
+
+`b24e84f6` is GREEN, and two facts come out of its design job:
+
+  1. THE TWO IDLE FINDINGS ARE GONE. `console/light/keys` (1 mutation) and `console/light/routes` (4) disappeared once the ack
+     pass moved after the idle window — which confirms the diagnosis: those mutations were the presses' own state updates, not a
+     repaint of unchanged output.
+  2. THE CONSOLE'S ACK PASS PRODUCED NO ROWS. The log carries twelve `note: ack panel Memory-ack-*` lines (`acked=true
+     via=disabled ms=3-4 budget=100`) and ZERO `note: ack console` lines.
+
+So the wiring is in place and the run is clean, and the open question is now narrower and answerable in one read: either
+`wants('ack')` is false where the console calls it, or `ackPass` found no controls to press (its `discover` cap, the skip list,
+or a page label), or the ROWS exist in `report.ack` and the note printer shows only some of them. The next round reads the note
+printer first, because that is the cheapest of the three to rule out.
+
+RECORDED RATHER THAN GUESSED, which is the habit this session has paid for repeatedly: the instrument ran, the run is green, and
+what it did or did not find is a question with three candidate answers and a one-command test for each.
