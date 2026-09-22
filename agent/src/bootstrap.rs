@@ -3,7 +3,7 @@
 
 use std::io::Write;
 use std::path::Path;
-use vale_agent_core::Config;
+use summrise_agent_core::Config;
 
 /// Atomic file write (round-57): temp file in the SAME directory + rename.
 /// Windows rename is atomic on the same volume (MoveFileEx); the old
@@ -114,7 +114,7 @@ pub fn load_or_create(path: &Path, log: &dyn Fn(&str)) -> anyhow::Result<(Config
                 // ensure_token generated a NEW secret that never matched the
                 // console's registered one: gateway /panel/ injection died
                 // permanently (round-104 failure class). Keep the secret on
-                // the recovery boot so X-Vale-Auth stays in sync.
+                // the recovery boot so X-Summrise-Auth stays in sync.
                 let recovered_secret = extract("proxy_secret");
                 if let Some(tok) = recovered {
                     let mut fresh = Config::load(path)?;
@@ -170,7 +170,7 @@ mod bootstrap_tests {
     const NOOP: &dyn Fn(&str) = &|_| {};
 
     fn dir(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("vale-boot-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-boot-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -345,7 +345,7 @@ mod bootstrap_tests {
     /// suite covers is a decision instead of an accident.
     #[test]
     fn embedded_default_sets_platform_while_config_default_does_not() {
-        let d = std::env::temp_dir().join(format!("vale-cfgpin-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-cfgpin-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&d);
         let p = d.join("config.yaml");
         let _ = std::fs::remove_file(&p);
@@ -365,7 +365,7 @@ mod bootstrap_tests {
             "the fresh-install config no longer sets download_url"
         );
 
-        let dflt = vale_agent_core::Config::default();
+        let dflt = summrise_agent_core::Config::default();
         assert!(
             dflt.platform.console_url.is_none() && dflt.platform.download_url.is_none(),
             "Config::default() now SETS a platform endpoint — it is the \

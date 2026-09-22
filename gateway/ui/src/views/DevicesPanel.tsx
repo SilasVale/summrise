@@ -27,7 +27,7 @@ import {
 // fallback tracks the versionless latest alias served by the index worker
 // (same URL as the landing page's primary install command), so it can never
 // rot on a deleted pinned version.
-const FALLBACK_DOWNLOAD = `https://agent.saisi.online/vale-agent/vale-agent-latest.tgz`;
+const FALLBACK_DOWNLOAD = `https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz`;
 
 type ModalState =
   | null
@@ -126,7 +126,7 @@ export default function DevicesPanel() {
   // Gateway MCP config (uses the current account's token)
   const gwMcpJson = {
     mcpServers: {
-      "vale-gate": {
+      "summrise-gate": {
         type: "http",
         url: `${window.location.origin}/mcp`,
         headers: { Authorization: `Bearer ${user?.token || ""}` },
@@ -454,7 +454,7 @@ export default function DevicesPanel() {
         </div>
 
         <p className="muted mt-12">{t("devices.installStep2")}</p>
-        <pre className="mt-8"><code>{regKey ? `vale setup --reg-key ${regKey}` : `vale setup`}</code></pre>
+        <pre className="mt-8"><code>{regKey ? `summrise setup --reg-key ${regKey}` : `summrise setup`}</code></pre>
         <div className="row mt-8">
           <button className="btn btn-ghost btn-mini" onClick={handleGenRegKey}>
             {t("devices.genKey")}
@@ -462,7 +462,7 @@ export default function DevicesPanel() {
           {regKey && (
             <>
               <CopyButton
-                text={`vale setup --reg-key ${regKey}`}
+                text={`summrise setup --reg-key ${regKey}`}
                 small
                 onCopied={() => toast(t("devices.mcpCopied"))}
               />

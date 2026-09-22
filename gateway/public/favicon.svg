@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
-  <!-- Vale brand mark: the vale at sunrise — near hill, far ridge, signal over the pass.
+  <!-- Summrise brand mark: the summrise at sunrise — near hill, far ridge, signal over the pass.
        THE ONE MARK. It is 16–30px in real life (Windows tray 16, rail 20/26, console 30),
        so it is drawn for that: three gradients, no scene. The iridescent variant that
        replaced it for three days put twelve gradients and a whole sky into the same
@@ -7,27 +7,27 @@
        Copies kept in step by src/ui/__tests__/Icon.test.tsx: this file, the panel's
        BrandMark, the console favicon and the landing page's data-URI. -->
   <defs>
-    <linearGradient id="vale-sky" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="summrise-sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#f59f00"/>
       <stop offset="1" stop-color="#e8590c"/>
     </linearGradient>
-    <radialGradient id="vale-glow" cx=".5" cy=".5" r=".5">
+    <radialGradient id="summrise-glow" cx=".5" cy=".5" r=".5">
       <stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/>
       <stop offset="1" stop-color="#ffe8a3" stop-opacity="0"/>
     </radialGradient>
     <!-- The material: light gathers at the top edge, the base sits in its own shadow.
          This is what makes the tile read as an object rather than a sticker. -->
-    <linearGradient id="vale-sheen" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="summrise-sheen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity=".25"/>
       <stop offset=".45" stop-color="#ffffff" stop-opacity="0"/>
       <stop offset="1" stop-color="#7c2d12" stop-opacity=".10"/>
     </linearGradient>
   </defs>
 
-  <rect width="48" height="48" rx="11" fill="url(#vale-sky)"/>
+  <rect width="48" height="48" rx="11" fill="url(#summrise-sky)"/>
 
   <!-- signal rising over the pass -->
-  <circle cx="21" cy="14" r="7.5" fill="url(#vale-glow)"/>
+  <circle cx="21" cy="14" r="7.5" fill="url(#summrise-glow)"/>
   <circle cx="21" cy="14" r="4" fill="#fff8e1"/>
 
   <!-- far ridge (haze) -->
@@ -35,5 +35,5 @@
   <!-- near hill (solid) -->
   <path fill="#ffffff" d="M2 41Q12 20 24 41Z"/>
 
-  <rect width="48" height="48" rx="11" fill="url(#vale-sheen)"/>
+  <rect width="48" height="48" rx="11" fill="url(#summrise-sheen)"/>
 </svg>

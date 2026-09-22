@@ -5,7 +5,7 @@
 //   * a CRASH is shown, always — it is the only verdict that asks for attention, and
 //     the whole point of round 254's classifier is that this case stops being a
 //     sentence nobody reads in a log file;
-//   * a REPLACEMENT is shown only while it is NEWS — right after `vale update` the
+//   * a REPLACEMENT is shown only while it is NEWS — right after `summrise update` the
 //     panel should confirm the swap, and forever after that a chip would be chrome;
 //   * a FIRST RUN and a CLEAN EXIT say NOTHING — silence is a feature here, and a rule
 //     that drifts toward "always say something" is how chips stop being read;

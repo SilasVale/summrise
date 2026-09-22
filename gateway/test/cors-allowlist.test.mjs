@@ -7,7 +7,7 @@
 // nothing read any of them.
 //
 // A SECOND SOURCE WAS `extension/manifest.json` until round 243 removed that extension: the console host plus
-// the manifest's host_permissions WAS the expected set, which is how `https://dsh.vale.test` got in — it was
+// the manifest's host_permissions WAS the expected set, which is how `https://dsh.summrise.test` got in — it was
 // there for the extension's content script and for nothing else. Checked before cutting, in this order: the
 // comment in http.ts names the manifest; the harness's own browser client posts to `http://dsh.internal` rather
 // than to this API; and the DSH plugin in this repo fetches no API at all. So the origin went, and this test now

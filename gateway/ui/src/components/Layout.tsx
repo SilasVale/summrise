@@ -163,8 +163,8 @@ export default function Layout() {
   return (
     <div className="app">
       <aside className="rail">
-        <NavLink to="/" className="rail-brand" title="Vale Gate">
-          <img className="brand-img" src="/favicon.svg" alt="Vale" width={30} height={30} />
+        <NavLink to="/" className="rail-brand" title="Summrise Gate">
+          <img className="brand-img" src="/favicon.svg" alt="Summrise" width={30} height={30} />
         </NavLink>
 
         <nav className="rail-nav">

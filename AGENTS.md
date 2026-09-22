@@ -1,6 +1,6 @@
-# Vale
+# Summrise
 
-One repo, one front door: `gateway/` (Vale Gate worker), `agent/` (Vale Agent, Windows),
+One repo, one front door: `gateway/` (Summrise Gate worker), `agent/` (Summrise Agent, Windows),
 `index/` (dist + CDN worker), `proxies/` (satellite workers), `brand/`, `docs/`.
 The operator's own rules are `docs/CHARTER.md`; their inbox is `docs/agents/ideas.md`.
 
@@ -17,7 +17,7 @@ cargo xwin check --target x86_64-pc-windows-msvc --features terminal,keyring   #
 
 Panel-first: `panel.js` is embedded with `include_str!`, so a change under
 `agent/resources/panel-react/` needs `npm run build` there (or `build.sh agent`, which does it).
-The exe lands in `agent/target/x86_64-pc-windows-msvc/release/vale-agent.exe`.
+The exe lands in `agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe`.
 
 ## Test
 
@@ -41,7 +41,7 @@ directory, as of the run that verified them:
 | `gateway/` | `npm run typecheck` (= `tsc --noEmit`) · `npm test` · `npm run lint` (= `eslint src/`) · `npm run format:check` | — |
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` | **not** `tsc --noEmit`, which is the check that missed them |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` | — |
-| `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p vale-agent --all-targets -- -D warnings` · `cargo clippy -p vale-agent --features terminal,keyring --all-targets -- -D warnings` · `cargo clippy -p vale-agent-core --all-targets -- -D warnings` · `cargo test -p vale-agent` · `cargo test -p vale-agent --features terminal,keyring` · `cargo test -p vale-agent-core` | — |
+| `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p summrise-agent --all-targets -- -D warnings` · `cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings` · `cargo clippy -p summrise-agent-core --all-targets -- -D warnings` · `cargo test -p summrise-agent` · `cargo test -p summrise-agent --features terminal,keyring` · `cargo test -p summrise-agent-core` | — |
 
 All four were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
 and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what
@@ -179,28 +179,28 @@ TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
 ## Release — npm is the only channel
 
 ```bash
-# 1. bump agent/vale-agent-npm/package.json "version" to 1.2.N, then:
+# 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
-cp agent/target/x86_64-pc-windows-msvc/release/vale-agent.exe agent/vale-agent-npm/vale-agent.exe
+cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
 # 2. publish (pack + manifest + prune + deploy + smoke; it does NOT commit):
 ./scripts/publish-release.sh 1.2.N
-# 3. ONE commit that includes agent/vale-agent-npm/package.json and index/public/vale-agent/version.json
+# 3. ONE commit that includes agent/summrise-agent-npm/package.json and index/public/summrise-agent/version.json
 git push origin main          # CI green on the pushed commit
 # 4. tag through the API (git push of tags times out here) — this triggers release.yml:
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
-  https://api.github.com/repos/SilasVale/vale/git/refs \
+  https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
 # 5. audit CDN vs the GitHub asset, byte for byte:
 ./scripts/publish-release.sh --audit-only 1.2.N
 ```
 
 On the device (PowerShell) — the `--prefix` matters: without it npm installs elsewhere, reports
-success, and `vale update` ships the old exe:
+success, and `summrise update` ships the old exe:
 
 ```powershell
-npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz
-vale update
-vale status
+npm i -g --prefix (Split-Path (Get-Command summrise).Source) https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
+summrise update
+summrise status
 ```
 
 **AND MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the
@@ -209,10 +209,10 @@ HARNESS (a stubbed device, this checkout's bundle); nothing measured the live pa
 `span.ag-dot 2.56<3`: the approval gate's DISARMED ring used `--faint`, the exact ink round 101 replaced in its three
 sibling rings, in a rule the harness could not see because it only ever rendered the gate ARMED. The fix shipped in
 1.2.438 and the same probe then reported `graphicFailing: []` on both densities. It needs a browser and a running
-panel, so it cannot be a CI job: run it on the device after a `vale update` (emit with `--emit`, hand the script to the
+panel, so it cannot be a CI job: run it on the device after a `summrise update` (emit with `--emit`, hand the script to the
 device's node or to `browser_run_script`).
 
-Two things that cost a device restart when ignored: **never launch a second `vale-agent.exe` from
+Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
 kill/copy the exe inline over a PTY** — use the npm flow above.
 
@@ -229,8 +229,8 @@ agent/src/monitor.rs     reachability: persisted host:port targets, 15 s probes 
 agent/src/tools/         TerminalManager + backends (pty/ssh/serial), serial pool, ssh client
 agent/src/plugins/       terminal, update, mcp_client, design, playwright, memory, system,
                          runs, monitor
-agent/vale-command-core/ Plugin/ToolDef/Config/EventBus/DeviceError (vale_agent_core::)
-agent/vale-agent-npm/    the npm package + the `vale` CLI (bin/vale.js)
+agent/summrise-command-core/ Plugin/ToolDef/Config/EventBus/DeviceError (summrise_agent_core::)
+agent/summrise-agent-npm/    the npm package + the `summrise` CLI (bin/summrise.js)
 agent/resources/panel-react/  the panel SPA (React + vitest); resources/panel/ is its build output
 ```
 
@@ -238,4 +238,4 @@ Features gate behind `terminal`/`keyring` with identical public paths across con
 tool is defined in its plugin's `tools.rs` (the registry caches at register time) and, to be
 callable from the console, must be registered in `gateway/src/mcp-tools.ts` **and** matched by
 `isDeviceDirectTool()`; after adding or removing a tool run
-`VALE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot`.
+`SUMMRISE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot`.

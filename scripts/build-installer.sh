@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Vale Windows 自包含安装包构建脚本 — Linux 上产出 setup.exe。
+# Summrise Windows 自包含安装包构建脚本 — Linux 上产出 setup.exe。
 #
 #   ./scripts/build-installer.sh <1.2.N> [--no-deploy]
 #
-# 自包含：pinned tgz（vale-agent-<ver>.tgz）File 进安装包，ps1 优先用内嵌
+# 自包含：pinned tgz（summrise-agent-<ver>.tgz）File 进安装包，ps1 优先用内嵌
 # 包安装（-LocalTgz）——无网络、老版本被 prune 照样能装；装完即删tgz。
-# 产物: index/public/vale-agent/ValeAgent-Setup-<ver>.exe (+ ValeAgent-Setup.exe 别名)
+# 产物: index/public/summrise-agent/SummriseAgent-Setup-<ver>.exe (+ SummriseAgent-Setup.exe 别名)
 # 默认随 index worker 一起 deploy 到 CDN；--no-deploy 只 stage 不 deploy
 # （给 publish-release.sh 编排单次 deploy 用）。
 #
-# 前置：index/public/vale-agent/vale-agent-<ver>.tgz 必须已存在（publish
+# 前置：index/public/summrise-agent/summrise-agent-<ver>.tgz 必须已存在（publish
 # 先 pack+stage tgz，再打安装器；顺序反了就地失败，不打半吊子包）。
 #
 # 工具链：NSIS 3.12 从源码编译（userspace，无需 sudo；apt 只做 download +
@@ -32,7 +32,7 @@ for a in "$@"; do
     *) echo "::error::unknown flag: $a (usage: ./scripts/build-installer.sh <1.2.N> [--no-deploy])" >&2; exit 1 ;;
   esac
 done
-CDN_BASE="${VALE_CDN_BASE:-https://agent.saisi.online}"
+CDN_BASE="${SUMMRISE_CDN_BASE:-https://agent.saisi.online}"
 
 NSIS_ROOT="$HOME/nsis-root"
 NSIS_SRC_DIR="$HOME/nsis-src/nsis-3.12-src"
@@ -41,8 +41,8 @@ MAKENSIS="$NSIS_DIST/bin/makensis"
 OSSLSIGNCODE="$HOME/osslsigncode-root/usr/bin/osslsigncode"
 
 # Optional Authenticode signing (kills the SmartScreen blue warning).
-# Provide VALE_SIGN_CRT (PEM cert file) + VALE_SIGN_KEY (PEM key file),
-# optionally VALE_SIGN_PASS (key password) and VALE_SIGN_TSA (RFC3161
+# Provide SUMMRISE_SIGN_CRT (PEM cert file) + SUMMRISE_SIGN_KEY (PEM key file),
+# optionally SUMMRISE_SIGN_PASS (key password) and SUMMRISE_SIGN_TSA (RFC3161
 # timestamp URL — without it the signature dies with the cert).
 # NEVER commit these, never echo them. No cert = skip with a note (the
 # build stays shippable; SmartScreen will warn on first run).
@@ -51,21 +51,21 @@ OSSLSIGNCODE="$HOME/osslsigncode-root/usr/bin/osslsigncode"
 # warns until reputation accrues; EV: instant trust, hardware token).
 sign_exe() { # $1 = exe path to sign in place
   local exe="$1"
-  if [[ -z "${VALE_SIGN_CRT:-}" || -z "${VALE_SIGN_KEY:-}" ]]; then
-    echo "-- code signing skipped (VALE_SIGN_CRT/VALE_SIGN_KEY unset; SmartScreen will warn)"
+  if [[ -z "${SUMMRISE_SIGN_CRT:-}" || -z "${SUMMRISE_SIGN_KEY:-}" ]]; then
+    echo "-- code signing skipped (SUMMRISE_SIGN_CRT/SUMMRISE_SIGN_KEY unset; SmartScreen will warn)"
     return 0
   fi
-  [[ -f "$VALE_SIGN_CRT" ]] || { echo "::error::VALE_SIGN_CRT not found: $VALE_SIGN_CRT" >&2; return 1; }
-  [[ -f "$VALE_SIGN_KEY" ]] || { echo "::error::VALE_SIGN_KEY not found: $VALE_SIGN_KEY" >&2; return 1; }
+  [[ -f "$SUMMRISE_SIGN_CRT" ]] || { echo "::error::SUMMRISE_SIGN_CRT not found: $SUMMRISE_SIGN_CRT" >&2; return 1; }
+  [[ -f "$SUMMRISE_SIGN_KEY" ]] || { echo "::error::SUMMRISE_SIGN_KEY not found: $SUMMRISE_SIGN_KEY" >&2; return 1; }
   if [[ ! -x "$OSSLSIGNCODE" ]]; then
     echo "::error::osslsigncode missing at $OSSLSIGNCODE (cert given but no tool)" >&2
     return 1
   fi
-  local args=(sign -certs "$VALE_SIGN_CRT" -key "$VALE_SIGN_KEY" -h sha256
+  local args=(sign -certs "$SUMMRISE_SIGN_CRT" -key "$SUMMRISE_SIGN_KEY" -h sha256
     -in "$exe" -out "$exe.signed")
-  [[ -n "${VALE_SIGN_PASS:-}" ]] && args+=( -pass "${VALE_SIGN_PASS}" )
-  if [[ -n "${VALE_SIGN_TSA:-}" ]]; then args+=( -ts "${VALE_SIGN_TSA}" );
-  else echo "-- WARN: no VALE_SIGN_TSA — signature expires with the cert"; fi
+  [[ -n "${SUMMRISE_SIGN_PASS:-}" ]] && args+=( -pass "${SUMMRISE_SIGN_PASS}" )
+  if [[ -n "${SUMMRISE_SIGN_TSA:-}" ]]; then args+=( -ts "${SUMMRISE_SIGN_TSA}" );
+  else echo "-- WARN: no SUMMRISE_SIGN_TSA — signature expires with the cert"; fi
   LD_LIBRARY_PATH="$HOME/osslsigncode-root/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}" \
     "$OSSLSIGNCODE" "${args[@]}" \
     || { echo "::error::osslsigncode sign failed" >&2; return 1; }
@@ -137,28 +137,28 @@ echo "== stage =="
 # in the bootstrap break GBK decoding and the script dies with PARSE errors
 # before any statement runs (installer.log never written; round-552 field
 # failure). UTF-8 BOM is mandatory for non-ASCII ps1 shipped to Windows.
-if ! head -c 3 agent/deploy/vale-online-setup.ps1 | grep -q $'\xef\xbb\xbf'; then
-  echo "::error::vale-online-setup.ps1 lacks a UTF-8 BOM (PS5.1 would parse it as GBK and die) — fix: python3 -c \"d=open(p,'rb').read(); open(p,'wb').write(b'\\xef\\xbb\\xbf'+d.lstrip(b'\\xef\\xbb\\xbf'))\"" >&2
+if ! head -c 3 agent/deploy/summrise-online-setup.ps1 | grep -q $'\xef\xbb\xbf'; then
+  echo "::error::summrise-online-setup.ps1 lacks a UTF-8 BOM (PS5.1 would parse it as GBK and die) — fix: python3 -c \"d=open(p,'rb').read(); open(p,'wb').write(b'\\xef\\xbb\\xbf'+d.lstrip(b'\\xef\\xbb\\xbf'))\"" >&2
   exit 1
 fi
 STAGE="$(mktemp -d)/installer"
 mkdir -p "$STAGE/res"
-cp agent/deploy/vale-setup.nsi agent/deploy/vale-online-setup.ps1 agent/deploy/vale-agent.ico "$STAGE/"
-# round-124: the ps1 dot-sources lib/ValeIntegrity.ps1 — stage it too, or the
+cp agent/deploy/summrise-setup.nsi agent/deploy/summrise-online-setup.ps1 agent/deploy/summrise-agent.ico "$STAGE/"
+# round-124: the ps1 dot-sources lib/SummriseIntegrity.ps1 — stage it too, or the
 # installer builds fine and fails on the user's machine.
 mkdir -p "$STAGE/lib"
-cp agent/deploy/lib/ValeIntegrity.ps1 "$STAGE/lib/"
+cp agent/deploy/lib/SummriseIntegrity.ps1 "$STAGE/lib/"
 cp agent/deploy/res/header.bmp agent/deploy/res/welcome.bmp "$STAGE/res/"
 # 自包含前置：pinned tgz 必须已 stage（publish 先 pack，顺序反了就地失败）。
-TGZ_SRC="index/public/vale-agent/vale-agent-$VER.tgz"
+TGZ_SRC="index/public/summrise-agent/summrise-agent-$VER.tgz"
 [[ -f "$TGZ_SRC" ]] || { echo "::error::missing $TGZ_SRC — pack+stage the tgz first (publish-release.sh does this before the installer)" >&2; exit 1; }
-cp "$TGZ_SRC" "$STAGE/vale-agent-$VER.tgz"
-TGZ_SIZE=$(stat -c %s "$STAGE/vale-agent-$VER.tgz")
-echo "bundled tgz: vale-agent-$VER.tgz ($TGZ_SIZE bytes)"
+cp "$TGZ_SRC" "$STAGE/summrise-agent-$VER.tgz"
+TGZ_SIZE=$(stat -c %s "$STAGE/summrise-agent-$VER.tgz")
+echo "bundled tgz: summrise-agent-$VER.tgz ($TGZ_SIZE bytes)"
 
 echo "== compile =="
-( cd "$STAGE" && "$MAKENSIS" "-DVALE_VERSION=$VER" "-DVALE_CDN=$CDN_BASE" vale-setup.nsi )
-EXE="$STAGE/ValeAgent-Setup-$VER.exe"
+( cd "$STAGE" && "$MAKENSIS" "-DSUMMRISE_VERSION=$VER" "-DSUMMRISE_CDN=$CDN_BASE" summrise-setup.nsi )
+EXE="$STAGE/SummriseAgent-Setup-$VER.exe"
 [[ -f "$EXE" ]] || { echo "::error::makensis produced no exe" >&2; exit 1; }
 # Sign BEFORE the size proof + staging so every downstream hash
 # (manifest installer_sha256, smoke) covers the final shipped bytes.
@@ -167,19 +167,19 @@ SIZE=$(stat -c %s "$EXE")
 # 自包含证明：成品必须比内嵌的 tgz 还大（stub+lzma 开销）。在线包时代的
 # 150KB 门已作废——一个 200KB 的"自包含"包一定是 tgz 没打进去。
 [[ "$SIZE" -gt "$TGZ_SIZE" ]] || { echo "::error::exe ($SIZE bytes) not larger than bundled tgz ($TGZ_SIZE bytes) — payload missing?" >&2; exit 1; }
-# 版本号已编进文件名（OutFile ValeAgent-Setup-$VER.exe 即校验）；
+# 版本号已编进文件名（OutFile SummriseAgent-Setup-$VER.exe 即校验）；
 # payload 经 lzma 压缩，exe 内 grep 不到明文，不做内容 grep 门。
 echo "built $EXE ($SIZE bytes, self-contained with $TGZ_SIZE-byte tgz)"
 
 echo "== publish to CDN staging =="
-ASSET_DIR="index/public/vale-agent"
-cp "$EXE" "$ASSET_DIR/ValeAgent-Setup-$VER.exe"
-cp "$EXE" "$ASSET_DIR/ValeAgent-Setup.exe"
+ASSET_DIR="index/public/summrise-agent"
+cp "$EXE" "$ASSET_DIR/SummriseAgent-Setup-$VER.exe"
+cp "$EXE" "$ASSET_DIR/SummriseAgent-Setup.exe"
 if [[ "$NO_DEPLOY" -eq 1 ]]; then
   echo "-- --no-deploy: staged only, skipping wrangler deploy (caller deploys)"
   echo "== done (staged, not deployed) =="
-  echo "  versioned: $ASSET_DIR/ValeAgent-Setup-$VER.exe"
-  echo "  alias:     $ASSET_DIR/ValeAgent-Setup.exe"
+  echo "  versioned: $ASSET_DIR/SummriseAgent-Setup-$VER.exe"
+  echo "  alias:     $ASSET_DIR/SummriseAgent-Setup.exe"
   exit 0
 fi
 CF_TOKEN="$(cf_token)"
@@ -203,7 +203,7 @@ case "$VERDICT" in
   ok) echo "  manifest: /api/version advertises THIS installer (installer_sha256 matches)" ;;
   *)
     echo "::error::deployed, but /api/version does not advertise this installer ($VERDICT)" >&2
-    echo "  the door links ValeAgent-Setup.exe only when the manifest carries installer +" >&2
+    echo "  the door links SummriseAgent-Setup.exe only when the manifest carries installer +" >&2
     echo "  installer_sha256, so this build is invisible — or the previous one is still the" >&2
     echo "  one being offered. Use ./scripts/publish-release.sh $VER (it writes the manifest" >&2
     echo "  and smokes it), or rewrite version.json's installer fields for $VER by hand." >&2
@@ -211,6 +211,6 @@ case "$VERDICT" in
 esac
 
 echo "== done =="
-echo "  versioned: $CDN_BASE/vale-agent/ValeAgent-Setup-$VER.exe"
-echo "  latest:    $CDN_BASE/vale-agent/ValeAgent-Setup.exe"
+echo "  versioned: $CDN_BASE/summrise-agent/SummriseAgent-Setup-$VER.exe"
+echo "  latest:    $CDN_BASE/summrise-agent/SummriseAgent-Setup.exe"
 echo "  next: 在 Windows 沙盒机上跑一遍安装验证（见 agent/deploy/README-installer.md），再更新 index 下载页。"

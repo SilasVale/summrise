@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync the vale-gate sources into public/code/files and generate the manifest.
+# Sync the summrise-gate sources into public/code/files and generate the manifest.
 # Usage: run `bash scripts/sync-code-viewer.sh` after editing code, then `wrangler deploy`.
 #
 # MIRROR DISCIPLINE: scripts/build.sh deploy_worker (gateway) calls THIS script
@@ -12,30 +12,30 @@ cd "$(dirname "$0")/.."
 DEST=public/code/files
 
 rm -rf "$DEST"
-mkdir -p "$DEST/vale-gate/src" "$DEST/vale-gate/public"
+mkdir -p "$DEST/summrise-gate/src" "$DEST/summrise-gate/public"
 
-# vale-gate sources: the TS migration (round-83) moved the real source to
+# summrise-gate sources: the TS migration (round-83) moved the real source to
 # .ts files (the .js re-export shims are long gone). Copy the live tree
 # wholesale (incl. plugins/) so the published snapshot shows the
 # implementation. rm -rf above guarantees deleted sources vanish here too.
-cp "$PWD"/src/*.ts "$DEST/vale-gate/src/"
+cp "$PWD"/src/*.ts "$DEST/summrise-gate/src/"
 # The TS migration removed the re-export .js shims; tolerate their absence.
-cp "$PWD"/src/*.js "$DEST/vale-gate/src/" 2>/dev/null || true
-mkdir -p "$DEST/vale-gate/src/plugins"
-cp "$PWD"/src/plugins/*.ts "$DEST/vale-gate/src/plugins/"
-cp "$PWD"/src/plugins/*.js "$DEST/vale-gate/src/plugins/" 2>/dev/null || true
+cp "$PWD"/src/*.js "$DEST/summrise-gate/src/" 2>/dev/null || true
+mkdir -p "$DEST/summrise-gate/src/plugins"
+cp "$PWD"/src/plugins/*.ts "$DEST/summrise-gate/src/plugins/"
+cp "$PWD"/src/plugins/*.js "$DEST/summrise-gate/src/plugins/" 2>/dev/null || true
 # Subdirectory domains (structure refactors): src/store/ (split from store.ts)
 # and src/lib/ (ratelimit factory). The old top-level-only copy silently
 # dropped them from the published snapshot — copy each live subdir so the
 # mirror stays a byte-identical tree (redactions below still apply per file).
-mkdir -p "$DEST/vale-gate/src/store" "$DEST/vale-gate/src/lib"
-cp "$PWD"/src/store/*.ts "$DEST/vale-gate/src/store/"
-cp "$PWD"/src/lib/*.ts "$DEST/vale-gate/src/lib/"
+mkdir -p "$DEST/summrise-gate/src/store" "$DEST/summrise-gate/src/lib"
+cp "$PWD"/src/store/*.ts "$DEST/summrise-gate/src/store/"
+cp "$PWD"/src/lib/*.ts "$DEST/summrise-gate/src/lib/"
 # Live public/ is a Vite build shell (index.html + hashed assets/ + static
 # files). The dead single-file public/app.js was removed round-341 — do NOT
 # re-add it here; sync only what live serves.
-cp public/index.html public/style.css "$DEST/vale-gate/public/"
-cp wrangler.jsonc "$DEST/vale-gate/"
+cp public/index.html public/style.css "$DEST/summrise-gate/public/"
+cp wrangler.jsonc "$DEST/summrise-gate/"
 
 # ── THE INSTRUMENTS (round 225) ───────────────────────────────────────────────────────────────────────────────────────
 # The viewer showed only the worker, so the scripts that MEASURE a device were the one thing an operator could not fetch from
@@ -72,7 +72,7 @@ python3 - "$DEST" <<'EOF'
 import json, os, sys
 dest = sys.argv[1]
 files = []
-vg = os.path.join(dest, "vale-gate")
+vg = os.path.join(dest, "summrise-gate")
 def walk(base, group, prefix):
     for root, _dirs, names in os.walk(base):
         for n in sorted(names):
@@ -80,7 +80,7 @@ def walk(base, group, prefix):
             rel = os.path.relpath(full, base).replace(os.sep, "/")
             files.append({"name": rel, "path": f"{prefix}/{rel}", "group": group})
 
-walk(vg, "vale-gate", "files/vale-gate")
+walk(vg, "summrise-gate", "files/summrise-gate")
 # The instruments are listed too (round 225): a tree the viewer does not enumerate is a tree nobody finds, and the whole point
 # of mirroring them is that an operator can reach the probe that measures their own device.
 instruments = os.path.join(dest, "instruments")
@@ -98,10 +98,10 @@ EOF
 # (source line moved) instead of silently publishing the raw host.
 redact() { # $1=file $2=live-text ERE $3=sed-expr $4=expected-count
   local n m
-  n="$(grep -c -E -e "$2" "$DEST/vale-gate/$1" || true)"
+  n="$(grep -c -E -e "$2" "$DEST/summrise-gate/$1" || true)"
   [ "$n" = "$4" ] || { echo "  !! redaction pattern gone in $1 (want $4, got $n) — update sync-code-viewer.sh" >&2; exit 1; }
-  sed -i -e "$3" "$DEST/vale-gate/$1"
-  m="$(grep -c -F '<dist-host>' "$DEST/vale-gate/$1" || true)"
+  sed -i -e "$3" "$DEST/summrise-gate/$1"
+  m="$(grep -c -F '<dist-host>' "$DEST/summrise-gate/$1" || true)"
   [ "$m" = "$4" ] || { echo "  !! redaction did not apply in $1 (want $4, got $m)" >&2; exit 1; }
 }
 redact "src/auth.ts" '\*\.agent\.saisi\.online' 's/\*\.agent\.saisi\.online/*.<dist-host>/g' 1

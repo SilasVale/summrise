@@ -35,7 +35,7 @@ use std::sync::Arc;
 use crate::plugins::terminal::{DiagStore, OutputBuf};
 use crate::tools::serial::SerialPool;
 use crate::tools::terminal::TerminalManager;
-use vale_agent_core::{EventBus, ToolDef};
+use summrise_agent_core::{EventBus, ToolDef};
 
 pub(super) fn build(
     terminal_mgr: &Arc<TerminalManager>,

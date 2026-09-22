@@ -17,7 +17,7 @@ import { parseUpdateStatus } from "../UpdateCard";
 const answered = {
   ok: true,
   current: "1.2.403",
-  channel: "https://agent.saisi.online/vale-agent",
+  channel: "https://agent.saisi.online/summrise-agent",
   latest: "1.2.433",
   update_available: true,
   pinned_to: null,

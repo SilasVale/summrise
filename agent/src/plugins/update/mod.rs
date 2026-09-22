@@ -1,8 +1,8 @@
 //! Update Plugin — AI-pushed agent updates over MCP.
 //!
-//! Tool: `agent_update` — check the release server for a newer vale-agent and,
+//! Tool: `agent_update` — check the release server for a newer summrise-agent and,
 //! if found (or `force: true`), download + silently install it. The installer
-//! kills this process and restarts it via the ValeAgent scheduled task, so the
+//! kills this process and restarts it via the SummriseAgent scheduled task, so the
 //! tool returns "upgrading" as soon as the installer is spawned — the MCP
 //! connection drops and comes back ~1 minute later on the new version.
 
@@ -21,7 +21,7 @@ pub use tools::staged_leftovers;
 // private module — and the RULES stay here, beside the tool that executes them.
 pub use tools::update_status;
 
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 
 /// Plugin struct — stateless; every tool closes over what it needs.
 pub struct UpdatePlugin {
@@ -43,7 +43,7 @@ impl Default for UpdatePlugin {
     }
 }
 
-impl vale_agent_core::Plugin for UpdatePlugin {
+impl summrise_agent_core::Plugin for UpdatePlugin {
     fn name(&self) -> &'static str {
         "update"
     }
@@ -51,7 +51,7 @@ impl vale_agent_core::Plugin for UpdatePlugin {
         "Update"
     }
     fn description(&self) -> &'static str {
-        "AI-pushed vale-agent updates"
+        "AI-pushed summrise-agent updates"
     }
     fn tools(&self) -> Vec<ToolDef> {
         vec![tools::agent_update(self.download_url.clone())]

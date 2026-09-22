@@ -1,6 +1,6 @@
 // ui/Icon.tsx — the ONE icon set for the whole app. Every icon is a 24px
 // stroke glyph (same family as the gateway console sidebar); BrandMark is
-// the Vale "sunrise" gradient mark (matches scripts/render-brand-icon.py).
+// the Summrise "sunrise" gradient mark (matches scripts/render-brand-icon.py).
 // No inline SVGs anywhere else — import from here.
 import type { ReactNode } from "react";
 
@@ -191,7 +191,7 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   );
 }
 
-/** The Vale "sunrise" brand mark — the SAME gradient used by the installer
+/** The Summrise "sunrise" brand mark — the SAME gradient used by the installer
  *  icon (scripts/render-brand-icon.py) and the favicon.
  *
  *  THE AURORA VERSION WAS TRIED AND REVERTED, and the reason is legibility, not
@@ -200,33 +200,33 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
  *  4242 bytes of SVG — into that space; rendered side by side at 16/22/26px its
  *  ribbons were a purple smear and the sun disappeared, while this one still read
  *  as a warm tile with a light in it. The binary icons (brand/icon.ico at
- *  16/24/32/48, agent/deploy/vale-agent.ico, the Electron and npm copies) were
+ *  16/24/32/48, agent/deploy/summrise-agent.ico, the Electron and npm copies) were
  *  never switched to the aurora mark at all, so THIS is also what the operating
  *  system has been showing all along. One mark, drawn for the size it lives at. */
 export function BrandMark({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
       <defs>
-        <linearGradient id="vale-sky" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="summrise-sky" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#f59f00" />
           <stop offset="1" stopColor="#e8590c" />
         </linearGradient>
-        <radialGradient id="vale-glow" cx=".5" cy=".5" r=".5">
+        <radialGradient id="summrise-glow" cx=".5" cy=".5" r=".5">
           <stop offset="0" stopColor="#fff8e1" stopOpacity=".55" />
           <stop offset="1" stopColor="#ffe8a3" stopOpacity="0" />
         </radialGradient>
-        <linearGradient id="vale-sheen" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="summrise-sheen" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#ffffff" stopOpacity=".25" />
           <stop offset=".45" stopColor="#ffffff" stopOpacity="0" />
           <stop offset="1" stopColor="#7c2d12" stopOpacity=".10" />
         </linearGradient>
       </defs>
-      <rect width="48" height="48" rx="11" fill="url(#vale-sky)" />
-      <circle cx="21" cy="14" r="7.5" fill="url(#vale-glow)" />
+      <rect width="48" height="48" rx="11" fill="url(#summrise-sky)" />
+      <circle cx="21" cy="14" r="7.5" fill="url(#summrise-glow)" />
       <circle cx="21" cy="14" r="4" fill="#fff8e1" />
       <path fill="#ffffff" opacity=".78" d="M14 41Q26 16 44 41Z" />
       <path fill="#ffffff" d="M2 41Q12 20 24 41Z" />
-      <rect width="48" height="48" rx="11" fill="url(#vale-sheen)" />
+      <rect width="48" height="48" rx="11" fill="url(#summrise-sheen)" />
     </svg>
   );
 }

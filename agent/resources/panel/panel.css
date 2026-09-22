@@ -1,12 +1,12 @@
 /* ============ tokens.css ============ */
 /* ============================================================
-   Vale Desktop — design tokens (SINGLE source of truth).
-   dsh visual baseline (light), Vale brand amber #d9480f.
+   Summrise Desktop — design tokens (SINGLE source of truth).
+   dsh visual baseline (light), Summrise brand amber #d9480f.
    Consumed by base.css / components.css / layout.css / desktop.css
    via the build-css.mjs concatenation pipeline.
    ============================================================ */
 :root {
-  /* ---- brand (Vale sunrise amber) ---- */
+  /* ---- brand (Summrise sunrise amber) ---- */
   --accent: #bf3a0a; /* was #d9480f — see the console; the token contract requires both surfaces to agree. */
   --accent-fg: #ffffff; /* the foreground ON --accent */
   --accent-ink: #d9480f;
@@ -4571,7 +4571,7 @@ button.dtab-close:hover { opacity: 1; }
 }
 
 /* round-261: mode-B removal — plain-web Browser page placeholder (the real
-   browser only exists inside the Vale desktop Electron shell). */
+   browser only exists inside the Summrise desktop Electron shell). */
 .browser-mode-b-placeholder {
   position: relative;
   display: flex;
@@ -4876,7 +4876,7 @@ button.dtab-close:hover { opacity: 1; }
    of equal cards would say "here are four unrelated buttons", which is the opposite of the point.
 
    THE SURFACE IS THE PRODUCT'S. Tokens only (no literal colour), the panel's radii and shadows and
-   its own `.btn primary`, so the card belongs to Vale in both themes and inherits any future
+   its own `.btn primary`, so the card belongs to Summrise in both themes and inherits any future
    re-theming instead of drifting from it.
 
    MOTION IS OPTIONAL. The card fades in unless `prefers-reduced-motion`, and NOTHING here depends

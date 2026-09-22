@@ -23,7 +23,7 @@
 
 pub mod tools;
 
-use vale_agent_core::{Plugin, ToolDef};
+use summrise_agent_core::{Plugin, ToolDef};
 
 /// Plugin struct — stateless; the tools close over nothing.
 pub struct MonitorPlugin;

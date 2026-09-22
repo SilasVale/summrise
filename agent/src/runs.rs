@@ -73,7 +73,7 @@
 //! choice for the same reason.
 //!
 //! The default window is longer than the evidence feed's
-//! (`DEFAULT_RUNS_RETENTION_DAYS` in vale-command-core): this file is the INDEX
+//! (`DEFAULT_RUNS_RETENTION_DAYS` in summrise-command-core): this file is the INDEX
 //! of that evidence, and dropping the index while the actions it brackets
 //! survive would be backwards.
 
@@ -299,7 +299,7 @@ pub(crate) struct Trimmed {
 ///
 /// `end` has exactly ONE caller — the `run_end` tool — so nothing closes a run
 /// when the agent dies with one in flight. The restarts that do that are the
-/// ordinary ones: the 60 s watchdog, a crash, and `vale update` (which kills the
+/// ordinary ones: the 60 s watchdog, a crash, and `summrise update` (which kills the
 /// agent BY DESIGN). A run killed mid-flight therefore stays "open" forever, and
 /// after a day an abandoned run is indistinguishable from a live one — the panel
 /// says exactly that today ("no end recorded ... the client may have stopped, or
@@ -407,7 +407,7 @@ mod tests {
     use super::*;
 
     fn dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("vale-runs-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-runs-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -448,7 +448,7 @@ mod tests {
     ///
     /// `end` has exactly ONE caller — the `run_end` tool. Nothing closes an open
     /// run at boot, and the restarts that strand one are the ordinary ones: the
-    /// 60 s watchdog, a crash, and `vale update`, which kills the agent BY
+    /// 60 s watchdog, a crash, and `summrise update`, which kills the agent BY
     /// DESIGN. So a run killed mid-flight stays "open" forever, and the panel
     /// says so in as many words ("no end recorded ... the client may have
     /// stopped, or the agent may have restarted" — lib/runs.ts).
@@ -622,7 +622,7 @@ mod tests {
             begin(&d, Some("x"), None);
         }
         assert_eq!(recent(&d, 2).len(), 2);
-        assert!(recent(std::path::Path::new("/nonexistent-vale-runs"), 5).is_empty());
+        assert!(recent(std::path::Path::new("/nonexistent-summrise-runs"), 5).is_empty());
     }
 
     /// THE WIRE SHAPE of an absent label/goal/outcome, pinned rather than
@@ -1117,7 +1117,7 @@ mod tests {
     /// never begun a run).
     #[test]
     fn trim_on_a_missing_log_is_a_noop() {
-        let d = std::env::temp_dir().join(format!("vale-runs-notrim-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-runs-notrim-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         assert_eq!(trim(&d, 30, NOW), Trimmed::default());
     }
@@ -1132,7 +1132,7 @@ mod tests {
 
         const TARGET: u64 = 100;
 
-        let d = std::env::temp_dir().join(format!("vale-runs-race-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-runs-race-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).expect("dir");
 

@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn rotates_once_past_the_cap() {
         use tracing_subscriber::fmt::MakeWriter;
-        let dir = std::env::temp_dir().join(format!("vale-filelog-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-filelog-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("agent.log");
@@ -166,7 +166,8 @@ mod tests {
     }
 
     fn day_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vale-filelog-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-filelog-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

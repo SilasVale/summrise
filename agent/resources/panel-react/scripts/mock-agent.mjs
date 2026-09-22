@@ -1,4 +1,4 @@
-// Mock vale-agent server: serves the built panel (resources/panel) and mocks
+// Mock summrise-agent server: serves the built panel (resources/panel) and mocks
 // every API the panel calls, per the audited endpoint inventory. Lets the
 // redesign iterate against real screenshots without a Windows device.
 import http from "node:http";
@@ -13,7 +13,7 @@ const MIME = { ".html": "text/html", ".js": "application/javascript", ".css": "t
 
 const memEntries = [
   { id: "m1", title: "d1 tunnel recovery", content: "cloudflared on d1 drops when the device sleeps; agent restarts it via fix-tunnel.ps1. If 530 persists, check cloudflared service.", tags: ["d1", "tunnel"], namespace: "ops", source: "claude-code", created_at: 1756300000, updated_at: 1756400000 },
-  { id: "m2", title: "panel token injection", content: "The gateway injects the panel Bearer token ONLY for requests carrying X-Vale-Auth (proxy_secret). Direct curl cannot read it.", tags: ["security", "gateway"], namespace: "dev", source: "dsh", created_at: 1756200000, updated_at: 1756350000 },
+  { id: "m2", title: "panel token injection", content: "The gateway injects the panel Bearer token ONLY for requests carrying X-Summrise-Auth (proxy_secret). Direct curl cannot read it.", tags: ["security", "gateway"], namespace: "dev", source: "dsh", created_at: 1756200000, updated_at: 1756350000 },
   { id: "m3", title: "PSReadLine fragments", content: "PowerShell ConPTY echo fragments when PSReadLine redraws; the agent unloads PSReadLine on PTY open.", tags: ["terminal"], namespace: "dev", source: "claude-code", created_at: 1756100000, updated_at: 1756250000 },
 ];
 let memId = 4;
@@ -70,7 +70,7 @@ const server = http.createServer((req, res) => {
     const now = Math.floor(Date.now() / 1000);
     return json(res, { ok: true, events: [
       { seq: 1, ts: now - 120, kind: "command/start", command: "cargo build --release" },
-      { seq: 2, ts: now - 118, kind: "output", text: "Compiling vale-agent v1.0.109" },
+      { seq: 2, ts: now - 118, kind: "output", text: "Compiling summrise-agent v1.0.109" },
       { seq: 3, ts: now - 60, kind: "output", text: "Finished release profile in 58s" },
       { seq: 4, ts: now - 59, kind: "command/end", exit_code: 0, duration_ms: 61000 },
       { seq: 5, ts: now - 30, kind: "command/start", command: "git status" },

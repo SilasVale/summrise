@@ -20,7 +20,7 @@ use std::sync::{Arc, LazyLock};
 
 use super::store::{SearchQuery, UpdateOutcome};
 use serde_json::{json, Value};
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 
 /// Ceiling on `memory_list`. The same 50 `memory_search` has always used — a list that can
 /// return every record's full content in one result is a transport problem, not a feature.
@@ -406,8 +406,10 @@ mod dispatch_tests {
     use crate::plugins::memory::store::test_support::Degrade;
 
     fn test_store(tag: &str) -> (Arc<MemoryStore>, std::path::PathBuf) {
-        let dir =
-            std::env::temp_dir().join(format!("vale-mem-dispatch-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "summrise-mem-dispatch-{}-{tag}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         (open_store(dir.clone(), MemoryLimits::default()), dir)
     }

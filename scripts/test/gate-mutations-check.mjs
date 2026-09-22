@@ -134,8 +134,8 @@ const CASES = [
     gate: "scripts/test/production-host-check.mjs",
     file: "gateway/test/cors.test.mjs",
     why: "a file that just came OFF the declared-hosts list spells the deployment's host again — the regression a shrinking list can suffer",
-    from: 'const AI = "https://console.vale.test";',
-    to: 'const AI = "https://console.vale.test"; // https://agent.saisi.online',
+    from: 'const AI = "https://console.summrise.test";',
+    to: 'const AI = "https://console.summrise.test"; // https://agent.saisi.online',
   },
   {
     gate: "scripts/test/build-pins.bash",
@@ -235,7 +235,7 @@ const CASES = [
     gate: "scripts/test/ci-command-table-check.mjs",
     file: ".github/workflows/ci.yml",
     why: "a check the table names stops being run by CI — the round-146 drift, in the direction that reads as coverage",
-    from: "          cargo test -p vale-agent --features terminal,keyring\n",
+    from: "          cargo test -p summrise-agent --features terminal,keyring\n",
     to: "",
   },
 

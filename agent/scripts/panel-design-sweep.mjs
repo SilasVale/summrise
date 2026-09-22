@@ -65,7 +65,7 @@
 //     well. With a fixture in the device's real shape — `{ok: true, targets: […]}` and transitions of
 //     `{at_ms, up, lasted_ms}` — the Settings card shows both targets with their `up`/`down` states, the
 //     502, and 99 probe rows measuring clean. The ALERT STRIP is event-driven: it renders on the
-//     device's `vale-monitor-change` push and nothing else, so a down target on screen with no push
+//     device's `summrise-monitor-change` push and nothing else, so a down target on screen with no push
 //     shows no strip — which looks like a defect and is not one. Dispatched, it reads
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
@@ -90,13 +90,13 @@
 //   HOW TO RUN IT (reconstructed in round 120; it takes several steps and the next round should not have
 //   to rediscover them):
 //     1. locally:  node agent/scripts/panel-design-sweep.mjs --emit --passes=pages > /tmp/sweep-pages.js
-//     2. upload it (curl -T to the relay) and system_file_download it to C:\ProgramData\Vale\pwout\
+//     2. upload it (curl -T to the relay) and system_file_download it to C:\ProgramData\Summrise\pwout\
 //     3. on the device, run it in-process — it drives the browser itself:
 //          const code = fs.readFileSync(SRC, 'utf8');
 //          new Function('require','module','exports','__dirname','__filename','process','console','Buffer',
 //                       'setTimeout','clearTimeout', code)(require, {exports:{}}, {}, dir, SRC, process,
 //                       console, Buffer, setTimeout, clearTimeout);
-//        It prints its summary and rewrites C:\ProgramData\Vale\pwout\design-sweep.json (~390 KB).
+//        It prints its summary and rewrites C:\ProgramData\Summrise\pwout\design-sweep.json (~390 KB).
 //        NOTE: top-level await is NOT valid there — wrap any driver in an async IIFE.
 //     4. upload that report, curl it down, and judge it locally with THIS adapter's waivers — a bare
 //        judgeReport(report, {}) reports the div.tabrow artifacts as findings, which is what they are not.
@@ -154,7 +154,7 @@
 //
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
-//     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page
+//     only behind `window.summriseEmbedded`, so a plain-browser harness renders an explanation page
 //     (measured, round 45);
 //   * the panel-density tab strip's own width: `#tabs` measures ~0px in the harness and 211px on the
 //     device, so harness geometry findings pointing at tab children are suspect;
@@ -178,8 +178,8 @@ const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "--passes
 // text inside a template literal: they were written with four backslashes there because one level was eaten on the way
 // into the emitted file (round 267 removed that level, and the landing's first migration caught the same class of
 // over-escaping as a real path bug).
-const DEFAULT_HARNESS_PATH = "C:\\ProgramData\\Vale\\pwout\\panel-harness.html";
-const DEFAULT_REPORT_PATH = "C:\\ProgramData\\Vale\\pwout\\design-sweep.json";
+const DEFAULT_HARNESS_PATH = "C:\\ProgramData\\Summrise\\pwout\\panel-harness.html";
+const DEFAULT_REPORT_PATH = "C:\\ProgramData\\Summrise\\pwout\\design-sweep.json";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
 /** The panel's own extra: what still animates when the user has asked for less motion. */
@@ -217,7 +217,7 @@ const TIMING = \`(() => {
 // AND IT CAN BE HANDED OVER (round 237): on a device there is no ../resources/panel to read, so the value comes from the
 // caller — the same variable the harness emitter reads, which is what keeps their two identities equal by construction rather
 // than by both happening to read the same file. Inlined at emit time, so this is a decision the EMITTING environment makes.
-const HARNESS_STAMP = process.env.VALE_HARNESS_STAMP || (() => {
+const HARNESS_STAMP = process.env.SUMMRISE_HARNESS_STAMP || (() => {
   try {
     const css = readFileSync(new URL("../resources/panel/panel.css", import.meta.url));
     return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);

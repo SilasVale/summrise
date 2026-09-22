@@ -13,7 +13,7 @@
 
 use crate::plugins::require_str;
 use serde_json::{json, Value};
-use vale_agent_core::{DeviceError, ToolDef};
+use summrise_agent_core::{DeviceError, ToolDef};
 
 /// How many recent probes `monitor_list` returns per target. The SUMMARY covers the whole
 /// series (240 samples = one hour); this is the tail an AI reads to see the shape — a hundred

@@ -23,9 +23,9 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use summrise_agent::state::AppState;
+use summrise_agent_core::Config;
 use tokio_util::sync::CancellationToken;
-use vale_agent::state::AppState;
-use vale_agent_core::Config;
 
 const TOKEN: &str = "router-test-token";
 
@@ -37,7 +37,7 @@ async fn start() -> (String, CancellationToken) {
     cfg.server.device_token = Some(TOKEN.into());
     let state = Arc::new(AppState::new(cfg.clone()));
     let ct = CancellationToken::new();
-    let (addr, _handle) = vale_agent::mcp::bind(cfg, state, ct.clone())
+    let (addr, _handle) = summrise_agent::mcp::bind(cfg, state, ct.clone())
         .await
         .expect("bind real server");
     // `_handle` is dropped on purpose: dropping a JoinHandle DETACHES the

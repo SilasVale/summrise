@@ -68,7 +68,7 @@ describe("BrandMark", () => {
     const svg = container.querySelector("svg")!;
     expect(svg.getAttribute("width")).toBe("26");
     expect(svg.getAttribute("viewBox")).toBe("0 0 48 48");
-    for (const id of ["vale-sky", "vale-glow", "vale-sheen"]) {
+    for (const id of ["summrise-sky", "summrise-glow", "summrise-sheen"]) {
       expect(
         svg.querySelector(`#${id}`),
         `missing gradient def #${id}`,
@@ -88,7 +88,7 @@ describe("BrandMark", () => {
     // copy that is not made to the other fails by name.
     //
     // THE ID PATTERN ALLOWS HYPHENS, and that is load-bearing: it was
-    // `[A-Za-z0-9]+`, which cannot match `id="vale-sky"`. Every extraction would
+    // `[A-Za-z0-9]+`, which cannot match `id="summrise-sky"`. Every extraction would
     // have returned an EMPTY list on both sides, empty equals empty, and this
     // contract test would have passed while the copies diverged — the exact
     // failure it exists to prevent, reintroduced by a rename.

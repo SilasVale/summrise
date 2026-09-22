@@ -23,11 +23,11 @@
 //      a page that failed to render cannot pass;
 //   3. checks nothing in the top bar overflows.
 //
-// Pages are addressed over http://vale.test/panel/ and satisfied by Playwright
+// Pages are addressed over http://summrise.test/panel/ and satisfied by Playwright
 // route interception, so NO listener is opened anywhere — the run is safe on a box
 // where binding a port is not allowed.
 //
-// Usage (needs the Playwright runtime; see VALE_BROWSER_HELPER):
+// Usage (needs the Playwright runtime; see SUMMRISE_BROWSER_HELPER):
 //   node scripts/panel-render-audit.mjs --out /tmp/panel-audit
 //
 // Regenerate panel.js/panel.css first: (cd agent/resources/panel-react && npm run build)
@@ -143,15 +143,15 @@ function stubPieces() {
 }
 
 function buildHarness() {
-  // A URL MODE (round 230). With VALE_PANEL_BUNDLE_URL set, the harness REFERENCES the panel instead of inlining it: the
+  // A URL MODE (round 230). With SUMMRISE_PANEL_BUNDLE_URL set, the harness REFERENCES the panel instead of inlining it: the
   // emitter then runs where the repo is NOT (on a device), and the page it builds loads the very bundle that device serves —
   // the same principle the live probe follows, and the reason a device run no longer needs the 660 KB artifact carried to it.
   // Read-only, no writes: the emitter's only other job is to write the harness out.
-  const bundleUrl = (process.env.VALE_PANEL_BUNDLE_URL || "").replace(/\/+$/, "");
+  const bundleUrl = (process.env.SUMMRISE_PANEL_BUNDLE_URL || "").replace(/\/+$/, "");
   const css = bundleUrl ? "" : readFileSync(join(PANEL, "panel.css"), "utf8");
   // WHAT THIS HARNESS CANNOT REACH, measured rather than assumed (round 45): the evidence drawer —
   // and with it the browser-action badges and the screenshot timestamp — renders ONLY in the
-  // Electron shell, because BrowserPage mounts its pane behind `window.valeEmbedded` and a plain
+  // Electron shell, because BrowserPage mounts its pane behind `window.summriseEmbedded` and a plain
   // browser gets an explanation page instead. A fixture for it was tried and removed: it could not
   // render, and a dead fixture is a lie about coverage. Those three badge inks were therefore fixed
   // on the STATIC pair sweep's measurement (1.99 -> 5.73+ on the light chrome surface) and are
@@ -198,15 +198,15 @@ function buildHarness() {
   // panel is served rather than checked out — the only way to keep one identity for it is for whoever CAN read it to hand the
   // value over. One environment variable, the same on both emitters, so the harness and the sweep that judges it cannot
   // disagree about which stylesheet was measured.
-  const stamp = process.env.VALE_HARNESS_STAMP || (() => {
+  const stamp = process.env.SUMMRISE_HARNESS_STAMP || (() => {
     try {
       const css = readFileSync(join(ROOT, "agent", "resources", "panel", "panel.css"));
       return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);
     } catch (e) { return "unknown"; }
   })();
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="vale-harness-build" content="${stamp}">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Vale Agent</title>
+<meta name="summrise-harness-build" content="${stamp}">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Summrise Agent</title>
 <style>${css}</style>${bundleUrl ? `<link rel="stylesheet" href="${bundleUrl}/panel.css">` : ""}</head><body><div id="root"></div>
 <script>${stub}</script>${bundleUrl ? `<script type="module" src="${bundleUrl}/panel.js"></script>` : `<script type="module">${js}</script>`}</body></html>`;
 }
@@ -236,19 +236,19 @@ async function main() {
   // device's bundled one, reached through the agent's `browser_run_script` tool —
   // which is how every round of this work actually audited the panel. So:
   //
-  //   * with VALE_BROWSER_HELPER set (on a device, or any box with the bundle)
+  //   * with SUMMRISE_BROWSER_HELPER set (on a device, or any box with the bundle)
   //     this script runs the whole audit itself;
   //   * without it, it still generates the harness and prints the probe, so the
   //     same measurement can be driven from wherever a runtime exists.
   //
   // Emitting rather than failing is the point: a check that can only run in one
   // environment is a check that quietly stops running.
-  const helper = process.env.VALE_BROWSER_HELPER;
+  const helper = process.env.SUMMRISE_BROWSER_HELPER;
   if (!helper) {
-    console.log("No VALE_BROWSER_HELPER — harness written, running in EMIT mode.");
+    console.log("No SUMMRISE_BROWSER_HELPER — harness written, running in EMIT mode.");
     console.log("  harness: " + harnessPath);
     console.log("  drive it by loading that file in any Playwright page, routing");
-    console.log("  http://vale.test/** to its body, then evaluating the PROBE from");
+    console.log("  http://summrise.test/** to its body, then evaluating the PROBE from");
     console.log("  lib/contrast-probe.mjs and the OVERFLOW snippet in this file.");
     console.log("  (The PROBE moved out of this file so its math can be UNIT TESTED —");
     console.log("   scripts/test/contrast-probe-check.mjs exercises the exact text the");
@@ -272,11 +272,11 @@ async function main() {
     console.log("EXIT 2: THE AUDIT DID NOT RUN — this is a SKIP, not a pass.");
     process.exit(2);
   }
-  // A DYNAMIC import() NEEDS A URL ON WINDOWS (round 242). `VALE_BROWSER_HELPER` is an absolute path like
-  // `D:\Vale\components\playwright\helper.mjs`, and `await import()` of that string dies with
+  // A DYNAMIC import() NEEDS A URL ON WINDOWS (round 242). `SUMMRISE_BROWSER_HELPER` is an absolute path like
+  // `D:\Summrise\components\playwright\helper.mjs`, and `await import()` of that string dies with
   // "Only URLs with a scheme in: file, data, and node are supported ... Received protocol 'c:'" — which is what a runner sets
   // and what a bare terminal does NOT, so the same emitter worked from a PTY and failed under `browser_run_script`. The
-  // emitted PROBE never hit this because its `require(process.env.VALE_BROWSER_HELPER)` is CommonJS, which is happy with a
+  // emitted PROBE never hit this because its `require(process.env.SUMMRISE_BROWSER_HELPER)` is CommonJS, which is happy with a
   // Windows path: one environment value, two module systems, one of them strict about it.
   const { acquireBrowser } = await import(pathToFileURL(helper).href);
   const { page, close } = await acquireBrowser();
@@ -284,7 +284,7 @@ async function main() {
   // Served at a REAL origin and path, satisfied by interception — the panel sees
   // location.pathname === "/panel/" and boots through its own production branch.
   // No listener is opened anywhere.
-  await page.route("http://vale.test/**", (route) =>
+  await page.route("http://summrise.test/**", (route) =>
     route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html }),
   );
 
@@ -298,7 +298,7 @@ async function main() {
   for (const theme of ["light", "dark"]) {
     for (const mode of ["pending", "idle"]) {
       await page.setViewportSize({ width: 1280, height: 720 });
-      await page.goto(`http://vale.test/panel/?theme=${theme}&mode=${mode}`, { waitUntil: "load" });
+      await page.goto(`http://summrise.test/panel/?theme=${theme}&mode=${mode}`, { waitUntil: "load" });
       await page.waitForTimeout(1800);
 
       // THE SHARED JUDGEMENT, NOT A LOCAL `cr < 4.5` (round 265). The audit's own filter predated the probe's

@@ -7,7 +7,7 @@
 use serde_json::{json, Value};
 
 use crate::plugins::{require_str, tool_error};
-use vale_agent_core::{DeviceError, ToolDef};
+use summrise_agent_core::{DeviceError, ToolDef};
 // The reconnect path reuses the open tool's full handler — terminal-feature
 // only (headless builds return the explicit "terminal feature disabled"
 // error without it).

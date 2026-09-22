@@ -4,27 +4,27 @@ nohup.out
 .claude/
 gateway/public_backup/
 屏幕截图*.png
-index/public/vale-agent/*.exe
-index/public/vale-agent/*.tgz
-agent/vale-agent-npm/*.exe
-agent/vale-agent-npm/*.tgz
+index/public/summrise-agent/*.exe
+index/public/summrise-agent/*.tgz
+agent/summrise-agent-npm/*.exe
+agent/summrise-agent-npm/*.tgz
 agent/target-staging.exe
 
-.vale-tmp-*
+.summrise-tmp-*
 .dsh-tmp-*
 
-# any nested node_modules — the single rule now; the per-dir ones went with vale-studio
+# any nested node_modules — the single rule now; the per-dir ones went with summrise-studio
 **/node_modules/
 
 # build artifacts — never commit
 agent/deploy/cloudflared.exe
-agent/deploy/vale-playwright*.zip
-agent/vale-agent-npm/vale-playwright.zip
-agent/vale-agent-npm/cloudflared.exe
-agent/vale-agent-npm/vale-desktop.exe
-agent/vale-agent-npm/vale-tray.exe
-agent/vale-agent-npm/bridge.js
-agent/vale-desktop/src-tauri/target/
+agent/deploy/summrise-playwright*.zip
+agent/summrise-agent-npm/summrise-playwright.zip
+agent/summrise-agent-npm/cloudflared.exe
+agent/summrise-agent-npm/summrise-desktop.exe
+agent/summrise-agent-npm/summrise-tray.exe
+agent/summrise-agent-npm/bridge.js
+agent/summrise-desktop/src-tauri/target/
 
 # local tooling
 .zcode/

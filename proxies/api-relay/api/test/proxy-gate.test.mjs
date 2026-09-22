@@ -34,7 +34,7 @@ const never = async () => {
 };
 
 test("OPTIONS short-circuits with CORS, never gates, never dials", async () => {
-  // THE SAMPLE ORIGIN WAS dsh.saisi.online UNTIL ROUND 243. It was allowed only so the Vale Code Links
+  // THE SAMPLE ORIGIN WAS dsh.saisi.online UNTIL ROUND 243. It was allowed only so the Summrise Code Links
   // extension's content script could call this relay from the DSH page; the extension is gone and the origin
   // went with it (the gateway's ALLOWED_ORIGINS and this copy are held equal by the test below). A console
   // origin stands in here — the test is about OPTIONS short-circuiting, not about which host it is.

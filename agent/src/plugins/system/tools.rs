@@ -17,7 +17,7 @@
 
 use futures::StreamExt;
 use serde_json::{json, Value};
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 
 use crate::plugins::{require_str, to_value_or_empty, tool_error};
 
@@ -294,11 +294,11 @@ fn tool_file_write() -> ToolDef {
 ///
 /// HISTORY — this is where `system_file_download` died on every real device
 /// until round-554: the confinement rule it used to enforce compared
-/// `dest.canonicalize()` (Windows: `\\?\C:\ProgramData\Vale\x`, whose disk
+/// `dest.canonicalize()` (Windows: `\\?\C:\ProgramData\Summrise\x`, whose disk
 /// prefix is a `VerbatimDisk` component) against `paths::data_dir()` (the
-/// plain registry string `C:\ProgramData\Vale`), so `starts_with` was FALSE
-/// for every path — device-verified on d1: both `D:\Vale\x.txt` and
-/// `C:\ProgramData\Vale\x.txt` answered "path must be under data dir". The
+/// plain registry string `C:\ProgramData\Summrise`), so `starts_with` was FALSE
+/// for every path — device-verified on d1: both `D:\Summrise\x.txt` and
+/// `C:\ProgramData\Summrise\x.txt` answered "path must be under data dir". The
 /// rule is gone (see `resolve_dest`); the normalization stayed, and the
 /// regression test kept the shape visible.
 ///
@@ -324,7 +324,7 @@ fn strip_verbatim(p: &std::path::Path) -> std::path::PathBuf {
 /// NO directory confinement, deliberately: `system_file_write` never had one,
 /// the credential that reaches either tool is admin-equivalent (the same
 /// token opens a PTY on this host), and the transfers this tool exists for
-/// target work directories (`F:\Projects\…\bugs\…`, `D:\Vale\…`) no sane
+/// target work directories (`F:\Projects\…\bugs\…`, `D:\Summrise\…`) no sane
 /// allowlist would cover. The protection that mattered is the `.part` +
 /// rename in the handler: a truncated transfer never appears complete.
 fn resolve_dest(path_str: &str) -> std::path::PathBuf {
@@ -338,12 +338,12 @@ fn resolve_dest(path_str: &str) -> std::path::PathBuf {
 fn tool_file_download() -> ToolDef {
     ToolDef::new(
         "system_file_download",
-        "Receive a file onto THIS device (the agent host) from a URL — the device fetches it directly, so the bytes NEVER pass through the AI context (this is how a 100 MB firmware image moves; system_file_write is only for ≤4 MiB inline text). Pair with system_file_upload: the sender uploads to the Vale relay and hands back the one-time URL, this tool lands it. Returns {ok, path, bytes}. Destination is any absolute path (parents are created; relative = <data dir>/downloads).",
+        "Receive a file onto THIS device (the agent host) from a URL — the device fetches it directly, so the bytes NEVER pass through the AI context (this is how a 100 MB firmware image moves; system_file_write is only for ≤4 MiB inline text). Pair with system_file_upload: the sender uploads to the Summrise relay and hands back the one-time URL, this tool lands it. Returns {ok, path, bytes}. Destination is any absolute path (parents are created; relative = <data dir>/downloads).",
         json!({
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "HTTP or HTTPS URL to download (a relay URL from system_file_upload counts). IP-literal hosts are rejected (SSRF guard) — use a hostname."},
-                "path": {"type": "string", "description": "Destination path on the device (absolute recommended, e.g. D:\\Vale\\downloads\\file.zip). Parent dirs are auto-created."}
+                "path": {"type": "string", "description": "Destination path on the device (absolute recommended, e.g. D:\\Summrise\\downloads\\file.zip). Parent dirs are auto-created."}
             },
             "required": ["url", "path"]
         }),
@@ -456,7 +456,7 @@ fn tool_file_download() -> ToolDef {
 fn tool_file_upload() -> ToolDef {
     ToolDef::new(
         "system_file_upload",
-        "Send a local file to the Vale relay and return its one-time download URL (the other half of the file-transfer pair: hand that URL to system_file_download on the receiving device, or fetch it here on Linux). THE BYTES NEVER PASS THROUGH THE AI CONTEXT, so a 100 MB image is fine. The agent DOES read the file into memory before relaying it, so the cost is bounded by the 100 MiB transfer cap and the upload is NOT streamed from disk — this sentence claimed streaming, which the code has never done (`fs::read` + a buffered body); the DOWNLOAD direction really does stream, which is what made the claim look verified (system_file_write is the ≤4 MiB inline path only). The relay holds it until first download or 24 h. Returns {ok, url, bytes}.",
+        "Send a local file to the Summrise relay and return its one-time download URL (the other half of the file-transfer pair: hand that URL to system_file_download on the receiving device, or fetch it here on Linux). THE BYTES NEVER PASS THROUGH THE AI CONTEXT, so a 100 MB image is fine. The agent DOES read the file into memory before relaying it, so the cost is bounded by the 100 MiB transfer cap and the upload is NOT streamed from disk — this sentence claimed streaming, which the code has never done (`fs::read` + a buffered body); the DOWNLOAD direction really does stream, which is what made the claim look verified (system_file_write is the ≤4 MiB inline path only). The relay holds it until first download or 24 h. Returns {ok, url, bytes}.",
         json!({
             "type": "object",
             "properties": {
@@ -486,9 +486,9 @@ fn tool_file_upload() -> ToolDef {
                     Ok(b) => b,
                     Err(e) => return Ok(to_value_or_empty(tool_error(format!("read: {e}")))),
                 };
-                let gateway_url = std::env::var("VALE_GATEWAY_URL")
+                let gateway_url = std::env::var("SUMMRISE_GATEWAY_URL")
                     .unwrap_or_else(|_| "https://api.saisi.online".to_string());
-                let device_token = std::env::var("VALE_DEVICE_TOKEN").unwrap_or_default();
+                let device_token = std::env::var("SUMMRISE_DEVICE_TOKEN").unwrap_or_default();
                 // RAW-STREAM PUT, not multipart (round-554). The index worker's
                 // multipart branch calls formData(), which materializes the
                 // ENTIRE body inside the 128 MB isolate — the reason the
@@ -535,7 +535,7 @@ fn tool_process_list() -> ToolDef {
         json!({
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Optional case-insensitive substring filter on process name (e.g. 'electron', 'vale')."}
+                "name": {"type": "string", "description": "Optional case-insensitive substring filter on process name (e.g. 'electron', 'summrise')."}
             }
         }),
         move |params: Value| {
@@ -809,7 +809,7 @@ mod file_tool_tests {
     /// the description alone would pass either way.
     #[tokio::test]
     async fn reading_a_binary_file_errors_instead_of_returning_mojibake() {
-        let dir = std::env::temp_dir().join(format!("vale-sysread-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-sysread-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let bin = dir.join("blob.bin");
@@ -857,7 +857,7 @@ mod file_tool_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Shared by the VALE_GATEWAY_URL-mutating upload tests (round-370):
+    /// Shared by the SUMMRISE_GATEWAY_URL-mutating upload tests (round-370):
     /// fn-local statics would be DISTINCT locks (no exclusion) — one
     /// module-level lock serializes them. tokio Mutex: the guard is held
     /// across awaits by design (the env must stay stable for the whole
@@ -869,7 +869,7 @@ mod file_tool_tests {
 
     #[tokio::test]
     async fn file_stat_reports_size_and_kind() {
-        let tmp = std::env::temp_dir().join(format!("vale-stat-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("summrise-stat-test-{}", std::process::id()));
         std::fs::write(&tmp, b"hello world").unwrap();
         let out = run(&tool_file_stat(), json!({ "path": tmp.to_string_lossy() })).await;
         assert_eq!(out["ok"], true);
@@ -900,7 +900,7 @@ mod file_tool_tests {
     #[tokio::test]
     async fn write_then_paged_read_roundtrip() {
         // The AI transfer contract: stat -> paged raw read (or append write).
-        let tmp = std::env::temp_dir().join(format!("vale-paging-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("summrise-paging-test-{}", std::process::id()));
         let content = vec![b'x'; 200_000]; // 200 KiB
         let w = run(&tool_file_write(), json!({ "path": tmp.to_string_lossy(), "data": base64::engine::general_purpose::STANDARD.encode(&content) })).await;
         assert_eq!(w["ok"], true);
@@ -920,7 +920,7 @@ mod file_tool_tests {
 
     #[tokio::test]
     async fn file_list_returns_entries() {
-        let tmp = std::env::temp_dir().join(format!("vale-list-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("summrise-list-test-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("a.txt"), b"hello").unwrap();
         std::fs::write(tmp.join("b.txt"), b"world").unwrap();
@@ -964,15 +964,15 @@ mod file_tool_tests {
         // fails and system_file_download rejected every destination —
         // including one inside the data dir. Device-verified on d1.
         assert_eq!(
-            strip_verbatim(std::path::Path::new(r"\\?\C:\ProgramData\Vale\x.bin")),
-            std::path::PathBuf::from(r"C:\ProgramData\Vale\x.bin")
+            strip_verbatim(std::path::Path::new(r"\\?\C:\ProgramData\Summrise\x.bin")),
+            std::path::PathBuf::from(r"C:\ProgramData\Summrise\x.bin")
         );
         assert_eq!(
             strip_verbatim(std::path::Path::new(r"\\?\UNC\server\share\x.bin")),
             std::path::PathBuf::from(r"\\server\share\x.bin")
         );
         // Plain paths (and everything a Linux test throws at it) pass through.
-        for plain in [r"C:\ProgramData\Vale\x.bin", "/tmp/x.bin"] {
+        for plain in [r"C:\ProgramData\Summrise\x.bin", "/tmp/x.bin"] {
             assert_eq!(
                 strip_verbatim(std::path::Path::new(plain)),
                 std::path::PathBuf::from(plain)
@@ -982,18 +982,21 @@ mod file_tool_tests {
         // `starts_with` on a Windows-shaped path is only meaningful with
         // Windows component parsing (Linux splits on `/` alone), so that half
         // is pinned where it applies; the string shape is pinned everywhere.
-        let canonical = strip_verbatim(std::path::Path::new(r"\\?\C:\ProgramData\Vale\x.bin"));
-        assert_eq!(canonical.to_string_lossy(), r"C:\ProgramData\Vale\x.bin");
+        let canonical = strip_verbatim(std::path::Path::new(r"\\?\C:\ProgramData\Summrise\x.bin"));
+        assert_eq!(
+            canonical.to_string_lossy(),
+            r"C:\ProgramData\Summrise\x.bin"
+        );
         #[cfg(windows)]
-        assert!(canonical.starts_with(std::path::Path::new(r"C:\ProgramData\Vale")));
+        assert!(canonical.starts_with(std::path::Path::new(r"C:\ProgramData\Summrise")));
     }
 
     #[test]
     fn resolve_dest_absolute_wins_relative_roots_in_downloads() {
         let abs = if cfg!(windows) {
-            r"D:\Vale\fw.bin"
+            r"D:\Summrise\fw.bin"
         } else {
-            "/tmp/vale-fw.bin"
+            "/tmp/summrise-fw.bin"
         };
         assert_eq!(resolve_dest(abs), std::path::PathBuf::from(abs));
         let rel = resolve_dest("fw.bin");
@@ -1014,7 +1017,7 @@ mod file_tool_tests {
         // directory (NOT the data dir — the rule that made it dead on
         // Windows), a parent that does not exist yet, and no `.part` corpse
         // left at either name.
-        let dir = std::env::temp_dir().join(format!("vale-dl-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-dl-{}", std::process::id()));
         let deep = dir.join("nested").join("deeper");
         let payload: Vec<u8> = (0u16..=255).map(|b| b as u8).cycle().take(70_000).collect();
         let md5 = format!("{:x}", md5_like(&payload));
@@ -1043,7 +1046,7 @@ mod file_tool_tests {
 
     #[tokio::test]
     async fn file_download_rejects_bad_status_without_touching_dest() {
-        let dir = std::env::temp_dir().join(format!("vale-dl404-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-dl404-{}", std::process::id()));
         let port = stub_serve_status(404).await;
         let dest = dir.join("nope.bin");
         let out = run(
@@ -1178,7 +1181,7 @@ mod file_tool_tests {
         // matcher had run at all.)
         let out = run(
             &tool_process_kill(),
-            json!({ "name": "vale-definitely-no-such-proc-xyz-123" }),
+            json!({ "name": "summrise-definitely-no-such-proc-xyz-123" }),
         )
         .await;
         assert_eq!(out["ok"], false);
@@ -1256,12 +1259,12 @@ mod file_tool_tests {
     async fn file_upload_rejects_missing_and_directories() {
         let out = run(
             &tool_file_upload(),
-            json!({ "path": "/tmp/vale-upload-definitely-missing-xyz.bin" }),
+            json!({ "path": "/tmp/summrise-upload-definitely-missing-xyz.bin" }),
         )
         .await;
         assert_eq!(out["ok"], false);
         assert!(out["error"].as_str().unwrap().contains("file not found"));
-        let dir = std::env::temp_dir().join(format!("vale-upload-dir-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-upload-dir-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let out = run(
             &tool_file_upload(),
@@ -1331,26 +1334,26 @@ mod file_tool_tests {
     #[tokio::test]
     async fn file_upload_puts_raw_stream_and_reports_manifest() {
         // Serialize with the unreachable-gateway test below (shared module
-        // lock): both mutate the process-global VALE_GATEWAY_URL /
-        // VALE_DEVICE_TOKEN and cargo runs tests on parallel threads —
+        // lock): both mutate the process-global SUMMRISE_GATEWAY_URL /
+        // SUMMRISE_DEVICE_TOKEN and cargo runs tests on parallel threads —
         // without this, the URLs cross and this test dials 127.0.0.1:1
         // (or vice versa).
         let _env_guard = UPLOAD_ENV_LOCK.lock().await;
-        // Sole VALE_GATEWAY_URL/VALE_DEVICE_TOKEN writer in the suite; set +
+        // Sole SUMMRISE_GATEWAY_URL/SUMMRISE_DEVICE_TOKEN writer in the suite; set +
         // removed inside this one test so parallel tests cannot cross-talk.
         let captured: CapturedUploads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let port = stub_upload_server(captured.clone()).await;
-        std::env::set_var("VALE_GATEWAY_URL", format!("http://127.0.0.1:{port}"));
-        std::env::set_var("VALE_DEVICE_TOKEN", "tok-test");
-        let path = std::env::temp_dir().join(format!("vale-upload-ok-{}", std::process::id()));
+        std::env::set_var("SUMMRISE_GATEWAY_URL", format!("http://127.0.0.1:{port}"));
+        std::env::set_var("SUMMRISE_DEVICE_TOKEN", "tok-test");
+        let path = std::env::temp_dir().join(format!("summrise-upload-ok-{}", std::process::id()));
         std::fs::write(&path, b"hello world").unwrap();
         let out = run(
             &tool_file_upload(),
             json!({ "path": path.to_string_lossy() }),
         )
         .await;
-        std::env::remove_var("VALE_GATEWAY_URL");
-        std::env::remove_var("VALE_DEVICE_TOKEN");
+        std::env::remove_var("SUMMRISE_GATEWAY_URL");
+        std::env::remove_var("SUMMRISE_DEVICE_TOKEN");
         assert_eq!(out["ok"], true, "upload must succeed: {out}");
         assert_eq!(out["url"], "https://cdn.example/f/abc");
         assert_eq!(out["bytes"], 11);
@@ -1365,7 +1368,7 @@ mod file_tool_tests {
         // Raw stream, NOT multipart: formData() on the worker side buffers the
         // whole body in the isolate, which is what forced the 25 MB ceiling.
         assert!(
-            head.contains("PUT /api/upload?name=vale-upload-ok-"),
+            head.contains("PUT /api/upload?name=summrise-upload-ok-"),
             "must be a raw-stream PUT carrying ?name=<basename>: {head}"
         );
         assert!(
@@ -1387,17 +1390,18 @@ mod file_tool_tests {
     #[tokio::test]
     async fn file_upload_unreachable_gateway_fails_closed() {
         let _env_guard = UPLOAD_ENV_LOCK.lock().await;
-        std::env::set_var("VALE_GATEWAY_URL", "http://127.0.0.1:1");
-        std::env::set_var("VALE_DEVICE_TOKEN", "tok-test");
-        let path = std::env::temp_dir().join(format!("vale-upload-down-{}", std::process::id()));
+        std::env::set_var("SUMMRISE_GATEWAY_URL", "http://127.0.0.1:1");
+        std::env::set_var("SUMMRISE_DEVICE_TOKEN", "tok-test");
+        let path =
+            std::env::temp_dir().join(format!("summrise-upload-down-{}", std::process::id()));
         std::fs::write(&path, b"hi").unwrap();
         let out = run(
             &tool_file_upload(),
             json!({ "path": path.to_string_lossy() }),
         )
         .await;
-        std::env::remove_var("VALE_GATEWAY_URL");
-        std::env::remove_var("VALE_DEVICE_TOKEN");
+        std::env::remove_var("SUMMRISE_GATEWAY_URL");
+        std::env::remove_var("SUMMRISE_DEVICE_TOKEN");
         assert_eq!(out["ok"], false);
         assert!(
             out["error"].as_str().unwrap().contains("upload failed"),

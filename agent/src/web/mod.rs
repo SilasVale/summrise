@@ -32,7 +32,7 @@ use tower::Service;
 
 use crate::plugins::memory::store::MemoryLimits;
 use crate::state::AppState;
-use vale_agent_core::{DeviceError, EventBus};
+use summrise_agent_core::{DeviceError, EventBus};
 mod panel;
 mod parse;
 mod sse;
@@ -44,7 +44,7 @@ pub(crate) use panel::{
 pub(crate) use sse::{acquire_sse_guard, sse_stream, sse_term_stream, SseConnectionGuard};
 
 /// Minimal self-contained status page — the device URL answers something readable
-/// in a browser. Apple-style light, matching the rest of the Vale surface.
+/// in a browser. Apple-style light, matching the rest of the Summrise surface.
 ///
 /// THE COLOURS HERE ARE PART OF THE SURFACE, NOT DECORATION (round 236). This string carried the RETIRED accent
 /// `#d9480f` long after the stylesheets replaced it, and nobody noticed because nothing compares a colour in a
@@ -53,7 +53,7 @@ pub(crate) use sse::{acquire_sse_guard, sse_stream, sse_term_stream, SseConnecti
 /// sub-AA text in the product, on the first thing anyone sees at a device URL.
 /// scripts/test/retired-colours-check.mjs now fails if the retired value comes back anywhere.
 const STATUS_PAGE: &str = concat!(
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>vale-agent</title>",
+    "<!doctype html><html><head><meta charset=\"utf-8\"><title>summrise-agent</title>",
     "<style>body{background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,'SF Pro Text','PingFang SC','Segoe UI',sans-serif;margin:0;display:flex;justify-content:center;padding:12vh 24px}",
     ".card{background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border:1px solid rgba(0,0,0,.08);border-radius:20px;box-shadow:0 12px 32px rgba(0,0,0,.12);padding:32px;max-width:480px;width:100%}",
     ".mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;background:#1d1d1f;color:#fff;font-weight:700;font-size:22px}",
@@ -61,7 +61,7 @@ const STATUS_PAGE: &str = concat!(
     "p{color:#6e6e73;font-size:13px;margin:4px 0}",
     "code{background:#ffefe5;color:#bf3a0a;padding:1px 6px;border-radius:5px;font-family:ui-monospace,'SF Mono',Consolas,monospace;font-size:12px}",
     "</style></head>",
-    "<body><div class=\"card\"><span class=\"mark\">V</span><h1>vale-agent</h1>",
+    "<body><div class=\"card\"><span class=\"mark\">V</span><h1>summrise-agent</h1>",
     "<p>MCP endpoint: <code>/mcp</code></p>",
     "<p>Tool API: <code>/api/tools/{name}</code></p>",
     "<p>Status: <code>/api/status</code></p>",
@@ -259,7 +259,7 @@ pub(crate) fn auth_backoff_ms(fails: u32) -> u64 {
 /// (in-process tests, and any future non-TCP transport) — and absent is treated as LOCAL, which pays nothing. That is the
 /// honest reading: an unknown peer cannot be one of many remote guessers, and penalising it would only slow the operator.
 fn peer_key<B>(req: &Request<B>) -> Option<std::net::IpAddr> {
-    // FROM THE SOCKET, NEVER FROM A HEADER. The first version read an `x-vale-peer` header, which a caller sets freely — it
+    // FROM THE SOCKET, NEVER FROM A HEADER. The first version read an `x-summrise-peer` header, which a caller sets freely — it
     // could have skipped its own penalty or framed another address with one. `ConnectInfo` is attached by the server from the
     // accepted connection, and its absence (in-process tests, non-TCP transports) means "unknown", which pays nothing.
     req.extensions()
@@ -545,7 +545,7 @@ async fn handle_panel_home(
     set_cache_control(&mut resp, "no-store");
     // Zero-config token injection: embed the device token as a script
     // fragment before </head>. round-102/103: injection requires the
-    // gateway proxy's SHARED SECRET (X-Vale-Auth) — a plain marker
+    // gateway proxy's SHARED SECRET (X-Summrise-Auth) — a plain marker
     // header was client-spoofable end-to-end (any curl could set it and
     // read the token; the leaked token grants /api/tools RCE). The
     // secret is generated at agent bootstrap and read by the console;
@@ -781,7 +781,7 @@ async fn route_pre_dispatch(
     {
         let host = host_no_port(headers).map(|h| h.to_string());
         let auth_header = headers
-            .get("x-vale-auth")
+            .get("x-summrise-auth")
             .and_then(|v| v.to_str().ok())
             .map(|v| v.to_string());
         return Some(
@@ -1162,8 +1162,8 @@ async fn api_call_tool(state: &AppState, tool_name: &str, body: &str) -> serde_j
 /// Session-log reader over paths::sessions_dir().
 /// HIGH(audit round): the WRITER (terminal plugin) logs to
 /// paths::data_dir()/sessions — on registry-first installs the
-/// exe dir is NOT the data dir (d1: D:\Vale vs C:\ProgramData\
-/// Vale), and these endpoints scanned an empty dir: the audit
+/// exe dir is NOT the data dir (d1: D:\Summrise vs C:\ProgramData\
+/// Summrise), and these endpoints scanned an empty dir: the audit
 /// panel was permanently blind. Read the same dir; also honors
 /// the "zero current_exe() guessing outside paths.rs" rule.
 fn sessions_logger() -> crate::session_log::SessionLogger {
@@ -1553,12 +1553,12 @@ async fn api_session_control(
 /// and `cat`-ing it over a PTY).
 ///
 /// THE PATH IS THE BUG THIS FIXES. The handler used to read
-/// `exe_dir()/vale-update.log`, but layout v2 MOVES that file — along with
+/// `exe_dir()/summrise-update.log`, but layout v2 MOVES that file — along with
 /// `agent.log`, `installer.log`, `install-result.txt` and `startup.log` — into
 /// `DataDir\logs` (`paths.rs`'s migration list owns that move, and its test
 /// pins it). So the route read a path the migration had just emptied and could
 /// only ever answer `""` on a v2 device. Every writer had already followed the
-/// move: the update swap script writes `{logs}\vale-update.log`, `filelog.rs`
+/// move: the update swap script writes `{logs}\summrise-update.log`, `filelog.rs`
 /// rotates `agent.log` there, and `mcp_client` caps `mcp_diag.log` there.
 ///
 /// `logs_dir()` is the single resolution point, so this reads where the writers
@@ -1749,7 +1749,7 @@ fn api_logs() -> serde_json::Value {
         "dir": dir.to_string_lossy(),
         "logs": [
             read("agent.log"),
-            read("vale-update.log"),
+            read("summrise-update.log"),
             read("mcp_diag.log"),
             read("startup.log"),
         ],
@@ -2060,7 +2060,7 @@ async fn run_playwright_op(
 /// stage-n SSE audit LOW: bound concurrent SSE connections so a flood of
 /// viewers can't exhaust tasks/memory. 64 slots shared across /api/events
 /// and /api/events/term; each slot is a permit that releases on drop.
-/// P2-4: read the boxed-component version manifest (`vale setup`/`vale update`
+/// P2-4: read the boxed-component version manifest (`summrise setup`/`summrise update`
 /// write `<install>/etc/boxed-versions.json`). Returns None when absent or
 /// unparseable — advisory only, never fail-closed.
 fn boxed_versions() -> Option<serde_json::Value> {
@@ -2182,7 +2182,7 @@ async fn api_status(state: &AppState) -> serde_json::Value {
         out["pending_approvals"] = serde_json::json!(pending_approvals);
     }
     // round-304: report the npm RELEASE version (written by the swap
-    // scripts, agent_update + vale.js) alongside the Cargo protocol
+    // scripts, agent_update + summrise.js) alongside the Cargo protocol
     // version — /api/status consumers otherwise see 1.0.145 forever
     // while the device runs 1.2.x. Omitted when absent (fresh installs).
     if let Ok(rel) = std::fs::read_to_string(crate::paths::release_marker_file()) {
@@ -2192,7 +2192,7 @@ async fn api_status(state: &AppState) -> serde_json::Value {
         }
     }
     // P2-4: echo the boxed-component version manifest (written by
-    // `vale setup` / `vale update` next to the install dir). Omitted when
+    // `summrise setup` / `summrise update` next to the install dir). Omitted when
     // absent (older installs); the file is advisory, never fail-closed.
     if let Some(boxed) = boxed_versions() {
         out["boxed_versions"] = boxed;
@@ -2207,7 +2207,7 @@ async fn api_status(state: &AppState) -> serde_json::Value {
         out["mem_total_mb"] = serde_json::json!(mb);
     }
     // round-103: expose the proxy secret (token-authenticated endpoint) so
-    // the console can store it at registration and present X-Vale-Auth when
+    // the console can store it at registration and present X-Summrise-Auth when
     // proxying /panel/ — the agent injects the panel token only for
     // requests carrying the matching secret.
     // Write-through (audit A4): read the LIVE snapshot, not the boot copy.
@@ -2295,7 +2295,7 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use axum::http::Request;
-    use vale_agent_core::Config;
+    use summrise_agent_core::Config;
 
     const TEST_TOKEN: &str = "test-token";
 
@@ -2370,7 +2370,7 @@ mod tests {
             .uri(path)
             .header(axum::http::header::HOST, host);
         if via_proxy {
-            b = b.header("x-vale-proxy", "1");
+            b = b.header("x-summrise-proxy", "1");
         }
         b.body(Body::empty()).unwrap()
     }
@@ -2394,7 +2394,7 @@ mod tests {
             .uri(path)
             .header(axum::http::header::HOST, host)
             .header(
-                "x-vale-auth",
+                "x-summrise-auth",
                 "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
             )
             .body(Body::empty())
@@ -2406,7 +2406,7 @@ mod tests {
             .uri(path)
             .header(axum::http::header::HOST, host)
             .header(
-                "x-vale-auth",
+                "x-summrise-auth",
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             )
             .body(Body::empty())
@@ -2422,7 +2422,7 @@ mod tests {
             Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into());
         let st = Arc::new(AppState::new(cfg));
         // The device's own subdomain MUST inject when the request carries
-        // the gateway's shared secret (X-Vale-Auth, round-103 — a spoofable
+        // the gateway's shared secret (X-Summrise-Auth, round-103 — a spoofable
         // marker header was replaced with a constant-time secret check).
         let ok = handle_request(
             req_with_host_secret("/panel/", "d1.agent.saisi.online"),
@@ -2570,7 +2570,7 @@ mod tests {
 
     #[tokio::test]
     async fn desktop_route_serves_spa_and_injects_token() {
-        // /desktop/ (vale-desktop shell) serves the same SPA and gets the
+        // /desktop/ (summrise-desktop shell) serves the same SPA and gets the
         // loopback token injection exactly like /panel/.
         let mut cfg = Config::default();
         cfg.server.device_token = Some("test-token-123".into());
@@ -3097,7 +3097,7 @@ mod tests {
         // its registry against a hand-typed copy of ITSELF, 21 device tools
         // (the whole system_*/memory_*/mcp_client_* families) stayed invisible
         // to MCP clients with every gate green. Regenerate with:
-        //   VALE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot
+        //   SUMMRISE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot
         //
         // PARAMETER NAMES joined the snapshot for the same reason the tool names
         // did, one drift later: the gateway advertises its OWN inputSchema for
@@ -3149,21 +3149,21 @@ mod tests {
              // generated from\n\
              // the live PluginRegistry by web::tests::spec_snapshot_pins_every_device_tool_for_the_gateway_contract.\n\
              // The gateway MCP registry contract test reads this file.\n\
-             // Do not hand-edit: VALE_REFRESH_SPEC=1 cargo test spec_snapshot, then commit.\n{}\n",
+             // Do not hand-edit: SUMMRISE_REFRESH_SPEC=1 cargo test spec_snapshot, then commit.\n{}\n",
             serde_json::to_string_pretty(&serde_json::Value::Array(entries)).unwrap()
         );
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/spec-tools.json");
-        if std::env::var("VALE_REFRESH_SPEC").is_ok_and(|v| !v.is_empty()) {
+        if std::env::var("SUMMRISE_REFRESH_SPEC").is_ok_and(|v| !v.is_empty()) {
             std::fs::write(path, &rendered).expect("write spec-tools.json");
             return;
         }
         let committed = std::fs::read_to_string(path).unwrap_or_else(|e| {
-            panic!("{path} missing ({e}) — run VALE_REFRESH_SPEC=1 cargo test spec_snapshot")
+            panic!("{path} missing ({e}) — run SUMMRISE_REFRESH_SPEC=1 cargo test spec_snapshot")
         });
         assert_eq!(
             committed.trim_end(),
             rendered.trim_end(),
-            "{path} is stale vs the live registry — run VALE_REFRESH_SPEC=1 cargo test spec_snapshot and commit it"
+            "{path} is stale vs the live registry — run SUMMRISE_REFRESH_SPEC=1 cargo test spec_snapshot and commit it"
         );
     }
 
@@ -3708,9 +3708,9 @@ mod tests {
         // behaviour; this test exists so changing it is a visible decision
         // rather than a silent drift.
         let missing = if cfg!(windows) {
-            r"C:\vale-no-such-file-r101"
+            r"C:\summrise-no-such-file-r101"
         } else {
-            "/vale-no-such-file-r101"
+            "/summrise-no-such-file-r101"
         };
         let resp = handle_request(
             req_with_json(
@@ -5719,7 +5719,7 @@ mod tests {
     /// `/api/logs` reads WHERE THE WRITERS WRITE.
     ///
     /// The regression this pins is a WIRE-UP bug, not a logic one: the handler
-    /// read `exe_dir()/vale-update.log` while layout v2 had already moved that
+    /// read `exe_dir()/summrise-update.log` while layout v2 had already moved that
     /// file — and `agent.log`, `installer.log`, `install-result.txt`,
     /// `startup.log` with it — into `DataDir\logs`. The route therefore read a
     /// path the migration had emptied and could only ever answer `""`, on every
@@ -5745,7 +5745,7 @@ mod tests {
         // creates it so the assertion is about WHICH path is read rather than
         // about which file happens to exist.
         let exe = crate::paths::exe_dir();
-        let decoy = exe.join("vale-update.log");
+        let decoy = exe.join("summrise-update.log");
         let had_decoy = std::fs::read_to_string(&decoy).ok();
         let decoy_marker = format!("DECOY-MARKER-{}", std::process::id());
         if std::fs::create_dir_all(&exe).is_ok() {
@@ -5916,7 +5916,7 @@ mod tests {
             .await
             .unwrap();
         let text = String::from_utf8_lossy(&body);
-        assert!(text.contains("vale-agent"));
+        assert!(text.contains("summrise-agent"));
     }
 
     #[tokio::test]
@@ -5980,7 +5980,8 @@ mod tests {
     /// (AppState::new(load_config(argv[1]))). No global state: every test
     /// owns its directory and removes it.
     fn state_with_cfg(tag: &str, yaml: &str) -> (Arc<AppState>, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("vale-web-cfg-{}-{tag}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-web-cfg-{}-{tag}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let cfg_path = dir.join("config.yaml");
         std::fs::write(&cfg_path, yaml).unwrap();

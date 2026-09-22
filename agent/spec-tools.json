@@ -3,7 +3,7 @@
 // generated from
 // the live PluginRegistry by web::tests::spec_snapshot_pins_every_device_tool_for_the_gateway_contract.
 // The gateway MCP registry contract test reads this file.
-// Do not hand-edit: VALE_REFRESH_SPEC=1 cargo test spec_snapshot, then commit.
+// Do not hand-edit: SUMMRISE_REFRESH_SPEC=1 cargo test spec_snapshot, then commit.
 [
   {
     "name": "agent_update",

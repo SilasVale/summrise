@@ -1,5 +1,5 @@
 /* ============================================================
-   Vale Console — design system (DSH-derived tokens, Vale brand)
+   Summrise Console — design system (DSH-derived tokens, Summrise brand)
    Single vocabulary for every view:
      layout .app/.sidebar/.content · .page-header
      blocks .card/.card-header · .list/.list-row
@@ -1621,7 +1621,7 @@ body[data-theme="dark"] .note.tip {
 }
 
 /* Brand half. The gradient is built from the accent the whole product already
-   uses, so the page reads as Vale before a single word is read. */
+   uses, so the page reads as Summrise before a single word is read. */
 .auth-aside {
   display: flex;
   flex-direction: column;

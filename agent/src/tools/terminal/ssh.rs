@@ -2,8 +2,8 @@
 
 use super::{TermBackend, TermOutput};
 use crate::tools::ssh::SshSession;
+use summrise_agent_core::DeviceError;
 use tokio::sync::mpsc;
-use vale_agent_core::DeviceError;
 
 pub struct SshBackend {
     /// Keep session alive (owns the russh Handle)
@@ -148,7 +148,7 @@ impl TermBackend for SshBackend {
             // could wedge the worker (the consumer itself waits on the jammed
             // channel), so: loud observability now, async-bounded-send when
             // terminate() gains a Future signature.
-            tracing::warn!("[vale-agent] ssh terminate: interrupt DROPPED (write queue full) — remote command may still be running");
+            tracing::warn!("[summrise-agent] ssh terminate: interrupt DROPPED (write queue full) — remote command may still be running");
         }
     }
 }

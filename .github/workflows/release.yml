@@ -1,4 +1,4 @@
-# Vale Agent — tag-triggered release pipeline.
+# Summrise Agent — tag-triggered release pipeline.
 #
 # Replaces the retired Tauri matrix (NSIS era): the ONLY shipped desktop
 # artifact is the npm agent package. On a v<semver> tag push this builds the
@@ -184,67 +184,67 @@ jobs:
           # Workspace FIRST — it lives under $HOME, so the more specific prefix
           # must win.
           export RUSTFLAGS="--remap-path-prefix=${GITHUB_WORKSPACE}=/src --remap-path-prefix=${HOME}=/buildhome"
-          cargo xwin build -p vale-agent --target x86_64-pc-windows-msvc --release --features terminal,keyring --bin vale-agent
+          cargo xwin build -p summrise-agent --target x86_64-pc-windows-msvc --release --features terminal,keyring --bin summrise-agent
       - name: Pack the npm artifact
         working-directory: agent
         run: |
           set -euo pipefail
-          VER=$(node -p "require('./vale-agent-npm/package.json').version")
+          VER=$(node -p "require('./summrise-agent-npm/package.json').version")
           TAG=${GITHUB_REF_NAME#v}
           if [ "$TAG" != "$VER" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} != package.json version ${VER} — the release commit must bump package.json first"
             exit 1
           fi
-          cp target/x86_64-pc-windows-msvc/release/vale-agent.exe vale-agent-npm/vale-agent.exe
-          # round-298 lesson: bin/vale.js is a COMMITTED tsc artifact; a
+          cp target/x86_64-pc-windows-msvc/release/summrise-agent.exe summrise-agent-npm/summrise-agent.exe
+          # round-298 lesson: bin/summrise.js is a COMMITTED tsc artifact; a
           # stale copy (source changed, build not re-run) would ship the
           # old CLI. Compile it fresh — typescript + @types/node only (the
           # electron postinstall download is not needed for tsc).
-          # vale-agent-npm package.json is os:win32 — --force skips the
+          # summrise-agent-npm package.json is os:win32 — --force skips the
           # platform check on the Linux runner.
-          (cd vale-agent-npm && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)
-          (cd vale-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json)
-          cp vale-agent-npm/dist/vale.js vale-agent-npm/bin/vale.js
-          grep -q "vale-release" vale-agent-npm/bin/vale.js || { echo "::error::compiled bin/vale.js missing round-298 marker"; exit 1; }
+          (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)
+          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json)
+          cp summrise-agent-npm/dist/summrise.js summrise-agent-npm/bin/summrise.js
+          grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker"; exit 1; }
           # round-321: electron main/preload/url-policy .js are COMMITTED tsc
           # artifacts (tsc outDir is dist/, the npm package ships src/*.js) —
           # a stale copy ships silently. Compile the electron TS fresh and
           # fail if the committed src/*.js differ from the fresh output.
-          # Runs inside vale-agent-npm (its node_modules holds tsc; typeRoots
+          # Runs inside summrise-agent-npm (its node_modules holds tsc; typeRoots
           # points at its own @types — electron's node_modules is not
           # installed in CI, so full typecheck CANNOT pass here (electron
           # module + Electron namespace unresolvable). --noCheck emits
           # without typechecking: the gate compares EMIT output, which is
           # exactly what ships. (Device-caught on 1.2.286: without it the
           # gate failed every release on missing electron types.)
-          (cd vale-agent-npm && ./node_modules/.bin/tsc -p ../vale-desktop-electron/tsconfig.json \
+          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
             --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh --noCheck)
           for F in main.js preload.js url-policy.js; do
-            if ! cmp -s "/tmp/electron-fresh/${F}" "vale-desktop-electron/src/${F}"; then
-              echo "::error::vale-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
+            if ! cmp -s "/tmp/electron-fresh/${F}" "summrise-desktop-electron/src/${F}"; then
+              echo "::error::summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
               exit 1
             fi
           done
           echo "electron src freshness check OK"
-          cd vale-agent-npm && npm pack
+          cd summrise-agent-npm && npm pack
           # round-278/282 lesson: verify the packed tgz ships every file the
           # device update flow swaps (a missing file silently keeps the stale
           # one on devices). Fail the release if any is absent.
-          TGZ="vale-agent-${VER}.tgz"
+          TGZ="summrise-agent-${VER}.tgz"
           # Paths inside npm-packed tgzs carry a "package/" prefix on some
           # npm versions and not others — match by basename instead.
           # NOTE: pipefail + grep -q = SIGPIPE kills tar mid-stream and the
           # pipeline FAILS even when the file IS present (device-caught on
           # release 1.2.272) — list to a temp file first, then grep.
           tar tzf "$TGZ" > "/tmp/tgz-list-${VER}.txt"
-          for F in "vale-agent.exe" \
+          for F in "summrise-agent.exe" \
                    "README.md" \
-                   "vale-desktop-electron/src/main.js" \
-                   "vale-desktop-electron/src/preload.js" \
-                   "vale-desktop-electron/src/url-policy.js" \
-                   "vale-desktop-electron/icon.png" \
-                   "vale-desktop-electron/icon.ico" \
-                   "bin/vale.js"; do
+                   "summrise-desktop-electron/src/main.js" \
+                   "summrise-desktop-electron/src/preload.js" \
+                   "summrise-desktop-electron/src/url-policy.js" \
+                   "summrise-desktop-electron/icon.png" \
+                   "summrise-desktop-electron/icon.ico" \
+                   "bin/summrise.js"; do
             if ! grep -qE "(^|/)${F}$" "/tmp/tgz-list-${VER}.txt"; then
               echo "::error::tgz missing required file: $F"
               exit 1
@@ -257,7 +257,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            "agent/vale-agent-npm/vale-agent-${VER}.tgz" \
-            --title "Vale Agent ${VER}" \
-            --notes "Built by CI from ${GITHUB_REF_NAME}. Install: npm i -g https://agent.saisi.online/vale-agent/vale-agent-${VER}.tgz && vale update" \
+            "agent/summrise-agent-npm/summrise-agent-${VER}.tgz" \
+            --title "Summrise Agent ${VER}" \
+            --notes "Built by CI from ${GITHUB_REF_NAME}. Install: npm i -g https://agent.saisi.online/summrise-agent/summrise-agent-${VER}.tgz && summrise update" \
             --verify-tag

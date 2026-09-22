@@ -4,7 +4,7 @@
 # FLOATING channel. The local release box ran whatever its `stable` happened to
 # be (1.98.0), the runner picked up a newer one (1.98.1) — so the two exes could
 # never be byte-identical, and the P0 dual-builder audit could never pass:
-# measured on 1.2.316, every file matched except vale-agent.exe.
+# measured on 1.2.316, every file matched except summrise-agent.exe.
 #
 # Bump this deliberately, in its own commit, so a toolchain change is visible in
 # history instead of silently drifting between builds. CI reads the same file

@@ -6,7 +6,7 @@
 
 # Write the CDN manifest the agent_update tool consumes (round-119: sha256
 # REQUIRED). $1 = version, $2 = packed tgz path, $3 = output dir,
-# $4 = optional staged installer exe path (ValeAgent-Setup-<ver>.exe).
+# $4 = optional staged installer exe path (SummriseAgent-Setup-<ver>.exe).
 # Echoes the sha256 so the caller keeps it for the reconcile stages.
 # The installer fields are ADDITIVE (old readers ignore them): when $4 is
 # given and exists, the manifest also carries installer (flat basename) +
@@ -20,17 +20,17 @@ write_version_json() {
   if [[ -n "$installer_exe" && -f "$installer_exe" ]]; then
     local ish
     ish=$(sha256sum "$installer_exe" | cut -d' ' -f1)
-    printf '{"version":"%s","tarball":"vale-agent-latest.tgz","updated":"%s","sha256":"%s","installer":"%s","installer_sha256":"%s"}\n' \
+    printf '{"version":"%s","tarball":"summrise-agent-latest.tgz","updated":"%s","sha256":"%s","installer":"%s","installer_sha256":"%s"}\n' \
       "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$(basename "$installer_exe")" "$ish" > "$out/version.json"
   else
-    printf '{"version":"%s","tarball":"vale-agent-latest.tgz","updated":"%s","sha256":"%s"}\n' \
+    printf '{"version":"%s","tarball":"summrise-agent-latest.tgz","updated":"%s","sha256":"%s"}\n' \
       "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" > "$out/version.json"
   fi
   echo "$sha"
 }
 
 # Last-5-per-minor prune (round-309): keep the newest 5 of EACH major.minor
-# line + the latest alias; delete every other vale-agent-1.*.*.tgz. A flat
+# line + the latest alias; delete every other summrise-agent-1.*.*.tgz. A flat
 # last-5 across all 1.x would evict the previous minor line the moment the
 # new line ships 5 releases and break pinned installs. $1 = asset dir.
 prune_last5_per_minor() {
@@ -39,12 +39,12 @@ prune_last5_per_minor() {
   # just imposed (the first version did exactly that, and the leak survived its own fix).
   local _nullglob_was="$(shopt -p nullglob || true)"
   shopt -s nullglob
-  mapfile -t KEEP < <(ls "$dir"/vale-agent-1.*.*.tgz 2>/dev/null | grep -v latest | sort -V | awk '
-    { ver = $0; sub(/.*vale-agent-/, "", ver); sub(/\.tgz$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
+  mapfile -t KEEP < <(ls "$dir"/summrise-agent-1.*.*.tgz 2>/dev/null | grep -v latest | sort -V | awk '
+    { ver = $0; sub(/.*summrise-agent-/, "", ver); sub(/\.tgz$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
     END { for (k in c) { from = (c[k] > 5 ? c[k] - 4 : 1); for (i = from; i <= c[k]; i++) print line[k, i] } }
   ')
   local f k keep=0
-  for f in "$dir"/vale-agent-1.*.*.tgz; do
+  for f in "$dir"/summrise-agent-1.*.*.tgz; do
     keep=0
     for k in "${KEEP[@]}"; do [ "$k" = "$f" ] && keep=1 && break; done
     if [ "$keep" -eq 0 ]; then rm -f "$f"; echo "pruned $(basename "$f")"; fi
@@ -53,8 +53,8 @@ prune_last5_per_minor() {
 }
 
 # Installer prune: keep the newest $2 (default 5) versioned
-# ValeAgent-Setup-1.*.*.exe PER MAJOR.MINOR, plus the versionless
-# ValeAgent-Setup.exe alias (never pruned — the landing page links it when the
+# SummriseAgent-Setup-1.*.*.exe PER MAJOR.MINOR, plus the versionless
+# SummriseAgent-Setup.exe alias (never pruned — the landing page links it when the
 # manifest advertises one).
 #
 # PER MINOR, because this comment used to CALL ITSELF the companion to the tgz
@@ -71,12 +71,12 @@ prune_installers() {
   # just imposed (the first version did exactly that, and the leak survived its own fix).
   local _nullglob_was="$(shopt -p nullglob || true)"
   shopt -s nullglob
-  mapfile -t KEEP_EXE < <(ls "$dir"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | sort -V | awk -v keep="$keep_n" '
-    { ver = $0; sub(/.*ValeAgent-Setup-/, "", ver); sub(/\.exe$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
+  mapfile -t KEEP_EXE < <(ls "$dir"/SummriseAgent-Setup-1.*.*.exe 2>/dev/null | sort -V | awk -v keep="$keep_n" '
+    { ver = $0; sub(/.*SummriseAgent-Setup-/, "", ver); sub(/\.exe$/, "", ver); n = split(ver, a, "."); key = a[1] "." a[2]; c[key]++; line[key, c[key]] = $0 }
     END { for (k in c) { from = (c[k] > keep ? c[k] - keep + 1 : 1); for (i = from; i <= c[k]; i++) print line[k, i] } }
   ')
   local f k keep=0
-  for f in "$dir"/ValeAgent-Setup-1.*.*.exe; do
+  for f in "$dir"/SummriseAgent-Setup-1.*.*.exe; do
     keep=0
     for k in "${KEEP_EXE[@]}"; do [ "$k" = "$f" ] && keep=1 && break; done
     if [ "$keep" -eq 0 ]; then rm -f "$f"; echo "pruned $(basename "$f")"; fi
@@ -120,7 +120,7 @@ retire_installers() {
   # just imposed (the first version did exactly that, and the leak survived its own fix).
   local _nullglob_was="$(shopt -p nullglob || true)"
   shopt -s nullglob
-  local files=("$dir"/ValeAgent-Setup*.exe)
+  local files=("$dir"/SummriseAgent-Setup*.exe)
   if [ "${#files[@]}" -eq 0 ]; then
     echo "no staged installer to retire (npm is the channel)"
     eval "$_nullglob_was"
@@ -232,7 +232,7 @@ pack_input_mode_verdict() {
     have=$(stat -c '%a' "$root/$f" 2>/dev/null || echo '?')
     [ "$have" = "$want" ] || bad="${bad}$f (worktree $have, this checkout should be $want)"$'\n'
   done < <(git -C "$root" ls-files -- "$npm_dir/bin" "$npm_dir/src" "$npm_dir/test" \
-             "$npm_dir/README.md" "$npm_dir/vale-desktop-electron" "agent/vale-desktop-electron")
+             "$npm_dir/README.md" "$npm_dir/summrise-desktop-electron" "agent/summrise-desktop-electron")
   if [ -n "$bad" ]; then printf '%s' "$bad"; return 1; fi
   return 0
 }

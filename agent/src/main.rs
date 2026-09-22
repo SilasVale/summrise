@@ -1,14 +1,14 @@
-//! vale-agent server binary — thin wrapper over the vale-agent library.
+//! summrise-agent server binary — thin wrapper over the summrise-agent library.
 //!
-//! Runs as a plain console process, or on Windows as the `ValeCommand` service
+//! Runs as a plain console process, or on Windows as the `SummriseCommand` service
 //! when launched by the Service Control Manager.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vale_agent::register::self_register_plan;
-use vale_agent::state::AppState;
-use vale_agent_core::Config;
+use summrise_agent::register::self_register_plan;
+use summrise_agent::state::AppState;
+use summrise_agent_core::Config;
 
 /// Startup log file (set in main): every out!/eout! line also lands here, so
 /// a boot-task agent (no console) or a silent crash is diagnosable by reading
@@ -70,17 +70,17 @@ mod winmain;
 
 /// Print error and pause before exit (Windows console friendly). In service mode
 /// stdin is not connected, so the read returns immediately and we still exit.
-/// stage-m: a parent (the Electron shell) may set VALE_NO_PAUSE=1 — then the
+/// stage-m: a parent (the Electron shell) may set SUMMRISE_NO_PAUSE=1 — then the
 /// pause is skipped entirely. Without this, an agent spawned by the shell that
 /// loses the 18080 bind race wedges on `read_line` forever, leaking an orphan
 /// process per launch (the d1 Chrome-OOM root cause).
 fn fatal(msg: &str) -> ! {
     eout!("\n  ERROR: {msg}\n");
-    if std::env::var_os("VALE_NO_PAUSE").is_none() {
+    if std::env::var_os("SUMMRISE_NO_PAUSE").is_none() {
         eout!("  Press Enter to exit...");
         let _ = std::io::stdin().read_line(&mut String::new());
     } else {
-        eout!("  (VALE_NO_PAUSE — exiting immediately)");
+        eout!("  (SUMMRISE_NO_PAUSE — exiting immediately)");
     }
     std::process::exit(1);
 }
@@ -99,15 +99,17 @@ fn init_tracing() {
     // call sites (recovery notices, bridge supervision…) were invisible.
     #[cfg(windows)]
     {
-        let path = vale_agent::paths::agent_log_file();
+        let path = summrise_agent::paths::agent_log_file();
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let file_layer = vale_agent::filelog::RotatingFile::new(path).ok().map(|w| {
-            tracing_subscriber::fmt::layer()
-                .with_ansi(false)
-                .with_writer(w)
-        });
+        let file_layer = summrise_agent::filelog::RotatingFile::new(path)
+            .ok()
+            .map(|w| {
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(w)
+            });
         tracing_subscriber::Registry::default()
             .with(env)
             .with(stdout_layer)
@@ -126,13 +128,13 @@ fn init_tracing() {
 
 fn main() {
     // Layout-v2 boot migration FIRST (ADR 0008 backstop): a pre-v2 updater
-    // (old Rust agent_update / old vale.js) leaves v1 paths behind; the new
+    // (old Rust agent_update / old summrise.js) leaves v1 paths behind; the new
     // agent moves them into their v2 homes before anything reads them.
     // Real installs only (registry-gated inside); idempotent; never fatal.
     // Runs before logging so the moved history is complete.
     #[cfg(windows)]
     {
-        for note in vale_agent::paths::migrate_layout_v2() {
+        for note in summrise_agent::paths::migrate_layout_v2() {
             eprintln!("  layout-v2: {note}");
         }
     }
@@ -143,10 +145,10 @@ fn main() {
     // diagnosable after the fact.
     #[cfg(windows)]
     {
-        let path = vale_agent::paths::startup_log_file();
+        let path = summrise_agent::paths::startup_log_file();
         if path.as_os_str().is_empty() {
             // Unresolvable roots — fall back to the exe dir (dev trees).
-            let dir = vale_agent::paths::exe_dir();
+            let dir = summrise_agent::paths::exe_dir();
             if !dir.as_os_str().is_empty() {
                 let _ = LOG_FILE.set(dir.join("startup.log"));
             }
@@ -157,7 +159,7 @@ fn main() {
             let _ = LOG_FILE.set(path);
         }
         log_line(&format!(
-            "=== vale-agent {} starting ===",
+            "=== summrise-agent {} starting ===",
             env!("CARGO_PKG_VERSION")
         ));
     }
@@ -167,8 +169,8 @@ fn main() {
     // invisible: `startup.log` only gains a block when the NEXT run begins, and a Rust
     // panic writes to stderr, which a boot task does not have. "The agent restarts every
     // couple of hours" was unexplainable for exactly that reason (d1, 2026-09-13).
-    let journal_dir = vale_agent::paths::data_dir();
-    let (_prev_run, run_line) = vale_agent::runstate::begin(&journal_dir);
+    let journal_dir = summrise_agent::paths::data_dir();
+    let (_prev_run, run_line) = summrise_agent::runstate::begin(&journal_dir);
     log_line(&run_line);
 
     // A PANIC MUST LAND IN THE FILE, not on a stderr nobody owns. The default hook is
@@ -212,8 +214,8 @@ fn main() {
     // resolution (empty PathBuf when the exe path is unavailable), so the
     // closure degrades to None exactly when the old one did.
     let default_cfg = || {
-        let dir = vale_agent::paths::exe_dir();
-        (!dir.as_os_str().is_empty()).then(vale_agent::paths::config_file)
+        let dir = summrise_agent::paths::exe_dir();
+        (!dir.as_os_str().is_empty()).then(summrise_agent::paths::config_file)
     };
     let init_mode = args.get(1).map(String::as_str) == Some("--init");
     let config_path = if init_mode {
@@ -239,16 +241,16 @@ fn main() {
     }
 
     // Legacy-install self-heal BEFORE the tunnel repair and the server bind:
-    // a 0.8.x install (vale-command.exe + ValeCommand service/tasks) can
+    // a 0.8.x install (summrise-command.exe + SummriseCommand service/tasks) can
     // coexist with this binary and grab port 18080 first — the SCM starts
-    // its service before the ValeAgent boot task, so the new server dies on
+    // its service before the SummriseAgent boot task, so the new server dies on
     // bind and the device silently keeps serving the old version.
     #[cfg(windows)]
     winmain::self_heal();
 
     // Self-heal the cloudflared tunnel on startup: if the bundled
-    // fix-tunnel.ps1 exists (it repairs a legacy vale-command-dN tunnel +
-    // *.command.saisi.online ingress to vale-agent-dN + *.agent.saisi.online,
+    // fix-tunnel.ps1 exists (it repairs a legacy summrise-command-dN tunnel +
+    // *.command.saisi.online ingress to summrise-agent-dN + *.agent.saisi.online,
     // idempotent), run it once in the background. Runs as SYSTEM here (the
     // scheduled task), which can write the systemprofile cloudflared config
     // that the service reads — the silent-upgrade path ran it as an admin
@@ -260,7 +262,7 @@ fn main() {
         // can dot-source it (`-Command . '<path>'`). Embedded at compile time
         // via include_str!, written once per boot (idempotent, no version
         // churn — the script's own guard skips re-install per session).
-        let si_dir = vale_agent::paths::shell_integration_dir();
+        let si_dir = summrise_agent::paths::shell_integration_dir();
         let si_script = si_dir.join("shellIntegration.ps1");
         if std::fs::create_dir_all(&si_dir).is_ok()
             && std::fs::write(
@@ -275,7 +277,7 @@ fn main() {
             ));
         }
 
-        let fix_script = vale_agent::paths::scripts_dir().join("fix-tunnel.ps1");
+        let fix_script = summrise_agent::paths::scripts_dir().join("fix-tunnel.ps1");
         if fix_script.exists() && !init_mode {
             let _ = std::process::Command::new("powershell")
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
@@ -336,7 +338,7 @@ const ABANDONED_RUN_OUTCOME: &str = "device restarted before the run ended";
 ///
 /// A run is opened by the `run_begin` tool and closed by `run_end` — and
 /// NOTHING closes it if the agent dies in between. Those deaths are ordinary:
-/// the 60 s watchdog, a crash, and `vale update`, which kills the agent BY
+/// the 60 s watchdog, a crash, and `summrise update`, which kills the agent BY
 /// DESIGN. A run killed mid-flight therefore stayed "open" forever, so after a
 /// day an abandoned run and a live one looked identical (the panel says so in
 /// as many words: "no end recorded ... the client may have stopped, or the
@@ -350,18 +352,18 @@ const ABANDONED_RUN_OUTCOME: &str = "device restarted before the run ended";
 /// categorical reason `report_retention` above explains: this is a DEVICE-level
 /// fact and that trail is per-session by construction.
 fn close_abandoned_runs() {
-    let closed = vale_agent::close_abandoned_runs(ABANDONED_RUN_OUTCOME);
+    let closed = summrise_agent::close_abandoned_runs(ABANDONED_RUN_OUTCOME);
     if closed > 0 {
         tracing::info!(
-            "[vale-agent] closed {closed} run(s) the previous process left open ({ABANDONED_RUN_OUTCOME})"
+            "[summrise-agent] closed {closed} run(s) the previous process left open ({ABANDONED_RUN_OUTCOME})"
         );
     }
 }
 
-fn report_retention(config: &Config) -> vale_agent::RetentionSweep {
-    let swept = vale_agent::retention_sweep(config);
+fn report_retention(config: &Config) -> summrise_agent::RetentionSweep {
+    let swept = summrise_agent::retention_sweep(config);
     if swept.total() > 0 {
-        tracing::info!("[vale-agent] {}", swept.describe());
+        tracing::info!("[summrise-agent] {}", swept.describe());
     }
     swept
 }
@@ -373,12 +375,12 @@ fn load_config(config_path: &Path) -> Config {
     // saved again. Harden the file on EVERY boot (idempotent, ~ms) so an
     // upgraded device self-heals without waiting for the next write.
     if config_path.exists() {
-        if let Err(e) = vale_agent::paths::harden_file(config_path) {
+        if let Err(e) = summrise_agent::paths::harden_file(config_path) {
             tracing::warn!("config.yaml ACL hardening unavailable: {e}");
         }
     }
     let (config, token) =
-        match vale_agent::bootstrap::load_or_create(config_path, &|msg| eout!("{msg}")) {
+        match summrise_agent::bootstrap::load_or_create(config_path, &|msg| eout!("{msg}")) {
             Ok(v) => v,
             Err(e) => fatal(&format!("Failed to load {}: {e}", config_path.display())),
         };
@@ -404,7 +406,7 @@ fn load_config(config_path: &Path) -> Config {
         };
         // Atomic write (round-57): a half-written config on power loss would
         // quarantine on next boot and rotate the token again.
-        let _ = vale_agent::bootstrap::atomic_write(config_path, yaml.as_bytes());
+        let _ = summrise_agent::bootstrap::atomic_write(config_path, yaml.as_bytes());
         // Mask the token in startup.log (round-58): the full token is the
         // device's only credential — a support-shared log must not leak it.
         // The console reads the token from config.yaml, not from logs.
@@ -463,14 +465,14 @@ pub(crate) fn unknown_key_warnings(config_path: &Path) -> Vec<String> {
             ],
         ),
         ("platform", &["console_url", "download_url"]),
-        // The memory plugin's capacity policy (vale-command-core MemoryConfig).
+        // The memory plugin's capacity policy (summrise-command-core MemoryConfig).
         // The panel's Settings PUT persists the SERIALIZED config, so this
         // section shows up with null defaults on any device whose settings were
         // ever saved — omitting it here made every boot warn
         // "unknown top-level key 'memory'" about a key the agent itself writes
         // and reads.
         ("memory", &["max_entries", "max_bytes", "retention_days"]),
-        // The two append-only AI records' age bounds (vale-command-core
+        // The two append-only AI records' age bounds (summrise-command-core
         // RetentionConfig): the pwout evidence feed and runs.jsonl. Shipped
         // explicitly in config.yaml and round-tripped by the Settings PUT, so —
         // exactly like `memory` — a missing entry here would warn about a
@@ -532,7 +534,7 @@ pub(crate) async fn run_server(config_path: PathBuf) {
     // token — tools are stateless, so publish the token where they can read
     // it (process env, never logged).
     if let Some(t) = config.server.device_token.clone() {
-        std::env::set_var("VALE_DEVICE_TOKEN", t);
+        std::env::set_var("SUMMRISE_DEVICE_TOKEN", t);
     }
 
     let host = config.server.host.clone();
@@ -541,7 +543,7 @@ pub(crate) async fn run_server(config_path: PathBuf) {
     let state = Arc::new(AppState::new(config));
     // round-158: device self-register — the npm-installed agent reports itself
     // ({name, hostname, token = config.device_token}) to the console so the
-    // Devices list stays automatic. Hostname comes from etc\vale-agent.hostname
+    // Devices list stays automatic. Hostname comes from etc\summrise-agent.hostname
     // (written at install); name = first label of the
     // subdomain. Runs at boot after the server is up, then every 6h; failures
     // are silent (the console may be offline at boot).
@@ -556,14 +558,14 @@ pub(crate) async fn run_server(config_path: PathBuf) {
             // Resolved HERE rather than captured: this spawn sits inside a nested scope
             // that the boot-time binding does not reach (the compiler said so, and the
             // lib-only test run could not — it does not build the bin at all).
-            let beat_dir = vale_agent::paths::data_dir();
-            let started = vale_agent::runstate::load(&beat_dir)
+            let beat_dir = summrise_agent::paths::data_dir();
+            let started = summrise_agent::runstate::load(&beat_dir)
                 .map(|r| r.started)
                 .unwrap_or(0);
             tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                    vale_agent::runstate::beat(&beat_dir, started);
+                    summrise_agent::runstate::beat(&beat_dir, started);
                 }
             });
         }
@@ -572,26 +574,26 @@ pub(crate) async fn run_server(config_path: PathBuf) {
         // HERE, in the process that serves `/api/status`, because CPU% is a DELTA: the
         // interval between readings is part of the value, and a second poller taking its
         // own readings would shorten the window the first one is measuring over.
-        vale_agent::metrics::spawn_sampler();
+        summrise_agent::metrics::spawn_sampler();
         // ── REACHABILITY PROBER ─────────────────────────────────────────────────
         // The targets an operator asked this device to watch survive a restart (they are
         // persisted); the samples do not, and one probe cycle re-derives them. Loaded before
         // the prober starts so the first cycle covers the list the file remembers.
         {
-            let monitors_dir = vale_agent::paths::data_dir();
-            vale_agent::monitor::load_targets(&monitors_dir);
+            let monitors_dir = summrise_agent::paths::data_dir();
+            summrise_agent::monitor::load_targets(&monitors_dir);
             // The device ANNOUNCES a state change on the same broadcast the panel's SSE stream
             // carries: a watched host going down reaches an open panel without it polling, and
             // the monitor module never learns what SSE is.
             {
                 let bus = state.event_bus.clone();
-                vale_agent::monitor::set_event_sink(std::sync::Arc::new(move |payload| {
+                summrise_agent::monitor::set_event_sink(std::sync::Arc::new(move |payload| {
                     // The trait must be in scope for the method, not just the type.
-                    use vale_agent::EventBus as _;
+                    use summrise_agent::EventBus as _;
                     bus.emit_term_output(payload);
                 }));
             }
-            vale_agent::monitor::spawn_prober();
+            summrise_agent::monitor::spawn_prober();
 
             // THE IDLE SWEEPER, SPAWNED WHERE STARTING IS GUARANTEED. It used to be spawned from the
             // TerminalManager constructor behind `Handle::try_current()`, which declines in silence —
@@ -601,15 +603,17 @@ pub(crate) async fn run_server(config_path: PathBuf) {
             #[cfg(feature = "terminal")]
             {
                 let bus = state.event_bus.clone();
-                vale_agent::tools::terminal::set_event_sink(std::sync::Arc::new(move |payload| {
-                    use vale_agent::EventBus as _;
-                    bus.emit_term_output(payload);
-                }));
+                summrise_agent::tools::terminal::set_event_sink(std::sync::Arc::new(
+                    move |payload| {
+                        use summrise_agent::EventBus as _;
+                        bus.emit_term_output(payload);
+                    },
+                ));
             }
             // Gated like the module it calls: the feature-less build has no terminal manager at all,
             // and a call that only exists with `terminal` must say so (both configs build).
             #[cfg(feature = "terminal")]
-            vale_agent::tools::terminal::spawn_idle_sweeper(state.terminal_mgr.clone());
+            summrise_agent::tools::terminal::spawn_idle_sweeper(state.terminal_mgr.clone());
         }
         tokio::spawn(async move {
             // Supervision audit #2: the old loop SNAPSHOT-READ the config
@@ -633,7 +637,7 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                     .map(|x| x.trim().to_string())
                     .filter(|x| !x.is_empty());
                 let token = cfg.server.device_token.clone().unwrap_or_default();
-                let hostname = std::fs::read_to_string(vale_agent::paths::hostname_file())
+                let hostname = std::fs::read_to_string(summrise_agent::paths::hostname_file())
                     .map(|x| x.trim().to_string())
                     .unwrap_or_default();
                 let mut fast_retry = true;
@@ -667,7 +671,7 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                                             conflict = true;
                                         }
                                         tracing::warn!(
-                                        "[vale-agent] device self-register to {url} → HTTP {st}{}",
+                                        "[summrise-agent] device self-register to {url} → HTTP {st}{}",
                                         if conflict { " (hostname/token conflict — resolve via the console Devices page; backing off)" } else { "" }
                                     );
                                     }
@@ -675,7 +679,7 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                                 }
                                 Err(e) => {
                                     tracing::warn!(
-                                        "[vale-agent] device self-register to {url} failed: {e}"
+                                        "[summrise-agent] device self-register to {url} failed: {e}"
                                     );
                                     false
                                 }
@@ -756,7 +760,7 @@ pub(crate) async fn run_server(config_path: PathBuf) {
     // only on shutdown (Ok) or an immediate startup failure (Err).
     let mut last_err = None;
     for attempt in 1..=5 {
-        match vale_agent::mcp::serve(state.config_snapshot(), state.clone()).await {
+        match summrise_agent::mcp::serve(state.config_snapshot(), state.clone()).await {
             Ok(()) => return,
             Err(e) => {
                 last_err = Some(e);
@@ -786,7 +790,7 @@ mod tests {
     /// Unique scratch config path (no tempfile dep on the binary target).
     fn scratch(yaml: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "vale-main-test-{}-{}-config.yaml",
+            "summrise-main-test-{}-{}-config.yaml",
             std::process::id(),
             TMP_CTR.fetch_add(1, Ordering::SeqCst)
         ));
@@ -822,7 +826,7 @@ mod tests {
         // and a user following that hint would delete the memory plugin's
         // capacity config).
         let p = scratch(concat!(
-            "server:\n  host: 127.0.0.1\n  port: 18080\n  name: vale-agent\n",
+            "server:\n  host: 127.0.0.1\n  port: 18080\n  name: summrise-agent\n",
             "  device_token: t\n  proxy_secret: s\n",
             "serial:\n  default_baud_rate: 115200\n  default_timeout_ms: 1000\n",
             "terminal:\n  buffer_mb: 8\n",
@@ -884,7 +888,7 @@ mod tests {
         std::fs::remove_file(&p).ok();
         // Missing file, invalid YAML, non-mapping root: silent, never panics.
         assert!(
-            unknown_key_warnings(&PathBuf::from("/nonexistent-vale-dir-xyz/config.yaml"))
+            unknown_key_warnings(&PathBuf::from("/nonexistent-summrise-dir-xyz/config.yaml"))
                 .is_empty()
         );
         let bad = scratch("{not yaml: [unclosed\n");

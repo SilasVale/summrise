@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # diag-stream.sh — attribute mid-stream truncation / 503 failures during a
-# failure window, by comparing the vale-gate relay against the direct upstream.
+# failure window, by comparing the summrise-gate relay against the direct upstream.
 #
 # Background: DSH's client reports "Stream ended without finish_reason" when
-# the SSE stream from api.saisi.online (vale-gate) closes without a terminal
+# the SSE stream from api.saisi.online (summrise-gate) closes without a terminal
 # frame, and "503 status code (no body)" when it gets a body-less 503. Both
 # can come from EITHER the upstream (opencode.ai/zen) OR Cloudflare edge/worker
 # aborts — this script decides which, by firing concurrent minimal probes at
 # BOTH paths and counting how many complete with a terminal frame.
 #
 # Usage:
-#   VALE_TOKEN=<gateway token> bash scripts/diag-stream.sh            # vale only
-#   VALE_TOKEN=... OPENCODE_GO_KEY=... bash scripts/diag-stream.sh    # vale vs direct zen
+#   SUMMRISE_TOKEN=<gateway token> bash scripts/diag-stream.sh            # summrise only
+#   SUMMRISE_TOKEN=... OPENCODE_GO_KEY=... bash scripts/diag-stream.sh    # summrise vs direct zen
 #
-# The gateway token is the value stored for VALE_API_KEY (see ~/.dsh/.credentials.yaml).
+# The gateway token is the value stored for SUMMRISE_API_KEY (see ~/.dsh/.credentials.yaml).
 # OPENCODE_GO_KEY is the user's opencode.ai/zen key (the worker secret
 # OPENCODE_GO_API_KEY; ask the admin if you don't have it).
 #
 # Output: per-attempt status/elapsed/terminal-frame presence, then a verdict:
 #   - direct zen also truncates → upstream problem (relay is not the cause)
-#   - vale truncates but direct zen completes → gateway/edge-side cause
+#   - summrise truncates but direct zen completes → gateway/edge-side cause
 #   - all complete → failures are intermittent/lower-frequency than this run
 
 set -u
@@ -31,11 +31,11 @@ ATTEMPTS="${ATTEMPTS:-4}"
 CONCURRENCY="${CONCURRENCY:-2}"
 MAX_TOKENS="${MAX_TOKENS:-8}"
 
-: "${VALE_TOKEN:?set VALE_TOKEN (the gateway token for VALE_API_KEY)}"
+: "${SUMMRISE_TOKEN:?set SUMMRISE_TOKEN (the gateway token for SUMMRISE_API_KEY)}"
 
-probe_vale() {
+probe_summrise() {
   curl -sS -m 120 -N \
-    -H "Authorization: Bearer $VALE_TOKEN" -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $SUMMRISE_TOKEN" -H "Content-Type: application/json" \
     -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":$MAX_TOKENS,\"stream\":true}" \
     "$API/v1/chat/completions" 2>/dev/null
 }
@@ -54,9 +54,9 @@ run_one() {
   local tmp="$(mktemp)"
   local start end status bytes httpx frame
   start="$(date +%s%N)"
-  if [ "$name" = "vale" ]; then
+  if [ "$name" = "summrise" ]; then
     httpx="$(curl -sS -m 120 -N -o "$tmp" -w '%{http_code}' \
-      -H "Authorization: Bearer $VALE_TOKEN" -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $SUMMRISE_TOKEN" -H "Content-Type: application/json" \
       -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":$MAX_TOKENS,\"stream\":true}" \
       "$API/v1/chat/completions" 2>/dev/null)"
   else
@@ -78,11 +78,11 @@ run_one() {
   rm -f "$tmp"
 }
 
-echo "== diag-stream: vale($API/$MODEL) vs zen($ZEN/$ZEN_MODEL) — $(date '+%F %T')"
+echo "== diag-stream: summrise($API/$MODEL) vs zen($ZEN/$ZEN_MODEL) — $(date '+%F %T')"
 echo "== attempts=$ATTEMPTS concurrency=$CONCURRENCY"
 echo
 
-ok_vale=0; ok_zen=0; tot_vale=0; tot_zen=0
+ok_summrise=0; ok_zen=0; tot_summrise=0; tot_zen=0
 run_batch() {
   local name="$1" key="$2"
   for i in $(seq 1 "$ATTEMPTS"); do
@@ -91,16 +91,16 @@ run_batch() {
     echo "$out"
     case "$out" in
       *"terminal=yes"*)
-        [ "$name" = "vale" ] && ok_vale=$((ok_vale+1)) || ok_zen=$((ok_zen+1))
+        [ "$name" = "summrise" ] && ok_summrise=$((ok_summrise+1)) || ok_zen=$((ok_zen+1))
         ;;
     esac
-    [ "$name" = "vale" ] && tot_vale=$((tot_vale+1)) || tot_zen=$((tot_zen+1))
+    [ "$name" = "summrise" ] && tot_summrise=$((tot_summrise+1)) || tot_zen=$((tot_zen+1))
     # small stagger so concurrent runs don't retry in lockstep
     sleep 0.2
   done
 }
 
-run_batch vale "$VALE_TOKEN"
+run_batch summrise "$SUMMRISE_TOKEN"
 if [ -n "${OPENCODE_GO_KEY:-}" ]; then
   run_batch zen "$OPENCODE_GO_KEY"
 else
@@ -110,14 +110,14 @@ fi
 
 echo
 echo "== summary"
-echo "vale: $ok_vale/$tot_vale completed with a terminal frame"
+echo "summrise: $ok_summrise/$tot_summrise completed with a terminal frame"
 if [ -n "${OPENCODE_GO_KEY:-}" ]; then
   echo "zen : $ok_zen/$tot_zen completed with a terminal frame"
-  if [ "$tot_vale" -gt 0 ] && [ "$tot_zen" -gt 0 ]; then
+  if [ "$tot_summrise" -gt 0 ] && [ "$tot_zen" -gt 0 ]; then
     if [ "$ok_zen" -lt "$tot_zen" ]; then
       echo "VERDICT: direct zen truncates too → upstream (opencode.ai/zen) problem, relay is not the cause"
-    elif [ "$ok_vale" -lt "$tot_vale" ]; then
-      echo "VERDICT: vale truncates but direct zen completes → gateway/edge-side cause (check wrangler tail / CF edge)"
+    elif [ "$ok_summrise" -lt "$tot_summrise" ]; then
+      echo "VERDICT: summrise truncates but direct zen completes → gateway/edge-side cause (check wrangler tail / CF edge)"
     else
       echo "VERDICT: all complete at this sample — failures are intermittent; re-run during a failure window"
     fi

@@ -16,12 +16,12 @@ describe("useEvictedNotice", () => {
     const { result } = renderHook(() => useEvictedNotice(1000));
     expect(result.current).toBeNull();
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-session-evicted", { detail: frame("d1") }));
+      window.dispatchEvent(new CustomEvent("summrise-session-evicted", { detail: frame("d1") }));
     });
     expect(result.current?.sessions[0].label).toBe("d1");
     // A second eviction REPLACES the first: two lines about housekeeping is one line too many.
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-session-evicted", { detail: frame("serial:COM4") }));
+      window.dispatchEvent(new CustomEvent("summrise-session-evicted", { detail: frame("serial:COM4") }));
     });
     expect(result.current?.sessions[0].label).toBe("serial:COM4");
     act(() => {
@@ -34,7 +34,7 @@ describe("useEvictedNotice", () => {
   it("ignores frames that are not evictions", () => {
     const { result } = renderHook(() => useEvictedNotice(1000));
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-monitor-change", { detail: { ev: "monitor-change" } }));
+      window.dispatchEvent(new CustomEvent("summrise-monitor-change", { detail: { ev: "monitor-change" } }));
     });
     expect(result.current).toBeNull();
   });

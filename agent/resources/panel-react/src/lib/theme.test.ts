@@ -15,12 +15,12 @@ describe("theme", () => {
 
   it("defaults to light when nothing stored, honors stored dark", async () => {
     expect(theme.getTheme()).toBe("light");
-    localStorage.setItem("vale-theme", "dark");
+    localStorage.setItem("summrise-theme", "dark");
     expect(theme.getTheme()).toBe("dark");
   });
 
   it("garbage stored value falls back to light", () => {
-    localStorage.setItem("vale-theme", "midnight");
+    localStorage.setItem("summrise-theme", "midnight");
     expect(theme.getTheme()).toBe("light");
   });
 
@@ -28,7 +28,7 @@ describe("theme", () => {
     const seen: string[] = [];
     const off = theme.onThemeChange(() => seen.push(document.body.dataset.theme!));
     theme.setTheme("dark");
-    expect(localStorage.getItem("vale-theme")).toBe("dark");
+    expect(localStorage.getItem("summrise-theme")).toBe("dark");
     expect(document.body.dataset.theme).toBe("dark");
     expect(seen).toEqual(["dark"]);
     off();

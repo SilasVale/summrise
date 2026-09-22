@@ -23,7 +23,7 @@ const CONFIGS = P.configPaths;
     console.log(JSON.stringify({ error: 'no token found in any known config', tried: CONFIGS }));
     process.exit(1);
   }
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 120)));

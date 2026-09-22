@@ -56,7 +56,7 @@ export function startParticleField(): () => void {
 
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
-  canvas.dataset.valeParticles = "1";
+  canvas.dataset.summriseParticles = "1";
   Object.assign(canvas.style, {
     position: "fixed",
     inset: "0",

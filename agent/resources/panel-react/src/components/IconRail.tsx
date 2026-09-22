@@ -75,9 +75,9 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
   return (
     <>
       {desktop ? (
-        <div className="desktop-rail-brand" title="Vale"><BrandMark size={26} /></div>
+        <div className="desktop-rail-brand" title="Summrise"><BrandMark size={26} /></div>
       ) : (
-        <div className="rail-brand" title="Vale"><BrandMark size={20} /></div>
+        <div className="rail-brand" title="Summrise"><BrandMark size={20} /></div>
       )}
       {(Object.keys(PAGE_ICONS) as Page[]).map((p) => (
         <button

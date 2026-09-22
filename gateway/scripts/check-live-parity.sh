@@ -3,7 +3,7 @@
 # test-only rounds never trigger deploys — 19 src commits sat undeployed
 # while every local gate stayed green. Run this after ANY gateway/src
 # change (or on a schedule) to catch drift between the LIVE worker's
-# /code/ viewer and the repo mirror (public/code/files/vale-gate/).
+# /code/ viewer and the repo mirror (public/code/files/summrise-gate/).
 #
 # Usage: bash scripts/check-live-parity.sh [base-url]
 #   base-url defaults to https://api.saisi.online
@@ -25,7 +25,7 @@ set -e
 cd "$(dirname "$0")/.."
 BASE="${1:-https://api.saisi.online}"
 MANIFEST=public/code/manifest.json
-MIRROR=public/code/files/vale-gate
+MIRROR=public/code/files/summrise-gate
 ATTEMPTS="${PARITY_ATTEMPTS:-8}"
 RETRY_SLEEP="${PARITY_RETRY_SLEEP:-20}"
 
@@ -33,8 +33,8 @@ paths=$(python3 -c "
 import json
 d = json.load(open('$MANIFEST'))
 for f in d['files']:
-    if f.get('group') == 'vale-gate':
-        print(f['path'].replace('files/vale-gate/', ''))
+    if f.get('group') == 'summrise-gate':
+        print(f['path'].replace('files/summrise-gate/', ''))
 ")
 count=$(printf '%s\n' $paths | wc -l)
 
@@ -46,7 +46,7 @@ check_pass() {
   for p in $paths; do
     # -L: the viewer 307-redirects bare files to their directory form
     # (public/index.html → public/); the target body is the comparable one.
-    if ! curl -sL --max-time 20 "$BASE/code/files/vale-gate/$p" -o /tmp/parity-live.ts; then
+    if ! curl -sL --max-time 20 "$BASE/code/files/summrise-gate/$p" -o /tmp/parity-live.ts; then
       PASS_DETAIL+="FETCH-FAIL $p"$'\n'
       drift=$((drift + 1))
       continue

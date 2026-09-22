@@ -67,7 +67,7 @@ export function diffChannel(advertised, offered) {
 
 async function fetchIds(url) {
   const res = await fetch(url, {
-    headers: { "user-agent": "vale-model-drift/1 (+https://agent.saisi.online)", accept: "application/json" },
+    headers: { "user-agent": "summrise-model-drift/1 (+https://agent.saisi.online)", accept: "application/json" },
     signal: AbortSignal.timeout(25_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -82,7 +82,7 @@ async function main() {
   const asJson = argv.includes("--json");
   const strict = argv.includes("--strict");
   const gi = argv.indexOf("--gateway");
-  const gateway = (gi >= 0 ? argv[gi + 1] : process.env.VALE_GATEWAY || "https://api.saisi.online").replace(/\/+$/, "");
+  const gateway = (gi >= 0 ? argv[gi + 1] : process.env.SUMMRISE_GATEWAY || "https://api.saisi.online").replace(/\/+$/, "");
 
   let advertised;
   try {

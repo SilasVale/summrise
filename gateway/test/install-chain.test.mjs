@@ -1,9 +1,9 @@
 // Install-chain contract tests — the REAL user path was never exercised:
-// unit tests spawned public/vale directly, but users run the installer
+// unit tests spawned public/summrise directly, but users run the installer
 // script (`curl ... | sh`) which base64-decodes the CLI and drops it on
 // disk. Pins the whole chain end to end:
-//   GET /api/vale-cli  → the repo artifact, byte for byte (drift gate)
-//   sh installer       → binary installed executable at $VALE_BIN
+//   GET /api/summrise-cli  → the repo artifact, byte for byte (drift gate)
+//   sh installer       → binary installed executable at $SUMMRISE_BIN
 //   node installed     → the decoded copy actually runs
 //   no node on PATH    → clean failure with the Node.js-required guard
 import test from "node:test";
@@ -19,9 +19,9 @@ import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 import { __clearCaches } from "../src/store.ts";
 
 // The real shipped CLI artifact — what the ASSETS binding serves in prod.
-const REAL_CLI = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "vale"), "utf8");
+const REAL_CLI = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "summrise"), "utf8");
 
-/** Worker env whose ASSETS serves the REAL public/vale (plus /api/health). */
+/** Worker env whose ASSETS serves the REAL public/summrise (plus /api/health). */
 function env() {
   __clearCaches();
   const base = makeBaseEnv({});
@@ -30,7 +30,7 @@ function env() {
     ASSETS: {
       async fetch(req) {
         const p = new URL(req.url).pathname;
-        if (p === "/vale") {
+        if (p === "/summrise") {
           return new Response(REAL_CLI, { status: 200, headers: { "content-type": "text/plain" } });
         }
         return new Response("not found", { status: 404 });
@@ -39,38 +39,38 @@ function env() {
   };
 }
 
-test("GET /api/vale-cli serves the repo artifact byte-for-byte (payload drift gate)", async () => {
-  const r = await worker.fetch(new Request("https://x/api/vale-cli"), env());
+test("GET /api/summrise-cli serves the repo artifact byte-for-byte (payload drift gate)", async () => {
+  const r = await worker.fetch(new Request("https://x/api/summrise-cli"), env());
   assert.equal(r.status, 200);
-  assert.equal(await r.text(), REAL_CLI, "served payload must equal public/vale on disk");
+  assert.equal(await r.text(), REAL_CLI, "served payload must equal public/summrise on disk");
 });
 
 test("posix installer executes and installs a working, byte-identical CLI", async () => {
   const cli = await (
-    await worker.fetch(new Request("https://x/api/vale-cli"), env())
+    await worker.fetch(new Request("https://x/api/summrise-cli"), env())
   ).text();
   const installer = path.join(
-    await fsp.mkdtemp(path.join(os.tmpdir(), "vale-inst-")),
+    await fsp.mkdtemp(path.join(os.tmpdir(), "summrise-inst-")),
     "install.sh",
   );
-  const dest = await fsp.mkdtemp(path.join(os.tmpdir(), "vale-bin-"));
+  const dest = await fsp.mkdtemp(path.join(os.tmpdir(), "summrise-bin-"));
   await fsp.writeFile(installer, posixInstaller(encodeBase64Utf8(cli)));
-  // The script honours VALE_BIN for the destination (no $HOME writes).
+  // The script honours SUMMRISE_BIN for the destination (no $HOME writes).
   execFileSync("/bin/sh", [installer], {
-    env: { ...process.env, VALE_BIN: dest },
+    env: { ...process.env, SUMMRISE_BIN: dest },
     stdio: "pipe",
   });
-  const installed = path.join(dest, "vale");
+  const installed = path.join(dest, "summrise");
   const stat = fs.statSync(installed);
   assert.equal(stat.mode & 0o111, 0o111, "installed binary must be executable");
   assert.equal(fs.readFileSync(installed, "utf8"), cli, "decoded payload is byte-identical");
   // The decoded copy RUNS: a check against a refused gateway exits non-zero
   // with the health error (proves execution, not just presence on disk).
-  // Isolate from the ambient ~/.claude/settings.json: vale check reads
-  // settings FIRST (VALE_SETTINGS, else ~/.claude/settings.json) and exits
+  // Isolate from the ambient ~/.claude/settings.json: summrise check reads
+  // settings FIRST (SUMMRISE_SETTINGS, else ~/.claude/settings.json) and exits
   // before the health probe when the file is missing — on machines without
   // that file (CI runners) this assertion saw the settings error instead
-  // of the health error. A temp VALE_SETTINGS makes it deterministic.
+  // of the health error. A temp SUMMRISE_SETTINGS makes it deterministic.
   const settings = path.join(dest, "settings.json");
   await fsp.writeFile(settings, JSON.stringify({ env: {} }));
   let code = 0;
@@ -79,8 +79,8 @@ test("posix installer executes and installs a working, byte-identical CLI", asyn
     execFileSync(process.execPath, [installed, "check"], {
       env: {
         ...process.env,
-        VALE_GATEWAY: "http://127.0.0.1:1",
-        VALE_SETTINGS: settings,
+        SUMMRISE_GATEWAY: "http://127.0.0.1:1",
+        SUMMRISE_SETTINGS: settings,
       },
       stdio: "pipe",
     });
@@ -96,10 +96,10 @@ test("posix installer executes and installs a working, byte-identical CLI", asyn
 test("install script fails cleanly without node on PATH", async () => {
   const cli = REAL_CLI;
   const installer = path.join(
-    await fsp.mkdtemp(path.join(os.tmpdir(), "vale-inst-")),
+    await fsp.mkdtemp(path.join(os.tmpdir(), "summrise-inst-")),
     "install.sh",
   );
-  const dest = await fsp.mkdtemp(path.join(os.tmpdir(), "vale-bin-"));
+  const dest = await fsp.mkdtemp(path.join(os.tmpdir(), "summrise-bin-"));
   await fsp.writeFile(installer, posixInstaller(encodeBase64Utf8(cli)));
   // Absolute /bin/sh so the spawn itself works; the script's own
   // `command -v node` sees the stripped PATH and must exit 1.
@@ -107,7 +107,7 @@ test("install script fails cleanly without node on PATH", async () => {
   let out = "";
   try {
     execFileSync("/bin/sh", [installer], {
-      env: { ...process.env, PATH: "/nonexistent", VALE_BIN: dest },
+      env: { ...process.env, PATH: "/nonexistent", SUMMRISE_BIN: dest },
       stdio: "pipe",
     });
   } catch (e) {
@@ -116,17 +116,17 @@ test("install script fails cleanly without node on PATH", async () => {
   }
   assert.notEqual(code, 0);
   assert.match(out, /Node\.js required/);
-  assert.equal(fs.existsSync(path.join(dest, "vale")), false, "no binary without node");
+  assert.equal(fs.existsSync(path.join(dest, "summrise")), false, "no binary without node");
   await fsp.rm(dest, { recursive: true, force: true });
   await fsp.rm(path.dirname(installer), { recursive: true, force: true });
 });
 
 test("PowerShell installer embeds the same payload (structure check — Windows-only runtime)", async () => {
   const cli = await (
-    await worker.fetch(new Request("https://x/api/vale-cli"), env())
+    await worker.fetch(new Request("https://x/api/summrise-cli"), env())
   ).text();
   const ps = psInstaller(encodeBase64Utf8(cli));
-  assert.match(ps, /vale\.cmd/, "the .cmd wrapper is part of the contract");
+  assert.match(ps, /summrise\.cmd/, "the .cmd wrapper is part of the contract");
   assert.match(ps, /FromBase64String\(/, "decodes the embedded payload");
   void spawn; // node:child_process import kept for symmetry with the exec tests
 });

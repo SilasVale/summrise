@@ -1,7 +1,7 @@
 //! Saved terminal connections (round-70) — file-backed memory of
 //! successfully-opened sessions so an AI (or the panel) can reconnect
 //! without re-entering the target/params. The file is plaintext JSON next
-//! to the exe (same trust model as vale-secrets.json: the device already
+//! to the exe (same trust model as summrise-secrets.json: the device already
 //! holds the API token in config.yaml).
 //!
 //! Dedup: the map is keyed by `kind:target` — reopening the same target
@@ -10,14 +10,14 @@
 
 use std::path::PathBuf;
 
-use vale_agent_core::{recover_guard, DeviceError};
+use summrise_agent_core::{recover_guard, DeviceError};
 
 fn store_path() -> PathBuf {
     #[cfg(test)]
     if let Some(d) = TEST_DIR.with(|d| d.borrow().clone()) {
-        return d.join("vale-connections.json");
+        return d.join("summrise-connections.json");
     }
-    crate::paths::data_dir().join("vale-connections.json")
+    crate::paths::data_dir().join("summrise-connections.json")
 }
 
 // Test-only store directory (mirrors secrets.rs file_store_tests harness).
@@ -53,7 +53,7 @@ fn write_all(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), Dev
     // Credential audit round MED-2: shared hardener (metadata-only store, so
     // best-effort — a failure cannot leak more than host/port inventory).
     if crate::paths::harden_file(&tmp).is_err() {
-        tracing::debug!("[vale-agent] connections: ACL hardening unavailable");
+        tracing::debug!("[summrise-agent] connections: ACL hardening unavailable");
     }
     std::fs::rename(&tmp, &p).map_err(|e| DeviceError::Internal {
         message: format!("rename to {p:?}: {e}"),
@@ -85,7 +85,7 @@ pub fn remember(
     // parity, data/stop bits, rows/cols — the target string alone would lose
     // the ?baud= for serial if the caller passed them separately).
     // round-92: the params were persisted VERBATIM — an ssh open's "password"
-    // landed in vale-connections.json in the clear and was returned by
+    // landed in summrise-connections.json in the clear and was returned by
     // terminal_saved_connections to any token holder. SSH passwords belong in
     // the keychain (secret_set/secret_get); persist everything except
     // credentials — terminal_connect_saved replays the config and ssh.rs's
@@ -141,7 +141,7 @@ mod conn_tests {
 
     fn isolated(name: &str) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("vale-conn-test-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("summrise-conn-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
@@ -179,7 +179,7 @@ mod conn_tests {
         // hold them — list() must scrub on read (round-80 LOW-6).
         let dir = isolated("legacy");
         std::fs::write(
-            dir.join("vale-connections.json"),
+            dir.join("summrise-connections.json"),
             r#"{"ssh:a@b:22":{"kind":"ssh","target":"a@b:22","label":"old","params":{"password":"LEAK-ME","user":"a"}}}"#,
         )
         .unwrap();
@@ -215,7 +215,7 @@ mod conn_tests {
         // file (disk bit-rot, hand-edit) must degrade to empty, never panic
         // — and the next remember() must heal the file, not append to garbage.
         let dir = isolated("corrupt");
-        std::fs::write(dir.join("vale-connections.json"), "{torn json{{{").unwrap();
+        std::fs::write(dir.join("summrise-connections.json"), "{torn json{{{").unwrap();
         assert!(list().is_empty());
         remember("ssh", "u@h:22", "healed", &serde_json::Map::new()).unwrap();
         let got = list();

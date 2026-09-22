@@ -132,7 +132,7 @@ export function PluginsPage({
             <span className="plug-meta">
               port {pw.playwright.port}
               {/* "up 0s" FOR A DAYS-OLD INSTANCE. The device's healthy EXTERNAL
-                  branch — the production one, where the ValePlaywright task hosts
+                  branch — the production one, where the SummrisePlaywright task hosts
                   the instance — omits `started_at`, so `?? Date.now()` made the
                   uptime zero. An absent value means NOT REPORTED, and the panel
                   says that instead of reading its own clock. */}

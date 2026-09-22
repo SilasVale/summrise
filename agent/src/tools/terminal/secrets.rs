@@ -1,7 +1,7 @@
 //! OS keychain secrets (SSH passwords) — file-backed.
 //!
 //! The production build ships with the `keyring` feature (Windows Credential
-//! Manager) but vale-agent runs as a Windows service (Session 0) where the
+//! Manager) but summrise-agent runs as a Windows service (Session 0) where the
 //! Credential Manager is unreliable, so every keyring operation falls back to
 //! a file store next to the exe. Without the feature, the file store is the
 //! only store. The file is plaintext JSON — acceptable here: the device
@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use vale_agent_core::{recover_guard, DeviceError};
+use summrise_agent_core::{recover_guard, DeviceError};
 
 /// DPAPI envelope for the file secret store (Windows): seals the JSON map
 /// with CryptProtectData (user-scoped, UI-forbidden) so a file copied off
@@ -20,7 +20,7 @@ use vale_agent_core::{recover_guard, DeviceError};
 /// sealed on the next mutation).
 #[cfg(windows)]
 mod dpapi {
-    const MAGIC: &[u8] = b"VALEDPA1";
+    const MAGIC: &[u8] = b"SUMMRISEDPA1";
 
     pub fn is_sealed(bytes: &[u8]) -> bool {
         bytes.starts_with(MAGIC)
@@ -99,9 +99,9 @@ pub(crate) mod file_impl {
     fn store_path() -> PathBuf {
         #[cfg(test)]
         if let Some(d) = TEST_DIR.with(|d| d.borrow().clone()) {
-            return d.join("vale-secrets.json");
+            return d.join("summrise-secrets.json");
         }
-        crate::paths::data_dir().join("vale-secrets.json")
+        crate::paths::data_dir().join("summrise-secrets.json")
     }
 
     // Test-only store directory (file_impl CRUD tests without touching the
@@ -152,7 +152,7 @@ pub(crate) mod file_impl {
         // round-101: temp + atomic rename — a crash/power loss mid-write
         // previously left a partial file that read_all() parsed to an EMPTY
         // map (the whole password store silently emptied; the repo's own
-        // standard, fixed for vale-known-hosts.json/config.yaml in round-57).
+        // standard, fixed for summrise-known-hosts.json/config.yaml in round-57).
         let tmp = p.with_extension("json.tmp");
         let json = serde_json::to_vec(map).unwrap_or_else(|_| b"{}".to_vec());
         #[cfg(windows)]
@@ -242,7 +242,7 @@ pub(crate) mod file_impl {
 mod secrets_impl {
     use super::*;
     use keyring::Entry;
-    const SERVICE: &str = "vale-command";
+    const SERVICE: &str = "summrise-command";
 
     fn entry(target: &str) -> Result<Entry, DeviceError> {
         // round-122: key the Credential Manager entry by the SAME normalized
@@ -360,7 +360,8 @@ mod file_store_tests {
     use super::file_impl::{self, write_all_with, TEST_DIR};
 
     fn isolated(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vale-sec-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-sec-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
@@ -396,7 +397,7 @@ mod file_store_tests {
         let dir = isolated("legacy");
         // pre-normalization file: raw "ssh:user@host" key only
         std::fs::write(
-            dir.join("vale-secrets.json"),
+            dir.join("summrise-secrets.json"),
             r#"{"ssh:user@host":"old-pw"}"#,
         )
         .unwrap();
@@ -412,13 +413,13 @@ mod file_store_tests {
         file_impl::set("user@host:22", "new-pw").unwrap(); // creates normalized twin
         file_impl::delete("user@host").unwrap();
         assert_eq!(file_impl::get("user@host").unwrap(), None);
-        let left = std::fs::read_to_string(dir.join("vale-secrets.json")).unwrap();
+        let left = std::fs::read_to_string(dir.join("summrise-secrets.json")).unwrap();
         assert!(
             !left.contains("ssh:user@host"),
             "raw key survived delete: {left}"
         );
         // AND the third shape: legacy raw entry found + purged via the :22 query
-        std::fs::write(dir.join("vale-secrets.json"), r#"{"ssh:z@y":"lz"}"#).unwrap();
+        std::fs::write(dir.join("summrise-secrets.json"), r#"{"ssh:z@y":"lz"}"#).unwrap();
         assert_eq!(file_impl::get("z@y:22").unwrap().as_deref(), Some("lz"));
         file_impl::delete("z@y:22").unwrap();
         assert_eq!(file_impl::get("z@y").unwrap(), None);
@@ -430,7 +431,7 @@ mod file_store_tests {
         // row 7: harden failure => Err, no tmp left behind, ORIGINAL file
         // untouched (a half-trustworthy store beats a world-readable one).
         let dir = isolated("failclosed");
-        let store = dir.join("vale-secrets.json");
+        let store = dir.join("summrise-secrets.json");
         std::fs::write(&store, b"{\"keep\":\"me\"}").unwrap();
         let mut map = serde_json::Map::new();
         map.insert("ssh:x".into(), serde_json::json!("secret"));
@@ -441,7 +442,7 @@ mod file_store_tests {
             "{err}"
         );
         assert!(
-            !dir.join("vale-secrets.json.tmp").exists(),
+            !dir.join("summrise-secrets.json.tmp").exists(),
             "tmp must be cleaned"
         );
         assert_eq!(
@@ -459,7 +460,11 @@ mod file_store_tests {
         // non-Windows has no seal at all; on Windows a pre-DPAPI plaintext
         // file must still read until the next write migrates it.
         let dir = isolated("plain");
-        std::fs::write(dir.join("vale-secrets.json"), r#"{"ssh:a@b:22":"legacy"}"#).unwrap();
+        std::fs::write(
+            dir.join("summrise-secrets.json"),
+            r#"{"ssh:a@b:22":"legacy"}"#,
+        )
+        .unwrap();
         assert_eq!(file_impl::get("a@b").unwrap().as_deref(), Some("legacy"));
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -61,7 +61,7 @@ function makeEnv({ adminEmail = "", users = {} } = {}) {
 }
 
 function reqWith(jwt) {
-  return new Request("https://ai.vale.test/api/me", { headers: jwt ? { "cf-access-jwt-assertion": jwt } : {} });
+  return new Request("https://ai.summrise.test/api/me", { headers: jwt ? { "cf-access-jwt-assertion": jwt } : {} });
 }
 
 test.beforeEach(() => { /* fresh env per test via makeEnv */ });

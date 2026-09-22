@@ -1,7 +1,7 @@
-// Vale browser helper - the CANONICAL SOURCE, not a build output.
+// Summrise browser helper - the CANONICAL SOURCE, not a build output.
 //
 // This text is embedded with include_str! (tools.rs:54) and written out by
-// browser_run_script as `vale-browser-helper.js` beside the scripts it runs. THAT
+// browser_run_script as `summrise-browser-helper.js` beside the scripts it runs. THAT
 // copy is the generated one - ensure_browser_helper repairs it whenever its content
 // drifts from this source - and the old header here said "do not edit, it is
 // overwritten" about "this file", which named no filename and was false about the
@@ -22,17 +22,17 @@
 const path = require("path");
 
 function coreOf() {
-  const base = path.join(process.env.VALE_PW_DIR || "", "node_modules");
+  const base = path.join(process.env.SUMMRISE_PW_DIR || "", "node_modules");
   for (const name of ["playwright-core", "playwright"]) {
     try {
       return require(path.join(base, name));
     } catch (e) { /* try next */ }
   }
-  throw new Error("bundled playwright not found under VALE_PW_DIR");
+  throw new Error("bundled playwright not found under SUMMRISE_PW_DIR");
 }
 
 function cdpEndpoint() {
-  return process.env.VALE_CDP_ENDPOINT || "http://127.0.0.1:9333";
+  return process.env.SUMMRISE_CDP_ENDPOINT || "http://127.0.0.1:9333";
 }
 
 async function acquireBrowser(opts) {

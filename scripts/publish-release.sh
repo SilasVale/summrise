@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Vale agent release publisher — the ONE command for a CDN release.
+# Summrise agent release publisher — the ONE command for a CDN release.
 #
 #   ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer]
 #
 # Assumes the exe is already built and staged (cargo xwin build + cp into
-# agent/vale-agent-npm/vale-agent.exe) and package.json version == 1.2.N.
+# agent/summrise-agent-npm/summrise-agent.exe) and package.json version == 1.2.N.
 #
 # Steps:
-#   1. npm pack in agent/vale-agent-npm -> vale-agent-1.2.N.tgz
-#   2. stage tgz + versionless latest alias into index/public/vale-agent
+#   1. npm pack in agent/summrise-agent-npm -> summrise-agent-1.2.N.tgz
+#   2. stage tgz + versionless latest alias into index/public/summrise-agent
 #   2b. [--with-installer] build the SELF-CONTAINED installer (NSIS bundles
 #      the staged tgz; --no-deploy here — the single deploy in step 6 covers
 #      everything, so the manifest and the installer never disagree)
@@ -16,7 +16,7 @@
 #      packed tgz — agent_update REQUIRES it, round-119) + installer fields
 #      when the exe is staged
 #   4. LAST-5-PER-MINOR PRUNE (round-309 lesson): delete every
-#      vale-agent-1.*.*.tgz older than the newest 5 OF ITS minor line, so
+#      summrise-agent-1.*.*.tgz older than the newest 5 OF ITS minor line, so
 #      defective releases are not downloadable (this policy was never
 #      enforced on manual publishes and 46 old tgz accumulated on the CDN)
 #      without evicting the previous minor line (pinned installs keep
@@ -24,7 +24,7 @@
 #   5. commit the tracked files (package.json bump + version.json)
 #   6. wrangler deploy (CDN sync — deletes pruned assets too)
 #   7. P0 AUDIT: CDN tgz vs GitHub release asset (scripts/lib/release-audit.sh).
-#      Every SOURCE-DERIVED file must match byte-for-byte; only vale-agent.exe
+#      Every SOURCE-DERIVED file must match byte-for-byte; only summrise-agent.exe
 #      may differ, because the two builders do not share a toolchain (local
 #      rustc stable + hand-built llvm18 vs release.yml's floating stable +
 #      distro llvm). Whole-tarball equality was the old rule and could never
@@ -48,7 +48,7 @@ source "scripts/lib/release-lib.sh"
 # The npm package directory, defined ONCE and early: the --check-modes-only entry
 # point below needs it before any guard runs, and a second literal would be the
 # "two things that must agree" shape this loop keeps closing.
-NPM_DIR=agent/vale-agent-npm
+NPM_DIR=agent/summrise-agent-npm
 
 # --check-modes-only: run ONLY the pack-input permission gate and exit. That gate
 # exists because `npm pack` preserves worktree modes — a 0600 file packs a tarball
@@ -118,7 +118,7 @@ if [ -n "${PENDING_RECONCILE// /}" ] && [ "$ACK_UNRECONCILED" -eq 0 ]; then
   echo "  Or acknowledge:  rerun with --acknowledge-unreconciled  (this run ADDS to the ledger; it does not clear it)" >&2
   exit 1
 fi
-ASSET_DIR=index/public/vale-agent
+ASSET_DIR=index/public/summrise-agent
 PKG="$NPM_DIR/package.json"
 
 # P2-3 token (same logic as scripts/build.sh cf_token): env first,
@@ -138,8 +138,8 @@ if [ "$PKG_VER" != "$VER" ]; then
 fi
 
 # Guard: the exe must be staged (built from the current source).
-if [ ! -f "$NPM_DIR/vale-agent.exe" ]; then
-  echo "::error::missing $NPM_DIR/vale-agent.exe — build + stage it first" >&2
+if [ ! -f "$NPM_DIR/summrise-agent.exe" ]; then
+  echo "::error::missing $NPM_DIR/summrise-agent.exe — build + stage it first" >&2
   exit 1
 fi
 
@@ -149,14 +149,14 @@ fi
 # cp from elsewhere aborts), and the build must postdate the newest commit
 # touching any exe input (rust src + embedded panel + cargo manifests).
 # Minimum bar on top: older than 30 days always aborts (WARN past 7 days).
-EXE_BUILD="agent/target/x86_64-pc-windows-msvc/release/vale-agent.exe"
+EXE_BUILD="agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe"
 if [ ! -f "$EXE_BUILD" ]; then
   echo "::error::missing $EXE_BUILD — cross-compile first: ./scripts/build.sh agent" >&2
   exit 1
 fi
-if ! cmp -s "$EXE_BUILD" "$NPM_DIR/vale-agent.exe"; then
-  echo "::error::staged $NPM_DIR/vale-agent.exe != fresh $EXE_BUILD — re-stage and retry:" >&2
-  echo "  cp $EXE_BUILD $NPM_DIR/vale-agent.exe" >&2
+if ! cmp -s "$EXE_BUILD" "$NPM_DIR/summrise-agent.exe"; then
+  echo "::error::staged $NPM_DIR/summrise-agent.exe != fresh $EXE_BUILD — re-stage and retry:" >&2
+  echo "  cp $EXE_BUILD $NPM_DIR/summrise-agent.exe" >&2
   exit 1
 fi
 SRC_TS=$(git log -1 --format=%ct -- agent/src agent/build.rs agent/resources/panel-react agent/resources/panel agent/Cargo.toml agent/Cargo.lock)
@@ -183,7 +183,7 @@ EXE_TS=$(stat -c %Y "$EXE_BUILD")
 NOW_TS=$(date +%s)
 if [ "$EXE_TS" -lt "$SRC_TS" ]; then
   echo "::error::$EXE_BUILD predates the newest exe-input commit ($(date -u -d "@$SRC_TS" +%Y-%m-%dT%H:%M:%SZ)) — rebuild, re-stage, retry:" >&2
-  echo "  ./scripts/build.sh agent && cp $EXE_BUILD $NPM_DIR/vale-agent.exe" >&2
+  echo "  ./scripts/build.sh agent && cp $EXE_BUILD $NPM_DIR/summrise-agent.exe" >&2
   exit 1
 fi
 if [ "$EXE_TS" -lt "$((NOW_TS - 30*24*3600))" ]; then
@@ -198,26 +198,26 @@ echo "exe provenance OK ($EXE_BUILD newer than all exe inputs)"
 # CHEAP artifact gates replicated from release.yml (a bare `npm pack` here
 # used to bypass all three CI gates and ship stale files to the CDN).
 # Fail fast before packing. tsc comes from the repo's own
-# vale-agent-npm/node_modules (P1-2 pins typescript@5, same as CI) — no
+# summrise-agent-npm/node_modules (P1-2 pins typescript@5, same as CI) — no
 # network install here; a missing tsc fails with the install command.
-# (a) round-298 marker presence in bin/vale.js — the exact grep the CI step
-# runs post-compile. A missing marker means src/vale.ts changed without
+# (a) round-298 marker presence in bin/summrise.js — the exact grep the CI step
+# runs post-compile. A missing marker means src/summrise.ts changed without
 # recompiling (the 1.2.274 stale-bin lesson).
-if ! grep -q "vale-release" "$NPM_DIR/bin/vale.js"; then
-  echo "::error::$NPM_DIR/bin/vale.js missing round-298 marker — recompile src/vale.ts first:" >&2
-  echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22 && ./node_modules/.bin/tsc -p tsconfig.json && cp dist/vale.js bin/vale.js)" >&2
+if ! grep -q "summrise-release" "$NPM_DIR/bin/summrise.js"; then
+  echo "::error::$NPM_DIR/bin/summrise.js missing round-298 marker — recompile src/summrise.ts first:" >&2
+  echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22 && ./node_modules/.bin/tsc -p tsconfig.json && cp dist/summrise.js bin/summrise.js)" >&2
   exit 1
 fi
-echo "bin/vale.js marker check OK"
-# P1-2 bin/vale.js freshness (same gate as release.yml:140-143 + the CI
-# pack-chain step): recompile src/vale.ts with the repo tsconfig into a
-# tmp dir and cmp against the committed bin/vale.js. The marker grep above
+echo "bin/summrise.js marker check OK"
+# P1-2 bin/summrise.js freshness (same gate as release.yml:140-143 + the CI
+# pack-chain step): recompile src/summrise.ts with the repo tsconfig into a
+# tmp dir and cmp against the committed bin/summrise.js. The marker grep above
 # only proves SOME build happened — this proves it was built from the
 # CURRENT source. No tsc here FAILS with the install command (never skip:
 # an uncheckable bin is an unshippable bin).
 TSC="$NPM_DIR/node_modules/.bin/tsc"
 if [ ! -x "$TSC" ]; then
-  echo "::error::no tsc in $NPM_DIR (bin/vale.js freshness uncheckable) — install and retry:" >&2
+  echo "::error::no tsc in $NPM_DIR (bin/summrise.js freshness uncheckable) — install and retry:" >&2
   echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)" >&2
   exit 1
 fi
@@ -226,32 +226,32 @@ if ! "$TSC" --version | grep -q "Version 5\."; then
   echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)" >&2
   exit 1
 fi
-"$TSC" -p "$NPM_DIR/tsconfig.json" --outDir /tmp/vale-fresh-bin
-if ! cmp -s /tmp/vale-fresh-bin/vale.js "$NPM_DIR/bin/vale.js"; then
-  echo "::error::$NPM_DIR/bin/vale.js is stale (src/vale.ts changed without recompiling) — recompile, commit, retry:" >&2
-  echo "  (cd $NPM_DIR && ./node_modules/.bin/tsc -p tsconfig.json && cp dist/vale.js bin/vale.js)" >&2
-  rm -rf /tmp/vale-fresh-bin
+"$TSC" -p "$NPM_DIR/tsconfig.json" --outDir /tmp/summrise-fresh-bin
+if ! cmp -s /tmp/summrise-fresh-bin/summrise.js "$NPM_DIR/bin/summrise.js"; then
+  echo "::error::$NPM_DIR/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile, commit, retry:" >&2
+  echo "  (cd $NPM_DIR && ./node_modules/.bin/tsc -p tsconfig.json && cp dist/summrise.js bin/summrise.js)" >&2
+  rm -rf /tmp/summrise-fresh-bin
   exit 1
 fi
-rm -rf /tmp/vale-fresh-bin
-echo "bin/vale.js freshness check OK (tsc recompile + cmp)"
+rm -rf /tmp/summrise-fresh-bin
+echo "bin/summrise.js freshness check OK (tsc recompile + cmp)"
 # (c) electron freshness: COMMITTED-clean (as before — CI compiles the
 # committed state, so any local modification means this pack may not match
 # what CI builds) PLUS the fresh-emit compare, same gate as
 # release.yml:155-162. The old comment here claimed the emit comparison
 # needed a network install CI does in ~15s — P1-2 above already guarantees
 # a pinned tsc, so run the real gate instead of waving through.
-if [ -n "$(git status --porcelain -- agent/vale-desktop-electron/src/)" ]; then
-  echo "::error::agent/vale-desktop-electron/src/ has uncommitted changes — commit (or stash) them first so this pack matches what CI will compile:" >&2
-  git status --porcelain -- agent/vale-desktop-electron/src/ >&2
+if [ -n "$(git status --porcelain -- agent/summrise-desktop-electron/src/)" ]; then
+  echo "::error::agent/summrise-desktop-electron/src/ has uncommitted changes — commit (or stash) them first so this pack matches what CI will compile:" >&2
+  git status --porcelain -- agent/summrise-desktop-electron/src/ >&2
   exit 1
 fi
 echo "electron src committed-clean OK"
-(cd "$NPM_DIR" && ./node_modules/.bin/tsc -p ../vale-desktop-electron/tsconfig.json \
+(cd "$NPM_DIR" && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
   --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh-pub --noCheck)
 for F in main.js preload.js url-policy.js; do
-  if ! cmp -s "/tmp/electron-fresh-pub/${F}" "$NPM_DIR/vale-desktop-electron/src/${F}"; then
-    echo "::error::$NPM_DIR/vale-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output" >&2
+  if ! cmp -s "/tmp/electron-fresh-pub/${F}" "$NPM_DIR/summrise-desktop-electron/src/${F}"; then
+    echo "::error::$NPM_DIR/summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output" >&2
     rm -rf /tmp/electron-fresh-pub
     exit 1
   fi
@@ -259,14 +259,14 @@ done
 rm -rf /tmp/electron-fresh-pub
 echo "electron src freshness check OK (fresh tsc emit + cmp)"
 # (d) source-tree copy vs npm-packaged copy: release.yml's freshness gate
-# compiles the TS and cmps ONLY the npm copy (vale-agent-npm/.../src/),
-# while tsc's input tree (agent/vale-desktop-electron/src/) holds its OWN
+# compiles the TS and cmps ONLY the npm copy (summrise-agent-npm/.../src/),
+# while tsc's input tree (agent/summrise-desktop-electron/src/) holds its OWN
 # committed main.js that nothing pins — the two drifted silently once
 # already (hand-edit reached only the npm copy). cmp all three shipped
 # files; pure local, no toolchain needed.
 for F in main.js preload.js url-policy.js; do
-  if ! cmp -s "agent/vale-desktop-electron/src/${F}" "agent/vale-agent-npm/vale-desktop-electron/src/${F}"; then
-    echo "::error::electron src copy drift: agent/vale-desktop-electron/src/${F} != agent/vale-agent-npm/vale-desktop-electron/src/${F} — sync them (tsc emit) and commit both" >&2
+  if ! cmp -s "agent/summrise-desktop-electron/src/${F}" "agent/summrise-agent-npm/summrise-desktop-electron/src/${F}"; then
+    echo "::error::electron src copy drift: agent/summrise-desktop-electron/src/${F} != agent/summrise-agent-npm/summrise-desktop-electron/src/${F} — sync them (tsc emit) and commit both" >&2
     exit 1
   fi
 done
@@ -277,7 +277,7 @@ echo "electron src copies in sync OK"
 # package.json bump (committed in step 5 below) must already be committed
 # — CI packs the committed tree, so any local delta here means this tgz
 # may not match what CI builds.
-DIRTY_INPUTS=$(git status --porcelain -- "$NPM_DIR/bin" "$NPM_DIR/src" "$NPM_DIR/test" "$NPM_DIR/README.md" "$NPM_DIR/vale-desktop-electron" "agent/vale-desktop-electron")
+DIRTY_INPUTS=$(git status --porcelain -- "$NPM_DIR/bin" "$NPM_DIR/src" "$NPM_DIR/test" "$NPM_DIR/README.md" "$NPM_DIR/summrise-desktop-electron" "agent/summrise-desktop-electron")
 if [ -n "$DIRTY_INPUTS" ]; then
   echo "::error::pack inputs have uncommitted changes — commit (or stash) them first so this pack matches CI:" >&2
   echo "$DIRTY_INPUTS" >&2
@@ -296,7 +296,7 @@ echo "pack inputs committed-clean OK"
 # THAT IS THE MEASURED CAUSE OF TWENTY CONSECUTIVE "packaging metadata" WARNs.
 # On the live 1.2.348 pair the two tarballs differ by exactly 3 bytes out of
 # 17,774,080 — README.md's mode field and its header checksum — while EVERY
-# file's sha256 matches, the 17.5 MB vale-agent.exe included. Blaming "the
+# file's sha256 matches, the 17.5 MB summrise-agent.exe included. Blaming "the
 # unreproducible-build long tail" for that was wrong, and this is where it is
 # actually decided.
 # The gate itself lives in scripts/lib/release-lib.sh (round 154) so it has
@@ -313,7 +313,7 @@ echo "pack input modes match a fresh checkout OK"
 
 echo "== pack =="
 (cd "$NPM_DIR" && npm pack >/dev/null)
-TGZ="$NPM_DIR/vale-agent-$VER.tgz"
+TGZ="$NPM_DIR/summrise-agent-$VER.tgz"
 [ -f "$TGZ" ] || { echo "::error::pack did not produce $TGZ" >&2; exit 1; }
 
 # (b) packed-tgz content gate — mirror release.yml's list exactly (a
@@ -322,14 +322,14 @@ TGZ="$NPM_DIR/vale-agent-$VER.tgz"
 # never `tar tzf | grep -q` under pipefail — list to a temp file first,
 # then grep with basename-tolerant anchors).
 tar tzf "$TGZ" > "/tmp/tgz-list-${VER}.txt"
-for F in "vale-agent.exe" \
+for F in "summrise-agent.exe" \
          "README.md" \
-         "vale-desktop-electron/src/main.js" \
-         "vale-desktop-electron/src/preload.js" \
-         "vale-desktop-electron/src/url-policy.js" \
-         "vale-desktop-electron/icon.png" \
-         "vale-desktop-electron/icon.ico" \
-         "bin/vale.js"; do
+         "summrise-desktop-electron/src/main.js" \
+         "summrise-desktop-electron/src/preload.js" \
+         "summrise-desktop-electron/src/url-policy.js" \
+         "summrise-desktop-electron/icon.png" \
+         "summrise-desktop-electron/icon.ico" \
+         "bin/summrise.js"; do
   if ! grep -qE "(^|/)${F}$" "/tmp/tgz-list-${VER}.txt"; then
     echo "::error::tgz missing required file: $F" >&2
     exit 1
@@ -339,7 +339,7 @@ echo "tgz content check OK ($TGZ)"
 
 echo "== stage =="
 cp "$TGZ" "$ASSET_DIR/"
-cp "$TGZ" "$ASSET_DIR/vale-agent-latest.tgz"
+cp "$TGZ" "$ASSET_DIR/summrise-agent-latest.tgz"
 # Installer 同版同发：--with-installer 在这里打自包含安装器（--no-deploy，
 # 单次 deploy 在下面统一做，manifest 和安装器不可能互相滞后）。tgz 已在
 # 上面 stage 好，正好满足 build-installer.sh 的前置。
@@ -350,7 +350,7 @@ fi
 # 自包含证明：staged 安装器必须比 tgz 大（内嵌 payload）。更小的只有一种
 # 可能——上一个版本的在线包残留（没打进去 tgz）。WARN 不 fail：紧急发布
 # 允许先上 tgz-only manifest，补打安装器后重跑 manifest+deploy 即可。
-INST_EXE="$ASSET_DIR/ValeAgent-Setup-$VER.exe"
+INST_EXE="$ASSET_DIR/SummriseAgent-Setup-$VER.exe"
 if [ -f "$INST_EXE" ]; then
   echo "installer staged: $(basename "$INST_EXE") ($(stat -c %s "$INST_EXE") bytes)"
   if [ "$(stat -c %s "$INST_EXE")" -le "$(stat -c %s "$TGZ")" ]; then
@@ -374,7 +374,7 @@ echo "== last-5-per-minor prune (round-309) =="
 # scripts/test/release-lib.bash).
 prune_last5_per_minor "$ASSET_DIR"
 prune_installers "$ASSET_DIR"
-echo "remaining: $(ls "$ASSET_DIR"/vale-agent-1.*.*.tgz 2>/dev/null | wc -l) versioned tgz + latest + $(ls "$ASSET_DIR"/ValeAgent-Setup-1.*.*.exe 2>/dev/null | wc -l) versioned installers + alias"
+echo "remaining: $(ls "$ASSET_DIR"/summrise-agent-1.*.*.tgz 2>/dev/null | wc -l) versioned tgz + latest + $(ls "$ASSET_DIR"/SummriseAgent-Setup-1.*.*.exe 2>/dev/null | wc -l) versioned installers + alias"
 
 echo "== commit (NOT here) =="
 # The publish step does not commit any more (operator, 2026-09-14: "why does the
@@ -405,7 +405,7 @@ smoke_index_release "$VER" "$SHA" || exit 1
 echo "== release audit: CDN vs GitHub release asset (P0 dual-builder) =="
 # The audit lives in scripts/lib/release-audit.sh. It demands that every
 # SOURCE-DERIVED file in the two tarballs be byte-identical and tolerates ONLY
-# a differing vale-agent.exe, because the two builders do not share a
+# a differing summrise-agent.exe, because the two builders do not share a
 # toolchain: this box builds with rustc `stable` (1.98.0 here) + a hand-built
 # llvm18 that cargo-xwin is symlinked to, while release.yml uses
 # dtolnay/rust-toolchain@stable (floating) + the distro's llvm. Demanding whole
@@ -454,7 +454,7 @@ else
   }
   # The CDN must still serve the exact bytes this run packed (catches a
   # mid-publish drift / a stale deploy), independent of the exe question.
-  CDN_SHA=$(curl -fsSL -m 120 "$CDN_BASE/vale-agent/vale-agent-$VER.tgz" | sha256sum | cut -d' ' -f1)
+  CDN_SHA=$(curl -fsSL -m 120 "$CDN_BASE/summrise-agent/summrise-agent-$VER.tgz" | sha256sum | cut -d' ' -f1)
   if [ "$CDN_SHA" != "$SHA" ]; then
     echo "::error::audit FAILED: CDN sha $CDN_SHA != just-packed local sha $SHA — the CDN drifted mid-publish" >&2
     exit 1
@@ -470,20 +470,20 @@ echo "== post-publish checklist (copy-paste; no gh CLI needed — this box has n
 echo "  [1] push the release commit:   git push origin main"
 echo "  [2] cut the tag via the API (direct tag pushes time out here):"
 echo "        curl -s -X POST -H \"Authorization: Bearer \$(cat ~/.github-token)\" -H 'Accept: application/vnd.github+json' \\"
-echo "          https://api.github.com/repos/SilasVale/vale/git/refs \\"
+echo "          https://api.github.com/repos/SilasVale/summrise/git/refs \\"
 echo "          -d '{\"ref\":\"refs/tags/v$VER\",\"sha\":\"'\$(git rev-parse HEAD)'\"}'"
 echo "  [3] wait for release.yml to go green, then audit the two artifacts:"
 echo "        ./scripts/publish-release.sh --audit-only $VER     # (or rerun without --skip-reconcile)"
 echo "      It demands every SOURCE-derived file be byte-identical and only tolerates"
-echo "      a differing vale-agent.exe (the two builders do not share a build env)."
+echo "      a differing summrise-agent.exe (the two builders do not share a build env)."
 echo "  [4] OPTIONAL — collapse the two builders so the CDN serves the CI artifact"
 echo "      (then CDN == GitHub byte-for-byte):"
 echo "        ./scripts/publish-cdn-from-ci.sh $VER"
 echo "  [5] keep-latest: delete the PREVIOUS release + tag via the API"
-echo "        (DELETE /repos/SilasVale/vale/releases/<id> and /git/refs/tags/<tag>;"
+echo "        (DELETE /repos/SilasVale/summrise/releases/<id> and /git/refs/tags/<tag>;"
 echo "         the URL needs the full refs path, not just the name)"
 echo "  [6] verify what devices see:   curl -s $CDN_BASE/api/version   # want version $VER"
-echo "        curl -fsSL $CDN_BASE/vale-agent/vale-agent-latest.tgz | sha256sum   # want: $SHA"
-echo "        curl -sI $CDN_BASE/vale-agent/ValeAgent-Setup.exe | grep -i etag    # must equal the"
-echo "        versioned ValeAgent-Setup-$VER.exe etag (an installer regenerated from a"
+echo "        curl -fsSL $CDN_BASE/summrise-agent/summrise-agent-latest.tgz | sha256sum   # want: $SHA"
+echo "        curl -sI $CDN_BASE/summrise-agent/SummriseAgent-Setup.exe | grep -i etag    # must equal the"
+echo "        versioned SummriseAgent-Setup-$VER.exe etag (an installer regenerated from a"
 echo "        converged tgz legitimately has a NEW sha — re-read the manifest for it)"

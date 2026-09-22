@@ -1,5 +1,5 @@
 // The SHIPPED playwright-mcp's browser_* tool contract, extracted from
-// agent/deploy/vale-playwright.zip (playwright-core/lib/coreBundle.js).
+// agent/deploy/summrise-playwright.zip (playwright-core/lib/coreBundle.js).
 // The bundle is a boxed, untracked artifact, so this snapshot is what CI can see.
 // Regenerate with: node gateway/scripts/extract-playwright-tools.mjs
 // Do not hand-edit.

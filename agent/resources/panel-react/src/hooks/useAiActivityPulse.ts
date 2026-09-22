@@ -3,7 +3,7 @@
 // P1-3 (three-streams-into-one): this hook used to open its OWN /api/events
 // SSE fetch alongside useSSE's /api/events/term stream (plus EvidenceDrawer's
 // own copy — three streams doing one job). useSSE already re-dispatches every
-// control frame as a `vale-<ev>` window event, so this hook now just subscribes
+// control frame as a `summrise-<ev>` window event, so this hook now just subscribes
 // to those (browser-actions-changed / playwright-changed) and keeps its UI
 // fade timer. No fetch, no backoff, no token needed.
 //
@@ -15,8 +15,8 @@ export const PULSE_MS = 8000;
 
 /** Window events (dispatched by useSSE) that mean "the AI is operating". */
 const AI_ACTIVITY_EVENTS = [
-  "vale-browser-actions-changed",
-  "vale-playwright-changed",
+  "summrise-browser-actions-changed",
+  "summrise-playwright-changed",
 ] as const;
 
 export function useAiActivityPulse(): boolean {

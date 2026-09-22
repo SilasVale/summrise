@@ -46,7 +46,7 @@ describe("the runs fixture, end to end", () => {
     const action = g.rows.find((r) => r.source === "browser");
     expect(start?.planStep).toBe(2);
     expect(start?.intent).toBe("check the agent is alive");
-    expect(start?.considered).toEqual(["vale doctor"]);
+    expect(start?.considered).toEqual(["summrise doctor"]);
     expect(start?.session).toBe("term-1");
     expect(start?.seq).toBe(41);
     expect(end?.exitCode).toBe(0);

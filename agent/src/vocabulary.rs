@@ -18,7 +18,7 @@
 //! module is only the vocabulary both ends must SPELL the same way.
 
 /// The `ev` field of every control frame the device pushes on `/api/events/term`. The panel receives each one as a
-/// `vale-<ev>` window event, so a typo on either side is a state that silently never arrives.
+/// `summrise-<ev>` window event, so a typo on either side is a state that silently never arrives.
 ///
 /// MECHANICAL, NOT REMEMBERED: `grep -rhoP '"ev"\s*:\s*"\K[a-z-]+' agent/src --include=*.rs` is where this list comes
 /// from, and the gate runs the same scan — a new `"ev"` literal anywhere in the agent fails until it is listed here.
@@ -108,7 +108,7 @@ mod tests {
     }
 
     /// Writes both artifacts, or checks them. Refresher, exactly like the tool spec's:
-    /// `VALE_REFRESH_CONTRACT=1 cargo test --features terminal,keyring contract_vocabulary_snapshot`.
+    /// `SUMMRISE_REFRESH_CONTRACT=1 cargo test --features terminal,keyring contract_vocabulary_snapshot`.
     #[test]
     fn contract_vocabulary_snapshot() {
         let dir = env!("CARGO_MANIFEST_DIR");
@@ -119,13 +119,13 @@ mod tests {
              // vocabulary::tests::contract_vocabulary_snapshot.\n\
              // The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked by\n\
              // scripts/test/contract-vocabulary-check.mjs.\n\
-             // Do not hand-edit: VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.\n{}\n",
+             // Do not hand-edit: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.\n{}\n",
             serde_json::to_string_pretty(&as_json()).unwrap()
         );
         let ts_path = format!("{dir}/resources/panel-react/src/lib/contract.gen.ts");
         let ts = format!(
             "// GENERATED — do not edit. Source of truth: agent/src/vocabulary.rs\n\
-             // Refresh: VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot\n\
+             // Refresh: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot\n\
              // Checked by scripts/test/contract-vocabulary-check.mjs, which fails by name when either end drifts.\n\n\
              /** The `ev` field of every control frame the device pushes on /api/events/term. */\n\
              export const FRAMES = {frames} as const;\n\n\
@@ -143,20 +143,20 @@ mod tests {
             prefix = serde_json::to_string(EXITED_PREFIX).unwrap(),
         );
 
-        let refresh = std::env::var("VALE_REFRESH_CONTRACT").is_ok_and(|v| !v.is_empty());
+        let refresh = std::env::var("SUMMRISE_REFRESH_CONTRACT").is_ok_and(|v| !v.is_empty());
         for (path, want) in [(&json_path, &rendered), (&ts_path, &ts)] {
             if refresh {
                 std::fs::write(path, want).unwrap_or_else(|e| panic!("write {path}: {e}"));
                 continue;
             }
             let have = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                panic!("{path} missing ({e}) — run VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot")
+                panic!("{path} missing ({e}) — run SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot")
             });
             assert_eq!(
                 have.trim_end(),
                 want.trim_end(),
                 "{path} is stale vs agent/src/vocabulary.rs — run \
-                 VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot and commit it"
+                 SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot and commit it"
             );
         }
     }

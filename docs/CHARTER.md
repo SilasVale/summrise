@@ -8,7 +8,7 @@
 
 ## Thesis (seed: `README.md` line 5)
 
-Vale turns a Windows machine into an **AI-controllable workspace**: terminal,
+Summrise turns a Windows machine into an **AI-controllable workspace**: terminal,
 SSH, serial and browser sessions exposed to AI through MCP, plus an Electron
 desktop shell and a device-local memory. One repository carries the front door
 (gateway), the device agent, the download distribution and the satellites.
@@ -42,7 +42,7 @@ world, not from the repo:
 
 - The free path stays free (cloudflared tunnel); no mandatory paid hop.
 - No process listens on a non-loopback socket on the dev box (company policy).
-- Cross-machine files move ONLY through the Vale relay pair (`system_file_upload` / `system_file_download`).
+- Cross-machine files move ONLY through the Summrise relay pair (`system_file_upload` / `system_file_download`).
 - Never `pm2 start` from an agent session; long-lived services start from the ecosystem file with a scrubbed env.
 - DSH upgrades only through `/home/zhengsaisi/dsh-upgrade/upgrade-dsh.sh`.
 - `install` / `update` / `rollback` must keep working on a device that is already running, and stay recoverable.

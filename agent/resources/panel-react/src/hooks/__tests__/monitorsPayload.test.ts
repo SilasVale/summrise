@@ -107,7 +107,7 @@ describe("parseMonitors", () => {
 // ── THE PUSH THAT FEEDS THE ALERT STRIP ──────────────────────────────────────────────────────────
 //
 // `useMonitorAlerts` renders nothing until the DEVICE pushes a state change over the SSE stream — the
-// `vale-monitor-change` event round 94's vocabulary contract pins as one of the four the device emits.
+// `summrise-monitor-change` event round 94's vocabulary contract pins as one of the four the device emits.
 // That is why the strip measured empty in this round's first pass with a down target on screen: no
 // push, no strip. Not a defect, and worth stating because it looks exactly like one.
 //

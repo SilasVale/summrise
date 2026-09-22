@@ -13,7 +13,7 @@ import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
 const TAG = process.argv[2] || "before";
-const BASE = process.env.VALE_SHOT_BASE || "http://127.0.0.1:18811";
+const BASE = process.env.SUMMRISE_SHOT_BASE || "http://127.0.0.1:18811";
 const OUT = `/tmp/panel-shot/${TAG}`;
 const PAGES = ["terminal", "archive", "activity", "browser", "memory", "plugins", "settings"];
 const THEMES = ["light", "dark"];
@@ -34,10 +34,10 @@ for (const theme of THEMES) {
     const page = await ctx.newPage();
     await page.addInitScript(
       ([t]) => {
-        localStorage.setItem("valeHost", "127.0.0.1:18811");
-        localStorage.setItem("valeToken", "mock-token");
-        localStorage.setItem("valeFontSize", "13");
-        localStorage.setItem("vale-theme", t);
+        localStorage.setItem("summriseHost", "127.0.0.1:18811");
+        localStorage.setItem("summriseToken", "mock-token");
+        localStorage.setItem("summriseFontSize", "13");
+        localStorage.setItem("summrise-theme", t);
       },
       [theme],
     );

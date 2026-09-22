@@ -14,7 +14,7 @@ use axum::response::Response;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use vale_agent_core::EventBus;
+use summrise_agent_core::EventBus;
 
 use crate::state::AppState;
 
@@ -211,7 +211,7 @@ pub(crate) async fn sse_stream(state: Arc<AppState>, guard: SseConnectionGuard) 
     // SeqEvent serializes as {"seq":n,"event":{...}}. The `v` field is a
     // protocol version anchor (round-54): clients ignore unknown fields, so
     // this is purely a diagnostic marker.
-    let encode = |event: &vale_agent_core::events::SeqEvent| {
+    let encode = |event: &summrise_agent_core::events::SeqEvent| {
         let mut obj = serde_json::to_value(event).unwrap_or_default();
         if let Some(o) = obj.as_object_mut() {
             o.insert("v".into(), serde_json::json!(1));

@@ -98,9 +98,9 @@ describe("the tab title and the badge", () => {
   it("leads with the count, because a tab truncates from the right", () => {
     expect(titleFor([])).toBe(BASE_TITLE);
     const items: AttentionItem[] = [{ key: "down:a:22", kind: "down", text: "a:22 is down" }];
-    expect(titleFor(items)).toBe("(1) Vale Agent");
+    expect(titleFor(items)).toBe("(1) Summrise Agent");
     const both: AttentionItem[] = [...items, { key: "approval:1", kind: "approval", text: "waiting" }];
-    expect(titleFor(both)).toBe("(2) ⚠ Vale Agent");
+    expect(titleFor(both)).toBe("(2) ⚠ Summrise Agent");
   });
 
   it("ADDS the badge to the existing icon instead of drawing a new one", () => {
@@ -149,7 +149,7 @@ describe("the notifier's rules", () => {
     const { sent, C } = ctor();
     let now = 1_000_000;
     const n = new DeviceNotifier(C, () => now);
-    const payload = { key: "down:a:22", title: "Vale: host down", body: "a:22 is down" };
+    const payload = { key: "down:a:22", title: "Summrise: host down", body: "a:22 is down" };
     expect(n.notify(payload, ok)).toBe(true);
     now += 60_000;
     // Still down on the next poll: NO second notification.
@@ -233,24 +233,24 @@ describe("one outage is ONE notification (the bug the live test found)", () => {
     // The PUSH arrives first (it is emitted from the same lock that appends the probe)…
     const sinceMs = 1_789_392_840_540;
     n.notify(
-      { key: stateKey("a:22", sinceMs), title: "Vale: host down", body: "a:22 is DOWN — it had been up 40s" },
+      { key: stateKey("a:22", sinceMs), title: "Summrise: host down", body: "a:22 is DOWN — it had been up 40s" },
       "granted",
     );
     // …and the next POLL sees the same down state, deriving its key from `summary.sinceMs`.
-    n.notify({ key: stateKey("a:22", sinceMs), title: "Vale: host down", body: "a:22 is down" }, "granted");
+    n.notify({ key: stateKey("a:22", sinceMs), title: "Summrise: host down", body: "a:22 is down" }, "granted");
     expect(sent).toHaveLength(1);
     expect(sent[0].body).toContain("40s");
 
     // The link recovers: the state key changes, and the recovery is announced once.
     now += 60_000;
     n.retain([]);
-    n.notify({ key: stateKey("a:22", sinceMs + 60_000), title: "Vale: host back up", body: "back up" }, "granted");
+    n.notify({ key: stateKey("a:22", sinceMs + 60_000), title: "Summrise: host back up", body: "back up" }, "granted");
     expect(sent).toHaveLength(2);
 
     // A SECOND outage (new state) notifies again — the dedupe must not become permanent.
     now += 60_000;
     n.retain([]);
-    n.notify({ key: stateKey("a:22", sinceMs + 300_000), title: "Vale: host down", body: "again" }, "granted");
+    n.notify({ key: stateKey("a:22", sinceMs + 300_000), title: "Summrise: host down", body: "again" }, "granted");
     expect(sent).toHaveLength(3);
   });
 });

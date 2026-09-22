@@ -76,7 +76,7 @@ describe("startParticleField", () => {
     stubContext();
     const stop = startParticleField();
 
-    const canvas = document.querySelector<HTMLCanvasElement>("canvas[data-vale-particles]");
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas[data-summrise-particles]");
     expect(canvas).not.toBeNull();
     expect(canvas!.getAttribute("aria-hidden")).toBe("true");
     // Decorative AND inert: a field that swallowed clicks would break every control under it,
@@ -86,7 +86,7 @@ describe("startParticleField", () => {
     expect(canvas!.style.zIndex).toBe("0");
 
     stop();
-    expect(document.querySelector("canvas[data-vale-particles]")).toBeNull();
+    expect(document.querySelector("canvas[data-summrise-particles]")).toBeNull();
   });
 
   it("ACTUALLY DRAWS — the failure mode nothing else would catch", () => {
@@ -114,7 +114,7 @@ describe("startParticleField", () => {
 
     // Not merely "slower": the honest fallback is no animation at all, leaving the static
     // wash the page already has.
-    expect(document.querySelector("canvas[data-vale-particles]")).toBeNull();
+    expect(document.querySelector("canvas[data-summrise-particles]")).toBeNull();
     expect(typeof stop).toBe("function");
     stop();
   });
@@ -123,7 +123,7 @@ describe("startParticleField", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     HTMLCanvasElement.prototype.getContext = vi.fn(() => null) as any;
     expect(() => startParticleField()).not.toThrow();
-    expect(document.querySelector("canvas[data-vale-particles]")).toBeNull();
+    expect(document.querySelector("canvas[data-summrise-particles]")).toBeNull();
   });
 });
 

@@ -27,9 +27,9 @@ const IS_A_CHECK = /^(npm run (typecheck|lint|format:check|build|test)|npm test|
 
 /** Steps that are checks but deliberately not in the table, each with the reason it is not a per-end command. */
 const DECLARED = {
-  "cargo build -p vale-agent --features terminal --bin vale-agent":
+  "cargo build -p summrise-agent --features terminal --bin summrise-agent":
     "it produces the binary the e2e step drives, so it is part of that step rather than a per-end check",
-  "cargo xwin check -p vale-agent --target x86_64-pc-windows-msvc --features terminal,keyring":
+  "cargo xwin check -p summrise-agent --target x86_64-pc-windows-msvc --features terminal,keyring":
     "a cross-target CHECK whose command the Build section gives in full; the table is about the four ends' suites",
   "node scripts/test/gate-mutations-check.mjs": "the audit itself; AGENTS.md points at the ledger for the gates it drives",
   "node scripts/test/stub-surface-check.mjs": "same: a gate, recorded in the ledger with its mutation",

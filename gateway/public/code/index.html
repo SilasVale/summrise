@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Source Viewer · Vale</title>
+<title>Source Viewer · Summrise</title>
 <style>
   :root { --bg:#f5f5f7; --surface:#fff; --surface-glass:rgba(255,255,255,.72); --ink:#1d1d1f; --muted:#6e6e73; --faint:#6e6e73; --line:rgba(0,0,0,0.08); --line-strong:rgba(0,0,0,0.14); --accent:#0b7a6e; --accent-ink:#0b7a6e; --accent-soft:#e7f5f2; --fill:#f1f1ef; --danger:#dc2626; --radius:14px; --radius-sm:10px; --radius-lg:20px; --font-body:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif; --font-mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,monospace; --shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04); }
   * { box-sizing:border-box; }
@@ -28,7 +28,7 @@
 </head>
 <body>
 <header>
-  <h1>Source Viewer · Vale</h1>
+  <h1>Source Viewer · Summrise</h1>
   <span class="sub" id="meta">source snapshot</span>
   <span class="lang"><button id="lang-btn">中文</button></span>
 </header>
@@ -41,13 +41,13 @@
 </div>
 <script>
 const I18N = {
-  zh: { title: "代码浏览 · Vale", sub: "源码快照", pick: "从左侧选择一个文件", loadManifest: "manifest 加载失败", loading: "加载中…", loadFail: "加载失败: " },
-  en: { title: "Source Viewer · Vale", sub: "source snapshot", pick: "Select a file from the left", loadManifest: "manifest failed to load", loading: "Loading…", loadFail: "Failed to load: " },
+  zh: { title: "代码浏览 · Summrise", sub: "源码快照", pick: "从左侧选择一个文件", loadManifest: "manifest 加载失败", loading: "加载中…", loadFail: "加载失败: " },
+  en: { title: "Source Viewer · Summrise", sub: "source snapshot", pick: "Select a file from the left", loadManifest: "manifest failed to load", loading: "Loading…", loadFail: "Failed to load: " },
 };
 let lang = "zh";
-try { lang = (localStorage.getItem("valegate-code-lang") || (navigator.language || "zh").startsWith("zh") ? "zh" : "en"); } catch (e) {}
+try { lang = (localStorage.getItem("summrisegate-code-lang") || (navigator.language || "zh").startsWith("zh") ? "zh" : "en"); } catch (e) {}
 const t = (k) => (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k;
-const setLang = (l) => { lang = l; try { localStorage.setItem("valegate-code-lang", l); } catch(e){} apply(); };
+const setLang = (l) => { lang = l; try { localStorage.setItem("summrisegate-code-lang", l); } catch(e){} apply(); };
 
 const $ = (s) => document.querySelector(s);
 const sidebar = $("#sidebar"), viewer = $("#viewer"), meta = $("#meta"), fileMeta = $("#file-meta");

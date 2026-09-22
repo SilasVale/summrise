@@ -221,7 +221,7 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
   return { ...monitors, failed, refresh, add, remove, probe };
 }
 
-/** THE DEVICE SPEAKING. A watched target changing state arrives as `vale-monitor-change` on the
+/** THE DEVICE SPEAKING. A watched target changing state arrives as `summrise-monitor-change` on the
  *  SSE stream (the monitor emits it; the panel does not poll for it), and this turns the window
  *  event into a short list of alerts the shell renders.
  *
@@ -277,8 +277,8 @@ export function useMonitorAlerts(ttlMs = 12_000): MonitorAlert[] {
         setAlerts((prev) => prev.filter((a) => a.key !== alert.key));
       }, ttlMs);
     };
-    window.addEventListener("vale-monitor-change", onFrame);
-    return () => window.removeEventListener("vale-monitor-change", onFrame);
+    window.addEventListener("summrise-monitor-change", onFrame);
+    return () => window.removeEventListener("summrise-monitor-change", onFrame);
   }, [ttlMs]);
   return alerts;
 }

@@ -15,15 +15,15 @@ import type { SessionView } from "./components/TabBar";
 // App — the slim root: connection bootstrap + shell selection (panel vs
 // desktop density) + shared domain hooks. All page-local state lives in the
 // page components (TerminalWorkspace etc.), per the core design doc
-// (docs/superpowers/specs/2026-08-28-vale-desktop-core-design.md).
+// (docs/superpowers/specs/2026-08-28-summrise-desktop-core-design.md).
 //
 // round-162: the injected "Browser" session row is GONE — the browser was
 // simultaneously a tab-strip session and a side-rail page, which read as a
 // duplicate. The Browser page is now the single entry (state-aware, see
 // BrowserPage.tsx); sessions here are terminals only.
 
-const LS_HOST = "valeHost";
-const LS_TOKEN = "valeToken";
+const LS_HOST = "summriseHost";
+const LS_TOKEN = "summriseToken";
 
 function isDesktopPath() {
   return location.pathname.startsWith("/desktop");
@@ -56,7 +56,7 @@ export function App() {
   const sessions = useSessions(connected);
 
   // Browser session (P1): in the Electron shell the preload bridge
-  // (window.valeBrowser) opens a browser-session window natively — no HTTP,
+  // (window.summriseBrowser) opens a browser-session window natively — no HTTP,
   // no CORS. Fall back to the shell's local control endpoint (127.0.0.1:9444)
   // when the SPA runs in a plain browser, and explain when neither exists.
   const openBrowserSession = async () => {
@@ -77,7 +77,7 @@ export function App() {
       if (!data.ok) throw new Error(data.error || "open failed");
     } catch {
       setConnError(
-        "Browser sessions need the Vale desktop app (Electron shell on this machine).",
+        "Browser sessions need the Summrise desktop app (Electron shell on this machine).",
       );
     }
   };
@@ -166,7 +166,7 @@ export function App() {
   const sseState = useSSE(connected, writeCallbacks, getLiveSidsRef);
 
   // Native menu + keyboard shortcut bridge (stage-l desktop refactor): maps
-  // vale-menu commands / Ctrl+Shift+* accelerators onto session actions. The
+  // summrise-menu commands / Ctrl+Shift+* accelerators onto session actions. The
   // Electron main process sends commands; a plain browser falls back to
   // keydown handlers. Only active for the desktop density.
   useDesktopCommands(
@@ -215,7 +215,7 @@ export function App() {
     } catch {
       /* private mode: session-only */
     }
-    // round-124: in proxy mode never persist the token — the vale_pt cookie
+    // round-124: in proxy mode never persist the token — the summrise_pt cookie
     // is the credential there; persisting the plugin token to console-origin
     // localStorage is a plaintext 30-day device-control credential readable
     // by any console-origin script. Same-origin (LAN) mode keeps it.
@@ -241,7 +241,7 @@ export function App() {
         <div className="conn-brand">
           <BrandMark size={44} />
         </div>
-        <h1>Vale Agent</h1>
+        <h1>Summrise Agent</h1>
         <label htmlFor="host">Device hostname</label>
         <input
           id="host"

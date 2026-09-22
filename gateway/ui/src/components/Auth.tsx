@@ -73,7 +73,7 @@ export default function Auth() {
         <div className="auth-brand">
           <img className="brand-img" src="/favicon.svg" alt="" width={52} height={52} />
           <div>
-            <h1>Vale</h1>
+            <h1>Summrise</h1>
             <p>{t("app.sub")}</p>
           </div>
         </div>

@@ -168,7 +168,7 @@ jobs:
         with:
           workspaces: agent
       - name: Tests
-        # BOTH crates. `vale-command-core` is a FOUNDATION module (per AGENTS.md) and its
+        # BOTH crates. `summrise-command-core` is a FOUNDATION module (per AGENTS.md) and its
         # 29 tests were never run here — which is how a stale assertion sat failing for
         # however long: it pinned `127.0.0.2` as ServerConfig's default while the code (and
         # `netstat` on d1) say `127.0.0.1`, a claim this very file records as disproven.
@@ -178,15 +178,15 @@ jobs:
           # no-feature build silently stopped compiling: `exec.rs` calls `term_note_exit_code`, only the REAL terminal
           # backend had it, and the stub did not — three errors that no job could see. A configuration nobody builds is a
           # configuration that is broken.
-          cargo test -p vale-agent
-          cargo test -p vale-agent --features terminal,keyring
-          cargo test -p vale-agent-core
+          cargo test -p summrise-agent
+          cargo test -p summrise-agent --features terminal,keyring
+          cargo test -p summrise-agent-core
         working-directory: agent
       - name: Clippy (zero warnings)
         run: |
-          cargo clippy -p vale-agent --all-targets -- -D warnings
-          cargo clippy -p vale-agent --features terminal,keyring --all-targets -- -D warnings
-          cargo clippy -p vale-agent-core --all-targets -- -D warnings
+          cargo clippy -p summrise-agent --all-targets -- -D warnings
+          cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings
+          cargo clippy -p summrise-agent-core --all-targets -- -D warnings
         working-directory: agent
       - name: Format check
         run: cargo fmt --all -- --check
@@ -221,41 +221,41 @@ jobs:
         with:
           node-version: 20
       - name: Build the agent (terminal feature; the suite opens a real PTY)
-        run: cargo build -p vale-agent --features terminal --bin vale-agent
+        run: cargo build -p summrise-agent --features terminal --bin summrise-agent
         working-directory: agent
       - name: Write a scratch config (loopback, fixed free port)
         run: |
-          mkdir -p /tmp/vale-e2e
-          cat > /tmp/vale-e2e/config.yaml <<'YAML'
+          mkdir -p /tmp/summrise-e2e
+          cat > /tmp/summrise-e2e/config.yaml <<'YAML'
           server:
             host: "127.0.0.1"
             port: 18811
-            name: "vale-ci-e2e"
+            name: "summrise-ci-e2e"
           terminal:
             buffer_mb: 8
           YAML
       - name: Start the agent
         working-directory: agent
         run: |
-          # NOTE: there is NO VALE_DATA_DIR override (paths.rs is registry-first
+          # NOTE: there is NO SUMMRISE_DATA_DIR override (paths.rs is registry-first
           # and reads no env), so the runtime dirs land beside the exe under
           # target/debug/. Fine on a fresh runner, and the reason this job needs
           # no cleanup step.
-          ./target/debug/vale-agent /tmp/vale-e2e/config.yaml > /tmp/vale-e2e/agent.log 2>&1 &
+          ./target/debug/summrise-agent /tmp/summrise-e2e/config.yaml > /tmp/summrise-e2e/agent.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf -o /dev/null "http://127.0.0.1:18811/"; then break; fi
             sleep 1
           done
-          curl -sf -o /dev/null "http://127.0.0.1:18811/" || { echo "agent never came up"; cat /tmp/vale-e2e/agent.log; exit 1; }
+          curl -sf -o /dev/null "http://127.0.0.1:18811/" || { echo "agent never came up"; cat /tmp/summrise-e2e/agent.log; exit 1; }
       - name: Run the platform-neutral sections against the real agent
         working-directory: agent
         run: |
-          TOKEN=$(grep -o 'device_token: [a-f0-9]*' /tmp/vale-e2e/config.yaml | awk '{print $2}')
+          TOKEN=$(grep -o 'device_token: [a-f0-9]*' /tmp/summrise-e2e/config.yaml | awk '{print $2}')
           test -n "$TOKEN" || { echo "no device_token in the scratch config"; exit 1; }
           node scripts/e2e/e2e.js --token "$TOKEN" --base http://127.0.0.1:18811 --only governance,runs
       - name: Show the agent log when the suite fails
         if: failure()
-        run: tail -50 /tmp/vale-e2e/agent.log || true
+        run: tail -50 /tmp/summrise-e2e/agent.log || true
 
   agent-windows-target:
     # Compile check for the Windows MSVC target (xwin pulls the SDK; separate job for caching)
@@ -280,7 +280,7 @@ jobs:
         # scripts/test/build-pins.bash keeps the two in step.
         run: cargo install cargo-xwin --locked --version 0.23.0
       - name: Xwin check
-        run: cargo xwin check -p vale-agent --target x86_64-pc-windows-msvc --features terminal,keyring
+        run: cargo xwin check -p summrise-agent --target x86_64-pc-windows-msvc --features terminal,keyring
         working-directory: agent
 
   # Pack-chain gates WITHOUT the exe/xwin (fast, well under 3 min) — the
@@ -296,9 +296,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # (a) round-298 marker in the COMMITTED bin/vale.js — the same grep
+      # (a) round-298 marker in the COMMITTED bin/summrise.js — the same grep
       # release.yml runs post-compile. Here it guards the committed file
-      # itself: a src/vale.ts change without recompiling fails the PR, not
+      # itself: a src/summrise.ts change without recompiling fails the PR, not
       # the release.
       # Release-lib regression: the last-5-per-minor prune + version.json
       # writer that publish-release.sh sources (extracted for testability).
@@ -440,7 +440,7 @@ jobs:
             echo "::error::pwsh is not installed on this runner — the installer's verification LOGIC was NOT tested. Install PowerShell, or remove this step deliberately; a green here would be a lie."
             exit 1
           fi
-          pwsh -NoProfile -File agent/deploy/lib/ValeIntegrity.tests.ps1
+          pwsh -NoProfile -File agent/deploy/lib/SummriseIntegrity.tests.ps1
       # The model-drift report's PURE half. The report itself needs four live
       # third-party endpoints, so it can never be a CI gate — an unreachable
       # upstream would fail the build for a reason unrelated to the change. What
@@ -620,52 +620,52 @@ jobs:
       # stdlib-only python, same convention (exit 0 = green).
       - name: scan-dups regression checks
         run: python3 scripts/test/scan-dups-check.py
-      - name: bin/vale.js round-298 marker
+      - name: bin/summrise.js round-298 marker
         working-directory: agent
-        run: grep -q "vale-release" vale-agent-npm/bin/vale.js || { echo "::error::compiled bin/vale.js missing round-298 marker — recompile src/vale.ts and commit bin/vale.js"; exit 1; }
+        run: grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker — recompile src/summrise.ts and commit bin/summrise.js"; exit 1; }
       # (b) the SAME electron freshness gate as release.yml (the
       # typescript@5 install is ~15s) — FAIL on mismatch. typeRoots points
-      # at vale-agent-npm's own @types and --noCheck skips typechecking
+      # at summrise-agent-npm's own @types and --noCheck skips typechecking
       # (electron's node_modules is not installed in CI) — see release.yml.
       - name: Electron src freshness (same gate as release)
         working-directory: agent
         run: |
-          (cd vale-agent-npm && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)
-          (cd vale-agent-npm && ./node_modules/.bin/tsc -p ../vale-desktop-electron/tsconfig.json \
+          (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)
+          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
             --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh --noCheck)
           for F in main.js preload.js url-policy.js; do
-            if ! cmp -s "/tmp/electron-fresh/${F}" "vale-desktop-electron/src/${F}"; then
-              echo "::error::vale-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
+            if ! cmp -s "/tmp/electron-fresh/${F}" "summrise-desktop-electron/src/${F}"; then
+              echo "::error::summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
               exit 1
             fi
           done
           echo "electron src freshness check OK"
           # (b2) the tsc INPUT tree holds its own committed main.js copy
-          # (agent/vale-desktop-electron/src/) that the freshness gate above
+          # (agent/summrise-desktop-electron/src/) that the freshness gate above
           # never compares — the two copies drifted silently once. Pin them.
           # NOTE: step working-directory is agent/, so both paths are
           # agent-relative (a ../ prefix here escapes the repo and
           # false-fails on a missing file — caught live on first run).
           for F in main.js preload.js url-policy.js; do
-            if ! cmp -s "vale-desktop-electron/src/${F}" "vale-agent-npm/vale-desktop-electron/src/${F}"; then
-              echo "::error::electron src copy drift: agent/vale-desktop-electron/src/${F} != agent/vale-agent-npm/vale-desktop-electron/src/${F} — sync (tsc emit) and commit both"
+            if ! cmp -s "summrise-desktop-electron/src/${F}" "summrise-agent-npm/summrise-desktop-electron/src/${F}"; then
+              echo "::error::electron src copy drift: agent/summrise-desktop-electron/src/${F} != agent/summrise-agent-npm/summrise-desktop-electron/src/${F} — sync (tsc emit) and commit both"
               exit 1
             fi
           done
           echo "electron src copies in sync OK"
-      # P1-2 bin/vale.js freshness (same gate as release.yml:140-143):
-      # recompile src/vale.ts with the tsc the electron step installed
-      # above and cmp against the committed bin/vale.js — a src change
+      # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
+      # recompile src/summrise.ts with the tsc the electron step installed
+      # above and cmp against the committed bin/summrise.js — a src change
       # without recompiling fails the PR, not the release.
-      - name: bin/vale.js freshness (tsc recompile + cmp, same as release)
+      - name: bin/summrise.js freshness (tsc recompile + cmp, same as release)
         working-directory: agent
         run: |
-          (cd vale-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/vale-fresh-bin)
-          if ! cmp -s "/tmp/vale-fresh-bin/vale.js" "vale-agent-npm/bin/vale.js"; then
-            echo "::error::vale-agent-npm/bin/vale.js is stale (src/vale.ts changed without recompiling) — recompile and commit bin/vale.js"
+          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/summrise-fresh-bin)
+          if ! cmp -s "/tmp/summrise-fresh-bin/summrise.js" "summrise-agent-npm/bin/summrise.js"; then
+            echo "::error::summrise-agent-npm/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile and commit bin/summrise.js"
             exit 1
           fi
-          echo "bin/vale.js freshness check OK"
+          echo "bin/summrise.js freshness check OK"
       # P1-5 pack + content subset gate: actually run npm pack (no exe is
       # staged in this xwin-less job, so the exe is EXCLUDED) and assert
       # the other 6 release.yml files are inside — a files[]/rename slip
@@ -673,37 +673,37 @@ jobs:
       - name: Pack + content subset gate (no exe in this job)
         working-directory: agent
         run: |
-          TGZ_NAME=$(cd vale-agent-npm && npm pack 2>/dev/null | tail -n 1)
+          TGZ_NAME=$(cd summrise-agent-npm && npm pack 2>/dev/null | tail -n 1)
           mkdir -p /tmp/packcheck
-          mv "vale-agent-npm/$TGZ_NAME" /tmp/packcheck/
+          mv "summrise-agent-npm/$TGZ_NAME" /tmp/packcheck/
           tar tzf "/tmp/packcheck/$TGZ_NAME" > /tmp/tgz-list-ci.txt
           for F in "README.md" \
-                   "vale-desktop-electron/src/main.js" \
-                   "vale-desktop-electron/src/preload.js" \
-                   "vale-desktop-electron/src/url-policy.js" \
-                   "vale-desktop-electron/icon.png" \
-                   "vale-desktop-electron/icon.ico" \
-                   "bin/vale.js"; do
+                   "summrise-desktop-electron/src/main.js" \
+                   "summrise-desktop-electron/src/preload.js" \
+                   "summrise-desktop-electron/src/url-policy.js" \
+                   "summrise-desktop-electron/icon.png" \
+                   "summrise-desktop-electron/icon.ico" \
+                   "bin/summrise.js"; do
             if ! grep -qE "(^|/)${F}$" /tmp/tgz-list-ci.txt; then
               echo "::error::packed tgz missing required file: $F"
               exit 1
             fi
           done
           echo "pack content subset check OK (6/6 — exe excluded, no xwin in this job)"
-      # (c) vale-agent-npm CLI tests — deliberately NO npm ci first: the
+      # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
       # package has zero dependencies and no lockfile, so npm ci would
       # fail with EUSAGE. `npm test` (node --test over node builtins) runs
-      # against the committed bin/vale.js with nothing installed.
+      # against the committed bin/summrise.js with nothing installed.
       - name: npm CLI tests
         run: npm test
-        working-directory: agent/vale-agent-npm
+        working-directory: agent/summrise-agent-npm
 
       # (d) THE DESKTOP SHELL'S SUITE, WHICH NOTHING RAN.
       #
-      # `agent/vale-desktop-electron/package.json` has defined
+      # `agent/summrise-desktop-electron/package.json` has defined
       # `"test": "node --test"` for as long as its one test file has existed, and
       # NO job had this working directory — every other `npm test` above and in
-      # release.yml names gateway, gateway-ui, panel-react, vale-agent-npm or
+      # release.yml names gateway, gateway-ui, panel-react, summrise-agent-npm or
       # index, and CI only COMPILES the shell. So the shell's pure security
       # predicates had no home and could not be pinned, which is precisely how an
       # origin veto with NO `$` anchor survived in main.ts while the policy
@@ -713,7 +713,7 @@ jobs:
       # builtins against the committed .js, so no install step.
       - name: desktop shell tests
         run: npm test
-        working-directory: agent/vale-desktop-electron
+        working-directory: agent/summrise-desktop-electron
 
   # index worker unit tests — pure node:test, zero deps, no lockfile, so
   # NO install step (like the npm CLI tests above). Well under 2 min.
@@ -770,12 +770,12 @@ jobs:
       # THE OUTBOUND RELAY (round 207 of the standing goal, step two of the plan the research settled): an agent dials out to
       # it and its own /mcp + /panel become reachable to whoever can reach the relay — the shape every comparable product uses
       # (Portainer Edge, VS Code tunnels, Nabu Casa, the CI runners). Six tests, in-process, loopback only.
-      - name: Test vale-relay
+      - name: Test summrise-relay
         run: node --test
-        working-directory: proxies/vale-relay
-      - name: Syntax gate vale-relay
+        working-directory: proxies/summrise-relay
+      - name: Syntax gate summrise-relay
         run: node --check relay.mjs
-        working-directory: proxies/vale-relay
+        working-directory: proxies/summrise-relay
       - name: Test api-relay
         run: node --test
         working-directory: proxies/api-relay

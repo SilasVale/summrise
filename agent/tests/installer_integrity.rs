@@ -7,7 +7,7 @@
 //! (`plugins/update/tools.rs`: "refusing unverifiable install"). No PowerShell
 //! runs on this box, so the division of labour is explicit:
 //!
-//!   * the LOGIC is tested on a runner — `deploy/lib/ValeIntegrity.tests.ps1`
+//!   * the LOGIC is tested on a runner — `deploy/lib/SummriseIntegrity.tests.ps1`
 //!     (GitHub's ubuntu runners ship pwsh; the CI step is guarded on it);
 //!   * the WIRING is pinned here, by reading the sources — the same instrument
 //!     this repo already uses for the boot-task contract and the pre-v2 path rule.
@@ -30,7 +30,7 @@ fn read(rel: &str) -> String {
 /// present in a library nobody calls.
 #[test]
 fn the_cdn_fallback_verifies_before_it_installs() {
-    let ps1 = read("deploy/vale-online-setup.ps1");
+    let ps1 = read("deploy/summrise-online-setup.ps1");
     let dotted = ps1
         .find(". (Join-Path $PSScriptRoot")
         .expect("the installer must dot-source its integrity lib");
@@ -68,8 +68,8 @@ fn the_cdn_fallback_verifies_before_it_installs() {
 /// test on this box can otherwise see.
 #[test]
 fn every_dot_sourced_deploy_script_is_packaged() {
-    let ps1 = read("deploy/vale-online-setup.ps1");
-    let nsi = read("deploy/vale-setup.nsi");
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let nsi = read("deploy/summrise-setup.nsi");
     let build = read("../scripts/build-installer.sh");
     let mut checked = 0;
     for line in ps1.lines().filter(|l| l.contains("$PSScriptRoot")) {
@@ -86,7 +86,7 @@ fn every_dot_sourced_deploy_script_is_packaged() {
         assert!(
             nsi.lines()
                 .any(|l| l.trim_start().starts_with("File ") && l.contains(&file)),
-            "vale-setup.nsi must ship {file} with a File directive, or the installer breaks at runtime"
+            "summrise-setup.nsi must ship {file} with a File directive, or the installer breaks at runtime"
         );
         assert!(
             build

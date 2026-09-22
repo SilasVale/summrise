@@ -298,7 +298,7 @@ fn e() { let x = foo().unwrap_or_else(|_| 2); }
 fn f() { let x = foo().unwrap_or_default(); }
 // .unwrap() in a comment must not count
 ";
-    let dir = std::env::temp_dir().join(format!("vale-bootscan-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("summrise-bootscan-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let probe = dir.join("probe.rs");
     std::fs::write(&probe, sample).expect("write probe");
@@ -336,7 +336,7 @@ mod tests {
         strip_test_items(sample).contains("more_prod"),
         "production code after a test module must still be scanned"
     );
-    let dir = std::env::temp_dir().join(format!("vale-bootscan-t-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("summrise-bootscan-t-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let probe = dir.join("probe.rs");
     std::fs::write(&probe, sample).expect("write probe");

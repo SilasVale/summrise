@@ -15,8 +15,8 @@ import { __clearCaches } from "../src/store.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
 // The device hosts and the rule that accepts them are ONE fixture (round 117); the env declares it below.
-const ENV_EXTRA = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
-const DEVICE = { name: "d1", hostname: "d1.agent.vale.test", token: "devtok" };
+const ENV_EXTRA = { DEVICE_HOST_SUFFIX: ".agent.summrise.test" };
+const DEVICE = { name: "d1", hostname: "d1.agent.summrise.test", token: "devtok" };
 
 // admin: token:admintoken → admin (role admin); bob: token:usertoken → bob (role user)
 // Shared Map-KV stub (helpers.mjs) seeded with this file's MCP base.
@@ -96,7 +96,7 @@ test("mcp: disabled admin token → 401 (enabled check, cf. translate/session ga
 
 // ── initialize ─────────────────────────────────────────────────
 
-test("mcp: initialize echoes protocolVersion + vale-gate serverInfo", async () => {
+test("mcp: initialize echoes protocolVersion + summrise-gate serverInfo", async () => {
   const res = await handleMcp(
     post({
       jsonrpc: "2.0",
@@ -112,7 +112,7 @@ test("mcp: initialize echoes protocolVersion + vale-gate serverInfo", async () =
   assert.equal(data.jsonrpc, "2.0");
   assert.equal(data.id, 1);
   assert.equal(data.result.protocolVersion, "2025-06-18");
-  assert.equal(data.result.serverInfo.name, "vale-gate");
+  assert.equal(data.result.serverInfo.name, "summrise-gate");
   assert.deepEqual(data.result.capabilities, { tools: { listChanged: false } });
 });
 
@@ -177,7 +177,7 @@ test("mcp: tools/call terminal_execute → device /api/tools/terminal_execute wi
     // No gateway heartbeat since round-54: the agent's execute wait-loop
     // pings the session itself, so each execute is exactly ONE device fetch.
     assert.equal(calls.length, 2);
-    assert.equal(calls[0].url, "https://d1.agent.vale.test/api/tools/terminal_execute");
+    assert.equal(calls[0].url, "https://d1.agent.summrise.test/api/tools/terminal_execute");
     assert.deepEqual(JSON.parse(calls[0].init.body), {
       command: "ls -la",
       session_id: "s-1",
@@ -204,8 +204,8 @@ test("mcp: tools/call unknown device → -32602 listing registered devices (roun
   const env = makeBaseEnv({
     extra: ENV_EXTRA,
     devices: [
-      { name: "d1", hostname: "d1.agent.vale.test", token: "t1" },
-      { name: "d2", hostname: "d2.agent.vale.test", token: "t2" },
+      { name: "d1", hostname: "d1.agent.summrise.test", token: "t1" },
+      { name: "d2", hostname: "d2.agent.summrise.test", token: "t2" },
     ],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
@@ -288,7 +288,7 @@ const NOT_EXPOSED = {
   mcp_client_disconnect:
     "teardown is device-local; the console bridge never disconnects a client it did not open",
   // Swaps the device binary and restarts the agent (drops every session).
-  agent_update: "self-modifying — a CLI action (`vale update`), not an MCP call",
+  agent_update: "self-modifying — a CLI action (`summrise update`), not an MCP call",
   page_view: "legacy remote-page helper (design plugin)",
   // terminal_sftp was the pre-relay transfer path. Kept off deliberately:
   // round-554 makes the relay pair the ONE method, and sftp takes arbitrary
@@ -860,7 +860,7 @@ test("mcp: omitted device with exactly one registered executes on it (round-160 
       env,
     );
     assert.equal(res.status, 200);
-    assert.equal(dialed, "https://d1.agent.vale.test/api/tools/terminal_list");
+    assert.equal(dialed, "https://d1.agent.summrise.test/api/tools/terminal_list");
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -893,7 +893,7 @@ test("mcp: typo'd device with one registered → Unknown device, never executes 
 test("mcp: omitted device with several registered names them (round-398)", async () => {
   const env = makeBaseEnv({
     extra: ENV_EXTRA,
-    devices: [DEVICE, { name: "d2", hostname: "d2.agent.vale.test", token: "devtok2" }],
+    devices: [DEVICE, { name: "d2", hostname: "d2.agent.summrise.test", token: "devtok2" }],
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "admintoken" },
     },

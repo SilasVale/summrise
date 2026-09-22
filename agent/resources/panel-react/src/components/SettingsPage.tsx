@@ -103,7 +103,7 @@ export function SettingsPage({
   const { busy: memBusy, ack: memAck, run: runMem } = useAck();
 
   // Desktop-app card (Electron shell only): auto-launch on login.
-  const desktopBridge = (window as any).valeDesktop;
+  const desktopBridge = (window as any).summriseDesktop;
   const [hasDesktopBridge] = useState(!!desktopBridge?.getAutoLaunch);
   const [autoLaunch, setAutoLaunchState] = useState(false);
   const { busy: autoLaunchBusy, ack: autoLaunchAck, run: runAutoLaunch } = useAck();
@@ -123,7 +123,7 @@ export function SettingsPage({
       setAutoLaunchStatus("");
       try {
         const j = await desktopBridge.setAutoLaunch(enabled);
-        if (j?.ok) { setAutoLaunchState(!!j.enabled); setAutoLaunchStatus(j.enabled ? "enabled — Vale Desktop starts at login" : "disabled"); }
+        if (j?.ok) { setAutoLaunchState(!!j.enabled); setAutoLaunchStatus(j.enabled ? "enabled — Summrise Desktop starts at login" : "disabled"); }
         else setAutoLaunchStatus(j?.error || "failed");
       } catch (e: any) { setAutoLaunchStatus(e?.message || "failed"); }
     });
@@ -334,7 +334,7 @@ export function SettingsPage({
       <div className="settings-section">
         <h2>Gateway</h2>
         <p className="muted">
-          Optional — connect this device to a Vale gateway console so remote clients can use its
+          Optional — connect this device to a Summrise gateway console so remote clients can use its
           terminal / browser / memory. Pure local mode needs none of this.
         </p>
         <div className="settings-gw-form">
@@ -401,11 +401,11 @@ export function SettingsPage({
         {status && <p className="hint">{status}</p>}
       </div>
 
-      {/* Desktop-app card — only in the Electron shell (window.valeDesktop bridge). */}
+      {/* Desktop-app card — only in the Electron shell (window.summriseDesktop bridge). */}
       <div className="settings-section">
         <h2>Desktop app</h2>
         <p className="muted">
-          Start Vale Desktop automatically when you log in to this machine.
+          Start Summrise Desktop automatically when you log in to this machine.
         </p>
         <label className="settings-check">
           <input

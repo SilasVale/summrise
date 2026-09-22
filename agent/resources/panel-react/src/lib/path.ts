@@ -2,7 +2,7 @@
 //
 // WHY THIS EXISTS (design: docs/adr/proposal-game-design.md §2.1, §7).
 //
-// The design's central claim is that Vale records tool calls and the operator
+// The design's central claim is that Summrise records tool calls and the operator
 // thinks in goals, and the layer between them is empty. This module builds the
 // smallest honest piece of that layer: one session's work as a single scannable
 // PATH with a summary, instead of a timeline the operator has to read and count.

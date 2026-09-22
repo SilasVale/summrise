@@ -1,15 +1,15 @@
 {
-  "_why": "THE ELECTRON BRIDGE, pinned from both sides. `vale-desktop-electron/src/preload.ts` exposes three objects to the SPA via contextBridge; the panel calls into them from `EmbeddedBrowserPane` (window.valeEmbedded) and the desktop settings card (window.valeDesktop). Each side is TYPED separately — a TS interface in the panel, an object literal in the preload — so each compiles happily while a renamed member breaks the desktop app silently, and ONLY there: these surfaces exist behind `window.valeEmbedded`, which a plain-browser harness does not have, so no rendered sweep has ever seen them (rounds 45 and 50 both had to name them as unmeasurable). This fixture cannot render them either. It pins their NAMES, which is the part that drifts without any test noticing; behaviour still needs the desktop app.",
+  "_why": "THE ELECTRON BRIDGE, pinned from both sides. `summrise-desktop-electron/src/preload.ts` exposes three objects to the SPA via contextBridge; the panel calls into them from `EmbeddedBrowserPane` (window.summriseEmbedded) and the desktop settings card (window.summriseDesktop). Each side is TYPED separately — a TS interface in the panel, an object literal in the preload — so each compiles happily while a renamed member breaks the desktop app silently, and ONLY there: these surfaces exist behind `window.summriseEmbedded`, which a plain-browser harness does not have, so no rendered sweep has ever seen them (rounds 45 and 50 both had to name them as unmeasurable). This fixture cannot render them either. It pins their NAMES, which is the part that drifts without any test noticing; behaviour still needs the desktop app.",
   "_verdict": "A member present here must exist on BOTH sides. Adding one to the preload without the panel (or vice versa) fails a test; renaming fails both.",
   "bridges": {
-    "valeBrowser": ["open", "close", "list"],
-    "valeEmbedded": ["navigate", "back", "fwd", "reload", "zoom", "place", "state", "recover", "onNav", "onGone"],
-    "valeDesktop": ["getAutoLaunch", "setAutoLaunch", "onCommand"]
+    "summriseBrowser": ["open", "close", "list"],
+    "summriseEmbedded": ["navigate", "back", "fwd", "reload", "zoom", "place", "state", "recover", "onNav", "onGone"],
+    "summriseDesktop": ["getAutoLaunch", "setAutoLaunch", "onCommand"]
   },
   "_notes": {
-    "valeBrowser": "browser-session windows, driven over CDP; used from the panel's browser page",
-    "valeEmbedded": "the REAL embedded browser view: the panel reports its placeholder bounds (place) and the main process positions the WebContentsView over them, which is why this surface cannot be rendered in a plain browser",
-    "valeDesktop": "auto-launch settings and the native menu command bridge; hidden from the SPA entirely in a plain browser",
+    "summriseBrowser": "browser-session windows, driven over CDP; used from the panel's browser page",
+    "summriseEmbedded": "the REAL embedded browser view: the panel reports its placeholder bounds (place) and the main process positions the WebContentsView over them, which is why this surface cannot be rendered in a plain browser",
+    "summriseDesktop": "auto-launch settings and the native menu command bridge; hidden from the SPA entirely in a plain browser",
     "onNav/onGone/onCommand": "these three SUBSCRIBE and return an unsubscribe function — a member that must return a function, not a promise"
   }
 }

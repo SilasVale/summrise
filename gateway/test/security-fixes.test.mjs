@@ -50,7 +50,7 @@ function freshEnv() {
   return {
     CONSOLE_HOST: "x",
     // The hosts above are on the TEST DOMAIN, and the rule that accepts a device host travels with them (round 115).
-    DEVICE_HOST_SUFFIX: ".agent.vale.test",
+    DEVICE_HOST_SUFFIX: ".agent.summrise.test",
     // Fail-closed issuance: login/register refuse without SESSION_SECRET,
     // so the deploy env carries one (see the fail-closed test below).
     SESSION_SECRET: "test-session-secret-0123456789abcdef",
@@ -190,7 +190,7 @@ function regEnv() {
   ]);
   return {
     CONSOLE_HOST: "x",
-    DEVICE_HOST_SUFFIX: ".agent.vale.test",
+    DEVICE_HOST_SUFFIX: ".agent.summrise.test",
     KEYS: {
       async get(k) {
         return kv.has(k) ? kv.get(k) : null;
@@ -239,7 +239,7 @@ test("register: hostname outside the agent-host suffix → 400, no dial, key uns
     register(env, { key: "testkey123", name: "d9", hostname: "evil.com", token: "sometoken123" }),
   );
   assert.equal(res.status, 400);
-  assert.match((await res.json()).error.message || "", /agent\.vale\.test/);
+  assert.match((await res.json()).error.message || "", /agent\.summrise\.test/);
   assert.equal(calls.length, 0, "rejected before the /api/status probe dials the hostname");
   assert.deepEqual(JSON.parse(env._kv.get("devices:v1")), [], "device not created");
   assert.equal(env._kv.get("regkey:testkey123"), "1", "one-time key not burned by a rejection");
@@ -251,13 +251,13 @@ test("register: agent-host hostname still registers", async () => {
     register(env, {
       key: "testkey456",
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: "sometoken123",
     }),
   );
   assert.equal(res.status, 200);
   assert.equal((await res.json()).ok, true);
-  assert.equal(JSON.parse(env._kv.get("devices:v1"))[0].hostname, "d1.agent.vale.test");
+  assert.equal(JSON.parse(env._kv.get("devices:v1"))[0].hostname, "d1.agent.summrise.test");
 });
 
 /* ---- 2. MCP browser bridge hostname guard ---- */
@@ -298,13 +298,13 @@ test("mcp bridge: public hostname still dials the device API", async () => {
     callTool(
       { name: "browser_open" },
       {},
-      { name: "d1", hostname: "d1.agent.vale.test", token: "t" },
+      { name: "d1", hostname: "d1.agent.summrise.test", token: "t" },
       { device: "d1", url: "https://example.com" },
     ),
   );
   assert.equal(out.ok, true);
   assert.equal(calls.length, 1);
-  assert.ok(calls[0].startsWith("https://d1.agent.vale.test/api/tools/mcp_client_call"));
+  assert.ok(calls[0].startsWith("https://d1.agent.summrise.test/api/tools/mcp_client_call"));
 });
 
 /* ---- 3. session token padding round-trip ---- */

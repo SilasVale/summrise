@@ -15,8 +15,8 @@ pub mod update;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use vale_agent_core::DeviceError;
-use vale_agent_core::Plugin;
+use summrise_agent_core::DeviceError;
+use summrise_agent_core::Plugin;
 
 /// Helper: extract a required string field from JSON params.
 pub fn require_str(params: &Value, field: &str) -> Result<String, DeviceError> {
@@ -71,9 +71,9 @@ pub fn tool_error(message: impl Into<String>) -> Value {
 /// and `all_tools`/spec iteration never re-runs the closure factories.
 pub struct PluginRegistry {
     pub plugins: Vec<Box<dyn Plugin>>,
-    by_name: HashMap<String, Arc<vale_agent_core::ToolDef>>,
+    by_name: HashMap<String, Arc<summrise_agent_core::ToolDef>>,
     /// Tools per plugin, built once at register time.
-    tools_by_plugin: Vec<(String, Vec<Arc<vale_agent_core::ToolDef>>)>,
+    tools_by_plugin: Vec<(String, Vec<Arc<summrise_agent_core::ToolDef>>)>,
 }
 
 impl Default for PluginRegistry {
@@ -92,7 +92,7 @@ impl PluginRegistry {
     }
 
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
-        let tools: Vec<Arc<vale_agent_core::ToolDef>> =
+        let tools: Vec<Arc<summrise_agent_core::ToolDef>> =
             plugin.tools().into_iter().map(Arc::new).collect();
         for t in &tools {
             if let Some(prev) = self.by_name.insert(t.name.clone(), t.clone()) {
@@ -110,7 +110,7 @@ impl PluginRegistry {
     }
 
     /// All tools across plugins (cached — no rebuilds).
-    pub fn all_tools(&self) -> Vec<Arc<vale_agent_core::ToolDef>> {
+    pub fn all_tools(&self) -> Vec<Arc<summrise_agent_core::ToolDef>> {
         self.tools_by_plugin
             .iter()
             .flat_map(|(_, ts)| ts.iter().cloned())
@@ -118,7 +118,7 @@ impl PluginRegistry {
     }
 
     /// Tools of one plugin by name (cached).
-    pub fn plugin_tools(&self, name: &str) -> &[Arc<vale_agent_core::ToolDef>] {
+    pub fn plugin_tools(&self, name: &str) -> &[Arc<summrise_agent_core::ToolDef>] {
         self.tools_by_plugin
             .iter()
             .find(|(n, _)| n == name)
@@ -126,7 +126,7 @@ impl PluginRegistry {
             .unwrap_or(&[])
     }
 
-    pub fn find_tool(&self, name: &str) -> Option<Arc<vale_agent_core::ToolDef>> {
+    pub fn find_tool(&self, name: &str) -> Option<Arc<summrise_agent_core::ToolDef>> {
         self.by_name.get(name).cloned()
     }
 }
@@ -136,7 +136,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use vale_agent_core::ToolDef;
+    use summrise_agent_core::ToolDef;
 
     /// Counting plugin — tools() must run exactly once at register time.
     struct CountingPlugin(Arc<AtomicUsize>);

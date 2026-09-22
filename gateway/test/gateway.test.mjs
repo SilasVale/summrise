@@ -292,7 +292,7 @@ test("og muse /v1/responses synthesizes a stable per-user session when the clien
   );
   const a = sentHeader(seen1[0], "x-opencode-session");
   const b = sentHeader(seen2[0], "x-opencode-session");
-  assert.ok(a && a.startsWith("vale-"), `synthesized session expected, got ${a}`);
+  assert.ok(a && a.startsWith("summrise-"), `synthesized session expected, got ${a}`);
   assert.equal(a, b, "session must be stable across requests for the same user");
 });
 
@@ -341,7 +341,7 @@ test("og chat/completions carries x-opencode-session (zen requires it on every o
   assert.equal(res.status, 200);
   assert.equal(seen.url, "https://opencode.ai/zen/go/v1/chat/completions");
   const sess = sentHeader(seen, "x-opencode-session");
-  assert.ok(sess && sess.startsWith("vale-"), `synthesized session expected on og chat, got ${sess}`);
+  assert.ok(sess && sess.startsWith("summrise-"), `synthesized session expected on og chat, got ${sess}`);
 });
 
 test("og/muse-spark-1.3-contributor rides the zen-us CF exit when MUSE_RESPONSES_EXIT=zen-us", async () => {

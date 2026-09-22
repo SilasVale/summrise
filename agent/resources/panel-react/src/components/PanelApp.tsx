@@ -113,9 +113,9 @@ export function PanelApp(props: Props) {
     const state = notifyPermission === "granted" ? notifyPermission : await requestNotifyPermission();
     if (state !== "granted" || typeof Notification === "undefined") return;
     try {
-      new Notification("Vale", {
+      new Notification("Summrise", {
         body: "This is how a watched host going down will reach you.",
-        tag: "vale-test",
+        tag: "summrise-test",
       });
     } catch {
       /* the browser refused at the last moment — the card shows the permission state it reported */

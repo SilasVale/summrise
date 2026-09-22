@@ -3,7 +3,7 @@
 use super::{TermBackend, TermOutput};
 use crate::tools::serial::SerialPool;
 use std::sync::Arc;
-use vale_agent_core::DeviceError;
+use summrise_agent_core::DeviceError;
 
 /// Serial link config (port + framing) — captured at open so an
 /// auto-reconnect can reopen the SAME port with the SAME parameters
@@ -148,7 +148,7 @@ impl SerialBackend {
             parity,
             stop_bits,
         };
-        tracing::debug!("[vale-agent] Serial: opening {port_name} at {baud} baud (data_bits={:?} parity={:?} stop_bits={:?} auto_reconnect={})", link.data_bits, link.parity, link.stop_bits, auto_reconnect);
+        tracing::debug!("[summrise-agent] Serial: opening {port_name} at {baud} baud (data_bits={:?} parity={:?} stop_bits={:?} auto_reconnect={})", link.data_bits, link.parity, link.stop_bits, auto_reconnect);
 
         // Open in pool, then BORROW the handle out (round-118: the old
         // take_port REMOVED the pool entry, defeating open()'s exclusivity
@@ -220,7 +220,7 @@ impl SerialBackend {
                     Err(_) => {
                         // Port died — try to reopen with the same config.
                         tracing::info!(
-                            "[vale-agent] Serial {port_name}: link lost, auto-reconnecting…"
+                            "[summrise-agent] Serial {port_name}: link lost, auto-reconnecting…"
                         );
                         let _ = tx_r.blocking_send(TermOutput {
                             session_id: sid_r.clone(),
@@ -246,7 +246,7 @@ impl SerialBackend {
                             match pool_open(&pool_r, &link_r) {
                                 Ok((new_port, new_id)) => {
                                     tracing::info!(
-                                        "[vale-agent] Serial {port_name}: reconnected (attempt {})",
+                                        "[summrise-agent] Serial {port_name}: reconnected (attempt {})",
                                         attempts + 1
                                     );
                                     let _ = tx_r.blocking_send(TermOutput {
@@ -276,7 +276,7 @@ impl SerialBackend {
                     }
                 }
             }
-            tracing::debug!("[vale-agent] Serial reader ended: {sid_r}");
+            tracing::debug!("[summrise-agent] Serial reader ended: {sid_r}");
         });
 
         // Writer thread — direct byte write, no hex encoding. review #4:
@@ -415,7 +415,7 @@ mod tx_tests {
     /// which proves a byte can leave the device. That gap is why a report of
     /// "serial can't input" could not be answered from the suite.
     ///
-    /// It needs a real tty: the test opens `VALE_TEST_SERIAL_PORT` through the
+    /// It needs a real tty: the test opens `SUMMRISE_TEST_SERIAL_PORT` through the
     /// PRODUCTION path (`SerialBackend::open` → `write_async`, exactly what
     /// `terminal_write` drives) and the caller verifies the bytes arrive on the
     /// other end. Skips when the env var is unset, so CI is unaffected.
@@ -436,7 +436,7 @@ mod tx_tests {
     ///                 if b"TX-PROBE" in b"".join(got): return
     ///         except BlockingIOError: time.sleep(0.05)
     /// t = threading.Thread(target=rd); t.start()
-    /// env = dict(os.environ, VALE_TEST_SERIAL_PORT=sp)
+    /// env = dict(os.environ, SUMMRISE_TEST_SERIAL_PORT=sp)
     /// env.pop("CC", None); env.pop("CXX", None)
     /// subprocess.run(["cargo","test","--features","terminal,keyring","--lib","--",
     ///                 "serial_tx_reaches_the_wire","--nocapture","--test-threads=1"],
@@ -455,11 +455,11 @@ mod tx_tests {
     /// this test covers the first: the entry guard released the id the session was BORN
     /// with, so an entry minted by an auto-reconnect was never released at all.
     ///
-    /// Needs a real tty (`VALE_TEST_SERIAL_PORT`, the harness in the file header), because
+    /// Needs a real tty (`SUMMRISE_TEST_SERIAL_PORT`, the harness in the file header), because
     /// the pool's entries ARE OS handles; skips without one, so CI is unaffected.
     #[tokio::test]
     async fn a_serial_session_releases_its_pool_entry_on_close() {
-        let Ok(port) = std::env::var("VALE_TEST_SERIAL_PORT") else {
+        let Ok(port) = std::env::var("SUMMRISE_TEST_SERIAL_PORT") else {
             return; // no tty provided — skip (CI)
         };
         let pool = std::sync::Arc::new(SerialPool::new(115200, 200));
@@ -502,7 +502,7 @@ mod tx_tests {
     /// real opens mint. Needs a tty, so it skips without one like its sibling above.
     #[tokio::test]
     async fn the_entry_guard_follows_a_reconnect_to_the_new_entry() {
-        let Ok(port) = std::env::var("VALE_TEST_SERIAL_PORT") else {
+        let Ok(port) = std::env::var("SUMMRISE_TEST_SERIAL_PORT") else {
             return; // no tty provided — skip (CI)
         };
         let pool = std::sync::Arc::new(SerialPool::new(115200, 200));
@@ -555,7 +555,7 @@ mod tx_tests {
     /// test "reproduced" a TX bug that did not exist for that reason.
     #[tokio::test]
     async fn serial_tx_reaches_the_wire() {
-        let Ok(port) = std::env::var("VALE_TEST_SERIAL_PORT") else {
+        let Ok(port) = std::env::var("SUMMRISE_TEST_SERIAL_PORT") else {
             return; // no tty provided — skip (CI)
         };
         let pool = std::sync::Arc::new(SerialPool::new(115200, 200));

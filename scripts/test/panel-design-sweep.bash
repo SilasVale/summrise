@@ -155,12 +155,12 @@ const [file, expect] = process.argv.slice(2);
 const report = JSON.parse(readFileSync(file, "utf8"));
 report.idle = [{
   density: "panel", theme: "light", page: "panel-Terminal", seconds: 6,
-  byTarget: { __probe: 1, ...(process.env.VALE_IDLE_TARGET ? { "div.totals": 3 } : {}) },
-  mutations: process.env.VALE_IDLE_TARGET ? 4 : 1,
+  byTarget: { __probe: 1, ...(process.env.SUMMRISE_IDLE_TARGET ? { "div.totals": 3 } : {}) },
+  mutations: process.env.SUMMRISE_IDLE_TARGET ? 4 : 1,
   selfTest: true,
 }];
-if (process.env.VALE_IDLE_BLIND) report.idle[0].byTarget = {};
-if (process.env.VALE_IDLE_BLIND) report.idle[0].mutations = 0;
+if (process.env.SUMMRISE_IDLE_BLIND) report.idle[0].byTarget = {};
+if (process.env.SUMMRISE_IDLE_BLIND) report.idle[0].mutations = 0;
 const out = JSON.stringify(report);
 const { writeFileSync } = await import("node:fs");
 writeFileSync(expect, out);
@@ -806,7 +806,7 @@ for f in panel-design-sweep console-design-sweep landing-design-sweep live-panel
     bad "the $f emitter does not use the assembler — nothing guarantees what it prints can run"
   fi
 done
-if VALE_LANDING_OUT="$TMP/landing-emit" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing-check.js" 2>/dev/null \
+if SUMMRISE_LANDING_OUT="$TMP/landing-emit" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing-check.js" 2>/dev/null \
    && node --check "$TMP/landing-check.js"; then
   ok "and the landing's artifact PARSES — the rule, measured rather than inferred from a mechanism"
 else
@@ -862,7 +862,7 @@ fi
 # never matched and returned silently. The helper now avoids both hazards (forward-slash path, line-prefix
 # token read), and THIS asserts the emitted text, because the failure mode is invisible at runtime: the helper
 # swallows its own errors by design.
-if grep -q 'D:/Vale/etc/config.yaml' "$TMP/sweep.js" && grep -q 'indexOf("device_token")' "$TMP/sweep.js"; then
+if grep -q 'D:/Summrise/etc/config.yaml' "$TMP/sweep.js" && grep -q 'indexOf("device_token")' "$TMP/sweep.js"; then
   ok "the emitted diagnostic helper reads the token without a regex"
 else
   bad "the emitted diagnostic helper lost its token read (escaping layer)"

@@ -11,8 +11,8 @@ import { buildContentDisposition, genToken, SHA256_RE } from "../src/index.js";
 test("buildContentDisposition: plain ASCII names pass through quoted", () => {
   assert.equal(buildContentDisposition("fw.bin"), 'attachment; filename="fw.bin"');
   assert.equal(
-    buildContentDisposition("vale-agent-1.2.307.tgz"),
-    'attachment; filename="vale-agent-1.2.307.tgz"',
+    buildContentDisposition("summrise-agent-1.2.307.tgz"),
+    'attachment; filename="summrise-agent-1.2.307.tgz"',
   );
 });
 

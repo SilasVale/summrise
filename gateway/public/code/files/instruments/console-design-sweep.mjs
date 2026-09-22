@@ -7,7 +7,7 @@
 //
 //   cd gateway/ui && npx vite build --outDir /tmp/console-build --emptyOutDir
 //   tar czf /tmp/console.tgz -C /tmp/console-build .   (ship it; extract on the device to
-//                                                       C:\ProgramData\Vale\pwout\console)
+//                                                       C:\ProgramData\Summrise\pwout\console)
 //   node agent/scripts/console-design-sweep.mjs --emit > /tmp/console-sweep.js   (run on the device)
 //   node agent/scripts/console-design-sweep.mjs --judge <report.json>
 //
@@ -49,13 +49,13 @@ const mode = process.argv[2];
 const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice('--passes='.length).split(',').filter(Boolean);
 
 // HOW TO RENDER THIS CONSOLE FROM HERE WITHOUT DELIVERING A DIRECTORY (round 17 of the standing goal). The sweep
-// below measures a DELIVERED build — `C:\ProgramData\Vale\pwout\console`, several files, one transfer each. For a
+// below measures a DELIVERED build — `C:\ProgramData\Summrise\pwout\console`, several files, one transfer each. For a
 // one-off look at a page there is a cheaper path, and it was used to verify the `.sig-dot` silhouettes on the real
 // console (ok = circle, err = a ROTATED diamond at 2px radius; inks 6.10 and 4.65 against their own cards):
 //
 //   1. `gateway/public/` holds the whole build. Emit ONE file: a JSON map of path -> contents for `index.html`,
 //      `style.css`, `favicon.svg`, `icons.svg` and everything in `assets/` (about 390 KB, one transfer).
-//   2. On the device, route `http://vale.test/**` by looking the pathname up in that map, with `/` and any
+//   2. On the device, route `http://summrise.test/**` by looking the pathname up in that map, with `/` and any
 //      extension-less path falling back to `/index.html` (it is an SPA) and a 404 for a missing FILE.
 //   3. Route `/api/**` ON THE SAME ORIGIN. The built console calls `/api/me`, not the deployed host — the sweep's
 //      own handler keys on `https://ai.saisi.online`, which is right for ITS delivery and wrong for this one.
@@ -73,13 +73,13 @@ const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice
 // first rebuild after that. The value is computed in the module (where the repository is) and only its
 // result is inlined into the emitted script.
 // ONE ROOT, BOTH ENDS (round 77). The stamp is baked from the entry the RUN will serve — the same
-// `VALE_SWEEP_ROOT` the sweep reads at run time — and until now it was read from a hard-coded
+// `SUMMRISE_SWEEP_ROOT` the sweep reads at run time — and until now it was read from a hard-coded
 // `gateway/public`, the copy the RELEASE flow writes. So a CI run that built the console from its own
 // checkout and served that while the stamp came from the last published build reported every run as
 // "stale" — a true statement about two artefacts and a useless one about a commit. The default is
 // unchanged, so a device run compares the delivered copy against the delivered copy it was emitted for.
 const ENTRY_STAMP = (() => {
-  const root = process.env.VALE_SWEEP_ROOT || new URL("../../gateway/public", import.meta.url).pathname;
+  const root = process.env.SUMMRISE_SWEEP_ROOT || new URL("../../gateway/public", import.meta.url).pathname;
   try {
     const b = readFileSync(new URL("index.html", new URL(root.endsWith("/") ? root : root + "/", "file://")));
     return { bytes: b.length, sha: createHash("sha256").update(b).digest("hex").slice(0, 12) };
@@ -102,8 +102,8 @@ const path = require('path');
 // as before) or in CI against the repository's own build with nothing delivered in between — which is
 // what makes the design checks continuous rather than remembered (rounds 204, 219). The panel's sweep
 // has taken its paths from the environment since round 204; these two follow it.
-const ROOT = process.env.VALE_SWEEP_ROOT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console';
-const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\console-sweep.json';
+const ROOT = process.env.SUMMRISE_SWEEP_ROOT || 'C:\\\\ProgramData\\\\Summrise\\\\pwout\\\\console';
+const REPORT_PATH = process.env.SUMMRISE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Summrise\\\\pwout\\\\console-sweep.json';
 
 // THE ENTRY THIS SWEEP WAS EMITTED AGAINST. Both UIs are measured from a DELIVERED copy of their
 // build, and nothing said which generation it was: round 184 found the console's directory holding eight
@@ -112,7 +112,7 @@ const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\
 // digest instead, because a stale delivery always shows up in the file that names everything else.
 const EXPECTED_ENTRY = ${JSON.stringify(ENTRY_STAMP)};
 // DERIVED FROM ROOT, NOT BAKED. Round 191 wrote this as the device path, so when round 219 made ROOT
-// overridable the check kept looking at C:\ProgramData\Vale while the sweep served the repository — and
+// overridable the check kept looking at C:\ProgramData\Summrise while the sweep served the repository — and
 // CI reported ENOENT for a file that was right there. A check that names a location must follow the same
 // override the thing it checks does.
 const EXPECTED_ENTRY_PATH = require("path").join(ROOT, "index.html");
@@ -158,7 +158,7 @@ const API = {
     { name: 'd1', hostname: 'd1.agent.saisi.online', token: 'a1b2c3d4e5f6g7h8', registeredAt: now - 86400000, lastSeenAt: now - 60000, lastVersion: '1.0.106' },
     { name: 'd2', hostname: 'd2.agent.saisi.online', token: 'z9y8x7w6v5u4t3s2', lastVersion: '1.0.100' },
   ] },
-  '/api/devices/install-cmd': { ok: true, version: '1.0.106', download: 'https://v.saisi.online/vale-agent-latest.tgz' },
+  '/api/devices/install-cmd': { ok: true, version: '1.0.106', download: 'https://v.saisi.online/summrise-agent-latest.tgz' },
   '/api/devices/register-keys': { keys: [{ code: 'abcd1234', expiresAt: now + 3600000 }] },
   // THE FIELD THE PAGE ACTUALLY READS (round 53 of the standing goal). This said verdict: 'crashed', and
   // DevicesPanel reads st?.last_boot_kind === "crashed" — a field name the page does not read is a fixture saying
@@ -231,7 +231,7 @@ const empty = { fleet: false };
 // the console never did — so nothing had rendered what an operator sees when the worker cannot reach a device.
 const fail = { api: false };
 (async () => {
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   await page.route('https://ai.saisi.online/**', (route) => {
     const p = new URL(route.request().url()).pathname;
@@ -272,7 +272,7 @@ const fail = { api: false };
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((h) => {
-      try { localStorage.setItem('vale-theme', 'dark'); } catch (e) {}
+      try { localStorage.setItem('summrise-theme', 'dark'); } catch (e) {}
       document.body.setAttribute('data-theme', 'dark');
       location.hash = h;
     }, hash);
@@ -321,7 +321,7 @@ const fail = { api: false };
       report.hover.push({ page: 'overview-dark', width: 1440, density: 'console', theme: 'dark', interactive: all.length, underAA: [...new Set(underAA)] });
     }
   }
-  await page.evaluate(() => { try { localStorage.setItem('vale-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
+  await page.evaluate(() => { try { localStorage.setItem('summrise-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
 
   // 320 IS IN THE LIST BECAUSE WCAG 1.4.10 NAMES IT. The criterion asks whether content reflows at 320 CSS
   // pixels — 400% zoom on a 1280 viewport — and this sweep tested 1440/900/720, so its "WCAG reflow" claim was
@@ -480,7 +480,7 @@ const fail = { api: false };
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
       await page.evaluate((a) => {
-        try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+        try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
         document.body.setAttribute('data-theme', a[0]);
         location.hash = a[1];
       }, [theme, '#/']);
@@ -511,7 +511,7 @@ const fail = { api: false };
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
         await page.evaluate((a) => {
-          try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+          try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
         }, [theme, hash]);
@@ -539,7 +539,7 @@ const fail = { api: false };
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
         await page.evaluate((a) => {
-          try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+          try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
         }, [theme, hash]);
@@ -565,7 +565,7 @@ const fail = { api: false };
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((t) => {
-      try { localStorage.setItem('vale-theme', t); } catch (e) {}
+      try { localStorage.setItem('summrise-theme', t); } catch (e) {}
       document.body.setAttribute('data-theme', t);
     }, theme);
     await page.waitForTimeout(1600);

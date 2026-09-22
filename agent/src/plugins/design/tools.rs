@@ -2,7 +2,7 @@
 
 use serde_json::{json, Value};
 
-use vale_agent_core::{DeviceError, ToolDef};
+use summrise_agent_core::{DeviceError, ToolDef};
 
 /// Pages viewable via page_view, keyed by a short name. Three sources:
 /// `Local(path)`  = this agent's own HTTP surface at host:port (no tunnel).
@@ -31,7 +31,7 @@ const PAGES: &[(&str, PageSource)] = &[
         "download",
         PageSource::Remote("https://agent.saisi.online/"),
     ),
-    // round-262 (user: extension unused): the Vale Browser Control extension
+    // round-262 (user: extension unused): the Summrise Browser Control extension
     // (popup/options/terminal) was removed — its Embedded page entries went
     // with it. PAGES now covers the agent + deployed console/download only.
 ];
@@ -130,7 +130,7 @@ fn redact_by_pattern(s: &str) -> String {
     out
 }
 
-/// `page_view` — fetch a Vale page's HTML/CSS so the AI can read its design.
+/// `page_view` — fetch a Summrise page's HTML/CSS so the AI can read its design.
 ///
 /// The device has no browser, so "seeing" the design means reading the source.
 /// Local pages: / (status), /panel/ (terminal panel HTML), /panel/panel.js,
@@ -144,7 +144,7 @@ pub fn page_view(
 ) -> ToolDef {
     ToolDef::new(
         "page_view",
-        "View a Vale page's design by fetching its HTML/CSS. \
+        "View a Summrise page's design by fetching its HTML/CSS. \
          Pages: status (/), panel (/panel/), panel-js, panel-css, panel-html, \
          console (gateway page), console-css (gateway style.css), console-js, \
          download (download site). \

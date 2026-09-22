@@ -1,0 +1,252 @@
+//! Core framework for Summrise Command — Plugin trait, config, error types, events.
+
+pub mod config;
+pub mod error;
+pub mod events;
+
+pub use config::Config;
+pub use error::DeviceError;
+pub use events::{AgentEvent, AppEventBus, EventBus};
+
+// ── Poison recovery ────────────────────────────────────────────
+
+/// Lock a std Mutex, recovering from a poisoned guard (a panic while holding
+/// the lock) instead of propagating it. The CLAUDE.md contract: poison is
+/// recovered with `into_inner()` — never silently dropped data.
+pub fn recover_guard<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+// ── Plugin Trait ──────────────────────────────────────────────
+
+/// A plugin represents one capability domain (SSH, Serial, Browser, Discovery).
+/// It exposes MCP tools and an optional dashboard nav item.
+///
+/// Tools are the single source of truth — MCP, Web API, and Tauri commands
+/// all dispatch through the PluginRegistry.
+pub trait Plugin: Send + Sync {
+    /// Unique identifier, e.g. "ssh", "serial", "browser"
+    fn name(&self) -> &'static str;
+
+    /// Human-readable display name, e.g. "SSH", "Serial Port"
+    fn display_name(&self) -> &'static str;
+
+    /// One-line description
+    fn description(&self) -> &'static str;
+
+    /// MCP tools exposed by this plugin — the single source of truth for tool registration.
+    /// Each handler receives JSON params and returns a JSON Value result.
+    /// Handlers are responsible for emitting events via the EventBus.
+    fn tools(&self) -> Vec<ToolDef> {
+        vec![]
+    }
+
+    /// Dashboard navigation item (optional — returns None if no UI needed)
+    fn nav_item(&self) -> Option<NavItem> {
+        None
+    }
+}
+
+// ── Tool Definition ───────────────────────────────────────────
+
+/// Handler function: receives JSON params, returns JSON result Value.
+pub trait ToolHandler: Send + Sync {
+    fn call(
+        &self,
+        params: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, DeviceError>> + Send + '_>,
+    >;
+
+    /// round-118: cancellable variant — a client `notifications/cancelled`
+    /// (rmcp routes it to the request context token) must abort a long tool
+    /// call instead of running to its deadline. Default = plain call; tools
+    /// that can observe cancellation override this.
+    ///
+    /// Dependency note (audit follow-up, decided 2026-09-06): taking
+    /// tokio_util's CancellationToken in the CONTRACT was evaluated for
+    /// removal and deliberately KEPT — rmcp (a hard dep of the agent) already
+    /// pulls tokio-util into the tree, so this adds zero new crates while
+    /// keeping the contract's cancellation vocabulary identical to what the
+    /// MCP layer speaks. No tool overrides this today; the hook stays wired
+    /// (server.rs wraps it in panic isolation) for the first tool that needs
+    /// cooperative cancellation.
+    fn call_cancellable(
+        &self,
+        params: serde_json::Value,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, DeviceError>> + Send + '_>,
+    > {
+        let _ = cancel;
+        self.call(params)
+    }
+}
+
+impl<F, Fut> ToolHandler for F
+where
+    F: Fn(serde_json::Value) -> Fut + Send + Sync,
+    Fut: std::future::Future<Output = Result<serde_json::Value, DeviceError>> + Send + 'static,
+{
+    fn call(
+        &self,
+        params: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, DeviceError>> + Send + '_>,
+    > {
+        Box::pin(self(params))
+    }
+}
+
+pub struct ToolDef {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema for the input parameters (hand-written JSON)
+    pub input_schema: serde_json::Value,
+    pub handler: Box<dyn ToolHandler>,
+}
+
+impl ToolDef {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+        handler: impl ToolHandler + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            handler: Box::new(handler),
+        }
+    }
+}
+
+// ── Navigation Item ───────────────────────────────────────────
+
+pub struct NavItem {
+    /// Unique page id, used as HTML id: "page-{id}"
+    pub id: &'static str,
+    /// Sidebar icon (emoji or SVG)
+    pub icon: &'static str,
+    /// Sidebar label
+    pub label: &'static str,
+    /// HTML snippet injected into the dashboard page div
+    pub html_snippet: &'static str,
+}
+
+#[cfg(test)]
+mod guard_tests {
+    //! round-385: recover_guard is the codebase-wide poison contract —
+    //! pin the normal path and the poisoned recovery (data preserved,
+    //! no propagated panic).
+    use super::*;
+
+    #[test]
+    fn clean_lock_returns_guard() {
+        let m = std::sync::Mutex::new(41u32);
+        assert_eq!(*recover_guard(&m), 41);
+    }
+
+    #[test]
+    fn poisoned_lock_recovers_data_without_panicking() {
+        let m = std::sync::Mutex::new(vec![1u32, 2]);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut g = m.lock().unwrap();
+            g.push(3);
+            panic!("boom");
+        }));
+        assert!(m.is_poisoned());
+        let g = recover_guard(&m);
+        assert_eq!(*g, vec![1, 2, 3], "recovered guard keeps the data");
+    }
+}
+
+#[cfg(test)]
+mod handler_tests {
+    //! round-118 contract: every tool handler is an async closure behind the
+    //! blanket impl, and cooperative cancellation is OPT-IN — the default
+    //! call_cancellable delegates to call (a pre-cancelled token must neither
+    //! fail nor hang a tool that doesn't observe it). No tokio runtime exists
+    //! in this crate (only tokio::sync + vocabulary types, by design), so a
+    //! tiny std-only block_on drives the immediately-ready test futures.
+    use super::*;
+
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+        fn no_op(_: *const ()) {}
+        fn clone(_: *const ()) -> RawWaker {
+            raw_waker()
+        }
+        fn raw_waker() -> RawWaker {
+            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, no_op, no_op, no_op);
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+        // SAFETY: the waker never dereferences its (null) data pointer —
+        // all four vtable entries are no-ops — and the future is never
+        // moved after pinning nor polled after Ready.
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut cx = Context::from_waker(&waker);
+        let mut fut = Box::pin(fut);
+        loop {
+            match fut.as_mut().poll(&mut cx) {
+                Poll::Ready(v) => return v,
+                // Test futures are immediately ready (no real I/O to wait
+                // on); yield rather than spin if one ever pends.
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
+    }
+
+    fn echo_def() -> ToolDef {
+        ToolDef::new(
+            "echo",
+            "echoes params",
+            serde_json::json!({"type": "object"}),
+            |params: serde_json::Value| async move { Ok::<_, DeviceError>(params) },
+        )
+    }
+
+    #[test]
+    fn closure_handlers_dispatch_and_keep_their_def() {
+        let def = echo_def();
+        assert_eq!(def.name, "echo");
+        assert_eq!(def.description, "echoes params");
+        assert_eq!(def.input_schema, serde_json::json!({"type": "object"}));
+        let out = block_on(def.handler.call(serde_json::json!({"a": 1}))).unwrap();
+        assert_eq!(out, serde_json::json!({"a": 1}));
+    }
+
+    #[test]
+    fn default_call_cancellable_delegates_to_call() {
+        let def = echo_def();
+        // Pre-cancelled: a tool WITHOUT cooperative cancellation must still
+        // behave exactly like a plain call (cancellation is opt-in per tool,
+        // wired in server.rs panic isolation for the first tool that needs it).
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel();
+        let via_default = block_on(
+            def.handler
+                .call_cancellable(serde_json::json!({"a": 1}), cancel),
+        )
+        .unwrap();
+        assert_eq!(via_default, serde_json::json!({"a": 1}));
+        // And errors propagate through the default path untouched.
+        let failing = ToolDef::new(
+            "fail",
+            "always fails",
+            serde_json::json!({"type": "object"}),
+            |_params: serde_json::Value| async move {
+                Err::<serde_json::Value, _>(DeviceError::InvalidParams {
+                    message: "nope".into(),
+                })
+            },
+        );
+        let err = block_on(failing.handler.call_cancellable(
+            serde_json::json!({}),
+            tokio_util::sync::CancellationToken::new(),
+        ))
+        .unwrap_err();
+        assert_eq!(err.code(), "invalid_params");
+    }
+}

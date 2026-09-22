@@ -193,19 +193,19 @@ export function DesktopShell({
     const state = notifyPermission === "granted" ? notifyPermission : await requestNotifyPermission();
     if (state !== "granted" || typeof Notification === "undefined") return;
     try {
-      new Notification("Vale", {
+      new Notification("Summrise", {
         body: "This is how a watched host going down will reach you.",
-        tag: "vale-test",
+        tag: "summrise-test",
       });
     } catch {
       /* the browser refused at the last moment — the card shows the permission state it reported */
     }
   };
   // stage-n: native menu page navigation — the electron menu sends
-  // vale-menu commands for pages too (open-memory / open-settings /
+  // summrise-menu commands for pages too (open-memory / open-settings /
   // open-plugins); route them to the page state.
   useEffect(() => {
-    const bridge = (window as any).valeDesktop;
+    const bridge = (window as any).summriseDesktop;
     if (!bridge?.onCommand) return;
     const unsub = bridge.onCommand((cmd: string) => {
       if (cmd === "open-browser") setPage("browser");

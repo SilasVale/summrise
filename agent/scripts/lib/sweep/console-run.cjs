@@ -13,8 +13,8 @@ const path = require('path');
 // as before) or in CI against the repository's own build with nothing delivered in between — which is
 // what makes the design checks continuous rather than remembered (rounds 204, 219). The panel's sweep
 // has taken its paths from the environment since round 204; these two follow it.
-const ROOT = process.env.VALE_SWEEP_ROOT || P.config.root;
-const REPORT_PATH = process.env.VALE_SWEEP_REPORT || P.config.reportPath;
+const ROOT = process.env.SUMMRISE_SWEEP_ROOT || P.config.root;
+const REPORT_PATH = process.env.SUMMRISE_SWEEP_REPORT || P.config.reportPath;
 
 // THE ENTRY THIS SWEEP WAS EMITTED AGAINST. Both UIs are measured from a DELIVERED copy of their
 // build, and nothing said which generation it was: round 184 found the console's directory holding eight
@@ -23,7 +23,7 @@ const REPORT_PATH = process.env.VALE_SWEEP_REPORT || P.config.reportPath;
 // digest instead, because a stale delivery always shows up in the file that names everything else.
 const EXPECTED_ENTRY = P.config.expectedEntry;
 // DERIVED FROM ROOT, NOT BAKED. Round 191 wrote this as the device path, so when round 219 made ROOT
-// overridable the check kept looking at C:ProgramDataVale while the sweep served the repository — and
+// overridable the check kept looking at C:ProgramDataSummrise while the sweep served the repository — and
 // CI reported ENOENT for a file that was right there. A check that names a location must follow the same
 // override the thing it checks does.
 const EXPECTED_ENTRY_PATH = path.join(ROOT, "index.html");
@@ -74,7 +74,7 @@ const API = {
     { name: 'd1', hostname: 'd1.agent.saisi.online', token: 'a1b2c3d4e5f6g7h8', registeredAt: now - 86400000, lastSeenAt: now - 60000, lastVersion: '1.0.106' },
     { name: 'd2', hostname: 'd2.agent.saisi.online', token: 'z9y8x7w6v5u4t3s2', lastVersion: '1.0.100' },
   ] },
-  '/api/devices/install-cmd': { ok: true, version: '1.0.106', download: 'https://v.saisi.online/vale-agent-latest.tgz' },
+  '/api/devices/install-cmd': { ok: true, version: '1.0.106', download: 'https://v.saisi.online/summrise-agent-latest.tgz' },
   '/api/devices/register-keys': { keys: [{ code: 'abcd1234', expiresAt: now + 3600000 }] },
   // THE FIELD THE PAGE ACTUALLY READS (round 53 of the standing goal). This said verdict: 'crashed', and
   // DevicesPanel reads st?.last_boot_kind === "crashed" — a field name the page does not read is a fixture saying
@@ -147,7 +147,7 @@ const empty = { fleet: false };
 // the console never did — so nothing had rendered what an operator sees when the worker cannot reach a device.
 const fail = { api: false };
 (async () => {
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   await page.route('https://ai.saisi.online/**', (route) => {
     const p = new URL(route.request().url()).pathname;
@@ -188,7 +188,7 @@ const fail = { api: false };
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((h) => {
-      try { localStorage.setItem('vale-theme', 'dark'); } catch (e) {}
+      try { localStorage.setItem('summrise-theme', 'dark'); } catch (e) {}
       document.body.setAttribute('data-theme', 'dark');
       location.hash = h;
     }, hash);
@@ -237,7 +237,7 @@ const fail = { api: false };
       report.hover.push({ page: 'overview-dark', width: 1440, density: 'console', theme: 'dark', interactive: all.length, underAA: [...new Set(underAA)] });
     }
   }
-  await page.evaluate(() => { try { localStorage.setItem('vale-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
+  await page.evaluate(() => { try { localStorage.setItem('summrise-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
 
   // 320 IS IN THE LIST BECAUSE WCAG 1.4.10 NAMES IT. The criterion asks whether content reflows at 320 CSS
   // pixels — 400% zoom on a 1280 viewport — and this sweep tested 1440/900/720, so its "WCAG reflow" claim was
@@ -395,7 +395,7 @@ const fail = { api: false };
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
       await page.evaluate((a) => {
-        try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+        try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
         document.body.setAttribute('data-theme', a[0]);
         location.hash = a[1];
       }, [theme, '#/']);
@@ -426,7 +426,7 @@ const fail = { api: false };
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
         await page.evaluate((a) => {
-          try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+          try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
         }, [theme, hash]);
@@ -454,7 +454,7 @@ const fail = { api: false };
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
         await page.evaluate((a) => {
-          try { localStorage.setItem('vale-theme', a[0]); } catch (e) {}
+          try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
         }, [theme, hash]);
@@ -480,7 +480,7 @@ const fail = { api: false };
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((t) => {
-      try { localStorage.setItem('vale-theme', t); } catch (e) {}
+      try { localStorage.setItem('summrise-theme', t); } catch (e) {}
       document.body.setAttribute('data-theme', t);
     }, theme);
     await page.waitForTimeout(1600);

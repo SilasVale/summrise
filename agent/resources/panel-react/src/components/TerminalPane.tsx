@@ -28,7 +28,7 @@ import { adoptNeedsAnotherPage, splitWriteSlices, WRITE_SLICE_CHARS } from "../l
 //    fine but paints nothing (a silent blank terminal, not catchable). The
 //    default renderer never blanks; nothing here needed WebGL.
 
-const FONT_LS = "valeFontSize";
+const FONT_LS = "summriseFontSize";
 const FONT_DEFAULT = 13;
 const FONT_MIN = 9;
 const FONT_MAX = 22;
@@ -136,7 +136,7 @@ export function TerminalPane({ session, registerWrite }: {
       writeChain = writeChain
         .then(() => callTool("terminal_write", { session_id: session.sid, data }))
         .catch(() => {
-          window.dispatchEvent(new CustomEvent("vale-write-failed", { detail: { sid: session.sid } }));
+          window.dispatchEvent(new CustomEvent("summrise-write-failed", { detail: { sid: session.sid } }));
         });
     });
 

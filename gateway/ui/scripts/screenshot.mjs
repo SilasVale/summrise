@@ -110,7 +110,7 @@ const API = {
       lab: { online: false, agent_up: false, tunnel_up: false, version: "1.2.361", checked_at: now },
     },
   },
-  "/api/devices/install-cmd": { ok: true, version: "1.2.361", download: "https://v.saisi.online/dl/vale-agent-1.2.361.tgz" },
+  "/api/devices/install-cmd": { ok: true, version: "1.2.361", download: "https://v.saisi.online/dl/summrise-agent-1.2.361.tgz" },
   "/api/devices/register-keys": { keys: [{ code: "abcd1234", expiresAt: now + 3600000 }] },
   "/api/me/keys": { masked: "sk-••••••••••4f2a" },
 };
@@ -140,8 +140,8 @@ for (const theme of THEMES) {
   });
   await page.addInitScript(
     ([t]) => {
-      localStorage.setItem("valegate-theme", t);
-      localStorage.setItem("valegate-lang", "en");
+      localStorage.setItem("summrisegate-theme", t);
+      localStorage.setItem("summrisegate-lang", "en");
     },
     [theme],
   );

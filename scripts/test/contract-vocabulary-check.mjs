@@ -7,7 +7,7 @@
 // shape the objective exists to remove, and each copy was kept in step by tests that read ONE side.
 //
 // THE SOURCE OF TRUTH IS RUST (`agent/src/vocabulary.rs`); the artifacts are generated from it by
-// `VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot`. This gate cannot run cargo (it runs in the node
+// `SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot`. This gate cannot run cargo (it runs in the node
 // job), so it checks the DIRECTIONS that catch real drift, by name and by file:
 //
 //   1. the two artifacts agree with each other — a hand-edited one is caught;
@@ -47,7 +47,7 @@ for (const [key, tsName] of [
   // the generated TS writes the same array with no spaces; compare values, not formatting
   const m = new RegExp(`export const ${tsName} = (\\[[^\\]]*\\]) as const;`).exec(tsGen);
   if (!m) {
-    bad(`contract.gen.ts has no ${tsName} — regenerate with VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot`);
+    bad(`contract.gen.ts has no ${tsName} — regenerate with SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot`);
     continue;
   }
   const fromTs = JSON.parse(m[1]);

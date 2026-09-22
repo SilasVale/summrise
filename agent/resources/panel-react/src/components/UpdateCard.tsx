@@ -1,7 +1,7 @@
 // UpdateCard — "is this device current, and can I do something about it?"
 //
 // WHY IT EXISTS. The device has been updatable since npm became the single channel, but only
-// from OUTSIDE it: `vale update` over a terminal, or an AI calling `agent_update`. An
+// from OUTSIDE it: `summrise update` over a terminal, or an AI calling `agent_update`. An
 // operator looking at the panel — the surface they actually have open — could not tell
 // whether the box was on yesterday's build, and the one place that came close
 // (`DeviceLogsCard`) DIAGNOSES an update after the fact from a log file. This card answers
@@ -16,7 +16,7 @@
 // wrong one costs an operator trust in the update channel:
 //   * "no update channel configured" — a purely local install, NOT a failure;
 //   * "the release server did not answer" — unknown, and never drawn as "up to date";
-//   * "pinned by vale rollback" — an update may exist that this device will REFUSE;
+//   * "pinned by summrise rollback" — an update may exist that this device will REFUSE;
 //   * "already in flight" — the busy marker, so a second click cannot race the first.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi } from "../lib/api";
@@ -221,7 +221,7 @@ export function UpdateCard({
       }
       if (result.status === "pinned") {
         setPhase("error");
-        setMessage(str(result.message) ?? "the device is pinned by vale rollback");
+        setMessage(str(result.message) ?? "the device is pinned by summrise rollback");
         return;
       }
       // "upgrading": the download runs in the background and the swap kills the agent. Stay
@@ -318,7 +318,7 @@ export function UpdateCard({
 
           {status.pinnedTo && (
             <p className="update-warn" data-kind="pinned">
-              Pinned to <strong>{status.pinnedTo}</strong> by <code>vale rollback</code>. An update
+              Pinned to <strong>{status.pinnedTo}</strong> by <code>summrise rollback</code>. An update
               may exist that this device will refuse until the pin is cleared on the device.
             </p>
           )}

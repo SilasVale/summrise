@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use crate::tools::serial::SerialPool;
 use crate::tools::terminal::TerminalManager;
-use vale_agent_core::EventBus;
-use vale_agent_core::{Plugin, ToolDef};
+use summrise_agent_core::EventBus;
+use summrise_agent_core::{Plugin, ToolDef};
 
 /// Per-session output buffer for non-destructive MCP read access.
 /// Stores accumulated raw bytes with a cursor tracking how much has been read.
@@ -328,7 +328,7 @@ pub struct TerminalPlugin {
 }
 
 /// Audit log dir — under the DATA dir (C1: registry DataDir, else exe dir),
-/// same root as vale-known-hosts.json (writable and stable across upgrades).
+/// same root as summrise-known-hosts.json (writable and stable across upgrades).
 pub(super) fn log_dir() -> std::path::PathBuf {
     crate::paths::sessions_dir()
 }
@@ -352,13 +352,13 @@ impl TerminalPlugin {
         let pruned = logger.prune_stale(30);
         if pruned > 0 {
             tracing::info!(
-                "[vale-agent] session log retention: pruned {pruned} stale audit file(s)"
+                "[summrise-agent] session log retention: pruned {pruned} stale audit file(s)"
             );
         }
         let interrupted = logger.recover_interrupted();
         if !interrupted.is_empty() {
             tracing::info!(
-                "[vale-agent] session log recovery: {} interrupted session(s) marked: {:?}",
+                "[summrise-agent] session log recovery: {} interrupted session(s) marked: {:?}",
                 interrupted.len(),
                 interrupted
             );
@@ -403,7 +403,7 @@ impl Plugin for TerminalPlugin {
 mod tests {
     use super::*;
     use serde_json::json;
-    use vale_agent_core::{AppEventBus, Plugin};
+    use summrise_agent_core::{AppEventBus, Plugin};
 
     fn plugin() -> TerminalPlugin {
         let bus: Arc<dyn EventBus> = Arc::new(AppEventBus::new());

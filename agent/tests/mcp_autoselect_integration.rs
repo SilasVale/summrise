@@ -19,8 +19,8 @@ use std::thread;
 
 use serde_json::{json, Value};
 
-use vale_agent::state::AppState;
-use vale_agent_core::{Config, ToolDef};
+use summrise_agent::state::AppState;
+use summrise_agent_core::{Config, ToolDef};
 
 /// Minimal strict MCP server over blocking std sockets (no extra deps).
 /// Strictness: a tools/call WITHOUT an "id" gets 202 + empty body.
@@ -142,7 +142,7 @@ fn start_strict_server() -> StrictFake {
                                     *sel.lock().unwrap() = Some(idx);
                                     "selected".to_string()
                                 } else {
-                                    "- 0: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Example Domains](https://example.com/)".to_string()
+                                    "- 0: (current) [Summrise Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Example Domains](https://example.com/)".to_string()
                                 }
                             }
                             _ => "ok".to_string(),

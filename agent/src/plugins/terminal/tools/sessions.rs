@@ -17,7 +17,7 @@ use crate::plugins::terminal::SessionBuf;
 use crate::plugins::{require_str, to_value_or_empty};
 use crate::tools::serial::SerialPool;
 use crate::tools::terminal::{parse_serial_target, parse_ssh_target, TerminalManager};
-use vale_agent_core::{recover_guard, AgentEvent, DeviceError, ToolDef};
+use summrise_agent_core::{recover_guard, AgentEvent, DeviceError, ToolDef};
 
 // P2-5: drainer frames rerouted after a vanished history entry (warn path
 // below). Monotonic process-lifetime counter — a rising value means the
@@ -336,7 +336,7 @@ pub(super) fn tool_open(ctx: &super::ctx::ToolCtx) -> ToolDef {
                 // typeof sid === "string"; never objectify this without a
                 // panel-side migration.
                 let open_count = terminal_mgr.term_list().await.len();
-                tracing::debug!("[vale-agent] terminal_open: {id} open_sessions={open_count}");
+                tracing::debug!("[summrise-agent] terminal_open: {id} open_sessions={open_count}");
                 // round-163: push the session-list change over the SSE bus —
                 // the panel dropped its 3s terminal_list poll for this event.
                 bus.emit_term_output(json!({"ev": "sessions-changed"}));

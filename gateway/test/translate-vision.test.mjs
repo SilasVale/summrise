@@ -300,7 +300,7 @@ test("describeImage: the user's own key still wins over the env fallback", async
 
 test("describeImage: gmi takes NO env fallback even when GMI_API_KEY is set on the worker", async () => {
   const src = (data) => ({ media_type: "image/png", data });
-  // GMI_API_KEY really is set on the live worker (`wrangler secret list --name vale-gate`), and byok.ts
+  // GMI_API_KEY really is set on the live worker (`wrangler secret list --name summrise-gate`), and byok.ts
   // declares envKey null for this channel — which is why this case is not hypothetical.
   let fetched = false;
   const out = await withStubFetch(

@@ -21,7 +21,7 @@ function envWithManifest(manifest) {
     ASSETS: {
       async fetch(req) {
         const path = new URL(req.url).pathname;
-        if (path === "/vale-agent/version.json" && manifest) {
+        if (path === "/summrise-agent/version.json" && manifest) {
           return new Response(JSON.stringify(manifest), { status: 200 });
         }
         return new Response("not found", { status: 404 });
@@ -43,19 +43,19 @@ async function landing(manifest) {
 test("a release that published an installer gets the button", async () => {
   const html = await landing({
     version: "1.2.364",
-    tarball: "vale-agent-latest.tgz",
+    tarball: "summrise-agent-latest.tgz",
     sha256: SHA,
-    installer: "ValeAgent-Setup-1.2.364.exe",
+    installer: "SummriseAgent-Setup-1.2.364.exe",
     installer_sha256: SHA,
   });
   assert.match(html, /Download Windows installer/);
-  assert.match(html, /ValeAgent-Setup\.exe/);
+  assert.match(html, /SummriseAgent-Setup\.exe/);
 });
 
 test("a tgz-only release gets no installer button and no alias link", async () => {
   const html = await landing({
     version: "1.2.364",
-    tarball: "vale-agent-latest.tgz",
+    tarball: "summrise-agent-latest.tgz",
     sha256: SHA,
   });
   assert.doesNotMatch(
@@ -63,7 +63,7 @@ test("a tgz-only release gets no installer button and no alias link", async () =
     /Download Windows installer/,
     "the alias still serves the PREVIOUS release — offering it silently ships an old build",
   );
-  assert.doesNotMatch(html, /ValeAgent-Setup\.exe/);
+  assert.doesNotMatch(html, /SummriseAgent-Setup\.exe/);
   assert.match(html, /No Windows installer is published for this release/);
   assert.match(html, /npm i -g/, "the channel that works must stay");
 });
@@ -79,12 +79,12 @@ test("a HALF-written installer manifest is not a promise", async () => {
   // ("both or neither"), so the page must not be more credulous than the smoke:
   // a URL with no digest is an artifact nobody can verify.
   for (const half of [
-    { installer: "ValeAgent-Setup-1.2.364.exe" },
+    { installer: "SummriseAgent-Setup-1.2.364.exe" },
     { installer_sha256: SHA },
   ]) {
     const html = await landing({
       version: "1.2.364",
-      tarball: "vale-agent-latest.tgz",
+      tarball: "summrise-agent-latest.tgz",
       sha256: SHA,
       ...half,
     });

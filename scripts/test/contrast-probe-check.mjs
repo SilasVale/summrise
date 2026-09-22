@@ -208,7 +208,7 @@ t("an SVG root's paint is reported only when a shape computes it", () => {
 
   // The brand mark, exactly as the device computed it: the root reports rgb(0,0,0) — the initial value of an
   // inherited property — and all three shapes override it. NOTHING paints black, so nothing is reported.
-  const brand = svgRootPaints("rgb(0, 0, 0)", "none", ['url("#vale-sky")', "rgb(255, 248, 225)", "rgb(255, 255, 255)"]);
+  const brand = svgRootPaints("rgb(0, 0, 0)", "none", ['url("#summrise-sky")', "rgb(255, 248, 225)", "rgb(255, 255, 255)"]);
   assert.deepEqual(brand, [], `the root's black is an inherited default, not a paint: ${JSON.stringify(brand)}`);
   // ...and the row it used to produce was the 1.18 CI filed, which is why a false row is not harmless.
   assert.equal(

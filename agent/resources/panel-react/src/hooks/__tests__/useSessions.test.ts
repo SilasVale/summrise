@@ -110,7 +110,7 @@ describe("useSessions", () => {
     // terminal_list now returns [] (term-1 gone).
     liveSids.delete("term-1");
     await act(async () => {
-      window.dispatchEvent(new CustomEvent("vale-sessions-changed"));
+      window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
     });
     await waitFor(() => {
       expect(result.current.sessions[0]?.closed).toBe(true);
@@ -125,13 +125,13 @@ describe("useSessions", () => {
     await waitFor(() => { expect(result.current.sessions[0]?.active).toBe(true); });
     // Server-side death → tombstoned.
     liveSids.delete("term-1");
-    await act(async () => { window.dispatchEvent(new CustomEvent("vale-sessions-changed")); });
+    await act(async () => { window.dispatchEvent(new CustomEvent("summrise-sessions-changed")); });
     await waitFor(() => { expect(result.current.sessions[0]?.closed).toBe(true); });
     // The SAME sid comes back live (agent restarted a re-used session, or a
     // race tombstoned it while it was still open) — the next list must
     // REVIVE it, not keep a dead tab.
     liveSids.add("term-1");
-    await act(async () => { window.dispatchEvent(new CustomEvent("vale-sessions-changed")); });
+    await act(async () => { window.dispatchEvent(new CustomEvent("summrise-sessions-changed")); });
     await waitFor(() => {
       const s = result.current.sessions.find((x) => x.sid === "term-1");
       expect(s?.closed).toBe(false);
@@ -161,7 +161,7 @@ describe("useSessions", () => {
         return Promise.reject(new Error(`unexpected tool: ${name}`));
       });
       await act(async () => {
-        window.dispatchEvent(new CustomEvent("vale-sessions-changed"));
+        window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
         await vi.advanceTimersByTimeAsync(2000);
       });
       expect(result.current.sessions.some((s) => s.sid === "term-ai" && !s.closed)).toBe(true);
@@ -278,7 +278,7 @@ describe("pending approval — the shrinking budget becomes one absolute deadlin
       budget = 840_000;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
-        window.dispatchEvent(new CustomEvent("vale-sessions-changed"));
+        window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
         await vi.advanceTimersByTimeAsync(10);
       });
 
@@ -464,7 +464,7 @@ describe("the device's session row", () => {
 // ── a keystroke that did not land ────────────────────────────────────────────────────────────────
 //
 // `TerminalPane` catches a rejected `terminal_write` to keep its write chain alive, and dispatches
-// `vale-write-failed`. Until round 94 NOTHING LISTENED, so an operator typing into a session whose
+// `summrise-write-failed`. Until round 94 NOTHING LISTENED, so an operator typing into a session whose
 // agent had gone away watched their keystrokes vanish with no explanation. The message must start with
 // "error" — that is what lights the status line's error state (`StatusBar` switches on the prefix, and
 // round 76 pinned the colour that state uses).
@@ -477,7 +477,7 @@ describe("a terminal write that failed", () => {
     await waitFor(() => expect(mockCallTool).toHaveBeenCalled());
 
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-write-failed", { detail: { sid: "term-gone-1" } }));
+      window.dispatchEvent(new CustomEvent("summrise-write-failed", { detail: { sid: "term-gone-1" } }));
     });
 
     await waitFor(() => {
@@ -496,7 +496,7 @@ describe("a terminal write that failed", () => {
     // A listener left attached would call setState on an unmounted hook; React logs that as a warning,
     // and the assertion here is simply that the dispatch does not throw or hang.
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-write-failed", { detail: { sid: "term-gone-2" } }));
+      window.dispatchEvent(new CustomEvent("summrise-write-failed", { detail: { sid: "term-gone-2" } }));
     });
     expect(result.current.status ?? "").toBeDefined();
   });

@@ -24,7 +24,7 @@ import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO = join(HERE, "..", "..");
-const OUT = process.env.VALE_LANDING_OUT || "/tmp/vale-landing";
+const OUT = process.env.SUMMRISE_LANDING_OUT || "/tmp/summrise-landing";
 const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "").slice("--passes=".length).split(",").filter(Boolean);
 const mode = process.argv[2] || "";
 
@@ -46,8 +46,8 @@ function landingStyles() {
 // installer the page swaps the primary button for a hint — a different element, a different size, a different
 // contrast question — and nothing has ever looked at it in a browser.
 const CONSOLE_URL = "https://ai.saisi.online";
-const INSTALLER_URL = "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz";
-const SETUP_URL = "https://agent.saisi.online/vale-agent/ValeAgent-Setup.exe";
+const INSTALLER_URL = "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz";
+const SETUP_URL = "https://agent.saisi.online/summrise-agent/SummriseAgent-Setup.exe";
 const PAGES = [
   ["installer", PAGE(CONSOLE_URL, INSTALLER_URL, SETUP_URL)],
   ["npm-only", PAGE(CONSOLE_URL, INSTALLER_URL, null)],
@@ -65,7 +65,7 @@ function render() {
 
 // ONE ROOT, BOTH ENDS (round 77's lesson): the stamp is baked from the entry the RUN will serve, and the default is
 // the device path so a delivered copy is compared against the copy it was emitted for.
-const ROOT = process.env.VALE_SWEEP_ROOT || "C:\\\\ProgramData\\\\Vale\\\\pwout\\\\landing";
+const ROOT = process.env.SUMMRISE_SWEEP_ROOT || "C:\\\\ProgramData\\\\Summrise\\\\pwout\\\\landing";
 const stampOf = (file) => {
   try {
     const b = readFileSync(file);
@@ -82,8 +82,8 @@ function browserScript() {
   const LOCAL_STAMP = stampOf(join(OUT, "installer.html"));
   const script = `const fs = require('fs');
 const path = require('path');
-const ROOT = process.env.VALE_SWEEP_ROOT || '${ROOT}';
-const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\landing-sweep.json';
+const ROOT = process.env.SUMMRISE_SWEEP_ROOT || '${ROOT}';
+const REPORT_PATH = process.env.SUMMRISE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Summrise\\\\pwout\\\\landing-sweep.json';
 const EXPECTED_ENTRY = ${JSON.stringify(LOCAL_STAMP)};
 const EXPECTED_ENTRY_PATH = path.join(ROOT, 'installer.html');
 const PROBE = ${JSON.stringify(PROBE_SOURCE)};
@@ -104,10 +104,10 @@ const wants = (name) => !PASSES.length || PASSES.includes('all') || PASSES.inclu
 const PAGES = ['installer', 'npm-only'];
 
 (async () => {
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   const report = { rows: [], surfaces: [], names: [], focus: [], press: [], idle: [], hover: [], unstyled: [], motion: [], reflow: [], targets: [], themeChecks: [], entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require('crypto').createHash('sha256').update(b).digest('hex').slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
-  await page.route('http://vale.test/**', (route) => {
+  await page.route('http://summrise.test/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     const file = p === '/' || p === '' ? 'installer.html' : p.replace(/^\\//, '');
     const full = path.join(ROOT, file);
@@ -120,7 +120,7 @@ const PAGES = ['installer', 'npm-only'];
     await page.emulateMedia({ colorScheme: scheme });
     for (const label of PAGES) {
       await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('http://vale.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
+      await page.goto('http://summrise.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
       await page.waitForTimeout(1200);
       const where = label + '@1440' + (scheme === 'dark' ? '-dark' : '');
       report.themeChecks.push({ page: where, intended: scheme, scheme: await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches) });
@@ -167,14 +167,14 @@ const PAGES = ['installer', 'npm-only'];
     for (const width of [640, 320]) {
       await page.setViewportSize({ width, height: 800 });
       for (const label of PAGES) {
-        await page.goto('http://vale.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
+        await page.goto('http://summrise.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
         await page.waitForTimeout(900);
         report.reflow.push({ page: label + '@' + width, width, density: 'landing', theme: 'light', ...(await page.evaluate(REFLOW)) });
       }
     }
   }
   if (wants('motion')) report.motion.push(await motionPass(page, async () => {
-    await page.goto('http://vale.test/installer.html?cb=' + Date.now(), { waitUntil: 'load' });
+    await page.goto('http://summrise.test/installer.html?cb=' + Date.now(), { waitUntil: 'load' });
     await page.waitForTimeout(1500);
   }, { page: 'installer', width: 1440, density: 'landing', theme: 'light' }));
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));

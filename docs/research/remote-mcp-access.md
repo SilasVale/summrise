@@ -9,7 +9,7 @@ endpoint at `/mcp` behind a bearer token — and the machine is usually behind N
 WAN-side machine to drive it over MCP, preferably without Cloudflare and without installing a VPN
 client on every client machine.
 
-Loopback-only is not an accident of Vale's design; it is what MCP asks for. The Streamable HTTP
+Loopback-only is not an accident of Summrise's design; it is what MCP asks for. The Streamable HTTP
 binding says servers **MUST** validate the `Origin` header, **SHOULD** bind only to localhost
 (127.0.0.1) rather than 0.0.0.0 when running locally, and **SHOULD** implement proper authentication
 for all connections, because otherwise attackers can use DNS rebinding to reach local MCP servers
@@ -177,7 +177,7 @@ From the spec's Security Best Practices chapter
 | VS Code | `"command": "npx"` entries in `mcp.json` ([docs](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)) | `"type": "http", "url": "https://api.githubcopilot.com/mcp"` in the same file ([docs](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)) | Server-side; VS Code separately requires an explicit trust confirmation before a server is started, resettable with `MCP: Reset Trust` ([docs](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)) |
 | OpenAI (Responses API / Agents SDK) | `MCPServerStreamableHttp` against `http://localhost:8000/mcp` with an `Authorization` header ([Agents SDK MCP](https://openai.github.io/openai-agents-python/mcp/)) | **Hosted MCP** — "Let OpenAI's Responses API call a publicly reachable MCP server on the model's behalf"; the round trip happens inside OpenAI's infrastructure ([Agents SDK MCP](https://openai.github.io/openai-agents-python/mcp/)) | Hosted tools take `server_url` plus an `authorization` value or `connector_id`; the SDK's own security note says to keep access tokens in authorization fields or headers rather than URLs and to require approval for sensitive operations ([Agents SDK MCP](https://openai.github.io/openai-agents-python/mcp/)) |
 
-Two facts in this table decide the Vale case:
+Two facts in this table decide the Summrise case:
 
 1. **A client that runs on the operator's own machine can reach loopback.** Claude Code, Cursor and
    VS Code accept an arbitrary URL and can therefore point at `http://127.0.0.1:18080/mcp` on a
@@ -413,7 +413,7 @@ new code.
 
 ### 3.4 Self-hosted "agent dials out to a server" products
 
-These are the closest architectural analogues to Vale: a managed control plane, and an agent that
+These are the closest architectural analogues to Summrise: a managed control plane, and an agent that
 establishes the connection outward. In every one of them, **the server never dials in**.
 
 #### Portainer Edge Agent
@@ -636,7 +636,7 @@ reverse proxy + auth on the inside*.
 
 ---
 
-## 6. WHAT THIS MEANS FOR VALE
+## 6. WHAT THIS MEANS FOR SUMMRISE
 
 Ranked from least to most product work. "Product work" = changes to this repo shipped to operators;
 everything else is operator configuration on hardware they already have.
@@ -652,7 +652,7 @@ in front ([Access](https://developers.cloudflare.com/cloudflare-one/access-contr
 per deployment; Cloudflare is excluded by the brief, which leaves ngrok or self-hosted frp.
 *Product work: none.*
 
-**Option B — Vale Gate as the relay the agent dials out to (the Portainer/VS Code/Nabu Casa shape).**
+**Option B — Summrise Gate as the relay the agent dials out to (the Portainer/VS Code/Nabu Casa shape).**
 The agent keeps an outbound connection to the operator's own gateway and the gateway terminates TLS and
 authenticates the calling client; `/mcp` is proxied over that outbound connection. This is the
 architecture every comparable product already uses: Portainer's agents poll out and open the tunnel, so
@@ -719,7 +719,7 @@ identity provider — must decide whether to trust the call.
 **Which the sources most support for this exact case.** Eliminating Cloudflare and per-client VPN
 installs leaves two shapes: (i) a relay the agent dials out to, with TLS and identity at the relay —
 the architecture of every comparable product named in §3.4; or (ii) a self-hosted frp/`ssh -R` VPS with
-the reverse proxy on the VPS. For Vale specifically, Option B is the same shape as the products the
+the reverse proxy on the VPS. For Summrise specifically, Option B is the same shape as the products the
 sources describe and is the only one that also gives the operator a place to enforce OWASP-style
 lockout and throttling ([OWASP API2:2023](https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/))
 and to keep the agent's loopback binding intact. Option D is the fastest credible path today with zero

@@ -1,23 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "vale-dist",
+  "name": "summrise-dist",
   "main": "src/index.js",
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
   // Static assets served first (run_worker_first defaults to false), so
-  // /vale-agent/* release artifacts are served straight from ./public;
-  // everything else hits the Worker. public/vale-agent/ holds the npm-only
+  // /summrise-agent/* release artifacts are served straight from ./public;
+  // everything else hits the Worker. public/summrise-agent/ holds the npm-only
   // install channel (since 2026-08-28; the NSIS installer and its
   // setup.ps1/.exe assets are retired): versioned tgz + the
-  // vale-agent-latest.tgz alias, version.json (release discovery), icons
+  // summrise-agent-latest.tgz alias, version.json (release discovery), icons
   // and fix-tunnel.ps1. NOTE: every asset must stay under the 25MiB
   // per-file Workers Assets limit.
   "assets": { "directory": "./public", "binding": "ASSETS" },
   // Temporary file hosting: upload -> one-time download URL -> auto-deleted.
-  // R2 bucket: `wrangler r2 bucket create vale-temp-files`.
+  // R2 bucket: `wrangler r2 bucket create summrise-temp-files`.
   // NOTE: no KV binding — one-time state lives on the R2 key + expiresAt
   // deadline (see src/claim.js).
-  "r2_buckets": [{ "binding": "TEMP_FILES", "bucket_name": "vale-temp-files" }],
+  "r2_buckets": [{ "binding": "TEMP_FILES", "bucket_name": "summrise-temp-files" }],
   // One-time-download claim serializer: GET /files/<token> is forwarded to
   // the TempClaimDO instance named by the token, whose input queue closes
   // the concurrent-get race (first claim wins, losers 404). Short-lived
@@ -27,9 +27,9 @@
     "bindings": [{ "name": "TEMP_CLAIM", "class_name": "TempClaimDO" }]
   },
   "migrations": [{ "tag": "v1-temp-claim", "new_sqlite_classes": ["TempClaimDO"] }],
-  // Custom domain (added in the Cloudflare dashboard, like the other Vale
+  // Custom domain (added in the Cloudflare dashboard, like the other Summrise
   // workers — wrangler 4.x ignores the custom_domains field): <download-host>
-  // Vars (set via `wrangler var put`, NOT committed): CONSOLE_URL (the Vale
+  // Vars (set via `wrangler var put`, NOT committed): CONSOLE_URL (the Summrise
   // console URL rendered on the download page).
   "observability": { "enabled": false }
 }

@@ -34,4 +34,4 @@ const root = window.document.getElementById("root");
 const text = root?.textContent || "";
 console.log("root children:", root?.children.length);
 console.log("content sample:", JSON.stringify(text.slice(0, 100)));
-if (root?.children.length > 0 && text.includes("Vale")) { console.log("RENDER OK"); } else { console.error("RENDER FAILED"); process.exit(1); }
+if (root?.children.length > 0 && text.includes("Summrise")) { console.log("RENDER OK"); } else { console.error("RENDER FAILED"); process.exit(1); }

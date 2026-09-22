@@ -563,7 +563,7 @@ mod tests {
             ("a three-part sentence", "one.two.three"),
             (
                 "a plain url",
-                "https://agent.saisi.online/vale-agent/version.json",
+                "https://agent.saisi.online/summrise-agent/version.json",
             ),
             (
                 "an id with hex inside",

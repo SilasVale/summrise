@@ -660,7 +660,7 @@ pub fn mark_exited(data_dir: &Path, started: u64) {
 /// agent, so the next start can say "a person stopped this" instead of guessing.
 ///
 /// WHY IT IS NEEDED. `classify` can tell a clean exit from a crash, an update swap and a host
-/// reboot, and it has no way to know that an operator typed `vale restart`: the process is killed
+/// reboot, and it has no way to know that an operator typed `summrise restart`: the process is killed
 /// from outside, writes no marker, and a revival slower than the heartbeat window is then reported
 /// as `crashed` — the product calling the operator's own action a failure.
 ///
@@ -689,7 +689,8 @@ mod tests {
     use super::*;
 
     fn dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("vale-runstate-{tag}-{}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("summrise-runstate-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).expect("temp dir");
         d
@@ -736,7 +737,7 @@ mod tests {
     }
 
     /// AN UPDATE SWAP IS NOT A CRASH, and it cannot be told from one by a clock: measured on d1
-    /// (2026-09-15 boot history) a real `vale update` left a **61 s** heartbeat gap while the boot
+    /// (2026-09-15 boot history) a real `summrise update` left a **61 s** heartbeat gap while the boot
     /// task revives a genuine crash within ~60 s — the two durations OVERLAP, which is why the old
     /// time-based rule filed updates as crashes whenever the box was a second slow. The update flow
     /// marks its own swap (`reason=update`) and the verdict follows the MARK, not the clock.
@@ -1195,7 +1196,7 @@ mod tests {
         // The product half of round 254's change: the line was computed and logged, and the only
         // way to see it was to read logs/startup.log on the device. It is now readable too — and
         // since round 256 it carries the KIND, so the surfaces that act on it need no prose.
-        let dir = std::env::temp_dir().join(format!("vale-verdict-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-verdict-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(last_boot(&dir), None, "no verdict before any boot");
 

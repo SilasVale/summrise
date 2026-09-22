@@ -1,4 +1,4 @@
-// updateDiagnosis — read `vale-update.log` and answer "did the update take?".
+// updateDiagnosis — read `summrise-update.log` and answer "did the update take?".
 //
 // THE QUESTION THIS EXISTS FOR. A device update goes: the CLI writes an
 // `update requested X -> Y` receipt, hands a PowerShell swap script to WMI, and
@@ -8,7 +8,7 @@
 // side. Observed on d1: the update returned a connection error, was read as "the
 // swap is running", and had never reached the device at all.
 //
-// The repo's own answer is a FOUR-WAY table over `vale-update.log`, and until now
+// The repo's own answer is a FOUR-WAY table over `summrise-update.log`, and until now
 // reading it meant a `Get-Content` on the box. The device already serves the file
 // (`GET /api/logs`) and nothing consumed it. This turns the tail into the verdict.
 //

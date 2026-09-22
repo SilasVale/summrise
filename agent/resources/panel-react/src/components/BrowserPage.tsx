@@ -13,8 +13,8 @@ interface Props {
 
 export function BrowserPage({ token }: Props) {
   // round-246: in the Electron shell the main process embeds a REAL
-  // WebContentsView (window.valeEmbedded) — render the controller for it.
-  const embedded = !!((window as any).valeEmbedded);
+  // WebContentsView (window.summriseEmbedded) — render the controller for it.
+  const embedded = !!((window as any).summriseEmbedded);
   if (embedded) {
     return (
       <div className="browser-page">
@@ -27,7 +27,7 @@ export function BrowserPage({ token }: Props) {
   }
   // round-261 (user: "模式 B 可以删除"): no screenshot-stream fallback.
   // The remote browser is only meaningful as the real embedded view in the
-  // Vale desktop app; a plain web page cannot show it.
+  // Summrise desktop app; a plain web page cannot show it.
   return (
     <div className="browser-page">
       <h1 className="sr-only">Browser</h1>
@@ -42,9 +42,9 @@ export function BrowserPage({ token }: Props) {
           <span className="browser-placeholder-mark" aria-hidden="true">
             <Icon name="browser" size={26} />
           </span>
-          <p><strong>The browser needs the Vale desktop app</strong></p>
+          <p><strong>The browser needs the Summrise desktop app</strong></p>
           <p className="browser-mode-b-hint">
-            This page is served by the agent. Open it inside the Vale Desktop
+            This page is served by the agent. Open it inside the Summrise Desktop
             (Electron) shell to get the real embedded browser — plain web
             browsers cannot render it.
           </p>

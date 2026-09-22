@@ -1,8 +1,8 @@
 // The three binary proxies: what they serve, how they FAIL, and how a device can tell
 // a stale bundle from a current one. Round-99 F2/F3 named both gaps:
-//   F2 — `vale-playwright.zip` (an EXECUTED artifact) was served `public, max-age=86400`
+//   F2 — `summrise-playwright.zip` (an EXECUTED artifact) was served `public, max-age=86400`
 //        with no validator, at a mutable key: a device could be handed a stale archive for
-//        a day, and `vale setup` stages it without hashing.
+//        a day, and `summrise setup` stages it without hashing.
 //   F3 — the three routes answered failures with bare text, and a REJECTED fetch had no
 //        try/catch, so a GitHub outage became the platform's 500 HTML page — which no
 //        device-side reader parses. electron-route.test.mjs recorded that gap in its own
@@ -13,9 +13,9 @@ import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { makeR2, assertJsonError } from "./helpers.mjs";
 
-const PW = "/vale-agent/vale-playwright.zip";
-const CF = "/vale-agent/cloudflared.exe";
-const EL = "/vale-agent/electron-win32-x64.zip";
+const PW = "/summrise-agent/summrise-playwright.zip";
+const CF = "/summrise-agent/cloudflared.exe";
+const EL = "/summrise-agent/electron-win32-x64.zip";
 
 async function withStubFetch(handler, fn) {
   const real = globalThis.fetch;
@@ -34,20 +34,20 @@ const get = (path, headers = {}) =>
 
 test("playwright bundle: 200 carries a content-derived ETag, no-cache and the real size", async () => {
   const r2 = makeR2();
-  await r2.put("vale-playwright.zip", "BUNDLE-V1");
+  await r2.put("summrise-playwright.zip", "BUNDLE-V1");
   const resp = await worker.fetch(get(PW), { TEMP_FILES: r2 });
   assert.equal(resp.status, 200);
   const etag = resp.headers.get("etag");
   assert.match(etag || "", /^"[0-9a-f]{32}"$/, `etag must be a quoted digest: ${etag}`);
   assert.equal(resp.headers.get("cache-control"), "public, no-cache");
   assert.equal(resp.headers.get("content-length"), String("BUNDLE-V1".length));
-  assert.equal(resp.headers.get("content-disposition"), 'attachment; filename="vale-playwright.zip"');
+  assert.equal(resp.headers.get("content-disposition"), 'attachment; filename="summrise-playwright.zip"');
   assert.equal(await resp.text(), "BUNDLE-V1");
 });
 
 test("playwright bundle: a matching If-None-Match is a 304 with no body — not a second download", async () => {
   const r2 = makeR2();
-  await r2.put("vale-playwright.zip", "BUNDLE-V1");
+  await r2.put("summrise-playwright.zip", "BUNDLE-V1");
   const first = await worker.fetch(get(PW), { TEMP_FILES: r2 });
   const etag = first.headers.get("etag");
   await first.text();
@@ -61,12 +61,12 @@ test("playwright bundle: a matching If-None-Match is a 304 with no body — not 
 
 test("playwright bundle: REPLACING the bundle changes the ETag — the staleness F2 named", async () => {
   const r2 = makeR2();
-  await r2.put("vale-playwright.zip", "BUNDLE-V1");
+  await r2.put("summrise-playwright.zip", "BUNDLE-V1");
   const v1 = await worker.fetch(get(PW), { TEMP_FILES: r2 });
   const etag1 = v1.headers.get("etag");
   await v1.text();
 
-  await r2.put("vale-playwright.zip", "BUNDLE-V2");
+  await r2.put("summrise-playwright.zip", "BUNDLE-V2");
   const stale = await worker.fetch(get(PW, { "if-none-match": etag1 }), { TEMP_FILES: r2 });
   assert.equal(stale.status, 200, "a device holding the OLD validator must be given the NEW bytes");
   const etag2 = stale.headers.get("etag");

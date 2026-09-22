@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 use crate::plugins::tool_error;
-use vale_agent_core::{DeviceError, ToolDef};
+use summrise_agent_core::{DeviceError, ToolDef};
 
 /// Build the release manifest endpoint from the configured download site.
 fn version_url(download_url: &str) -> String {
@@ -106,14 +106,14 @@ fn newer(remote: &str, local: &str) -> bool {
 // short_path (Windows 8.3 names for the retired NSIS /D= flag) was removed
 // with the NSIS installer — the npm tgz channel never needed it.
 
-/// Install dir — registry-first (HKLM\SOFTWARE\Vale\Agent\InstallDir), then
+/// Install dir — registry-first (HKLM\SOFTWARE\Summrise\Agent\InstallDir), then
 /// the exe dir (crate::paths::install_dir). One source of truth (C1).
 fn install_dir() -> PathBuf {
     crate::paths::install_dir()
 }
 
 /// The version this install is RUNNING: the npm release written beside the install dir at
-/// swap time (`.vale-release`), falling back to the Cargo version for a fresh install or a
+/// swap time (`.summrise-release`), falling back to the Cargo version for a fresh install or a
 /// non-Windows test host. ONE rule, used by the tool that acts on it and by the status view
 /// a panel reads — round-298's lesson was that comparing the Cargo version against the
 /// release server made every check see a newer version, and a second copy of this rule is
@@ -126,7 +126,7 @@ pub fn local_release() -> String {
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
 }
 
-/// The `vale rollback` pin, or "" when the device is not pinned. Read by the tool (which
+/// The `summrise rollback` pin, or "" when the device is not pinned. Read by the tool (which
 /// must not drift a pinned device) and by the status view (which must SAY it is pinned
 /// rather than showing an update the device will refuse).
 pub fn rollback_pin() -> String {
@@ -144,7 +144,7 @@ pub fn update_busy() -> bool {
 
 /// WHERE THE DEVICE RECORDS THE UPDATE IT LAUNCHED (2026-09-21).
 ///
-/// The verdict an operator reads after clicking Update is a four-way READING OF A LOG FILE — `vale-update.log`,
+/// The verdict an operator reads after clicking Update is a four-way READING OF A LOG FILE — `summrise-update.log`,
 /// written by TWO programs (the CLI writes the `update requested` receipt, the generated swap script writes the
 /// stages). The question that decides whether it is safe to press the button again is "did the swap actually
 /// start on this device", and the DEVICE knows the answer at the moment it hands the script to WMI. That answer
@@ -169,7 +169,7 @@ pub fn record_update_attempt(from: &str, to: &str, launched: bool) {
         .unwrap_or(0);
     let body = json!({ "at_ms": at_ms, "from": from, "to": to, "launched": launched });
     if let Err(e) = std::fs::write(attempt_path(), body.to_string()) {
-        tracing::error!("[vale-agent] update: could not record the launch: {e}");
+        tracing::error!("[summrise-agent] update: could not record the launch: {e}");
     }
 }
 
@@ -313,7 +313,7 @@ pub async fn update_status(download_url: Option<String>) -> Value {
         "checked_at": answer.at * 1000,
         // DID THE LAST UPDATE ACTUALLY LAUNCH, and from which build to which (2026-09-21). `checked_at` says when
         // the channel was asked; this says what the DEVICE did about an answer. The logs card still reads
-        // `vale-update.log` for the stages a swap writes, and that reading stays the fallback for devices whose
+        // `summrise-update.log` for the stages a swap writes, and that reading stays the fallback for devices whose
         // record is absent — this field is the fact, that one is the narration.
         "last_attempt": last_update_attempt(),
     })
@@ -343,7 +343,7 @@ fn cleanup_staged(dir: &std::path::Path) {
 ///
 /// THE ONE LIST, and it exists because there were two. `winmain`'s boot sweep
 /// kept its own copy and two of its three entries were PRE-V2 spellings —
-/// `<install>\vale-playwright.new.zip` and `<install>\tools\cloudflared.new.exe`
+/// `<install>\summrise-playwright.new.zip` and `<install>\tools\cloudflared.new.exe`
 /// where staging writes `<install>\components\...` (and `tools\` is a directory
 /// the v2 layout removed). So the boot sweep deleted the executable and MISSED
 /// both boxed components, which is precisely the outcome its own comment warned
@@ -356,10 +356,10 @@ fn cleanup_staged(dir: &std::path::Path) {
 pub fn staged_leftovers(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let comp = dir.join("components");
     vec![
-        dir.join("vale-agent.new.exe"),
-        comp.join("vale-playwright.new.zip"),
+        dir.join("summrise-agent.new.exe"),
+        comp.join("summrise-playwright.new.zip"),
         comp.join("cloudflared.new.exe"),
-        dir.join(".vale-update"),
+        dir.join(".summrise-update"),
     ]
 }
 
@@ -367,7 +367,7 @@ pub fn staged_leftovers(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 //
 // The exclusive cross-process update lock, and the one place its path is
 // defined. It used to be spelled out TWICE: the Rust acquirer built
-// `<ProgramData>\ValeAgent\update-busy` from PathBuf joins while the
+// `<ProgramData>\SummriseAgent\update-busy` from PathBuf joins while the
 // generated PowerShell swap script carried the same location as two
 // hand-written string literals. A drift between the two is invisible until
 // an update actually runs — and then the swap releases a file the agent
@@ -381,7 +381,7 @@ pub fn staged_leftovers(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 // acquire_busy_marker below.
 
 /// ProgramData-relative location of the update busy marker.
-const BUSY_MARKER_REL: &str = r"ValeAgent\update-busy";
+const BUSY_MARKER_REL: &str = r"SummriseAgent\update-busy";
 
 /// How long an abandoned marker blocks further updates before it may be
 /// reclaimed. A crashed install leaves the marker behind, so without a
@@ -390,7 +390,7 @@ const BUSY_MARKER_REL: &str = r"ValeAgent\update-busy";
 ///
 /// TEN MINUTES, AND IT MUST EQUAL THE CLI'S `busyIsFresh` WINDOW. It was 3600,
 /// which is the same hour round-54 complained about ("a stuck marker blocked
-/// updates for up to an hour") — while `vale.ts` reclaimed at ten minutes and
+/// updates for up to an hour") — while `summrise.ts` reclaimed at ten minutes and
 /// the operator docs state ten. TWO RULES FOR ONE LOCK: at eleven minutes the
 /// CLI overwrote a marker this side still honoured, so a CLI update could start
 /// alongside a console-launched one and interleave `Copy-Item` on `*.new` —
@@ -398,7 +398,7 @@ const BUSY_MARKER_REL: &str = r"ValeAgent\update-busy";
 /// is already generous: the swap's copy retries total about ten SECONDS.
 ///
 /// The agreement is pinned across the language boundary by
-/// `agent/vale-agent-npm/test/cli.test.mjs`, because no test inside either
+/// `agent/summrise-agent-npm/test/cli.test.mjs`, because no test inside either
 /// language can see the other's number.
 const BUSY_STALE_SECS: u64 = 600;
 
@@ -491,8 +491,8 @@ fn acquire_busy_marker(
 }
 
 /// Install from the downloaded npm tgz (the single update artifact).
-/// Extracts the package (vale-agent.exe + boxed playwright + cloudflared) into a temp dir, then swaps the exe in
-/// place via the same WMI-survives-the-kill pattern vale.js uses: a small
+/// Extracts the package (summrise-agent.exe + boxed playwright + cloudflared) into a temp dir, then swaps the exe in
+/// place via the same WMI-survives-the-kill pattern summrise.js uses: a small
 /// PowerShell swap script is handed to Win32_Process.Create (parented by
 /// WmiPrvSE) so it survives THIS process dying — a plain child spawn dies
 /// with the agent mid-copy and leaves the device half-updated.
@@ -506,11 +506,11 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
 
         // 1. Write the tgz + extract with tar (Windows 10+ ships bsdtar).
         if std::fs::write(installer, bytes).is_err() {
-            tracing::error!("[vale-agent] agent_update: tgz write failed");
+            tracing::error!("[summrise-agent] agent_update: tgz write failed");
             return false;
         }
         let dir = install_dir();
-        let extract = dir.join(".vale-update");
+        let extract = dir.join(".summrise-update");
         let _ = std::fs::remove_dir_all(&extract);
         if std::fs::create_dir_all(&extract).is_err() {
             return false;
@@ -525,7 +525,7 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         match out {
             Ok(o) if o.status.success() => {}
             _ => {
-                tracing::error!("[vale-agent] agent_update: tgz extract failed");
+                tracing::error!("[summrise-agent] agent_update: tgz extract failed");
                 return false;
             }
         }
@@ -534,23 +534,23 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         // install root after successful updates.
         let _ = std::fs::remove_file(installer);
         // The npm tgz contains package/... — find the exe inside.
-        let pkg_exe = extract.join("package").join("vale-agent.exe");
+        let pkg_exe = extract.join("package").join("summrise-agent.exe");
         if !pkg_exe.exists() {
-            tracing::error!("[vale-agent] agent_update: tgz has no package/vale-agent.exe");
+            tracing::error!("[summrise-agent] agent_update: tgz has no package/summrise-agent.exe");
             return false;
         }
 
         // 2. Stage the new exe as .new and hand a swap script to WMI.
-        let new_exe = dir.join("vale-agent.new.exe");
+        let new_exe = dir.join("summrise-agent.new.exe");
         if std::fs::copy(&pkg_exe, &new_exe).is_err() {
             return false;
         }
         // Boxed playwright + cloudflared refresh: staging failures FAIL the
-        // update loudly (return false) — the swap script writes .vale-release
+        // update loudly (return false) — the swap script writes .summrise-release
         // only after ALL staged swaps succeed, so a silently-skipped boxed
         // component would leave the device REPORTING the new release with
         // STALE components. Failing keeps the old (consistent) version — safe
-        // and retryable, never a brick. (Retired Tauri vale-desktop.exe
+        // and retryable, never a brick. (Retired Tauri summrise-desktop.exe
         // staging was removed here: the crate is deleted, the npm package
         // no longer ships it.)
         // Staged to .new names — NEVER over the live files pre-verdict: a
@@ -559,13 +559,13 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         // version (and a retry could never restore the overwritten live
         // file). The $ok-gated swap script moves them into place only when
         // the main-exe copy succeeded.
-        let pkg_pw = extract.join("package").join("vale-playwright.zip");
+        let pkg_pw = extract.join("package").join("summrise-playwright.zip");
         if pkg_pw.exists() {
             if let Err(e) = std::fs::copy(
                 &pkg_pw,
-                dir.join("components").join("vale-playwright.new.zip"),
+                dir.join("components").join("summrise-playwright.new.zip"),
             ) {
-                tracing::error!("[vale-agent] agent_update: playwright stage failed: {e}");
+                tracing::error!("[summrise-agent] agent_update: playwright stage failed: {e}");
                 cleanup_staged(&dir);
                 return false;
             }
@@ -573,14 +573,14 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         let pkg_cf = extract.join("package").join("cloudflared.exe");
         if pkg_cf.exists() {
             if let Err(e) = std::fs::create_dir_all(dir.join("components")) {
-                tracing::error!("[vale-agent] agent_update: components dir create failed: {e}");
+                tracing::error!("[summrise-agent] agent_update: components dir create failed: {e}");
                 cleanup_staged(&dir);
                 return false;
             }
             if let Err(e) =
                 std::fs::copy(&pkg_cf, dir.join("components").join("cloudflared.new.exe"))
             {
-                tracing::error!("[vale-agent] agent_update: cloudflared stage failed: {e}");
+                tracing::error!("[summrise-agent] agent_update: cloudflared stage failed: {e}");
                 cleanup_staged(&dir);
                 return false;
             }
@@ -600,49 +600,49 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         // acquirer above uses (busy_marker_ps), never a second literal.
         let busy_ps = busy_marker_ps();
         let script = format!(
-            r#""[$(Get-Date -Format o)] update start" | Out-File '{logs}\vale-update.log' -Append;
+            r#""[$(Get-Date -Format o)] update start" | Out-File '{logs}\summrise-update.log' -Append;
 try {{
-$uaction = New-ScheduledTaskAction -Execute '{q}\vale-agent.exe' -Argument ('"' + '{etc}\config.yaml' + '"');
+$uaction = New-ScheduledTaskAction -Execute '{q}\summrise-agent.exe' -Argument ('"' + '{etc}\config.yaml' + '"');
 $uboot = New-ScheduledTaskTrigger -AtStartup;
 $uwatch = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5);
 $uprincipal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest;
 $usettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 8 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable;
-Register-ScheduledTask ValeAgent -Action $uaction -Trigger @($uboot,$uwatch) -Principal $uprincipal -Settings $usettings -Force -ErrorAction Stop | Out-Null;
-}} catch {{ "[$(Get-Date -Format o)] task repoint FAILED — aborting, old version keeps running" | Out-File '{logs}\vale-update.log' -Append; Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}"; exit 1 }};
-"[$(Get-Date -Format o)] task repointed at etc\config.yaml" | Out-File '{logs}\vale-update.log' -Append;
-try {{ Stop-ScheduledTask ValeAgent -ErrorAction Stop }} catch {{}};
-Get-Process vale-agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue;
-Get-Process node -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -like '*vale-agent*' }} | Stop-Process -Force -ErrorAction SilentlyContinue;
+Register-ScheduledTask SummriseAgent -Action $uaction -Trigger @($uboot,$uwatch) -Principal $uprincipal -Settings $usettings -Force -ErrorAction Stop | Out-Null;
+}} catch {{ "[$(Get-Date -Format o)] task repoint FAILED — aborting, old version keeps running" | Out-File '{logs}\summrise-update.log' -Append; Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}"; exit 1 }};
+"[$(Get-Date -Format o)] task repointed at etc\config.yaml" | Out-File '{logs}\summrise-update.log' -Append;
+try {{ Stop-ScheduledTask SummriseAgent -ErrorAction Stop }} catch {{}};
+Get-Process summrise-agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue;
+Get-Process node -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -like '*summrise-agent*' }} | Stop-Process -Force -ErrorAction SilentlyContinue;
 Start-Sleep -Milliseconds 1500;
 $ok=$false;
-# MANUAL-ONLY BACKUP: nothing automated reads vale-agent.old.exe, and nothing
+# MANUAL-ONLY BACKUP: nothing automated reads summrise-agent.old.exe, and nothing
 # deletes it either, so one accumulates per update. It is kept for a human who
 # wants the previous binary in hand; the SANCTIONED recovery path is
-# `vale rollback <ver>`, which restores from the CDN and proves the swap landed.
+# `summrise rollback <ver>`, which restores from the CDN and proves the swap landed.
 # If this is ever wired to anything, it must be as a LAST resort: it is the build
 # the device was already running, never the one it was trying to reach.
-if (Test-Path '{q}\vale-agent.exe') {{ try {{ Copy-Item -Force '{q}\vale-agent.exe' '{q}\vale-agent.old.exe' }} catch {{}} }}
-foreach($i in 1..12){{ try {{ Copy-Item -Force -ErrorAction Stop '{q}\vale-agent.new.exe' '{q}\vale-agent.exe'; $ok=$true; break }} catch {{ Start-Sleep -Milliseconds 800 }} }};
-"[$(Get-Date -Format o)] copy ok=$ok" | Out-File '{logs}\vale-update.log' -Append;
-if ($ok) {{ Remove-Item -Force -ErrorAction SilentlyContinue '{q}\vale-agent.new.exe' }};
-if ($ok) {{ if (Test-Path '{comp}\vale-playwright.new.zip') {{ Copy-Item -Force '{comp}\vale-playwright.new.zip' '{comp}\vale-playwright.zip'; Remove-Item -Force '{comp}\vale-playwright.new.zip' }} }};
+if (Test-Path '{q}\summrise-agent.exe') {{ try {{ Copy-Item -Force '{q}\summrise-agent.exe' '{q}\summrise-agent.old.exe' }} catch {{}} }}
+foreach($i in 1..12){{ try {{ Copy-Item -Force -ErrorAction Stop '{q}\summrise-agent.new.exe' '{q}\summrise-agent.exe'; $ok=$true; break }} catch {{ Start-Sleep -Milliseconds 800 }} }};
+"[$(Get-Date -Format o)] copy ok=$ok" | Out-File '{logs}\summrise-update.log' -Append;
+if ($ok) {{ Remove-Item -Force -ErrorAction SilentlyContinue '{q}\summrise-agent.new.exe' }};
+if ($ok) {{ if (Test-Path '{comp}\summrise-playwright.new.zip') {{ Copy-Item -Force '{comp}\summrise-playwright.new.zip' '{comp}\summrise-playwright.zip'; Remove-Item -Force '{comp}\summrise-playwright.new.zip' }} }};
 if ($ok) {{ if (Test-Path '{comp}\cloudflared.new.exe') {{ Copy-Item -Force '{comp}\cloudflared.new.exe' '{comp}\cloudflared.exe'; Remove-Item -Force '{comp}\cloudflared.new.exe' }} }};
-if ($ok) {{ Set-Content -Path '{etc}\.vale-release' -Value '{ver}' -NoNewline -ErrorAction SilentlyContinue }};
+if ($ok) {{ Set-Content -Path '{etc}\.summrise-release' -Value '{ver}' -NoNewline -ErrorAction SilentlyContinue }};
 if ($ok -and '{ver}') {{ try {{
-$rk = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ValeAgent';
+$rk = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent';
 if (-not (Test-Path $rk)) {{ New-Item -Path $rk -Force | Out-Null }};
 Set-ItemProperty -Path $rk -Name DisplayVersion -Value '{ver}' -ErrorAction Stop;
-Set-ItemProperty -Path $rk -Name DisplayName -Value 'Vale Agent {ver}' -ErrorAction Stop;
+Set-ItemProperty -Path $rk -Name DisplayName -Value 'Summrise Agent {ver}' -ErrorAction Stop;
 Set-ItemProperty -Path $rk -Name InstallLocation -Value '{q}' -ErrorAction Stop;
-Set-ItemProperty -Path $rk -Name Publisher -Value 'Vale' -ErrorAction Stop;
+Set-ItemProperty -Path $rk -Name Publisher -Value 'Summrise' -ErrorAction Stop;
 }} catch {{}} }};
-if (-not $ok) {{ Remove-Item -Force -ErrorAction SilentlyContinue '{q}\vale-agent.new.exe','{comp}\vale-playwright.new.zip','{comp}\cloudflared.new.exe' }};
-try {{ Start-ScheduledTask ValeAgent -ErrorAction Stop }} catch {{ schtasks /Run /TN ValeAgent }};
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '{q}\.vale-update';
-Remove-Item -Force -ErrorAction SilentlyContinue '{scripts}\vale-update.ps1','{q}\vale-update.ps1';
+if (-not $ok) {{ Remove-Item -Force -ErrorAction SilentlyContinue '{q}\summrise-agent.new.exe','{comp}\summrise-playwright.new.zip','{comp}\cloudflared.new.exe' }};
+try {{ Start-ScheduledTask SummriseAgent -ErrorAction Stop }} catch {{ schtasks /Run /TN SummriseAgent }};
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '{q}\.summrise-update';
+Remove-Item -Force -ErrorAction SilentlyContinue '{scripts}\summrise-update.ps1','{q}\summrise-update.ps1';
 Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
         );
-        let ps1 = crate::paths::scripts_dir().join("vale-update.ps1");
+        let ps1 = crate::paths::scripts_dir().join("summrise-update.ps1");
         if let Some(parent) = ps1.parent() {
             if std::fs::create_dir_all(parent).is_err() {
                 return false;
@@ -655,7 +655,7 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
         if f.write_all(script.as_bytes()).is_err() {
             return false;
         }
-        // WMI handoff — survives this process dying (see vale.js).
+        // WMI handoff — survives this process dying (see summrise.js).
         let inner = format!("powershell -NoProfile -File \"{}\"", ps1.to_string_lossy());
         let wmi = format!(
             "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine='{}'}} | ConvertTo-Json -Compress",
@@ -677,28 +677,28 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
                 match serde_json::from_str::<serde_json::Value>(&txt) {
                     Ok(v) if v.get("ReturnValue").and_then(|x| x.as_i64()) == Some(0) => {
                         // THE SWAP IS ON ITS WAY — the one moment this process can say so for certain. The
-                        // script will narrate the rest into vale-update.log; whether it STARTED is a fact only
+                        // script will narrate the rest into summrise-update.log; whether it STARTED is a fact only
                         // this line knows, and the panel reads it from /api/update now.
                         record_update_attempt(&local_release(), release_version, true);
                         true
                     }
                     Ok(v) => {
                         tracing::error!(
-                            "[vale-agent] agent_update: WMI Create rejected (ReturnValue {:?})",
+                            "[summrise-agent] agent_update: WMI Create rejected (ReturnValue {:?})",
                             v.get("ReturnValue")
                         );
                         false
                     }
                     Err(_) => {
                         tracing::error!(
-                            "[vale-agent] agent_update: WMI handoff output unparseable: {txt:?}"
+                            "[summrise-agent] agent_update: WMI handoff output unparseable: {txt:?}"
                         );
                         false
                     }
                 }
             }
             _ => {
-                tracing::error!("[vale-agent] agent_update: WMI handoff failed");
+                tracing::error!("[summrise-agent] agent_update: WMI handoff failed");
                 false
             }
         }
@@ -710,7 +710,7 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
     }
 }
 
-/// `agent_update` — check for a newer vale-agent and install it.
+/// `agent_update` — check for a newer summrise-agent and install it.
 ///
 /// This is the AI-push path: an AI holding this device's MCP connection asks
 /// for an update; the agent downloads the npm tgz (the single update
@@ -721,7 +721,7 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
 pub fn agent_update(download_url: Option<String>) -> ToolDef {
     ToolDef::new(
         "agent_update",
-        "Check the release server for a newer vale-agent and install it on this device. \
+        "Check the release server for a newer summrise-agent and install it on this device. \
          On a newer version (or force:true) the installer runs silently and the agent \
          restarts — MCP disconnects briefly and reconnects ~1 minute later on the new \
          build. Returns up_to_date when already current. Fails explicitly when no \
@@ -750,7 +750,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 // (1.2.x) ALWAYS looked newer — every agent_update call re-
                 // downloaded + swapped, even when the device was current. The
                 // release version is now recorded next to the install dir at
-                // swap time (.vale-release); read it as the local version when
+                // swap time (.summrise-release); read it as the local version when
                 // present, falling back to the Cargo version (fresh installs /
                 // non-Windows test environments).
                 let local = local_release();
@@ -829,12 +829,12 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 });
                 }
 
-                // vale rollback pin (ADR 0008 companion): while
+                // summrise rollback pin (ADR 0008 companion): while
                 // etc\.rollback-pin exists, agent_update must NOT drift the
                 // device off the pinned version — the AI-push path is
                 // exactly the auto-upgrade that would undo a human
                 // rollback. force:true is the explicit override and clears
-                // the pin (same intent a `vale rollback --clear`).
+                // the pin (same intent a `summrise rollback --clear`).
                 let pin = std::fs::read_to_string(crate::paths::etc_dir().join(".rollback-pin"))
                     .map(|s| s.trim().to_string())
                     .unwrap_or_default();
@@ -844,12 +844,14 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                         "pinned_to": pin,
                         "remote": remote,
                         "current": local,
-                        "message": format!("device pinned to {pin} by 'vale rollback' — 'vale rollback --clear' on the device, or force:true, overrides"),
+                        "message": format!("device pinned to {pin} by 'summrise rollback' — 'summrise rollback --clear' on the device, or force:true, overrides"),
                     }));
                 }
                 if force && !pin.is_empty() {
                     let _ = std::fs::remove_file(crate::paths::etc_dir().join(".rollback-pin"));
-                    tracing::info!("[vale-agent] agent_update: force cleared rollback pin {pin}");
+                    tracing::info!(
+                        "[summrise-agent] agent_update: force cleared rollback pin {pin}"
+                    );
                 }
 
                 if !newer(&remote, &local) && !force {
@@ -863,7 +865,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 // 2. Guard against a concurrent update BEFORE the download — the
                 //    tray's auto-update and this MCP path both download to the
                 //    same npm tgz and run the same swap;
-                //    two installers racing would both taskkill vale-agent.exe and
+                //    two installers racing would both taskkill summrise-agent.exe and
                 //    copy into $INSTDIR (file-lock conflicts, half-updated
                 //    install). The marker lives in %ProgramData% (NOT %APPDATA%):
                 //    the agent runs as SYSTEM and the tray as the user, so
@@ -886,7 +888,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 //    new build. The busy marker is held by the background task
                 //    (concurrent updates still rejected).
                 let dir = install_dir();
-                let installer = dir.join("vale-agent-update.tgz");
+                let installer = dir.join("summrise-agent-update.tgz");
                 let dl_url = download.clone();
                 let busy_bg = busy.clone();
                 let remote_resp = remote.clone();
@@ -921,7 +923,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                         Err(e) => {
                             // round-88: failures were swallowed — the caller was
                             // told "upgrading" and nothing logged the failure.
-                            tracing::error!("[vale-agent] agent_update download failed: {e}");
+                            tracing::error!("[summrise-agent] agent_update download failed: {e}");
                             let _ = std::fs::remove_file(&busy_bg);
                             return;
                         }
@@ -929,7 +931,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                     // Integrity check BEFORE it touches disk or spawns: the
                     // download must match the hash the release server published.
                     // HTML-polluted 404 pages and truncated transfers both landed
-                    // on devices as vale-agent-update.tgz before; a poisoned/corrupt
+                    // on devices as summrise-agent-update.tgz before; a poisoned/corrupt
                     // file is deleted and the install is skipped (round-54).
                     // round-119: sha256 is now REQUIRED (checked above) and a
                     // mismatch must LOG — the old silent return left a stale hash
@@ -939,7 +941,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                         let actual = crate::hex_encode(&Sha256::digest(&bytes));
                         if actual != expected_sha256 {
                             tracing::error!(
-                            "[vale-agent] agent_update sha256 mismatch: want {expected_sha256}, got {actual} — install skipped"
+                            "[summrise-agent] agent_update sha256 mismatch: want {expected_sha256}, got {actual} — install skipped"
                         );
                             let _ = std::fs::remove_file(&busy_bg);
                             let _ = std::fs::remove_file(&installer);
@@ -993,7 +995,7 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                     "status": "upgrading",
                     "current": local,
                     "remote": remote_resp,
-                    "message": "downloading + installing in the background — vale-agent restarts automatically, MCP reconnects in ~1 minute"
+                    "message": "downloading + installing in the background — summrise-agent restarts automatically, MCP reconnects in ~1 minute"
                 }))
             }
         },
@@ -1060,15 +1062,15 @@ mod tests {
         // The swap script applies staged .new files — after a FAILED update
         // they must be gone (no mixed-version apply later), while every
         // LIVE file stays byte-identical.
-        let dir = std::env::temp_dir().join(format!("vale-cleanup-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-cleanup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("components")).unwrap();
         std::fs::create_dir_all(dir.join("etc")).unwrap();
         let live = [
-            dir.join("vale-agent.exe"),
-            dir.join("components").join("vale-playwright.zip"),
+            dir.join("summrise-agent.exe"),
+            dir.join("components").join("summrise-playwright.zip"),
             dir.join("components").join("cloudflared.exe"),
-            dir.join("etc").join(".vale-release"),
+            dir.join("etc").join(".summrise-release"),
         ];
         for p in &live {
             std::fs::write(p, b"live").unwrap();
@@ -1094,7 +1096,7 @@ mod tests {
         for p in &staged {
             std::fs::write(p, b"staged").unwrap();
         }
-        let extract = dir.join(".vale-update");
+        let extract = dir.join(".summrise-update");
         std::fs::create_dir_all(extract.join("package")).unwrap();
         std::fs::write(extract.join("package").join("junk"), b"x").unwrap();
 
@@ -1103,7 +1105,7 @@ mod tests {
         for p in &staged {
             assert!(!p.exists(), "staged leftover must go: {}", p.display());
         }
-        assert!(!extract.exists(), ".vale-update extract dir must go");
+        assert!(!extract.exists(), ".summrise-update extract dir must go");
         for p in &live {
             assert_eq!(
                 std::fs::read(p).unwrap(),
@@ -1118,7 +1120,7 @@ mod tests {
     /// THE BOXED LEFTOVERS LIVE UNDER `components/`, AND THE LIST HAS ONE OWNER.
     ///
     /// `winmain`'s boot sweep carried its own copy of this list with two PRE-V2
-    /// spellings — `<install>\vale-playwright.new.zip` and
+    /// spellings — `<install>\summrise-playwright.new.zip` and
     /// `<install>\tools\cloudflared.new.exe` — while staging writes
     /// `<install>\components\...`, and `tools\` is a directory the v2 layout
     /// removed. So the sweep deleted the executable and missed BOTH boxed
@@ -1136,9 +1138,9 @@ mod tests {
             })
             .collect();
         assert!(
-            names.contains(&"components/vale-playwright.new.zip".to_string()),
+            names.contains(&"components/summrise-playwright.new.zip".to_string()),
             "the playwright bundle stages under components/ — a bare \
-             `vale-playwright.new.zip` at the root is the pre-v2 spelling that \
+             `summrise-playwright.new.zip` at the root is the pre-v2 spelling that \
              made the boot sweep miss it: {names:?}"
         );
         assert!(
@@ -1168,7 +1170,7 @@ mod tests {
              copied back into winmain, and two copies is how it drifted the first \
              time (two of three entries were pre-v2 spellings)"
         );
-        for ghost in ["vale-playwright.new.zip", "cloudflared.new.exe"] {
+        for ghost in ["summrise-playwright.new.zip", "cloudflared.new.exe"] {
             assert!(
                 !production.contains(ghost),
                 "winmain hardcodes `{ghost}` again; it must come from the shared list"
@@ -1178,7 +1180,8 @@ mod tests {
 
     #[test]
     fn cleanup_staged_on_empty_dir_is_a_noop() {
-        let dir = std::env::temp_dir().join(format!("vale-cleanup-empty-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-cleanup-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         cleanup_staged(&dir); // must not error or create anything
@@ -1190,7 +1193,7 @@ mod tests {
     /// point is what acquire_busy_marker does with it).
     fn marker_path(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "vale-busy-{}-{}-{}",
+            "summrise-busy-{}-{}-{}",
             tag,
             std::process::id(),
             std::time::SystemTime::now()
@@ -1276,7 +1279,7 @@ mod tests {
         // survives and every later update is refused for up to an hour. Pin
         // that both sides still name the same location.
         let ps = busy_marker_ps();
-        assert_eq!(ps, r"$env:ProgramData\ValeAgent\update-busy");
+        assert_eq!(ps, r"$env:ProgramData\SummriseAgent\update-busy");
         let rel = ps
             .strip_prefix(r"$env:ProgramData\")
             .expect("the script's spelling is ProgramData-rooted");
@@ -1300,7 +1303,7 @@ mod tests {
     #[test]
     fn host_of_strips_scheme_userinfo_port_and_case() {
         assert_eq!(
-            host_of("https://agent.saisi.online/vale-agent/x.tgz"),
+            host_of("https://agent.saisi.online/summrise-agent/x.tgz"),
             "agent.saisi.online"
         );
         assert_eq!(host_of("https://user:pw@EXAMPLE.com:8443/a"), "example.com");
@@ -1315,7 +1318,7 @@ mod tests {
         let site = "https://agent.saisi.online";
         // https same-host: the production shape.
         assert!(check_download_url(
-            "https://agent.saisi.online/vale-agent/vale-agent-1.2.1.tgz",
+            "https://agent.saisi.online/summrise-agent/summrise-agent-1.2.1.tgz",
             site
         )
         .is_ok());
@@ -1340,7 +1343,7 @@ mod tests {
         // Empty site (unset download channel): skip the host match.
         assert!(check_download_url("https://any.example/x.tgz", "").is_ok());
         // Non-URL garbage: no https prefix. Refuse.
-        assert!(check_download_url("vale-agent.tgz", site).is_err());
+        assert!(check_download_url("summrise-agent.tgz", site).is_err());
     }
 
     #[test]
@@ -1372,8 +1375,8 @@ mod tests {
     #[test]
     fn check_download_url_refuses_every_offsite_shape() {
         // The production shape carries a PATH (the release lives under
-        // /vale-agent), which is why host_of strips one.
-        let site = "https://agent.saisi.online/vale-agent";
+        // /summrise-agent), which is why host_of strips one.
+        let site = "https://agent.saisi.online/summrise-agent";
         let refused = |u: &str| {
             check_download_url(u, site)
                 .err()
@@ -1435,7 +1438,7 @@ mod tests {
         // And the production shape still passes, so the pins above are not
         // just an over-tightened gate that refuses everything.
         assert!(check_download_url(
-            "https://agent.saisi.online/vale-agent/vale-agent-1.2.1.tgz",
+            "https://agent.saisi.online/summrise-agent/summrise-agent-1.2.1.tgz",
             site
         )
         .is_ok());

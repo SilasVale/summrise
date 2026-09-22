@@ -1,4 +1,4 @@
-//! Design Plugin — lets an AI SEE the Vale pages' design.
+//! Design Plugin — lets an AI SEE the Summrise pages' design.
 //!
 //! The agent has no browser (CDP/headless-Chrome is retired) and runs as a
 //! Windows service (no interactive desktop), so screenshots are impossible.
@@ -9,7 +9,7 @@
 
 mod tools;
 
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 
 /// Plugin struct — stateless; every tool closes over what it needs.
 pub struct DesignPlugin {
@@ -49,7 +49,7 @@ impl Default for DesignPlugin {
     }
 }
 
-impl vale_agent_core::Plugin for DesignPlugin {
+impl summrise_agent_core::Plugin for DesignPlugin {
     fn name(&self) -> &'static str {
         "design"
     }
@@ -57,7 +57,7 @@ impl vale_agent_core::Plugin for DesignPlugin {
         "Design"
     }
     fn description(&self) -> &'static str {
-        "Vale page design inspection — view a page's HTML/CSS to see its design"
+        "Summrise page design inspection — view a page's HTML/CSS to see its design"
     }
     fn tools(&self) -> Vec<ToolDef> {
         vec![tools::page_view(

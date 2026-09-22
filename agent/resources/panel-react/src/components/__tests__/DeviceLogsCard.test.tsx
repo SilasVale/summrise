@@ -15,7 +15,7 @@ const R =
 function device(logs: Array<{ name: string; present: boolean; log: string }>) {
   mockCallApi.mockResolvedValue({
     ok: true,
-    dir: "C:\\ProgramData\\Vale\\logs",
+    dir: "C:\\ProgramData\\Summrise\\logs",
     logs,
   });
 }
@@ -24,7 +24,7 @@ describe("DeviceLogsCard — the device's logs, and the update verdict they answ
   beforeEach(() => mockCallApi.mockReset());
 
   it("reads GET /api/logs — its first consumer", async () => {
-    device([{ name: "vale-update.log", present: true, log: R }]);
+    device([{ name: "summrise-update.log", present: true, log: R }]);
     render(<DeviceLogsCard />);
     expect(await screen.findByText(/never launched/i)).toBeTruthy();
     expect(mockCallApi).toHaveBeenCalledWith("/api/logs");
@@ -34,7 +34,7 @@ describe("DeviceLogsCard — the device's logs, and the update verdict they answ
     // The route distinguishes "never written" from "written, empty" on purpose.
     // Rendering both as a blank tail would throw that distinction away.
     device([
-      { name: "vale-update.log", present: true, log: R },
+      { name: "summrise-update.log", present: true, log: R },
       { name: "agent.log", present: false, log: "" },
     ]);
     render(<DeviceLogsCard />);
@@ -63,7 +63,7 @@ describe("DeviceLogsCard — the device's logs, and the update verdict they answ
   it("carries the verdict as DATA, so the tone is not the only signal", async () => {
     device([
       {
-        name: "vale-update.log",
+        name: "summrise-update.log",
         present: true,
         log: [R, "update start", "copy ok=true"].join("\n"),
       },
@@ -75,7 +75,7 @@ describe("DeviceLogsCard — the device's logs, and the update verdict they answ
   });
 
   it("an empty log is 'no-log', not 'the update was lost'", async () => {
-    device([{ name: "vale-update.log", present: false, log: "" }]);
+    device([{ name: "summrise-update.log", present: false, log: "" }]);
     render(<DeviceLogsCard />);
     expect(
       await screen.findByText(/no update has been attempted here/i),

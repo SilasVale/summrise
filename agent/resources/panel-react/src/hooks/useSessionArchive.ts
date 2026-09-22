@@ -63,11 +63,11 @@ export function useSessionArchive(): { entries: ArchiveEntry[]; state: ArchiveLi
     // Focus only, not every visibility change: going HIDDEN is not a reason to
     // re-read every session file on the device.
     const onVisible = () => { if (document.visibilityState === "visible") void tick(); };
-    window.addEventListener("vale-sessions-changed", onChange);
+    window.addEventListener("summrise-sessions-changed", onChange);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
-      window.removeEventListener("vale-sessions-changed", onChange);
+      window.removeEventListener("summrise-sessions-changed", onChange);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);

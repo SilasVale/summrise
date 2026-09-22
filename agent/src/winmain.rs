@@ -11,11 +11,11 @@ use std::path::PathBuf;
 
 use crate::{log_line, run_server};
 
-/// The SCM service name — deliberately the LEGACY name ("ValeCommand"): the
+/// The SCM service name — deliberately the LEGACY name ("SummriseCommand"): the
 /// service was registered under it by the old install path and re-registering
 /// under a new name would orphan existing installs. (Moved here with the
 /// windows-only plumbing — its only consumers are cfg(windows).)
-pub(crate) const SERVICE_NAME: &str = "ValeCommand";
+pub(crate) const SERVICE_NAME: &str = "SummriseCommand";
 
 /// C2 unified process model — the AGENT owns the cloudflared tunnel:
 /// spawn-if-absent from the BOXED component (`paths::cloudflared_bin()`,
@@ -70,14 +70,14 @@ pub(crate) fn supervise_tunnel() {
                 // `install_dir\tunnel.yml` — the PRE-layout-v2 locations — so on a v2
                 // install the `exists()` check below was ALWAYS false and this loop
                 // polled every 30 s forever. The tunnel therefore only ever ran when
-                // something else started it (a manual `vale tunnel start`, provisioning
+                // something else started it (a manual `summrise tunnel start`, provisioning
                 // from the Settings card), and after an update restarted the agent
                 // nothing brought it back: the device went dark (Cloudflare 530) until a
                 // human noticed. `cloudflared_bin()`/`tunnel_file()` are registry-first
                 // AND carry the legacy-path migration, so the hand-joined copies were
                 // also the one place that would not have followed a future move.
-                let cf = vale_agent::paths::cloudflared_bin();
-                let cfg = vale_agent::paths::tunnel_file();
+                let cf = summrise_agent::paths::cloudflared_bin();
+                let cfg = summrise_agent::paths::tunnel_file();
                 if !(cf.exists() && cfg.exists()) {
                     // SAY IT ONCE. The original logged NOTHING here, which is why a
                     // supervisor that could never do its job left no trace at all: the
@@ -96,7 +96,7 @@ pub(crate) fn supervise_tunnel() {
                     continue;
                 }
                 warned_absent = false;
-                let my_gen = vale_agent::tunnel_ctl::generation();
+                let my_gen = summrise_agent::tunnel_ctl::generation();
                 match tokio::process::Command::new(&cf)
                     .args(["tunnel", "--config"])
                     .arg(&cfg)
@@ -112,7 +112,7 @@ pub(crate) fn supervise_tunnel() {
                             if let Ok(Some(_)) = child.try_wait() {
                                 break;
                             }
-                            if vale_agent::tunnel_ctl::generation() != my_gen {
+                            if summrise_agent::tunnel_ctl::generation() != my_gen {
                                 let _ = child.kill().await;
                                 let _ = child.wait().await;
                                 restarted = true;
@@ -147,17 +147,17 @@ pub(crate) fn supervise_tunnel() {
 
 /// Windows boot self-heal — runs before the listener binds, idempotent.
 ///
-/// A legacy 0.8.x install (vale-command.exe + the `ValeCommand` service and
+/// A legacy 0.8.x install (summrise-command.exe + the `SummriseCommand` service and
 /// scheduled tasks) can coexist with this binary: the SCM starts the service
-/// before the `ValeAgent` boot task, the old process grabs port 18080, and
+/// before the `SummriseAgent` boot task, the old process grabs port 18080, and
 /// this server dies on bind — the device silently keeps serving the old
 /// version after an upgrade. Repair that here:
-///   1. kill every vale binary that is not THIS install dir (incl. the
-///      legacy vale-command.exe, which is never this exe),
-///   2. drop the legacy `ValeCommand` service + tasks — the `ValeAgent` boot
+///   1. kill every summrise binary that is not THIS install dir (incl. the
+///      legacy summrise-command.exe, which is never this exe),
+///   2. drop the legacy `SummriseCommand` service + tasks — the `SummriseAgent` boot
 ///      task is the canonical autostart (a service + task would race for the
 ///      port at every boot),
-///   3. re-register the `ValeAgent` boot task pointing at this exe + config
+///   3. re-register the `SummriseAgent` boot task pointing at this exe + config
 ///      (fixes a manual file-copy update into a different dir; keeps the
 ///      unlimited ExecutionTimeLimit so the server never dies after 72h).
 ///
@@ -179,7 +179,7 @@ pub(crate) fn self_heal() {
     // unregistered installs — paths::install_dir() already falls back to the
     // exe dir itself, so this is belt-and-braces). No legacy-dir probing.
     let install_dir = {
-        let d = vale_agent::paths::install_dir();
+        let d = summrise_agent::paths::install_dir();
         if d.as_os_str().is_empty() {
             exe.parent().map(|p| p.to_path_buf()).unwrap_or_default()
         } else {
@@ -210,8 +210,8 @@ pub(crate) fn self_heal() {
     //    DONE HERE, deliberately: it is Windows-only boot behaviour that cannot be
     //    exercised on this box, and shipping an untested recovery path is worse
     //    than a documented absence.
-    let bak = install_dir.join("vale-agent.exe.bak");
-    let new = install_dir.join("vale-agent.exe.new");
+    let bak = install_dir.join("summrise-agent.exe.bak");
+    let new = install_dir.join("summrise-agent.exe.new");
     // Half-swap failures must be LOUD and recoverable: every rename result
     // is checked, failures land in startup.log as CRITICAL (not hidden
     // behind a blanket 'self-heal: complete'), stale backups are never
@@ -271,12 +271,12 @@ pub(crate) fn self_heal() {
         }
     }
     // npm-channel staged leftovers: a FAILED agent_update stages
-    // `vale-agent.new.exe` / boxed `.new` files and
+    // `summrise-agent.new.exe` / boxed `.new` files and
     // returns false WITHOUT launching the swap script — the Rust failure
     // paths and the swap script's own !$ok branch both delete them
     // best-effort, but a power cut between staging and cleanup can still
     // strand them. They must NEVER be applied here: this recovery only
-    // understands the NSIS-era `vale-agent.exe.new` half-swap above (a
+    // understands the NSIS-era `summrise-agent.exe.new` half-swap above (a
     // different filename); applying an npm-era staging of unknown provenance
     // could mix a failed release's components under the old version marker
     // (a stranded boxed `.new` would otherwise be picked up by the
@@ -288,7 +288,7 @@ pub(crate) fn self_heal() {
     // the version skew the paragraph above promises to prevent. One owner now
     // (`plugins::update::tools::staged_leftovers`), the same one the in-process
     // cleanup uses, so the two cannot disagree about filenames again.
-    for stale in vale_agent::plugins::update::staged_leftovers(&install_dir) {
+    for stale in summrise_agent::plugins::update::staged_leftovers(&install_dir) {
         if stale.exists() {
             match std::fs::remove_file(&stale) {
                 Ok(()) => log_line(&format!(
@@ -309,7 +309,7 @@ pub(crate) fn self_heal() {
     // config with a fresh token, the device self-registered a SECOND identity,
     // and every subsequent register 409'd against its own console record.
     // Path resolution goes through paths.rs, always.
-    let cfg_str = vale_agent::paths::config_file()
+    let cfg_str = summrise_agent::paths::config_file()
         .to_string_lossy()
         .into_owned();
 
@@ -320,7 +320,7 @@ pub(crate) fn self_heal() {
     //    miss an 8.3 short path / empty Path and kill ourselves.
     let self_pid = std::process::id();
     let ps = format!(
-        "Get-Process vale-agent,vale-command -ErrorAction SilentlyContinue \
+        "Get-Process summrise-agent,summrise-command -ErrorAction SilentlyContinue \
          | Where-Object {{ $_.Id -ne {self_pid} -and $_.Path -ne '{exe_str}' }} \
          | Stop-Process -Force"
     );
@@ -331,17 +331,17 @@ pub(crate) fn self_heal() {
     });
 
     // 2. Legacy service + tasks. The boot task below replaces them.
-    run_bounded("self-heal: sc stop ValeCommand", {
+    run_bounded("self-heal: sc stop SummriseCommand", {
         let mut c = std::process::Command::new("sc.exe");
-        c.args(["stop", "ValeCommand"]);
+        c.args(["stop", "SummriseCommand"]);
         c
     });
-    run_bounded("self-heal: sc delete ValeCommand", {
+    run_bounded("self-heal: sc delete SummriseCommand", {
         let mut c = std::process::Command::new("sc.exe");
-        c.args(["delete", "ValeCommand"]);
+        c.args(["delete", "SummriseCommand"]);
         c
     });
-    for name in ["ValeCommand", "ValeCommandTray"] {
+    for name in ["SummriseCommand", "SummriseCommandTray"] {
         run_bounded(&format!("self-heal: schtasks /End {name}"), {
             let mut c = std::process::Command::new("schtasks");
             c.args(["/End", "/TN", name]);
@@ -366,7 +366,7 @@ pub(crate) fn self_heal() {
     //      * a REPETITION trigger every 5 minutes, paired with `MultipleInstances
     //        IgnoreNew`, is "START IF NOT RUNNING" — the task engine ignores the new
     //        instance while the agent is alive, so a healthy agent is never interrupted.
-    //        (It also makes the shell's `schtasks /run ValeAgent` pulse harmless: it can no
+    //        (It also makes the shell's `schtasks /run SummriseAgent` pulse harmless: it can no
     //        longer stack a second agent.)
     //      * `-RestartCount/-RestartInterval` covers the other shape: the task ENDING,
     //        which the repetition alone would leave down for up to five minutes.
@@ -374,13 +374,13 @@ pub(crate) fn self_heal() {
     //    This is OS-level and needs no session, which is the point: the agent's ability to
     //    come back must not depend on another process that can also die.
     let script = format!(
-        "Register-ScheduledTask -TaskName 'ValeAgent' \
+        "Register-ScheduledTask -TaskName 'SummriseAgent' \
          -Action (New-ScheduledTaskAction -Execute '{exe_str}' -Argument '\"{cfg_str}\"') \
          -Trigger (New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)) \
          -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) \
          -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)) -Force"
     );
-    run_bounded("self-heal: Register-ScheduledTask ValeAgent", {
+    run_bounded("self-heal: Register-ScheduledTask SummriseAgent", {
         let mut c = std::process::Command::new("powershell");
         c.args([
             "-NoProfile",
@@ -418,7 +418,7 @@ pub(crate) fn setup_child_reaper_job() {
         // Task Scheduler wraps its tasks in a job (benign — see this function's
         // own note), and so does any process tree spawned from an agent-hosted
         // PTY shell (NOT benign: every child the agent spawns inherits its
-        // kill-on-close job, so a second vale-agent started that way nests inside
+        // kill-on-close job, so a second summrise-agent started that way nests inside
         // the first one's job and can take the RUNNING agent down with it).
         //
         // Observed on a device: launching a test build from an agent PTY killed
@@ -563,7 +563,7 @@ fn run_service(_args: Vec<std::ffi::OsString>) {
             // Layout v2: fall back to the canonical etc\config.yaml — NOT the
             // install root (a root join here is what produced the ADR 0008
             // phantom config the self-heal path above used to create).
-            let cfg = vale_agent::paths::config_file();
+            let cfg = summrise_agent::paths::config_file();
             (!cfg.as_os_str().is_empty()).then_some(cfg)
         })
         .unwrap_or_else(|| PathBuf::from("config.yaml"));

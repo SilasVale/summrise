@@ -6,7 +6,7 @@
 
 ## Objective
 
-Build a production-grade admin panel for Vale Gate using React + Vite. The UI replaces the current inline HTML source viewer and adds device management, plugin management, and config editing views.
+Build a production-grade admin panel for Summrise Gate using React + Vite. The UI replaces the current inline HTML source viewer and adds device management, plugin management, and config editing views.
 
 ## Reference
 
@@ -16,11 +16,11 @@ DSH's web UI (`@deepseek-ai/dsh-web-app`) uses:
 - A shell that injects `window.__DSH_BOOT__` for runtime config
 - Client plugins that register views, routes, and actions
 
-We'll adopt a simpler version: React + Vite with a router, no client-plugin architecture (overkill for vale's current scale).
+We'll adopt a simpler version: React + Vite with a router, no client-plugin architecture (overkill for summrise's current scale).
 
 ## Scope
 
-- **Device management** — list/configure Vale agents, view status, push config, see logs.
+- **Device management** — list/configure Summrise agents, view status, push config, see logs.
 - **Plugin management** — list installed plugins, enable/disable, view plugin state.
 - **Config editor** — edit gateway config (YAML/JSON), preview changes, apply.
 - **Source viewer** — the existing `public/code/` viewer, rebuilt as a React component.
@@ -244,7 +244,7 @@ export const adminUiPlugin: Plugin = {
 };
 ```
 
-4. The admin panel is accessible at `https://vale-gate.example.com/admin/`.
+4. The admin panel is accessible at `https://summrise-gate.example.com/admin/`.
 
 ### Step 7: Dev experience
 

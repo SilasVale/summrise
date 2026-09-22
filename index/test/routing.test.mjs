@@ -1,7 +1,7 @@
 // Worker static-routing regression tests (structure refactor round — these
 // routes previously had ZERO coverage). The Setup.exe serving exists
 // precisely because a past bug served the download PAGE as 200 HTML for a
-// missing binary (devices silently downloaded HTML as ValeAgent-Setup.exe);
+// missing binary (devices silently downloaded HTML as SummriseAgent-Setup.exe);
 // these tests pin the documented contract so it can't regress.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -20,7 +20,7 @@ function makeEnv(versionJson) {
         async fetch(req) {
           assetsFetches.push(String(req.url));
           const path = new URL(req.url).pathname;
-          if (path === "/vale-agent/version.json") {
+          if (path === "/summrise-agent/version.json") {
             if (versionJson === null)
               return new Response("no such key", { status: 404 });
             return new Response(JSON.stringify(versionJson), {
@@ -40,8 +40,8 @@ function makeEnv(versionJson) {
 test("versioned tgz + latest alias both serve from ASSETS", async () => {
   const { env, assetsFetches } = makeEnv(null);
   for (const p of [
-    "/vale-agent/vale-agent-1.2.297.tgz",
-    "/vale-agent/vale-agent-latest.tgz",
+    "/summrise-agent/summrise-agent-1.2.297.tgz",
+    "/summrise-agent/summrise-agent-latest.tgz",
   ]) {
     const resp = await worker.fetch(new Request(`https://dl.local${p}`), env);
     assert.equal(resp.status, 200, p);
@@ -53,10 +53,10 @@ test("versioned tgz + latest alias both serve from ASSETS", async () => {
 test("near-miss tgz paths are NOT routed to ASSETS (exact-pattern discipline)", async () => {
   const { env, assetsFetches } = makeEnv(null);
   for (const p of [
-    "/vale-agent/vale-agent-latest.tgz.exe",
-    "/vale-agent/vale-agent-1.2.tgz",
-    "/vale-agent/vale-agent-1.2.297.tgz/",
-    "/vale-agent/evil-1.2.297.tgz",
+    "/summrise-agent/summrise-agent-latest.tgz.exe",
+    "/summrise-agent/summrise-agent-1.2.tgz",
+    "/summrise-agent/summrise-agent-1.2.297.tgz/",
+    "/summrise-agent/evil-1.2.297.tgz",
   ]) {
     const resp = await worker.fetch(new Request(`https://dl.local${p}`), env);
     assert.equal(resp.status, 404, `${p} must fall to the 404 fallback`);
@@ -64,11 +64,11 @@ test("near-miss tgz paths are NOT routed to ASSETS (exact-pattern discipline)", 
   assert.equal(assetsFetches.length, 0, "no near-miss may reach ASSETS");
 });
 
-test("ValeAgent-Setup.exe alias + versioned names serve from ASSETS", async () => {
+test("SummriseAgent-Setup.exe alias + versioned names serve from ASSETS", async () => {
   const { env, assetsFetches } = makeEnv(null);
   for (const p of [
-    "/vale-agent/ValeAgent-Setup.exe",
-    "/vale-agent/ValeAgent-Setup-1.2.307.exe",
+    "/summrise-agent/SummriseAgent-Setup.exe",
+    "/summrise-agent/SummriseAgent-Setup-1.2.307.exe",
   ]) {
     const resp = await worker.fetch(new Request(`https://dl.local${p}`), env);
     assert.equal(resp.status, 200, p);
@@ -80,11 +80,11 @@ test("ValeAgent-Setup.exe alias + versioned names serve from ASSETS", async () =
 test("near-miss Setup.exe paths are NOT routed to ASSETS (exact-pattern discipline)", async () => {
   const { env, assetsFetches } = makeEnv(null);
   for (const p of [
-    "/vale-agent/ValeAgent-Setup.exe.exe",
-    "/vale-agent/ValeAgent-Setup-1.2.exe",
-    "/vale-agent/ValeAgent-Setup-1.2.307.exe/",
-    "/vale-agent/valeagent-setup.exe",
-    "/vale-agent/ValeAgent-Setup-1.2.307.tgz",
+    "/summrise-agent/SummriseAgent-Setup.exe.exe",
+    "/summrise-agent/SummriseAgent-Setup-1.2.exe",
+    "/summrise-agent/SummriseAgent-Setup-1.2.307.exe/",
+    "/summrise-agent/summriseagent-setup.exe",
+    "/summrise-agent/SummriseAgent-Setup-1.2.307.tgz",
   ]) {
     const resp = await worker.fetch(new Request(`https://dl.local${p}`), env);
     assert.equal(resp.status, 404, `${p} must fall to the 404 fallback`);
@@ -96,7 +96,7 @@ test("/api/version serves the release manifest derived from version.json", async
   const { env } = makeEnv({
     version: "1.2.297",
     sha256: "a".repeat(64),
-    tarball: "vale-agent-latest.tgz",
+    tarball: "summrise-agent-latest.tgz",
   });
   const resp = await worker.fetch(
     new Request("https://dl.local/api/version"),
@@ -108,7 +108,7 @@ test("/api/version serves the release manifest derived from version.json", async
   assert.equal(body.sha256, "a".repeat(64));
   assert.equal(
     body.download,
-    "https://dl.local/vale-agent/vale-agent-latest.tgz",
+    "https://dl.local/summrise-agent/summrise-agent-latest.tgz",
   );
 });
 
@@ -126,7 +126,7 @@ test("/api/version fails honest 503 on missing/unverifiable manifest", async () 
     makeEnv({
       version: "1.2.297",
       sha256: "abc",
-      tarball: "vale-agent-latest.tgz",
+      tarball: "summrise-agent-latest.tgz",
     }).env,
   );
   assert.equal(badSha.status, 503);
@@ -156,7 +156,7 @@ test("cloudflared.exe proxies GitHub: pass-through on success, 502 on failure", 
         headers: { "content-type": "application/octet-stream" },
       });
     const ok = await worker.fetch(
-      new Request("https://dl.local/vale-agent/cloudflared.exe"),
+      new Request("https://dl.local/summrise-agent/cloudflared.exe"),
       makeEnv(null).env,
     );
     assert.equal(ok.status, 200);
@@ -165,7 +165,7 @@ test("cloudflared.exe proxies GitHub: pass-through on success, 502 on failure", 
 
     globalThis.fetch = async () => new Response("nope", { status: 503 });
     const bad = await worker.fetch(
-      new Request("https://dl.local/vale-agent/cloudflared.exe"),
+      new Request("https://dl.local/summrise-agent/cloudflared.exe"),
       makeEnv(null).env,
     );
     assert.equal(bad.status, 502);

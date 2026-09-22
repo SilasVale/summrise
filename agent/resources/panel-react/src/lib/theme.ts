@@ -3,8 +3,8 @@
 // (tokens.css carries both sets). Light is the DEFAULT: the user prefers it.
 export type Theme = "light" | "dark";
 
-const KEY = "vale-theme";
-const EVENT = "vale-theme-change";
+const KEY = "summrise-theme";
+const EVENT = "summrise-theme-change";
 
 export function getTheme(): Theme {
   try {

@@ -4,7 +4,7 @@ import type { SessionView } from "../components/TabBar";
 
 // useDesktopCommands — maps native-menu commands (Electron) AND browser-mode
 // keyboard shortcuts onto the same SPA actions. The Electron main process
-// sends `vale-menu` events with command ids; in a plain browser (or when the
+// sends `summrise-menu` events with command ids; in a plain browser (or when the
 // preload bridge is missing) the same accelerators are handled via keydown so
 // the desktop experience degrades gracefully.
 //
@@ -91,7 +91,7 @@ export function useDesktopCommands(
 
   useEffect(() => {
     if (!connected) return;
-    const bridge = (window as any).valeDesktop;
+    const bridge = (window as any).summriseDesktop;
     let unsubscribe: (() => void) | null = null;
     if (bridge?.onCommand) {
       unsubscribe = bridge.onCommand(run);

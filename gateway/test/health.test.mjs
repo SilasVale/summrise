@@ -1,9 +1,9 @@
-// /api/health + /api/vale-probe logic — pure function tests with mocked
+// /api/health + /api/summrise-probe logic — pure function tests with mocked
 // breaker and fetch.
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
-import { buildHealth, encodeBase64Utf8, posixInstaller, probeRateLimited, psInstaller, valeProbe } from "../src/index.ts";
+import { buildHealth, encodeBase64Utf8, posixInstaller, probeRateLimited, psInstaller, summriseProbe } from "../src/index.ts";
 import { probeEnvKeyName } from "../src/tooling.ts";
 import { HEALTH_CHANNELS } from "../src/channels.ts";
 import { USER_KEY_NAMES } from "../src/store.ts";
@@ -93,7 +93,7 @@ test("installer round-trip: non-ASCII CLI encodes and decodes losslessly", () =>
   assert.equal(Buffer.from(psMatch[1], "base64").toString("utf8"), cli);
 });
 
-// ── /api/vale-probe ─────────────────────────────────────────────
+// ── /api/summrise-probe ─────────────────────────────────────────────
 
 // Worker env with all provider keys configured.
 const keyedEnv = {
@@ -121,10 +121,10 @@ async function withFetch(handler, fn) {
   }
 }
 
-test("valeProbe: og with open breaker short-circuits, no upstream call", async () => {
+test("summriseProbe: og with open breaker short-circuits, no upstream call", async () => {
   let calls = 0;
   const res = await withFetch(async () => { calls++; return new Response("{}", { status: 200 }); }, () =>
-    valeProbe({ ...keyedEnv, BREAKER: { idFromName: () => ({}), get: () => ({ fetch: async () => new Response("1") }) } }, "og/deepseek-v4.1-flash"),
+    summriseProbe({ ...keyedEnv, BREAKER: { idFromName: () => ({}), get: () => ({ fetch: async () => new Response("1") }) } }, "og/deepseek-v4.1-flash"),
   );
   assert.equal(calls, 0);
   const body = await res.json();
@@ -132,10 +132,10 @@ test("valeProbe: og with open breaker short-circuits, no upstream call", async (
   assert.equal(body.detail, "circuit open");
 });
 
-test("valeProbe: og flash probes zen chat/completions with Bearer (translate path)", async () => {
+test("summriseProbe: og flash probes zen chat/completions with Bearer (translate path)", async () => {
   let seen;
   const res = await withFetch(async (url, init) => { seen = { url, init }; return new Response("{}", { status: 200 }); }, () =>
-    valeProbe(keyedEnv, "og/deepseek-v4.1-flash"),
+    summriseProbe(keyedEnv, "og/deepseek-v4.1-flash"),
   );
   assert.equal(seen.url, "https://opencode.ai/zen/go/v1/chat/completions");
   const auth = seen.init.headers.get ? seen.init.headers.get("authorization") : seen.init.headers.Authorization;
@@ -146,10 +146,10 @@ test("valeProbe: og flash probes zen chat/completions with Bearer (translate pat
   assert.equal(body.channel, "og");
 });
 
-test("valeProbe: og translate model probes zen chat/completions with Bearer", async () => {
+test("summriseProbe: og translate model probes zen chat/completions with Bearer", async () => {
   let seen;
   const res = await withFetch(async (url, init) => { seen = { url, init }; return new Response("{}", { status: 200 }); }, () =>
-    valeProbe(keyedEnv, "og/minimax-m3"),
+    summriseProbe(keyedEnv, "og/minimax-m3"),
   );
   assert.equal(seen.url, "https://opencode.ai/zen/go/v1/chat/completions");
   const auth = seen.init.headers.get ? seen.init.headers.get("authorization") : seen.init.headers.Authorization;
@@ -162,14 +162,14 @@ test("valeProbe: og translate model probes zen chat/completions with Bearer", as
 
 // The ds/ channel left the catalog with the V4 retirement (2026-09-10): the
 // probe now refuses those ids by name and names the replacement — this is the
-// path `vale use <stale-model>` takes after an upgrade.
-test("valeProbe: retired model → 400 with the V4.1 replacement", async () => {
+// path `summrise use <stale-model>` takes after an upgrade.
+test("summriseProbe: retired model → 400 with the V4.1 replacement", async () => {
   for (const [model, to] of [
     ["ds/deepseek-v4-flash", "cm/deepseek/deepseek-v4.1-flash"],
     ["og/deepseek-v4-flash", "og/deepseek-v4.1-flash"],
     ["amd/DeepSeek-V4-Flash", "cm/deepseek/deepseek-v4.1-flash"],
   ]) {
-    const res = await valeProbe(keyedEnv, model);
+    const res = await summriseProbe(keyedEnv, model);
     assert.equal(res.status, 400, model);
     const body = await res.json();
     assert.match(body.error.message, /retired on 2026-09-10/, model);
@@ -177,9 +177,9 @@ test("valeProbe: retired model → 400 with the V4.1 replacement", async () => {
   }
 });
 
-test("valeProbe: upstream 500 → ok false with status", async () => {
+test("summriseProbe: upstream 500 → ok false with status", async () => {
   const res = await withFetch(async () => new Response("{}", { status: 500 }), () =>
-    valeProbe(keyedEnv, "qw/qwen3.8-flash"),
+    summriseProbe(keyedEnv, "qw/qwen3.8-flash"),
   );
   const body = await res.json();
   assert.equal(body.ok, false);
@@ -189,10 +189,10 @@ test("valeProbe: upstream 500 → ok false with status", async () => {
 
 // round-517 (coverage-driven): the probe network-error catch arms had ZERO
 // pins (only 200/500 responses were covered).
-test("valeProbe: fetch throw → ok false with the error message", async () => {
+test("summriseProbe: fetch throw → ok false with the error message", async () => {
   for (const model of ["qw/qwen3.8-flash", "og/deepseek-v4.1-flash"]) {
     const res = await withFetch(async () => { throw new TypeError("fetch failed"); }, () =>
-      valeProbe(keyedEnv, model),
+      summriseProbe(keyedEnv, model),
     );
     const body = await res.json();
     assert.equal(body.ok, false, model);
@@ -203,19 +203,19 @@ test("valeProbe: fetch throw → ok false with the error message", async () => {
 // round-522 (coverage-driven): the serveAssetText no-ASSETS arm had ZERO pins.
 test("serveAssetText: env without ASSETS → null", async () => {
   const { serveAssetText } = await import("../src/tooling.ts");
-  assert.equal(await serveAssetText({}, "/vale"), null);
-  assert.equal(await serveAssetText({ ASSETS: {} }, "/vale"), null);
+  assert.equal(await serveAssetText({}, "/summrise"), null);
+  assert.equal(await serveAssetText({ ASSETS: {} }, "/summrise"), null);
 });
 
-test("valeProbe: unknown model → 400", async () => {
-  const res = await valeProbe(keyedEnv, "xx/nope");
+test("summriseProbe: unknown model → 400", async () => {
+  const res = await summriseProbe(keyedEnv, "xx/nope");
   assert.equal(res.status, 400);
 });
 
-test("valeProbe: key missing → ok false, no upstream call", async () => {
+test("summriseProbe: key missing → ok false, no upstream call", async () => {
   let calls = 0;
   const res = await withFetch(async () => { calls++; return new Response("{}", { status: 200 }); }, () =>
-    valeProbe({ ...keyedEnv, QWEN_API_KEY: undefined }, "qw/qwen3.8-flash"),
+    summriseProbe({ ...keyedEnv, QWEN_API_KEY: undefined }, "qw/qwen3.8-flash"),
   );
   assert.equal(calls, 0);
   const body = await res.json();
@@ -223,29 +223,29 @@ test("valeProbe: key missing → ok false, no upstream call", async () => {
   assert.match(body.detail, /key not configured/);
 });
 
-test("valeProbe: qw channel ok when upstream 200 (QWEN_API_KEY branch)", async () => {
+test("summriseProbe: qw channel ok when upstream 200 (QWEN_API_KEY branch)", async () => {
   // Keep only the QWEN key: if the branch reads the wrong key (e.g. DEEPSEEK_API_KEY), it returns key not configured
   const env = { ...keyedEnv, DEEPSEEK_API_KEY: undefined, OPENROUTER_API_KEY: undefined, OPENCODE_GO_API_KEY: undefined };
   const res = await withFetch(async () => new Response("{}", { status: 200 }), () =>
-    valeProbe(env, "qw/qwen3.8-max-preview"),
+    summriseProbe(env, "qw/qwen3.8-max-preview"),
   );
   const body = await res.json();
   assert.equal(body.ok, true);
   assert.equal(body.channel, "qw");
 });
 
-test("valeProbe: or channel ok when upstream 200 (OPENROUTER_API_KEY branch)", async () => {
+test("summriseProbe: or channel ok when upstream 200 (OPENROUTER_API_KEY branch)", async () => {
   // Keep only the OPENROUTER key: if the branch reads the wrong key, it returns key not configured
   const env = { ...keyedEnv, DEEPSEEK_API_KEY: undefined, QWEN_API_KEY: undefined, OPENCODE_GO_API_KEY: undefined };
   const res = await withFetch(async () => new Response("{}", { status: 200 }), () =>
-    valeProbe(env, "or/openai/gpt-5.6-luna:floor[1m]"),
+    summriseProbe(env, "or/openai/gpt-5.6-luna:floor[1m]"),
   );
   const body = await res.json();
   assert.equal(body.ok, true);
   assert.equal(body.channel, "or");
 });
 
-test("valeProbe: gmi channel ok when upstream 200 (GMI_API_KEY branch)", async () => {
+test("summriseProbe: gmi channel ok when upstream 200 (GMI_API_KEY branch)", async () => {
   // Keep only the GMI key: if the branch reads the wrong key (e.g. falls through to DEEPSEEK_API_KEY), it returns key not configured
   let seen;
   const env = {
@@ -257,7 +257,7 @@ test("valeProbe: gmi channel ok when upstream 200 (GMI_API_KEY branch)", async (
   const res = await withFetch(async (url, init) => {
     seen = { url, init };
     return new Response("{}", { status: 200 });
-  }, () => valeProbe(env, "gmi/MiniMaxAI/MiniMax-M3"));
+  }, () => summriseProbe(env, "gmi/MiniMaxAI/MiniMax-M3"));
   assert.equal(seen.url, "https://api.gmi-serving.com/v1/chat/completions");
   const auth = seen.init.headers.get ? seen.init.headers.get("authorization") : seen.init.headers.Authorization;
   assert.equal(auth, "Bearer gmi-key");
@@ -267,7 +267,7 @@ test("valeProbe: gmi channel ok when upstream 200 (GMI_API_KEY branch)", async (
   assert.equal(body.channel, "gmi");
 });
 
-test("valeProbe: nv channel uses NVAPI_KEY (not the DeepSeek key)", async () => {
+test("summriseProbe: nv channel uses NVAPI_KEY (not the DeepSeek key)", async () => {
   // Regression: nv/ probing used to fall into the DEEPSEEK_API_KEY branch — it must still probe with only NVAPI left
   const env = {
     ...keyedEnv,
@@ -279,7 +279,7 @@ test("valeProbe: nv channel uses NVAPI_KEY (not the DeepSeek key)", async () => 
   const res = await withFetch(async (url, init) => {
     seen = { url, init };
     return new Response("{}", { status: 200 });
-  }, () => valeProbe(env, "nv/nvidia/nemotron-3-ultra-550b-a55b"));
+  }, () => summriseProbe(env, "nv/nvidia/nemotron-3-ultra-550b-a55b"));
   assert.equal(seen.url, "https://integrate.api.nvidia.com/v1/chat/completions");
   const auth = seen.init.headers.get ? seen.init.headers.get("authorization") : seen.init.headers.Authorization;
   assert.equal(auth, "Bearer nv-key");
@@ -287,7 +287,7 @@ test("valeProbe: nv channel uses NVAPI_KEY (not the DeepSeek key)", async () => 
   assert.equal(body.ok, true);
 });
 
-// The amd/ probe pin is GONE with the amd/ catalog: valeProbe gates on
+// The amd/ probe pin is GONE with the amd/ catalog: summriseProbe gates on
 // MODELS + HEALTH_CHANNELS, and both lost their amd/ entries on 2026-09-10
 // (no V4.1 upstream) — probing amd/ now takes the retired/unknown-model arm
 // pinned above. The AMD_API_KEY row of probeEnvKeyName stays covered below.
@@ -295,7 +295,7 @@ test("valeProbe: nv channel uses NVAPI_KEY (not the DeepSeek key)", async () => 
 // SOLID Round-52: cm/ was the only channel without a probe pin (og/ds/qw/
 // or/gmi/nv/amd all have one) — and the probe key chain just became the
 // PROBE_ENV_KEYS table, so this also proves the cm row resolves.
-test("valeProbe: cm channel probes the Command Code endpoint with the CMD key", async () => {
+test("summriseProbe: cm channel probes the Command Code endpoint with the CMD key", async () => {
   // BYOK isolation like the amd test: with only CMD_API_KEY left, cm/ must
   // probe with it (an unlisted prefix would silently fall through to the
   // DEEPSEEK_API_KEY arm).
@@ -310,7 +310,7 @@ test("valeProbe: cm channel probes the Command Code endpoint with the CMD key", 
   const res = await withFetch(async (url, init) => {
     seen = { url, init };
     return new Response("{}", { status: 200 });
-  }, () => valeProbe(env, "cm/deepseek/deepseek-v4.1-flash"));
+  }, () => summriseProbe(env, "cm/deepseek/deepseek-v4.1-flash"));
   assert.equal(seen.url, "https://api.commandcode.ai/provider/v1/chat/completions");
   const auth = seen.init.headers.get ? seen.init.headers.get("authorization") : seen.init.headers.Authorization;
   assert.equal(auth, "Bearer sk-cm");
@@ -358,7 +358,7 @@ test("probe rows cover every non-og HEALTH_CHANNELS id (no silent default)", () 
 });
 
 // SOLID Round-59: every console-managed key must be probeable — a key the
-// console lets users save but no probe path spends leaves `vale check`
+// console lets users save but no probe path spends leaves `summrise check`
 // blind for its channel. og rides the dedicated breaker-pathed probe, not
 // the table; everything else needs its own PROBE_ENV_KEYS row (the default
 // would spend the DeepSeek worker key on a foreign channel).
@@ -632,9 +632,9 @@ test("isModelUsable: KV outage degrades to unusable, never throws", async () => 
   assert.equal(await isModelUsable(env, "xx/nope", "u-use9"), false);
 });
 
-// round-473 (coverage-driven): the /api/vale-probe 429 arm had ZERO route
-// pins (only direct valeProbe calls).
-test("vale-probe route: 60 probes pass, 61st 429s on a fixed IP", async () => {
+// round-473 (coverage-driven): the /api/summrise-probe 429 arm had ZERO route
+// pins (only direct summriseProbe calls).
+test("summrise-probe route: 60 probes pass, 61st 429s on a fixed IP", async () => {
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   const kv = new Map();
@@ -646,7 +646,7 @@ test("vale-probe route: 60 probes pass, 61st 429s on a fixed IP", async () => {
       async delete(k) { kv.delete(k); },
     },
   };
-  const probe = () => worker.fetch(new Request("https://x/api/vale-probe", {
+  const probe = () => worker.fetch(new Request("https://x/api/summrise-probe", {
     method: "POST",
     headers: { "content-type": "application/json", "cf-connecting-ip": "10.88.88.88" },
     body: JSON.stringify({ model: "qw/qwen3.8-flash" }),

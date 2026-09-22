@@ -4,7 +4,7 @@
  * THE DEVICE REPORTS TWO, AND THEY ARE NOT INTERCHANGEABLE:
  *
  *   `release`  the npm release — 1.2.x — written by install/update into
- *              `.vale-release`. THIS is the number that changes per release, and the
+ *              `.summrise-release`. THIS is the number that changes per release, and the
  *              only one a user can compare against "is my device up to date?".
  *   `version`  the Cargo protocol version — 1.0.x — from `env!("CARGO_PKG_VERSION")`.
  *              FROZEN: it has not moved in a very long time and is not a release.

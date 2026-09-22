@@ -1,11 +1,11 @@
-// Vale Agent — install / download landing page (Cloudflare Worker).
+// Summrise Agent — install / download landing page (Cloudflare Worker).
 //
-// This Worker is the download site for vale-agent. Device management
-// (registry + MCP config + panel proxy) lives in the Vale console
+// This Worker is the download site for summrise-agent. Device management
+// (registry + MCP config + panel proxy) lives in the Summrise console
 // (admin-only). This page distributes the npm tgz (the SINGLE install/update
-// channel) plus the Windows online installer (ValeAgent-Setup.exe, NSIS,
+// channel) plus the Windows online installer (SummriseAgent-Setup.exe, NSIS,
 // same npm channel underneath — bootstraps Node, installs the pinned tgz,
-// runs `vale setup`) and points users to the
+// runs `summrise setup`) and points users to the
 // console. The console URL is set per-deployment via the CONSOLE_URL var
 // (no production domain is hardcoded here).
 //
@@ -389,14 +389,14 @@ export default {
     // check). ROUND-297: this was hard-coded to v1.2.141/1.0.145 and rotted
     // (the 141 tgz was deleted from assets long ago — an update check that
     // ever fired would 404). The manifest is now derived from the version
-    // discovery asset (/vale-agent/version.json, written by the release
+    // discovery asset (/summrise-agent/version.json, written by the release
     // flow) so it tracks every release automatically. The sha256 field is
     // REQUIRED by agent_update (round-119: unverifiable installs refused)
     // and is published into version.json by the release flow.
     if (new URL(request.url).pathname === "/api/version") {
       try {
         const vresp = await env.ASSETS.fetch(
-          new Request("https://worker.local/vale-agent/version.json"),
+          new Request("https://worker.local/summrise-agent/version.json"),
         );
         if (vresp.ok) {
           const vj = await vresp.json();
@@ -410,15 +410,15 @@ export default {
           // versionless latest alias today, a versioned name tomorrow).
           // Serve exactly that basename after a flat-name validation (no
           // slashes, must end .tgz — a hostile manifest must not escape
-          // /vale-agent/). Absent/invalid falls back to the derived
+          // /summrise-agent/). Absent/invalid falls back to the derived
           // versioned name so older manifests keep working; smoke pins
           // the consistent case (tarball field == download basename).
           const tbRaw = vj && vj.tarball;
           const tb =
             typeof tbRaw === "string" &&
-            /^vale-agent-[A-Za-z0-9][A-Za-z0-9._-]*\.tgz$/.test(tbRaw)
+            /^summrise-agent-[A-Za-z0-9][A-Za-z0-9._-]*\.tgz$/.test(tbRaw)
               ? tbRaw
-              : `vale-agent-${ver}.tgz`;
+              : `summrise-agent-${ver}.tgz`;
           if (ver && typeof sha === "string" && SHA256_RE.test(sha)) {
             const base = new URL(request.url).origin;
             // Installer fields are ADDITIVE (older manifests lack them —
@@ -429,7 +429,7 @@ export default {
             const instShaRaw = vj && vj.installer_sha256;
             const inst =
               typeof instRaw === "string" &&
-              /^ValeAgent-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$/.test(instRaw)
+              /^SummriseAgent-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$/.test(instRaw)
                 ? instRaw
                 : null;
             const instSha =
@@ -438,11 +438,11 @@ export default {
                 : null;
             const body = {
               version: ver,
-              download: `${base}/vale-agent/${tb}`,
+              download: `${base}/summrise-agent/${tb}`,
               sha256: sha,
             };
             if (inst && instSha) {
-              body.installer = `${base}/vale-agent/${inst}`;
+              body.installer = `${base}/summrise-agent/${inst}`;
               body.installer_sha256 = instSha;
             }
             return new Response(JSON.stringify(body), {
@@ -469,20 +469,20 @@ export default {
     // the landing page as 200 HTML; devices once downloaded HTML as the
     // installer and the agent never started).
     const setupMatch =
-      /^\/vale-agent\/ValeAgent-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$/.exec(
+      /^\/summrise-agent\/SummriseAgent-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$/.exec(
         pathname,
       );
-    if (setupMatch || pathname === "/vale-agent/ValeAgent-Setup.exe") {
+    if (setupMatch || pathname === "/summrise-agent/SummriseAgent-Setup.exe") {
       return env.ASSETS.fetch(request);
     }
     // npm tgz download path (the documented `npm i -g
-    // https://agent.saisi.online/vale-agent/vale-agent-<v>.tgz` command).
+    // https://agent.saisi.online/summrise-agent/summrise-agent-<v>.tgz` command).
     // The versionless latest alias (the landing page's install command)
     // is matched EXACTLY here — the versioned regex is intentionally NOT
     // loosened to cover it (exact-pattern discipline on download paths).
     const tgzMatch =
-      /^\/vale-agent\/vale-agent-[0-9]+\.[0-9]+\.[0-9]+\.tgz$/.exec(pathname);
-    if (tgzMatch || pathname === "/vale-agent/vale-agent-latest.tgz") {
+      /^\/summrise-agent\/summrise-agent-[0-9]+\.[0-9]+\.[0-9]+\.tgz$/.exec(pathname);
+    if (tgzMatch || pathname === "/summrise-agent/summrise-agent-latest.tgz") {
       // The tgz (~12MB) fits Workers Assets and is served fast from here.
       return env.ASSETS.fetch(request);
     }
@@ -491,7 +491,7 @@ export default {
     // the official GitHub release. GitHub is often unreachable from devices
     // (GFW etc.), so proxy it through this worker — Cloudflare's network
     // reaches GitHub fast, and the device only talks to agent.saisi.online.
-    if (pathname === "/vale-agent/cloudflared.exe") {
+    if (pathname === "/summrise-agent/cloudflared.exe") {
       // PINNED, NOT `latest`. This used to proxy
       // `.../releases/latest/download/cloudflared-windows-amd64.exe`, which means the bytes
       // of a binary the service SPAWNS were chosen by whatever GitHub marked latest at that
@@ -531,7 +531,7 @@ export default {
     // Cloudflare's edge reaches GitHub fine, so the device pulls Electron from
     // THIS worker (same origin it already reaches for the tgz + cloudflared).
     // Pinned to the version the installer's $ElectronVersion expects.
-    if (pathname === "/vale-agent/electron-win32-x64.zip") {
+    if (pathname === "/summrise-agent/electron-win32-x64.zip") {
       const upstream =
         "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip";
       let resp;
@@ -557,12 +557,12 @@ export default {
     // (@playwright/mcp + playwright-core + node.exe) is NOT bundled in the npm
     // package (kept small) and exceeds the 25MiB Workers-Assets per-file cap,
     // so it lives in R2 and streams from here. The installer downloads it
-    // best-effort so `vale setup` stages components\playwright and the browser_*
+    // best-effort so `summrise setup` stages components\playwright and the browser_*
     // tools come up on fresh installs (npmjs is unreachable from many boxes).
-    if (pathname === "/vale-agent/vale-playwright.zip") {
+    if (pathname === "/summrise-agent/summrise-playwright.zip") {
       // IT IS AN EXECUTED ARTIFACT AT A MUTABLE KEY (round-99 F2). This served
       // `public, max-age=86400` with NO validator, so a device could spend a day being
-      // handed a stale archive after the bundle was replaced — and `vale setup` stages
+      // handed a stale archive after the bundle was replaced — and `summrise setup` stages
       // it into components\playwright without hashing it (the same chain round 96 found
       // for cloudflared, where the fix was a versioned immutable upstream).
       //
@@ -571,7 +571,7 @@ export default {
       // A re-upload changes the digest, which is exactly the staleness this pins.
       let obj;
       try {
-        obj = await env.TEMP_FILES.get("vale-playwright.zip");
+        obj = await env.TEMP_FILES.get("summrise-playwright.zip");
       } catch (err) {
         return proxyFailure("playwright bundle read failed", String(err));
       }
@@ -587,14 +587,14 @@ export default {
         status: 200,
         headers: {
           "content-type": "application/zip",
-          "content-disposition": 'attachment; filename="vale-playwright.zip"',
+          "content-disposition": 'attachment; filename="summrise-playwright.zip"',
           "content-length": String(obj.size),
           ...validators,
         },
       });
     }
     // A missing binary must 404, not return the download PAGE as 200 HTML —
-    // devices silently downloaded HTML as ValeAgent-Setup.exe and the agent
+    // devices silently downloaded HTML as SummriseAgent-Setup.exe and the agent
     // never started. Only "/" and "/index.html" render the page.
     if (pathname !== "/" && pathname !== "/index.html") {
       return new Response("Not Found", { status: 404 });
@@ -606,7 +606,7 @@ export default {
     // installs the current build. The base is the request's own origin —
     // npm must hit the host that actually serves the tgz, and no production
     // domain is hardcoded.
-    const installerUrl = `${url.origin}/vale-agent/vale-agent-latest.tgz`;
+    const installerUrl = `${url.origin}/summrise-agent/summrise-agent-latest.tgz`;
     // Windows setup.exe 别名（build-installer.sh 每次发版同步），同源、无硬编码。
     //
     // ...BUT ONLY WHEN THIS RELEASE ACTUALLY PUBLISHED ONE (round 125). A tgz-only
@@ -619,7 +619,7 @@ export default {
     let setupUrl = null;
     try {
       const mresp = await env.ASSETS.fetch(
-        new Request("https://worker.local/vale-agent/version.json"),
+        new Request("https://worker.local/summrise-agent/version.json"),
       );
       if (mresp.ok) {
         const mj = await mresp.json();
@@ -628,7 +628,7 @@ export default {
           typeof mj.installer === "string" &&
           typeof mj.installer_sha256 === "string"
         ) {
-          setupUrl = `${url.origin}/vale-agent/ValeAgent-Setup.exe`;
+          setupUrl = `${url.origin}/summrise-agent/SummriseAgent-Setup.exe`;
         }
       }
     } catch {

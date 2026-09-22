@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Render NSIS MUI brand art for the Vale online installer.
+"""Render NSIS MUI brand art for the Summrise online installer.
 
-Same "vale at sunrise" vocabulary as scripts/render-brand-icon.py
+Same "summrise at sunrise" vocabulary as scripts/render-brand-icon.py
 (amber sky, glowing sun, rounded white hills — near hill solid, far hill
 78% haze) sized for the MUI wizard:
   header.bmp  150x57   (top-right of every page)
@@ -129,7 +129,7 @@ def main():
         f2 = ImageFont.truetype(FONT, 11)
     except OSError:
         f1 = f2 = ImageFont.load_default()
-    d.text((18, 238), "Vale Agent", font=f1, fill=(255, 255, 255))
+    d.text((18, 238), "Summrise Agent", font=f1, fill=(255, 255, 255))
     d.text((19, 264), "Windows online setup", font=f2, fill=(255, 243, 224))
     w.save(os.path.join(out, "welcome.bmp"))
     print("wrote", out + "/header.bmp", out + "/welcome.bmp")

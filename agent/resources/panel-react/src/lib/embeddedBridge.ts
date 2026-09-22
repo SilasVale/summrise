@@ -1,9 +1,9 @@
 // THE ELECTRON BRIDGE, as the panel sees it — typed, and pinned to the preload.
 //
-// WHY THIS FILE EXISTS. `vale-desktop-electron/src/preload.ts` exposes three objects through
+// WHY THIS FILE EXISTS. `summrise-desktop-electron/src/preload.ts` exposes three objects through
 // contextBridge and the panel calls them. Each side is typed independently, so each compiles
 // happily while a renamed member breaks the DESKTOP APP silently — and only there: these surfaces
-// exist behind `window.valeEmbedded`, which a plain-browser harness does not have, so no rendered
+// exist behind `window.summriseEmbedded`, which a plain-browser harness does not have, so no rendered
 // sweep has ever seen them (rounds 45 and 50 both had to name them as the project's blind spot).
 //
 // The interface used to live inside EmbeddedBrowserPane, which is why nothing could check it: a
@@ -46,14 +46,14 @@ interface EmbeddedBridge {
 }
 
 /** Browser-session windows, driven over CDP. */
-export interface ValeBrowserBridge {
+export interface SummriseBrowserBridge {
   open: (url: string) => Promise<unknown>;
   close: (id: string) => Promise<unknown>;
   list: () => Promise<unknown>;
 }
 
 /** Auto-launch settings and the native menu command bridge. */
-interface ValeDesktopBridge {
+interface SummriseDesktopBridge {
   getAutoLaunch: () => Promise<unknown>;
   setAutoLaunch: (enabled: boolean) => Promise<unknown>;
   onCommand: (handler: (cmd: string) => void) => () => void;
@@ -81,19 +81,19 @@ const _complete: MissingFromManifest extends never ? true : never = true;
 void _complete;
 
 /** RUNTIME MANIFESTS for the other two bridges, with the same two-way type check as above. */
-export const BROWSER_MEMBERS = ["open", "close", "list"] as const satisfies readonly (keyof ValeBrowserBridge)[];
-type MissingBrowser = Exclude<keyof ValeBrowserBridge, (typeof BROWSER_MEMBERS)[number]>;
+export const BROWSER_MEMBERS = ["open", "close", "list"] as const satisfies readonly (keyof SummriseBrowserBridge)[];
+type MissingBrowser = Exclude<keyof SummriseBrowserBridge, (typeof BROWSER_MEMBERS)[number]>;
 const _browserComplete: MissingBrowser extends never ? true : never = true;
 void _browserComplete;
 
-export const DESKTOP_MEMBERS = ["getAutoLaunch", "setAutoLaunch", "onCommand"] as const satisfies readonly (keyof ValeDesktopBridge)[];
-type MissingDesktop = Exclude<keyof ValeDesktopBridge, (typeof DESKTOP_MEMBERS)[number]>;
+export const DESKTOP_MEMBERS = ["getAutoLaunch", "setAutoLaunch", "onCommand"] as const satisfies readonly (keyof SummriseDesktopBridge)[];
+type MissingDesktop = Exclude<keyof SummriseDesktopBridge, (typeof DESKTOP_MEMBERS)[number]>;
 const _desktopComplete: MissingDesktop extends never ? true : never = true;
 void _desktopComplete;
 
 /** The bridge, or null in a plain browser. */
 export function embeddedBridge(): EmbeddedBridge | null {
-  return ((window as unknown as { valeEmbedded?: EmbeddedBridge }).valeEmbedded ?? null) as EmbeddedBridge | null;
+  return ((window as unknown as { summriseEmbedded?: EmbeddedBridge }).summriseEmbedded ?? null) as EmbeddedBridge | null;
 }
 
 /** Browser-session windows, or null in a plain browser.
@@ -101,13 +101,13 @@ export function embeddedBridge(): EmbeddedBridge | null {
  *  THIS ACCESSOR EXISTS BECAUSE App.tsx REACHED THROUGH `(window as any)`. It called
  *  `bridge.open("about:blank")` with no type at all, so a renamed member in the preload would not
  *  have failed anything — it would have fallen through to the local-control fallback, or produced
- *  "Browser sessions need the Vale desktop app" on a machine that HAS the desktop app. The shape was
- *  already written here (`ValeBrowserBridge`); nothing used it. */
-export function browserBridge(): ValeBrowserBridge | null {
-  return ((window as unknown as { valeBrowser?: ValeBrowserBridge }).valeBrowser ?? null) as ValeBrowserBridge | null;
+ *  "Browser sessions need the Summrise desktop app" on a machine that HAS the desktop app. The shape was
+ *  already written here (`SummriseBrowserBridge`); nothing used it. */
+export function browserBridge(): SummriseBrowserBridge | null {
+  return ((window as unknown as { summriseBrowser?: SummriseBrowserBridge }).summriseBrowser ?? null) as SummriseBrowserBridge | null;
 }
 
 /** The desktop bridge (auto-launch + menu commands), or null in a plain browser. */
-export function desktopBridge(): ValeDesktopBridge | null {
-  return ((window as unknown as { valeDesktop?: ValeDesktopBridge }).valeDesktop ?? null) as ValeDesktopBridge | null;
+export function desktopBridge(): SummriseDesktopBridge | null {
+  return ((window as unknown as { summriseDesktop?: SummriseDesktopBridge }).summriseDesktop ?? null) as SummriseDesktopBridge | null;
 }

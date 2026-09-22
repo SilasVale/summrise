@@ -1,6 +1,6 @@
 // A SKIP MUST NOT LOOK LIKE A PASS.
 //
-// `panel-render-audit.mjs` needs a Playwright runtime (`VALE_BROWSER_HELPER`). Where
+// `panel-render-audit.mjs` needs a Playwright runtime (`SUMMRISE_BROWSER_HELPER`). Where
 // there is none it still emits its harness — deliberately, because a check that can
 // only run in one environment quietly stops running — but it used to exit 0, and its
 // own message admitted the consequence: "a caller watching only the exit code reads
@@ -33,7 +33,7 @@ function run(env) {
 
 test("with no Playwright runtime the audit exits 2, not 0", () => {
   const env = { ...process.env };
-  delete env.VALE_BROWSER_HELPER;
+  delete env.SUMMRISE_BROWSER_HELPER;
   const r = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env, timeout: 60000 });
   assert.equal(
     r.status,
@@ -45,7 +45,7 @@ test("with no Playwright runtime the audit exits 2, not 0", () => {
 
 test("the skip SAYS it did not run, in words", () => {
   const env = { ...process.env };
-  delete env.VALE_BROWSER_HELPER;
+  delete env.SUMMRISE_BROWSER_HELPER;
   const r = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env, timeout: 60000 });
   const out = (r.stdout || "") + (r.stderr || "");
   assert.match(out, /DID NOT RUN/i, "the skip must say so in words, not only in the exit code");

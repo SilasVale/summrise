@@ -27,7 +27,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use rmcp::service::ServiceExt;
-use vale_agent_core::{DeviceError, ToolDef};
+use summrise_agent_core::{DeviceError, ToolDef};
 
 /// The local browser MCP server endpoint (playwright-mcp --port 9229).
 /// round-118: 127.0.0.1, not "localhost" — localhost resolves to [::1] first
@@ -518,7 +518,7 @@ pub(crate) fn mcp_browser_args(cdp_endpoint: Option<&str>, pwout: &std::path::Pa
     args
 }
 
-/// True when the Vale Desktop Electron shell exposes its CDP endpoint
+/// True when the Summrise Desktop Electron shell exposes its CDP endpoint
 /// (loopback 9333) — i.e. the user is in the desktop app watching the
 /// EMBEDDED real-browser view (round-247). When both are up the desktop
 /// wins: AI should drive the page the user actually sees.
@@ -657,8 +657,8 @@ async fn spawn_stdio_server() -> Result<(McpSession, Vec<(String, String)>), Dev
     // Test override: the stdio integration test points at a minimal node MCP
     // server (no device bundle in CI). Production uses the bundled playwright.
     let (node, entry) = if let (Ok(n), Ok(e)) = (
-        std::env::var("VALE_TEST_STDIO_NODE"),
-        std::env::var("VALE_TEST_STDIO_ENTRY"),
+        std::env::var("SUMMRISE_TEST_STDIO_NODE"),
+        std::env::var("SUMMRISE_TEST_STDIO_ENTRY"),
     ) {
         (std::path::PathBuf::from(n), std::path::PathBuf::from(e))
     } else {
@@ -677,7 +677,7 @@ async fn spawn_stdio_server() -> Result<(McpSession, Vec<(String, String)>), Dev
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    if std::env::var("VALE_TEST_STDIO_ENTRY").is_err() {
+    if std::env::var("SUMMRISE_TEST_STDIO_ENTRY").is_err() {
         // ONE-BROWSER FIX (user report: "AI 调用 MCP 后 browser 面板显示不
         // 正确"): the panel screencasts the BRIDGE's chromium while every
         // playwright-mcp spawn launched its OWN headless browser — AI
@@ -686,7 +686,7 @@ async fn spawn_stdio_server() -> Result<(McpSession, Vec<(String, String)>), Dev
         // as the fallback (bridge down ⇒ AI still works, panel just cannot
         // watch — strictly better than the always-split status quo).
         // Evidence land: playwright-mcp's DEFAULT output dir is relative to
-        // ITS CWD (device proof: files landed in D:\Vale\playwright\TEMP,
+        // ITS CWD (device proof: files landed in D:\Summrise\playwright\TEMP,
         // while the agent's temp_dir() probe found only weeks-old files) —
         // pin it to install\pwout so screenshots appear in the Evidence
         // drawer with zero copying.
@@ -777,7 +777,7 @@ async fn connect_stdio() -> Result<serde_json::Value, DeviceError> {
 
 /// Best-effort: list the attached browser's tabs and select the embedded
 /// view (the tab whose URL is NOT the desktop SPA). playwright-mcp's
-/// browser_tabs action=list returns text like "- 0: (current) [Vale
+/// browser_tabs action=list returns text like "- 0: (current) [Summrise
 /// Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Example
 /// Domain](https://www.example.com/)" — parse the index of the first line
 /// whose URL does not contain "/desktop/".
@@ -1173,7 +1173,7 @@ async fn handshake(sess: &mut McpSession) -> Result<Value, DeviceError> {
                 json!({
                     "protocolVersion": "2025-03-26",
                     "capabilities": {},
-                    "clientInfo": {"name": "vale-agent", "version": "1"}
+                    "clientInfo": {"name": "summrise-agent", "version": "1"}
                 }),
                 30,
             )
@@ -1610,7 +1610,7 @@ mod one_browser_tests {
     fn mcp_browser_args_attach_arm_carries_cdp_and_output_dir() {
         let args = mcp_browser_args(
             Some("http://127.0.0.1:9333"),
-            std::path::Path::new("D:\\Vale\\pwout"),
+            std::path::Path::new("D:\\Summrise\\pwout"),
         );
         assert_eq!(args[0], "--cdp-endpoint");
         assert_eq!(args[1], "http://127.0.0.1:9333");
@@ -1619,7 +1619,7 @@ mod one_browser_tests {
             "attach mode must not fork a private browser"
         );
         assert!(args.contains(&"--output-dir".to_string()));
-        assert_eq!(args.last().unwrap(), "D:\\Vale\\pwout");
+        assert_eq!(args.last().unwrap(), "D:\\Summrise\\pwout");
     }
 
     #[test]
@@ -1665,13 +1665,13 @@ mod one_browser_tests {
     #[test]
     fn embedded_view_index_skips_the_desktop_spa() {
         // Device-verified format (round-280): "- N: (current) [Title](url)".
-        let tabs = "- 0: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Example Domain](https://www.example.com/)";
+        let tabs = "- 0: (current) [Summrise Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Example Domain](https://www.example.com/)";
         assert_eq!(embedded_view_index(tabs), Some(1));
         // SPA-only (no embedded view yet) -> None.
-        let only_spa = "- 0: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)";
+        let only_spa = "- 0: (current) [Summrise Agent](http://127.0.0.1:18080/desktop/)";
         assert_eq!(embedded_view_index(only_spa), None);
         // Embedded view first, SPA second -> picks the embedded one.
-        let reversed = "- 0: [Example Domain](https://www.example.com/)\n- 1: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)";
+        let reversed = "- 0: [Example Domain](https://www.example.com/)\n- 1: (current) [Summrise Agent](http://127.0.0.1:18080/desktop/)";
         assert_eq!(embedded_view_index(reversed), Some(0));
         // Garbage lines are skipped.
         assert_eq!(embedded_view_index("nothing here"), None);
@@ -1682,14 +1682,14 @@ mod one_browser_tests {
     ///
     ///     [select] initial tab list text:
     ///     - 0: (current) [](chrome-error://chromewebdata/)
-    ///     - 1: [(2) Vale Agent](http://127.0.0.1:18080/desktop/)
+    ///     - 1: [(2) Summrise Agent](http://127.0.0.1:18080/desktop/)
     ///
     /// The agent had restarted while the embedded tab pointed at the panel, so Chromium left it on
     /// its error page; the selector correctly found no embedded view and then LEFT THE ERROR PAGE
     /// SELECTED, which is what the operator saw. The fallback is what this pins.
     #[test]
     fn desktop_spa_index_finds_the_product_tab() {
-        let after_restart = "- 0: (current) [](chrome-error://chromewebdata/)\n- 1: [(2) Vale Agent](http://127.0.0.1:18080/desktop/)";
+        let after_restart = "- 0: (current) [](chrome-error://chromewebdata/)\n- 1: [(2) Summrise Agent](http://127.0.0.1:18080/desktop/)";
         assert_eq!(
             embedded_view_index(after_restart),
             None,
@@ -1702,10 +1702,10 @@ mod one_browser_tests {
         );
         // The earlier, healthy lists still behave: an embedded view wins, and it is picked from
         // either position.
-        let healthy = "- 0: (current) [搜索 - Microsoft 必应](https://cn.bing.com/)\n- 1: [Vale Agent](http://127.0.0.1:18080/desktop/)";
+        let healthy = "- 0: (current) [搜索 - Microsoft 必应](https://cn.bing.com/)\n- 1: [Summrise Agent](http://127.0.0.1:18080/desktop/)";
         assert_eq!(embedded_view_index(healthy), Some(0));
         assert_eq!(desktop_spa_index(healthy), Some(1));
-        let panel_tab = "- 0: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Vale Agent](http://127.0.0.1:18080/panel/)";
+        let panel_tab = "- 0: (current) [Summrise Agent](http://127.0.0.1:18080/desktop/)\n- 1: [Summrise Agent](http://127.0.0.1:18080/panel/)";
         assert_eq!(embedded_view_index(panel_tab), Some(1));
         // No SPA at all (a window that never loaded it) -> None, so nothing is invented.
         assert_eq!(desktop_spa_index("- 0: [X](https://x.com/)"), None);
@@ -1715,7 +1715,7 @@ mod one_browser_tests {
     #[test]
     fn extract_tool_text_handles_stdio_and_http_shapes() {
         // stdio: { result: "..." } plain string (device-verified).
-        let stdio = serde_json::json!({ "result": "- 0: [Vale Agent](http://127.0.0.1:18080/desktop/)\n- 1: [X](https://x.com/)" });
+        let stdio = serde_json::json!({ "result": "- 0: [Summrise Agent](http://127.0.0.1:18080/desktop/)\n- 1: [X](https://x.com/)" });
         let t = extract_tool_text(&stdio).unwrap();
         assert!(t.contains("https://x.com"));
         // http: nested content array.
@@ -1724,7 +1724,7 @@ mod one_browser_tests {
         assert_eq!(extract_tool_text(&http).unwrap().trim(), "hello");
         // rmcp 2.x CallToolResult: TOP-LEVEL content, no result wrapper
         // (round-300 device-caught: auto-select saw empty text without this).
-        let top = serde_json::json!({ "content": [ { "type": "text", "text": "- 0: (current) [Vale Agent](http://127.0.0.1:18080/desktop/)\n- 1: [X](https://x.com/)" } ] });
+        let top = serde_json::json!({ "content": [ { "type": "text", "text": "- 0: (current) [Summrise Agent](http://127.0.0.1:18080/desktop/)\n- 1: [X](https://x.com/)" } ] });
         let t = extract_tool_text(&top).unwrap();
         assert!(
             t.contains("https://x.com"),

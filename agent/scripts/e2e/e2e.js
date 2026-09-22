@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Vale Agent E2E suite (runs on the DEVICE, e.g. d1).
+// Summrise Agent E2E suite (runs on the DEVICE, e.g. d1).
 //
 // Purpose: repeatable, device-side verification that the AI-facing surface
 // works end-to-end. Exercises the same paths a real AI client uses:
@@ -29,13 +29,13 @@
 //                [--only terminal,file,panel] [--no-browser]
 //
 // Requires: agent running on the device; for section 4 also the Electron
-// desktop (CDP 9333) + a playwright install at D:\Vale\playwright.
+// desktop (CDP 9333) + a playwright install at D:\Summrise\playwright.
 //
 // Exit code: 0 = all selected sections passed; 1 = any failure.
 
 const TOKEN = process.argv.includes('--token')
   ? process.argv[process.argv.indexOf('--token') + 1]
-  : process.env.VALE_AGENT_TOKEN;
+  : process.env.SUMMRISE_AGENT_TOKEN;
 const BASE = (() => {
   const i = process.argv.indexOf('--base');
   return i >= 0 ? process.argv[i + 1] : 'http://127.0.0.1:18080';
@@ -70,11 +70,11 @@ const ONLY = (() => {
   return asked;
 })();
 const NO_BROWSER = process.argv.includes('--no-browser');
-const PW_DIR = process.env.VALE_PW_DIR || 'D:\\Vale\\components\\playwright';
+const PW_DIR = process.env.SUMMRISE_PW_DIR || 'D:\\Summrise\\components\\playwright';
 // Layout v2 (ADR 0008): AI evidence lives under DataDir\pwout (was the
-// install-root pwout\). Pre-migration devices: VALE_EVIDENCE_DIR override
-// (same pattern as VALE_PW_DIR above).
-const EVIDENCE_DIR = process.env.VALE_EVIDENCE_DIR || 'C:\\ProgramData\\Vale\\pwout';
+// install-root pwout\). Pre-migration devices: SUMMRISE_EVIDENCE_DIR override
+// (same pattern as SUMMRISE_PW_DIR above).
+const EVIDENCE_DIR = process.env.SUMMRISE_EVIDENCE_DIR || 'C:\\ProgramData\\Summrise\\pwout';
 
 const H = { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -154,7 +154,7 @@ async function sectionTerminal() {
   // the whole point of a per-session fact rather than a dead session's last words; if the shell reported a code at
   // all it must be NON-ZERO, and the row must carry the same one.
   const failedEx = await tool('terminal_execute', {
-    command: 'vale-e2e-no-such-command', session_id: sessionId, timeout_secs: 20,
+    command: 'summrise-e2e-no-such-command', session_id: sessionId, timeout_secs: 20,
   });
   check('a failing command does not report success',
     !!failedEx && (typeof failedEx.exit_code !== 'number' || failedEx.exit_code !== 0),
@@ -913,7 +913,7 @@ async function sectionRuns() {
 }
 
 (async () => {
-  if (!TOKEN) { console.error('missing token: pass --token or VALE_AGENT_TOKEN'); process.exit(1); }
+  if (!TOKEN) { console.error('missing token: pass --token or SUMMRISE_AGENT_TOKEN'); process.exit(1); }
   const want = (s) => !ONLY || ONLY.includes(s);
   try {
     if (want('terminal')) await sectionTerminal();

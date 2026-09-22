@@ -7,7 +7,7 @@
 //
 //   cd gateway/ui && npx vite build --outDir /tmp/console-build --emptyOutDir
 //   tar czf /tmp/console.tgz -C /tmp/console-build .   (ship it; extract on the device to
-//                                                       C:\ProgramData\Vale\pwout\console)
+//                                                       C:\ProgramData\Summrise\pwout\console)
 //   node agent/scripts/console-design-sweep.mjs --emit > /tmp/console-sweep.js   (run on the device)
 //   node agent/scripts/console-design-sweep.mjs --judge <report.json>
 //
@@ -51,13 +51,13 @@ const mode = process.argv[2];
 const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice('--passes='.length).split(',').filter(Boolean);
 
 // HOW TO RENDER THIS CONSOLE FROM HERE WITHOUT DELIVERING A DIRECTORY (round 17 of the standing goal). The sweep
-// below measures a DELIVERED build — `C:\ProgramData\Vale\pwout\console`, several files, one transfer each. For a
+// below measures a DELIVERED build — `C:\ProgramData\Summrise\pwout\console`, several files, one transfer each. For a
 // one-off look at a page there is a cheaper path, and it was used to verify the `.sig-dot` silhouettes on the real
 // console (ok = circle, err = a ROTATED diamond at 2px radius; inks 6.10 and 4.65 against their own cards):
 //
 //   1. `gateway/public/` holds the whole build. Emit ONE file: a JSON map of path -> contents for `index.html`,
 //      `style.css`, `favicon.svg`, `icons.svg` and everything in `assets/` (about 390 KB, one transfer).
-//   2. On the device, route `http://vale.test/**` by looking the pathname up in that map, with `/` and any
+//   2. On the device, route `http://summrise.test/**` by looking the pathname up in that map, with `/` and any
 //      extension-less path falling back to `/index.html` (it is an SPA) and a 404 for a missing FILE.
 //   3. Route `/api/**` ON THE SAME ORIGIN. The built console calls `/api/me`, not the deployed host — the sweep's
 //      own handler keys on `https://ai.saisi.online`, which is right for ITS delivery and wrong for this one.
@@ -75,19 +75,19 @@ const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice
 // first rebuild after that. The value is computed in the module (where the repository is) and only its
 // result is inlined into the emitted script.
 // ONE ROOT, BOTH ENDS (round 77). The stamp is baked from the entry the RUN will serve — the same
-// `VALE_SWEEP_ROOT` the sweep reads at run time — and until now it was read from a hard-coded
+// `SUMMRISE_SWEEP_ROOT` the sweep reads at run time — and until now it was read from a hard-coded
 // `gateway/public`, the copy the RELEASE flow writes. So a CI run that built the console from its own
 // checkout and served that while the stamp came from the last published build reported every run as
 // "stale" — a true statement about two artefacts and a useless one about a commit. The default is
 // unchanged, so a device run compares the delivered copy against the delivered copy it was emitted for.
 // WHERE THE EMITTED SWEEP LOOKS BY DEFAULT — the device's paths, now the EMITTER's values rather than text inside a
 // template literal (round 268 removed the level of escaping that made them four-backslash strings).
-const DEFAULT_ROOT = "C:\\ProgramData\\Vale\\pwout\\console";
-const DEFAULT_REPORT_PATH = "C:\\ProgramData\\Vale\\pwout\\console-sweep.json";
+const DEFAULT_ROOT = "C:\\ProgramData\\Summrise\\pwout\\console";
+const DEFAULT_REPORT_PATH = "C:\\ProgramData\\Summrise\\pwout\\console-sweep.json";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
 const ENTRY_STAMP = (() => {
-  const root = process.env.VALE_SWEEP_ROOT || new URL("../../gateway/public", import.meta.url).pathname;
+  const root = process.env.SUMMRISE_SWEEP_ROOT || new URL("../../gateway/public", import.meta.url).pathname;
   try {
     const b = readFileSync(new URL("index.html", new URL(root.endsWith("/") ? root : root + "/", "file://")));
     return { bytes: b.length, sha: createHash("sha256").update(b).digest("hex").slice(0, 12) };

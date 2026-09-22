@@ -327,7 +327,7 @@ export function useSessions(connected: boolean) {
     };
     tick();
     const onChange = () => { tick(); };
-    window.addEventListener("vale-sessions-changed", onChange);
+    window.addEventListener("summrise-sessions-changed", onChange);
     document.addEventListener("visibilitychange", onChange);
     // round-245 (HIGH-1): a slow background sweep (SESSIONS_SWEEP_MS) that ONLY ADDS live
     // sessions the panel has never seen — the safety net when both the
@@ -360,7 +360,7 @@ export function useSessions(connected: boolean) {
       } catch { /* transient — next sweep */ }
     }, SESSIONS_SWEEP_MS);
   return () => {
-    window.removeEventListener("vale-sessions-changed", onChange);
+    window.removeEventListener("summrise-sessions-changed", onChange);
     document.removeEventListener("visibilitychange", onChange);
     window.clearInterval(sweep);
   };
@@ -389,22 +389,22 @@ export function useSessions(connected: boolean) {
     // refresh directly: the listener above already owns the retry, the tombstone
     // and the revive rules, and a second call path would be a second copy of them.
     const fast = window.setInterval(() => {
-      window.dispatchEvent(new CustomEvent("vale-sessions-changed"));
+      window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
     }, 2000);
     return () => window.clearInterval(fast);
   }, [armed]);
 
   const setStatus = useCallback((msg: string) => setStatusState(msg), []);
 
-  // A KEYSTROKE THAT DID NOT LAND must say so. `TerminalPane` dispatches `vale-write-failed` when a
+  // A KEYSTROKE THAT DID NOT LAND must say so. `TerminalPane` dispatches `summrise-write-failed` when a
   // `terminal_write` rejects, and until round 94 NOTHING LISTENED: the panel swallowed the failure to
   // keep its write chain alive, which is right, and then said nothing at all — so an operator typing
   // into a session whose agent had gone away saw their keystrokes vanish with no explanation. The
   // status line already carries failures ("open failed: …"), and this is one of them.
   useEffect(() => {
     const onWriteFailed = () => setStatusState("error: keystrokes could not be sent — this session may be gone");
-    window.addEventListener("vale-write-failed", onWriteFailed);
-    return () => window.removeEventListener("vale-write-failed", onWriteFailed);
+    window.addEventListener("summrise-write-failed", onWriteFailed);
+    return () => window.removeEventListener("summrise-write-failed", onWriteFailed);
   }, []);
 
   const openSession = useCallback(async (kind: string, target: string, extra: Record<string, unknown> = {}) => {

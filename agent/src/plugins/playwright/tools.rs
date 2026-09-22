@@ -6,8 +6,8 @@
 //!   browser_run_script   — run a playwright script with the bundled node+core,
 //!                          collect stdout/stderr/exit code + screenshots
 //!
-//! The bundled runtime lives next to vale-agent.exe (`playwright/node.exe` +
-//! `playwright/node_modules/playwright-core`), which `vale update` keeps in
+//! The bundled runtime lives next to summrise-agent.exe (`playwright/node.exe` +
+//! `playwright/node_modules/playwright-core`), which `summrise update` keeps in
 //! sync with the agent binary.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,14 +15,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{json, Value};
 
 use crate::plugins::to_value_or_empty;
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 
 /// Per-run script stem: millisecond time + pid + process-wide counter.
 /// Concurrent browser_run_script calls run as independent node processes
 /// with NO runner lock (headless runs are fully parallel) — a bare
 /// timestamp filename collides when two calls land in the same millisecond
 /// and one process would execute the other's script. The stem doubles as
-/// VALE_RUN_ID so screenshots can be namespaced per run.
+/// SUMMRISE_RUN_ID so screenshots can be namespaced per run.
 static SCRIPT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn next_run_stem(ts_ms: u64) -> String {
@@ -48,11 +48,11 @@ fn node_exe_path(pw_dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Attach-or-headless helper shipped to every script (single source — the
-/// template below and AI scripts require it via VALE_BROWSER_HELPER).
+/// template below and AI scripts require it via SUMMRISE_BROWSER_HELPER).
 /// Decides INSIDE node at run time: CDP up + watchable view -> attach
 /// (actions show live); else private headless (batch-safe).
 const BROWSER_HELPER_JS: &str = include_str!("helper.js");
-const BROWSER_HELPER_NAME: &str = "vale-browser-helper.js";
+const BROWSER_HELPER_NAME: &str = "summrise-browser-helper.js";
 
 /// Ensure the helper exists next to the run with current content.
 /// Best-effort (a failed write only means scripts fall back to the
@@ -84,10 +84,10 @@ let has_core = md.map(|m| m.is_dir()).unwrap_or(false);
                 let out_dir = crate::paths::evidence_dir();
                 let chromium = pw.join("chromium");
                 let script_template = [
-                    "const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);",
+                    "const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);",
                     "const path = require('path');",
-                    "const OUT = process.env.VALE_PW_OUT;",
-                    "const BASE = process.env.VALE_PW_URL || 'https://example.com';",
+                    "const OUT = process.env.SUMMRISE_PW_OUT;",
+                    "const BASE = process.env.SUMMRISE_PW_URL || 'https://example.com';",
                     "(async () => {",
                     "  const { page, attached, close } = await acquireBrowser();",
                     "  console.log('ATTACHED=' + attached);",
@@ -105,15 +105,15 @@ let has_core = md.map(|m| m.is_dir()).unwrap_or(false);
                     "playwright_core_version": core_ver,
                     "chromium_bundled": chromium.exists(),
                     "screenshot_output_dir": out_dir.to_string_lossy(),
-                    "usage": "Write a standalone Node script (CommonJS) that requires VALE_BROWSER_HELPER and drives acquireBrowser() — it attaches to the visible embedded view when present (actions show live in the desktop Browser panel) and falls back to a private headless chromium otherwise. Screenshot to the output dir, hand the SCRIPT SOURCE to browser_run_script — it executes with bundled node and returns stdout/stderr/exit code plus the screenshot list.",
+                    "usage": "Write a standalone Node script (CommonJS) that requires SUMMRISE_BROWSER_HELPER and drives acquireBrowser() — it attaches to the visible embedded view when present (actions show live in the desktop Browser panel) and falls back to a private headless chromium otherwise. Screenshot to the output dir, hand the SCRIPT SOURCE to browser_run_script — it executes with bundled node and returns stdout/stderr/exit code plus the screenshot list.",
                     "script_template": script_template,
                     "env_vars": {
-                        "VALE_PW_DIR": pw.to_string_lossy(),
-                        "VALE_PW_OUT": out_dir.to_string_lossy(),
-                        "VALE_CDP_ENDPOINT": "(desktop CDP when up, else empty — the helper reads it)",
-                        "VALE_BROWSER_HELPER": "(absolute path of the acquireBrowser() helper module)",
-                        "VALE_RUN_ID": "(unique per call — prefix screenshot names with it for exact attribution under concurrency)",
-                        "VALE_PW_URL": "(set by AI — any URL, e.g. https://192.168.1.1:8000/?Role=Gpon)",
+                        "SUMMRISE_PW_DIR": pw.to_string_lossy(),
+                        "SUMMRISE_PW_OUT": out_dir.to_string_lossy(),
+                        "SUMMRISE_CDP_ENDPOINT": "(desktop CDP when up, else empty — the helper reads it)",
+                        "SUMMRISE_BROWSER_HELPER": "(absolute path of the acquireBrowser() helper module)",
+                        "SUMMRISE_RUN_ID": "(unique per call — prefix screenshot names with it for exact attribution under concurrency)",
+                        "SUMMRISE_PW_URL": "(set by AI — any URL, e.g. https://192.168.1.1:8000/?Role=Gpon)",
                     }
                 })))
             }
@@ -126,13 +126,13 @@ let has_core = md.map(|m| m.is_dir()).unwrap_or(false);
 fn tool_browser_run_script() -> ToolDef {
     ToolDef::new(
         "browser_run_script",
-        "Run a self-contained Node/Playwright script with the device's BUNDLED node + playwright-core (never install your own). Scripts run with VALE_BROWSER_HELPER set (acquireBrowser(): attaches to the visible embedded view when present so actions show live, else private headless) — prefer it over launching your own browser; headless only for batch jobs that must not disturb the watched screen. Concurrency: calls run as independent processes with NO runner lock — headless runs are fully parallel, but attached runs SHARE the single visible tab (one view shows one page; parallel visible drivers interleave, so keep interactive work serial). Screenshot namespacing: pass shots as \"<VALE_RUN_ID>-*.png\" (env, unique per call) for exact attribution under concurrency; the returned list is otherwise a best-effort before/after diff. Params: script (JS source, CommonJS; follow the browser_pw_info template), timeout_secs (default 120, max 600). Screenshots saved to the pwout dir are listed in the result. Returns exit_code, stdout, stderr (each capped), screenshots, timed_out.",
+        "Run a self-contained Node/Playwright script with the device's BUNDLED node + playwright-core (never install your own). Scripts run with SUMMRISE_BROWSER_HELPER set (acquireBrowser(): attaches to the visible embedded view when present so actions show live, else private headless) — prefer it over launching your own browser; headless only for batch jobs that must not disturb the watched screen. Concurrency: calls run as independent processes with NO runner lock — headless runs are fully parallel, but attached runs SHARE the single visible tab (one view shows one page; parallel visible drivers interleave, so keep interactive work serial). Screenshot namespacing: pass shots as \"<SUMMRISE_RUN_ID>-*.png\" (env, unique per call) for exact attribution under concurrency; the returned list is otherwise a best-effort before/after diff. Params: script (JS source, CommonJS; follow the browser_pw_info template), timeout_secs (default 120, max 600). Screenshots saved to the pwout dir are listed in the result. Returns exit_code, stdout, stderr (each capped), screenshots, timed_out.",
         json!({
             "type": "object",
             "properties": {
-                "script": {"type": "string", "description": "JavaScript source (CommonJS). Follow the browser_pw_info template (VALE_BROWSER_HELPER acquireBrowser) so actions show live when a view is watched."},
+                "script": {"type": "string", "description": "JavaScript source (CommonJS). Follow the browser_pw_info template (SUMMRISE_BROWSER_HELPER acquireBrowser) so actions show live when a view is watched."},
                 "timeout_secs": {"type": "integer", "description": "Execution timeout in seconds (default 120, max 600)."},
-                "run_id": {"type": "string", "description": "Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. This is NOT VALE_RUN_ID (the per-call env stem used for screenshot namespacing) — pass back the id run_begin gave you."}
+                "run_id": {"type": "string", "description": "Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. This is NOT SUMMRISE_RUN_ID (the per-call env stem used for screenshot namespacing) — pass back the id run_begin gave you."}
             },
             "required": ["script"]
         }),
@@ -183,20 +183,20 @@ fn tool_browser_run_script() -> ToolDef {
                         let mut cmd = tokio::process::Command::new(&node);
                         cmd.arg(&script_path)
                             .current_dir(&out_dir)
-                            .env("VALE_PW_DIR", pw.to_string_lossy().to_string())
-                            .env("VALE_PW_OUT", out_dir.to_string_lossy().to_string())
-                            .env("VALE_CDP_ENDPOINT", cdp)
+                            .env("SUMMRISE_PW_DIR", pw.to_string_lossy().to_string())
+                            .env("SUMMRISE_PW_OUT", out_dir.to_string_lossy().to_string())
+                            .env("SUMMRISE_CDP_ENDPOINT", cdp)
                             .env(
-                                "VALE_BROWSER_HELPER",
+                                "SUMMRISE_BROWSER_HELPER",
                                 helper.to_string_lossy().to_string(),
                             )
                             // Run identity for screenshot namespacing: the
                             // screenshots list is a before/after diff over
                             // the shared pwout dir, so under concurrency a
                             // sibling run's shot can be misattributed.
-                            // Naming shots "<VALE_RUN_ID>-*.png" makes
+                            // Naming shots "<SUMMRISE_RUN_ID>-*.png" makes
                             // attribution exact; without it, best-effort.
-                            .env("VALE_RUN_ID", run_stem.clone())
+                            .env("SUMMRISE_RUN_ID", run_stem.clone())
                             .stdout(std::process::Stdio::piped())
                             .stderr(std::process::Stdio::piped());
                         let output = cmd.output().await;
@@ -277,13 +277,13 @@ mod tools_tests {
 
     #[test]
     fn node_exe_path_joins_under_pw_dir() {
-        let pw = std::path::Path::new("/opt/vale/playwright");
+        let pw = std::path::Path::new("/opt/summrise/playwright");
         assert_eq!(node_exe_path(pw), pw.join("node.exe"));
     }
 
     #[test]
     fn pw_version_reads_bundled_package_json() {
-        let dir = std::env::temp_dir().join(format!("vale-pwver-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-pwver-{}", std::process::id()));
         let core = dir.join("node_modules").join("playwright-core");
         std::fs::create_dir_all(&core).unwrap();
         std::fs::write(
@@ -336,8 +336,8 @@ mod tools_tests {
             "headless",
             "ignoreHTTPSErrors",
             "module.exports",
-            "VALE_CDP_ENDPOINT",
-            "VALE_PW_DIR",
+            "SUMMRISE_CDP_ENDPOINT",
+            "SUMMRISE_PW_DIR",
         ] {
             assert!(
                 BROWSER_HELPER_JS.contains(token),
@@ -348,7 +348,7 @@ mod tools_tests {
             !BROWSER_HELPER_JS.bytes().any(|b| b > 127),
             "helper must be ASCII-only"
         );
-        assert_eq!(BROWSER_HELPER_NAME, "vale-browser-helper.js");
+        assert_eq!(BROWSER_HELPER_NAME, "summrise-browser-helper.js");
         // The header must NAME the file that is actually generated. The original text
         // said "do not edit, it is overwritten" about "this file" — no filename, and
         // false about the source a developer opens, which nothing generates and which
@@ -369,7 +369,7 @@ mod tools_tests {
 
     #[test]
     fn ensure_browser_helper_writes_and_repairs() {
-        let dir = std::env::temp_dir().join(format!("vale-helper-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-helper-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let dest = ensure_browser_helper(&dir);
         assert_eq!(dest, dir.join(BROWSER_HELPER_NAME));
@@ -410,7 +410,7 @@ mod tools_tests {
             !template.contains("chromium.launch"),
             "template must not default to a private headless browser"
         );
-        for key in ["VALE_BROWSER_HELPER", "VALE_CDP_ENDPOINT"] {
+        for key in ["SUMMRISE_BROWSER_HELPER", "SUMMRISE_CDP_ENDPOINT"] {
             assert!(
                 out.get("env_vars").and_then(|e| e.get(key)).is_some(),
                 "env_vars must document {key}"

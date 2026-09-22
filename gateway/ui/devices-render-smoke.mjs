@@ -36,7 +36,7 @@ const routes = {
     },
   },
   // version = agent (Cargo) scheme; the download filename carries the npm version.
-  "/api/devices/install-cmd": { ok: true, version: "1.0.106", download: "https://v.saisi.online/dl/vale-agent-1.2.102.tgz" },
+  "/api/devices/install-cmd": { ok: true, version: "1.0.106", download: "https://v.saisi.online/dl/summrise-agent-1.2.102.tgz" },
   "/api/devices/register-keys": { keys: [{ code: "abcd1234", expiresAt: now + 3600000 }] },
 };
 
@@ -66,7 +66,7 @@ window.fetch = async (input) => {
   unmocked.add(path);
   return new Response(JSON.stringify({ error: { message: "not mocked: " + path } }), { status: 404, headers: { "content-type": "application/json" } });
 };
-window.localStorage.setItem("valegate-lang", "zh");
+window.localStorage.setItem("summrisegate-lang", "zh");
 window.__ims = (s) => s;
 window.eval(js.replaceAll("import.meta.resolve", "window.__ims").replaceAll("import.meta.url", JSON.stringify("https://ai.saisi.online/")));
 await new Promise((r) => setTimeout(r, 800));

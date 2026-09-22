@@ -27,7 +27,7 @@ cd "$(dirname "$0")/../.." 2>/dev/null || cd "$(git rev-parse --show-toplevel)"
 
 # SAFE ANYWHERE, INCLUDING A SHARED HOOKS DIRECTORY. This file is designed to be symlinked into a global
 # `core.hooksPath` (round 226), where it runs for EVERY repository the operator owns. Its first job is
-# therefore to prove it is in the right one: if the emitters are not here, this is not Vale, and a hook that
+# therefore to prove it is in the right one: if the emitters are not here, this is not Summrise, and a hook that
 # blocked commits everywhere because it could not find a file would be a far worse outcome than the slips it
 # exists to prevent. Exit 0 immediately.
 if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
@@ -40,8 +40,8 @@ fail=0
 # exists was removed. The set is: panel, console, landing, the harness (`panel-render-audit.mjs`, whose success code in
 # emit mode is 2) and `live-panel-probe.mjs` — the same five `panel-design-sweep.bash` proves use the assembler.
 for f in panel console landing; do
-  if ! node "agent/scripts/$f-design-sweep.mjs" --emit >/dev/null 2>/tmp/vale-hook-$f.err; then
-    echo "pre-commit: the $f sweep does not emit — $(tail -1 /tmp/vale-hook-$f.err 2>/dev/null)" >&2
+  if ! node "agent/scripts/$f-design-sweep.mjs" --emit >/dev/null 2>/tmp/summrise-hook-$f.err; then
+    echo "pre-commit: the $f sweep does not emit — $(tail -1 /tmp/summrise-hook-$f.err 2>/dev/null)" >&2
     fail=1
   fi
 done
@@ -51,15 +51,15 @@ done
 # NOT `if ! cmd; then rc=$?` — that form reports the NEGATED status, so a success code of 2 arrives as 1 and a
 # failure as 0, which is how the first version of this hook passed a clean tree and failed nothing. The status
 # is captured directly. (The same inversion is why the commit it was meant to refuse went through.)
-node agent/scripts/panel-render-audit.mjs >/dev/null 2>/tmp/vale-hook-audit.err; rc=$?
+node agent/scripts/panel-render-audit.mjs >/dev/null 2>/tmp/summrise-hook-audit.err; rc=$?
 if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
-  echo "pre-commit: the harness emitter exited $rc — $(tail -1 /tmp/vale-hook-audit.err 2>/dev/null)" >&2
+  echo "pre-commit: the harness emitter exited $rc — $(tail -1 /tmp/summrise-hook-audit.err 2>/dev/null)" >&2
   fail=1
 fi
 
 # The live-panel probe emits a script for the device too, and its own guard throws on a bad parse.
-if ! node agent/scripts/live-panel-probe.mjs --emit >/dev/null 2>/tmp/vale-hook-live.err; then
-  echo "pre-commit: the live-panel probe does not emit — $(tail -1 /tmp/vale-hook-live.err 2>/dev/null)" >&2
+if ! node agent/scripts/live-panel-probe.mjs --emit >/dev/null 2>/tmp/summrise-hook-live.err; then
+  echo "pre-commit: the live-panel probe does not emit — $(tail -1 /tmp/summrise-hook-live.err 2>/dev/null)" >&2
   fail=1
 fi
 

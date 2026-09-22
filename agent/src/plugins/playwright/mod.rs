@@ -8,7 +8,7 @@
 pub mod manager;
 pub mod tools;
 
-use vale_agent_core::{Plugin, ToolDef};
+use summrise_agent_core::{Plugin, ToolDef};
 
 /// Plugin struct — thin facade over the shared `Arc<PlaywrightManager>`
 /// (the same Arc lives in AppState, so /api/plugins/status and the HTTP

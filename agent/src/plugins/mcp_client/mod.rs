@@ -3,7 +3,7 @@
 //!
 //! DeepSeek Harness connects external MCP servers through an `mcp-client`
 //! plugin (`packages/mcp/mcp-client`) that registers the server's tools on the
-//! agent's tool surface. Vale does the same, adapted to the device-agent
+//! agent's tool surface. Summrise does the same, adapted to the device-agent
 //! model: the browser MCP server (a Node process on this device) is reached
 //! over Streamable HTTP at 127.0.0.1:9229/mcp; this plugin bridges to it at
 //! RUNTIME (not register time) so a not-yet-started server doesn't break tool
@@ -12,7 +12,7 @@
 
 pub(crate) mod tools;
 
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 
 /// Plugin struct — tools close over shared connection state; the event bus
 /// powers the round-252 event-driven AI-actions feed (panels refresh on the
@@ -22,7 +22,7 @@ use vale_agent_core::ToolDef;
 pub struct McpClientPlugin;
 
 impl McpClientPlugin {
-    pub fn new(bus: std::sync::Arc<dyn vale_agent_core::EventBus>) -> Self {
+    pub fn new(bus: std::sync::Arc<dyn summrise_agent_core::EventBus>) -> Self {
         crate::evidence::set_bus(bus);
         Self
     }
@@ -30,11 +30,11 @@ impl McpClientPlugin {
 
 impl Default for McpClientPlugin {
     fn default() -> Self {
-        Self::new(std::sync::Arc::new(vale_agent_core::AppEventBus::new()))
+        Self::new(std::sync::Arc::new(summrise_agent_core::AppEventBus::new()))
     }
 }
 
-impl vale_agent_core::Plugin for McpClientPlugin {
+impl summrise_agent_core::Plugin for McpClientPlugin {
     fn name(&self) -> &'static str {
         "mcp-client"
     }

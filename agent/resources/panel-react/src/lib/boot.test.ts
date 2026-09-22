@@ -28,7 +28,7 @@ describe("computeBoot", () => {
   it("desktop injected token wins and seeds BOTH transport and state", () => {
     setLocation("/desktop/");
     (window as any).__PANEL_TOKEN__ = "inj";
-    localStorage.setItem("valeToken", "stale");
+    localStorage.setItem("summriseToken", "stale");
     const boot = computeBoot(() => {});
     expect(boot.tok).toBe("inj");
     expect(boot.connected).toBe(true);
@@ -37,7 +37,7 @@ describe("computeBoot", () => {
 
   it("?token= beats stored when nothing is injected", () => {
     setLocation("/panel/", "?token=urltok");
-    localStorage.setItem("valeToken", "stale");
+    localStorage.setItem("summriseToken", "stale");
     const boot = computeBoot(() => {});
     expect(boot.tok).toBe("urltok");
     expect(boot.connected).toBe(true);
@@ -45,16 +45,16 @@ describe("computeBoot", () => {
 
   it("stored token is the fallback", () => {
     setLocation("/panel/");
-    localStorage.setItem("valeToken", "stale");
+    localStorage.setItem("summriseToken", "stale");
     expect(computeBoot(() => {}).tok).toBe("stale");
   });
 
   it("proxy mode: cookie credential — never persists the token, deletes stale", () => {
     setLocation("/proxy/panel", "?token=ptok", "console.test");
-    localStorage.setItem("valeToken", "stale-leftover");
+    localStorage.setItem("summriseToken", "stale-leftover");
     const boot = computeBoot(() => {});
     expect(boot.tok).toBe("ptok");
-    expect(localStorage.getItem("valeToken")).toBeNull(); // R122/124 contract
+    expect(localStorage.getItem("summriseToken")).toBeNull(); // R122/124 contract
   });
 
   it("same-origin with NO token shows the conn form (not a dead 401 loop)", () => {

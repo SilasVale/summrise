@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Vale unified build script (agent / gateway / index from the monorepo root)
+# Summrise unified build script (agent / gateway / index from the monorepo root)
 #
 #   ./scripts/build.sh                 # build agent (Windows cross-compile, release)
-#   ./scripts/build.sh agent [debug]   # build vale-agent (tray/Tauri desktop retired)
+#   ./scripts/build.sh agent [debug]   # build summrise-agent (tray/Tauri desktop retired)
 #   ./scripts/build.sh command [debug] # legacy alias for `agent`
-#   ./scripts/build.sh gateway         # deploy the Vale Gate worker
-#   ./scripts/build.sh index           # deploy the Vale Index worker
+#   ./scripts/build.sh gateway         # deploy the Summrise Gate worker
+#   ./scripts/build.sh index           # deploy the Summrise Index worker
 #   ./scripts/build.sh proxies         # deploy the satellite proxy workers (zen-go / zen-us)
 #   ./scripts/build.sh api-relay       # build + deploy the VPS api relay (vrelay @ Oracle box)
 #   ./scripts/build.sh deploy          # build agent + deploy gateway/index
@@ -99,7 +99,7 @@ build_agent() {
     debug)   flags="" ;;
     *) echo "usage: $0 agent [release|debug]"; exit 1 ;;
   esac
-  echo "=== [agent] vale-agent (${profile}) ==="
+  echo "=== [agent] summrise-agent (${profile}) ==="
   # P0-2: toolchain + format gates BEFORE the expensive panel/exe builds.
   # (clippy -D warnings stays in CI — minutes per local build; fmt is local
   # and fast, and AGENTS.md names cargo fmt as the agent-side format gate.)
@@ -126,14 +126,14 @@ build_agent() {
   # FIRST: it lives under $HOME, so the more specific prefix must win.
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$ROOT=/src --remap-path-prefix=$HOME=/buildhome"
   ( cd "$ROOT/agent" \
-      && cargo xwin build --target "$TARGET" $flags --features "$FEATURES" --bin vale-agent )
-  echo "    ok: agent/target/$TARGET/${profile}/vale-agent.exe"
+      && cargo xwin build --target "$TARGET" $flags --features "$FEATURES" --bin summrise-agent )
+  echo "    ok: agent/target/$TARGET/${profile}/summrise-agent.exe"
 
-  # round-330: vale-tray + vale-desktop (Tauri) builds removed — both are
+  # round-330: summrise-tray + summrise-desktop (Tauri) builds removed — both are
   # RETIRED (npm CLI replaced the tray; the Electron shell replaced the
   # Tauri desktop). They cost minutes per build_agent run and never enter
-  # the npm tgz (CI builds vale-agent only).
-  # npm-only packaging (2026-08-28): the npm tgz (vale-agent-npm/) is the single
+  # the npm tgz (CI builds summrise-agent only).
+  # npm-only packaging (2026-08-28): the npm tgz (summrise-agent-npm/) is the single
   # install/update channel, packed by scripts/publish-release.sh. THE NSIS
   # INSTALLER IS **NOT** RETIRED, and this comment said it was for long enough
   # that a reader would have believed it: round-320 deleted build-installer.sh
@@ -227,7 +227,7 @@ deploy_worker() {
     else
       bash "$ROOT/gateway/scripts/sync-code-viewer.sh" \
         || { echo "  !! code viewer mirror sync failed — aborting deploy" >&2; return 1; }
-      echo "  synced code viewer mirror ($ROOT/gateway/public/code/files/vale-gate)"
+      echo "  synced code viewer mirror ($ROOT/gateway/public/code/files/summrise-gate)"
     fi
   fi
   ( cd "$ROOT/$dir" \
@@ -252,13 +252,13 @@ deploy_worker() {
   # from the version.json asset (round-297) — the OLD smoke grepped static
   # version/sha256 constants out of index.js that no longer exist, so every
   # index deploy failed at this step. Expectation now comes from
-  # index/public/vale-agent/version.json (the file the worker serves); the
+  # index/public/summrise-agent/version.json (the file the worker serves); the
   # checks themselves live in scripts/smoke-index.sh, shared with
   # publish-release.sh so the two publish paths cannot drift apart again.
   if [[ "$dir" == "index" ]]; then
     local want_version want_sha
-    want_version="$(python3 -c "import json;print(json.load(open('$ROOT/index/public/vale-agent/version.json'))['version'])")"
-    want_sha="$(python3 -c "import json;print(json.load(open('$ROOT/index/public/vale-agent/version.json'))['sha256'])")"
+    want_version="$(python3 -c "import json;print(json.load(open('$ROOT/index/public/summrise-agent/version.json'))['version'])")"
+    want_sha="$(python3 -c "import json;print(json.load(open('$ROOT/index/public/summrise-agent/version.json'))['sha256'])")"
     if [[ -z "$want_sha" || "$want_sha" == *placeholder* || "$want_sha" =~ ^0+$ ]]; then
       echo "  !! version.json sha256 is missing/all-zero/placeholder — devices would be locked out of updates"
       exit 1
@@ -326,8 +326,8 @@ deploy_api_relay() {
 cmd="${1:-agent}"
 case "$cmd" in
   agent|command)  build_agent "${2:-release}" ;;
-  gateway)  deploy_worker gateway "Vale Gate" ;;
-  index)    deploy_worker index "Vale Index" ;;
+  gateway)  deploy_worker gateway "Summrise Gate" ;;
+  index)    deploy_worker index "Summrise Index" ;;
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
   # build-installer.sh is ALIVE and is not part of `deploy` by design: it is a
@@ -341,6 +341,6 @@ case "$cmd" in
   # proxies and api-relay are NOT deployed by `deploy` (deploy manually).
   # P0-2: full-stack preflight FIRST — a missing toolchain piece or token
   # aborts here, never mid-chain as a half-deployed stack (&& serial).
-  deploy)   preflight_deploy && build_agent "${2:-release}" && deploy_worker gateway "Vale Gate" && deploy_worker index "Vale Index" && deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
+  deploy)   preflight_deploy && build_agent "${2:-release}" && deploy_worker gateway "Summrise Gate" && deploy_worker index "Summrise Index" && deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   *) echo "usage: $0 [agent|gateway|index|proxies|api-relay|deploy]"; exit 1 ;;
 esac

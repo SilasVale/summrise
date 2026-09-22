@@ -5,8 +5,8 @@
 
 use serde_json::{json, Value};
 
-use vale_agent::state::AppState;
-use vale_agent_core::Config;
+use summrise_agent::state::AppState;
+use summrise_agent_core::Config;
 
 /// Minimal MCP stdio server source: newline-delimited JSON-RPC over stdin/
 /// stdout (the framing rmcp's JsonRpcMessageCodec uses — NOT
@@ -62,7 +62,7 @@ fn node_bin() -> String {
 
 /// Write the stdio server source to a temp file and return its path.
 fn server_script() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("vale-mcp-stdio-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("summrise-mcp-stdio-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let p = dir.join("stdio_server.js");
     std::fs::write(&p, STDIO_SERVER).expect("write stdio server");
@@ -106,9 +106,9 @@ async fn stdio_bridge_roundtrip() {
     // bundled playwright by default, which does not exist in the test env —
     // override via env so the test exercises the REAL stdio bridge without
     // the device bundle.
-    std::env::set_var("VALE_TEST_STDIO_NODE", node_bin());
+    std::env::set_var("SUMMRISE_TEST_STDIO_NODE", node_bin());
     std::env::set_var(
-        "VALE_TEST_STDIO_ENTRY",
+        "SUMMRISE_TEST_STDIO_ENTRY",
         script.to_string_lossy().to_string(),
     );
 

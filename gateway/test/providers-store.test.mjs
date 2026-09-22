@@ -43,7 +43,7 @@ function freshEnv(seed = {}) {
 }
 
 /** The DSH settings.yaml provider, as the admin API receives it (JSON). */
-const VALE_LIKE = {
+const SUMMRISE_LIKE = {
   prefix: "my/",
   label: "My Provider",
   baseURL: "https://api.example.com",
@@ -80,7 +80,7 @@ test("RESERVED_PREFIXES is exactly the built-in route table plus the none sentin
 
 test("a reserved prefix is REFUSED at creation, with the collision named (409)", () => {
   for (const reserved of RESERVED_PREFIXES) {
-    const { spec, error, status } = parseProviderSpec({ ...VALE_LIKE, prefix: `${reserved}/` });
+    const { spec, error, status } = parseProviderSpec({ ...SUMMRISE_LIKE, prefix: `${reserved}/` });
     assert.equal(spec, undefined, `${reserved}/ was accepted as a custom provider prefix`);
     assert.equal(status, 409, `${reserved}/ was refused with ${status}, not 409`);
     assert.match(String(error), /reserved/i, `${reserved}/: the error does not say why`);
@@ -107,21 +107,21 @@ test("baseURL must be https, credential-free, and NOT a private or loopback host
     ["not a url", /not a URL/i],
   ];
   for (const [baseURL, want] of bad) {
-    const { spec, error, status } = parseProviderSpec({ ...VALE_LIKE, baseURL });
+    const { spec, error, status } = parseProviderSpec({ ...SUMMRISE_LIKE, baseURL });
     assert.equal(spec, undefined, `${baseURL} was accepted as a baseURL`);
     assert.equal(status, 400, `${baseURL} was refused with ${status}, not 400`);
     assert.match(String(error), want, `${baseURL}: unhelpful error ${JSON.stringify(error)}`);
   }
   // A public https host on a deployment PATH survives (baseURL is a prefix, not
   // a URL to resolve against — see providerRoute).
-  const ok = mustParse({ ...VALE_LIKE, baseURL: "https://gateway.example.com/openai/v1/" });
+  const ok = mustParse({ ...SUMMRISE_LIKE, baseURL: "https://gateway.example.com/openai/v1/" });
   assert.equal(ok.baseURL, "https://gateway.example.com/openai/v1");
 });
 
 /* ---------------- protocol ---------------- */
 
 test("an unsupported protocol is refused AT CREATION, naming what is served", () => {
-  const { spec, error, status } = parseProviderSpec({ ...VALE_LIKE, api: "anthropic-messages" });
+  const { spec, error, status } = parseProviderSpec({ ...SUMMRISE_LIKE, api: "anthropic-messages" });
   assert.equal(spec, undefined, "a protocol this build cannot serve was accepted");
   assert.equal(status, 400);
   assert.match(String(error), /openai-completions/, "the error does not name a served protocol");
@@ -138,29 +138,29 @@ test("an unsupported protocol is refused AT CREATION, naming what is served", ()
 /* ---------------- the key ---------------- */
 
 test("a key reference is required — exactly one of apiKeyEnv / apiKey", () => {
-  const none = parseProviderSpec({ ...VALE_LIKE, apiKeyEnv: undefined });
+  const none = parseProviderSpec({ ...SUMMRISE_LIKE, apiKeyEnv: undefined });
   assert.equal(none.spec, undefined, "a keyless provider was accepted");
   assert.match(String(none.error), /apiKeyEnv|apiKey/);
   assert.equal(none.status, 400);
 
-  const both = parseProviderSpec({ ...VALE_LIKE, apiKey: "sk-inline-key-1234" });
+  const both = parseProviderSpec({ ...SUMMRISE_LIKE, apiKey: "sk-inline-key-1234" });
   assert.equal(both.spec, undefined, "two key sources were accepted");
   assert.match(String(both.error), /not both/);
 
-  const inline = mustParse({ ...VALE_LIKE, apiKeyEnv: undefined, apiKey: "sk-inline-key-1234" });
+  const inline = mustParse({ ...SUMMRISE_LIKE, apiKeyEnv: undefined, apiKey: "sk-inline-key-1234" });
   assert.equal(inline.apiKey, "sk-inline-key-1234");
   assert.equal(inline.apiKeyEnv, undefined);
 
   // A VALUE where a NAME belongs is the mistake this check exists for: it would
   // store the secret in a field the console prints.
-  const valueAsName = parseProviderSpec({ ...VALE_LIKE, apiKeyEnv: "sk-live-abcdef123456" });
+  const valueAsName = parseProviderSpec({ ...SUMMRISE_LIKE, apiKeyEnv: "sk-live-abcdef123456" });
   assert.equal(valueAsName.spec, undefined, "a key VALUE was accepted as apiKeyEnv");
   assert.match(String(valueAsName.error), /NAME/i);
 });
 
 test("the inline key NEVER leaves the store in the clear (maskKey, like the model handlers)", async () => {
   const env = freshEnv();
-  const spec = mustParse({ ...VALE_LIKE, apiKeyEnv: undefined, apiKey: "sk-inline-key-1234" });
+  const spec = mustParse({ ...SUMMRISE_LIKE, apiKeyEnv: undefined, apiKey: "sk-inline-key-1234" });
   await putCustomProvider(env, spec);
 
   const view = publicProvider((await customProviders(env))[0], env);
@@ -173,7 +173,7 @@ test("the inline key NEVER leaves the store in the clear (maskKey, like the mode
   assert.equal(view.keyReady, true);
 
   // An env-referenced key is reported by NAME, and its VALUE is masked too.
-  const envSpec = mustParse(VALE_LIKE);
+  const envSpec = mustParse(SUMMRISE_LIKE);
   const view2 = publicProvider(envSpec, { MY_PROVIDER_KEY: "sk-env-secret-9876" });
   assert.equal(view2.keyEnv, "MY_PROVIDER_KEY");
   assert.ok(!JSON.stringify(view2).includes("sk-env-secret-9876"), "env key value leaked");
@@ -198,7 +198,7 @@ test("providerKey: inline wins, else the named binding, else empty", () => {
 /* ---------------- models ---------------- */
 
 test("models are validated, stored as WIRE names, and advertised exactly once", () => {
-  const spec = mustParse({ ...VALE_LIKE, models: [{ id: "my/llama-3" }, "mistral-small"] });
+  const spec = mustParse({ ...SUMMRISE_LIKE, models: [{ id: "my/llama-3" }, "mistral-small"] });
   assert.deepEqual(
     spec.models.map((m) => m.id),
     ["llama-3", "mistral-small"],
@@ -216,7 +216,7 @@ test("models are validated, stored as WIRE names, and advertised exactly once", 
     [[42], /must be a model id string or an object/],
   ];
   for (const [models, want] of bad) {
-    const r = parseProviderSpec({ ...VALE_LIKE, models });
+    const r = parseProviderSpec({ ...SUMMRISE_LIKE, models });
     assert.equal(r.spec, undefined, `models ${JSON.stringify(models)} was accepted`);
     assert.equal(r.status, 400);
     assert.match(String(r.error), want);
@@ -224,9 +224,9 @@ test("models are validated, stored as WIRE names, and advertised exactly once", 
 
   // `input: [text, image]` is the one facet that changes ROUTING behaviour: the
   // gateway must not describe images for a model that sees them itself.
-  const vision = mustParse({ ...VALE_LIKE, models: [{ id: "v", input: ["text", "image"] }] });
+  const vision = mustParse({ ...SUMMRISE_LIKE, models: [{ id: "v", input: ["text", "image"] }] });
   assert.equal(vision.models[0].vision, true);
-  const textOnly = mustParse({ ...VALE_LIKE, models: [{ id: "t", input: ["text"] }] });
+  const textOnly = mustParse({ ...SUMMRISE_LIKE, models: [{ id: "t", input: ["text"] }] });
   assert.equal(textOnly.models[0].vision, undefined);
 });
 
@@ -244,7 +244,7 @@ test("the record round-trips through KV, and a write invalidates the read cache"
   };
 
   assert.deepEqual(await customProviders(env), []);
-  const spec = mustParse(VALE_LIKE);
+  const spec = mustParse(SUMMRISE_LIKE);
   await putCustomProvider(env, spec);
 
   // The write is write-through: the very next read sees it, and it cost no extra
@@ -262,7 +262,7 @@ test("the record round-trips through KV, and a write invalidates the read cache"
   assert.equal(await providerForPrefix(env, "other"), null);
 
   // Upsert by prefix, not append.
-  await putCustomProvider(env, mustParse({ ...VALE_LIKE, label: "Renamed" }));
+  await putCustomProvider(env, mustParse({ ...SUMMRISE_LIKE, label: "Renamed" }));
   assert.equal((await customProviders(env)).length, 1, "re-posting a prefix appended a record");
   assert.equal((await providerForPrefix(env, "my")).label, "Renamed");
 
@@ -325,7 +325,7 @@ test("resolveRoute: BUILT-INS WIN over a record that claims their prefix", async
 
 test("resolveRoute: a custom prefix resolves to its provider; unknown ones still default", async () => {
   const env = freshEnv();
-  await putCustomProvider(env, mustParse(VALE_LIKE));
+  await putCustomProvider(env, mustParse(SUMMRISE_LIKE));
 
   const custom = await resolveRoute(env, "my", null, "/v1/chat/completions");
   assert.equal(custom.kind, "custom", "the custom prefix did not resolve to the provider");

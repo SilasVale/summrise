@@ -6,7 +6,7 @@
 // `/api/sessions` before the Archive page: a served route with no reader.
 //
 // The concrete thing it unblocks is the question the release docs answer with a
-// four-way table: after `vale update` the connection ALWAYS drops for ~10s, and
+// four-way table: after `summrise update` the connection ALWAYS drops for ~10s, and
 // that drop is the documented signature of a successful swap — which makes it
 // useless as evidence, because a command that never arrived looks identical. The
 // only honest answer is the log, and reading it meant a Get-Content on the box.
@@ -65,7 +65,7 @@ export function DeviceLogsCard() {
     };
   }, []);
 
-  const update = logs?.find((l) => l.name === "vale-update.log");
+  const update = logs?.find((l) => l.name === "summrise-update.log");
   const d = diagnoseUpdate(update ? update.log : null);
 
   return (

@@ -1,11 +1,11 @@
 /* ============================================================
-   Vale Desktop — design tokens (SINGLE source of truth).
-   dsh visual baseline (light), Vale brand amber #d9480f.
+   Summrise Desktop — design tokens (SINGLE source of truth).
+   dsh visual baseline (light), Summrise brand amber #d9480f.
    Consumed by base.css / components.css / layout.css / desktop.css
    via the build-css.mjs concatenation pipeline.
    ============================================================ */
 :root {
-  /* ---- brand (Vale sunrise amber) ---- */
+  /* ---- brand (Summrise sunrise amber) ---- */
   --accent: #bf3a0a; /* was #d9480f — see the console; the token contract requires both surfaces to agree. */
   --accent-fg: #ffffff; /* the foreground ON --accent */
   --accent-ink: #d9480f;

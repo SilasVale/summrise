@@ -1,39 +1,39 @@
 <!-- DO NOT REVIVE: extension pairing deleted round-339..348; the extension itself deleted round-243 -->
 > **SUPERSEDED (2026-09-04, round-335)** — this v2 design (browser
-> extension + chrome.debugger + vale-tray) describes the 2026-08 era.
+> extension + chrome.debugger + summrise-tray) describes the 2026-08 era.
 > Current architecture: the Electron desktop shell
-> (`agent/vale-desktop-electron/`, embedded WebContentsView on CDP 9333)
+> (`agent/summrise-desktop-electron/`, embedded WebContentsView on CDP 9333)
 > replaced the extension's browser control and the tray; the gateway
 > `/mcp` proxy + device registry still apply. See `agent/AGENTS.md` and
-> `docs/superpowers/specs/2026-08-28-vale-desktop-core-design.md` for the
+> `docs/superpowers/specs/2026-08-28-summrise-desktop-core-design.md` for the
 > current design. Kept as an architecture-history record.
 
-# Vale device control — Vale Gate + browser extension (v2)
+# Summrise device control — Summrise Gate + browser extension (v2)
 
 > Status: **superseded** (was implemented 2026-08-06; see banner above)
 > Date: 2026-08-06 (v2 — browser extension + chrome.debugger replaces the 2026-08-02 design: web panel, remote CDP, panel-only proxy)
 
 ## Background & goal
 
-- **Vale Gate** — AI gateway console (login + admin/user roles + invite codes), runs on a Cloudflare Worker
-- **Vale Agent** — slim headless MCP server on Windows, exposed via Cloudflare Tunnels, one subdomain per machine. `GET /` is a minimal status page; `/panel` serves the Apple-style terminal panel (token entered in the browser, saved to localStorage — never injected server-side since 1.0.5)
+- **Summrise Gate** — AI gateway console (login + admin/user roles + invite codes), runs on a Cloudflare Worker
+- **Summrise Agent** — slim headless MCP server on Windows, exposed via Cloudflare Tunnels, one subdomain per machine. `GET /` is a minimal status page; `/panel` serves the Apple-style terminal panel (token entered in the browser, saved to localStorage — never injected server-side since 1.0.5)
 
-**Goal**: bring device control into the Vale Gate console as an admin-only「Devices」module, and give Claude Code one `/mcp` endpoint that operates every device's **browser and terminal**.
+**Goal**: bring device control into the Summrise Gate console as an admin-only「Devices」module, and give Claude Code one `/mcp` endpoint that operates every device's **browser and terminal**.
 
 ## Key architecture conclusions (v2)
 
-1. **Browser control lives in an extension, not a second device server**: the **Vale Browser Control** extension (Chrome/Edge MV3) drives the device's real browser via `chrome.debugger` — internal CDP, no network ports to open. The extension keeps a WebSocket to a per-device **PluginHubDO**; the gateway's `/mcp` routes `browser_*` tool calls through the hub as request/response frames.
-2. **Terminal control keeps the device's existing `/api/tools` surface**: the gateway proxies `terminal_*` MCP calls to Vale Agent, injecting the device Bearer token server-side (same pattern as the device panel proxy).
+1. **Browser control lives in an extension, not a second device server**: the **Summrise Browser Control** extension (Chrome/Edge MV3) drives the device's real browser via `chrome.debugger` — internal CDP, no network ports to open. The extension keeps a WebSocket to a per-device **PluginHubDO**; the gateway's `/mcp` routes `browser_*` tool calls through the hub as request/response frames.
+2. **Terminal control keeps the device's existing `/api/tools` surface**: the gateway proxies `terminal_*` MCP calls to Summrise Agent, injecting the device Bearer token server-side (same pattern as the device panel proxy).
 3. **No extension account needed**: pairing is code-based — admin generates a one-time code, the extension claims it for a plugin token, and the token trades for a one-time WS ticket. The plugin token also authenticates the extension's terminal page through the reverse proxy, scoped to its own device only.
 
 ## Architecture
 
 ```
-Claude Code ── https://<console>/mcp (admin Bearer token) ──► Vale Gate
+Claude Code ── https://<console>/mcp (admin Bearer token) ──► Summrise Gate
    │ terminal_*  → device /api/tools (token injected server-side)
    │ browser_*   → PluginHubDO /call {tool, params, requestId}
    ▼                        │ WS frames {id, type: request|response}
-Vale Agent (Windows)      Vale Browser Control extension
+Summrise Agent (Windows)      Summrise Browser Control extension
    /mcp + /api/tools          │ chrome.debugger (internal CDP)
                               ▼
                     device's real Chrome/Edge tab
@@ -70,16 +70,16 @@ One DO per device (`idFromName`), WebSocket Hibernation. Extension pings every 2
 - **popup** — pair (paste code → claim → plugin token), open controlled tab (`<console>/api/devices/<d>/proxy/`), terminal page, unpair; **options** — console origin
 - **terminal/terminal.html** — full-screen xterm: fetch-read SSE on the device's `/api/events/term` (frames filtered by session_id), keystrokes → `POST /api/tools/terminal_write`, resize → `terminal_resize`; every request carries `Authorization: Bearer <pluginToken>` through the gateway proxy (cross-site page, no console cookie)
 
-## Vale Agent (slimmed, `agent/`)
+## Summrise Agent (slimmed, `agent/`)
 
 - Web panel retired → minimal status page (`GET /`); still serves `/mcp` (rmcp streamable HTTP, token-gated), `/api/events` SSE, `/api/status`, `POST /api/tools/{name}`
 - **terminal_screen** (`src/plugins/terminal/tools.rs`) — tail-N-lines of a session's output buffer, ANSI-stripped, for AI readability (default 60 lines, reports dropped bytes if the buffer wrapped)
 - **terminal_execute** (MCP `terminal_send`) — sends input and waits for a quiet period before returning accumulated screen text
-- **vale-tray** — Windows tray: 4 functions — copy MCP config, open console, local terminal, start/stop/restart/quit; status lines (status/domain/token)
+- **summrise-tray** — Windows tray: 4 functions — copy MCP config, open console, local terminal, start/stop/restart/quit; status lines (status/domain/token)
 
 ## Console — Devices UI (`gateway/public/app.js`)
 
-Device list (name / hostname / masked token) with an **online badge** (polled from `/api/plugins/status` every 30 s), **pair** button → modal with the one-time code, open panel via the proxy, copy per-device `vale-command` MCP config, and a ready-made **gateway MCP snippet** (`vale-gate` at `<origin>/mcp`, current user's token).
+Device list (name / hostname / masked token) with an **online badge** (polled from `/api/plugins/status` every 30 s), **pair** button → modal with the one-time code, open panel via the proxy, copy per-device `summrise-command` MCP config, and a ready-made **gateway MCP snippet** (`summrise-gate` at `<origin>/mcp`, current user's token).
 
 ## MCP tools (12, `src/mcp-tools.js`)
 
@@ -98,7 +98,7 @@ Device list (name / hostname / masked token) with an **online badge** (polled fr
 2. Console → Devices → generate a pairing code for the device → paste it in the extension popup → **Pair**. Popup shows the device and WS status (heartbeat every 20 s).
 3. Add the gateway MCP server (console shows the ready-made snippet):
    ```bash
-   claude mcp add vale-gate --transport http --url https://<console>/mcp --header "Authorization: Bearer <token>"
+   claude mcp add summrise-gate --transport http --url https://<console>/mcp --header "Authorization: Bearer <token>"
    ```
 4. Run the script — `browser_open` (device panel) → `browser_screenshot` (view image) → `browser_click` (panel element) → `terminal_open` → `terminal_send('ping')` → `terminal_screen` (check text).
 5. Verify throughout: extension stays connected (popup status / pong), screenshot renders, click takes effect, terminal screen text is correct, `terminal_screen` after `terminal_send` shows the ping output.

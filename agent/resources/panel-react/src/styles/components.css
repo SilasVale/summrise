@@ -3953,7 +3953,7 @@ button.dtab-close:hover { opacity: 1; }
 }
 
 /* round-261: mode-B removal — plain-web Browser page placeholder (the real
-   browser only exists inside the Vale desktop Electron shell). */
+   browser only exists inside the Summrise desktop Electron shell). */
 .browser-mode-b-placeholder {
   position: relative;
   display: flex;
@@ -4258,7 +4258,7 @@ button.dtab-close:hover { opacity: 1; }
    of equal cards would say "here are four unrelated buttons", which is the opposite of the point.
 
    THE SURFACE IS THE PRODUCT'S. Tokens only (no literal colour), the panel's radii and shadows and
-   its own `.btn primary`, so the card belongs to Vale in both themes and inherits any future
+   its own `.btn primary`, so the card belongs to Summrise in both themes and inherits any future
    re-theming instead of drifting from it.
 
    MOTION IS OPTIONAL. The card fades in unless `prefers-reduced-motion`, and NOTHING here depends

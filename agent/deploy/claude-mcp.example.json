@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "vale-agent": {
+    "summrise-agent": {
       "type": "http",
       "url": "https://d1.agent.saisi.online/mcp",
       "headers": {

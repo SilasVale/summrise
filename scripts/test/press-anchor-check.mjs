@@ -78,7 +78,7 @@ try {
   for (const name of SWEEPS) {
     const src = execFileSync("node", [join(ROOT, "agent", "scripts", name + ".mjs"), "--emit"], {
       cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, VALE_LANDING_OUT: join(out, "landing") },
+      env: { ...process.env, SUMMRISE_LANDING_OUT: join(out, "landing") },
     }).toString();
     t(`${name}: the emitted artifact parses`, () => {
       assert.ok(src.length > 5000, `${name}: the emit produced ${src.length} bytes, so it proves nothing`);

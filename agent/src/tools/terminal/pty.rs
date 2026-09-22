@@ -4,7 +4,7 @@ use super::{TermBackend, TermOutput};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize, SlavePty};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-use vale_agent_core::DeviceError;
+use summrise_agent_core::DeviceError;
 
 pub struct PtyBackend {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -80,7 +80,7 @@ impl PtyBackend {
             shell
         };
 
-        tracing::debug!("[vale-agent] PTY: spawning shell={shell_cmd}");
+        tracing::debug!("[summrise-agent] PTY: spawning shell={shell_cmd}");
 
         let r = if rows > 0 { rows } else { 24 };
         let c = if cols > 0 { cols } else { 80 };
@@ -101,7 +101,7 @@ impl PtyBackend {
         // (transplanted from microsoft/vscode shellIntegration.ps1) so every
         // prompt/command boundary arrives as an invisible OSC 633 sequence.
         // The agent consumes 633;D;<rc> for execute completion (no wrapper
-        // text in the user's terminal — the old __VALE_ marker wrapper and
+        // text in the user's terminal — the old __SUMMRISE_ marker wrapper and
         // its front-end filter are gone). The script is written to the
         // install dir at boot (main.rs) and dot-sourced via -Command, same
         // shape as VS Code's `pwsh -noexit -command . shellIntegration.ps1`.
@@ -139,7 +139,7 @@ impl PtyBackend {
                     let mut nbuf = [0u8; 16];
                     let _ = getrandom::getrandom(&mut nbuf);
                     let nonce: String = nbuf.iter().map(|b| format!("{b:02x}")).collect();
-                    cmd.env("VALE_NONCE", &nonce);
+                    cmd.env("SUMMRISE_NONCE", &nonce);
                     // stage-m A: VS Code's exact injection shape for Windows
                     // PowerShell (terminalEnvironment.ts:332):
                     //   ['-noexit', '-command', 'try { . "{0}\shellIntegration.ps1" } catch {}{1}']
@@ -238,7 +238,7 @@ impl PtyBackend {
                     Err(_) => break,
                 }
             }
-            tracing::debug!("[vale-agent] PTY reader ended: {sid_reader}");
+            tracing::debug!("[summrise-agent] PTY reader ended: {sid_reader}");
         });
 
         // Reaper thread: polls try_wait every 100ms so shell exits are
@@ -318,7 +318,7 @@ impl PtyBackend {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            tracing::debug!("[vale-agent] PTY reaper: shell exited: {sid}");
+            tracing::debug!("[summrise-agent] PTY reaper: shell exited: {sid}");
         });
 
         Ok(PtyBackend {

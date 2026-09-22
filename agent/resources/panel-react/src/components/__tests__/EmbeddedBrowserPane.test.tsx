@@ -59,7 +59,7 @@ afterEach(() => {
 describe("EmbeddedBrowserPane", () => {
   it("initializes from bridge state and reports slot bounds", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     await waitFor(() => expect(b.mock.state).toHaveBeenCalled());
     expect(
@@ -72,7 +72,7 @@ describe("EmbeddedBrowserPane", () => {
 
   it("nav events sync the bar; editing locks it until blur", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     await screen.findByDisplayValue("https://example.com/");
     b.handlers.nav.forEach((h) =>
@@ -86,7 +86,7 @@ describe("EmbeddedBrowserPane", () => {
 
   it("address submit defaults bare domains to https; rejects bad schemes", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     await screen.findByDisplayValue("https://example.com/");
     const input = screen.getByPlaceholderText(
@@ -107,7 +107,7 @@ describe("EmbeddedBrowserPane", () => {
 
   it("back/fwd buttons drive the bridge", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     await screen.findByDisplayValue("https://example.com/");
     b.handlers.nav.forEach((h) =>
@@ -126,7 +126,7 @@ describe("EmbeddedBrowserPane", () => {
 
   it("crash banner shows reason; recover re-queries state", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     await screen.findByDisplayValue("https://example.com/");
     b.handlers.gone.forEach((h) => h({ reason: "oom", exitCode: 1 }));
@@ -140,7 +140,7 @@ describe("EmbeddedBrowserPane", () => {
 
   it("zoom selector drives the real view factor", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     await screen.findByDisplayValue("https://example.com/");
     fireEvent.change(screen.getByLabelText("Zoom"), {
@@ -169,7 +169,7 @@ describe("EmbeddedBrowserPane — ready is not loaded", () => {
 
   it("says so when the bridge is ready and no page is loaded", async () => {
     const b = bridge("about:blank");
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     expect(await screen.findByText("No page loaded")).toBeTruthy();
     expect(screen.getByText(/no page loaded/)).toBeTruthy(); // the status bar agrees with the viewport
@@ -178,7 +178,7 @@ describe("EmbeddedBrowserPane — ready is not loaded", () => {
 
   it("claims live only once a real page is loaded", async () => {
     const b = bridge();
-    vi.stubGlobal("valeEmbedded", b.mock);
+    vi.stubGlobal("summriseEmbedded", b.mock);
     render(<EmbeddedBrowserPane token="t" />);
     expect(await screen.findByDisplayValue("https://example.com/")).toBeTruthy();
     expect(await screen.findByText(/live \(native render\)/)).toBeTruthy();

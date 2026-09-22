@@ -30,7 +30,7 @@ function uploadEnv(r2, extra = {}) {
 /** Hand-built multipart body: full control over Content-Length (undici
  *  does not set one for FormData, which is exactly the 411 case). */
 function multipart({ filename = "hello.txt", contentType = "text/plain", bytes = "hello", withLength = true }) {
-  const boundary = "----valetestboundary";
+  const boundary = "----summrisetestboundary";
   const head =
     `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
     `Content-Type: ${contentType}\r\n\r\n`;
@@ -80,7 +80,7 @@ test("tokens are unique across uploads", async () => {
 test("non-ASCII filename: RFC 5987 filename* + ASCII fallback", async () => {
   const r2 = makeR2();
   // Hand-encoded multipart (filename carries raw UTF-8 bytes).
-  const boundary = "----valetestboundary2";
+  const boundary = "----summrisetestboundary2";
   const enc = new TextEncoder();
   const name = "报告 hello.txt";
   const head = enc.encode(
@@ -162,7 +162,7 @@ test("auth + content-type errors carry the JSON envelope (P2-12)", async () => {
     "expected multipart/form-data (POST) or a raw body (PUT)",
   );
   // Missing file field: valid multipart, wrong part name.
-  const boundary = "----valetestboundary3";
+  const boundary = "----summrisetestboundary3";
   const body = new TextEncoder().encode(`--${boundary}\r\nContent-Disposition: form-data; name="nope"\r\n\r\nx\r\n--${boundary}--\r\n`);
   await assertJsonError(
     await worker.fetch(
@@ -207,7 +207,7 @@ test("landing page rejects javascript: CONSOLE_URL with the safe fallback", asyn
 test("landing page still renders the real installer command for https origins", async () => {
   const resp = await worker.fetch(new Request("https://dl.local/"), uploadEnv(makeR2()));
   const html = await resp.text();
-  assert.ok(html.includes("https://dl.local/vale-agent/vale-agent-latest.tgz"), "installer URL must render");
+  assert.ok(html.includes("https://dl.local/summrise-agent/summrise-agent-latest.tgz"), "installer URL must render");
 });
 
 // ── /api/version sha shape (P2-5) ────────────────────────────────────────
@@ -230,7 +230,7 @@ test("/api/version serves the manifest when version + 64-hex sha are present", a
   const j = await resp.json();
   assert.equal(j.version, "1.2.3");
   assert.equal(j.sha256, GOOD_SHA);
-  assert.ok(j.download.endsWith("/vale-agent/vale-agent-1.2.3.tgz"));
+  assert.ok(j.download.endsWith("/summrise-agent/summrise-agent-1.2.3.tgz"));
   assert.equal(j.installer, undefined, "tgz-only manifest carries no installer fields");
 });
 
@@ -240,23 +240,23 @@ test("/api/version passes installer fields through when the manifest carries the
     versionEnv({
       version: "1.2.3",
       sha256: GOOD_SHA,
-      tarball: "vale-agent-latest.tgz",
-      installer: "ValeAgent-Setup-1.2.3.exe",
+      tarball: "summrise-agent-latest.tgz",
+      installer: "SummriseAgent-Setup-1.2.3.exe",
       installer_sha256: "b".repeat(64),
     }),
   );
   assert.equal(resp.status, 200);
   const j = await resp.json();
-  assert.equal(j.installer, "https://dl.local/vale-agent/ValeAgent-Setup-1.2.3.exe");
+  assert.equal(j.installer, "https://dl.local/summrise-agent/SummriseAgent-Setup-1.2.3.exe");
   assert.equal(j.installer_sha256, "b".repeat(64));
 });
 
 test("/api/version drops hostile/mismatched installer fields (additive, never 503)", async () => {
   for (const extra of [
     { installer: "../evil.exe", installer_sha256: "b".repeat(64) },
-    { installer: "ValeAgent-Setup-1.2.3.exe", installer_sha256: "xyz" },
-    { installer: "ValeAgent-Setup.exe", installer_sha256: "b".repeat(64) },
-    { installer: "ValeAgent-Setup-1.2.3.exe" },
+    { installer: "SummriseAgent-Setup-1.2.3.exe", installer_sha256: "xyz" },
+    { installer: "SummriseAgent-Setup.exe", installer_sha256: "b".repeat(64) },
+    { installer: "SummriseAgent-Setup-1.2.3.exe" },
   ]) {
     const resp = await worker.fetch(
       new Request("https://dl.local/api/version"),

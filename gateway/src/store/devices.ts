@@ -1,5 +1,5 @@
 /**
- * store/devices.ts — the Vale Agent device registry (devices:v1, admin-
+ * store/devices.ts — the Summrise Agent device registry (devices:v1, admin-
  * managed) plus the account-level Cloudflare tunnel API token (cf:api_token)
  * the Windows install fetches with a registration key.
  */
@@ -10,7 +10,7 @@ export interface Device {
   name: string;
   hostname: string;
   token: string;
-  /// round-103: the device's proxy secret (X-Vale-Auth) — read from the
+  /// round-103: the device's proxy secret (X-Summrise-Auth) — read from the
   /// device at registration so the gateway proxy can present it and the
   /// agent will inject the panel token ONLY for gateway-authenticated
   /// requests (the R102 marker header was client-spoofable).
@@ -23,12 +23,12 @@ export interface Device {
   lastVersion?: string;
 }
 
-/* ---- Devices (Vale Agent device registry, admin-managed) ----
+/* ---- Devices (Summrise Agent device registry, admin-managed) ----
  *
  * devices:v1 → JSON array of { name, hostname, token }
  *   name     → device id (also the console key), e.g. "d1"
  *   hostname → the device's public host, e.g. "d1.agent.saisi.online"
- *   token    → the vale-agent Bearer token (MCP + panel auth). Stored here so
+ *   token    → the summrise-agent Bearer token (MCP + panel auth). Stored here so
  *              the console can show the MCP config and the proxy can inject it
  *              server-side; NEVER auto-dispensed to non-admin callers.
  */

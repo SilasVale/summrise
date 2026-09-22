@@ -39,7 +39,7 @@ describe("IconRail", () => {
     expect(screen.getByTitle("Switch to dark")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("theme"));
     expect(screen.getByTitle("Switch to light")).toBeTruthy();
-    expect(localStorage.getItem("vale-theme")).toBe("dark");
+    expect(localStorage.getItem("summrise-theme")).toBe("dark");
     unmount();
     // remount reads the persisted theme
     render(<IconRail {...props()} />);
@@ -78,7 +78,7 @@ describe("IconRail", () => {
     expect(dot()).toBe("idle");
     act(() => {
       window.dispatchEvent(
-        new CustomEvent("vale-term-output", { detail: { sid: "s1" } }),
+        new CustomEvent("summrise-term-output", { detail: { sid: "s1" } }),
       );
     });
     expect(dot()).toBe("working");
@@ -110,7 +110,7 @@ describe("IconRail — a decision waiting outranks device activity", () => {
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent("vale-term-output", { detail: { sid: "s1" } }),
+        new CustomEvent("summrise-term-output", { detail: { sid: "s1" } }),
       );
     });
     // Both are true at once — the question still wins.

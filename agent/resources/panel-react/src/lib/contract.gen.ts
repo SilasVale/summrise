@@ -1,5 +1,5 @@
 // GENERATED — do not edit. Source of truth: agent/src/vocabulary.rs
-// Refresh: VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot
+// Refresh: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot
 // Checked by scripts/test/contract-vocabulary-check.mjs, which fails by name when either end drifts.
 
 /** The `ev` field of every control frame the device pushes on /api/events/term. */

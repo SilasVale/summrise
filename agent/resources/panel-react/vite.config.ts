@@ -18,7 +18,7 @@ export default defineConfig({
                         // features migrated — conn/terminal/SSE/modals)
     lib: {
       entry: "src/main.tsx",
-      name: "valePanel",
+      name: "summrisePanel",
       formats: ["iife"],
       fileName: () => "panel.js",
     },

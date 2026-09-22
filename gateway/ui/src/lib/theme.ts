@@ -6,7 +6,7 @@
 
 export type Theme = "light" | "dark";
 
-const KEY = "valegate-theme";
+const KEY = "summrisegate-theme";
 
 export function getTheme(): Theme {
   try {

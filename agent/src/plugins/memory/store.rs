@@ -20,7 +20,7 @@ use std::sync::{Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
 
-use vale_agent_core::recover_guard;
+use summrise_agent_core::recover_guard;
 
 /// Version header written as the first line of a fresh memory file.
 const HEADER_TYPE: &str = "memory";
@@ -52,7 +52,7 @@ pub struct MemoryRecord {
     pub namespace: String,
     /// Writing client identity, when one is known.
     ///
-    /// The intended values are `"claude-code"` / `"dsh"` / `"vale-desktop"`,
+    /// The intended values are `"claude-code"` / `"dsh"` / `"summrise-desktop"`,
     /// but see `tools::set_source` — NOTHING sets it today, so records written
     /// through `memory_save` are stamped `"unknown"` (pinned by
     /// `plugins::memory::tests::records_are_stamped_unknown_until_set_source_is_wired`).
@@ -499,7 +499,7 @@ impl MemoryStore {
         }
         guard.dirty = true;
         tracing::info!(
-            "[vale-agent] memory compact: removed {removed_count} tombstone(s)",
+            "[summrise-agent] memory compact: removed {removed_count} tombstone(s)",
             removed_count = removed.len()
         );
         before.saturating_sub(guard.by_id.len())
@@ -1058,7 +1058,7 @@ mod tests {
     /// threads would otherwise collide on one shared path.
     fn tmp_store(name: &str) -> (MemoryStore, PathBuf) {
         let dir =
-            std::env::temp_dir().join(format!("vale-mem-test-{}-{}", name, std::process::id()));
+            std::env::temp_dir().join(format!("summrise-mem-test-{}-{}", name, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         (MemoryStore::new(dir.clone(), MemoryLimits::default()), dir)
     }
@@ -1144,7 +1144,7 @@ mod tests {
         // A crash mid-writeln leaves a fragment with no trailing newline.
         // The NEXT append must not fuse onto it (that silently destroyed the
         // new record on every subsequent load).
-        let dir = std::env::temp_dir().join(format!("vale-mem-torn-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-torn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("memory.jsonl"), b"{\"id\":\"m-a\",\"title\":\"hel").unwrap();
@@ -1171,7 +1171,7 @@ mod tests {
     fn load_survives_invalid_utf8() {
         // A torn write can split a multi-byte char; one invalid byte must
         // not hide the WHOLE store (the old read_to_string failed hard).
-        let dir = std::env::temp_dir().join(format!("vale-mem-badutf-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-badutf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut bytes = b"{\"id\":\"m-ok\",\"title\":\"ok\",\"content\":\"keep me\",\"tags\":[],\"namespace\":\"shared\",\"source\":\"t\",\"created_at\":1,\"updated_at\":1,\"deleted\":false}\n".to_vec();
@@ -1195,7 +1195,7 @@ mod tests {
     fn eviction_tombstones_persist_across_restart() {
         // max_entries=2: inserting a 3rd evicts the oldest. The flip MUST be
         // on disk — otherwise the evicted entry resurrects on restart.
-        let dir = std::env::temp_dir().join(format!("vale-mem-evict-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-evict-{}", std::process::id()));
         let store = MemoryStore::new(
             dir.clone(),
             MemoryLimits {
@@ -1266,7 +1266,7 @@ mod tests {
     /// reader existed to notice (`total_bytes_live` had one caller: that test).
     #[test]
     fn update_keeps_the_byte_ledger_honest_without_a_reload() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-ledger-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-ledger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = MemoryStore::new(dir.clone(), MemoryLimits::default());
         let id = store.insert_ok(rec("doc", "abc"));
@@ -1344,7 +1344,7 @@ mod tests {
     /// disappears because a DELETED one is still being counted.
     #[test]
     fn a_soft_delete_does_not_get_live_records_evicted() {
-        // A UNIQUE directory name. My first draft reused `vale-mem-evict-{pid}`,
+        // A UNIQUE directory name. My first draft reused `summrise-mem-evict-{pid}`,
         // which `eviction_tombstones_persist_across_restart` above already
         // owns — and these tests run in PARALLEL THREADS of one process, so the
         // two stores shared a file: one test's `remove_dir_all` wiped the
@@ -1354,7 +1354,8 @@ mod tests {
         //
         // The file's own `tmp_store` helper exists to prevent exactly this;
         // hand-rolling a name is what reintroduced it.
-        let dir = std::env::temp_dir().join(format!("vale-mem-evict-live-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-mem-evict-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let limits = MemoryLimits {
             max_entries: 100,
@@ -1384,7 +1385,7 @@ mod tests {
         // The old per-line sum counted every update revision; total_bytes
         // must be the deduped LIVE content bytes so the cap never fires
         // prematurely after edits.
-        let dir = std::env::temp_dir().join(format!("vale-mem-total-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-total-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = MemoryStore::new(dir.clone(), MemoryLimits::default());
         let id = store.insert_ok(rec("doc", "v1-content"));
@@ -1526,7 +1527,7 @@ mod tests {
     /// trap.
     #[test]
     fn an_old_format_record_without_a_run_id_key_still_loads() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-oldfmt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-oldfmt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let fixture = concat!(
@@ -1789,7 +1790,8 @@ mod tests {
         // Use a dedicated dir with a 2-entry cap from the start (no double
         // store on one path — the previous version created a default store
         // and then a capped store over the SAME dir, corrupting the test).
-        let dir = std::env::temp_dir().join(format!("vale-mem-test-evict-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-mem-test-evict-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let s = MemoryStore::new(
             dir.clone(),
@@ -1843,7 +1845,7 @@ mod tests {
     /// agent), so this test is the only thing keeping them in step.
     #[test]
     fn memory_limits_default_matches_config_effective() {
-        use vale_agent_core::Config;
+        use summrise_agent_core::Config;
         let d = MemoryLimits::default();
         let cfg = Config::default();
         let (e, b, r) = cfg.memory.effective();
@@ -1861,7 +1863,8 @@ mod tests {
     }
 
     fn retention_store(name: &str, days: u64) -> (MemoryStore, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("vale-mem-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-mem-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         (
             MemoryStore::new(
@@ -1902,7 +1905,7 @@ mod tests {
         // Round-357: before enforce-on-open, a quiet device kept expired
         // records visible forever (retention only ran on mutation).
         let dir = std::env::temp_dir().join(format!(
-            "vale-mem-test-retention-open-{}",
+            "summrise-mem-test-retention-open-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1957,7 +1960,10 @@ mod tests {
 /// `ok:true` stays TRUE and prior records SURVIVE.
 #[test]
 fn a_record_bigger_than_the_whole_budget_loses_only_its_tail_not_the_store() {
-    let dir = std::env::temp_dir().join(format!("vale-mem-test-oversized-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "summrise-mem-test-oversized-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     let limits = MemoryLimits {
         max_bytes: 1024, // far smaller than one record's content below
@@ -2016,7 +2022,7 @@ fn a_record_bigger_than_the_whole_budget_loses_only_its_tail_not_the_store() {
 /// boundary is not enough when the bytes predate it.
 #[test]
 fn export_redacts_records_stored_before_the_sanitizer_knew_shapes() {
-    let dir = std::env::temp_dir().join(format!("vale-mem-export-san-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("summrise-mem-export-san-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let store = MemoryStore::new(dir.clone(), MemoryLimits::default());
     let mk = |id: &str, content: String| MemoryRecord {
@@ -2065,7 +2071,8 @@ fn export_redacts_records_stored_before_the_sanitizer_knew_shapes() {
 /// what the bound must handle: a store that grew over months, opened once.
 #[test]
 fn export_is_bounded_and_reports_truncation() {
-    let dir = std::env::temp_dir().join(format!("vale-mem-export-bound-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("summrise-mem-export-bound-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let big = "y".repeat(DEFAULT_MAX_CONTENT_BYTES);
@@ -2108,7 +2115,7 @@ mod trailing_tests {
     #[test]
     #[cfg(unix)]
     fn a_save_that_cannot_be_persisted_reports_that_instead_of_succeeding() {
-        let base = std::env::temp_dir().join(format!("vale-mem-rodir-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("summrise-mem-rodir-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         // `memory.jsonl` must live under a FILE, so opening it for append cannot succeed.
@@ -2144,7 +2151,8 @@ mod trailing_tests {
     #[test]
     #[cfg(unix)]
     fn an_unreadable_store_is_marked_degraded_not_empty() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-unreadable-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-mem-unreadable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("memory.jsonl");
@@ -2167,7 +2175,8 @@ mod trailing_tests {
     /// that ran WOULD overwrite the file.
     #[test]
     fn a_degraded_store_never_compacts_over_the_file() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-degraded-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-mem-degraded-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let store = MemoryStore::new(dir.clone(), MemoryLimits::default());

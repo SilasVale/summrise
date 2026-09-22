@@ -61,7 +61,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use serde_json::Value;
-use vale_agent_core::EventBus;
+use summrise_agent_core::EventBus;
 
 /// Action-timeline filename inside the evidence dir.
 pub(crate) const ACTIONS_FILE: &str = "actions.jsonl";
@@ -232,7 +232,7 @@ pub(crate) struct Pruned {
 /// removed).
 ///
 /// Everything else in the directory is LEFT ALONE, and the conservative
-/// direction is deliberate: the dir also holds `vale-browser-helper.js`, which
+/// direction is deliberate: the dir also holds `summrise-browser-helper.js`, which
 /// `ensure_browser_helper` rewrites on content drift and which is therefore
 /// REGENERATED rather than accumulated, plus whatever an operator drops in. A
 /// name-shape rule cannot eat a file this module never created, which a
@@ -379,10 +379,11 @@ fn notify_changed_on(bus: Option<&dyn EventBus>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vale_agent_core::AppEventBus;
+    use summrise_agent_core::AppEventBus;
 
     fn tmp_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("vale-evidence-{}-{}", tag, std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("summrise-evidence-{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).expect("temp dir");
         d
@@ -521,7 +522,8 @@ mod tests {
 
     #[test]
     fn append_into_a_missing_dir_is_best_effort() {
-        let dir = std::env::temp_dir().join(format!("vale-evidence-absent-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-evidence-absent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         append_action_line(&dir, crate::now_millis(), &serde_json::json!({ "n": 1 }));
         assert!(
@@ -572,7 +574,8 @@ mod tests {
 
     #[test]
     fn list_shots_missing_dir_is_empty() {
-        let dir = std::env::temp_dir().join(format!("vale-evidence-nodir-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-evidence-nodir-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert!(list_shots(&dir, 40).is_empty());
     }
@@ -726,7 +729,7 @@ mod tests {
     #[test]
     fn prune_never_touches_a_file_the_feed_does_not_own() {
         let dir = tmp_dir("prune-foreign");
-        seed(&dir, "vale-browser-helper.js", NOW - 400 * DAY_MS);
+        seed(&dir, "summrise-browser-helper.js", NOW - 400 * DAY_MS);
         seed(&dir, "notes.txt", NOW - 400 * DAY_MS);
         seed(&dir, "old.PNG", NOW - 400 * DAY_MS);
         seed(&dir, "pwai_but_not_a_script.txt", NOW - 400 * DAY_MS);
@@ -737,7 +740,7 @@ mod tests {
 
         assert_eq!(removed.shots, 1, "only the one real owned artifact");
         for kept in [
-            "vale-browser-helper.js",
+            "summrise-browser-helper.js",
             "notes.txt",
             "old.PNG",
             "pwai_but_not_a_script.txt",
@@ -869,7 +872,7 @@ mod tests {
     #[test]
     fn prune_on_a_missing_dir_is_a_noop() {
         let dir =
-            std::env::temp_dir().join(format!("vale-evidence-noprune-{}", std::process::id()));
+            std::env::temp_dir().join(format!("summrise-evidence-noprune-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(prune(&dir, 30, NOW), Pruned::default());
     }
@@ -895,7 +898,8 @@ mod tests {
 
         const TARGET: u64 = 100;
 
-        let dir = std::env::temp_dir().join(format!("vale-evidence-race-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-evidence-race-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 

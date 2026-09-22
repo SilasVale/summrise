@@ -11,7 +11,7 @@ use std::time::Instant;
 use super::ctx::{session_lost, JobInfo, JobsMap};
 use crate::plugins::terminal::clean_terminal_output;
 use crate::plugins::{require_str, to_value_or_empty};
-use vale_agent_core::{recover_guard, AgentEvent, DeviceError, EventBus, ToolDef};
+use summrise_agent_core::{recover_guard, AgentEvent, DeviceError, EventBus, ToolDef};
 
 /// Build the session-mode execute result JSON (round-157): a partial (idle)
 /// return means the command is STILL RUNNING — the wait loop gave up on
@@ -1046,7 +1046,7 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
                     // audit, and the next execute must not bounce off a stale
                     // busy flag.
                     // round-162: (Netcatty's `\x1b\x15\x0b` clear-line prefix
-                    // was TRIED and REVERTED — under Vale's ConPTY the ESC
+                    // was TRIED and REVERTED — under Summrise's ConPTY the ESC
                     // arrives as a keypress, not a sequence, so PowerShell
                     // executed the stray `\x15` as a command. The pre-START
                     // no-finalize rule (below) already keeps all pre-marker

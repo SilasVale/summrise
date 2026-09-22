@@ -13,7 +13,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     try {
-      console.error("[vale] render crash:", error, info?.componentStack || "");
+      console.error("[summrise] render crash:", error, info?.componentStack || "");
     } catch { /* console unavailable */ }
   }
 

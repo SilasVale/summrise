@@ -92,7 +92,7 @@ test("csrf: cookie-carrying mutations pass same-origin/none/missing, fail same-s
 });
 
 test("csrf: per-device proxy cookies count as credential cookies too", () => {
-  const cookie = { cookie: "vale_pt_d1=tok" };
+  const cookie = { cookie: "summrise_pt_d1=tok" };
   assert.equal(csrfCookieViolation(req("POST", { ...cookie, "sec-fetch-site": "cross-site" })), true);
   assert.equal(csrfCookieViolation(req("POST", { ...cookie, "sec-fetch-site": "same-origin" })), false);
 });

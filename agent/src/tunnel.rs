@@ -14,8 +14,8 @@ use std::path::Path;
 // The agent downloads cloudflared.exe on demand, but ONLY when
 // InstallDir\tools\cloudflared.exe is absent. NOTE (verified 2026-09-06):
 // the published npm tgz currently boxes NO binary (1.2.297 tgz holds only
-// the exe + electron shell + vale.js), so THIS download is the live channel
-// devices actually use — `vale setup` / `agent_update`'s boxed-staging arms
+// the exe + electron shell + summrise.js), so THIS download is the live channel
+// devices actually use — `summrise setup` / `agent_update`'s boxed-staging arms
 // are dormant until the release flow packs the binary. That makes the pin
 // below load-bearing, not belt-and-braces: a wrong constant breaks ALL
 // tunnel provisioning, so it was measured against the exact bytes the
@@ -38,7 +38,7 @@ use std::path::Path;
 //   2. Set CLOUDFLARED_VERSION to <NEW_VERSION> and CLOUDFLARED_SHA256 to the
 //      hash below.
 //   3. If the release flow boxes the binary (gitignored staging file
-//      `agent/vale-agent-npm/cloudflared.exe`, packed into the tgz),
+//      `agent/summrise-agent-npm/cloudflared.exe`, packed into the tgz),
 //      stage the EXACT same bytes and confirm `cloudflared --version`
 //      prints the pinned version (today the tgz carries no binary, so
 //      this step is a no-op — the download path below is the channel).
@@ -77,7 +77,7 @@ fn cloudflared_download_url() -> String {
 /// told where its download site is cannot be told where a proxy of it is either.
 fn cloudflared_proxy_url(download_url: &str) -> String {
     format!(
-        "{}/vale-agent/cloudflared.exe",
+        "{}/summrise-agent/cloudflared.exe",
         download_url.trim_end_matches('/')
     )
 }
@@ -109,7 +109,7 @@ async fn download_and_verify(client: &reqwest::Client, url: &str) -> Result<byte
     }
     if !verify_cloudflared_bytes(&bytes, CLOUDFLARED_SHA256) {
         tracing::error!(
-            "[vale-agent] provision_tunnel: cloudflared sha256 MISMATCH from {url} \
+            "[summrise-agent] provision_tunnel: cloudflared sha256 MISMATCH from {url} \
              (want pinned {CLOUDFLARED_VERSION} {CLOUDFLARED_SHA256}, got {}) — \
              refusing unverifiable binary (no write, no spawn)",
             crate::hex_encode(&Sha256::digest(&bytes)),
@@ -130,7 +130,7 @@ pub(crate) fn write_verified_bytes(
 ) -> Result<(), String> {
     if !verify_cloudflared_bytes(bytes, expected_sha256_hex) {
         tracing::error!(
-            "[vale-agent] provision_tunnel: refusing to write {} — \
+            "[summrise-agent] provision_tunnel: refusing to write {} — \
              integrity check failed (no write performed)",
             dest.display(),
         );
@@ -165,7 +165,7 @@ pub(crate) async fn provision_tunnel(
         // bytes are verified BEFORE they are written or executed, mirroring
         // agent_update's ver&&sha bar. Fail closed on any mismatch.
         tracing::info!(
-            "[vale-agent] provision_tunnel: downloading pinned cloudflared {CLOUDFLARED_VERSION}"
+            "[summrise-agent] provision_tunnel: downloading pinned cloudflared {CLOUDFLARED_VERSION}"
         );
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
@@ -192,7 +192,7 @@ pub(crate) async fn provision_tunnel(
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "[vale-agent] provision_tunnel: cloudflared candidate failed ({url}): {e}"
+                        "[summrise-agent] provision_tunnel: cloudflared candidate failed ({url}): {e}"
                     );
                     last_err = format!("{url}: {e}");
                 }
@@ -206,7 +206,7 @@ pub(crate) async fn provision_tunnel(
             return e;
         }
         tracing::info!(
-            "[vale-agent] provision_tunnel: cloudflared {CLOUDFLARED_VERSION} verified (sha256 ok, {} bytes)",
+            "[summrise-agent] provision_tunnel: cloudflared {CLOUDFLARED_VERSION} verified (sha256 ok, {} bytes)",
             bytes.len()
         );
     }
@@ -225,13 +225,13 @@ pub(crate) async fn provision_tunnel(
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
     };
     if !host_ok(&hostname) {
-        return "cannot provision: vale-agent.hostname missing or invalid (set it via `vale setup --hostname <sub>` first)".to_string();
+        return "cannot provision: summrise-agent.hostname missing or invalid (set it via `summrise setup --hostname <sub>` first)".to_string();
     }
     if !host_ok(cf_token) {
         return "cannot provision: gateway returned a malformed API token".to_string();
     }
     let tunnel_name = format!(
-        "vale-agent-{}",
+        "summrise-agent-{}",
         hostname.split('.').next().unwrap_or("device")
     );
     // 1. login with token. cloudflared writes cert.pem to %USERPROFILE%\.cloudflared\
@@ -306,10 +306,10 @@ pub(crate) async fn provision_tunnel(
     let remote = update_remote_config(cf_token, &id, &hostname, port).await;
     match &remote {
         RemoteConfig::Failed(reason) => {
-            tracing::warn!("[vale-agent] provision_tunnel: remote config NOT updated: {reason}")
+            tracing::warn!("[summrise-agent] provision_tunnel: remote config NOT updated: {reason}")
         }
         RemoteConfig::Updated => {
-            tracing::info!("[vale-agent] provision_tunnel: remote config update ok=true")
+            tracing::info!("[summrise-agent] provision_tunnel: remote config update ok=true")
         }
     }
     // 4. write tunnel.yml (single location, agent spawns it on boot)
@@ -437,13 +437,13 @@ async fn ensure_cf_credentials() {
                     }
                 }
                 tracing::info!(
-                    "[vale-agent] provision_tunnel: copied cloudflared credentials from {user}"
+                    "[summrise-agent] provision_tunnel: copied cloudflared credentials from {user}"
                 );
                 return;
             }
         }
     }
-    tracing::warn!("[vale-agent] provision_tunnel: no cert.pem found in any user profile — tunnel auth may fail");
+    tracing::warn!("[summrise-agent] provision_tunnel: no cert.pem found in any user profile — tunnel auth may fail");
 }
 
 /// Ingress service URL for the agent's configured port (custom ports must
@@ -623,17 +623,17 @@ mod tests {
     }
 
     /// THE FALLBACK IS THE CONFIGURED SITE, JOINED — and the join is where a double slash would live: a deployment that
-    /// writes `https://host/` in its config must not produce `https://host//vale-agent/...`. Pinned here because the
+    /// writes `https://host/` in its config must not produce `https://host//summrise-agent/...`. Pinned here because the
     /// value now comes from a human's config file rather than from a constant this file controls.
     #[test]
     fn the_proxy_fallback_joins_the_configured_site() {
         assert_eq!(
             cloudflared_proxy_url("https://cdn.example.com"),
-            "https://cdn.example.com/vale-agent/cloudflared.exe"
+            "https://cdn.example.com/summrise-agent/cloudflared.exe"
         );
         assert_eq!(
             cloudflared_proxy_url("https://cdn.example.com/"),
-            "https://cdn.example.com/vale-agent/cloudflared.exe",
+            "https://cdn.example.com/summrise-agent/cloudflared.exe",
             "a trailing slash in the config must not double up"
         );
     }
@@ -653,7 +653,8 @@ mod tests {
     }
 
     fn test_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vale-tunnel-cf-{}-{tag}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-tunnel-cf-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -679,7 +680,7 @@ mod tests {
         // itself against the hardcoded FIPS vector).
         let dir = test_dir("accept");
         let dest = dir.join("tools").join("cloudflared.exe");
-        let fixture = b"vale-test-cloudflared-fixture-bytes";
+        let fixture = b"summrise-test-cloudflared-fixture-bytes";
         let expected = crate::hex_encode(&Sha256::digest(fixture));
         write_verified_bytes(&dest, fixture, &expected).expect("matching bytes must stage");
         assert_eq!(
@@ -699,7 +700,7 @@ mod tests {
         );
         // table row shape
         assert_eq!(
-            parse_tunnel_id(&format!("{id}  vale-d1  2026-01-01")),
+            parse_tunnel_id(&format!("{id}  summrise-d1  2026-01-01")),
             Some(id.to_string())
         );
     }
@@ -723,16 +724,19 @@ mod tests {
     fn find_tunnel_id_by_name_matches_name_column() {
         let id = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
         let other = "aaaaaaaa-1111-2222-3333-444444444444";
-        let table = format!("ID  NAME  CREATED\n{other}  other-tunnel  x\n{id}  vale-d1  y\n");
+        let table = format!("ID  NAME  CREATED\n{other}  other-tunnel  x\n{id}  summrise-d1  y\n");
         assert_eq!(
-            find_tunnel_id_by_name(&table, "vale-d1"),
+            find_tunnel_id_by_name(&table, "summrise-d1"),
             Some(id.to_string())
         );
         assert_eq!(find_tunnel_id_by_name(&table, "missing"), None);
         // header row itself never matches (NAME != a real name… unless asked)
         assert_eq!(find_tunnel_id_by_name("ID  NAME\n", "NAME"), None);
         // name match with a garbage id column is skipped, not returned
-        assert_eq!(find_tunnel_id_by_name("oops  vale-d1\n", "vale-d1"), None);
+        assert_eq!(
+            find_tunnel_id_by_name("oops  summrise-d1\n", "summrise-d1"),
+            None
+        );
     }
     #[test]
     fn a_config_write_that_fails_neither_reports_success_nor_asks_for_a_restart() {
@@ -741,7 +745,7 @@ mod tests {
         // a tunnel.yml that was never written — a stale ingress, with the Gateway card
         // saying "connected". The generation is the observable: it must MOVE on success and
         // STAY on failure.
-        let dir = std::env::temp_dir().join(format!("vale-tcfg-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-tcfg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -777,11 +781,11 @@ mod tests {
         // the old tunnel.yml is still the file cloudflared reads.
         assert_eq!(
             tunnel_outcome(
-                Err("could not write D:\\Vale\\etc\\tunnel.yml (access denied)".into()),
+                Err("could not write D:\\Summrise\\etc\\tunnel.yml (access denied)".into()),
                 RemoteConfig::Updated,
                 "d1.agent.saisi.online",
             ),
-            "FAILED: could not write D:\\Vale\\etc\\tunnel.yml (access denied) — the tunnel was NOT (re)configured and was left as it was"
+            "FAILED: could not write D:\\Summrise\\etc\\tunnel.yml (access denied) — the tunnel was NOT (re)configured and was left as it was"
         );
 
         // Both landed — the only case allowed to be a plain success.

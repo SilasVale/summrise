@@ -227,7 +227,7 @@ describe("useCommandEvents", () => {
     // the assertions passed because nothing happened at all. It would have stayed
     // green with the failure path deleted.
     //
-    // The re-read triggers the hook really has are the agent's `vale-term-output`
+    // The re-read triggers the hook really has are the agent's `summrise-term-output`
     // event and a `visibilitychange` back to visible. This drives the SECOND of
     // those — the same path production uses — so the rejection is actually taken.
     mockCallApi.mockResolvedValue({

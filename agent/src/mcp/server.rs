@@ -4,7 +4,7 @@
 //! routing scoped to terminal_execute only (round-123/124), handler panic
 //! isolation (MCP audit MED), TokenGate on /mcp, DNS-resolving bind, and the
 //! graceful-shutdown nuance (round-87: never await in-flight SSE). Correctly
-//! layered — imports state + vale_agent_core only; the tool surface itself
+//! layered — imports state + summrise_agent_core only; the tool surface itself
 //! lives in the registry, not here.
 
 use std::net::SocketAddr;
@@ -22,7 +22,7 @@ use rmcp::{ErrorData as McpError, ServerHandler};
 use tokio_util::sync::CancellationToken;
 
 use crate::state::AppState;
-use vale_agent_core::{Config, DeviceError};
+use summrise_agent_core::{Config, DeviceError};
 
 #[derive(Debug, Clone)]
 pub struct DeviceServer {
@@ -39,7 +39,7 @@ impl ServerHandler for DeviceServer {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.instructions =
-            Some("Vale Command device access: Terminal (PTY/SSH/Serial) tools.".into());
+            Some("Summrise Command device access: Terminal (PTY/SSH/Serial) tools.".into());
         let mut caps = ServerCapabilities::default();
         let mut tools_cap = ToolsCapability::default();
         // Tool list is static — no list_changed notifications are ever sent
@@ -50,8 +50,8 @@ impl ServerHandler for DeviceServer {
         // is the only construction form.
         #[allow(clippy::field_reassign_with_default)]
         let mut server_info = Implementation::default();
-        server_info.name = "vale-agent".into();
-        server_info.title = Some("Vale Agent".into());
+        server_info.name = "summrise-agent".into();
+        server_info.title = Some("Summrise Agent".into());
         server_info.version = env!("CARGO_PKG_VERSION").into();
         info.server_info = server_info;
         info
@@ -184,7 +184,7 @@ fn call_diag_line(tool: &str, ms: u128, outcome: &str) -> String {
 }
 
 /// ToolDef → rmcp Tool conversion (shared by list_tools and get_tool).
-fn to_mcp_tool(t: &vale_agent_core::ToolDef) -> Tool {
+fn to_mcp_tool(t: &summrise_agent_core::ToolDef) -> Tool {
     let mut tool = Tool::default();
     tool.name = t.name.clone().into();
     tool.description = Some(t.description.clone().into());
@@ -342,7 +342,7 @@ pub async fn serve_with_token(
 mod tests {
     use super::*;
     use crate::state::AppState;
-    use vale_agent_core::Config;
+    use summrise_agent_core::Config;
 
     fn server() -> DeviceServer {
         DeviceServer::new(Arc::new(AppState::new(Config::default())))
@@ -363,9 +363,9 @@ mod tests {
     // static tool list) — pin it so a rename/capability drift breaks here,
     // not in a confused AI client.
     #[test]
-    fn server_info_names_vale_agent_with_static_tools() {
+    fn server_info_names_summrise_agent_with_static_tools() {
         let info = server().get_info();
-        assert_eq!(info.server_info.name, "vale-agent");
+        assert_eq!(info.server_info.name, "summrise-agent");
         assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
         assert!(info.instructions.unwrap().contains("Terminal"));
         assert_eq!(info.capabilities.tools.unwrap().list_changed, Some(false));
@@ -386,7 +386,7 @@ mod tests {
     // not as a mysteriously permissive tool in an AI client.
     #[test]
     fn tool_conversion_non_object_schema_falls_back_to_empty() {
-        let def = vale_agent_core::ToolDef::new(
+        let def = summrise_agent_core::ToolDef::new(
             "x",
             "d",
             serde_json::json!([1, 2]),

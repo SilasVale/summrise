@@ -5,16 +5,16 @@
 #   1. rust-toolchain.toml's `channel` vs every `toolchain:` literal in the two
 #      workflows. Five copies, maintained by hand. The drift it would cause is
 #      UNDETECTABLE by the release audit: that audit tolerates a differing
-#      vale-agent.exe ("differs by TOOLCHAIN (expected)"), so bumping the .toml
+#      summrise-agent.exe ("differs by TOOLCHAIN (expected)"), so bumping the .toml
 #      alone builds a different exe on this box and CI, both compile, and the
 #      audit still says OK.
 #   2. release.yml's cargo-xwin pin vs ci.yml's installs. CI was installing
 #      whatever is newest that day while the release pinned 0.23.0 — the pin's
 #      own comment names that exact drift.
-#   3. agent/vale-agent-npm/package.json's `files[]` (the real source of truth
+#   3. agent/summrise-agent-npm/package.json's `files[]` (the real source of truth
 #      for what the tgz carries) vs the three hand-maintained content gates.
 #      One omission is DOCUMENTED IN THE WORKFLOW ITSELF: the xwin-less CI job
-#      cannot contain vale-agent.exe, and says so in its step name.
+#      cannot contain summrise-agent.exe, and says so in its step name.
 #
 # Run: bash scripts/test/build-pins.bash
 set -euo pipefail
@@ -47,14 +47,14 @@ while IFS= read -r l; do
 done < <(grep -h "cargo install cargo-xwin" .github/workflows/ci.yml)
 
 # ── 3. the shipped-file list vs the three content gates ─────────────────────
-FILES="$(node -p "require('./agent/vale-agent-npm/package.json').files.join('\n')")"
-[ -n "$FILES" ] || { echo "FAIL: agent/vale-agent-npm/package.json declares no files[]"; exit 1; }
+FILES="$(node -p "require('./agent/summrise-agent-npm/package.json').files.join('\n')")"
+[ -n "$FILES" ] || { echo "FAIL: agent/summrise-agent-npm/package.json declares no files[]"; exit 1; }
 # gate path : entry this job legitimately cannot contain (with its reason)
 GATES=(
   "scripts/publish-release.sh:"
   ".github/workflows/release.yml:"
   # "no exe in this job" — the job name says so; it has no cargo-xwin.
-  ".github/workflows/ci.yml:vale-agent.exe"
+  ".github/workflows/ci.yml:summrise-agent.exe"
 )
 for g in "${GATES[@]}"; do
   path="${g%%:*}"
@@ -99,9 +99,9 @@ check "every scripts/test file is invoked from ci.yml" "${unwired:-none}" "none"
 # `panel-audit-skip-check.mjs` exists for on the panel side. The installer's PowerShell logic cannot run on the Linux
 # box, so its step is the one place this could happen; round 40 of the standing goal turned its missing-pwsh branch from
 # a ::warning:: into a failure, and this keeps it that way.
-PWSH_BLOCK="$(awk '/installer integrity tests \(pwsh\)/{p=1} p{print} p && /ValeIntegrity.tests.ps1$/{exit}' .github/workflows/ci.yml)"
+PWSH_BLOCK="$(awk '/installer integrity tests \(pwsh\)/{p=1} p{print} p && /SummriseIntegrity.tests.ps1$/{exit}' .github/workflows/ci.yml)"
 [ -n "$PWSH_BLOCK" ] || { echo "FAIL: no installer-integrity step found in ci.yml"; exit 1; }
-has "the pwsh step still runs the integrity tests" "$PWSH_BLOCK" "ValeIntegrity.tests.ps1"
+has "the pwsh step still runs the integrity tests" "$PWSH_BLOCK" "SummriseIntegrity.tests.ps1"
 has "a missing pwsh FAILS the step" "$PWSH_BLOCK" "exit 1"
 if grep -q '::warning::pwsh is not installed' .github/workflows/ci.yml; then
   echo "FAIL: the pwsh step warns and continues again — that green means the installer's logic was never tested"

@@ -8,7 +8,7 @@
 # the manifest ADVERTISES an installer. A tgz-only publish advertises none, so
 # the smoke checked nothing about the alias and still printed
 # "ok: /api/version smoke passed". Measured live on 2026-09-14: the CDN's
-# `ValeAgent-Setup.exe` and `ValeAgent-Setup-1.2.361.exe` shared an etag while the
+# `SummriseAgent-Setup.exe` and `SummriseAgent-Setup-1.2.361.exe` shared an etag while the
 # release was 1.2.364 — a three-release-old artifact that no check ever named.
 #
 # Run: bash scripts/test/smoke-index.bash
@@ -31,7 +31,7 @@ hasnt() { # hasnt <desc> <haystack> <needle>
 }
 
 VER=9.9.9
-FIX_TGZ='vale-agent-tarball-bytes'
+FIX_TGZ='summrise-agent-tarball-bytes'
 FIX_TGZ_SHA="$(printf '%s' "$FIX_TGZ" | sha256sum | cut -d' ' -f1)"
 FIX_ALIAS='stale-setup-exe-bytes'
 FIX_ALIAS_SHA="$(printf '%s' "$FIX_ALIAS" | sha256sum | cut -d' ' -f1)"
@@ -39,7 +39,7 @@ FIX_INST='bundled-setup-exe-bytes'
 FIX_INST_SHA="$(printf '%s' "$FIX_INST" | sha256sum | cut -d' ' -f1)"
 
 # run_smoke <raw-version.json> <live-/api/version> <alias-body|"">
-#   TWO SHAPES, because the deployment has two: `/vale-agent/version.json` is the
+#   TWO SHAPES, because the deployment has two: `/summrise-agent/version.json` is the
 #   file publish-release.sh writes (a flat `tarball` basename, an `installer`
 #   basename), while `/api/version` is the WORKER's answer, which rewrites both
 #   into absolute URLs (index/src/index.js:445). A harness that served one shape
@@ -69,11 +69,11 @@ run_smoke() {
     _emit() { if [ -n "$out" ]; then printf '%s' "$1" > "$out"; else printf '%s' "$1"; fi; }
     case "$url" in
       */api/version) _emit "$live_json";;
-      */vale-agent/version.json) _emit "$raw";;
-      */vale-agent/vale-agent-latest.tgz) _emit "$FIX_TGZ";;
-      */vale-agent/vale-agent-$VER.tgz) _emit "$FIX_TGZ";;
-      */vale-agent/ValeAgent-Setup-$VER.exe) _emit "$FIX_INST";;
-      */vale-agent/ValeAgent-Setup.exe)
+      */summrise-agent/version.json) _emit "$raw";;
+      */summrise-agent/summrise-agent-latest.tgz) _emit "$FIX_TGZ";;
+      */summrise-agent/summrise-agent-$VER.tgz) _emit "$FIX_TGZ";;
+      */summrise-agent/SummriseAgent-Setup-$VER.exe) _emit "$FIX_INST";;
+      */summrise-agent/SummriseAgent-Setup.exe)
         # A MISSING ALIAS IS A FAILED DOWNLOAD (curl's exit 22 on a 404), not an empty body —
         # the difference is the whole point of the round-27 fix.
         if [ -n "$alias_body" ]; then _emit "$alias_body"; else return 22; fi;;
@@ -84,16 +84,16 @@ run_smoke() {
 }
 
 # ── 1. the manifest advertises an installer (the arm that already worked) ────
-FIX_RAW_WITH="{\"version\":\"$VER\",\"tarball\":\"vale-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\",\"installer\":\"ValeAgent-Setup-$VER.exe\",\"installer_sha256\":\"$FIX_INST_SHA\"}"
-FIX_LIVE_WITH="{\"version\":\"$VER\",\"download\":\"https://cdn.example/vale-agent/vale-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\",\"installer\":\"https://cdn.example/vale-agent/ValeAgent-Setup-$VER.exe\",\"installer_sha256\":\"$FIX_INST_SHA\"}"
+FIX_RAW_WITH="{\"version\":\"$VER\",\"tarball\":\"summrise-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\",\"installer\":\"SummriseAgent-Setup-$VER.exe\",\"installer_sha256\":\"$FIX_INST_SHA\"}"
+FIX_LIVE_WITH="{\"version\":\"$VER\",\"download\":\"https://cdn.example/summrise-agent/summrise-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\",\"installer\":\"https://cdn.example/summrise-agent/SummriseAgent-Setup-$VER.exe\",\"installer_sha256\":\"$FIX_INST_SHA\"}"
 if OUT="$(run_smoke "$FIX_RAW_WITH" "$FIX_LIVE_WITH" "$FIX_INST" 2>&1)"; then rc=0; else rc=$?; fi
 check "an advertised installer passes" "$rc" "0"
 has "and says so" "$OUT" "installer smoke passed"
 hasnt "with no stale-alias warning" "$OUT" "STALE INSTALLER ALIAS"
 
 # ── 2. tgz-only manifest + NO alias: consistent, and said out loud ──────────
-FIX_RAW_BARE="{\"version\":\"$VER\",\"tarball\":\"vale-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\"}"
-FIX_LIVE_BARE="{\"version\":\"$VER\",\"download\":\"https://cdn.example/vale-agent/vale-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\"}"
+FIX_RAW_BARE="{\"version\":\"$VER\",\"tarball\":\"summrise-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\"}"
+FIX_LIVE_BARE="{\"version\":\"$VER\",\"download\":\"https://cdn.example/summrise-agent/summrise-agent-latest.tgz\",\"sha256\":\"$FIX_TGZ_SHA\"}"
 if OUT="$(run_smoke "$FIX_RAW_BARE" "$FIX_LIVE_BARE" "" 2>&1)"; then rc=0; else rc=$?; fi
 check "a tgz-only release with no alias still passes" "$rc" "0"
 has "and states the alias is absent" "$OUT" "alias is absent (consistent)"

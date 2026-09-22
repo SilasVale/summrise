@@ -65,7 +65,7 @@
 //     well. With a fixture in the device's real shape — `{ok: true, targets: […]}` and transitions of
 //     `{at_ms, up, lasted_ms}` — the Settings card shows both targets with their `up`/`down` states, the
 //     502, and 99 probe rows measuring clean. The ALERT STRIP is event-driven: it renders on the
-//     device's `vale-monitor-change` push and nothing else, so a down target on screen with no push
+//     device's `summrise-monitor-change` push and nothing else, so a down target on screen with no push
 //     shows no strip — which looks like a defect and is not one. Dispatched, it reads
 //     "192.168.1.1:8000 is DOWN — it had been up 15m (HTTP 502)", carries role="status" and
 //     aria-live="polite", and measures 15.31 light / 11.42 dark.
@@ -90,13 +90,13 @@
 //   HOW TO RUN IT (reconstructed in round 120; it takes several steps and the next round should not have
 //   to rediscover them):
 //     1. locally:  node agent/scripts/panel-design-sweep.mjs --emit --passes=pages > /tmp/sweep-pages.js
-//     2. upload it (curl -T to the relay) and system_file_download it to C:\ProgramData\Vale\pwout\
+//     2. upload it (curl -T to the relay) and system_file_download it to C:\ProgramData\Summrise\pwout\
 //     3. on the device, run it in-process — it drives the browser itself:
 //          const code = fs.readFileSync(SRC, 'utf8');
 //          new Function('require','module','exports','__dirname','__filename','process','console','Buffer',
 //                       'setTimeout','clearTimeout', code)(require, {exports:{}}, {}, dir, SRC, process,
 //                       console, Buffer, setTimeout, clearTimeout);
-//        It prints its summary and rewrites C:\ProgramData\Vale\pwout\design-sweep.json (~390 KB).
+//        It prints its summary and rewrites C:\ProgramData\Summrise\pwout\design-sweep.json (~390 KB).
 //        NOTE: top-level await is NOT valid there — wrap any driver in an async IIFE.
 //     4. upload that report, curl it down, and judge it locally with THIS adapter's waivers — a bare
 //        judgeReport(report, {}) reports the div.tabrow artifacts as findings, which is what they are not.
@@ -154,7 +154,7 @@
 //
 // WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
 //   * anything inside the Electron shell — the evidence drawer and the embedded browser pane mount
-//     only behind `window.valeEmbedded`, so a plain-browser harness renders an explanation page
+//     only behind `window.summriseEmbedded`, so a plain-browser harness renders an explanation page
 //     (measured, round 45);
 //   * the panel-density tab strip's own width: `#tabs` measures ~0px in the harness and 211px on the
 //     device, so harness geometry findings pointing at tab children are suspect;
@@ -207,7 +207,7 @@ const TIMING = \`(() => {
 // AND IT CAN BE HANDED OVER (round 237): on a device there is no ../resources/panel to read, so the value comes from the
 // caller — the same variable the harness emitter reads, which is what keeps their two identities equal by construction rather
 // than by both happening to read the same file. Inlined at emit time, so this is a decision the EMITTING environment makes.
-const HARNESS_STAMP = process.env.VALE_HARNESS_STAMP || (() => {
+const HARNESS_STAMP = process.env.SUMMRISE_HARNESS_STAMP || (() => {
   try {
     const css = readFileSync(new URL("../resources/panel/panel.css", import.meta.url));
     return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);
@@ -219,8 +219,8 @@ function browserScript() {
 // as before) or on any machine with a browser — which is what makes a CI job possible at all. Round 204:
 // the design suite has only ever run when the loop remembered to run it, and a measured-and-verified
 // objective should not depend on that. Nothing else about a device run changes.
-const HARNESS = process.env.VALE_PANEL_HARNESS || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\panel-harness.html';
-const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\design-sweep.json';
+const HARNESS = process.env.SUMMRISE_PANEL_HARNESS || 'C:\\\\ProgramData\\\\Summrise\\\\pwout\\\\panel-harness.html';
+const REPORT_PATH = process.env.SUMMRISE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Summrise\\\\pwout\\\\design-sweep.json';
 // THE BUILD THIS SWEEP WAS EMITTED AGAINST. The audit stamps every harness with the stylesheet it
 // inlined; baking the expectation here turns round 189's note into a check. A delivered fixture that
 // predates a CSS fix otherwise reports findings that look live — a 17px tab strip against a 962px build —
@@ -250,18 +250,18 @@ const motionPass = ${motionPass.toString()};
 ${MOTION}
 ${TIMING}
 (async () => {
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   const html = fs.readFileSync(HARNESS, 'utf8');
   // WHICH GENERATION OF THE HARNESS IS BEING MEASURED, in the report. The stamp is written by the audit that
   // generates the file; without it a delivered copy that predates a CSS fix reports findings that look real
   // (round 189: a 17px tab strip against a 962px build) and nothing distinguishes them from a live defect.
-  const harnessBuild = (/<meta name="vale-harness-build" content="([^"]+)"/.exec(html) || [])[1] || "(unstamped — an older generation)";
+  const harnessBuild = (/<meta name="summrise-harness-build" content="([^"]+)"/.exec(html) || [])[1] || "(unstamped — an older generation)";
   // A STALE FIXTURE INVALIDATES EVERY MEASUREMENT BELOW IT, so this is a finding rather than a note. The
   // stamp is unknown only for harnesses generated before round 189, which are stale by definition.
   const harnessStale = harnessBuild !== EXPECTED_HARNESS_BUILD;
   const stamp = Date.now();
-  await page.route('http://vale.test/**', (route) =>
+  await page.route('http://summrise.test/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
 
   await diag("start focus,pages pid=" + process.pid);
@@ -290,8 +290,8 @@ ${TIMING}
       for (const mode_ of needsPage ? (wants("pages") ? ['idle', 'relaxed'] : ['idle']) : []) {
         await page.setViewportSize(vp);
         const t0 = Date.now();
-        await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=' + mode_ + '&sessions=4&cb=' + stamp, { waitUntil: 'load' });
-        await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+        await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=' + mode_ + '&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+        await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
         await page.reload({ waitUntil: 'load' });
         await page.waitForSelector('.side-row, .dtab, .tab', { timeout: 20000 });
         const toFirstRow = Date.now() - t0;
@@ -370,8 +370,8 @@ ${TIMING}
   // font size do not change with the theme.)
   for (const theme of wants("pages") ? ['light', 'dark'] : []) {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('http://vale.test/desktop/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test/desktop/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(2000);
     const rows = await page.evaluate(PROBE);
@@ -392,8 +392,8 @@ ${TIMING}
   // click is longer than the press pass's: this photographs the SETTLED menu, not its first frame.
   for (const theme of wants("pages") ? ['light', 'dark'] : []) {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('http://vale.test/desktop/?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test/desktop/?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1800);
     await page.evaluate(() => { const b = document.querySelector('.btn-new'); if (b) b.click(); });
@@ -421,8 +421,8 @@ ${TIMING}
   // renders the wrong state here again, THIS SURFACE fails instead of passing.
   for (const theme of wants("pages") ? ['light', 'dark'] : []) {
     await page.setViewportSize({ width: 1280, height: 860 });
-    await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(2000);
     const rows = await page.evaluate(PROBE);
@@ -446,8 +446,8 @@ ${TIMING}
   for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
   for (const theme of ['light', 'dark']) {
     await page.setViewportSize(vp);
-    await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1800);
     await page.evaluate(() => {
@@ -477,8 +477,8 @@ ${TIMING}
   for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(2000);
       const buttons = await page.evaluate(() => [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].map((b) => (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 18)));
@@ -575,8 +575,8 @@ ${TIMING}
   for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=16&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=16&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(2000);
       const rows = await page.evaluate(PROBE);
@@ -605,8 +605,8 @@ ${TIMING}
       ...['light', 'dark'].map((t) => ['Settings-monitor-down-' + t, '?theme=' + t + '&mode=idle&sessions=3&monitor=down', 'Settings']),
     ]) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + query + '&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + query + '&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       await page.evaluate((want) => {
@@ -658,8 +658,8 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwrun=1&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwrun=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1500);
       await page.evaluate(() => {
@@ -684,8 +684,8 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwstart=fail&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwstart=fail&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       // THE PAGE THE CARD LIVES ON, WHICH THIS SURFACE NEVER VISITED (round 75). A device probe asked the page and the
@@ -727,8 +727,8 @@ ${TIMING}
     for (const theme of ['light', 'dark']) {
       for (const [dir, label] of [['up', 'MonitorUp'], ['down', 'MonitorDown']]) {
         await page.setViewportSize({ width: 1280, height: 860 });
-        await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&monitorchange=' + dir + '&cb=' + stamp, { waitUntil: 'load' });
-        await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+        await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&monitorchange=' + dir + '&cb=' + stamp, { waitUntil: 'load' });
+        await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
         await page.reload({ waitUntil: 'load' });
         await page.waitForTimeout(1800);
         const mname = label + '-' + theme;
@@ -747,8 +747,8 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&boot=replaced&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&boot=replaced&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       const bname = 'BootReplaced-' + theme;
@@ -763,8 +763,8 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&appr=off&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&appr=off&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       const aname = 'ApprovalOff-' + theme;
@@ -779,8 +779,8 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=pending&sessions=6&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=pending&sessions=6&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       const pname = 'LastFail-' + theme;
@@ -799,8 +799,8 @@ ${TIMING}
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&exitfail=active&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&exitfail=active&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       const pname = 'LastFailActive-' + theme;
@@ -813,15 +813,15 @@ ${TIMING}
   }
 
   // THE OTHER VERDICT TONE ON THE DEVICE-LOGS CARD (round 100). The card derives its sentence from the four-way
-  // table over vale-update.log, so ONE payload can only ever render one tone: the default fixture has a receipt and
+  // table over summrise-update.log, so ONE payload can only ever render one tone: the default fixture has a receipt and
   // a start (OK), and this one has the receipt with no start (WARN — the CLI reached the device and the swap never
   // launched). The card's OK tone measured 3.33:1 as text the first time it was rendered at all; a tone with no
   // surface is a tone no sweep can measure, which is the rule rounds 96-99 keep relearning.
   if (wants("pages")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&logs=warn&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&logs=warn&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1500);
       const pname = 'LogsWarn-' + theme;
@@ -855,8 +855,8 @@ ${TIMING}
         for (const tab of ['Trajectory', 'Path']) {
           for (const trimmed of density === 'panel' ? [false, true] : [false]) {
           await page.setViewportSize(vp);
-          await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp + (trimmed ? '&trimmed=1' : ''), { waitUntil: 'load' });
-          await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+          await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp + (trimmed ? '&trimmed=1' : ''), { waitUntil: 'load' });
+          await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
           await page.reload({ waitUntil: 'load' });
           await page.waitForTimeout(1500);
           await page.evaluate((want) => {
@@ -907,8 +907,8 @@ ${TIMING}
     for (const theme of ['light', 'dark']) {
       // (a) THE ARCHIVE WITH CONTENT
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&rows=50&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&rows=50&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1500);
       await gotoHistory();
@@ -935,8 +935,8 @@ ${TIMING}
     for (const theme of ['light', 'dark']) {
       // (c) THE RUNS SCOPE
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1500);
       await gotoHistory();
@@ -963,8 +963,8 @@ ${TIMING}
     for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize(vp);
-        await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
-        await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+        await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
+        await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
         await page.reload({ waitUntil: 'load' });
         await page.waitForTimeout(2200);
         await page.evaluate(() => {
@@ -993,8 +993,8 @@ ${TIMING}
   if (wants("ack")) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://vale.test/panel/?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(2200);
       await page.evaluate(() => {
@@ -1022,8 +1022,8 @@ ${TIMING}
     for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&goal=none&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&goal=none&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'NoGoal-' + theme;
@@ -1045,8 +1045,8 @@ ${TIMING}
     for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&held=1&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&held=1&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Held-' + theme;
@@ -1074,8 +1074,8 @@ ${TIMING}
     for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=pending&sessions=4&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=pending&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1800);
       // 1. arm the two-step close on the LAST tab, so the states the other surfaces rely on stay on screen.
@@ -1113,8 +1113,8 @@ ${TIMING}
   // question. Both densities, one render each, recorded like any other surface.
   for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     await page.setViewportSize(vp);
-    await page.goto('http://vale.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(2000);
     report.targets.push({ density, mode: 'rest', ...(await page.evaluate(TARGETS)) });
@@ -1126,8 +1126,8 @@ ${TIMING}
   // "btn btn-" and "rail-clu", finding 38 styled classes where the browser sees 221).
   for (const [density, path_, vp] of wants("unstyled") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     await page.setViewportSize(vp);
-    await page.goto('http://vale.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1500);
     report.unstyled.push({ page: density, ...(await page.evaluate(UNSTYLED)) });
@@ -1139,8 +1139,8 @@ ${TIMING}
   for (const [density, path_, vp] of wants("hover") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize(vp);
-      await page.goto('http://vale.test' + path_ + '?theme=' + theme + '&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
-      await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+      await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(1500);
       const underAA = [];
@@ -1193,8 +1193,8 @@ ${TIMING}
     // whose transitions were correctly suppressed both read as "animating: []" — the same vacuity this
     // suite keeps finding in its own checks. Normal first, then the same page with the preference set.
     await page.emulateMedia({ reducedMotion: null });
-    await page.goto('http://vale.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1600);
     const normal = await page.evaluate(MOTION);
@@ -1215,8 +1215,8 @@ ${TIMING}
   // width it has, and its tab strip is the standard's own toolbar exception.
   for (const width of wants("reflow") ? [640, 320] : []) {
     await page.setViewportSize({ width, height: 800 });
-    await page.goto('http://vale.test/panel/?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
-    await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
+    await page.goto('http://summrise.test/panel/?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1500);
     report.reflow.push({ width, ...(await page.evaluate(REFLOW)) });

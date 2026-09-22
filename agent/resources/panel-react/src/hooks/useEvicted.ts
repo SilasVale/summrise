@@ -22,9 +22,9 @@ export function useEvictedNotice(ttlMs: number = EVICTED_TTL_MS): EvictionNotice
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => setNotice(null), ttlMs);
     };
-    window.addEventListener("vale-session-evicted", onFrame);
+    window.addEventListener("summrise-session-evicted", onFrame);
     return () => {
-      window.removeEventListener("vale-session-evicted", onFrame);
+      window.removeEventListener("summrise-session-evicted", onFrame);
       if (timer) clearTimeout(timer);
     };
   }, [ttlMs]);

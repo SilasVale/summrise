@@ -16,8 +16,8 @@ use crate::plugins::PluginRegistry;
 use crate::tools::serial::SerialPool;
 use crate::tools::terminal::TerminalManager;
 use anyhow::Context;
-use vale_agent_core::events::{AppEventBus, EventBus};
-use vale_agent_core::Config;
+use summrise_agent_core::events::{AppEventBus, EventBus};
+use summrise_agent_core::Config;
 
 pub struct AppState {
     /// THE RELAY'S OWN STATE (round 207): whether one is configured, when it last answered, and why it last failed. It lives
@@ -256,7 +256,7 @@ mod state_tests {
 
     #[test]
     fn persist_roundtrips_through_the_loaded_file() {
-        let dir = std::env::temp_dir().join(format!("vale-state-rt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-state-rt-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.yaml");
         let st = AppState::new(cfg_with_token("a"));
@@ -276,7 +276,8 @@ mod state_tests {
         // missing dir no longer fails — the dead path here is a regular
         // FILE used as a directory, which no writer can survive.)
         let st = AppState::new(cfg_with_token("a"));
-        let bad = std::env::temp_dir().join(format!("vale-state-not-a-dir-{}", std::process::id()));
+        let bad =
+            std::env::temp_dir().join(format!("summrise-state-not-a-dir-{}", std::process::id()));
         std::fs::write(&bad, b"i am a file, not a dir").unwrap();
         *st.config_path.lock().unwrap_or_else(|p| p.into_inner()) = Some(bad.join("config.yaml"));
         let err = st.update_config(cfg_with_token("b"), true).unwrap_err();

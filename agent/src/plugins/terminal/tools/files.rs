@@ -5,13 +5,13 @@
 
 use serde_json::{json, Value};
 
-use vale_agent_core::ToolDef;
+use summrise_agent_core::ToolDef;
 // The real SFTP body only exists under the `terminal` feature; the headless
 // build keeps the stub handler that needs none of these.
 #[cfg(feature = "terminal")]
 use crate::plugins::{require_str, to_value_or_empty};
 #[cfg(feature = "terminal")]
-use vale_agent_core::DeviceError;
+use summrise_agent_core::DeviceError;
 
 /// P4c: SFTP file operations over SSH — stateless one-shot transfers.
 /// Each call connects (password or key), performs ONE op, and closes.
@@ -75,7 +75,7 @@ pub(super) fn tool_sftp(name: &'static str) -> ToolDef {
 /// The sftp handler closure — real SSH under `terminal`, explicit error stub
 /// otherwise (the feature-gating rule: public tool paths identical in both
 /// configs, only the backend differs).
-fn sftp_handler() -> impl vale_agent_core::ToolHandler + 'static {
+fn sftp_handler() -> impl summrise_agent_core::ToolHandler + 'static {
     move |params: Value| {
         // round-…: headless — silence the unused closure param.
         #[cfg(not(feature = "terminal"))]
@@ -235,7 +235,7 @@ fn sftp_handler() -> impl vale_agent_core::ToolHandler + 'static {
         #[cfg(not(feature = "terminal"))]
         {
             async move {
-                Err(vale_agent_core::DeviceError::Internal {
+                Err(summrise_agent_core::DeviceError::Internal {
                     message: "sftp backend not enabled (built without the terminal feature)"
                         .to_string(),
                 })
@@ -271,7 +271,7 @@ mod tests {
     #[cfg(feature = "terminal")]
     #[test]
     fn sftp_timeout_code_is_pinned_below_its_ledger_entry() {
-        use vale_agent_core::DeviceError as E;
+        use summrise_agent_core::DeviceError as E;
         let err = sftp_connect_timed_out("host.example", 22, "deploy");
         assert_eq!(
             err.code(),
@@ -307,7 +307,7 @@ mod tests {
                 .call(json!({"op": "list", "host": "h", "user": "u", "remote_path": "/"}))
                 .await;
             assert!(
-                matches!(res, Err(vale_agent_core::DeviceError::Internal { .. })),
+                matches!(res, Err(summrise_agent_core::DeviceError::Internal { .. })),
                 "{name} stub must error, never panic or hang: {res:?}"
             );
         }
@@ -330,7 +330,10 @@ mod tests {
             ] {
                 let res = tool_sftp(name).handler.call(params.clone()).await;
                 assert!(
-                    matches!(res, Err(vale_agent_core::DeviceError::InvalidParams { .. })),
+                    matches!(
+                        res,
+                        Err(summrise_agent_core::DeviceError::InvalidParams { .. })
+                    ),
                     "{name} must reject without connecting: {res:?}"
                 );
             }

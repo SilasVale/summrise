@@ -83,10 +83,10 @@ describe("useSSE's frame handling", () => {
     globalThis.fetch = streamOf(['data: {"v":1,"ev":"sessions-changed"}\n\n']);
     const seen: string[] = [];
     const onEv = (e: Event) => seen.push((e as CustomEvent).detail.ev);
-    window.addEventListener("vale-sessions-changed", onEv);
+    window.addEventListener("summrise-sessions-changed", onEv);
     const { unmount } = setup({ current: new Map() });
     await waitFor(() => expect(seen).toContain("sessions-changed"), { timeout: 3000 });
-    window.removeEventListener("vale-sessions-changed", onEv);
+    window.removeEventListener("summrise-sessions-changed", onEv);
     unmount();
   });
 

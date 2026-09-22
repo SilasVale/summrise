@@ -1,8 +1,8 @@
 {
-  "name": "vale-dist",
+  "name": "summrise-dist",
   "private": true,
   "type": "module",
-  "description": "Vale Index worker (Cloudflare) — one-time-claim unit tests via node --test",
+  "description": "Summrise Index worker (Cloudflare) — one-time-claim unit tests via node --test",
   "scripts": {
     "test": "node --test"
   }

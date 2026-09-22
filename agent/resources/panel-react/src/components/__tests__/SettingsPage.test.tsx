@@ -160,7 +160,7 @@ describe("SettingsPage — the two things that stay on the surface", () => {
   });
 
   it("shows the config file the agent reports", () => {
-    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080, path: "C:\\ProgramData\\Vale\\etc\\config.yaml" }} />);
+    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080, path: "C:\\ProgramData\\Summrise\\etc\\config.yaml" }} />);
     expect(screen.getByText(/Config file:/)).toBeTruthy();
     expect(screen.getByText(/config\.yaml/)).toBeTruthy();
   });

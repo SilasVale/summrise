@@ -1,6 +1,6 @@
 // upstream.ts route-table unit tests — pickRoute/stripBracket/
 // passthroughHeaders are pure (env only feeds usProxyBase) but had ZERO
-// direct tests; every /v1 call and valeProbe flow through pickRoute, so a
+// direct tests; every /v1 call and summriseProbe flow through pickRoute, so a
 // drifted table misroutes silently. Pins each prefix + the US-egress wrap.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -145,12 +145,12 @@ test("clientSessionId: priority order, trimming, blank falls through", () => {
   );
 });
 
-test("syntheticSessionId+fnvHex: stable vale-prefixed 16-hex digest, per-uid distinct", () => {
+test("syntheticSessionId+fnvHex: stable summrise-prefixed 16-hex digest, per-uid distinct", () => {
   const a1 = syntheticSessionId("user-a");
   const a2 = syntheticSessionId("user-a");
   const b = syntheticSessionId("user-b");
   assert.equal(a1, a2, "stable across calls (KV-free cache reuse)");
-  assert.match(a1, /^vale-[0-9a-f]{16}$/, "vale- + 16 hex chars");
+  assert.match(a1, /^summrise-[0-9a-f]{16}$/, "summrise- + 16 hex chars");
   assert.notEqual(a1, b, "distinct uids → distinct fallbacks");
   assert.equal(fnvHex("abc"), fnvHex("abc"), "deterministic");
   assert.match(fnvHex("abc"), /^[0-9a-f]{16}$/);

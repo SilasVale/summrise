@@ -419,8 +419,8 @@ pub trait TermBackend: Send + Sync {
 mod desktop_impl {
     use super::*;
     use std::sync::Arc;
+    use summrise_agent_core::DeviceError;
     use tokio::sync::mpsc;
-    use vale_agent_core::DeviceError;
 
     pub(crate) struct Session {
         pub(crate) id: String,

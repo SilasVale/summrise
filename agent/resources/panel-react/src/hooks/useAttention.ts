@@ -137,7 +137,7 @@ export function useAttentionNotifications(
       notifier.current?.notify(
         {
           key: item.key,
-          title: item.kind === "approval" ? "Vale needs you" : "Vale: host down",
+          title: item.kind === "approval" ? "Summrise needs you" : "Summrise: host down",
           body: item.text,
         },
         permission,
@@ -163,14 +163,14 @@ export function useAttentionNotifications(
       notifier.current?.notify(
         {
           key: stateKey(change.id, change.atMs),
-          title: change.up ? "Vale: host back up" : "Vale: host down",
+          title: change.up ? "Summrise: host back up" : "Summrise: host down",
           body: `${change.host}:${change.port} is ${body}`,
         },
         permission,
       );
     };
-    window.addEventListener("vale-monitor-change", onFrame);
-    return () => window.removeEventListener("vale-monitor-change", onFrame);
+    window.addEventListener("summrise-monitor-change", onFrame);
+    return () => window.removeEventListener("summrise-monitor-change", onFrame);
   }, [permission, enabled]);
 }
 

@@ -73,7 +73,7 @@ pub(crate) fn serve_panel_file(file: &str, content_type: &'static str) -> Respon
         // AND THE PRIVATE-NETWORK PERMISSION (round 247), a SECOND and newer gate on the same journey: Chrome asks it of any
         // request from a public-origin page to 127.0.0.1, and without it the load is refused with "the resource is in
         // more-private address space (?local?)" EVEN THOUGH the header above is present. Measured on the device with a harness
-        // served from http://vale.test: both panel.js and panel.css refused, while the same harness served from 127.0.0.1
+        // served from http://summrise.test: both panel.js and panel.css refused, while the same harness served from 127.0.0.1
         // loaded them — so the variable is the address space, not the CORS header that was already there.
         resp.headers_mut().insert(
             "Access-Control-Allow-Private-Network",
@@ -120,7 +120,7 @@ pub(crate) fn panel_content_type(file: &str) -> &'static str {
 
 /// Serve the panel SPA with the device token injected as
 /// `window.__PANEL_TOKEN__` (before `</head>`). Shared by every
-/// injection-authorized path — loopback, the gateway proxy (X-Vale-Auth
+/// injection-authorized path — loopback, the gateway proxy (X-Summrise-Auth
 /// secret) and a redeemed one-time panel grant — so all three produce the
 /// byte-identical response shape: 200, text/html, no-store (a cached copy of
 /// this page IS the device token).

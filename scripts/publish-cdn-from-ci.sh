@@ -10,7 +10,7 @@
 # not byte-identical and cannot easily be made so … ~800 bytes of .data layout
 # still differ, which puts the cause in the compile ENVIRONMENT". On the live
 # release pair the two tarballs differ by exactly 3 bytes out of 17,774,080, and
-# the 17.5 MB `vale-agent.exe` is BYTE-IDENTICAL between the two builders — as it
+# the 17.5 MB `summrise-agent.exe` is BYTE-IDENTICAL between the two builders — as it
 # has been for at least twenty consecutive releases, because the audit's WARN
 # arm is reachable ONLY when the exes match. The 3 bytes were a FILE MODE:
 # `package/README.md` packed `-rw-------` here and `-rw-r--r--` in CI, because
@@ -29,7 +29,7 @@
 # afterwards, on demand.
 #
 # Guards (fail closed):
-#   * the GitHub release must exist and carry vale-agent-<ver>.tgz
+#   * the GitHub release must exist and carry summrise-agent-<ver>.tgz
 #   * release-audit.sh must first prove the CI artifact packages the same
 #     SOURCE as the CDN's current (locally built) tgz — if any source-derived
 #     file drifted, this refuses to touch the CDN
@@ -50,8 +50,8 @@ for a in "$@"; do
   esac
 done
 
-ASSET_DIR=index/public/vale-agent
-TGZ_NAME="vale-agent-${VER}.tgz"
+ASSET_DIR=index/public/summrise-agent
+TGZ_NAME="summrise-agent-${VER}.tgz"
 CDN_BASE="${SMOKE_BASE_URL:-https://agent.saisi.online}"
 
 cf_token() {
@@ -72,7 +72,7 @@ echo "== 2. fetch the CI artifact =="
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 curl -fsSL -m 300 --retry 5 --retry-delay 3 --retry-connrefused \
-  "https://github.com/${REPO:-SilasVale/vale}/releases/download/v${VER}/${TGZ_NAME}" \
+  "https://github.com/${REPO:-SilasVale/summrise}/releases/download/v${VER}/${TGZ_NAME}" \
   -o "$WORK/$TGZ_NAME" || { echo "::error::cannot download the GitHub asset" >&2; exit 1; }
 CI_SHA=$(sha256sum "$WORK/$TGZ_NAME" | cut -d' ' -f1)
 echo "  CI artifact sha256: $CI_SHA"
@@ -94,14 +94,14 @@ fi
 
 echo "== 3. stage the CI artifact =="
 cp "$WORK/$TGZ_NAME" "$ASSET_DIR/$TGZ_NAME"
-cp "$WORK/$TGZ_NAME" "$ASSET_DIR/vale-agent-latest.tgz"
+cp "$WORK/$TGZ_NAME" "$ASSET_DIR/summrise-agent-latest.tgz"
 echo "  staged $TGZ_NAME + latest alias"
 
 echo "== 4. rebuild the self-contained installer FROM the CI tgz =="
 ./scripts/build-installer.sh "$VER" --no-deploy
 
 echo "== 5. rewrite the manifest =="
-INST_EXE="$ASSET_DIR/ValeAgent-Setup-${VER}.exe"
+INST_EXE="$ASSET_DIR/SummriseAgent-Setup-${VER}.exe"
 SHA=$(write_version_json "$VER" "$ASSET_DIR/$TGZ_NAME" "$ASSET_DIR" "$INST_EXE")
 [ "$SHA" = "$CI_SHA" ] || { echo "::error::manifest sha $SHA != CI sha $CI_SHA" >&2; exit 1; }
 echo "  version.json -> $SHA"
@@ -117,5 +117,5 @@ source "scripts/smoke-index.sh"
 smoke_index_release "$VER" "$SHA" || exit 1
 
 echo "== done: the CDN now serves the CI-built artifact =="
-echo "  $CDN_BASE/vale-agent/$TGZ_NAME  ($SHA)"
+echo "  $CDN_BASE/summrise-agent/$TGZ_NAME  ($SHA)"
 echo "  next: commit the staged tgz/installer/version.json (git add $ASSET_DIR)"

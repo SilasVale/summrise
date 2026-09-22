@@ -3,7 +3,7 @@
 // vocabulary::tests::contract_vocabulary_snapshot.
 // The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked by
 // scripts/test/contract-vocabulary-check.mjs.
-// Do not hand-edit: VALE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.
+// Do not hand-edit: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.
 {
   "boot_kinds": [
     "first-run",

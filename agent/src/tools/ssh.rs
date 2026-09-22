@@ -6,12 +6,12 @@ use russh::client::{self, connect, Handle};
 use russh::ChannelMsg;
 use tokio::sync::mpsc;
 
-use vale_agent_core::DeviceError;
+use summrise_agent_core::DeviceError;
 
 /// SSH handler with trust-on-first-use host-key verification.
 ///
 /// The first connection to a host records its key fingerprint in
-/// vale-known-hosts.json (next to the exe); later connections REJECT a
+/// summrise-known-hosts.json (next to the exe); later connections REJECT a
 /// changed key. Without this, any MITM could present its own key and capture
 /// the SSH password (the old handler accepted every key). Keyed by
 /// "user@host:port" so the same host under a different identity is not
@@ -28,7 +28,7 @@ fn fingerprint_of(key: &russh::keys::ssh_key::PublicKey) -> String {
 }
 
 fn known_hosts_path() -> std::path::PathBuf {
-    crate::paths::data_dir().join("vale-known-hosts.json")
+    crate::paths::data_dir().join("summrise-known-hosts.json")
 }
 
 /// Parse failure is an Err — the caller (check_server_key) fails the
@@ -48,7 +48,7 @@ fn load_known_hosts() -> Result<serde_json::Map<String, serde_json::Value>, std:
 /// Missing file is a FRESH trust table (round-68): round-57 propagated the
 /// NotFound, so check_server_key aborted with UnknownKey BEFORE the first-use
 /// TOFU branch could write the file — SSH could never bootstrap on a fresh
-/// install (nothing creates vale-known-hosts.json). NotFound → empty map;
+/// install (nothing creates summrise-known-hosts.json). NotFound → empty map;
 /// corrupt/other errors still propagate so check_server_key FAILS CLOSED
 /// (the re-TOFU-everything MITM protection round-57 built stays intact).
 fn load_known_hosts_or_empty() -> Result<serde_json::Map<String, serde_json::Value>, std::io::Error>
@@ -104,12 +104,16 @@ impl client::Handler for SshHandler {
             .and_then(|v| v.as_str().map(String::from));
         let changed = match &existing {
             None => {
-                tracing::info!("[vale-agent] ssh: TOFU trust {} fp={}", self.trust_key, fp);
+                tracing::info!(
+                    "[summrise-agent] ssh: TOFU trust {} fp={}",
+                    self.trust_key,
+                    fp
+                );
                 true
             }
             Some(old_fp) if old_fp != &fp => {
                 tracing::warn!(
-                    "[vale-agent] ssh: host key CHANGED for {} (old={}, new={}) — updated trust",
+                    "[summrise-agent] ssh: host key CHANGED for {} (old={}, new={}) — updated trust",
                     self.trust_key,
                     old_fp,
                     fp

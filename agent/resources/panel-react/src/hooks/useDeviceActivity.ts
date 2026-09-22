@@ -37,15 +37,15 @@ export const WORKING_MS = 8000;
  *  invisible at the device level.
  *
  *  VERIFIED, because the signal is worthless otherwise: useSSE dispatches
- *  `vale-term-output` per FRAME carrying `frame.session_id`, on a stream its own
+ *  `summrise-term-output` per FRAME carrying `frame.session_id`, on a stream its own
  *  code documents as "cross-session" — so output from a BACKGROUND session
  *  lights the device state too, not only the session being watched. And useSSE
  *  is mounted once in App.tsx, above both density branches, so the desktop shell
  *  and the panel receive the same events. */
 const DEVICE_ACTIVITY_EVENTS = [
-  "vale-term-output",
-  "vale-browser-actions-changed",
-  "vale-playwright-changed",
+  "summrise-term-output",
+  "summrise-browser-actions-changed",
+  "summrise-playwright-changed",
 ] as const;
 
 /** True while activity has arrived within WORKING_MS. */

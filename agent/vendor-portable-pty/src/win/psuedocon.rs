@@ -86,7 +86,7 @@ impl PsuedoCon {
                 size,
                 input.as_raw_handle() as _,
                 output.as_raw_handle() as _,
-                // stage-m (Vale): flags = RESIZE_QUIRK only. The stock
+                // stage-m (Summrise): flags = RESIZE_QUIRK only. The stock
                 // portable-pty also sets PSEUDOCONSOLE_WIN32_INPUT_MODE (0x4),
                 // which makes ConPTY echo console OUTPUT back as Win32 INPUT
                 // events — PSReadLine then receives the OSC 633 terminator

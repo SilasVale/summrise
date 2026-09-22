@@ -13,7 +13,7 @@
 use std::collections::BTreeSet;
 
 fn lock_versions(crate_name: &str) -> BTreeSet<(u64, u64)> {
-    // Workspace root is agent/ (members [".", "vale-command-core"]).
+    // Workspace root is agent/ (members [".", "summrise-command-core"]).
     let text = std::fs::read_to_string(format!("{}/Cargo.lock", env!("CARGO_MANIFEST_DIR")))
         .expect("workspace Cargo.lock must exist");
     let mut out = BTreeSet::new();

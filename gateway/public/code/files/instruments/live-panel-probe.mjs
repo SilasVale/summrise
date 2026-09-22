@@ -31,7 +31,7 @@
 //          require("D:\\path\\to\\probe-live.js");
 //
 //      THE TRAP: run it from a terminal instead and it dies with `The "id" argument must be of type string. Received
-//      undefined` — that is `require(undefined)`, because `VALE_BROWSER_HELPER` is set by the RUNNER and by nothing else. Two
+//      undefined` — that is `require(undefined)`, because `SUMMRISE_BROWSER_HELPER` is set by the RUNNER and by nothing else. Two
 //      rounds were spent guessing environment variables at a terminal before anyone read the emitted script's first line.
 //   4. A GREEN RUN looks like this (the operator's device, 2026-09-22, both densities): `textFailing: []`,
 //      `graphicFailing: []`, `unmeasurable: 0`, `marks.collisions: []`, `marks.ringFill: []`, `errors: []`, and
@@ -44,9 +44,9 @@ import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 import { marksSource } from "./lib/design-sweep.mjs";
 
 const CONFIG_PATHS = [
-  "D:\\\\Vale\\\\etc\\\\config.yaml", // layout-v2 (where it is today)
-  "C:\\\\ProgramData\\\\Vale\\\\config.yaml",
-  "C:\\\\ProgramData\\\\Vale\\\\etc\\\\config.yaml",
+  "D:\\\\Summrise\\\\etc\\\\config.yaml", // layout-v2 (where it is today)
+  "C:\\\\ProgramData\\\\Summrise\\\\config.yaml",
+  "C:\\\\ProgramData\\\\Summrise\\\\etc\\\\config.yaml",
 ];
 
 function emitted() {
@@ -65,7 +65,7 @@ const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
     console.log(JSON.stringify({ error: 'no token found in any known config', tried: CONFIGS }));
     process.exit(1);
   }
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 120)));

@@ -234,7 +234,7 @@ const I18N = {
     "user.disableToast": "已禁用",
     "user.enableToast": "已启用",
     "devices.lede":
-      "注册并管理每台 Windows 设备（vale-agent）：在线状态、Agent 版本、隧道连接一目了然，可直接打开设备面板、复制 MCP 配置。",
+      "注册并管理每台 Windows 设备（summrise-agent）：在线状态、Agent 版本、隧道连接一目了然，可直接打开设备面板、复制 MCP 配置。",
     "devices.add": "添加设备",
     "devices.addTitle": "添加设备",
     "devices.editTitle": "编辑设备",
@@ -247,7 +247,7 @@ const I18N = {
     "devices.renamed": "设备已更新",
     "devices.installTitle": "新设备安装",
     "devices.installDesc":
-      "在 Windows 设备上执行以下命令 — vale setup 是纯本地安装，不需要任何 key 或云配置。",
+      "在 Windows 设备上执行以下命令 — summrise setup 是纯本地安装，不需要任何 key 或云配置。",
     "devices.installStep1": "1. 安装（在设备 PowerShell 执行）：",
     "devices.installStep2":
       "2. 可选 — 让设备出现在上方列表：生成注册码，把第 2 条完整命令复制到设备 PowerShell 执行；或在设备面板 Settings → Gateway 卡片里粘贴注册码并保存。",
@@ -619,7 +619,7 @@ const I18N = {
     "user.disableToast": "Disabled",
     "user.enableToast": "Enabled",
     "devices.lede":
-      "Register and manage every Windows device (vale-agent): online status, agent version, tunnel connection at a glance — open the device panel or copy its MCP config directly.",
+      "Register and manage every Windows device (summrise-agent): online status, agent version, tunnel connection at a glance — open the device panel or copy its MCP config directly.",
     "devices.add": "Add device",
     "devices.addTitle": "Add device",
     "devices.editTitle": "Edit device",
@@ -633,7 +633,7 @@ const I18N = {
     "devices.renamed": "Device updated",
     "devices.installTitle": "Install a new device",
     "devices.installDesc":
-      "Run these on the Windows device — vale setup is a PURE LOCAL install, no key or cloud config needed.",
+      "Run these on the Windows device — summrise setup is a PURE LOCAL install, no key or cloud config needed.",
     "devices.installStep1": "1. Install (run in PowerShell on the device):",
     "devices.installStep2":
       "2. Optional — make the device appear in the list above: generate a key, copy command 2 (complete) to the device's PowerShell; or paste the key in the device panel's Settings → Gateway card and save.",
@@ -776,7 +776,7 @@ export type TranslationKey = keyof (typeof I18N)["zh"];
 
 let lang: Lang = "zh";
 try {
-  const stored = localStorage.getItem("valegate-lang");
+  const stored = localStorage.getItem("summrisegate-lang");
   if (stored === "zh" || stored === "en") lang = stored;
   else lang = (navigator.language || "zh").startsWith("zh") ? "zh" : "en";
 } catch {
@@ -792,7 +792,7 @@ function emitChange() {
 export function setLang(next: Lang) {
   lang = next;
   try {
-    localStorage.setItem("valegate-lang", lang);
+    localStorage.setItem("summrisegate-lang", lang);
   } catch {
     /* ignore */
   }

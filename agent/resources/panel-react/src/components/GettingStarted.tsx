@@ -8,7 +8,7 @@
 //  * ONE COLUMN, NUMBERED, with the number's rail carrying the eye down. A grid of cards would
 //    say "here are four unrelated things"; this is a sequence, and it is drawn as one.
 //  * THE CARD IS THE PRODUCT'S OWN SURFACE: the panel's tokens, radii and primary button, so it
-//    looks like Vale in both themes instead of like a dialog that arrived from elsewhere.
+//    looks like Summrise in both themes instead of like a dialog that arrived from elsewhere.
 //  * IT IS DISMISSIBLE AND NEVER FORCED AGAIN, and Esc/backdrop/button all dismiss it. A modal
 //    that traps somebody who does not want it is worse than no guide; the rail keeps a `?`.
 //  * FOCUS LANDS ON THE PRIMARY BUTTON and the card is a labelled `aria-modal` dialog, so a

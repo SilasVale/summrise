@@ -1,6 +1,6 @@
-# Vale Satellite Proxies
+# Summrise Satellite Proxies
 
-Independently deployed small proxy Workers / Vercel projects, invoked by the Vale gateway when `US_PROXY` is enabled (US egress), or used as dedicated entry points. The source was migrated in from `~/cloudflare` and `~/vercel-proxy` and unified under the `scripts/build.sh` deployment.
+Independently deployed small proxy Workers / Vercel projects, invoked by the Summrise gateway when `US_PROXY` is enabled (US egress), or used as dedicated entry points. The source was migrated in from `~/cloudflare` and `~/vercel-proxy` and unified under the `scripts/build.sh` deployment.
 
 | Directory | Worker name | Purpose | Secrets |
 |---|---|---|---|

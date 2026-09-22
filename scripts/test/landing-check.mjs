@@ -24,7 +24,7 @@ const PAGE = "index/src/page.js";
 
 // BOTH BLOCKS, from the stylesheet the page actually renders. The light values are the ones outside the dark
 // attribute; the dark ones are inside it, and a token the dark block does not restate keeps its light value.
-const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz", "vale setup");
+const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz", "summrise setup");
 const style = (/<style[\s\S]*?<\/style>/.exec(rendered) || [""])[0];
 if (!style) throw new Error("the landing rendered no <style> — this check is reading the wrong thing");
 const darkStart = style.indexOf("body[data-ds-dark-theme]");
@@ -88,7 +88,7 @@ console.log(`landing contrast: ok — ${PAIRS.length} pairs in BOTH themes (${ch
 
 // ── the DOCUMENT's structure, which no sweep covers for this page ───────────────────────────────────────────
 {
-  const html = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz", "vale setup");
+  const html = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz", "summrise setup");
   const body = html.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<script[\s\S]*?<\/script>/g, "");
   const count = (re) => (body.match(re) || []).length;
   const h1s = [...body.matchAll(/<h1[^>]*>([^<]*)<\/h1>/g)].map((m) => m[1].trim());
@@ -117,7 +117,7 @@ console.log(`landing contrast: ok — ${PAIRS.length} pairs in BOTH themes (${ch
 // width or min-width wider than the narrowest viewport the page has to survive, and there must be at least one
 // breakpoint, or nothing about it can reflow at all.
 {
-  const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz", "vale setup");
+  const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz", "summrise setup");
   const style = (/<style[\s\S]*?<\/style>/.exec(rendered) || [""])[0];
   const NARROWEST = 320;
   const problems = [];

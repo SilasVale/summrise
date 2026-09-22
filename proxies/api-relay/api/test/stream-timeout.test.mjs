@@ -16,10 +16,10 @@
 // proven here is the property the contract asks for: a body outliving the budget
 // still arrives, and a HEADER that outlives it is still aborted.
 //
-// The budget is read from VALE_RELAY_HEADER_TIMEOUT_MS so these can tell the two
+// The budget is read from SUMMRISE_RELAY_HEADER_TIMEOUT_MS so these can tell the two
 // shapes apart in milliseconds instead of sleeping 30 s. It is set BEFORE the
 // dynamic imports because the handlers read it at module load.
-process.env.VALE_RELAY_HEADER_TIMEOUT_MS = "120";
+process.env.SUMMRISE_RELAY_HEADER_TIMEOUT_MS = "120";
 
 import test from "node:test";
 import assert from "node:assert/strict";

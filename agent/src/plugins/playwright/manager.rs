@@ -13,16 +13,16 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Mutex;
 
+use summrise_agent_core::{recover_guard, DeviceError};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::oneshot;
-use vale_agent_core::{recover_guard, DeviceError};
 
 /// round-143: CREATE_NO_WINDOW — node.exe is a console-subsystem binary; when
 /// the agent (or the swap's powershell/taskkill helpers) spawns it without
 /// this flag and the parent has an interactive console, Windows allocates a
 /// visible cmd window. 0x08000000 = CREATE_NO_WINDOW. Harmless when the
 /// parent has no console (session-0 service) and prevents the flash under
-/// `vale run` / dev consoles. We apply it through `std::os::windows::process
+/// `summrise run` / dev consoles. We apply it through `std::os::windows::process
 /// ::CommandExt::creation_flags` on the inner std Command (tokio Command
 /// doesn't expose it directly, but its `as_std_mut` gives us the same
 /// underlying handle).
@@ -46,7 +46,7 @@ pub struct PlaywrightManager {
     inner: Mutex<Option<ManagedPlaywright>>,
     /// round-163: set by AppState after construction — start/stop push a
     /// `playwright-changed` SSE event so the panel needs no status poll.
-    bus: std::sync::Mutex<Option<std::sync::Arc<dyn vale_agent_core::EventBus>>>,
+    bus: std::sync::Mutex<Option<std::sync::Arc<dyn summrise_agent_core::EventBus>>>,
 }
 
 /// A running playwright-mcp instance.
@@ -116,7 +116,7 @@ async fn wait_healthy(child: &mut tokio::process::Child, port: u16) -> Result<()
         // text/event-stream — missing it returns 406 and the probe
         // always fails.
         .header("accept", "application/json, text/event-stream")
-        .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"vale-agent","version":"1"}}}"#)
+        .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"summrise-agent","version":"1"}}}"#)
         .send()
         .await;
         if let Ok(resp) = probe {
@@ -209,14 +209,14 @@ struct ManagedPlaywright {
 
 /// Resolve the node runtime: the agent no longer bundles node.exe (the npm
 /// channel guarantees the device has node). Resolution order:
-///   1. registry NodePath (written by `vale setup` — the SYSTEM agent may
+///   1. registry NodePath (written by `summrise setup` — the SYSTEM agent may
 ///      not see the user PATH)
 ///   2. bundled components/playwright/node.exe (layout v2)
 ///   3. system PATH (`where node`)
 ///
 /// Gives a clear error when none is found.
 fn resolve_node() -> Result<PathBuf, DeviceError> {
-    // 1. registry NodePath (recorded by `vale setup`)
+    // 1. registry NodePath (recorded by `summrise setup`)
     if let Some(p) = crate::paths::node_path() {
         return Ok(p);
     }
@@ -242,7 +242,7 @@ fn resolve_node() -> Result<PathBuf, DeviceError> {
         }
     }
     Err(DeviceError::Internal {
-        message: "node.exe not found (playwright browser tools need it) — install Node.js (https://nodejs.org) or run `vale setup` to record its path".into(),
+        message: "node.exe not found (playwright browser tools need it) — install Node.js (https://nodejs.org) or run `summrise setup` to record its path".into(),
     })
 }
 
@@ -294,7 +294,7 @@ async fn reap_leftovers() {}
 
 /// round-132: probe whether a healthy playwright-mcp instance is serving on
 /// port 9229 — regardless of who started it (scheduled task/panel/manual).
-/// In production the ValePlaywright scheduled task hosts the instance in the
+/// In production the SummrisePlaywright scheduled task hosts the instance in the
 /// interactive session and the agent is only a client; status() must honestly
 /// report this "externally hosted" form as Running, otherwise the panel always
 /// shows Stopped.
@@ -323,7 +323,7 @@ impl PlaywrightManager {
     /// Wire the event bus (called once from AppState::new, after both Arcs
     /// exist). Emits go out on runner start/stop regardless of WHO started
     /// it (panel button, MCP self-heal, AI client).
-    pub fn set_bus(&self, bus: std::sync::Arc<dyn vale_agent_core::EventBus>) {
+    pub fn set_bus(&self, bus: std::sync::Arc<dyn summrise_agent_core::EventBus>) {
         *recover_guard(&self.bus) = Some(bus);
     }
 
@@ -361,7 +361,7 @@ impl PlaywrightManager {
         };
         if !has_live_child || child_exited {
             // round-132: no child spawned by us (or already exited) ≠ service unavailable —
-            // in production the ValePlaywright scheduled task hosts the instance in the
+            // in production the SummrisePlaywright scheduled task hosts the instance in the
             // interactive session. Probe health before concluding; otherwise the panel
             // always shows Stopped.
             if probe_healthy().await {
@@ -635,7 +635,7 @@ mod manager_tests {
         // Linux CI/box: no registry, no bundled node.exe, no PATH arm —
         // the error must name the remedy, not just "not found".
         match resolve_node() {
-            Err(e) => assert!(e.to_string().contains("vale setup"), "{e:?}"),
+            Err(e) => assert!(e.to_string().contains("summrise setup"), "{e:?}"),
             Ok(p) => assert!(
                 p.ends_with("node.exe"),
                 "legacy bundle present: {}",

@@ -93,7 +93,7 @@ it("the age of an ACT reads as an age, not as a reading", () => {
 
 it("states the last update the DEVICE launched, from its own record", () => {
   // The fact that answers "did my click do anything". It comes from the device (`record_update_attempt` at the
-  // moment the swap script is handed to WMI) rather than from a reading of vale-update.log, which two programs
+  // moment the swap script is handed to WMI) rather than from a reading of summrise-update.log, which two programs
   // write and which says nothing at all about whether the swap STARTED.
   const { container } = render(
     <UpdateCard

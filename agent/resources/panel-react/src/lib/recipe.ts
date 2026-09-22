@@ -25,7 +25,7 @@ import type { SessionPath, PathStep } from "./path";
 
 /** Marker line so a recipe is identifiable in the shared store, and greppable
  *  by a client that only has the raw text. */
-export const RECIPE_MARKER = "vale-recipe/v1";
+export const RECIPE_MARKER = "summrise-recipe/v1";
 
 /** Tag every recipe carries, so `memory_search` with tags finds them. */
 export const RECIPE_TAG = "recipe";

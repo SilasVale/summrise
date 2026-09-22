@@ -22,7 +22,7 @@ interface PlaywrightStatus {
   port?: number;
   /** WHEN THE INSTANCE STARTED — and the device OMITS THIS on its healthy
    *  EXTERNAL branch, which its own comment calls the production path
-   *  (`agent/src/plugins/playwright/manager.rs`: the ValePlaywright task hosts
+   *  (`agent/src/plugins/playwright/manager.rs`: the SummrisePlaywright task hosts
    *  the instance, so it outlives the agent that reported it). A consumer must
    *  therefore treat an absent value as "not reported" rather than substituting
    *  a clock: `started_at ?? Date.now()` rendered "up 0s" for an instance that
@@ -147,10 +147,10 @@ export function usePlugins(active: boolean) {
     if (!active) return;
     refresh();
     const onChange = () => { refresh(); };
-    window.addEventListener("vale-playwright-changed", onChange);
+    window.addEventListener("summrise-playwright-changed", onChange);
     document.addEventListener("visibilitychange", onChange);
     return () => {
-      window.removeEventListener("vale-playwright-changed", onChange);
+      window.removeEventListener("summrise-playwright-changed", onChange);
       document.removeEventListener("visibilitychange", onChange);
     };
   }, [active, refresh]);

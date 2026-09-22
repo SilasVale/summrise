@@ -3,7 +3,7 @@
 // helpers, no worker bindings — same pattern as ./claim.js.
 
 export const FAVICON =
-  "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%20viewBox%3D%220%200%2048%2048%22%3E%0A%20%20%3C%21--%20Vale%20brand%20mark%3A%20the%20vale%20at%20sunrise%20%E2%80%94%20near%20hill%2C%20far%20ridge%2C%20signal%20over%20the%20pass.%0A%20%20%20%20%20%20%20THE%20ONE%20MARK.%20It%20is%2016%E2%80%9330px%20in%20real%20life%20%28Windows%20tray%2016%2C%20rail%2020%2F26%2C%20console%2030%29%2C%0A%20%20%20%20%20%20%20so%20it%20is%20drawn%20for%20that%3A%20three%20gradients%2C%20no%20scene.%20The%20iridescent%20variant%20that%0A%20%20%20%20%20%20%20replaced%20it%20for%20three%20days%20put%20twelve%20gradients%20and%20a%20whole%20sky%20into%20the%20same%0A%20%20%20%20%20%20%20space%3B%20at%2016%E2%80%9326px%20its%20ribbons%20collapsed%20into%20a%20smear.%20Reverted.%0A%20%20%20%20%20%20%20Copies%20kept%20in%20step%20by%20src%2Fui%2F__tests__%2FIcon.test.tsx%3A%20this%20file%2C%20the%20panel%27s%0A%20%20%20%20%20%20%20BrandMark%2C%20the%20console%20favicon%20and%20the%20landing%20page%27s%20data-URI.%20--%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22vale-sky%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f59f00%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e8590c%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22vale-glow%22%20cx%3D%22.5%22%20cy%3D%22.5%22%20r%3D%22.5%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23fff8e1%22%20stop-opacity%3D%22.55%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffe8a3%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%20%20%3C%21--%20The%20material%3A%20light%20gathers%20at%20the%20top%20edge%2C%20the%20base%20sits%20in%20its%20own%20shadow.%0A%20%20%20%20%20%20%20%20%20This%20is%20what%20makes%20the%20tile%20read%20as%20an%20object%20rather%20than%20a%20sticker.%20--%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22vale-sheen%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ffffff%22%20stop-opacity%3D%22.25%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22.45%22%20stop-color%3D%22%23ffffff%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%237c2d12%22%20stop-opacity%3D%22.10%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%3C%2Fdefs%3E%0A%0A%20%20%3Crect%20width%3D%2248%22%20height%3D%2248%22%20rx%3D%2211%22%20fill%3D%22url%28%23vale-sky%29%22%2F%3E%0A%0A%20%20%3C%21--%20signal%20rising%20over%20the%20pass%20--%3E%0A%20%20%3Ccircle%20cx%3D%2221%22%20cy%3D%2214%22%20r%3D%227.5%22%20fill%3D%22url%28%23vale-glow%29%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2221%22%20cy%3D%2214%22%20r%3D%224%22%20fill%3D%22%23fff8e1%22%2F%3E%0A%0A%20%20%3C%21--%20far%20ridge%20%28haze%29%20--%3E%0A%20%20%3Cpath%20fill%3D%22%23ffffff%22%20opacity%3D%22.78%22%20d%3D%22M14%2041Q26%2016%2044%2041Z%22%2F%3E%0A%20%20%3C%21--%20near%20hill%20%28solid%29%20--%3E%0A%20%20%3Cpath%20fill%3D%22%23ffffff%22%20d%3D%22M2%2041Q12%2020%2024%2041Z%22%2F%3E%0A%0A%20%20%3Crect%20width%3D%2248%22%20height%3D%2248%22%20rx%3D%2211%22%20fill%3D%22url%28%23vale-sheen%29%22%2F%3E%0A%3C%2Fsvg%3E%0A";
+  "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%20viewBox%3D%220%200%2048%2048%22%3E%0A%20%20%3C%21--%20Summrise%20brand%20mark%3A%20the%20summrise%20at%20sunrise%20%E2%80%94%20near%20hill%2C%20far%20ridge%2C%20signal%20over%20the%20pass.%0A%20%20%20%20%20%20%20THE%20ONE%20MARK.%20It%20is%2016%E2%80%9330px%20in%20real%20life%20%28Windows%20tray%2016%2C%20rail%2020%2F26%2C%20console%2030%29%2C%0A%20%20%20%20%20%20%20so%20it%20is%20drawn%20for%20that%3A%20three%20gradients%2C%20no%20scene.%20The%20iridescent%20variant%20that%0A%20%20%20%20%20%20%20replaced%20it%20for%20three%20days%20put%20twelve%20gradients%20and%20a%20whole%20sky%20into%20the%20same%0A%20%20%20%20%20%20%20space%3B%20at%2016%E2%80%9326px%20its%20ribbons%20collapsed%20into%20a%20smear.%20Reverted.%0A%20%20%20%20%20%20%20Copies%20kept%20in%20step%20by%20src%2Fui%2F__tests__%2FIcon.test.tsx%3A%20this%20file%2C%20the%20panel%27s%0A%20%20%20%20%20%20%20BrandMark%2C%20the%20console%20favicon%20and%20the%20landing%20page%27s%20data-URI.%20--%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22summrise-sky%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f59f00%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e8590c%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22summrise-glow%22%20cx%3D%22.5%22%20cy%3D%22.5%22%20r%3D%22.5%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23fff8e1%22%20stop-opacity%3D%22.55%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffe8a3%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%20%20%3C%21--%20The%20material%3A%20light%20gathers%20at%20the%20top%20edge%2C%20the%20base%20sits%20in%20its%20own%20shadow.%0A%20%20%20%20%20%20%20%20%20This%20is%20what%20makes%20the%20tile%20read%20as%20an%20object%20rather%20than%20a%20sticker.%20--%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22summrise-sheen%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ffffff%22%20stop-opacity%3D%22.25%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22.45%22%20stop-color%3D%22%23ffffff%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%221%22%20stop-color%3D%22%237c2d12%22%20stop-opacity%3D%22.10%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%3C%2Fdefs%3E%0A%0A%20%20%3Crect%20width%3D%2248%22%20height%3D%2248%22%20rx%3D%2211%22%20fill%3D%22url%28%23summrise-sky%29%22%2F%3E%0A%0A%20%20%3C%21--%20signal%20rising%20over%20the%20pass%20--%3E%0A%20%20%3Ccircle%20cx%3D%2221%22%20cy%3D%2214%22%20r%3D%227.5%22%20fill%3D%22url%28%23summrise-glow%29%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2221%22%20cy%3D%2214%22%20r%3D%224%22%20fill%3D%22%23fff8e1%22%2F%3E%0A%0A%20%20%3C%21--%20far%20ridge%20%28haze%29%20--%3E%0A%20%20%3Cpath%20fill%3D%22%23ffffff%22%20opacity%3D%22.78%22%20d%3D%22M14%2041Q26%2016%2044%2041Z%22%2F%3E%0A%20%20%3C%21--%20near%20hill%20%28solid%29%20--%3E%0A%20%20%3Cpath%20fill%3D%22%23ffffff%22%20d%3D%22M2%2041Q12%2020%2024%2041Z%22%2F%3E%0A%0A%20%20%3Crect%20width%3D%2248%22%20height%3D%2248%22%20rx%3D%2211%22%20fill%3D%22url%28%23summrise-sheen%29%22%2F%3E%0A%3C%2Fsvg%3E%0A";
 
 export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   // P2-8: both URLs flow into HTML (href attributes + inline <code> text).
@@ -13,16 +13,16 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   // never break out of the attribute/element (stored-XSS via env var).
   const safeConsole = escHtml(safePageUrl(consoleUrl, "/"));
   const safeInstaller = escHtml(
-    safePageUrl(installerUrl, "/vale-agent/vale-agent-latest.tgz"),
+    safePageUrl(installerUrl, "/summrise-agent/summrise-agent-latest.tgz"),
   );
   // THE DOOR MUST NOT OFFER WHAT THE RELEASE DOES NOT DESCRIBE (round 125).
-  // A tgz-only publish leaves the ValeAgent-Setup.exe alias serving the PREVIOUS
+  // A tgz-only publish leaves the SummriseAgent-Setup.exe alias serving the PREVIOUS
   // release while /api/version advertises the new one, so a "Download Windows
   // installer" button would hand a fresh install the old build. The caller passes
   // a URL only when the manifest advertises an installer; the fallback that used
   // to live here would have resurrected the link anyway, so there is none.
   const setupBlock = setupUrl
-    ? `<a class="btn-primary" href="${escHtml(safePageUrl(setupUrl, "/vale-agent/ValeAgent-Setup.exe"))}">Download Windows installer</a>
+    ? `<a class="btn-primary" href="${escHtml(safePageUrl(setupUrl, "/summrise-agent/SummriseAgent-Setup.exe"))}">Download Windows installer</a>
         <span class="hint">Easiest path: one setup.exe (needs admin + internet, no Node.js required). Or the manual channel below.</span>`
     : `<span class="hint">No Windows installer is published for this release — use the npm channel below: it installs the same agent and updates itself.</span>`;
   return `<!doctype html>
@@ -30,7 +30,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vale Agent</title>
+<title>Summrise Agent</title>
 <link rel="icon" href="${FAVICON}">
 <style>
   :root {
@@ -337,7 +337,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
 <script>
 // DSH-style theme init: respect system preference, allow manual toggle
 (function() {
-  var stored = localStorage.getItem('vale-theme');
+  var stored = localStorage.getItem('summrise-theme');
   var systemDark = stored === null
     && typeof matchMedia !== 'undefined'
     && matchMedia('(prefers-color-scheme: dark)').matches;
@@ -355,14 +355,14 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   <main class="main">
     <div class="aside">
       <div class="brand">
-        <img class="brand-mark" src="${FAVICON}" alt="Vale">
+        <img class="brand-mark" src="${FAVICON}" alt="Summrise">
         <div class="brand-text">
-          <h1 class="brand-name">Vale Agent</h1>
+          <h1 class="brand-name">Summrise Agent</h1>
           <div class="brand-tag">device agent</div>
         </div>
       </div>
 
-      <p class="desc">Vale Agent is a device command center (serial / terminal / browser + MCP) that runs on a Windows machine. Each device is exposed over a Cloudflare Tunnel and managed from the <a href="${safeConsole}">Vale console</a>.</p>
+      <p class="desc">Summrise Agent is a device command center (serial / terminal / browser + MCP) that runs on a Windows machine. Each device is exposed over a Cloudflare Tunnel and managed from the <a href="${safeConsole}">Summrise console</a>.</p>
     </div>
 
     <div class="card">
@@ -375,7 +375,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
       <div class="steps">
         <div class="step">
           <div class="step-num">1</div>
-          <div class="step-body">Install the package: <code>npm i -g ${safeInstaller}</code> — then run <code>vale setup --reg-key &lt;key&gt;</code> (get a key from the <a href="${safeConsole}">Vale console</a> → Devices).</div>
+          <div class="step-body">Install the package: <code>npm i -g ${safeInstaller}</code> — then run <code>summrise setup --reg-key &lt;key&gt;</code> (get a key from the <a href="${safeConsole}">Summrise console</a> → Devices).</div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
@@ -383,14 +383,14 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
         </div>
         <div class="step">
           <div class="step-num">3</div>
-          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>vale</code> lives elsewhere when the agent runs as a service, so <code>vale update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command vale).Source) ${safeInstaller}</code> then <code>vale update</code>, and confirm with <code>vale status</code> — not with npm's exit code.</div>
+          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) ${safeInstaller}</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code.</div>
         </div>
       </div>
     </div>
   </main>
 
   <footer>
-    <span>Vale Agent — device access for AI agents</span>
+    <span>Summrise Agent — device access for AI agents</span>
     <span class="mono" id="foot-time"></span>
   </footer>
 </div>
@@ -488,10 +488,10 @@ function toggleTheme() {
   var isDark = document.body.hasAttribute('data-ds-dark-theme');
   if (isDark) {
     document.body.removeAttribute('data-ds-dark-theme');
-    localStorage.setItem('vale-theme', 'light');
+    localStorage.setItem('summrise-theme', 'light');
   } else {
     document.body.setAttribute('data-ds-dark-theme', '');
-    localStorage.setItem('vale-theme', 'dark');
+    localStorage.setItem('summrise-theme', 'dark');
   }
 }
 </script>

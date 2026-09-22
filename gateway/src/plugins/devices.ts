@@ -1,5 +1,5 @@
 /**
- * devices plugin (round-73 migration) — Vale Agent device registry, reverse
+ * devices plugin (round-73 migration) — Summrise Agent device registry, reverse
  * proxy, registration keys flow. (Extension pairing endpoints removed
  * round-340 — the extension's browser-control half was deleted round-262, and
  * the code-server link rewriter that remained was removed in round 243.)
@@ -164,7 +164,7 @@ async function handleRegister(request: Request, env: any): Promise<Response> {
       return alreadyRegisteredConflict(device.name);
     }
     // round-103: read the device's proxy secret so the gateway proxy can
-    // present X-Vale-Auth for /panel/ (token-injection gate).
+    // present X-Summrise-Auth for /panel/ (token-injection gate).
     try {
       const status = await deviceFetch(env, device, "/api/status");
       if (status && status.resp) {
@@ -448,7 +448,7 @@ async function proxyUploadToWorker(request: Request, env: any, url: URL): Promis
   });
 }
 
-// ---- Device module (Vale Agent registry) ----
+// ---- Device module (Summrise Agent registry) ----
 // (the reverse-proxy route lives in device-proxy.ts — registered below,
 //  before the session gate — it also accepts the paired plugin token)
 // GET    /api/devices                        → list (token masked)
@@ -709,7 +709,7 @@ async function handleRegisterKey(request: Request, env: any): Promise<Response> 
 
 /// Devices are always cloudflared tunnels on the agent host domain; an
 /// unvalidated hostname turns the worker into an SSRF proxy (it injects
-/// Authorization + x-vale-auth into https://<hostname>…) AND re-serves that
+/// Authorization + x-summrise-auth into https://<hostname>…) AND re-serves that
 /// host's responses at the console origin. Enforce a suffix allowlist,
 
 // Exported for direct pins (SOLID Round-28; additive — handlers untouched).
@@ -742,7 +742,7 @@ export function mcpConfig(d: Device): { url: string; json: string } {
   const url = `https://${d.hostname}/mcp`;
   const snippet = {
     mcpServers: {
-      "vale-agent": { type: "http", url, headers: { Authorization: `Bearer ${d.token}` } },
+      "summrise-agent": { type: "http", url, headers: { Authorization: `Bearer ${d.token}` } },
     },
   };
   return { url, json: JSON.stringify(snippet, null, 2) };

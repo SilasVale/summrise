@@ -495,7 +495,7 @@ export async function diag(line) {
     // endpoint probe to find. The shape that removed the hazard for good was not counting backslashes correctly: it
     // was moving this function out of the emitted text (round 272), where it is ordinary code and a regex would be
     // just a regex.
-    const cfg = require("fs").readFileSync("D:/Vale/etc/config.yaml", "utf8");
+    const cfg = require("fs").readFileSync("D:/Summrise/etc/config.yaml", "utf8");
     let token = "";
     for (const l of cfg.split(String.fromCharCode(10))) {
       const t = l.trim();
@@ -574,7 +574,7 @@ export async function idlePass(page, ms = 6000) {
   await page.evaluate(() => {
     const el = document.getElementById("root") || document.body;
     const state = { mutations: 0, byTarget: {}, samples: [] };
-    window.__valeIdle = state;
+    window.__summriseIdle = state;
     // A TEXT NODE HAS NO IDENTITY, SO THE REPORT NAMES ITS PARENT (round 68). The first CI run of this pass reported
     // "6 DOM mutation(s) ... (#text x6)" — one per second, which is a live duration ticking and NOT a repaint, but
     // the report could not say WHICH text, so the finding was undiagnosable by construction. A characterData
@@ -588,7 +588,7 @@ export async function idlePass(page, ms = 6000) {
     const observer = new MutationObserver((records) => {
       for (const r of records) {
         state.mutations++;
-        const key = r.attributeName === "data-vale-idle-probe" ? "__probe" : name(r.target);
+        const key = r.attributeName === "data-summrise-idle-probe" ? "__probe" : name(r.target);
         state.byTarget[key] = (state.byTarget[key] || 0) + 1;
         if (state.samples.length < 8) state.samples.push(key + " " + r.type + (r.attributeName ? ":" + r.attributeName : ""));
       }
@@ -599,11 +599,11 @@ export async function idlePass(page, ms = 6000) {
     // is not a clean scan" is the trap this suite keeps catching. So the window opens with ONE deliberate mutation of
     // the panel's own root; it is counted like any other and subtracted by the judge, and a run that does not see it
     // is reported as a blind instrument rather than as a still panel.
-    el.setAttribute("data-vale-idle-probe", String(Date.now()));
-    window.__valeIdleStop = () => { observer.disconnect(); return { ...state, selfTest: state.byTarget.__probe !== undefined }; };
+    el.setAttribute("data-summrise-idle-probe", String(Date.now()));
+    window.__summriseIdleStop = () => { observer.disconnect(); return { ...state, selfTest: state.byTarget.__probe !== undefined }; };
   });
   await page.waitForTimeout(ms);
-  return page.evaluate(() => window.__valeIdleStop());
+  return page.evaluate(() => window.__summriseIdleStop());
 }
 
 /** WHAT THE PRESS ADDED, measured against the HOVERED state rather than the resting one.
@@ -1252,7 +1252,7 @@ export function loudnessOf(colour) {
 export const THEME_SOURCE = `(() => {
   const body = getComputedStyle(document.body).backgroundColor;
   let stored = '';
-  try { stored = localStorage.getItem('vale-theme') || ''; } catch (e) { stored = '(unavailable)'; }
+  try { stored = localStorage.getItem('summrise-theme') || ''; } catch (e) { stored = '(unavailable)'; }
   // THE APP WRITES data-theme ON BODY, AND THIS READ html UNTIL ROUND 74. So the attr field came back "(none)" on every
   // surface this sweep has ever measured: the theme-lie axis had nothing to compare an intention against, and the
   // rail walk's new labels fell back to the loop's own value — which is how six contrast findings were filed against

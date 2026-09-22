@@ -1,7 +1,7 @@
 // ConnectCard — the panel's AI-client onboarding (game-design proposal §4).
 //
 // WHY THIS EXISTS. Measured: the panel had ZERO onboarding for AI clients. A
-// new user installs Vale, opens the panel, and sees a terminal. The product's
+// new user installs Summrise, opens the panel, and sees a terminal. The product's
 // promise — "AI can drive this machine" — is invisible until an external client
 // is configured by hand, and nothing in the UI helped configure one. In game
 // terms: no tutorial, and the game does not start until you edit a config file.
@@ -44,7 +44,7 @@ const CLIENTS: ClientSpec[] = [
       JSON.stringify(
         {
           mcpServers: {
-            vale: {
+            summrise: {
               type: "http",
               url,
               headers: { Authorization: `Bearer ${token}` },
@@ -59,9 +59,9 @@ const CLIENTS: ClientSpec[] = [
     id: "claude",
     label: "Claude Code",
     where:
-      'claude mcp add --transport http vale <url> --header "Authorization: Bearer <token>"',
+      'claude mcp add --transport http summrise <url> --header "Authorization: Bearer <token>"',
     build: (url, token) =>
-      `claude mcp add --transport http vale ${url} \\\n  --header "Authorization: Bearer ${token}"`,
+      `claude mcp add --transport http summrise ${url} \\\n  --header "Authorization: Bearer ${token}"`,
   },
   {
     id: "curl",

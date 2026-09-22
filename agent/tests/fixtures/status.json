@@ -38,7 +38,7 @@
   "example": {
     "ok": true,
     "version": "1.2.433",
-    "config_path": "C:\\\\ProgramData\\\\Vale\\\\etc\\\\config.yaml",
+    "config_path": "C:\\\\ProgramData\\\\Summrise\\\\etc\\\\config.yaml",
     "host": "127.0.0.1",
     "port": 18080,
     "uptime_secs": 5412,

@@ -25,7 +25,7 @@ function makeEnv(devices, links = {}) {
     // The hosts above are device hosts AND the install base, and both rules live in the env (round 120):
     // `DEVICE_HOST_SUFFIX` decides what a device hostname may be, `INDEX_WORKER_URL` where the install
     // manifest is read from — the two are configurable since rounds 87 and 93.
-    extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test", INDEX_WORKER_URL: "https://agent.vale.test" },
+    extra: { DEVICE_HOST_SUFFIX: ".agent.summrise.test", INDEX_WORKER_URL: "https://agent.summrise.test" },
     devices,
     links,
     users: {
@@ -81,12 +81,12 @@ function stubFetch(matcher, response) {
 
 const D1 = {
   name: "d1",
-  hostname: "d1.agent.vale.test",
+  hostname: "d1.agent.summrise.test",
   token: "devtok-1234567890",
   registeredAt: 1000,
   lastVersion: "1.0.105",
 };
-const D2 = { name: "d2", hostname: "d2.agent.vale.test", token: "devtok-9876543210" };
+const D2 = { name: "d2", hostname: "d2.agent.summrise.test", token: "devtok-9876543210" };
 
 /* ---------------- rename ---------------- */
 
@@ -96,7 +96,7 @@ test("rename: happy path preserves token + metadata, migrates plugin links", asy
   });
   const res = await worker.fetch(
     req("POST", "/api/devices/d1/rename", {
-      body: { name: "renamed", hostname: "renamed.agent.vale.test" },
+      body: { name: "renamed", hostname: "renamed.agent.summrise.test" },
       cookie: await adminCookie(),
     }),
     env,
@@ -105,7 +105,7 @@ test("rename: happy path preserves token + metadata, migrates plugin links", asy
   const j = await res.json();
   assert.equal(j.ok, true);
   assert.equal(j.device.name, "renamed");
-  assert.equal(j.device.hostname, "renamed.agent.vale.test");
+  assert.equal(j.device.hostname, "renamed.agent.summrise.test");
   assert.equal(j.device.token, maskKey("devtok-1234567890"), "token must be returned masked");
 
   // Store: name/hostname updated, credential + metadata untouched.
@@ -240,9 +240,9 @@ function travelMs(ms) {
 test("install-cmd: upstream version flows through", async () => {
   const env = makeEnv([D1]);
   const undo = travelMs(0);
-  const { restore } = stubFetch("agent.vale.test/api/version", {
+  const { restore } = stubFetch("agent.summrise.test/api/version", {
     version: "9.9.9",
-    download: "https://x/dl/vale-agent-9.9.9.tgz",
+    download: "https://x/dl/summrise-agent-9.9.9.tgz",
     sha256: "a".repeat(64),
   });
   try {
@@ -254,7 +254,7 @@ test("install-cmd: upstream version flows through", async () => {
     const j = await res.json();
     assert.equal(j.ok, true);
     assert.equal(j.version, "9.9.9");
-    assert.equal(j.download, "https://x/dl/vale-agent-9.9.9.tgz");
+    assert.equal(j.download, "https://x/dl/summrise-agent-9.9.9.tgz");
   } finally {
     restore();
     undo();
@@ -267,7 +267,7 @@ test("install-cmd: 5-min in-isolate cache (second call hits, clock travel re-fet
   // so each phase's cache age is deterministic (5-min TTL).
   const env = makeEnv([D1]);
   let undo = travelMs(10 * 60 * 1000);
-  const { calls, restore } = stubFetch("agent.vale.test/api/version", {
+  const { calls, restore } = stubFetch("agent.summrise.test/api/version", {
     version: "9.9.9",
     download: "https://x/dl/v.tgz",
   });
@@ -344,9 +344,9 @@ test("plugins/status: ?fresh=1 bypasses the 30s probe cache; cached call does no
   // The stub matcher is LOWERCASE: the WHATWG URL parser lowercases
   // hostnames (deviceFetch round-121), so "dFresh" arrives as "dfresh".
   const env = makeEnv([
-    { name: "dFresh", hostname: "dFresh.agent.vale.test", token: "tok-fresh" },
+    { name: "dFresh", hostname: "dFresh.agent.summrise.test", token: "tok-fresh" },
   ]);
-  const { calls, restore } = stubFetch("dfresh.agent.vale.test/api/status", {
+  const { calls, restore } = stubFetch("dfresh.agent.summrise.test/api/status", {
     ok: true,
     version: "9.8.7",
     serial_ports: [],
@@ -393,7 +393,7 @@ test("plugins/status: ?fresh=1 bypasses the 30s probe cache; cached call does no
 
 test("upload proxy: 401 unauth / 401 bad device token (no network on reject)", async () => {
   const env = makeEnv({
-    d1: { name: "d1", hostname: "d1.agent.vale.test", token: "a".repeat(64), proxySecret: "s" },
+    d1: { name: "d1", hostname: "d1.agent.summrise.test", token: "a".repeat(64), proxySecret: "s" },
   });
   const noAuth = await worker.fetch(req("POST", "/api/upload"), env);
   assert.equal(noAuth.status, 401);
@@ -408,7 +408,7 @@ test("upload proxy: device config token accepted (no network on reject paths onl
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   const env = makeEnv({
-    d1: { name: "d1", hostname: "d1.agent.vale.test", token: "c".repeat(64), proxySecret: "s" },
+    d1: { name: "d1", hostname: "d1.agent.summrise.test", token: "c".repeat(64), proxySecret: "s" },
   });
   // Bad token still 401 without touching the network.
   const bad = await worker.fetch(
@@ -424,7 +424,7 @@ test("upload proxy: registry outage denies with 401 (no throw)", async () => {
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   const env = makeEnv({
-    d1: { name: "d1", hostname: "d1.agent.vale.test", token: "c".repeat(64), proxySecret: "s" },
+    d1: { name: "d1", hostname: "d1.agent.summrise.test", token: "c".repeat(64), proxySecret: "s" },
   });
   const realGet = env.KEYS.get.bind(env.KEYS);
   env.KEYS.get = async (k) => {
@@ -446,7 +446,7 @@ test("upload proxy: forwards a MINIMAL header set — UPLOAD_KEY + multipart fra
     // ARRAY seed: the accept path iterates listDevices() (Device[]) — the
     // object-shaped seeds above only exercise reject paths.
     ...makeEnv([
-      { name: "d1", hostname: "d1.agent.vale.test", token: "c".repeat(64), proxySecret: "s" },
+      { name: "d1", hostname: "d1.agent.summrise.test", token: "c".repeat(64), proxySecret: "s" },
     ]),
     UPLOAD_KEY: "test-upload-key",
     INDEX_WORKER_URL: "https://idx.example",
@@ -467,8 +467,8 @@ test("upload proxy: forwards a MINIMAL header set — UPLOAD_KEY + multipart fra
       method: "POST",
       headers: {
         authorization: `Bearer ${"c".repeat(64)}`,
-        "content-type": "multipart/form-data; boundary=----valeboundary",
-        cookie: "ag_session=stolen; theme=dark; vale_pt_d1=also-stolen",
+        "content-type": "multipart/form-data; boundary=----summriseboundary",
+        cookie: "ag_session=stolen; theme=dark; summrise_pt_d1=also-stolen",
         "user-agent": "evil-client/1.0",
         "x-custom-leak": "nope",
       },
@@ -481,7 +481,7 @@ test("upload proxy: forwards a MINIMAL header set — UPLOAD_KEY + multipart fra
     const h = seen[0].headers;
     // The injected credential + the multipart framing survive verbatim…
     assert.equal(h.get("authorization"), "Bearer test-upload-key");
-    assert.equal(h.get("content-type"), "multipart/form-data; boundary=----valeboundary");
+    assert.equal(h.get("content-type"), "multipart/form-data; boundary=----summriseboundary");
     // …content-length is mirrored when the inbound request exposes it
     // (workerd does for real uploads; undici-built Requests don't).
     assert.equal(h.get("content-length"), upstreamReq.headers.get("content-length"));
@@ -547,12 +547,12 @@ test("self-register: malformed body 400, non-64-hex token 403, off-suffix host 4
   __clearCaches();
   const env = makeEnv([]);
   assert.equal(
-    (await selfReg(env, { name: "bad name!", hostname: "d9.agent.vale.test", token: T64("a") }))
+    (await selfReg(env, { name: "bad name!", hostname: "d9.agent.summrise.test", token: T64("a") }))
       .status,
     400,
   );
   assert.equal(
-    (await selfReg(env, { name: "d9", hostname: "d9.agent.vale.test", token: "shorttok" }))
+    (await selfReg(env, { name: "d9", hostname: "d9.agent.summrise.test", token: "shorttok" }))
       .status,
     403,
   );
@@ -566,12 +566,12 @@ test("self-register: malformed body 400, non-64-hex token 403, off-suffix host 4
 test("self-register: new device inserts; same-token re-post refreshes idempotently", async () => {
   __clearCaches();
   const env = makeEnv([]);
-  const { restore } = stubFetch("d9.agent.vale.test", {});
+  const { restore } = stubFetch("d9.agent.summrise.test", {});
   try {
-    const body = { name: "d9", hostname: "d9.agent.vale.test", token: T64("b") };
+    const body = { name: "d9", hostname: "d9.agent.summrise.test", token: T64("b") };
     const res = await selfReg(env, body);
     assert.equal(res.status, 200);
-    assert.deepEqual((await res.json()).device, { name: "d9", hostname: "d9.agent.vale.test" });
+    assert.deepEqual((await res.json()).device, { name: "d9", hostname: "d9.agent.summrise.test" });
     const again = await selfReg(env, body);
     assert.equal(again.status, 200, "same token re-registers idempotently");
     const devs = JSON.parse(await env.KEYS.get("devices:v1"));
@@ -593,7 +593,7 @@ test("self-register: unreachable device still registers without proxySecret", as
   try {
     const res = await selfReg(env, {
       name: "d11",
-      hostname: "d11.agent.vale.test",
+      hostname: "d11.agent.summrise.test",
       token: T64("9"),
     });
     assert.equal(res.status, 200);
@@ -615,23 +615,23 @@ test("self-register: existing device rejects hostname moves + unproven rotations
   const env = makeEnv([
     {
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: OLD,
       proxySecret: "ps-stored",
       registeredAt: 7,
     },
   ]);
-  const { restore } = stubFetch("d1.agent.vale.test", {});
+  const { restore } = stubFetch("d1.agent.summrise.test", {});
   try {
     const moved = await selfReg(env, {
       name: "d1",
-      hostname: "moved.agent.vale.test",
+      hostname: "moved.agent.summrise.test",
       token: OLD,
     });
     assert.equal(moved.status, 409);
     const rotated = await selfReg(env, {
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: NEW,
     });
     assert.equal(rotated.status, 409, "different token without stored-tunnel proof refuses");
@@ -651,7 +651,7 @@ test("self-register: dead tunnel refuses rotation with 409 (no 500)", async () =
   const env = makeEnv([
     {
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: OLD,
       proxySecret: "ps-stored",
       registeredAt: 7,
@@ -662,7 +662,7 @@ test("self-register: dead tunnel refuses rotation with 409 (no 500)", async () =
     throw new TypeError("fetch failed");
   };
   try {
-    const res = await selfReg(env, { name: "d1", hostname: "d1.agent.vale.test", token: NEW });
+    const res = await selfReg(env, { name: "d1", hostname: "d1.agent.summrise.test", token: NEW });
     assert.equal(res.status, 409);
     const devs = JSON.parse(await env.KEYS.get("devices:v1"));
     assert.equal(devs.find((d) => d.name === "d1").token, OLD, "production record untouched");
@@ -681,7 +681,7 @@ test("self-register: tunnel-proved rotation accepted, new device captures the se
   const env = makeEnv([
     {
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: OLD,
       proxySecret: SECRET,
       registeredAt: 7,
@@ -690,7 +690,7 @@ test("self-register: tunnel-proved rotation accepted, new device captures the se
   const real = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
-    const secret = u.includes("d1.agent.vale.test") ? SECRET : "n".repeat(40);
+    const secret = u.includes("d1.agent.summrise.test") ? SECRET : "n".repeat(40);
     return new Response(JSON.stringify(u.includes("/api/status") ? { proxy_secret: secret } : {}), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -699,7 +699,7 @@ test("self-register: tunnel-proved rotation accepted, new device captures the se
   try {
     const rotated = await selfReg(env, {
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: NEW,
     });
     assert.equal(rotated.status, 200, "tunnel proof (secret match) accepts the rotation");
@@ -710,7 +710,7 @@ test("self-register: tunnel-proved rotation accepted, new device captures the se
     assert.equal(d1.registeredAt, 7, "idempotent refresh keeps the original date");
     const fresh = await selfReg(env, {
       name: "d9",
-      hostname: "d9.agent.vale.test",
+      hostname: "d9.agent.summrise.test",
       token: T64("a"),
     });
     assert.equal(fresh.status, 200);
@@ -728,15 +728,15 @@ test("self-register: stored-tunnel proof rotates the token", async () => {
   const env = makeEnv([
     {
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: OLD,
       proxySecret: "ps-stored",
       registeredAt: 7,
     },
   ]);
-  const { restore } = stubFetch("d1.agent.vale.test", { proxy_secret: "ps-stored" });
+  const { restore } = stubFetch("d1.agent.summrise.test", { proxy_secret: "ps-stored" });
   try {
-    const res = await selfReg(env, { name: "d1", hostname: "d1.agent.vale.test", token: NEW });
+    const res = await selfReg(env, { name: "d1", hostname: "d1.agent.summrise.test", token: NEW });
     assert.equal(res.status, 200);
     const devs = JSON.parse(await env.KEYS.get("devices:v1"));
     const d1 = devs.find((d) => d.name === "d1");
@@ -758,7 +758,7 @@ test("register: garbage key 403s with zero KV writes; happy path spends the key"
   const garbage = await regPost(env, "/api/register", {
     key: "nope",
     name: "d9",
-    hostname: "d9.agent.vale.test",
+    hostname: "d9.agent.summrise.test",
     token: T64("a"),
   });
   assert.equal(garbage.status, 403);
@@ -767,8 +767,8 @@ test("register: garbage key 403s with zero KV writes; happy path spends the key"
     "round-115: invalid keys are zero-write",
   );
   await env.KEYS.put("regkey:kk11", "1");
-  const body = { key: "kk11", name: "d9", hostname: "d9.agent.vale.test", token: T64("a") };
-  const { restore } = stubFetch("d9.agent.vale.test", {});
+  const body = { key: "kk11", name: "d9", hostname: "d9.agent.summrise.test", token: T64("a") };
+  const { restore } = stubFetch("d9.agent.summrise.test", {});
   let res;
   try {
     res = await regPost(env, "/api/register", body);
@@ -788,12 +788,12 @@ test("register: garbage key 403s with zero KV writes; happy path spends the key"
 
 test("register: existing device name refuses with 409 (round-68 anti-takeover)", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: T64("c") }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.summrise.test", token: T64("c") }]);
   await env.KEYS.put("regkey:kk22", "1");
   const res = await regPost(env, "/api/register", {
     key: "kk22",
     name: "d1",
-    hostname: "d1.agent.vale.test",
+    hostname: "d1.agent.summrise.test",
     token: T64("d"),
   });
   assert.equal(res.status, 409);
@@ -815,7 +815,7 @@ test("register: unreachable device still registers without proxySecret", async (
     const res = await regPost(env, "/api/register", {
       key: "kkprobe",
       name: "d10",
-      hostname: "d10.agent.vale.test",
+      hostname: "d10.agent.summrise.test",
       token: T64("e"),
     });
     assert.equal(res.status, 200);
@@ -845,7 +845,7 @@ test("register: key vanishing after claim 403s (single-flight recheck)", async (
   const res = await regPost(env, "/api/register", {
     key: "kkrace",
     name: "d9",
-    hostname: "d9.agent.vale.test",
+    hostname: "d9.agent.summrise.test",
     token: T64("a"),
   });
   assert.equal(res.status, 403);
@@ -856,12 +856,12 @@ test("register: key vanishing after claim 403s (single-flight recheck)", async (
 // 400, tunnel-token claim 403 + vanishing-key cleanup had ZERO pins.
 test("register: valid key with bad body 400s; rename rejects a bad hostname", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: T64("c") }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.summrise.test", token: T64("c") }]);
   await env.KEYS.put("regkey:kk44", "1");
   const bad = await regPost(env, "/api/register", {
     key: "kk44",
     name: "bad name!",
-    hostname: "d9.agent.vale.test",
+    hostname: "d9.agent.summrise.test",
     token: T64("a"),
   });
   assert.equal(bad.status, 400);
@@ -903,7 +903,7 @@ test("register: lost insert race 409s (pre-check passed, lock lost)", async () =
   const env = makeEnv([]);
   await env.KEYS.put("regkey:kk66", "1");
   const raced = JSON.stringify([
-    { name: "d1", hostname: "d1.agent.vale.test", token: T64("q") },
+    { name: "d1", hostname: "d1.agent.summrise.test", token: T64("q") },
   ]);
   let devGets = 0;
   const innerGet = env.KEYS.get.bind(env.KEYS);
@@ -911,12 +911,12 @@ test("register: lost insert race 409s (pre-check passed, lock lost)", async () =
     if (k === "devices:v1") return ++devGets === 1 ? "[]" : raced;
     return innerGet(k);
   };
-  const { restore } = stubFetch("d1.agent.vale.test", {});
+  const { restore } = stubFetch("d1.agent.summrise.test", {});
   try {
     const res = await regPost(env, "/api/register", {
       key: "kk66",
       name: "d1",
-      hostname: "d1.agent.vale.test",
+      hostname: "d1.agent.summrise.test",
       token: T64("w"),
     });
     assert.equal(res.status, 409);
@@ -981,7 +981,7 @@ test("upload proxy: declared 26MB body passes the re-raised bound", async () => 
         method: "POST",
         headers: {
           cookie: `${SESSION_COOKIE}=${await adminCookie()}`,
-          "content-type": "multipart/form-data; boundary=----valeboundary",
+          "content-type": "multipart/form-data; boundary=----summriseboundary",
           "content-length": String(26 * 1024 * 1024),
         },
         body: "small-lie",
@@ -1014,7 +1014,7 @@ test("upload proxy: declared 101MB body 413s without touching the network", asyn
         method: "POST",
         headers: {
           cookie: `${SESSION_COOKIE}=${await adminCookie()}`,
-          "content-type": "multipart/form-data; boundary=----valeboundary",
+          "content-type": "multipart/form-data; boundary=----summriseboundary",
           "content-length": String(101 * 1024 * 1024),
         },
         body: "small-lie",
@@ -1039,7 +1039,7 @@ function tokenEnv(devices = []) {
     // The hosts above are device hosts AND the install base, and both rules live in the env (round 120):
     // `DEVICE_HOST_SUFFIX` decides what a device hostname may be, `INDEX_WORKER_URL` where the install
     // manifest is read from — the two are configurable since rounds 87 and 93.
-    extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test", INDEX_WORKER_URL: "https://agent.vale.test" },
+    extra: { DEVICE_HOST_SUFFIX: ".agent.summrise.test", INDEX_WORKER_URL: "https://agent.summrise.test" },
     devices,
     users: {
       admin: {
@@ -1190,7 +1190,7 @@ test("tunnel-token: valid key returns the CF token once, then feeds register via
   const reg = await regPost(env, "/api/register", {
     key: "kk33",
     name: "d9",
-    hostname: "d9.agent.vale.test",
+    hostname: "d9.agent.summrise.test",
     token: T64("e"),
   });
   assert.equal(reg.status, 200);
@@ -1209,13 +1209,13 @@ test("devices list/add/mcp: admin success paths", async () => {
   assert.deepEqual(empty.devices, []);
   const bad = await call("POST", "/api/devices", {
     name: "!!",
-    hostname: "d1.agent.vale.test",
+    hostname: "d1.agent.summrise.test",
     token: "tok12345",
   });
   assert.equal(bad.status, 400);
   const add = await call("POST", "/api/devices", {
     name: "d1",
-    hostname: "d1.agent.vale.test",
+    hostname: "d1.agent.summrise.test",
     token: "tok12345",
   });
   assert.equal(add.status, 200);
@@ -1226,7 +1226,7 @@ test("devices list/add/mcp: admin success paths", async () => {
   const list = await (await call("GET", "/api/devices")).json();
   assert.equal(list.devices.length, 1);
   assert.equal(list.devices[0].name, "d1");
-  assert.ok(list.devices[0].mcp.url.includes("d1.agent.vale.test/mcp"));
+  assert.ok(list.devices[0].mcp.url.includes("d1.agent.summrise.test/mcp"));
   assert.ok(
     list.devices[0].mcp.json.includes("tok12345"),
     "mcp snippet is the one place with the raw token",
@@ -1241,7 +1241,7 @@ test("devices list/add/mcp: admin success paths", async () => {
 // the grant-redeem matrix had ZERO pins.
 test("devices delete: removes the record and revokes its plugin links", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: T64("a") }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.summrise.test", token: T64("a") }]);
   await env.KEYS.put(
     "plugins:v1",
     JSON.stringify({ "tok-x": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 } }),
@@ -1264,8 +1264,8 @@ test("devices delete: removes the record and revokes its plugin links", async ()
 test("panel-grant redeem: no-token/unknown-token 401, mismatch 403, unknown grant 404, ok + single-use", async () => {
   __clearCaches();
   const env = makeEnv([
-    { name: "d1", hostname: "d1.agent.vale.test", token: T64("a") },
-    { name: "d2", hostname: "d2.agent.vale.test", token: T64("b") },
+    { name: "d1", hostname: "d1.agent.summrise.test", token: T64("a") },
+    { name: "d2", hostname: "d2.agent.summrise.test", token: T64("b") },
   ]);
   const admin = await adminCookie();
   const mint = (n) =>
@@ -1290,7 +1290,7 @@ test("panel-grant redeem: no-token/unknown-token 401, mismatch 403, unknown gran
 
 test("panel-grant redeem: KV read failure fails closed 401", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.vale.test", token: T64("a") }]);
+  const env = makeEnv([{ name: "d1", hostname: "d1.agent.summrise.test", token: T64("a") }]);
   const inner = env.KEYS.get.bind(env.KEYS);
   await inner("devices:v1"); // warm any boot reads before breaking the stub
   env.KEYS.get = async () => {
@@ -1313,7 +1313,7 @@ test("panel-grant redeem: KV read failure fails closed 401", async () => {
 // the read side anyway.
 test("plugins/status: probe prefers npm release over Cargo version + persists lastVersion", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "pv1", hostname: "pv1.agent.vale.test", token: "pv1-devtok" }]);
+  const env = makeEnv([{ name: "pv1", hostname: "pv1.agent.summrise.test", token: "pv1-devtok" }]);
   const { restore } = stubFetch("/api/status", {
     version: "1.0.145",
     release: "1.2.305",
@@ -1337,7 +1337,7 @@ test("plugins/status: probe prefers npm release over Cargo version + persists la
 
 test("plugins/status: probe falls back to Cargo version when release is absent", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "pv2", hostname: "pv2.agent.vale.test", token: "pv2-devtok" }]);
+  const env = makeEnv([{ name: "pv2", hostname: "pv2.agent.summrise.test", token: "pv2-devtok" }]);
   const { restore } = stubFetch("/api/status", { version: "1.0.145" });
   try {
     const res = await worker.fetch(
@@ -1353,7 +1353,7 @@ test("plugins/status: probe falls back to Cargo version when release is absent",
 
 test("plugins/status: probe with no version fields omits version, no crash", async () => {
   __clearCaches();
-  const env = makeEnv([{ name: "pv3", hostname: "pv3.agent.vale.test", token: "pv3-devtok" }]);
+  const env = makeEnv([{ name: "pv3", hostname: "pv3.agent.summrise.test", token: "pv3-devtok" }]);
   const { restore } = stubFetch("/api/status", { ok: true });
   try {
     const res = await worker.fetch(
@@ -1393,7 +1393,7 @@ test("POST /api/devices: a hostname outside the allowlist is REFUSED (token must
   assert.equal(res.status, 400, "a non-allowlisted hostname must not become a device record");
   assert.match(
     (await res.json()).error?.message || "",
-    /agent\.vale\.test/,
+    /agent\.summrise\.test/,
     "the error names the required suffix",
   );
   // And nothing was stored — the dial is only reachable through a record.
@@ -1413,7 +1413,7 @@ test("POST /api/devices/<n>/rename: a hostname outside the allowlist is REFUSED 
     env,
   );
   assert.equal(res.status, 400, "renaming onto a hostile host must be refused");
-  assert.match((await res.json()).error?.message || "", /agent\.vale\.test/);
+  assert.match((await res.json()).error?.message || "", /agent\.summrise\.test/);
   // The device must still point at its REAL host — rename preserves the
   // credential, so a partial write would hand that credential to the attacker.
   const list = await worker.fetch(req("GET", "/api/devices", { cookie: admin }), env);
@@ -1427,7 +1427,7 @@ test("POST /api/devices + rename: an ALLOWLISTED hostname still works (the guard
   const add = await worker.fetch(
     req("POST", "/api/devices", {
       cookie: admin,
-      body: { name: "d9", hostname: "d9.agent.vale.test", token: "b".repeat(64) },
+      body: { name: "d9", hostname: "d9.agent.summrise.test", token: "b".repeat(64) },
     }),
     env,
   );
@@ -1435,10 +1435,10 @@ test("POST /api/devices + rename: an ALLOWLISTED hostname still works (the guard
   const ren = await worker.fetch(
     req("POST", "/api/devices/d1/rename", {
       cookie: admin,
-      body: { name: "d1", hostname: "d1b.agent.vale.test" },
+      body: { name: "d1", hostname: "d1b.agent.summrise.test" },
     }),
     env,
   );
   assert.equal(ren.status, 200, "a legitimate rename must still work");
-  assert.equal((await ren.json()).device.hostname, "d1b.agent.vale.test");
+  assert.equal((await ren.json()).device.hostname, "d1b.agent.summrise.test");
 });

@@ -24,7 +24,7 @@ const FIXTURE = require("./pieces.cjs");
   var P = { get: function (n) { return new URLSearchParams(location.search).get(n); },
             has: function (n) { return new URLSearchParams(location.search).has(n); } };
   var THEME = P.get('theme') || 'light', MODE = P.get('mode') || 'pending';
-  try { localStorage.setItem('vale-theme', THEME); } catch(e){}
+  try { localStorage.setItem('summrise-theme', THEME); } catch(e){}
   window.__PANEL_TOKEN__ = 'audit-token';
   // THE FIXTURE ARRIVES AS DATA (round 270): the pieces module carries the session id, the session object and the
   // event list as VALUES, where this line used to interpolate three JSON strings into a template literal.
@@ -347,7 +347,7 @@ const FIXTURE = require("./pieces.cjs");
       ok: true, version: '1.2.433', port: 18080, uptime_secs: BOOT_NOW ? 90 : 5412, live_sessions: liveCount, serial_ports: ['COM4'],
       release: '1.2.433', cpu_pct: 12.5, mem_pct: 41.7, mem_total_mb: 16384, pending_approvals: 1,
       last_boot: BOOT_NOW
-        ? '2026-09-21 19:40:00 +08:00 - replaced by vale update'
+        ? '2026-09-21 19:40:00 +08:00 - replaced by summrise update'
         : '2026-09-13 04:12:03 +08:00 - unexpected exit',
       last_boot_kind: BOOT_NOW ? 'replaced' : 'crashed',
     }));
@@ -376,7 +376,7 @@ const FIXTURE = require("./pieces.cjs");
     // summary line and the crash rows) measured by nothing at all.
     return Promise.resolve(J({ ok: true, boots: [
       { ts_ms: 1789000000000, kind: 'crashed', detail: '2026-09-13 04:12:03 +08:00 - unexpected exit', uptime_secs: 5412, gap_secs: 1, release: '1.2.433' },
-      { ts_ms: 1788900000000, kind: 'replaced', detail: '2026-09-12 09:00:00 +08:00 - replaced by vale update', uptime_secs: 0, gap_secs: 1, release: '1.2.433' },
+      { ts_ms: 1788900000000, kind: 'replaced', detail: '2026-09-12 09:00:00 +08:00 - replaced by summrise update', uptime_secs: 0, gap_secs: 1, release: '1.2.433' },
       { ts_ms: 1788800000000, kind: 'first-run', detail: '2026-09-11 08:00:00 +08:00 - first run', release: null },
     ] }));
   }
@@ -426,7 +426,7 @@ const FIXTURE = require("./pieces.cjs");
   // /api/logs was stubbed by NOTHING, so the DeviceLogsCard drew "The device did not answer, so its logs could not
   // be read" on every Settings surface since it existed — the same false claim the restart card made (round 99) and
   // the monitors card made (round 100), found this time by the sweep's new CLAIM clause rather than by hand. The
-  // real card renders a VERDICT derived from vale-update.log's tail (updateDiagnosis's four-way table), a receipt,
+  // real card renders a VERDICT derived from summrise-update.log's tail (updateDiagnosis's four-way table), a receipt,
   // the directory, and one row per log file with an ABSENT file named as absent. The payload below mirrors
   // api_logs() in agent/src/web/mod.rs: ok, dir, logs[] with name/present/log.
   if (u.indexOf('/api/logs') >= 0) {
@@ -443,15 +443,15 @@ const FIXTURE = require("./pieces.cjs");
         '2026-09-18 15:20:04 copy ok' + String.fromCharCode(10) +
         '2026-09-18 15:20:06 restarting service';
     return Promise.resolve(J({
-      dir: 'C:/ProgramData/Vale/logs',
+      dir: 'C:/ProgramData/Summrise/logs',
       logs: [
-        { name: 'vale-update.log', present: true, log: updateLog },
+        { name: 'summrise-update.log', present: true, log: updateLog },
         { name: 'agent.log', present: true, log: [
-          '2026-09-18 15:20:06 INFO vale_agent: serving on 127.0.0.1:18080',
-          '2026-09-18 15:20:07 INFO vale_agent::tunnel: tunnel up',
+          '2026-09-18 15:20:06 INFO summrise_agent: serving on 127.0.0.1:18080',
+          '2026-09-18 15:20:07 INFO summrise_agent::tunnel: tunnel up',
         ].join(String.fromCharCode(10)) },
         { name: 'startup.log', present: true, log: '2026-09-18 15:20:06 +08:00 - clean start after update' },
-        { name: 'vale-mcp.log', present: false, log: '' },
+        { name: 'summrise-mcp.log', present: false, log: '' },
       ],
     }));
   }
@@ -575,7 +575,7 @@ const FIXTURE = require("./pieces.cjs");
       // second frame at 900ms puts four "reconnecting" rows back into the report. This prune removes the
       // ?activity=1 branch and NOTHING ELSE — a fixture change that alters behaviour is not a prune.
       // ?monitorchange=up|down — THE ALERT STRIP'S TWO TONES (round 39 of the standing goal). This stream is the
-      // panel's ONE channel for device-initiated frames (useSSE dispatches every frame as vale-<ev>), and the
+      // panel's ONE channel for device-initiated frames (useSSE dispatches every frame as summrise-<ev>), and the
       // monitor alert strip is the consumer of monitor-change: a watched host changing state is the one thing the
       // device is allowed to interrupt with, so .monitor-mark.is-up (the recovery) and the base .monitor-mark (the
       // outage) live ONLY here. Round 194 pruned the activity fixture from this stub because its consumer could not be

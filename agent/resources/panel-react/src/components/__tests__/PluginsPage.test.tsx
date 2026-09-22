@@ -168,7 +168,7 @@ describe("PluginsPage", () => {
 //
 // The device's playwright status has two healthy branches. The SPAWNED one sends
 // `started_at`; the EXTERNAL one — which the device's own comment calls the
-// production path, where the ValePlaywright scheduled task hosts the instance —
+// production path, where the SummrisePlaywright scheduled task hosts the instance —
 // sends running/port/external/healthy and NO `started_at`. `started_at ??
 // Date.now()` therefore rendered "up 0s" for an instance that had been running
 // for days: the panel's own clock presented as the instance's uptime.

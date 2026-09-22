@@ -3,7 +3,7 @@
 
 use super::{TermOpenRequest, TermOutput, TermSessionInfo};
 use std::sync::Arc;
-use vale_agent_core::DeviceError;
+use summrise_agent_core::DeviceError;
 
 pub struct TerminalManager;
 

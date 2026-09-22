@@ -74,7 +74,7 @@ describe("StatusBar", () => {
 
 describe("BrowserPage", () => {
   it("renders the embedded controller when the bridge exists", () => {
-    vi.stubGlobal("valeEmbedded", {
+    vi.stubGlobal("summriseEmbedded", {
       navigate: () => Promise.resolve(),
       back: () => Promise.resolve(),
       fwd: () => Promise.resolve(),
@@ -97,7 +97,7 @@ describe("BrowserPage", () => {
   it("explains the desktop-app requirement without a bridge", () => {
     render(<BrowserPage token="t" />);
     expect(
-      screen.getByText("The browser needs the Vale desktop app"),
+      screen.getByText("The browser needs the Summrise desktop app"),
     ).toBeTruthy();
   });
 });

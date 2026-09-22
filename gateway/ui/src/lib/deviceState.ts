@@ -23,8 +23,8 @@
 // HOW OLD IS THIS, AND HOW OLD CAN IT BE — ANSWERED, not left open. An earlier version of this note said a row could
 // be "checked 40 minutes ago" and that freshness was a second question. It is not: the worker probes each device's
 // own /api/status through its tunnel behind a 30-second in-isolate cache (DEVICE_PROBE_TTL_MS in
-// `vale-gate/src/plugins/mcp.ts`, mirrored for the console's code viewer at
-// `gateway/public/code/files/vale-gate/src/plugins/mcp.ts`), the console polls every 30s, and `checked_at` is THAT
+// `summrise-gate/src/plugins/mcp.ts`, mirrored for the console's code viewer at
+// `gateway/public/code/files/summrise-gate/src/plugins/mcp.ts`), the console polls every 30s, and `checked_at` is THAT
 // probe's timestamp — not the newer `agent_update` check's, which is a different field on the same row. So the
 // worst-case age of an `agent_up` reading is about a minute, a stale row cannot masquerade as a fresh one, and no
 // fourth "stale" state is needed. A test in `test/device-state.test.mjs` reads the mirror and fails if the TTL this
@@ -140,7 +140,7 @@ export type { DeviceTally };
 /**
  * HOW OFTEN THE CONSOLE ASKS FOR DEVICE STATUS — the single value both views used to hard-code separately.
  *
- * THE WORKER'S OWN COMMENT ABOUT THIS IS WRONG, and reading it is why this constant exists. `vale-gate`'s
+ * THE WORKER'S OWN COMMENT ABOUT THIS IS WRONG, and reading it is why this constant exists. `summrise-gate`'s
  * `cachedDeviceProbe` says its 30-second cache is safe because the console "polls every 30s already" — and the
  * console polls every 60s, in `Overview.tsx` and `DevicesPanel.tsx`, each with its own literal. The behaviour is
  * fine and this comment is not: a 30s cache behind a 60s poll always answers fresh, so the cache serves a second

@@ -1,4 +1,4 @@
-# Vale Agent — build, test, release
+# Summrise Agent — build, test, release
 
 ## Build
 
@@ -9,7 +9,7 @@ cargo xwin check --target x86_64-pc-windows-msvc --features terminal,keyring   #
 
 Panel-first: `panel.js` is embedded with `include_str!`, so any change under
 `resources/panel-react/` needs `npm run build` there (or `build.sh agent`, which does it).
-Exe lands in `target/x86_64-pc-windows-msvc/release/vale-agent.exe`.
+Exe lands in `target/x86_64-pc-windows-msvc/release/summrise-agent.exe`.
 
 ## Test
 
@@ -27,31 +27,31 @@ Green tests are the bar for a release.
 ## Release — npm is the only channel
 
 ```bash
-# 1. bump vale-agent-npm/package.json "version" to 1.2.N, then:
+# 1. bump summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
-cp agent/target/x86_64-pc-windows-msvc/release/vale-agent.exe agent/vale-agent-npm/vale-agent.exe
+cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
 # 2. publish (pack + manifest + prune + deploy + smoke; it does NOT commit):
 ./scripts/publish-release.sh 1.2.N
-# 3. ONE commit that includes vale-agent-npm/package.json and index/public/vale-agent/version.json
+# 3. ONE commit that includes summrise-agent-npm/package.json and index/public/summrise-agent/version.json
 git push origin main          # CI green on the pushed commit
 # 4. tag through the API (git push of tags times out here) — this triggers release.yml:
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
-  https://api.github.com/repos/SilasVale/vale/git/refs \
+  https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
 # 5. audit CDN vs the GitHub asset, byte for byte:
 ./scripts/publish-release.sh --audit-only 1.2.N
 ```
 
 On the device (PowerShell) — the `--prefix` matters: without it npm installs elsewhere, reports
-success, and `vale update` ships the old exe:
+success, and `summrise update` ships the old exe:
 
 ```powershell
-npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz
-vale update
-vale status
+npm i -g --prefix (Split-Path (Get-Command summrise).Source) https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
+summrise update
+summrise status
 ```
 
-Two things that cost a device restart when ignored: **never launch a second `vale-agent.exe` from
+Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
 kill/copy the exe inline over a PTY** — use the npm flow above.
 
@@ -67,8 +67,8 @@ src/metrics.rs     vitals + the 30 s sampler behind /api/vitals/history
 src/monitor.rs     reachability: persisted host:port targets, 15 s probes (TCP or HTTP path)
 src/tools/         TerminalManager + backends (pty/ssh/serial), serial pool, ssh client
 src/plugins/       terminal, update, mcp_client, design, playwright, memory, system, runs, monitor
-vale-command-core/ Plugin/ToolDef/Config/EventBus/DeviceError (import as vale_agent_core::)
-vale-agent-npm/    the npm package + the `vale` CLI (bin/vale.js)
+summrise-command-core/ Plugin/ToolDef/Config/EventBus/DeviceError (import as summrise_agent_core::)
+summrise-agent-npm/    the npm package + the `summrise` CLI (bin/summrise.js)
 resources/panel-react/  the panel SPA (React + vitest); resources/panel/ is its built output
 ```
 
@@ -76,4 +76,4 @@ Conventions that matter: features gate behind `terminal`/`keyring` with identica
 across configs; a new MCP tool is defined in its plugin's `tools.rs` (the registry caches it at
 register time) and, to be callable from the console, must be registered in
 `gateway/src/mcp-tools.ts` **and** matched by `isDeviceDirectTool()`; after adding or removing a
-tool, run `VALE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot`.
+tool, run `SUMMRISE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot`.

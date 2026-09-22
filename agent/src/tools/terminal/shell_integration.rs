@@ -36,7 +36,7 @@ pub struct CommandLine {
     /// The escaped command text (backslash-hex escapes are NOT decoded here;
     /// decoding is the caller's job if needed).
     pub command: String,
-    /// The nonce if present (trust anchor — matches VALE_NONCE).
+    /// The nonce if present (trust anchor — matches SUMMRISE_NONCE).
     pub nonce: Option<String>,
     /// Absolute byte offset where the sequence ended.
     pub end: usize,

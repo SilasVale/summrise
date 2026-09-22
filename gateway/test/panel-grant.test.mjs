@@ -18,8 +18,8 @@ import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
 const ADMIN_PW = "test-admin-password";
 
-const D1 = { name: "d1", hostname: "d1.agent.vale.test", token: "a".repeat(64), proxySecret: "s" };
-const D2 = { name: "d2", hostname: "d2.agent.vale.test", token: "b".repeat(64), proxySecret: "s" };
+const D1 = { name: "d1", hostname: "d1.agent.summrise.test", token: "a".repeat(64), proxySecret: "s" };
+const D2 = { name: "d2", hostname: "d2.agent.summrise.test", token: "b".repeat(64), proxySecret: "s" };
 
 function makeEnv(devices) {
   return makeBaseEnv({
@@ -31,7 +31,7 @@ function makeEnv(devices) {
     kv: { "auth:admin_password": ADMIN_PW, _admin_seeded: "1" },
     // THE DEVICE HOSTNAME AND THE RULE THAT ACCEPTS IT ARE ONE FIXTURE (round 111): moving the hosts to the test domain
     // without declaring the suffix is what failed this file's first attempt, and the same pairing cost round 94 a 502.
-    extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test" },
+    extra: { DEVICE_HOST_SUFFIX: ".agent.summrise.test" },
   });
 }
 
@@ -94,7 +94,7 @@ test("panel-grant mint: 200 with admin session + url shape + KV record with ~120
 
   assert.equal(j.ok, true);
   // Same hostname source as the MCP-config endpoint (https://<hostname>/…).
-  assert.match(j.url, /^https:\/\/d1\.agent\.vale\.test\/panel\/\?grant=[0-9a-f]{32}$/);
+  assert.match(j.url, /^https:\/\/d1\.agent\.summrise\.test\/panel\/\?grant=[0-9a-f]{32}$/);
   assert.ok(!j.url.includes(D1.token), "the permanent token must NEVER appear in the minted url");
 
   const key = kvKey(j.url);
@@ -223,7 +223,7 @@ test("panel-grant end-to-end: minted url never carries the device token; grant i
 // semantics had only indirect handler coverage) ──
 
 test("store: mint writes panelgrant:<code> with a ~120s TTL", async () => {
-  const env = makeBaseEnv({ extra: { DEVICE_HOST_SUFFIX: ".agent.vale.test" } });
+  const env = makeBaseEnv({ extra: { DEVICE_HOST_SUFFIX: ".agent.summrise.test" } });
   const code = await createPanelGrant(env, "d1");
   assert.match(code, /^[0-9a-f]{32}$/);
   const ttl = env._expiry.get(`panelgrant:${code}`) - Math.floor(Date.now() / 1000);

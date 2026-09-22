@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use vale_agent_core::{recover_guard, DeviceError};
+use summrise_agent_core::{recover_guard, DeviceError};
 
 /// Monotonic port-id counter (uuid was overkill for session labels).
 static NEXT_PORT_ID: AtomicU64 = AtomicU64::new(1);
@@ -51,7 +51,7 @@ pub struct SerialPool {
 }
 
 /// WHICH FAILURE IS THIS? A port the OS lists but will not open is BUSY (another program, or
-/// a Vale session whose handle outlived it); a port it does not list is MISSING. Both facts
+/// a Summrise session whose handle outlived it); a port it does not list is MISSING. Both facts
 /// are handed in, so the rule is pure and unit-pinned — see the call site for why presence,
 /// and not the error kind or its text, is what decides.
 #[cfg_attr(not(feature = "terminal"), allow(dead_code))]
@@ -59,7 +59,7 @@ fn classify_open_failure(port_name: &str, present: bool, os_error: &str) -> Devi
     if present {
         DeviceError::Internal {
             message: format!(
-                "{port_name} is in use by another program or an open Vale session \
+                "{port_name} is in use by another program or an open Summrise session \
                  ({os_error}) — close that program or session and retry"
             ),
         }
@@ -169,7 +169,7 @@ impl SerialPool {
             if guard.values().any(|p| p.port_name == port_name) {
                 return Err(DeviceError::Internal {
                     message: format!(
-                        "{port_name} is already open in another Vale session — use that \
+                        "{port_name} is already open in another Summrise session — use that \
                          session, or close it and retry"
                     ),
                 });
@@ -209,7 +209,7 @@ impl SerialPool {
                 drop(port);
                 return Err(DeviceError::Internal {
                     message: format!(
-                        "{port_name} is already open in another Vale session — use that \
+                        "{port_name} is already open in another Summrise session — use that \
                          session, or close it and retry"
                     ),
                 });

@@ -1,7 +1,7 @@
 // Extract the SHIPPED playwright-mcp's tool contract into a committed snapshot.
 //
 // WHY A SNAPSHOT RATHER THAN READING THE BUNDLE DIRECTLY. The bundle
-// (`agent/deploy/vale-playwright.zip`, 31 MB) is a boxed build artifact and is
+// (`agent/deploy/summrise-playwright.zip`, 31 MB) is a boxed build artifact and is
 // NOT tracked by git — so a test that reads it passes on a box that has it and
 // FAILS IN CI, which is exactly what happened the first time this contract test
 // was written. That is the "works on my box" failure in its purest form.
@@ -19,7 +19,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const ZIP = `${ROOT}agent/deploy/vale-playwright.zip`;
+const ZIP = `${ROOT}agent/deploy/summrise-playwright.zip`;
 const OUT = fileURLToPath(new URL("../playwright-tools.json", import.meta.url));
 
 const read = (entry) => execFileSync("unzip", ["-p", ZIP, entry], { maxBuffer: 64 * 1024 * 1024 }).toString("utf8");
@@ -93,7 +93,7 @@ if (totalChars < 200) throw new Error(`captured only ${totalChars} chars of sche
 
 const header =
   "// The SHIPPED playwright-mcp's browser_* tool contract, extracted from\n" +
-  "// agent/deploy/vale-playwright.zip (playwright-core/lib/coreBundle.js).\n" +
+  "// agent/deploy/summrise-playwright.zip (playwright-core/lib/coreBundle.js).\n" +
   "// The bundle is a boxed, untracked artifact, so this snapshot is what CI can see.\n" +
   "// Regenerate with: node gateway/scripts/extract-playwright-tools.mjs\n" +
   "// Do not hand-edit.\n";

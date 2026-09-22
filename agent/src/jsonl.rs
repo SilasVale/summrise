@@ -139,7 +139,8 @@ mod tests {
     use super::*;
 
     fn tmp(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vale-jsonl-{}-{}", tag, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-jsonl-{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir.join("log.jsonl")

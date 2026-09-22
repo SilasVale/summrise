@@ -3,11 +3,11 @@
 // App.tsx computeBoot (round-139 fix + round-86/122/124 semantics); moving it
 // here only gives it an owner, it does not change behavior.
 //
-// See docs/superpowers/specs/2026-08-28-vale-desktop-core-design.md §5.
+// See docs/superpowers/specs/2026-08-28-summrise-desktop-core-design.md §5.
 import { initTransport } from "./api";
 
-const LS_HOST = "valeHost";
-const LS_TOKEN = "valeToken";
+const LS_HOST = "summriseHost";
+const LS_TOKEN = "summriseToken";
 
 /** Resolved bootstrap values shared by every App state initializer. */
 interface Boot {
@@ -34,7 +34,7 @@ function isSameOrigin(pathname: string): boolean {
 // state stayed "" whenever localStorage was empty at first paint. Terminal/
 // SSE kept working (transport had the real token) but BrowserPane builds its
 // own Bearer from the `token` PROP, so a first visit via ?token= (fresh
-// browser, or console-proxy visits which delete valeToken per round-122/124)
+// browser, or console-proxy visits which delete summriseToken per round-122/124)
 // 401'd every /api/browser/* call: blank viewport, 0fps, no tabs, red
 // auth failed — fixed by one manual reload. Now the same resolved value seeds
 // both the transport and React state.
@@ -48,7 +48,7 @@ export function computeBoot(onAuthFail: () => void): Boot {
     const tok = isProxy ? (urlToken || "") : (injected || urlToken || stored);
     try { localStorage.setItem(LS_HOST, host); } catch { /* private mode/quota: boot must not crash */ }
     // round-122/124: in PROXY mode do NOT persist the token to
-    // localStorage — the vale_pt cookie is the real credential there, and
+    // localStorage — the summrise_pt cookie is the real credential there, and
     // persisting the plugin token made a plaintext 30-day device-control
     // credential readable by any script on the console origin. Also
     // DELETE any stale pre-R122 value: the proxy's Bearer would win over

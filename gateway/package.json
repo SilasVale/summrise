@@ -1,7 +1,7 @@
 {
-  "name": "vale-gate",
+  "name": "summrise-gate",
   "private": true,
-  "description": "Vale Gate worker (Cloudflare) — KV cache unit tests via node --test",
+  "description": "Summrise Gate worker (Cloudflare) — KV cache unit tests via node --test",
   "type": "module",
   "scripts": {
     "test": "node --test",

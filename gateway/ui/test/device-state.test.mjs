@@ -83,7 +83,7 @@ test("the freshness claim in deviceState.ts still matches the worker's probe TTL
   // This pins the number to the mirror so the note cannot rot: change the TTL and this fails, and the note gets
   // corrected with it.
   const mirror = readFileSync(
-    path.join(HERE, "..", "..", "public", "code", "files", "vale-gate", "src", "plugins", "mcp.ts"),
+    path.join(HERE, "..", "..", "public", "code", "files", "summrise-gate", "src", "plugins", "mcp.ts"),
     "utf8",
   );
   const ttl = /DEVICE_PROBE_TTL_MS\s*=\s*([0-9_]+)/.exec(mirror);

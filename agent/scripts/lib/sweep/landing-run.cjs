@@ -18,8 +18,8 @@ const crypto = require("crypto");
 
 const P = require("./pieces.cjs");
 
-const ROOT = process.env.VALE_SWEEP_ROOT || P.config.root;
-const REPORT_PATH = process.env.VALE_SWEEP_REPORT || P.config.reportPath;
+const ROOT = process.env.SUMMRISE_SWEEP_ROOT || P.config.root;
+const REPORT_PATH = process.env.SUMMRISE_SWEEP_REPORT || P.config.reportPath;
 const EXPECTED_ENTRY = P.config.expectedEntry;
 const EXPECTED_ENTRY_PATH = path.join(ROOT, "installer.html");
 const PROBE = P.probe;
@@ -43,7 +43,7 @@ const wants = (name) => !PASSES.length || PASSES.includes("all") || PASSES.inclu
 const PAGES = ["installer", "npm-only"];
 
 (async () => {
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
+  const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
   const report = {
     rows: [], surfaces: [], names: [], focus: [], press: [], idle: [], hover: [], unstyled: [], motion: [],
@@ -58,7 +58,7 @@ const PAGES = ["installer", "npm-only"];
       }
     })(),
   };
-  await page.route("http://vale.test/**", (route) => {
+  await page.route("http://summrise.test/**", (route) => {
     const p = new URL(route.request().url()).pathname;
     const file = p === "/" || p === "" ? "installer.html" : p.replace(/^\//, "");
     const full = path.join(ROOT, file);
@@ -71,7 +71,7 @@ const PAGES = ["installer", "npm-only"];
     await page.emulateMedia({ colorScheme: scheme });
     for (const label of PAGES) {
       await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto("http://vale.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
+      await page.goto("http://summrise.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
       await page.waitForTimeout(1200);
       const where = label + "@1440" + (scheme === "dark" ? "-dark" : "");
       report.themeChecks.push({ page: where, intended: scheme, scheme: await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches) });
@@ -98,7 +98,7 @@ const PAGES = ["installer", "npm-only"];
     for (const width of [640, 320]) {
       await page.setViewportSize({ width, height: 800 });
       for (const label of PAGES) {
-        await page.goto("http://vale.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
+        await page.goto("http://summrise.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
         await page.waitForTimeout(900);
         report.reflow.push({ page: label + "@" + width, width, density: "landing", theme: "light", ...(await page.evaluate(REFLOW, SELECTOR)) });
       }
@@ -106,7 +106,7 @@ const PAGES = ["installer", "npm-only"];
   }
   if (wants("motion")) {
     report.motion.push(await motionPass(page, async () => {
-      await page.goto("http://vale.test/installer.html?cb=" + Date.now(), { waitUntil: "load" });
+      await page.goto("http://summrise.test/installer.html?cb=" + Date.now(), { waitUntil: "load" });
       await page.waitForTimeout(1500);
     }, { page: "installer", width: 1440, density: "landing", theme: "light" }));
   }

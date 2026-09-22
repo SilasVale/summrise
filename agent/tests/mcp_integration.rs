@@ -8,9 +8,9 @@ use rmcp::transport::{
 };
 use rmcp::ServiceExt;
 use std::sync::Arc;
+use summrise_agent::state::AppState;
+use summrise_agent_core::Config;
 use tokio_util::sync::CancellationToken;
-use vale_agent::state::AppState;
-use vale_agent_core::Config;
 
 /// Start a headless server on an ephemeral port; returns the MCP URL.
 async fn start_server(auth_token: Option<&str>) -> String {
@@ -19,7 +19,7 @@ async fn start_server(auth_token: Option<&str>) -> String {
     cfg.server.port = 0; // ephemeral — bind() reports the actual port
     cfg.server.device_token = auth_token.map(|t| t.to_string());
     let state = Arc::new(AppState::new(cfg.clone()));
-    let (addr, _handle) = vale_agent::mcp::bind(cfg, state, CancellationToken::new())
+    let (addr, _handle) = summrise_agent::mcp::bind(cfg, state, CancellationToken::new())
         .await
         .expect("bind server");
     format!("http://{addr}/mcp")
@@ -165,7 +165,7 @@ async fn mcp_gate_follows_runtime_token_rotation() {
     cfg.server.port = 0;
     cfg.server.device_token = Some("old-sekret".into());
     let state = Arc::new(AppState::new(cfg.clone()));
-    let (addr, _handle) = vale_agent::mcp::bind(cfg, state.clone(), CancellationToken::new())
+    let (addr, _handle) = summrise_agent::mcp::bind(cfg, state.clone(), CancellationToken::new())
         .await
         .expect("bind server");
     let url = format!("http://{addr}/mcp");

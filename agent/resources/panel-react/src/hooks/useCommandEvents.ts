@@ -320,10 +320,10 @@ function useSessionEventsWithState(
       }, 1000);
     };
     const onVisible = () => { if (document.visibilityState === "visible") tick(); };
-    window.addEventListener("vale-term-output", onOutput);
+    window.addEventListener("summrise-term-output", onOutput);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      window.removeEventListener("vale-term-output", onOutput);
+      window.removeEventListener("summrise-term-output", onOutput);
       document.removeEventListener("visibilitychange", onVisible);
       if (timer) window.clearTimeout(timer);
     };

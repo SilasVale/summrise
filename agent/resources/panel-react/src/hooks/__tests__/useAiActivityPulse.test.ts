@@ -4,7 +4,7 @@ import { useAiActivityPulse, PULSE_MS } from "../useAiActivityPulse";
 
 // round-253: the embedded pane's AI-activity pulse must light on an agent
 // activity push, then fade. P1-3: the hook no longer opens its own SSE
-// stream — it subscribes to the `vale-*` window events re-dispatched by
+// stream — it subscribes to the `summrise-*` window events re-dispatched by
 // useSSE's single stream.
 describe("useAiActivityPulse", () => {
   beforeEach(() => {
@@ -15,15 +15,15 @@ describe("useAiActivityPulse", () => {
     vi.unstubAllGlobals();
   });
 
-  it("lights up on a vale-browser-actions-changed window event and fades after the pulse window", () => {
+  it("lights up on a summrise-browser-actions-changed window event and fades after the pulse window", () => {
     const { result } = renderHook(() => useAiActivityPulse());
     expect(result.current).toBe(false);
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-browser-actions-changed", { detail: {} }));
+      window.dispatchEvent(new CustomEvent("summrise-browser-actions-changed", { detail: {} }));
     });
     expect(result.current).toBe(true);
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-playwright-changed", { detail: {} }));
+      window.dispatchEvent(new CustomEvent("summrise-playwright-changed", { detail: {} }));
     });
     expect(result.current).toBe(true);
     // After the fade window it clears (UI timer, not a poll).
@@ -38,7 +38,7 @@ describe("useAiActivityPulse", () => {
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
     renderHook(() => useAiActivityPulse());
     act(() => {
-      window.dispatchEvent(new CustomEvent("vale-browser-actions-changed", { detail: {} }));
+      window.dispatchEvent(new CustomEvent("summrise-browser-actions-changed", { detail: {} }));
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

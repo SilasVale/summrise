@@ -29,7 +29,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 // THE EMITTER'S OWN OUTPUT, which is the half this file can see. The device copy at
-// C:\ProgramData\Vale\pwout\panel-harness.html is the CALLER's to check, after the download — mixing
+// C:\ProgramData\Summrise\pwout\panel-harness.html is the CALLER's to check, after the download — mixing
 // the two here made the function fail on Linux for a file only the device has.
 const EMITTED = "/tmp/panel-render-audit/panel-harness.html";
 const EMITTER = "agent/scripts/panel-render-audit.mjs";

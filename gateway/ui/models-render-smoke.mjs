@@ -99,7 +99,7 @@ window.fetch = async (input, init = {}) => {
   unmocked.add(path);
   return new Response(JSON.stringify({ error: { message: "not mocked: " + path } }), { status: 404 });
 };
-window.localStorage.setItem("valegate-lang", "zh");
+window.localStorage.setItem("summrisegate-lang", "zh");
 window.__ims = (s) => s;
 window.eval(
   js

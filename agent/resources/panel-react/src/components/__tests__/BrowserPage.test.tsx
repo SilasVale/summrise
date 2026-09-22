@@ -9,12 +9,12 @@ import {
 } from "@testing-library/react";
 import { BrowserPage } from "../BrowserPage";
 
-// round-246/261: the Electron shell (window.valeEmbedded) must render the
+// round-246/261: the Electron shell (window.summriseEmbedded) must render the
 // REAL embedded-browser controller. Plain browsers get a "desktop required"
 // placeholder — the mode-B screenshot stream is gone (user direction).
 describe("BrowserPage", () => {
   beforeEach(() => {
-    delete (window as any).valeEmbedded;
+    delete (window as any).summriseEmbedded;
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -25,19 +25,19 @@ describe("BrowserPage", () => {
     );
   });
   afterEach(() => {
-    delete (window as any).valeEmbedded;
+    delete (window as any).summriseEmbedded;
     vi.unstubAllGlobals();
   });
 
   it("shows the desktop-required placeholder when no embedded bridge exists (plain browser)", () => {
     const { container } = render(<BrowserPage token="t" />);
     expect(container.querySelector(".browser-mode-b-placeholder")).toBeTruthy();
-    expect(container.querySelector("#vale-embedded-browser-slot")).toBeNull();
-    expect(screen.getByText(/needs the Vale desktop app/i)).toBeTruthy();
+    expect(container.querySelector("#summrise-embedded-browser-slot")).toBeNull();
+    expect(screen.getByText(/needs the Summrise desktop app/i)).toBeTruthy();
   });
 
-  it("renders the embedded REAL-browser controller when window.valeEmbedded exists (Electron shell)", async () => {
-    (window as any).valeEmbedded = {
+  it("renders the embedded REAL-browser controller when window.summriseEmbedded exists (Electron shell)", async () => {
+    (window as any).summriseEmbedded = {
       navigate: vi.fn().mockResolvedValue({ ok: true }),
       back: vi.fn().mockResolvedValue({ ok: true }),
       fwd: vi.fn().mockResolvedValue({ ok: true }),
@@ -58,7 +58,7 @@ describe("BrowserPage", () => {
     };
     const { container } = render(<BrowserPage token="t" />);
     // The embedded controller mounts its slot (no screenshot <img>).
-    expect(container.querySelector("#vale-embedded-browser-slot")).toBeTruthy();
+    expect(container.querySelector("#summrise-embedded-browser-slot")).toBeTruthy();
     expect(container.querySelector("img.browser-frame")).toBeNull();
     // Address input drives the embedded view.
     expect(
@@ -77,7 +77,7 @@ describe("BrowserPage", () => {
 
   it("Enter in the address bar navigates AND blurs (Chrome-style submit, round-254)", async () => {
     const navMock = vi.fn().mockResolvedValue({ ok: true });
-    (window as any).valeEmbedded = {
+    (window as any).summriseEmbedded = {
       navigate: navMock,
       back: vi.fn().mockResolvedValue({ ok: true }),
       fwd: vi.fn().mockResolvedValue({ ok: true }),
@@ -114,7 +114,7 @@ describe("BrowserPage", () => {
 
   it("rejects data:/about: URLs with a visible error instead of a silent blank (validator parity)", async () => {
     const navMock = vi.fn().mockResolvedValue({ ok: true });
-    (window as any).valeEmbedded = {
+    (window as any).summriseEmbedded = {
       navigate: navMock,
       back: vi.fn().mockResolvedValue({ ok: true }),
       fwd: vi.fn().mockResolvedValue({ ok: true }),
@@ -161,7 +161,7 @@ describe("BrowserPage", () => {
     let goneHandler:
       ((d: { reason: string; exitCode: number }) => void) | null = null;
     const recoverMock = vi.fn().mockResolvedValue({ ok: true });
-    (window as any).valeEmbedded = {
+    (window as any).summriseEmbedded = {
       navigate: vi.fn().mockResolvedValue({ ok: true }),
       back: vi.fn().mockResolvedValue({ ok: true }),
       fwd: vi.fn().mockResolvedValue({ ok: true }),

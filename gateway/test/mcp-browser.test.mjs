@@ -1,5 +1,5 @@
 // The hostname and the rule that accepts it are ONE fixture (round 118).
-const ENV_EXTRA = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
+const ENV_EXTRA = { DEVICE_HOST_SUFFIX: ".agent.summrise.test" };
 // Browser-tool routing tests: callTool forwards browser tools to the device's
 // own HTTP API (/api/tools/mcp_client_call → playwright-mcp via the agent's
 // mcp_client plugin), maps gateway tool names to playwright names, and
@@ -16,7 +16,7 @@ import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 // A REALISTIC hostname: the dial path now applies the suffix allowlist (it used to be
 // registration-only, so this fixture got away with a placeholder), and no device can be
 // registered under `example.com`. The check is what a production dial actually faces.
-const DEVICE = { name: "d1", hostname: "d1.agent.vale.test", token: "devtok" };
+const DEVICE = { name: "d1", hostname: "d1.agent.summrise.test", token: "devtok" };
 
 // fetch stub: records every call, replies from a handler per URL.
 function makeFetch(handler) {
@@ -45,8 +45,8 @@ const okJson = (result) => ({
 
 test("browser tool routes to the device mcp_client_call API with mapped name + bearer", async () => {
   const { calls, impl } = makeFetch((url) => {
-    assert.equal(url, "https://d1.agent.vale.test/api/tools/mcp_client_call");
-    return okJson({ title: "Vale" });
+    assert.equal(url, "https://d1.agent.summrise.test/api/tools/mcp_client_call");
+    return okJson({ title: "Summrise" });
   });
   await withFetch(impl, () =>
     callTool({ name: "browser_open" }, ENV_EXTRA, DEVICE, { device: "d1", url: "https://example.com" }),
@@ -68,7 +68,7 @@ test("browser tool routes to the device mcp_client_call API with mapped name + b
 // the exact silent-absence class this repo keeps paying for. So the lift is
 // pinned in BOTH directions.
 test("run_id is lifted OUT of the playwright arguments to the device call's top level", async () => {
-  const { calls, impl } = makeFetch(() => okJson({ title: "Vale" }));
+  const { calls, impl } = makeFetch(() => okJson({ title: "Summrise" }));
   await withFetch(impl, () =>
     callTool({ name: "browser_click" }, ENV_EXTRA, DEVICE, {
       device: "d1",
@@ -96,7 +96,7 @@ test("run_id is lifted OUT of the playwright arguments to the device call's top 
 });
 
 test("a browser call with no run_id sends no run_id key at all", async () => {
-  const { calls, impl } = makeFetch(() => okJson({ title: "Vale" }));
+  const { calls, impl } = makeFetch(() => okJson({ title: "Summrise" }));
   await withFetch(impl, () =>
     callTool({ name: "browser_open" }, ENV_EXTRA, DEVICE, { device: "d1", url: "https://example.com" }),
   );
@@ -114,7 +114,7 @@ test("a browser call with no run_id sends no run_id key at all", async () => {
 test("device tools bypass the bridge: browser_run_script/pw_info hit the device API", async () => {
   for (const name of ["browser_run_script", "browser_pw_info"]) {
     const { calls, impl } = makeFetch((url) => {
-      assert.equal(url, `https://d1.agent.vale.test/api/tools/${name}`);
+      assert.equal(url, `https://d1.agent.summrise.test/api/tools/${name}`);
       return new Response(JSON.stringify({ ok: true, result: { ran: true } }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -164,7 +164,7 @@ test("self-heal: not connected → playwright/start + mcp_client_connect → ret
 
 test("browser_click element_ref integer 7 → playwright target e7", async () => {
   const { calls, impl } = makeFetch((url) => {
-    assert.equal(url, "https://d1.agent.vale.test/api/tools/mcp_client_call");
+    assert.equal(url, "https://d1.agent.summrise.test/api/tools/mcp_client_call");
     return okJson({ ok: true });
   });
   const res = await withFetch(impl, () =>
@@ -315,9 +315,9 @@ test("private device hostname → DEVICE_UNREACHABLE before any fetch", async ()
 // smuggling a port/userinfo/path past the IP guards) had ZERO pins.
 test("hostname with port/userinfo/path → DEVICE_UNREACHABLE before any fetch", async () => {
   for (const hostname of [
-    "d1.agent.vale.test:8443",
-    "u@d1.agent.vale.test",
-    "d1.agent.vale.test/evil",
+    "d1.agent.summrise.test:8443",
+    "u@d1.agent.summrise.test",
+    "d1.agent.summrise.test/evil",
   ]) {
     const evil = { name: "evil", hostname, token: "tok" };
     let fetched = false;
@@ -468,7 +468,7 @@ test("a device record outside the suffix allowlist is never dialled, token inclu
 });
 
 test("...and a record INSIDE the allowlist still dials (the guard is a filter, not a wall)", async () => {
-  const ok = { name: "ok1", hostname: "ok1.agent.vale.test", token: "t" };
+  const ok = { name: "ok1", hostname: "ok1.agent.summrise.test", token: "t" };
   const calls = [];
   const impl = async (url) => {
     calls.push(String(url));

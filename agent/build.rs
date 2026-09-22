@@ -81,7 +81,7 @@ fn main() {
     for name in PRODUCT_FILES {
         let bytes = std::fs::read(panel_dir.join(name)).unwrap_or_else(|e| {
             panic!(
-                "vale-agent build: resources/panel/{name} unreadable ({e}) — \
+                "summrise-agent build: resources/panel/{name} unreadable ({e}) — \
                  run the panel build first: `cd agent/resources/panel-react && npm run build` \
                  (or `./scripts/build.sh agent` from the repo root)"
             )
@@ -97,7 +97,7 @@ fn main() {
 /// to the hash step / `include_str!` errors above, which already name the fix.
 fn staleness_gate(panel_dir: &Path, src_dir: &Path) {
     let Ok((newest_src_path, newest_src_mtime)) = newest_mtime(src_dir) else {
-        println!("cargo:warning=vale-agent build: resources/panel-react/src not found — skipping panel staleness gate");
+        println!("cargo:warning=summrise-agent build: resources/panel-react/src not found — skipping panel staleness gate");
         return;
     };
     let mut newest_product_mtime: Option<SystemTime> = None;
@@ -119,7 +119,7 @@ fn staleness_gate(panel_dir: &Path, src_dir: &Path) {
         .unwrap_or_default();
     if drift.as_secs() > STALENESS_GRACE_SECS {
         panic!(
-            "vale-agent build: STALE panel bundle — resources/panel-react/src is newer than \
+            "summrise-agent build: STALE panel bundle — resources/panel-react/src is newer than \
              resources/panel/ by {}s (newest source: {}, products predate it). \
              panel.js is embedded at compile time, so this build would ship the OLD panel. \
              Rebuild first: `cd agent/resources/panel-react && npm run build` \
@@ -174,7 +174,7 @@ fn fnv1a64(bytes: &[u8], mut hash: u64) -> u64 {
 
 // ── THE PROGRAM'S OWN ICON, INSIDE THE PROGRAM (round 265) ────────────────────────────────────────────────
 //
-// THE DEFECT: `vale-agent.exe` carried NO resource of any kind, so Windows had nothing to draw and Task
+// THE DEFECT: `summrise-agent.exe` carried NO resource of any kind, so Windows had nothing to draw and Task
 // Manager showed the generic process glyph for the agent the whole product is about. Nothing in the
 // repository could catch it: no test reads a PE resource table, the icon existed in `brand/` (rendered by
 // `scripts/render-brand-icon.py` for exactly this purpose) and was wired into the desktop app and the
@@ -198,7 +198,7 @@ fn embed_windows_icon(manifest: &Path) {
     let ico = manifest.join("..").join("brand").join("icon.ico");
     if !ico.is_file() {
         panic!(
-            "vale-agent build: brand/icon.ico is missing ({}), so the exe would ship with NO icon and \
+            "summrise-agent build: brand/icon.ico is missing ({}), so the exe would ship with NO icon and \
              Task Manager would show a generic glyph — restore it with scripts/render-brand-icon.py",
             ico.display()
         );
@@ -206,9 +206,9 @@ fn embed_windows_icon(manifest: &Path) {
     println!("cargo:rerun-if-changed={}", ico.display());
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
-    let rc = out_dir.join("vale-agent.rc");
+    let rc = out_dir.join("summrise-agent.rc");
     // RC STRING PATHS: forward slashes, and the version resource below is the one Task Manager's Name column
-    // reads — a process with no FileDescription is listed as `vale-agent.exe`, which is what the operator saw.
+    // reads — a process with no FileDescription is listed as `summrise-agent.exe`, which is what the operator saw.
     let ico_rc = ico.to_string_lossy().replace('\\', "/");
     let version = product_version(manifest);
     std::fs::write(
@@ -229,12 +229,12 @@ fn embed_windows_icon(manifest: &Path) {
              \x20   BEGIN\n\
              \x20       BLOCK \"040904b0\"\n\
              \x20       BEGIN\n\
-             \x20           VALUE \"CompanyName\", \"Vale\"\n\
-             \x20           VALUE \"FileDescription\", \"Vale Agent\"\n\
+             \x20           VALUE \"CompanyName\", \"Summrise\"\n\
+             \x20           VALUE \"FileDescription\", \"Summrise Agent\"\n\
              \x20           VALUE \"FileVersion\", \"{ver}\"\n\
-             \x20           VALUE \"InternalName\", \"vale-agent\"\n\
-             \x20           VALUE \"OriginalFilename\", \"vale-agent.exe\"\n\
-             \x20           VALUE \"ProductName\", \"Vale Agent\"\n\
+             \x20           VALUE \"InternalName\", \"summrise-agent\"\n\
+             \x20           VALUE \"OriginalFilename\", \"summrise-agent.exe\"\n\
+             \x20           VALUE \"ProductName\", \"Summrise Agent\"\n\
              \x20           VALUE \"ProductVersion\", \"{ver}\"\n\
              \x20       END\n\
              \x20   END\n\
@@ -247,7 +247,7 @@ fn embed_windows_icon(manifest: &Path) {
             ver = version,
         ),
     )
-    .unwrap_or_else(|e| panic!("vale-agent build: cannot write {}: {e}", rc.display()));
+    .unwrap_or_else(|e| panic!("summrise-agent build: cannot write {}: {e}", rc.display()));
 
     // ONE TOOL, ONE OUTPUT, ONE LINK ARG — AND IT IS `llvm-rc`, NOT `llvm-windres` (round 265, measured the hard
     // way). The first version of this asked for windres because it can emit a COFF object directly; the CI job that
@@ -258,7 +258,7 @@ fn embed_windows_icon(manifest: &Path) {
     // every environment already has is also the simpler one. MSVC's `rc.exe` takes the SAME `/fo` argv, which is
     // why there is one code path below rather than two.
     let tool = find_resource_compiler();
-    let res = out_dir.join("vale-agent.res");
+    let res = out_dir.join("summrise-agent.res");
     let out = std::process::Command::new(&tool)
         .arg("/nologo")
         .arg("/fo")
@@ -267,15 +267,15 @@ fn embed_windows_icon(manifest: &Path) {
         .output()
         .unwrap_or_else(|e| {
             panic!(
-                "vale-agent build: cannot run {} ({e}) — it is the resource compiler that turns brand/icon.ico \
-                 into something the linker can attach. Point VALE_LLVM_RC at LLVM's llvm-rc, or put llvm-rc (or \
+                "summrise-agent build: cannot run {} ({e}) — it is the resource compiler that turns brand/icon.ico \
+                 into something the linker can attach. Point SUMMRISE_LLVM_RC at LLVM's llvm-rc, or put llvm-rc (or \
                  MSVC's rc.exe) on PATH",
                 tool.display()
             )
         });
     if !out.status.success() {
         panic!(
-            "vale-agent build: {} failed on {}: {}{}",
+            "summrise-agent build: {} failed on {}: {}{}",
             tool.display(),
             rc.display(),
             String::from_utf8_lossy(&out.stdout),
@@ -289,11 +289,11 @@ fn embed_windows_icon(manifest: &Path) {
 
 /// THE VERSION THE EXE REPORTS. It is the npm package's, not `CARGO_PKG_VERSION`: the crate's own version is
 /// an internal 1.0.x that no user has ever seen, while the release flow bumps
-/// `vale-agent-npm/package.json` to 1.2.N BEFORE it builds — so at release time that file IS this binary's
-/// version, and the Properties dialog and Task Manager agree with `vale status` instead of contradicting it.
+/// `summrise-agent-npm/package.json` to 1.2.N BEFORE it builds — so at release time that file IS this binary's
+/// version, and the Properties dialog and Task Manager agree with `summrise status` instead of contradicting it.
 /// A dev build reports the last released version, which is the honest answer to "which release line is this".
 fn product_version(manifest: &Path) -> String {
-    let pkg = manifest.join("vale-agent-npm").join("package.json");
+    let pkg = manifest.join("summrise-agent-npm").join("package.json");
     println!("cargo:rerun-if-changed={}", pkg.display());
     let fallback = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
     let Ok(text) = std::fs::read_to_string(&pkg) else {
@@ -328,7 +328,7 @@ fn product_version(manifest: &Path) -> String {
 /// package ships, and the first version looked only on PATH and beside the cargo-xwin symlink. The order below is
 /// most-specific first, and every candidate is a place a real environment was measured to have it:
 ///
-///   1. `VALE_LLVM_RC` — an explicit override for a machine nobody has thought of yet;
+///   1. `SUMMRISE_LLVM_RC` — an explicit override for a machine nobody has thought of yet;
 ///   2. PATH, unversioned then versioned (`llvm-rc-18` … `llvm-rc-14`): Debian and Ubuntu install the versioned
 ///      names, and a CI image that has one does not always have the other;
 ///   3. `~/.cache/cargo-xwin/llvm-rc` — the symlink `release.yml` creates, plus its RESOLVED directory, because
@@ -340,7 +340,7 @@ fn product_version(manifest: &Path) -> String {
 /// If none of them exists the build FAILS, naming the override — because a missing icon is precisely the defect
 /// this code exists to prevent, and "warned and continued" is how it went unnoticed for the product's whole life.
 fn find_resource_compiler() -> PathBuf {
-    if let Ok(p) = std::env::var("VALE_LLVM_RC") {
+    if let Ok(p) = std::env::var("SUMMRISE_LLVM_RC") {
         return PathBuf::from(p);
     }
     let mut names = vec!["llvm-rc".to_string()];

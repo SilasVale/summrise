@@ -12,8 +12,8 @@ import { withFetch, assertFetchCalls } from "./helpers.mjs";
 
 // THIS FILE RUNS ON A TEST DOMAIN (round 110), which is what makes the probe's own hostname rule part of the fixture: the
 // device host below is only acceptable because the env says so, and that pairing is the one round 94 paid a 502 to learn.
-const ENV = { DEVICE_HOST_SUFFIX: ".agent.vale.test" };
-const dev = (name) => ({ name, hostname: "d1.agent.vale.test", token: "tok-device-1" });
+const ENV = { DEVICE_HOST_SUFFIX: ".agent.summrise.test" };
+const dev = (name) => ({ name, hostname: "d1.agent.summrise.test", token: "tok-device-1" });
 const statusJson = (obj) =>
   new Response(JSON.stringify(obj), { status: 200, headers: { "content-type": "application/json" } });
 

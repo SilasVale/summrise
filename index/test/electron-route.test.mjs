@@ -10,7 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 
-const PATH = "/vale-agent/electron-win32-x64.zip";
+const PATH = "/summrise-agent/electron-win32-x64.zip";
 const PINNED_UPSTREAM =
   "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip";
 

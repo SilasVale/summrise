@@ -214,7 +214,7 @@ mod tests {
     use super::*;
 
     fn dirs(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-        let base = std::env::temp_dir().join(format!("vale-op-{tag}-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("summrise-op-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let sess = base.join("sessions");
         let ev = base.join("pwout");
@@ -385,7 +385,7 @@ mod tests {
     /// never opened a browser has no actions file, and that is normal.
     #[test]
     fn absent_directories_yield_an_empty_timeline() {
-        let missing = std::path::Path::new("/nonexistent-vale-op-probe");
+        let missing = std::path::Path::new("/nonexistent-summrise-op-probe");
         assert!(merged_operation(missing, missing, 0, 10).is_empty());
     }
 
@@ -423,7 +423,7 @@ mod tests {
 
         // The row carries the RECORD's fields as the source record had them, which is the other half of the mapping:
         // an allowlist that reads a key the producer never writes sends nulls forever.
-        assert_eq!(terminal["command"], "vale status");
+        assert_eq!(terminal["command"], "summrise status");
         assert_eq!(terminal["plan_step"], 2);
         assert_eq!(terminal["run_id"], "run-1000-abc123");
         assert_eq!(browser["script"], "mcp: click");

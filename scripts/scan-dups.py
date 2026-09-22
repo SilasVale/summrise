@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Duplicate-block scanner for the Vale monorepo.
+"""Duplicate-block scanner for the Summrise monorepo.
 
 Methodology hardened across the 2026-09-08 SOLID refactor rounds (see
 agent/AGENTS.md round log): hash fixed-width line windows per file
@@ -12,9 +12,9 @@ copy-paste early.
 Usage:
   python3 scripts/scan-dups.py [--window 6] [--cross] [--min-sites 2]
                                [--root agent/src gateway/src index/src ...]
-Default roots: agent/src, agent/vale-command-core/src, gateway/src,
-index/src, gateway/ui/src, proxies, extension, agent/vale-agent-npm/src,
-agent/vale-desktop-electron/src.
+Default roots: agent/src, agent/summrise-command-core/src, gateway/src,
+index/src, gateway/ui/src, proxies, extension, agent/summrise-agent-npm/src,
+agent/summrise-desktop-electron/src.
 
 Rust files: #[cfg(test)] blocks are skipped (test scaffolding is
 deliberately excluded from the production-duplication signal — see
@@ -81,9 +81,9 @@ def main():
     ap.add_argument("--cross", action="store_true",
                     help="also report blocks shared across files")
     ap.add_argument("--roots", nargs="*", default=[
-        "agent/src", "agent/vale-command-core/src", "gateway/src",
+        "agent/src", "agent/summrise-command-core/src", "gateway/src",
         "index/src", "gateway/ui/src", "proxies", "extension",
-        "agent/vale-agent-npm/src", "agent/vale-desktop-electron/src",
+        "agent/summrise-agent-npm/src", "agent/summrise-desktop-electron/src",
     ])
     args = ap.parse_args()
     missing = [r for r in args.roots if not os.path.isdir(r)]

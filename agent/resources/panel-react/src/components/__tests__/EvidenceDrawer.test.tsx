@@ -60,7 +60,7 @@ describe("EvidenceDrawer", () => {
     );
   });
 
-  it("refreshes on the vale-* window events, not its own SSE stream (P1-3)", async () => {
+  it("refreshes on the summrise-* window events, not its own SSE stream (P1-3)", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/browser/pwshots")) {
@@ -87,7 +87,7 @@ describe("EvidenceDrawer", () => {
     const before = fetchMock.mock.calls.length;
     // An agent activity push re-triggers the on-demand refresh.
     window.dispatchEvent(
-      new CustomEvent("vale-browser-actions-changed", { detail: {} }),
+      new CustomEvent("summrise-browser-actions-changed", { detail: {} }),
     );
     await waitFor(
       () => expect(fetchMock.mock.calls.length).toBeGreaterThan(before),

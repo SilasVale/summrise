@@ -1,8 +1,8 @@
 // EmbeddedBrowserPane — the Electron-shell REAL browser (round-246).
 //
 // The classic BrowserPane shows the bridge's headless chromium as a JPEG
-// screencast (lossy, never as sharp as a real browser). In the Vale Desktop
-// shell the main process owns a REAL WebContentsView (window.valeEmbedded
+// screencast (lossy, never as sharp as a real browser). In the Summrise Desktop
+// shell the main process owns a REAL WebContentsView (window.summriseEmbedded
 // bridge) whose webContents is a CDP target on :9333 — the SAME endpoint AI
 // drives. This pane is the SPA-side controller for that view:
 //   - renders an empty slot the main process overlays the view onto
@@ -12,7 +12,7 @@
 //   - the address bar + button disabled-states FOLLOW the real page via
 //     main-process navigation events (round-247) — event-driven, no polling
 //
-// Plain-browser contexts (no window.valeEmbedded) never mount this — they
+// Plain-browser contexts (no window.summriseEmbedded) never mount this — they
 // keep the screenshot BrowserPane.
 import { useEffect, useRef, useState, useCallback } from "react";
 import { embeddedBridge } from "../lib/embeddedBridge";
@@ -21,7 +21,7 @@ import { useAiActivityPulse } from "../hooks/useAiActivityPulse";
 import { EvidenceDrawer } from "./EvidenceDrawer";
 import { shouldAcceptNavPush } from "../lib/embeddedNav";
 
-const slotId = "vale-embedded-browser-slot";
+const slotId = "summrise-embedded-browser-slot";
 
 export function EmbeddedBrowserPane({ token }: { token: string }) {
   const slotRef = useRef<HTMLDivElement | null>(null);

@@ -58,7 +58,7 @@ mk_tgz() { # mk_tgz <out.tgz> <top> <mode> [content]
   chmod 755 "$d/$top"
   printf '%s\n' "$content" > "$d/$top/a.txt"
   chmod "$mode" "$d/$top/a.txt"
-  printf 'exe\n' > "$d/$top/vale-agent.exe"; chmod 644 "$d/$top/vale-agent.exe"
+  printf 'exe\n' > "$d/$top/summrise-agent.exe"; chmod 644 "$d/$top/summrise-agent.exe"
   tar_rep "$out" -C "$d" "$top"
   rm -rf "$d"
 }
@@ -84,9 +84,9 @@ run_audit() { # run_audit <gh.tgz> <cdn.tgz> -> rc, prints the audit's output
       esac
     done
     case "$url" in
-      *api.github.com*) printf '{"assets":[{"name":"vale-agent-9.9.9.tgz"}]}\n'; return 0;;
+      *api.github.com*) printf '{"assets":[{"name":"summrise-agent-9.9.9.tgz"}]}\n'; return 0;;
       *releases/download*) cp "$fix_gh" "$out"; return 0;;
-      *vale-agent/vale-agent-*) cp "$fix_cdn" "$out"; return 0;;
+      *summrise-agent/summrise-agent-*) cp "$fix_cdn" "$out"; return 0;;
       *) return 22;;
     esac
   }
@@ -177,7 +177,7 @@ mk_tgz_ts() { # mk_tgz_ts <out.tgz> <touch-when>
   local out="$1" when="$2" d; d="$(mktemp -d)"
   mkdir -p "$d/package"
   printf 'hello\n' > "$d/package/a.txt"; chmod 644 "$d/package/a.txt"
-  printf 'exe\n'   > "$d/package/vale-agent.exe"; chmod 644 "$d/package/vale-agent.exe"
+  printf 'exe\n'   > "$d/package/summrise-agent.exe"; chmod 644 "$d/package/summrise-agent.exe"
   find "$d" -exec touch -d "$when" {} +
   tar_ts "$out" -C "$d" package
   rm -rf "$d"
@@ -199,14 +199,14 @@ names_code() { # names_code <http-code|network> -> rc; names printed on 0
     local url=""
     while [ $# -gt 0 ]; do case "$1" in -w) shift 2;; -*) shift;; *) url="$1"; shift;; esac; done
     [ "$want" = "network" ] && return 7
-    printf '{"assets":[{"name":"vale-agent-9.9.9.tgz"}]}\n%s\n' "$want"
+    printf '{"assets":[{"name":"summrise-agent-9.9.9.tgz"}]}\n%s\n' "$want"
     return 0
   }
   audit_asset_names 9.9.9
 }
 out="$(names_code 200 2>&1)" && rc=0 || rc=$?
 check "HTTP 200 = the release exists" "$rc" "0"
-has "and its asset names come back" "$out" "vale-agent-9.9.9.tgz"
+has "and its asset names come back" "$out" "summrise-agent-9.9.9.tgz"
 out="$(names_code 404 2>&1)" && rc=0 || rc=$?
 check "HTTP 404 = the release does NOT exist (rc 3)" "$rc" "3"
 out="$(names_code 500 2>&1)" && rc=0 || rc=$?

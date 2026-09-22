@@ -43,21 +43,21 @@ describe("getting started: the content is checked, not trusted", () => {
   it("a monospace ACTION is a command the CLI actually has", () => {
     // The one real command in the guide. If the CLI ever loses `monitor add`, the guide must not go
     // on telling people to type it — so this reads the shipped CLI and checks the usage line.
-    const cli = readFileSync(path.join(ROOT, "vale-agent-npm", "bin", "vale.js"), "utf8");
+    const cli = readFileSync(path.join(ROOT, "summrise-agent-npm", "bin", "summrise.js"), "utf8");
     const commands = STEPS.flatMap((s) => (s.action ? [s.action] : []));
     expect(commands.length, "the guide should show at least one real command").toBeGreaterThan(0);
     for (const cmd of commands) {
-      const m = /^vale\s+([a-z]+)\s+([a-z]+)/.exec(cmd);
-      expect(m, `"${cmd}" is not shaped like a vale command`).not.toBeNull();
+      const m = /^summrise\s+([a-z]+)\s+([a-z]+)/.exec(cmd);
+      expect(m, `"${cmd}" is not shaped like a summrise command`).not.toBeNull();
       const [, verb, sub] = m!;
       // THE USAGE LINE IS THE CONTRACT: it is what the CLI prints to somebody who asks, so it is
       // what the guide must agree with. (Asserting on the dispatcher's internal shape was my first
       // attempt and it was wrong about the code rather than about the product.)
       // GREEDY to the last bracket on the line: the usage lists NESTED options
       // (`[list [--json] | add …]`), and a non-greedy match stops at `[--json`.
-      const usage = cli.match(new RegExp(`usage: vale ${verb} \\[(.*)\\]`));
-      expect(usage, `the CLI prints no usage line for \`vale ${verb}\``).not.toBeNull();
-      expect(usage![1], `\`vale ${verb}\` no longer offers \`${sub}\``).toContain(sub);
+      const usage = cli.match(new RegExp(`usage: summrise ${verb} \\[(.*)\\]`));
+      expect(usage, `the CLI prints no usage line for \`summrise ${verb}\``).not.toBeNull();
+      expect(usage![1], `\`summrise ${verb}\` no longer offers \`${sub}\``).toContain(sub);
     }
   });
 
@@ -67,7 +67,7 @@ describe("getting started: the content is checked, not trusted", () => {
     expect(shouldShowGuide(GETTING_STARTED_VERSION)).toBe(false);
     // An older version re-opens it: the card changed, so the reader gets to see the change.
     expect(shouldShowGuide("0")).toBe(true);
-    expect(GETTING_STARTED_KEY).toBe("valeGettingStarted");
+    expect(GETTING_STARTED_KEY).toBe("summriseGettingStarted");
     // The footer must tell the reader how to get back — a dismissible card with no way back is a
     // dead end.
     expect(GETTING_STARTED_REOPEN).toContain("?");

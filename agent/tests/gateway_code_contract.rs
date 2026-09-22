@@ -77,7 +77,7 @@ fn gateway_matched_codes(ts: &str) -> Vec<String> {
 
 #[test]
 fn the_agent_declares_exactly_the_codes_the_gateway_dispatches() {
-    let rust = std::fs::read_to_string(repo_dir().join("agent/vale-command-core/src/error.rs"))
+    let rust = std::fs::read_to_string(repo_dir().join("agent/summrise-command-core/src/error.rs"))
         .expect("error.rs is readable");
     let ts = std::fs::read_to_string(repo_dir().join("gateway/src/mcp.ts"))
         .expect("gateway/src/mcp.ts is readable");

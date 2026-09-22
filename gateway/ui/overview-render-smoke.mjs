@@ -52,7 +52,7 @@ async function mount(routes) {
       status: 404,
     });
   };
-  window.localStorage.setItem("valegate-lang", "zh");
+  window.localStorage.setItem("summrisegate-lang", "zh");
   window.__ims = (s) => s;
   window.eval(
     js

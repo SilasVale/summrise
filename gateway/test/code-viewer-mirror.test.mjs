@@ -1,8 +1,8 @@
 // ── the Source Viewer must serve what the worker RUNS ───────────────────────
 //
-// `gateway/public/code/files/vale-gate/` is a TRACKED mirror of `gateway/src`,
+// `gateway/public/code/files/summrise-gate/` is a TRACKED mirror of `gateway/src`,
 // served as worker assets (`wrangler.jsonc`: assets.directory "./public") at
-// https://api.vale.test/code/files/vale-gate/src/… . It is refreshed ONLY by
+// https://api.summrise.test/code/files/summrise-gate/src/… . It is refreshed ONLY by
 // `scripts/build.sh` at deploy time (through `scripts/sync-code-viewer.sh`).
 //
 // Nothing compared the two. Observed 2026-09-12: the mirror was **13 commits
@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SRC = join(ROOT, "src");
-const MIRROR = join(ROOT, "public", "code", "files", "vale-gate", "src");
+const MIRROR = join(ROOT, "public", "code", "files", "summrise-gate", "src");
 const MANIFEST = join(ROOT, "public", "code", "manifest.json");
 
 /** Every file under `dir`, relative to it, sorted. */
@@ -92,7 +92,7 @@ test("code viewer: the tracked mirror matches what src/ would publish", () => {
   assert.deepEqual(
     { missing, extra, differing },
     { missing: [], extra: [], differing: [] },
-    "gateway/public/code/files/vale-gate/src is out of date, so the Source Viewer " +
+    "gateway/public/code/files/summrise-gate/src is out of date, so the Source Viewer " +
       "serves code the worker does not run — including descriptions that may state " +
       "facts the device has since disproved. Re-sync with " +
       "`bash gateway/scripts/sync-code-viewer.sh` and commit the mirror. " +
@@ -111,7 +111,7 @@ test("code viewer: the manifest indexes every mirrored file", () => {
     JSON.parse(readFileSync(MANIFEST, "utf8")).files.map((f) => f.path),
   );
   const unindexed = walk(MIRROR)
-    .map((f) => `files/vale-gate/src/${f}`)
+    .map((f) => `files/summrise-gate/src/${f}`)
     .filter((p) => !indexed.has(p));
   assert.deepEqual(
     unindexed,

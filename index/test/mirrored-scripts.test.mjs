@@ -1,8 +1,8 @@
 // ── the CDN's script assets are hand-synced copies of agent/deploy/ ──
 //
-// `index/public/vale-agent/fix-tunnel.ps1` is a TRACKED file: nothing copies it
+// `index/public/summrise-agent/fix-tunnel.ps1` is a TRACKED file: nothing copies it
 // there (a grep of scripts/*.sh for `fix-tunnel` returns nothing), and the browser /
-// installer fetches it from the CDN rather than from npm — `agent/vale-agent-npm`'s
+// installer fetches it from the CDN rather than from npm — `agent/summrise-agent-npm`'s
 // `files` array and its 9-file pack contain no such script.
 //
 // Round 239 measured the two copies and they DIFFERED: the published one still carried
@@ -23,7 +23,7 @@ import { join, dirname } from "node:path";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC = join(REPO, "agent", "deploy");
-const CDN = join(REPO, "index", "public", "vale-agent");
+const CDN = join(REPO, "index", "public", "summrise-agent");
 
 test("every CDN script asset is byte-identical to its agent/deploy/ source", () => {
   const shared = readdirSync(CDN)
@@ -42,7 +42,7 @@ test("every CDN script asset is byte-identical to its agent/deploy/ source", () 
       readFileSync(join(SRC, f), "utf8"),
       `${f} differs between the CDN asset and its agent/deploy/ source. The CDN copy is ` +
         `what a device fetches, so a fix that lands only in agent/deploy/ ships to nobody. ` +
-        `Copy the source over: cp agent/deploy/${f} index/public/vale-agent/${f}`,
+        `Copy the source over: cp agent/deploy/${f} index/public/summrise-agent/${f}`,
     );
   }
 });

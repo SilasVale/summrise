@@ -9,7 +9,7 @@
 // THREE CHANNELS, and the ordering between them is the design (the cheapest and most reliable is
 // first, the most intrusive is last):
 //   1. **the tab TITLE** — no permission, no API, works in every browser, and it is what a
-//      background tab is judged by. `(2) ⚠ Vale Agent`, never `Vale Agent`.
+//      background tab is judged by. `(2) ⚠ Summrise Agent`, never `Summrise Agent`.
 //   2. **the FAVICON** — the same information as a shape, for a pinned tab where the title is
 //      clipped to nothing;
 //   3. **a desktop NOTIFICATION** — the only one that crosses to another application, and the only
@@ -59,7 +59,7 @@ export interface AttentionItem {
   text: string;
 }
 
-export const BASE_TITLE = "Vale Agent";
+export const BASE_TITLE = "Summrise Agent";
 
 /** What needs a human, in the order a human would want it: an AI BLOCKED ON A QUESTION outranks a
  *  host that is down, because the first is a person's work stopped and the second is a fact that
@@ -101,7 +101,7 @@ export function attentionFrom(
  *  nobody anything. */
 export function titleFor(items: AttentionItem[], base: string = BASE_TITLE, tab: boolean = true): string {
   if (items.length === 0) return base;
-  // THE COUNT IS FOR A TAB, NOT FOR A WINDOW (round 199, from the operator's screen: "(2) Vale Agent, the (2) should not be
+  // THE COUNT IS FOR A TAB, NOT FOR A WINDOW (round 199, from the operator's screen: "(2) Summrise Agent, the (2) should not be
   // there"). The prefix exists because a browser tab TRUNCATES FROM THE RIGHT — the reason is written above — and that
   // reason does not hold in the desktop app, which is a native window whose title is its identity rather than a queue of
   // pages. It also does not need the count: the status bar it always draws carries the same attention ("192.168.1.1:443

@@ -16,7 +16,7 @@ import type { Page } from "../components/Shell";
 export const GETTING_STARTED_VERSION = "1";
 
 /** The localStorage key. Versioned by VALUE, not by key, so one key is all that is ever written. */
-export const GETTING_STARTED_KEY = "valeGettingStarted";
+export const GETTING_STARTED_KEY = "summriseGettingStarted";
 
 interface Step {
   /** Which page the step sends you to — must exist in PAGE_ICONS. */
@@ -51,7 +51,7 @@ export const STEPS: Step[] = [
     title: "Watch what must keep answering",
     detail:
       "Add a host:port — or a full URL plus the text the page must contain — and the chip in the status bar turns red the moment it stops answering, from any page.",
-    action: "vale monitor add 192.168.1.1:22",
+    action: "summrise monitor add 192.168.1.1:22",
   },
   {
     page: "history",

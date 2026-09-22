@@ -1,4 +1,4 @@
-# Vale Index post-publish smoke — SHARED snippet (sourced, never executed).
+# Summrise Index post-publish smoke — SHARED snippet (sourced, never executed).
 #
 #   source "scripts/smoke-index.sh"   # (repo root; or "$ROOT/scripts/...")
 #   smoke_index_release "$want_version" "$want_sha" || exit 1
@@ -80,12 +80,12 @@ smoke_index_release() {
   # round-288 lesson). A version.json fetch failure only WARNs (the
   # sha checks below stay the hard gates); a real mismatch FAILS.
   local vjson tb_json
-  vjson="$(curl -fsSL -m 30 "$base/vale-agent/version.json" 2>/dev/null)" || vjson=""
+  vjson="$(curl -fsSL -m 30 "$base/summrise-agent/version.json" 2>/dev/null)" || vjson=""
   # (grep-no-match exits 1: the || keeps the empty-tarball case inside the
   # if/elif below instead of tripping the caller's `set -e` + pipefail.)
   tb_json="$(echo "$vjson" | grep -oP '"tarball":"\K[^"]+' | head -1)" || tb_json=""
   if [ -z "$vjson" ]; then
-    echo "  -- WARN: could not fetch $base/vale-agent/version.json for the tarball check (continuing)"
+    echo "  -- WARN: could not fetch $base/summrise-agent/version.json for the tarball check (continuing)"
   elif [ -n "$tb_json" ] && [ "$(basename "$dl_url")" != "$tb_json" ]; then
     echo "  !! tarball mismatch: version.json names '$tb_json' but /api/version serves '$dl_url'"
     return 1
@@ -110,12 +110,12 @@ smoke_index_release() {
   # the versioned check above stays green.
   local latest_sha=""
   for _ in 1 2 3 4 5; do
-    latest_sha="$(curl -fsSL -m 120 "$base/vale-agent/vale-agent-latest.tgz" 2>/dev/null | sha256sum | cut -d' ' -f1)" || latest_sha=""
+    latest_sha="$(curl -fsSL -m 120 "$base/summrise-agent/summrise-agent-latest.tgz" 2>/dev/null | sha256sum | cut -d' ' -f1)" || latest_sha=""
     [ "$latest_sha" = "$want_sha" ] && break
     sleep "$retry_sleep"
   done
   if [ "$latest_sha" != "$want_sha" ]; then
-    echo "  !! latest-alias sha256 mismatch: manifest $want_sha, downloaded $latest_sha ($base/vale-agent/vale-agent-latest.tgz)"
+    echo "  !! latest-alias sha256 mismatch: manifest $want_sha, downloaded $latest_sha ($base/summrise-agent/summrise-agent-latest.tgz)"
     return 1
   fi
   # Installer manifest (additive — older manifests carry no installer
@@ -161,16 +161,16 @@ smoke_index_release() {
     for _ in 1 2 3 4 5; do
       # Empty means "could not download", which is NOT the same as "downloaded something else"
       # (see sha256_of_url for why the old pipeline could never report that).
-      alias_sha="$(sha256_of_url "$base/vale-agent/ValeAgent-Setup.exe")"
+      alias_sha="$(sha256_of_url "$base/summrise-agent/SummriseAgent-Setup.exe")"
       [ "$alias_sha" = "$inst_want" ] && break
       sleep "$retry_sleep"
     done
     if [ -z "$alias_sha" ]; then
-      echo "  !! the manifest advertises an installer for v$want_version but the alias could not be downloaded ($base/vale-agent/ValeAgent-Setup.exe)"
+      echo "  !! the manifest advertises an installer for v$want_version but the alias could not be downloaded ($base/summrise-agent/SummriseAgent-Setup.exe)"
       return 1
     fi
     if [ "$alias_sha" != "$inst_want" ]; then
-      echo "  !! installer-alias sha256 mismatch: manifest $inst_want, downloaded $alias_sha ($base/vale-agent/ValeAgent-Setup.exe)"
+      echo "  !! installer-alias sha256 mismatch: manifest $inst_want, downloaded $alias_sha ($base/summrise-agent/SummriseAgent-Setup.exe)"
       return 1
     fi
     echo "  ok: installer smoke passed (versioned + alias binary sha verified)"
@@ -178,7 +178,7 @@ smoke_index_release() {
     # THE MANIFEST SAYS NOTHING ABOUT AN INSTALLER — SO SAY WHAT THE ALIAS IS.
     #
     # Round 125 measured this exact state and it is why this branch exists: the
-    # CDN's `ValeAgent-Setup.exe` was serving the **1.2.361** installer (same
+    # CDN's `SummriseAgent-Setup.exe` was serving the **1.2.361** installer (same
     # etag) while the release was 1.2.364, because 1.2.364 shipped tgz-only. The
     # whole installer block sits behind the `if` above, so the smoke checked
     # NOTHING here and still printed "ok: /api/version smoke passed".
@@ -187,13 +187,13 @@ smoke_index_release() {
     # but a stale artifact NOBODY NAMES is how the landing page got away with
     # offering it for three releases. So: name it, every time.
     local alias_now=""
-    alias_now="$(sha256_of_url "$base/vale-agent/ValeAgent-Setup.exe")"
+    alias_now="$(sha256_of_url "$base/summrise-agent/SummriseAgent-Setup.exe")"
     if [ -z "$alias_now" ]; then
-      echo "  ok: no installer advertised for v$want_version, and the ValeAgent-Setup.exe alias is absent (consistent)"
+      echo "  ok: no installer advertised for v$want_version, and the SummriseAgent-Setup.exe alias is absent (consistent)"
     else
       stale_alias=1
       echo "  -- WARN: the manifest advertises NO installer for v$want_version, but the"
-      echo "     ValeAgent-Setup.exe alias still serves a build: ${alias_now:0:24}…"
+      echo "     SummriseAgent-Setup.exe alias still serves a build: ${alias_now:0:24}…"
       echo "     Nothing links it (the landing page asks the manifest first), so fresh installs"
       echo "     get the npm channel. This is a STALE ARTIFACT, not a broken one — rebuild it with"
       echo "     ./scripts/build-installer.sh $want_version when an installer is wanted again."

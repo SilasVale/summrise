@@ -78,5 +78,5 @@ test("mcpConfig: snippet shape carries the Bearer token", () => {
   });
   assert.equal(url, "https://d1.agent.saisi.online/mcp");
   const snippet = JSON.parse(json);
-  assert.equal(snippet.mcpServers["vale-agent"].headers.Authorization, "Bearer tok-1");
+  assert.equal(snippet.mcpServers["summrise-agent"].headers.Authorization, "Bearer tok-1");
 });

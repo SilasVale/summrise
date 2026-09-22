@@ -14,7 +14,7 @@ use crate::tools::serial::SerialPool;
 use crate::tools::terminal::TerminalManager;
 use serde_json::json;
 use std::sync::Arc;
-use vale_agent_core::{recover_guard, AppEventBus, EventBus, ToolDef};
+use summrise_agent_core::{recover_guard, AppEventBus, EventBus, ToolDef};
 
 use super::build;
 
@@ -22,7 +22,7 @@ use super::build;
 /// pre-seed session output and exercise terminal_read / terminal_screen.
 /// A log directory NO OTHER TEST IS USING.
 ///
-/// It used to be `vale-sesslog-tools-{pid}` — per PROCESS — while `cargo test`
+/// It used to be `summrise-sesslog-tools-{pid}` — per PROCESS — while `cargo test`
 /// runs the tests in PARALLEL THREADS of one process, and every `seeded_tools()`
 /// call began by REMOVING that directory. So 33 tests were wiping each other's
 /// audit trail, and any test that wrote a record and read it back raced the rest.
@@ -33,7 +33,7 @@ fn unique_log_dir() -> std::path::PathBuf {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static N: AtomicUsize = AtomicUsize::new(0);
     std::env::temp_dir().join(format!(
-        "vale-sesslog-tools-{}-{}",
+        "summrise-sesslog-tools-{}-{}",
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ))
@@ -923,7 +923,8 @@ fn execute_result_timeout_has_no_note() {
 
 #[cfg(feature = "terminal")]
 fn isolated_conns(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("vale-conn-tool-{name}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("summrise-conn-tool-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     crate::tools::terminal::TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
@@ -939,7 +940,7 @@ fn unisolate_conns(dir: &std::path::Path) {
 #[cfg(feature = "terminal")]
 #[tokio::test]
 async fn connect_saved_unknown_id_is_invalid_params_with_known_list() {
-    use vale_agent_core::DeviceError;
+    use summrise_agent_core::DeviceError;
     let dir = isolated_conns("unknown");
     crate::tools::terminal::conn_remember("ssh", "u@h:22", "seeded", &serde_json::Map::new())
         .unwrap();
@@ -1055,13 +1056,13 @@ fn spill_path_rejects_non_whitelisted_ids() {
     }
     // Over-long ids (>64) rejected.
     assert!(spill_path(&"a".repeat(65)).is_none());
-    // Whitelisted shapes still resolve inside the vale spill dir.
+    // Whitelisted shapes still resolve inside the summrise spill dir.
     for good in ["term-abc123-4", "spill-rt6-ok", "A-_9", &"a".repeat(64)] {
         let p = spill_path(good).expect("whitelisted id must resolve");
         assert!(
             p.parent()
-                .is_some_and(|d| d.file_name().is_some_and(|n| n == "vale")),
-            "spill file must live directly under the vale dir: {}",
+                .is_some_and(|d| d.file_name().is_some_and(|n| n == "summrise")),
+            "spill file must live directly under the summrise dir: {}",
             p.display()
         );
         assert_eq!(
@@ -1078,7 +1079,7 @@ fn spill_writers_fail_closed_on_invalid_ids() {
     let evil = "../spill-rt6-evilw";
     let evil_bs = "..\\spill-rt6-evilw-bs";
     // Where the bytes WOULD have landed without the choke point: the
-    // `..` escapes the vale dir into %TEMP% itself.
+    // `..` escapes the summrise dir into %TEMP% itself.
     let escaped = std::env::temp_dir().join("spill-rt6-evilw.spill");
     let _ = std::fs::remove_file(&escaped);
     // Writers must no-op: nothing created anywhere, reads empty, rotation
@@ -1275,7 +1276,10 @@ async fn diag_write_requires_line() {
         .call(json!({}))
         .await;
     assert!(
-        matches!(res, Err(vale_agent_core::DeviceError::InvalidParams { .. })),
+        matches!(
+            res,
+            Err(summrise_agent_core::DeviceError::InvalidParams { .. })
+        ),
         "missing line is a caller error, got: {res:?}"
     );
 }
@@ -1298,7 +1302,10 @@ async fn secret_tools_reject_missing_fields_before_the_keychain() {
     ] {
         let res = find(&tools, name).handler.call(params).await;
         assert!(
-            matches!(res, Err(vale_agent_core::DeviceError::InvalidParams { .. })),
+            matches!(
+                res,
+                Err(summrise_agent_core::DeviceError::InvalidParams { .. })
+            ),
             "{name} validates without a keychain, got: {res:?}"
         );
     }

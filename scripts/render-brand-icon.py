@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Render the Vale brand mark (gateway/public/favicon.svg) into PNG + ICO.
+"""Render the Summrise brand mark (gateway/public/favicon.svg) into PNG + ICO.
 
-The brand logo is the "vale at sunrise" mark: amber sky gradient, glowing
+The brand logo is the "summrise at sunrise" mark: amber sky gradient, glowing
 sun over the pass, near hill + far ridge in white, glass sheen. This script
 is the single source for desktop/installer icons so every surface shows the
 same mark as ai.saisi.online.

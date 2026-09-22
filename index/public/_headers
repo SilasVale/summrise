@@ -1,4 +1,4 @@
 # Device artifacts change under stable URLs — never let the edge serve a
 # stale body (a device would silently receive an old build).
-/vale-agent/*
+/summrise-agent/*
   Cache-Control: no-cache, max-age=0, must-revalidate

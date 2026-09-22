@@ -716,7 +716,7 @@ impl SessionLogger {
             if let Some(old) = f.keys().next().cloned() {
                 if let Some(mut w) = f.remove(&old) {
                     let _ = std::io::Write::flush(&mut w);
-                    tracing::warn!("[vale-agent] audit writer cap: evicted {old}");
+                    tracing::warn!("[summrise-agent] audit writer cap: evicted {old}");
                 }
             }
         }
@@ -758,7 +758,7 @@ impl SessionLogger {
                     f.insert(sid.to_string(), w);
                 }
                 Err(_) => {
-                    tracing::warn!("[vale-agent] session log open failed: {sid}");
+                    tracing::warn!("[summrise-agent] session log open failed: {sid}");
                     // Unwritable fallback chain — best-effort by design (see
                     // log()'s never-surface contract): /dev/null on Unix, NUL
                     // on Windows (a File that discards), then a temp-dir
@@ -774,9 +774,12 @@ impl SessionLogger {
                     };
                     let fb = fall(std::path::Path::new(null)).or_else(|_| {
                         tracing::error!(
-                            "[vale-agent] null-device fallback failed, parking audit in temp"
+                            "[summrise-agent] null-device fallback failed, parking audit in temp"
                         );
-                        fall(&std::env::temp_dir().join(format!("vale-audit-fallback-{sid}.log")))
+                        fall(
+                            &std::env::temp_dir()
+                                .join(format!("summrise-audit-fallback-{sid}.log")),
+                        )
                     });
                     match fb {
                         Ok(nf) => {
@@ -784,11 +787,11 @@ impl SessionLogger {
                         }
                         Err(e) => {
                             tracing::error!(
-                                "[vale-agent] session audit has nowhere to write, dropping event for {sid}: {e}"
+                                "[summrise-agent] session audit has nowhere to write, dropping event for {sid}: {e}"
                             );
                             // Best-effort stderr: tracing alone may go
                             // nowhere in service context (no console/file).
-                            eprintln!("[vale-agent] session audit has nowhere to write, dropping event for {sid}: {e}");
+                            eprintln!("[summrise-agent] session audit has nowhere to write, dropping event for {sid}: {e}");
                             return;
                         }
                     }
@@ -1468,7 +1471,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("vale-sesslog-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-sesslog-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -1478,7 +1481,7 @@ mod tests {
         // Crash mid-writeln leaves `{"id"...` with no trailing \n. Without
         // repair the next event FUSES onto it and BOTH become unparseable —
         // the exact failure that silently swallowed recovery markers.
-        let dir = std::env::temp_dir().join(format!("vale-slog-torn-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-slog-torn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(

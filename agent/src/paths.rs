@@ -1,7 +1,7 @@
-//! Path resolution — ONE source of truth for where Vale lives on Windows.
+//! Path resolution — ONE source of truth for where Summrise lives on Windows.
 //!
-//! C1 (2026-08-28): `HKLM\SOFTWARE\Vale\Agent\{InstallDir,DataDir}` (written by
-//! `vale setup`; retired predecessors: NSIS/setup.ps1) is authoritative. Resolution order:
+//! C1 (2026-08-28): `HKLM\SOFTWARE\Summrise\Agent\{InstallDir,DataDir}` (written by
+//! `summrise setup`; retired predecessors: NSIS/setup.ps1) is authoritative. Resolution order:
 //!   1. registry InstallDir (Windows, when readable)
 //!   2. the running exe's directory (self-contained installs, dev builds,
 //!      and non-Windows) — the historic behavior
@@ -12,13 +12,13 @@
 //! non-Windows or when unset it defaults next to the exe (install dir), which
 //! keeps dev/test behavior unchanged.
 //!
-//! See docs/superpowers/specs/2026-08-28-vale-desktop-core-design.md §9.
+//! See docs/superpowers/specs/2026-08-28-summrise-desktop-core-design.md §9.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Boot-invariant directory cache. The registry InstallDir/DataDir values are
-/// written ONLY at install/setup time (`vale setup`, the installer, vale.js) —
+/// written ONLY at install/setup time (`summrise setup`, the installer, summrise.js) —
 /// never mutated while the agent runs; the npm update flow swaps the exe and
 /// RESTARTS the process, so a fresh process re-resolves. The first resolution
 /// therefore wins for the process lifetime, and caching it keeps the
@@ -30,18 +30,18 @@ static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[cfg(windows)]
 fn registry_value(name: &str) -> Option<String> {
-    // winreg is not a dependency of vale-agent-core; query via `reg query`
+    // winreg is not a dependency of summrise-agent-core; query via `reg query`
     // (always present on Windows) instead of pulling a crate into the core.
     use std::process::Command;
     let out = Command::new("reg")
-        .args(["query", r"HKLM\SOFTWARE\Vale\Agent", "/v", name])
+        .args(["query", r"HKLM\SOFTWARE\Summrise\Agent", "/v", name])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
     let text = String::from_utf8_lossy(&out.stdout);
-    // reg query output:  InstallDir    REG_SZ    C:\Program Files\Vale
+    // reg query output:  InstallDir    REG_SZ    C:\Program Files\Summrise
     let line = text.lines().find(|l| l.contains(name))?;
     let after = line.split("REG_SZ").nth(1)?;
     let v = after.trim();
@@ -66,7 +66,7 @@ pub fn exe_dir() -> PathBuf {
 }
 
 /// The install dir — registry first, then the exe dir. No legacy directory
-/// probing: a fresh install always writes the registry (via `vale setup`;
+/// probing: a fresh install always writes the registry (via `summrise setup`;
 /// retired predecessors NSIS/setup.ps1), and self-contained/dev installs are
 /// exe-relative. The exe dir is the ONLY fallback so there is exactly one
 /// resolution path.
@@ -86,7 +86,7 @@ fn compute_install_dir() -> PathBuf {
     }
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\Program Files\Vale")
+        PathBuf::from(r"C:\Program Files\Summrise")
     }
     #[cfg(not(windows))]
     {
@@ -111,7 +111,7 @@ fn compute_data_dir() -> PathBuf {
 /// the atomic rename, so a secret never lives a moment under inherited
 /// ACLs). Windows: icacls break-inheritance + grant current user RW. Unix:
 /// 0o600. Credential audit round MED-2: the store writers must call this —
-/// C:\ProgramData\Vale otherwise inherits Users:RX, exposing plaintext.
+/// C:\ProgramData\Summrise otherwise inherits Users:RX, exposing plaintext.
 pub fn harden_file(path: &std::path::Path) -> Result<(), std::io::Error> {
     #[cfg(windows)]
     {
@@ -125,7 +125,7 @@ pub fn harden_file(path: &std::path::Path) -> Result<(), std::io::Error> {
         //   *S-1-5-32-544   Administrators —   interactive user, both cover)
         // files move between those two writer contexts; stripping
         // inheritance is what actually removes BUILTIN\Users' inherited RX
-        // over C:\ProgramData\Vale / the install dir.
+        // over C:\ProgramData\Summrise / the install dir.
         let out = std::process::Command::new("icacls")
             .args([
                 path.to_string_lossy().as_ref(),
@@ -176,7 +176,7 @@ pub fn etc_dir() -> PathBuf {
 
 /// Boxed, release-locked components (portable node, npm-global, cloudflared,
 /// playwright bundle, desktop shell). Replaces the flat `tools\` dir and the
-/// root-level `playwright\` / `vale-desktop-electron\` dirs.
+/// root-level `playwright\` / `summrise-desktop-electron\` dirs.
 pub fn components_dir() -> PathBuf {
     install_dir().join("components")
 }
@@ -247,13 +247,13 @@ pub fn config_file() -> PathBuf {
     etc_dir().join("config.yaml")
 }
 pub fn hostname_file() -> PathBuf {
-    etc_dir().join("vale-agent.hostname")
+    etc_dir().join("summrise-agent.hostname")
 }
 pub fn tunnel_file() -> PathBuf {
     etc_dir().join("tunnel.yml")
 }
 pub fn release_marker_file() -> PathBuf {
-    etc_dir().join(".vale-release")
+    etc_dir().join(".summrise-release")
 }
 pub fn boxed_versions_file() -> PathBuf {
     etc_dir().join("boxed-versions.json")
@@ -265,7 +265,7 @@ pub fn playwright_dir() -> PathBuf {
     components_dir().join("playwright")
 }
 pub fn desktop_shell_dir() -> PathBuf {
-    components_dir().join("vale-desktop-electron")
+    components_dir().join("summrise-desktop-electron")
 }
 pub fn agent_log_file() -> PathBuf {
     logs_dir().join("agent.log")
@@ -316,9 +316,9 @@ fn migration_moves(install: &std::path::Path, data: &std::path::Path) -> Vec<(Pa
     // etc\
     for name in [
         "config.yaml",
-        "vale-agent.hostname",
+        "summrise-agent.hostname",
         "tunnel.yml",
-        ".vale-release",
+        ".summrise-release",
         "boxed-versions.json",
     ] {
         moves.push((install.join(name), etc.join(name)));
@@ -333,15 +333,15 @@ fn migration_moves(install: &std::path::Path, data: &std::path::Path) -> Vec<(Pa
     ));
     moves.push((install.join("playwright"), comp.join("playwright")));
     moves.push((
-        install.join("vale-desktop-electron"),
-        comp.join("vale-desktop-electron"),
+        install.join("summrise-desktop-electron"),
+        comp.join("summrise-desktop-electron"),
     ));
     // scripts\
     for name in [
         "ensure-desktop.ps1",
         "desktop-pulse.vbs",
         "start-desktop.ps1",
-        "vale-online-setup.ps1",
+        "summrise-online-setup.ps1",
         "fix-tunnel.ps1",
     ] {
         moves.push((install.join(name), scripts.join(name)));
@@ -357,7 +357,7 @@ fn migration_moves(install: &std::path::Path, data: &std::path::Path) -> Vec<(Pa
     for name in [
         "installer.log",
         "install-result.txt",
-        "vale-update.log",
+        "summrise-update.log",
         "agent.log",
         "startup.log",
     ] {
@@ -391,8 +391,8 @@ fn copy_tree(old: &std::path::Path, new: &std::path::Path) -> std::io::Result<()
 /// `std::fs::rename` is documented to fail when the two paths are on different
 /// mount points (`EXDEV`, "Invalid cross-device link"). That is not a corner case
 /// here: the layout-v2 migration moves the LOGS and `pwout` from InstallDir to
-/// DataDir, and on the project's own device those are `D:\Vale` and
-/// `C:\ProgramData\Vale` — two volumes. So every data-side move failed, the
+/// DataDir, and on the project's own device those are `D:\Summrise` and
+/// `C:\ProgramData\Summrise` — two volumes. So every data-side move failed, the
 /// migration reported `INCOMPLETE (pending moves locked?)` on EVERY boot, and the
 /// marker was never written. The diagnosis was wrong too: nothing was locked; the
 /// rename simply cannot work between volumes, and the message sent a reader
@@ -546,7 +546,7 @@ pub fn migrate_layout_v2() -> Vec<String> {
             .and_then(|dir| {
                 std::fs::create_dir_all(dir)
                     .and_then(|()| {
-                        std::fs::write(&marker, b"migrated by vale-agent boot backstop\n")
+                        std::fs::write(&marker, b"migrated by summrise-agent boot backstop\n")
                     })
                     .map_err(|e| e.to_string())
             });
@@ -568,7 +568,7 @@ fn migration_pending(install: &std::path::Path, data: &std::path::Path) -> bool 
         .any(|(old, new)| old.exists() && !new.exists())
 }
 
-/// The node runtime path recorded by `vale setup` (registry NodePath).
+/// The node runtime path recorded by `summrise setup` (registry NodePath).
 /// None when unset or missing on disk. The SYSTEM agent may not see the
 /// user PATH, so setup records the absolute path explicitly.
 pub fn node_path() -> Option<PathBuf> {
@@ -587,7 +587,7 @@ mod harden_tests {
     #[test]
     fn harden_file_reduces_to_owner_only() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("vale-harden-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-harden-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let p = dir.join("secret.yaml");
         std::fs::write(&p, b"x").unwrap();
@@ -603,7 +603,7 @@ mod harden_tests {
     #[test]
     fn harden_file_on_missing_path_errors() {
         let missing =
-            std::env::temp_dir().join(format!("vale-harden-missing-{}", std::process::id()));
+            std::env::temp_dir().join(format!("summrise-harden-missing-{}", std::process::id()));
         let _ = std::fs::remove_file(&missing);
         assert!(harden_file(&missing).is_err());
     }
@@ -650,7 +650,7 @@ mod resolution_tests {
     //! truth for install/data/sessions dirs) had zero tests. The public
     //! fns are OnceLock-cached (boot-invariant — untestable repeatedly),
     //! so these pin the private compute_* fns + the structural contracts.
-    //! On machines without a Vale install (all CI runners, this box) the
+    //! On machines without a Summrise install (all CI runners, this box) the
     //! registry reads None and every dir falls back to the exe dir.
     use super::*;
 
@@ -678,7 +678,7 @@ mod resolution_tests {
     /// A MOVE ACROSS VOLUMES MUST WORK — and on the project's own device it must.
     ///
     /// The layout-v2 migration moves the logs and `pwout` from InstallDir to
-    /// DataDir. On d1 those are `D:\Vale` and `C:\ProgramData\Vale`: DIFFERENT
+    /// DataDir. On d1 those are `D:\Summrise` and `C:\ProgramData\Summrise`: DIFFERENT
     /// VOLUMES. `std::fs::rename` is documented to fail across mount points, so
     /// every data-side move failed, `migration_pending` stayed true forever, the
     /// marker was never written, and every boot announced
@@ -698,9 +698,9 @@ mod resolution_tests {
     #[test]
     fn a_move_across_volumes_actually_moves() {
         let src_root =
-            std::path::Path::new("/tmp").join(format!("vale-xdev-{}", std::process::id()));
+            std::path::Path::new("/tmp").join(format!("summrise-xdev-{}", std::process::id()));
         let dst_root =
-            std::path::Path::new("/dev/shm").join(format!("vale-xdev-{}", std::process::id()));
+            std::path::Path::new("/dev/shm").join(format!("summrise-xdev-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&src_root);
         let _ = std::fs::remove_dir_all(&dst_root);
         std::fs::create_dir_all(src_root.join("tree/inner")).expect("mkdir");
@@ -773,15 +773,15 @@ mod resolution_tests {
         assert_eq!(logs_dir(), data_dir().join("logs"));
         assert_eq!(evidence_dir(), data_dir().join("pwout"));
         assert_eq!(config_file(), etc_dir().join("config.yaml"));
-        assert_eq!(hostname_file(), etc_dir().join("vale-agent.hostname"));
+        assert_eq!(hostname_file(), etc_dir().join("summrise-agent.hostname"));
         assert_eq!(tunnel_file(), etc_dir().join("tunnel.yml"));
-        assert_eq!(release_marker_file(), etc_dir().join(".vale-release"));
+        assert_eq!(release_marker_file(), etc_dir().join(".summrise-release"));
         assert_eq!(boxed_versions_file(), etc_dir().join("boxed-versions.json"));
         assert_eq!(cloudflared_bin(), components_dir().join("cloudflared.exe"));
         assert_eq!(playwright_dir(), components_dir().join("playwright"));
         assert_eq!(
             desktop_shell_dir(),
-            components_dir().join("vale-desktop-electron")
+            components_dir().join("summrise-desktop-electron")
         );
         assert_eq!(agent_log_file(), logs_dir().join("agent.log"));
         assert_eq!(startup_log_file(), logs_dir().join("startup.log"));
@@ -797,7 +797,7 @@ mod resolution_tests {
         // A migrated tree (new home present) is not pending even while the
         // emptied old dir lingers; a failed move (old present, new missing)
         // IS pending and keeps the boot marker from being written.
-        let base = std::env::temp_dir().join(format!("vale-pending-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("summrise-pending-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let install = base.join("I");
         let data = base.join("D");
@@ -809,7 +809,7 @@ mod resolution_tests {
             "migrated config must not be pending"
         );
         // hostname pair: old exists, new missing -> pending.
-        std::fs::write(install.join("vale-agent.hostname"), b"d1").unwrap();
+        std::fs::write(install.join("summrise-agent.hostname"), b"d1").unwrap();
         assert!(
             migration_pending(&install, &data),
             "unmoved hostname must be pending"
@@ -828,24 +828,27 @@ mod resolution_tests {
             migration_moves(install, data).into_iter().collect();
         for (old, new) in [
             ("I:/config.yaml", "I:/etc/config.yaml"),
-            ("I:/vale-agent.hostname", "I:/etc/vale-agent.hostname"),
+            (
+                "I:/summrise-agent.hostname",
+                "I:/etc/summrise-agent.hostname",
+            ),
             ("I:/tunnel.yml", "I:/etc/tunnel.yml"),
-            ("I:/.vale-release", "I:/etc/.vale-release"),
+            ("I:/.summrise-release", "I:/etc/.summrise-release"),
             ("I:/boxed-versions.json", "I:/etc/boxed-versions.json"),
             ("I:/tools/node", "I:/components/node"),
             ("I:/tools/npm-global", "I:/components/npm-global"),
             ("I:/tools/cloudflared.exe", "I:/components/cloudflared.exe"),
             ("I:/playwright", "I:/components/playwright"),
             (
-                "I:/vale-desktop-electron",
-                "I:/components/vale-desktop-electron",
+                "I:/summrise-desktop-electron",
+                "I:/components/summrise-desktop-electron",
             ),
             ("I:/ensure-desktop.ps1", "I:/scripts/ensure-desktop.ps1"),
             ("I:/desktop-pulse.vbs", "I:/scripts/desktop-pulse.vbs"),
             ("I:/start-desktop.ps1", "I:/scripts/start-desktop.ps1"),
             (
-                "I:/vale-online-setup.ps1",
-                "I:/scripts/vale-online-setup.ps1",
+                "I:/summrise-online-setup.ps1",
+                "I:/scripts/summrise-online-setup.ps1",
             ),
             ("I:/fix-tunnel.ps1", "I:/scripts/fix-tunnel.ps1"),
             ("I:/playwright/run-hidden.vbs", "I:/scripts/run-hidden.vbs"),
@@ -856,7 +859,7 @@ mod resolution_tests {
             ("I:/shell-integration", "I:/scripts/shell-integration"),
             ("I:/installer.log", "D:/logs/installer.log"),
             ("I:/install-result.txt", "D:/logs/install-result.txt"),
-            ("I:/vale-update.log", "D:/logs/vale-update.log"),
+            ("I:/summrise-update.log", "D:/logs/summrise-update.log"),
             ("I:/agent.log", "D:/logs/agent.log"),
             ("I:/startup.log", "D:/logs/startup.log"),
             ("I:/pwout", "D:/pwout"),
@@ -870,7 +873,7 @@ mod resolution_tests {
 
     #[test]
     fn move_one_never_clobbers_and_merges_dirs() {
-        let base = std::env::temp_dir().join(format!("vale-move-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("summrise-move-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         // File move.
         std::fs::create_dir_all(base.join("src")).unwrap();
@@ -909,7 +912,7 @@ mod resolution_tests {
     /// `install_dir\tools\cloudflared.exe` and `install_dir\tunnel.yml` — the PRE-v2
     /// locations — for months. On a v2 install its `exists()` check was always false, so
     /// the supervisor polled forever, said nothing, and the tunnel only ran when a human
-    /// ran `vale tunnel start`. After an update restarted the agent the device went dark
+    /// ran `summrise tunnel start`. After an update restarted the agent the device went dark
     /// (Cloudflare 530) with no trace in any log.
     ///
     /// WHAT IS MATCHED IS THE DEFECT'S SHAPE, not any mention of the word "tools": a path
@@ -978,7 +981,7 @@ mod resolution_tests {
         ] {
             assert!(
                 src.contains(needle),
-                "the ValeAgent registration lost `{needle}` — the agent can no longer bring \
+                "the SummriseAgent registration lost `{needle}` — the agent can no longer bring \
                  itself back without a reboot or a user session"
             );
         }

@@ -1,4 +1,4 @@
-//! THE OUTBOUND RELAY CLIENT — the agent side of `proxies/vale-relay/`.
+//! THE OUTBOUND RELAY CLIENT — the agent side of `proxies/summrise-relay/`.
 //!
 //! WHY THIS EXISTS. A NAT'd agent cannot be reached, so every comparable product inverts the direction: the agent dials out and
 //! the server never dials in (Portainer Edge Agent, Microsoft dev tunnels — "No inbound connections are required" — Nabu Casa's

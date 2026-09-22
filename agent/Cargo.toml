@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "vale-command-core"]
+members = [".", "summrise-command-core"]
 default-members = ["."]
 resolver = "2"
 
@@ -7,7 +7,7 @@ resolver = "2"
 version = "1.0.145"
 
 [package]
-name = "vale-agent"
+name = "summrise-agent"
 version.workspace = true
 edition = "2021"
 
@@ -15,11 +15,11 @@ edition = "2021"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "vale-agent"
+name = "summrise-agent"
 path = "src/main.rs"
 
 [dependencies]
-vale-agent-core = { path = "vale-command-core" }
+summrise-agent-core = { path = "summrise-command-core" }
 rmcp = { version = "2", features = ["server", "transport-streamable-http-server", "macros", "client", "transport-streamable-http-client-reqwest", "transport-child-process"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "signal"] }
 tokio-util = "0.7"
@@ -50,7 +50,7 @@ serde_yaml = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart"] }
 
 # Installer integrity check (agent_update): the release server publishes the
-# SHA-256 of ValeAgent-Setup.exe; the agent verifies the download before
+# SHA-256 of SummriseAgent-Setup.exe; the agent verifies the download before
 # spawning it (an AI-triggerable RCE path must not trust the transport alone).
 sha2 = "0.10"
 
@@ -67,7 +67,7 @@ sha1 = "0.10"
 hyper = { version = "1", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 
-# Windows-only: lets the headless binary register itself as the `ValeCommand`
+# Windows-only: lets the headless binary register itself as the `SummriseCommand`
 # Windows service (SCM protocol). Ignored entirely on Linux/macOS builds.
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"

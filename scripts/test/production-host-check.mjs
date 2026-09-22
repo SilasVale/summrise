@@ -24,7 +24,7 @@ const ALLOWED = [
   ["scripts/", "cut, publish, smoke and audit a release against the live CDN"],
   ["index/", "the CDN worker and its landing page ARE the download site"],
   ["agent/deploy/", "installer templates and their docs: the URL a customer installs from"],
-  ["agent/vale-agent-npm/", "the npm package's README and CLI defaults name the update channel"],
+  ["agent/summrise-agent-npm/", "the npm package's README and CLI defaults name the update channel"],
   ["proxies/", "the satellite workers' routes and their operational README"],
   // ── the worker's own configuration ──
   ["gateway/wrangler", "the deployment's own routes and vars"],
@@ -66,7 +66,7 @@ const ALLOWED = [
   [".github/workflows/release.yml", "the release job that must reach the live CDN and gateway"],
   // ── tests whose SUBJECT is the hostname rule ──
   // NAMED INDIVIDUALLY, NOT AS A DIRECTORY (round 49). Five files in `gateway/test` used the production host only as an
-  // INPUT (a device row, a tunnel name) and now use the reserved test domain `vale.test`; the fifteen below assert the
+  // INPUT (a device row, a tunnel name) and now use the reserved test domain `summrise.test`; the fifteen below assert the
   // deployment's own identity — a default, an allowlist, the suffix rule — so they keep it, and a NEW test file cannot
   // inherit the allowance by living in the same directory.
   // THE THIRD KIND OF HOST HAS TWO FACES (rounds 117-121), and each entry below says WHICH FACE it is, because a generic
@@ -76,7 +76,7 @@ const ALLOWED = [
   // Face 2: a base URL the PRODUCT chooses (the relay/exit endpoints), which those tests exist to pin.
   ["gateway/test/gateway.test.mjs", "face 2 — the relay and exit BASE URLs the product chooses; the tests exist to pin them"],
   ["gateway/test/registry.test.mjs", "face 2 — the DEFAULTS of usProxyBase/museResponsesExit; moving them is a design change, not a fixture one"],
-  ["gateway/test/vale-cli.test.mjs", "face 2 — the gateway base the CLI defaults to (VALE_GATEWAY), which the test asserts"],
+  ["gateway/test/summrise-cli.test.mjs", "face 2 — the gateway base the CLI defaults to (SUMMRISE_GATEWAY), which the test asserts"],
   ["agent/resources/panel-react/src", "panel fixtures and tests that render device rows"],
 ];
 

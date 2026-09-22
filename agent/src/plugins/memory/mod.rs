@@ -18,7 +18,7 @@ pub mod tools;
 
 use std::sync::Arc;
 
-use vale_agent_core::{Plugin, ToolDef};
+use summrise_agent_core::{Plugin, ToolDef};
 
 use store::MemoryStore;
 
@@ -76,7 +76,7 @@ mod tests {
     /// sides, so this pins the declaration and the test above pins the behaviour.
     #[test]
     fn memory_search_declares_its_tag_filter() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-tagdecl-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-tagdecl-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let p = MemoryPlugin::new(Arc::new(MemoryStore::new(
             dir.clone(),
@@ -111,7 +111,7 @@ mod tests {
     /// the helpers were perfect and the bug was in how they were CALLED.
     #[tokio::test]
     async fn memory_search_honours_the_tag_the_panel_sends() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-tagwire-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-tagwire-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Arc::new(MemoryStore::new(dir.clone(), MemoryLimits::default()));
         let mk = |title: &str, tags: &[&str]| store::MemoryRecord {
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn plugin_exposes_six_tools() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-plugin-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-plugin-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Arc::new(MemoryStore::new(dir.clone(), MemoryLimits::default()));
         let p = MemoryPlugin::new(store);
@@ -206,7 +206,7 @@ mod tests {
     /// deliberately — the alternative is another doc comment nobody can trust.
     #[tokio::test]
     async fn records_are_stamped_unknown_until_set_source_is_wired() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-source-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-source-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Arc::new(MemoryStore::new(dir.clone(), MemoryLimits::default()));
         let plugin = MemoryPlugin::new(store.clone());
@@ -237,7 +237,7 @@ mod tests {
     /// wiring `set_source`.
     #[tokio::test]
     async fn update_preserves_an_existing_source() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-srckeep-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-srckeep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Arc::new(MemoryStore::new(dir.clone(), MemoryLimits::default()));
         let rec = store::MemoryRecord {
@@ -278,7 +278,7 @@ mod tests {
     /// whatever execution happened to touch it last.
     #[test]
     fn update_preserves_an_existing_run_and_never_fabricates_one() {
-        let dir = std::env::temp_dir().join(format!("vale-mem-runkeep-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("summrise-mem-runkeep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Arc::new(MemoryStore::new(dir.clone(), MemoryLimits::default()));
         let mut stamped = store::MemoryRecord {

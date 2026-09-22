@@ -13,7 +13,7 @@ use std::sync::{Arc, OnceLock};
 use crate::session_log::SessionLogger;
 use crate::tools::serial::SerialPool;
 use crate::tools::terminal::TerminalManager;
-use vale_agent_core::{DeviceError, EventBus};
+use summrise_agent_core::{DeviceError, EventBus};
 
 use crate::plugins::terminal::{DiagStore, OutputBuf};
 
@@ -172,7 +172,7 @@ fn pre_restart_context(sid: &str) -> String {
 // The in-memory session buffer caps at 1 MB; evicted bytes were DROPPED —
 // a >1MB burst (build log, dd) made everything before the tail
 // unrecoverable. Evicted bytes now append to a per-session spill file
-// (%TEMP%/vale/<sid>.spill) and terminal_read merges spill + memory, so
+// (%TEMP%/summrise/<sid>.spill) and terminal_read merges spill + memory, so
 // the stream reads continuously from any absolute offset.
 
 /// Cap for a session's spill file (round-115): the drainer's eviction used
@@ -209,7 +209,7 @@ pub(super) fn spill_path(sid: &str) -> Option<std::path::PathBuf> {
     }
     Some(
         std::env::temp_dir()
-            .join("vale")
+            .join("summrise")
             .join(format!("{sid}.spill")),
     )
 }
@@ -336,7 +336,7 @@ pub(super) fn read_spill(sid: &str, start: usize, end: usize, base: u64) -> (Vec
 
 /// Remove a session's spill file (round-60): append_spill had NO deletion
 /// path anywhere — closed sessions and evicted history entries left orphan
-/// files in %TEMP%/vale forever (sid is per-boot unique, so they only ever
+/// files in %TEMP%/summrise forever (sid is per-boot unique, so they only ever
 /// accumulated). Call when the session's last reference disappears (drainer
 /// close, history eviction). Idempotent; a missing file is fine.
 fn remove_spill(sid: &str) {
@@ -357,7 +357,7 @@ pub(crate) fn sweep_spills_once() {
     use std::sync::OnceLock;
     static SWEPT: OnceLock<()> = OnceLock::new();
     SWEPT.get_or_init(|| {
-        let dir = std::env::temp_dir().join("vale");
+        let dir = std::env::temp_dir().join("summrise");
         if let Ok(rd) = std::fs::read_dir(&dir) {
             for e in rd.flatten() {
                 if e.path().extension().is_some_and(|x| x == "spill") {

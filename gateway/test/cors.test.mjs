@@ -32,33 +32,33 @@ const ADMIN_PW = "test-admin-password";
 // builder AND every stamping site inside the worker (round 93) — so the file no longer needs to spell a production host to
 // exercise the rule. One case asserts the SHIPPED DEFAULT, and it does that through a member of the imported
 // ALLOWED_ORIGINS rather than a literal.
-const AI = "https://console.vale.test";
-const API = "https://api.vale.test";
+const AI = "https://console.summrise.test";
+const API = "https://api.summrise.test";
 /** Both keys move together: CONSOLE_ORIGINS decides what may READ answers; CONSOLE_HOST decides which request host a
  *  loopback Origin is compared against. */
 const ORIGINS = {
   CONSOLE_ORIGINS: AI + "," + API,
-  CONSOLE_HOST: "console.vale.test,api.vale.test",
+  CONSOLE_HOST: "console.summrise.test,api.summrise.test",
   // AND THE DEVICE SUFFIX, because the mock device is on the test domain too: `hostAllowError` refuses a hostname outside
   // it, and the device-fetch stub keys off the same rule. A migration that moves the console domain and not this one gets
   // a 502 from a device the stub never intercepts — which is exactly what this case did.
-  DEVICE_HOST_SUFFIX: ".agent.vale.test",
+  DEVICE_HOST_SUFFIX: ".agent.summrise.test",
 };
 /** A member of the SHIPPED default, for the case that asserts it. */
 const SHIPPED = [...ALLOWED_ORIGINS][0];
-// The origin the Vale Code Links extension used. It was allowed until round 243 removed the extension;
+// The origin the Summrise Code Links extension used. It was allowed until round 243 removed the extension;
 // it is kept here as a NEGATIVE case, because "the grant we deliberately withdrew still works" is a
 // regression nothing else would notice.
-const DSH = "https://dsh.vale.test";
+const DSH = "https://dsh.summrise.test";
 const EVIL = "https://evil.example";
 const LOOPBACK = "http://localhost:8787";
 
 // Shared Map-KV stub (helpers.mjs) seeded with the console base + the two
 // corsEnv-specific extras: the multi-origin CONSOLE_HOST and the ASSETS stub
-// (installer payloads are served from Workers Assets (/vale)).
+// (installer payloads are served from Workers Assets (/summrise)).
 function corsEnv(extra = {}) {
   return makeBaseEnv({
-    devices: [{ name: "d1", hostname: "d1.agent.vale.test", token: "devtok" }],
+    devices: [{ name: "d1", hostname: "d1.agent.summrise.test", token: "devtok" }],
     links: {},
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
     kv: { "auth:admin_password": ADMIN_PW, _admin_seeded: "1" },
@@ -66,7 +66,7 @@ function corsEnv(extra = {}) {
       ...ORIGINS,
       ASSETS: {
         async fetch() {
-          return new Response("#!/bin/sh\necho vale\n", { status: 200 });
+          return new Response("#!/bin/sh\necho summrise\n", { status: 200 });
         },
       },
       ...extra,
@@ -109,7 +109,7 @@ test("isAllowedOrigin: console origins pass; loopback only with a loopback reque
   // request itself targets a loopback host (audit P2 — production used to
   // reflect ANY localhost origin).
   assert.equal(isAllowedOrigin(LOOPBACK, undefined, ORIGINS), false, "no request host → closed");
-  assert.equal(isAllowedOrigin(LOOPBACK, "console.vale.test", ORIGINS), false);
+  assert.equal(isAllowedOrigin(LOOPBACK, "console.summrise.test", ORIGINS), false);
   assert.equal(isAllowedOrigin(LOOPBACK, "localhost", ORIGINS), true);
   assert.equal(isAllowedOrigin(LOOPBACK, "127.0.0.1", ORIGINS), true);
 });
@@ -205,7 +205,7 @@ test("/api/health: ACAO reflected for console origin + loopback dev host, absent
 
 test("installer endpoints keep ACAO:* even for a disallowed origin", async () => {
   const env = corsEnv();
-  for (const p of ["/api/vale-cli", "/api/vale-install", "/api/vale-install.ps1"]) {
+  for (const p of ["/api/summrise-cli", "/api/summrise-install", "/api/summrise-install.ps1"]) {
     const res = await worker.fetch(get(p, EVIL), env);
     assert.equal(res.status, 200, p);
     assert.equal(res.headers.get("Access-Control-Allow-Origin"), "*", p);

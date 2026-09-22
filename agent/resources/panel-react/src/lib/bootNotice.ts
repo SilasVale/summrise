@@ -16,7 +16,7 @@
 //             chip stays until the next clean boot clears it (the device rewrites the
 //             verdict every start). It is not an alarm that needs dismissing; it is a
 //             fact about the run you are in, and the uptime beside it says how long ago.
-//   replaced  Normal. Worth saying only while it is NEWS — right after `vale update`,
+//   replaced  Normal. Worth saying only while it is NEWS — right after `summrise update`,
 //             the operator wants the panel to confirm the swap happened. After that the
 //             uptime already answers it, and a permanent "restarted" chip would be
 //             chrome that trains people to stop reading chips (the lesson

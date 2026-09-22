@@ -4,7 +4,7 @@ server:
   # the API to the LAN and the /panel/ Host gate is spoofable — LAN RCE.
   host: "127.0.0.1"
   port: 18080
-  name: "vale-agent"
+  name: "summrise-agent"
 
 serial:
   default_baud_rate: 115200
@@ -19,10 +19,10 @@ serial:
 #     with the console every cycle (main.rs's registration loop).
 #   * UNSET (delete the two keys): every cloud-dependent tool degrades with an
 #     explicit error, and self_register_plan returns None, i.e. the device
-#     never sends anything anywhere. This is the state `vale setup`'s
+#     never sends anything anywhere. This is the state `summrise setup`'s
 #     "PURE LOCAL install" describes.
 #
-# ⚠️ `Config::default()` (vale-command-core) leaves both UNSET, while the file
+# ⚠️ `Config::default()` (summrise-command-core) leaves both UNSET, while the file
 # below leaves both SET — so a test built on `Config::default()` exercises a
 # DIFFERENT platform configuration than a fresh install receives. That
 # divergence is deliberate (tests must be able to reach the unset state without
@@ -44,7 +44,7 @@ platform:
 # bound cannot prefer the current run's artifacts for deletion, and it is the
 # number an operator can reason about.
 #
-# The values below are the compiled defaults (vale-command-core
+# The values below are the compiled defaults (summrise-command-core
 # RetentionConfig::effective), stated here so they are visible and editable
 # rather than buried in a binary; the agent crate's
 # `retention_defaults_agree_with_the_compiled_ones` fails if the two ever

@@ -76,12 +76,12 @@ describe("TerminalPane", () => {
     render(<TerminalPane session={session()} registerWrite={registerWrite} />);
     const smaller = screen.getByTitle("Smaller font");
     for (let i = 0; i < 10; i++) fireEvent.click(smaller);
-    expect(localStorage.getItem("valeFontSize")).toBe("9");
+    expect(localStorage.getItem("summriseFontSize")).toBe("9");
     const larger = screen.getByTitle("Larger font");
     for (let i = 0; i < 20; i++) fireEvent.click(larger);
-    expect(localStorage.getItem("valeFontSize")).toBe("22");
+    expect(localStorage.getItem("summriseFontSize")).toBe("22");
     fireEvent.click(screen.getByTitle("Reset font size"));
-    expect(localStorage.getItem("valeFontSize")).toBe("13");
+    expect(localStorage.getItem("summriseFontSize")).toBe("13");
   });
 
   it("search bar opens via button and closes via Esc", async () => {

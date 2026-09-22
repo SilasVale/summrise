@@ -1,9 +1,9 @@
-# Vale — User World Notes
+# Summrise — User World Notes
 
 ## The repo
 
-Vale = monorepo with three subprojects:
-- **gateway/** — Cloudflare Worker (`vale-gate`), the API gateway. Plugin-based architecture (DSH/Cordis-style). Has auth, HTTP helpers, channels, body-scan modules. One HTML source viewer page.
+Summrise = monorepo with three subprojects:
+- **gateway/** — Cloudflare Worker (`summrise-gate`), the API gateway. Plugin-based architecture (DSH/Cordis-style). Has auth, HTTP helpers, channels, body-scan modules. One HTML source viewer page.
 - **agent/** — Rust, Windows-only, cross-compiled via cargo-xwin. MCP tool integration.
 - **index/** — Cloudflare Worker, separate worker.
 - **docs/** — Design docs, ADRs, agent instructions.
@@ -31,7 +31,7 @@ DSH is a plugin-based AI harness with:
 
 ## User's goal
 
-Optimize vale's architecture, code, and page design by referencing DSH patterns. "ultracode" = high-quality, production-grade code.
+Optimize summrise's architecture, code, and page design by referencing DSH patterns. "ultracode" = high-quality, production-grade code.
 
 ## Grilling outcomes (2026-08-19)
 
@@ -44,7 +44,7 @@ Optimize vale's architecture, code, and page design by referencing DSH patterns.
 ## Terminology
 
 - **Plugin** — a module with `name`, `deps`, `setup(ctx)` that registers routes/api on a shared context.
-- **Profile** — a named configuration bundle (DSH concept, not yet in vale).
+- **Profile** — a named configuration bundle (DSH concept, not yet in summrise).
 - **Cordis** — DI container / plugin lifecycle manager (DSH uses `@deepseek-ai/cordis`).
 - **Stage tags** — conventional commit prefixes like `fix(stage-x)`, `feat(stage-x)`.
 - **Worker** — Cloudflare Worker (the runtime for gateway and index).

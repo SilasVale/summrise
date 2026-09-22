@@ -26,10 +26,10 @@
 #
 # Usage: audit_release_asset <version> <cdn_base>
 #   env: GITHUB_TOKEN / GH_TOKEN, or ~/.github-token
-#        REPO (default SilasVale/vale)
+#        REPO (default SilasVale/summrise)
 #        AUDIT_KEEP=1 to keep the temp dir for inspection
 
-AUDIT_REPO="${REPO:-SilasVale/vale}"
+AUDIT_REPO="${REPO:-SilasVale/summrise}"
 
 _audit_token() {
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then echo "$GITHUB_TOKEN"
@@ -80,7 +80,7 @@ audit_asset_names() {
 # Returns 0 = source-identical (exe may differ), 1 = real drift / cannot audit.
 audit_release_asset() {
   local ver="$1" cdn="$2"
-  local tgz="vale-agent-${ver}.tgz"
+  local tgz="summrise-agent-${ver}.tgz"
   local token; token="$(_audit_token)"
   if [[ -z "$token" ]]; then
     echo "::error::release audit: no GitHub token (GITHUB_TOKEN/GH_TOKEN/~/.github-token) — cannot audit" >&2
@@ -113,7 +113,7 @@ audit_release_asset() {
     "https://github.com/${AUDIT_REPO}/releases/download/v${ver}/${tgz}" \
     -o "$work/gh.tgz" || { echo "::error::release audit: cannot download the GitHub asset" >&2; return 1; }
   curl -fsSL -m 300 --retry 5 --retry-delay 3 --retry-connrefused \
-    "${cdn}/vale-agent/${tgz}" -o "$work/cdn.tgz" \
+    "${cdn}/summrise-agent/${tgz}" -o "$work/cdn.tgz" \
     || { echo "::error::release audit: cannot download the CDN tgz" >&2; return 1; }
 
   local cdn_sha gh_sha
@@ -200,7 +200,7 @@ audit_release_asset() {
     # included.
     # Modes were compared in full, above, from the archive listings.
     if [[ "$a" != "$b" ]]; then
-      if [[ "$f" == "./vale-agent.exe" ]]; then
+      if [[ "$f" == "./summrise-agent.exe" ]]; then
         # The one file a different toolchain legitimately changes.
         exe_cdn="$a"; exe_gh="$b"
       else
@@ -228,7 +228,7 @@ audit_release_asset() {
     echo "  Cause: npm pack preserves each SOURCE file's mode, so a worktree whose" >&2
     echo "  permissions differ from a fresh CI checkout packs a different tarball." >&2
     echo "  Fix: make the tracked files' modes match the index (git ls-files -s)" >&2
-    echo "       e.g. \`chmod 644 agent/vale-agent-npm/README.md\`." >&2
+    echo "       e.g. \`chmod 644 agent/summrise-agent-npm/README.md\`." >&2
     return 1
   fi
 
@@ -252,7 +252,7 @@ audit_release_asset() {
   fi
 
   echo "release audit OK (source-identical): every source-derived file matches byte-for-byte."
-  echo "  vale-agent.exe differs by TOOLCHAIN (expected — not a source difference):"
+  echo "  summrise-agent.exe differs by TOOLCHAIN (expected — not a source difference):"
   echo "    CDN (local build): ${exe_cdn:0:24}…"
   echo "    GH  (CI build)   : ${exe_gh:0:24}…"
   echo "  CDN remains authoritative (devices update from the CDN manifest sha256)."

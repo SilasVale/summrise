@@ -29,7 +29,7 @@ describe("useDesktopCommands — menu bridge", () => {
   beforeEach(() => {
     actions = makeActions();
     handlers = [];
-    (window as any).valeDesktop = {
+    (window as any).summriseDesktop = {
       onCommand: (fn: (cmd: string) => void) => {
         handlers.push(fn);
         return () => {};
@@ -37,7 +37,7 @@ describe("useDesktopCommands — menu bridge", () => {
     };
   });
   afterEach(() => {
-    delete (window as any).valeDesktop;
+    delete (window as any).summriseDesktop;
     handlers = [];
   });
 
@@ -92,7 +92,7 @@ describe("useDesktopCommands — menu bridge", () => {
 
 describe("useDesktopCommands — browser keydown fallback", () => {
   beforeEach(() => {
-    delete (window as any).valeDesktop;
+    delete (window as any).summriseDesktop;
   });
 
   it("attaches keydown when there is no Electron bridge", () => {

@@ -21,7 +21,7 @@ set -euo pipefail
 
 # ONE LEVEL UP: this script is scripts/design-sweep-ci.bash. It lived in scripts/test/ until round 213 moved it,
 # and the two-level `cd` came with it — which put every path OUTSIDE the repository
-# ("Cannot find module '/home/runner/work/vale/agent/scripts/panel-render-audit.mjs'"). A moved file takes its
+# ("Cannot find module '/home/runner/work/summrise/agent/scripts/panel-render-audit.mjs'"). A moved file takes its
 # relative paths with it; that is what the first CI run after the move reported.
 cd "$(dirname "$0")/.."
 
@@ -47,14 +47,14 @@ echo "── panel: generating the harness from this checkout ──"
 # did not finish"), so the runner has to know it too. Round 213's first CI run died here.
 node agent/scripts/panel-render-audit.mjs >/dev/null || [ $? -eq 2 ]
 cp /tmp/panel-render-audit/panel-harness.html "$TMP/panel-harness.html"
-grep -o 'vale-harness-build" content="[^"]*"' "$TMP/panel-harness.html" || true
+grep -o 'summrise-harness-build" content="[^"]*"' "$TMP/panel-harness.html" || true
 
 echo "── panel: emitting and running (all passes) ──"
 node agent/scripts/panel-design-sweep.mjs --emit --passes=all > "$TMP/panel.js"
 node --check "$TMP/panel.js"
-VALE_PANEL_HARNESS="$TMP/panel-harness.html" \
-VALE_SWEEP_REPORT="$TMP/panel-report.json" \
-VALE_BROWSER_HELPER="$HELPER" \
+SUMMRISE_PANEL_HARNESS="$TMP/panel-harness.html" \
+SUMMRISE_SWEEP_REPORT="$TMP/panel-report.json" \
+SUMMRISE_BROWSER_HELPER="$HELPER" \
   node "$TMP/panel.js"
 if [ ! -s "$TMP/panel-report.json" ]; then
   echo "FAIL: the panel sweep wrote no report — a run that did not finish is not a pass" >&2
@@ -78,12 +78,12 @@ for ui in console; do
   # emitted and compares them at run time — a guard for the DEVICE pipeline, where the script is emitted here and
   # delivered there. Pointing the run at a fresh build while the emit read `gateway/public` made every CI run report
   # its own entry as stale, which is a true statement about two artefacts and a useless one about a commit.
-  VALE_SWEEP_ROOT="$root" \
+  SUMMRISE_SWEEP_ROOT="$root" \
     node "agent/scripts/$ui-design-sweep.mjs" --emit > "$TMP/$ui.js"
   node --check "$TMP/$ui.js"
-  VALE_SWEEP_ROOT="$root" \
-  VALE_SWEEP_REPORT="$TMP/$ui-report.json" \
-  VALE_BROWSER_HELPER="$HELPER" \
+  SUMMRISE_SWEEP_ROOT="$root" \
+  SUMMRISE_SWEEP_REPORT="$TMP/$ui-report.json" \
+  SUMMRISE_BROWSER_HELPER="$HELPER" \
     node "$TMP/$ui.js"
   if [ ! -s "$TMP/$ui-report.json" ]; then
     echo "FAIL: the $ui sweep wrote no report" >&2
@@ -97,12 +97,12 @@ done
 # no installer the page swaps the primary button for a hint, a different element with a different contrast question,
 # and only a browser can see it. Nothing is delivered in between, so the root is set for the emit AND the run.
 echo "── landing: rendering the page the worker serves ──"
-VALE_LANDING_OUT="$TMP/landing" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing.js" 2>"$TMP/landing-emit.log"
+SUMMRISE_LANDING_OUT="$TMP/landing" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing.js" 2>"$TMP/landing-emit.log"
 cat "$TMP/landing-emit.log"
 node --check "$TMP/landing.js"
-VALE_SWEEP_ROOT="$TMP/landing" \
-VALE_SWEEP_REPORT="$TMP/landing-report.json" \
-VALE_BROWSER_HELPER="$HELPER" \
+SUMMRISE_SWEEP_ROOT="$TMP/landing" \
+SUMMRISE_SWEEP_REPORT="$TMP/landing-report.json" \
+SUMMRISE_BROWSER_HELPER="$HELPER" \
   node "$TMP/landing.js"
 if [ ! -s "$TMP/landing-report.json" ]; then
   echo "FAIL: the landing sweep wrote no report — a run that did not finish is not a pass" >&2

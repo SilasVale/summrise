@@ -2,15 +2,15 @@
 #   Copyright (c) Microsoft Corporation. All rights reserved.
 #   Licensed under the MIT License. See License.txt in the project root for license information.
 # ---------------------------------------------------------------------------------------------
-# Vale adaptation: transplanted from microsoft/vscode@main
+# Summrise adaptation: transplanted from microsoft/vscode@main
 # (src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1), trimmed to the
-# OSC 633 command-boundary core (A/B/C/D/E + P;IsWindows) and namespaced under __VALE.
-# The sequences are consumed by vale-agent's exec-marker scanner (find_exec_end_marker /
+# OSC 633 command-boundary core (A/B/C/D/E + P;IsWindows) and namespaced under __SUMMRISE.
+# The sequences are consumed by summrise-agent's exec-marker scanner (find_exec_end_marker /
 # shell-integration.rs); the panel renders them as invisible control sequences — no
 # wrapper text ever reaches the user's screen.
 
 # Prevent installing more than once per session
-if ((Test-Path variable:global:__ValeState) -and $null -ne $Global:__ValeState.OriginalPrompt) {
+if ((Test-Path variable:global:__SummriseState) -and $null -ne $Global:__SummriseState.OriginalPrompt) {
 	return;
 }
 
@@ -19,7 +19,7 @@ if ($ExecutionContext.SessionState.LanguageMode -ne "FullLanguage") {
 	return;
 }
 
-$Global:__ValeState = @{
+$Global:__SummriseState = @{
 	OriginalPrompt = $function:Prompt
 	LastHistoryId = -1
 	IsInExecution = $false
@@ -28,14 +28,14 @@ $Global:__ValeState = @{
 }
 
 # Store the nonce in a regular variable and unset the environment variable.
-$Global:__ValeState.Nonce = $env:VALE_NONCE
-$env:VALE_NONCE = $null
+$Global:__SummriseState.Nonce = $env:SUMMRISE_NONCE
+$env:SUMMRISE_NONCE = $null
 
 $osVersion = [System.Environment]::OSVersion.Version
-$Global:__ValeState.IsWindows10 = $IsWindows -and $osVersion.Major -eq 10 -and $osVersion.Minor -eq 0 -and $osVersion.Build -lt 22000
+$Global:__SummriseState.IsWindows10 = $IsWindows -and $osVersion.Major -eq 10 -and $osVersion.Minor -eq 0 -and $osVersion.Build -lt 22000
 Remove-Variable -Name osVersion -ErrorAction SilentlyContinue
 
-function Global:__Vale-Escape-Value([string]$value) {
+function Global:__Summrise-Escape-Value([string]$value) {
 	# Replace any non-alphanumeric characters.
 	[regex]::Replace($value, "[$([char]0x00)-$([char]0x1f)\\\n;]", { param($match)
 			# Encode the (ascii) matches as `\x<hex>`
@@ -52,9 +52,9 @@ function Global:Prompt() {
 	$Result = ""
 	# Skip finishing the command if the first command has not yet started or an execution has not
 	# yet begun
-	if ($Global:__ValeState.LastHistoryId -ne -1 -and ($Global:__ValeState.HasPSReadLine -eq $false -or $Global:__ValeState.IsInExecution -eq $true)) {
-		$Global:__ValeState.IsInExecution = $false
-		if ($LastHistoryEntry.Id -eq $Global:__ValeState.LastHistoryId) {
+	if ($Global:__SummriseState.LastHistoryId -ne -1 -and ($Global:__SummriseState.HasPSReadLine -eq $false -or $Global:__SummriseState.IsInExecution -eq $true)) {
+		$Global:__SummriseState.IsInExecution = $false
+		if ($LastHistoryEntry.Id -eq $Global:__SummriseState.LastHistoryId) {
 			# Don't provide a command line or exit code if there was no history entry (eg. ctrl+c, enter on no command)
 			$Result += "$([char]0x1b)]633;D`a"
 		}
@@ -72,35 +72,35 @@ function Global:Prompt() {
 		Write-Error "failure" -ea ignore
 	}
 	# Run the original prompt
-	$OriginalPrompt += $Global:__ValeState.OriginalPrompt.Invoke()
+	$OriginalPrompt += $Global:__SummriseState.OriginalPrompt.Invoke()
 	$Result += $OriginalPrompt
 
 	# Write command started
 	$Result += "$([char]0x1b)]633;B`a"
-	$Global:__ValeState.LastHistoryId = $LastHistoryEntry.Id
+	$Global:__SummriseState.LastHistoryId = $LastHistoryEntry.Id
 	return $Result
 }
 
 # Only send the command executed sequence when PSReadLine is loaded, if not shell integration
 # should still work thanks to the command line sequence
-$Global:__ValeState.HasPSReadLine = $false
+$Global:__SummriseState.HasPSReadLine = $false
 if (Get-Module -Name PSReadLine) {
-	$Global:__ValeState.HasPSReadLine = $true
+	$Global:__SummriseState.HasPSReadLine = $true
 	[Console]::Write("$([char]0x1b)]633;P;HasRichCommandDetection=True`a")
 
-	$Global:__ValeState.OriginalPSConsoleHostReadLine = $function:PSConsoleHostReadLine
+	$Global:__SummriseState.OriginalPSConsoleHostReadLine = $function:PSConsoleHostReadLine
 	function Global:PSConsoleHostReadLine {
-		$CommandLine = $Global:__ValeState.OriginalPSConsoleHostReadLine.Invoke()
-		$Global:__ValeState.IsInExecution = $true
+		$CommandLine = $Global:__SummriseState.OriginalPSConsoleHostReadLine.Invoke()
+		$Global:__SummriseState.IsInExecution = $true
 
 		# Command line
 		# OSC 633 ; E [; <CommandLine> [; <Nonce>]] ST
 		$Result = "$([char]0x1b)]633;E;"
-		$Result += $(__Vale-Escape-Value $CommandLine)
+		$Result += $(__Summrise-Escape-Value $CommandLine)
 		# Only send the nonce if the OS is not Windows 10 as it seems to echo to the terminal
 		# sometimes
-		if ($Global:__ValeState.IsWindows10 -eq $false) {
-			$Result += ";$($Global:__ValeState.Nonce)"
+		if ($Global:__SummriseState.IsWindows10 -eq $false) {
+			$Result += ";$($Global:__SummriseState.Nonce)"
 		}
 		$Result += "`a"
 
@@ -115,9 +115,9 @@ if (Get-Module -Name PSReadLine) {
 	}
 
 	# Set ContinuationPrompt property
-	$Global:__ValeState.ContinuationPrompt = (Get-PSReadLineOption).ContinuationPrompt
-	if ($Global:__ValeState.ContinuationPrompt) {
-		[Console]::Write("$([char]0x1b)]633;P;ContinuationPrompt=$(__Vale-Escape-Value $Global:__ValeState.ContinuationPrompt)`a")
+	$Global:__SummriseState.ContinuationPrompt = (Get-PSReadLineOption).ContinuationPrompt
+	if ($Global:__SummriseState.ContinuationPrompt) {
+		[Console]::Write("$([char]0x1b)]633;P;ContinuationPrompt=$(__Summrise-Escape-Value $Global:__SummriseState.ContinuationPrompt)`a")
 	}
 }
 

@@ -83,7 +83,7 @@ const MAX_REDIRECTS = 5;
 // distinguish that from a whole-fetch budget without sleeping 30 s (round 129).
 const UPSTREAM_TIMEOUT_MS = Number(
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.VALE_RELAY_HEADER_TIMEOUT_MS ?? 30000,
+    ?.SUMMRISE_RELAY_HEADER_TIMEOUT_MS ?? 30000,
 );
 // Rewrite ceiling: response bodies are fully buffered by response.text()
 // before rewriting, so bound memory explicitly. Bodies declaring MORE than

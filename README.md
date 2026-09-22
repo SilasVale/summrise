@@ -1,19 +1,19 @@
-# Vale
+# Summrise
 
-[![CI](https://github.com/SilasVale/vale/actions/workflows/ci.yml/badge.svg)](https://github.com/SilasVale/vale/actions/workflows/ci.yml)
+[![CI](https://github.com/SilasVale/summrise/actions/workflows/ci.yml/badge.svg)](https://github.com/SilasVale/summrise/actions/workflows/ci.yml)
 
-Vale turns a Windows device into an **AI-controllable workspace** — terminal, SSH, serial and browser sessions exposed to AI through MCP, plus an Electron desktop shell and a device-local memory. One repository for the front door, the device agent and the download distribution.
+Summrise turns a Windows device into an **AI-controllable workspace** — terminal, SSH, serial and browser sessions exposed to AI through MCP, plus an Electron desktop shell and a device-local memory. One repository for the front door, the device agent and the download distribution.
 
 ```
-Vale Gate (front door, Cloudflare Worker) — console, BYOK AI gateway, /mcp proxy
+Summrise Gate (front door, Cloudflare Worker) — console, BYOK AI gateway, /mcp proxy
         │
         ▼
-Vale Agent (Windows, Rust) — headless MCP server + /api/tools + panel
+Summrise Agent (Windows, Rust) — headless MCP server + /api/tools + panel
   └─ plugin registry: terminal / memory / system / mcp-client / playwright / update / design
         │  mcp-client bridges to a local browser MCP server (playwright)
         ▼
-Vale Desktop (Electron) — tray + native menu + CDP :9333 for AI-driven UI
-Vale Index (Cloudflare Worker) — npm tgz / download distribution
+Summrise Desktop (Electron) — tray + native menu + CDP :9333 for AI-driven UI
+Summrise Index (Cloudflare Worker) — npm tgz / download distribution
 Satellites (not in the request path): satellite proxies (Cloudflare/VPS AI egress) + brand (static icons)
 ```
 
@@ -29,21 +29,21 @@ Satellites (not in the request path): satellite proxies (Cloudflare/VPS AI egres
 ## Quick start (Windows)
 
 ```powershell
-npm.cmd i -g https://agent.saisi.online/vale-agent/vale-agent-latest.tgz   # or pin an exact version
-vale setup                 # pure local install (registry-first, no cloud needed)
-vale setup --reg-key <key> # optional: register the device with a Vale Gate console
-vale update                # later: one-command update (exe + electron shell)
+npm.cmd i -g https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz   # or pin an exact version
+summrise setup                 # pure local install (registry-first, no cloud needed)
+summrise setup --reg-key <key> # optional: register the device with a Summrise Gate console
+summrise update                # later: one-command update (exe + electron shell)
 ```
 
-The install dir is registry-first (`HKLM\SOFTWARE\Vale\Agent\InstallDir`); all path resolution goes through `agent/src/paths.rs`. The terminal panel is served by the agent at `/panel` (token entered once in the browser), and the Electron desktop shell loads `/desktop/`.
+The install dir is registry-first (`HKLM\SOFTWARE\Summrise\Agent\InstallDir`); all path resolution goes through `agent/src/paths.rs`. The terminal panel is served by the agent at `/panel` (token entered once in the browser), and the Electron desktop shell loads `/desktop/`.
 
 ## Repository layout
 
 | Directory | Project | Runtime | Description |
 |---|---|---|---|
-| `gateway/` | **Vale Gate** | Cloudflare Worker | console (login/roles), BYOK AI gateway, `/mcp` proxy to devices, device registry |
-| `agent/` | **Vale Agent** | Windows (Rust) | headless MCP server + `/api/tools` + panel + Electron desktop shell (`vale-desktop-electron/`) + npm distribution (`vale-agent-npm/`) |
-| `index/` | **Vale Index** | Cloudflare Worker | download distribution (`vale-dist`; hosts the npm tgz, see Quick start) |
+| `gateway/` | **Summrise Gate** | Cloudflare Worker | console (login/roles), BYOK AI gateway, `/mcp` proxy to devices, device registry |
+| `agent/` | **Summrise Agent** | Windows (Rust) | headless MCP server + `/api/tools` + panel + Electron desktop shell (`summrise-desktop-electron/`) + npm distribution (`summrise-agent-npm/`) |
+| `index/` | **Summrise Index** | Cloudflare Worker | download distribution (`summrise-dist`; hosts the npm tgz, see Quick start) |
 | ~~`studio/`~~ | RETIRED 2026-09-06 | — | replaced by code-server (vscode.saisi.online, behind Access); the ADR that recorded it was pruned with the rest of `docs/adr/` — the retirement note here is now the only record |
 | `proxies/` | **Satellite proxies** | Cloudflare Worker + Oracle VPS (vrelay) | zen-go / zen-us AI egress + api-relay (`./scripts/build.sh proxies|api-relay`) |
 | `brand/` | **Brand assets** | static (satellite) | sunrise favicon / icon source (no build) |
@@ -53,7 +53,7 @@ The install dir is registry-first (`HKLM\SOFTWARE\Vale\Agent\InstallDir`); all p
 ## Build & deploy
 
 ```bash
-# Windows cross-compile of vale-agent (needs cargo-xwin)
+# Windows cross-compile of summrise-agent (needs cargo-xwin)
 ./scripts/build.sh agent             # + panel SPA rebuild (embedded at compile time)
 
 # Deploy the workers (needs a Cloudflare API token)

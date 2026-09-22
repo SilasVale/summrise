@@ -13,7 +13,7 @@ use crate::plugins::terminal::{
 };
 use crate::tools::terminal::TerminalManager;
 use std::sync::Arc;
-use vale_agent_core::{recover_guard, ToolDef};
+use summrise_agent_core::{recover_guard, ToolDef};
 
 /// Byte range of the last `lines` CONTENT lines in `data`: trailing blank
 /// lines (`\r\n`/`\n`) are skipped first so the Nth-from-end scan counts

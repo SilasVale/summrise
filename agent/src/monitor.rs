@@ -99,7 +99,7 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 /// WHERE A STATE CHANGE IS ANNOUNCED. Set once at boot (`main.rs`) to the device's event bus,
 /// which is the same broadcast the panel's SSE stream and the terminal output share — so a
-/// target going down reaches an open panel as `vale-monitor-change` without the monitor
+/// target going down reaches an open panel as `summrise-monitor-change` without the monitor
 /// knowing anything about SSE, HTTP or the panel.
 ///
 /// NOT SET IN TESTS, and that is the point: the module is silent unless somebody is listening,
@@ -886,7 +886,7 @@ mod tests {
     }
 
     fn dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("vale-monitor-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("summrise-monitor-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).expect("temp dir");
         d

@@ -1,4 +1,4 @@
-# Vale Agent E2E suite
+# Summrise Agent E2E suite
 
 Repeatable, device-side verification that the AI-facing surface works
 end-to-end. Created round-273 to fix the "tests were one-off scripts in
@@ -24,8 +24,8 @@ node e2e.js --token <token> --only terminal,file   # subset
 node e2e.js --token <token> --no-browser           # agent-only, no CDP
 ```
 
-Env: `VALE_AGENT_TOKEN` also works; `--base` overrides the agent URL;
-`VALE_PW_DIR` overrides the playwright dir (default `D:\Vale\playwright`).
+Env: `SUMMRISE_AGENT_TOKEN` also works; `--base` overrides the agent URL;
+`SUMMRISE_PW_DIR` overrides the playwright dir (default `D:\Summrise\playwright`).
 
 | `governance` | round-9 of the game-design work | goal set -> the AI reads it off `terminal_list` -> gate armed -> an execute BLOCKS with its `intent`/`considered` -> approve+grant -> the granted family runs unasked -> revoke -> disarm -> **the audit trail explains all of it** |
 
@@ -39,17 +39,17 @@ runs against a Linux agent on loopback:
 
 ```bash
 # on any box with the agent built:
-cargo build --features terminal --bin vale-agent
+cargo build --features terminal --bin summrise-agent
 # config.yaml: server.host 127.0.0.1, a free port, a device_token
-./target/debug/vale-agent /tmp/vale-e2e/config.yaml &
+./target/debug/summrise-agent /tmp/summrise-e2e/config.yaml &
 node agent/scripts/e2e/e2e.js --token <token> --base http://127.0.0.1:<port> --only governance,runs
 ```
 
-**There is NO `VALE_DATA_DIR` override** — `paths.rs` resolves the data dir
+**There is NO `SUMMRISE_DATA_DIR` override** — `paths.rs` resolves the data dir
 registry-first (`registry_value("DataDir")`, else `install_dir()`), and on Linux
 `registry_value` is always `None`, so every runtime directory (sessions, memory,
 pwout, runs, logs) lands BESIDE THE EXE, i.e. under `target/debug/`. Earlier
-revisions of this recipe exported `VALE_DATA_DIR=/tmp/vale-e2e/data`, which
+revisions of this recipe exported `SUMMRISE_DATA_DIR=/tmp/summrise-e2e/data`, which
 silently did nothing: the agent ran happily against `target/debug/` while the
 reader believed it was isolated. If you need a clean data dir, point the
 config's `server` at a scratch install and remove `target/debug/{sessions,runs,pwout,memory,logs}`
@@ -63,8 +63,8 @@ full round without anyone noticing, because nothing executed it.
 That is how the section was developed and how the audit-trail gap below was
 found. The other sections are DEVICE-targeted by design and will partially fail
 elsewhere: `terminal` runs `Write-Output` (PowerShell), and `file`/`evidence` join
-paths with `\` under a hardcoded `C:\ProgramData\Vale\pwout`. Those failures
-are the environment, not the agent — verified by pointing `VALE_EVIDENCE_DIR` at a
+paths with `\` under a hardcoded `C:\ProgramData\Summrise\pwout`. Those failures
+are the environment, not the agent — verified by pointing `SUMMRISE_EVIDENCE_DIR` at a
 Linux directory, which moves `file` from an ENOENT abort to 6/7 with only the
 backslash join failing.
 
@@ -89,7 +89,7 @@ production path and renders its own component tree. It:
    that failed to render cannot pass;
 3. checks the top bar for overflow and reports page errors.
 
-Without `VALE_BROWSER_HELPER` it runs in **emit mode**: it writes the harness and
+Without `SUMMRISE_BROWSER_HELPER` it runs in **emit mode**: it writes the harness and
 exits 0, so the same measurement can be driven from wherever a Playwright runtime
 exists (on this project that is the device's bundled one, via
 `browser_run_script` — the Linux box has no launchable chromium).
@@ -144,7 +144,7 @@ beyond navigation reach the page the user watches).
 
 - Agent running on the device (port 18080 default).
 - Section `browser`: Electron desktop up (CDP 9333) + bundled playwright.
-- Test artifacts land in `D:\Vale\pwout\` and are cleaned up by the suite.
+- Test artifacts land in `D:\Summrise\pwout\` and are cleaned up by the suite.
 
 ## Maintenance notes
 

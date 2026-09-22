@@ -152,7 +152,7 @@ test("byok: the console key page renders EVERY managed key — the FIFTH consume
   //
   // Its twin is health.test.mjs's "probe coverage spans every USER_KEY_NAMES
   // entry": a key the console cannot RENDER is a key the operator cannot fix,
-  // and a key the probe cannot SPEND leaves `vale check` blind. Both are the
+  // and a key the probe cannot SPEND leaves `summrise check` blind. Both are the
   // same question asked of a different consumer.
   const { readFile } = await import("node:fs/promises");
   const { USER_KEY_NAMES } = await import("../src/store/users.ts");

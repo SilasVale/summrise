@@ -84,7 +84,7 @@ export function safeEq(a: string, b: string): boolean {
 /// same-site/cross-site are rejected. Bearer-token clients carry no cookie
 /// and are untouched.
 /// Security follow-up: the gate keyed on ag_session only, but the device
-/// proxy mints PER-DEVICE `vale_pt_<name>` cookies (devices.ts) that
+/// proxy mints PER-DEVICE `summrise_pt_<name>` cookies (devices.ts) that
 /// authenticate mutations on the proxy path too — every cookie-carrying
 /// mutation means BOTH credential families. Same reasoning applies: a
 /// same-site page holding neither cookie cannot ride them; the panel's own
@@ -95,7 +95,7 @@ export function csrfCookieViolation(request: Request): boolean {
   if (!MUTATING_METHODS.has(method)) return false;
   const cookie = request.headers.get("cookie") || "";
   const hasSession = cookie.includes(SESSION_COOKIE + "=");
-  const hasDevicePair = Object.keys(parseCookie(cookie)).some((n) => n.startsWith("vale_pt_"));
+  const hasDevicePair = Object.keys(parseCookie(cookie)).some((n) => n.startsWith("summrise_pt_"));
   if (!hasSession && !hasDevicePair) return false; // bearer path
   // Browsers attach Sec-Fetch-Site to EVERY request (forbidden header — a
   // cross-site page cannot forge it), so a DRIVE-BY from a device panel or

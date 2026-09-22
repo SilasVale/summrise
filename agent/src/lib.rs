@@ -1,12 +1,12 @@
 // Compat shim: core types re-exported so external/embedding consumers can
-// import from the `vale_agent` facade. The CANONICAL import path for core
-// types is `vale_agent_core::…` (the crate boundary; 5× the usage and the
+// import from the `summrise_agent` facade. The CANONICAL import path for core
+// types is `summrise_agent_core::…` (the crate boundary; 5× the usage and the
 // convention all internal src/ modules follow) — new code MUST import from
-// vale_agent_core directly, never add consumers to these re-exports.
-pub use vale_agent_core::config;
-pub use vale_agent_core::error;
-pub use vale_agent_core::events;
-pub use vale_agent_core::{
+// summrise_agent_core directly, never add consumers to these re-exports.
+pub use summrise_agent_core::config;
+pub use summrise_agent_core::error;
+pub use summrise_agent_core::events;
+pub use summrise_agent_core::{
     AgentEvent, AppEventBus, Config, DeviceError, EventBus, NavItem, Plugin, ToolDef, ToolHandler,
 };
 
@@ -296,7 +296,9 @@ mod now_helpers {
 #[cfg(test)]
 mod retention {
     use super::*;
-    use vale_agent_core::config::{DEFAULT_EVIDENCE_RETENTION_DAYS, DEFAULT_RUNS_RETENTION_DAYS};
+    use summrise_agent_core::config::{
+        DEFAULT_EVIDENCE_RETENTION_DAYS, DEFAULT_RUNS_RETENTION_DAYS,
+    };
 
     const NOW: u64 = 1_800_000_000_000;
     const DAY_MS: u64 = 86_400_000;
@@ -338,7 +340,7 @@ mod retention {
     /// silently pinned to the compiled defaults.
     #[test]
     fn a_configured_window_reaches_both_records() {
-        let base = std::env::temp_dir().join(format!("vale-sweep-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("summrise-sweep-{}", std::process::id()));
         let (ev, rr) = (base.join("pwout"), base.join("runs"));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&ev).unwrap();
@@ -373,7 +375,8 @@ mod retention {
     /// boot, including on a device that has never driven the browser.
     #[test]
     fn a_sweep_over_empty_dirs_reports_nothing() {
-        let base = std::env::temp_dir().join(format!("vale-sweep-empty-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("summrise-sweep-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let cfg = Config::default();
         let swept = retention_sweep_in(&base.join("pwout"), &base.join("runs"), &cfg, NOW);
@@ -388,7 +391,7 @@ mod retention {
     /// defaults, and invisible in the totals.
     #[test]
     fn each_record_gets_its_own_window() {
-        let base = std::env::temp_dir().join(format!("vale-sweep-two-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("summrise-sweep-two-{}", std::process::id()));
         let (ev, rr) = (base.join("pwout"), base.join("runs"));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&ev).unwrap();

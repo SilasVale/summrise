@@ -9,8 +9,8 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use vale_agent::state::AppState;
-use vale_agent_core::{Config, ToolDef};
+use summrise_agent::state::AppState;
+use summrise_agent_core::{Config, ToolDef};
 
 /// Start a real token-gated MCP server on an ephemeral port; returns the MCP URL.
 async fn start_server() -> String {
@@ -19,7 +19,7 @@ async fn start_server() -> String {
     cfg.server.port = 0; // ephemeral — bind() reports the actual port
     cfg.server.device_token = Some("sekret".into());
     let state = Arc::new(AppState::new(cfg.clone()));
-    let (addr, _handle) = vale_agent::mcp::bind(cfg, state, CancellationToken::new())
+    let (addr, _handle) = summrise_agent::mcp::bind(cfg, state, CancellationToken::new())
         .await
         .expect("bind server");
     format!("http://{addr}/mcp")
@@ -164,7 +164,7 @@ async fn panel_token_is_injected_to_a_real_loopback_peer() {
     cfg.server.port = 0; // ephemeral — bind() reports the actual port
     cfg.server.device_token = Some("cafebabe".repeat(8));
     let state = Arc::new(AppState::new(cfg.clone()));
-    let (addr, _handle) = vale_agent::mcp::bind(cfg, state, CancellationToken::new())
+    let (addr, _handle) = summrise_agent::mcp::bind(cfg, state, CancellationToken::new())
         .await
         .expect("bind server");
 

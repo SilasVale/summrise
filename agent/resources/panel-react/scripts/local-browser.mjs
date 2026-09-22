@@ -1,6 +1,6 @@
 // A browser for the design sweeps on a machine that is not the device.
 //
-// The sweeps take their browser from `VALE_BROWSER_HELPER`, which on the device points at the agent's
+// The sweeps take their browser from `SUMMRISE_BROWSER_HELPER`, which on the device points at the agent's
 // bundled Playwright. This is the same contract for anywhere else — a CI runner, or a developer's box —
 // so the sweeps themselves need no knowledge of where they are running (round 204).
 //
@@ -19,8 +19,8 @@ export async function acquireBrowser() {
   // AN EXPLICIT BINARY WHEN ONE IS NAMED. playwright-core resolves its OWN build number from its package
   // version, and a machine whose cache holds a different one fails with "Target page, context or browser has
   // been closed" and a path nobody recognises. CI installs the matching build and needs nothing; a box with
-  // a pre-existing cache can point at it with VALE_CHROMIUM_PATH.
-  const executablePath = process.env.VALE_CHROMIUM_PATH || undefined;
+  // a pre-existing cache can point at it with SUMMRISE_CHROMIUM_PATH.
+  const executablePath = process.env.SUMMRISE_CHROMIUM_PATH || undefined;
   const browser = await chromium.launch({ headless: true, executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   const context = await browser.newContext();
   const page = await context.newPage();

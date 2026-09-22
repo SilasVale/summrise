@@ -3,8 +3,8 @@
 // every 3s because its poll also drives the screencast; the embedded pane
 // must not poll, so this drawer:
 //   1. fetches pwshots + actions ON DEMAND when opened,
-//   2. refreshes on the agent's `vale-browser-actions-changed` /
-//      `vale-playwright-changed` window events (re-dispatched by useSSE from
+//   2. refreshes on the agent's `summrise-browser-actions-changed` /
+//      `summrise-playwright-changed` window events (re-dispatched by useSSE from
 //      its single /api/events/term stream — P1-3 removed this drawer's own
 //      duplicate /api/events fetch) while open, and
 //   3. fetches each new screenshot blob when its row appears.
@@ -80,19 +80,19 @@ export function EvidenceDrawer({ apiBase, token, open, onClose }: {
 
   // Load on open; refresh on the agent's activity pushes while open.
   // (P1-3: useSSE re-dispatches its single stream's control frames as
-  // `vale-*` window events — subscribe to those instead of opening a second
+  // `summrise-*` window events — subscribe to those instead of opening a second
   // /api/events fetch.)
   useEffect(() => {
     if (!open) return;
     aliveRef.current = true;
     void refresh();
     const onActivity = () => { if (aliveRef.current) void refresh(); };
-    window.addEventListener("vale-browser-actions-changed", onActivity);
-    window.addEventListener("vale-playwright-changed", onActivity);
+    window.addEventListener("summrise-browser-actions-changed", onActivity);
+    window.addEventListener("summrise-playwright-changed", onActivity);
     return () => {
       aliveRef.current = false;
-      window.removeEventListener("vale-browser-actions-changed", onActivity);
-      window.removeEventListener("vale-playwright-changed", onActivity);
+      window.removeEventListener("summrise-browser-actions-changed", onActivity);
+      window.removeEventListener("summrise-playwright-changed", onActivity);
     };
   }, [open, refresh]);
 

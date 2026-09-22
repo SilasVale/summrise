@@ -25,7 +25,7 @@ import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO = join(HERE, "..", "..");
-const OUT = process.env.VALE_LANDING_OUT || "/tmp/vale-landing";
+const OUT = process.env.SUMMRISE_LANDING_OUT || "/tmp/summrise-landing";
 const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "").slice("--passes=".length).split(",").filter(Boolean);
 const mode = process.argv[2] || "";
 
@@ -47,8 +47,8 @@ function landingStyles() {
 // installer the page swaps the primary button for a hint — a different element, a different size, a different
 // contrast question — and nothing has ever looked at it in a browser.
 const CONSOLE_URL = "https://ai.saisi.online";
-const INSTALLER_URL = "https://agent.saisi.online/vale-agent/vale-agent-latest.tgz";
-const SETUP_URL = "https://agent.saisi.online/vale-agent/ValeAgent-Setup.exe";
+const INSTALLER_URL = "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz";
+const SETUP_URL = "https://agent.saisi.online/summrise-agent/SummriseAgent-Setup.exe";
 const PAGES = [
   ["installer", PAGE(CONSOLE_URL, INSTALLER_URL, SETUP_URL)],
   ["npm-only", PAGE(CONSOLE_URL, INSTALLER_URL, null)],
@@ -66,7 +66,7 @@ function render() {
 
 // ONE ROOT, BOTH ENDS (round 77's lesson): the stamp is baked from the entry the RUN will serve, and the default is
 // the device path so a delivered copy is compared against the copy it was emitted for.
-const ROOT = process.env.VALE_SWEEP_ROOT || "C:\\ProgramData\\Vale\\pwout\\landing";
+const ROOT = process.env.SUMMRISE_SWEEP_ROOT || "C:\\ProgramData\\Summrise\\pwout\\landing";
 const stampOf = (file) => {
   try {
     const b = readFileSync(file);
@@ -109,7 +109,7 @@ function piecesSource(LOCAL_STAMP) {
   return piecesModule({
     config: {
       root: ROOT,
-      reportPath: "C:\\ProgramData\\Vale\\pwout\\landing-sweep.json",
+      reportPath: "C:\\ProgramData\\Summrise\\pwout\\landing-sweep.json",
       passes: PASSES,
       expectedEntry: LOCAL_STAMP,
       selector: "body",

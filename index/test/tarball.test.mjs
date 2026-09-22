@@ -27,21 +27,21 @@ const GOOD_SHA = "b".repeat(64);
 test("tarball field is honored: latest alias served verbatim", async () => {
   const resp = await worker.fetch(
     new Request("https://dl.local/api/version"),
-    versionEnv({ version: "1.2.3", tarball: "vale-agent-latest.tgz", sha256: GOOD_SHA }),
+    versionEnv({ version: "1.2.3", tarball: "summrise-agent-latest.tgz", sha256: GOOD_SHA }),
   );
   assert.equal(resp.status, 200);
   const j = await resp.json();
-  assert.equal(j.download, "https://dl.local/vale-agent/vale-agent-latest.tgz");
+  assert.equal(j.download, "https://dl.local/summrise-agent/summrise-agent-latest.tgz");
 });
 
 test("tarball field is honored: versioned name served verbatim", async () => {
   const resp = await worker.fetch(
     new Request("https://dl.local/api/version"),
-    versionEnv({ version: "1.2.3", tarball: "vale-agent-1.2.3.tgz", sha256: GOOD_SHA }),
+    versionEnv({ version: "1.2.3", tarball: "summrise-agent-1.2.3.tgz", sha256: GOOD_SHA }),
   );
   assert.equal(resp.status, 200);
   const j = await resp.json();
-  assert.equal(j.download, "https://dl.local/vale-agent/vale-agent-1.2.3.tgz");
+  assert.equal(j.download, "https://dl.local/summrise-agent/summrise-agent-1.2.3.tgz");
 });
 
 test("absent tarball falls back to the derived versioned name (old manifests)", async () => {
@@ -51,18 +51,18 @@ test("absent tarball falls back to the derived versioned name (old manifests)", 
   );
   assert.equal(resp.status, 200);
   const j = await resp.json();
-  assert.equal(j.download, "https://dl.local/vale-agent/vale-agent-1.2.3.tgz");
+  assert.equal(j.download, "https://dl.local/summrise-agent/summrise-agent-1.2.3.tgz");
 });
 
-test("hostile tarball (slashes / wrong suffix) falls back, never escapes /vale-agent/", async () => {
-  for (const tarball of ["../secret.tgz", "/etc/passwd", "vale-agent-1.2.3.zip", "", null, undefined, 42]) {
+test("hostile tarball (slashes / wrong suffix) falls back, never escapes /summrise-agent/", async () => {
+  for (const tarball of ["../secret.tgz", "/etc/passwd", "summrise-agent-1.2.3.zip", "", null, undefined, 42]) {
     const resp = await worker.fetch(
       new Request("https://dl.local/api/version"),
       versionEnv({ version: "1.2.3", tarball, sha256: GOOD_SHA }),
     );
     assert.equal(resp.status, 200, `tarball ${JSON.stringify(tarball)} must fall back, not 503`);
     const j = await resp.json();
-    assert.equal(j.download, "https://dl.local/vale-agent/vale-agent-1.2.3.tgz");
+    assert.equal(j.download, "https://dl.local/summrise-agent/summrise-agent-1.2.3.tgz");
     assert.ok(!j.download.includes(".."), "download URL must not contain path traversal");
   }
 });
