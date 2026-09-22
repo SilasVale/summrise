@@ -169,6 +169,20 @@
      The frame (icon rail, tab strips, status bar) is one continuous surface;
      body[data-theme="dark"] (see below) flips the whole set to the midnight
      cockpit. All frame rules consume ONLY these vars. */
+  /* THE FRAME AND THE PAGE ARE DIFFERENT SURFACES (1.2.449). The operator's words were "the layout looks jumbled
+     together", and the measurement agreed with him: `--chrome-bg-2` — the STATUS STRIP's background — was pure #ffffff,
+     the same value as every content card, separated only by an 8%-black hairline. The rail was #f4f4f5, about 2% off
+     white. So the chrome (rail + strip + toolbar) read as one continuous sheet with the content, which is exactly what
+     "mixed together" describes. The frame is now a real step below the page: the rail deepest, the strip one notch
+     lighter (a bar reads as lighter than a column), the content pure white on top. */
+  /* NO SURFACE MOVED HERE, AND THE GATES ARE WHY (1.2.449). The operator said the layout looked "mixed together", and the
+     measurement agreed: `--chrome-bg-2`, the status strip's background, was pure #ffffff — the same value as every content card,
+     separated by an 8%-black hairline. So the fix was going to be a deeper chrome. TWO attempts at it were refused: darkening
+     the RAIL pushed `.side-dot[data-kind="serial"]` to 2.90, and darkening the STRIP pushed it there again, because that mark
+     lives on the strip. `pairContrast` names the rule the hard way — a surface that gets deeper steals contrast from every mark
+     painted on it — and the mark was already only just clearing 3:1.
+     The separation therefore comes from the LINE, not from a value: the strip's top border is --line-strong (14%) instead of
+     --line (8%), which reads as a seam without touching a single pixel of contrast under anything. */
   --chrome-bg: #f4f4f5;
   --chrome-bg-2: #ffffff;
   --chrome-bg-3: #ececef;

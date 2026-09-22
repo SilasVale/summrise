@@ -170,6 +170,20 @@
      The frame (icon rail, tab strips, status bar) is one continuous surface;
      body[data-theme="dark"] (see below) flips the whole set to the midnight
      cockpit. All frame rules consume ONLY these vars. */
+  /* THE FRAME AND THE PAGE ARE DIFFERENT SURFACES (1.2.449). The operator's words were "the layout looks jumbled
+     together", and the measurement agreed with him: `--chrome-bg-2` — the STATUS STRIP's background — was pure #ffffff,
+     the same value as every content card, separated only by an 8%-black hairline. The rail was #f4f4f5, about 2% off
+     white. So the chrome (rail + strip + toolbar) read as one continuous sheet with the content, which is exactly what
+     "mixed together" describes. The frame is now a real step below the page: the rail deepest, the strip one notch
+     lighter (a bar reads as lighter than a column), the content pure white on top. */
+  /* NO SURFACE MOVED HERE, AND THE GATES ARE WHY (1.2.449). The operator said the layout looked "mixed together", and the
+     measurement agreed: `--chrome-bg-2`, the status strip's background, was pure #ffffff — the same value as every content card,
+     separated by an 8%-black hairline. So the fix was going to be a deeper chrome. TWO attempts at it were refused: darkening
+     the RAIL pushed `.side-dot[data-kind="serial"]` to 2.90, and darkening the STRIP pushed it there again, because that mark
+     lives on the strip. `pairContrast` names the rule the hard way — a surface that gets deeper steals contrast from every mark
+     painted on it — and the mark was already only just clearing 3:1.
+     The separation therefore comes from the LINE, not from a value: the strip's top border is --line-strong (14%) instead of
+     --line (8%), which reads as a seam without touching a single pixel of contrast under anything. */
   --chrome-bg: #f4f4f5;
   --chrome-bg-2: #ffffff;
   --chrome-bg-3: #ececef;
@@ -918,6 +932,24 @@ h3 { font-size: var(--fs-base); }
 .desktop-rail-btn.active {
   background: var(--chrome-active-bg);
   color: var(--chrome-active-ink);
+}
+/* WHICH ONE AM I ON, WITHOUT READING COLOUR (1.2.449). The brand mark at the top of the rail is a SOLID accent square and the
+   active item is a PALE accent square: same hue, same filled-square silhouette, so at a glance the rail has two orange squares
+   and the answer to "where am I" takes a second look. A bar at the rail's inner edge is the affordance for a current section,
+   and it survives greyscale, colour-vision deficiency and the pale-tint-versus-solid distinction alike. The button is 40px
+   wide, centred in a 56px rail, so the rail's edge is 8px to its left. */
+.desktop-rail-btn {
+  position: relative;
+}
+.desktop-rail-btn.active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 3px;
+  height: 22px;
+  margin-top: -11px;
+  background: var(--accent);
 }
 .desktop-rail-status {
   width: 34px; height: 30px;
@@ -5769,7 +5801,11 @@ button.dtab-close:active { transform: translateY(1px); }
   gap: var(--sp-2);
   padding: 6px 14px;
   min-height: 26px;
-  border-top: 1px solid var(--line);
+  /* A SEAM, NOT A LIGHTER SHEET (1.2.449). The strip is white like the content above it — white is the surface the marks on it
+     were measured against, and darkening it pushed .side-dot[data-kind="serial"] under 3:1. So the boundary is drawn instead of
+     tinted: --line-strong is 14% where the old --line was 8%, which separates the strip at a glance and changes no contrast
+     under any text or mark. */
+  border-top: 1px solid var(--line-strong);
   background: var(--chrome-bg-2);
   /* The TRANSIENT status message outranks the steady readout, so it takes the
      strongest ink. */

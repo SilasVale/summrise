@@ -315,6 +315,24 @@
   background: var(--chrome-active-bg);
   color: var(--chrome-active-ink);
 }
+/* WHICH ONE AM I ON, WITHOUT READING COLOUR (1.2.449). The brand mark at the top of the rail is a SOLID accent square and the
+   active item is a PALE accent square: same hue, same filled-square silhouette, so at a glance the rail has two orange squares
+   and the answer to "where am I" takes a second look. A bar at the rail's inner edge is the affordance for a current section,
+   and it survives greyscale, colour-vision deficiency and the pale-tint-versus-solid distinction alike. The button is 40px
+   wide, centred in a 56px rail, so the rail's edge is 8px to its left. */
+.desktop-rail-btn {
+  position: relative;
+}
+.desktop-rail-btn.active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 3px;
+  height: 22px;
+  margin-top: -11px;
+  background: var(--accent);
+}
 .desktop-rail-status {
   width: 34px; height: 30px;
   display: grid; place-items: center;

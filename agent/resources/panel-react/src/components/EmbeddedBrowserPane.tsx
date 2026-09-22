@@ -158,6 +158,13 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
     }).catch(() => { /* state() rejects only on frame loss */ });
   }, []);
 
+  // READY IS NOT LOADED (round 1.2.449). `ready` means the bridge answered — the native view exists and the toolbar can talk to
+  // it. The operator's screenshot is what the difference looks like: ready true, address bar carrying a URL, and a BLACK
+  // viewport with no words on it, because the "Starting embedded browser…" line is gated on `!ready` and the status bar had
+  // already started claiming "live". A page is loaded when the view reports a real URL; about:blank is the view's empty state
+  // and is exactly the case that needs saying out loud.
+  const hasPage = ready && !!url && !/^about:blank$/i.test(url);
+
   const navigate = useCallback((fromSubmit?: boolean) => {
     const b = embeddedBridge();
     if (!b) return;
@@ -266,6 +273,16 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
             <p>Starting embedded browser…</p>
           </div>
         )}
+        {/* READY, AND NOTHING TO SHOW. Without this the viewport is a silent void: the native view is an OS-level child that
+            paints nothing until a page loads, and no SPA element was saying so. The native view covers this slot when it has
+            content, so this text shows only in the state that has none. */}
+        {ready && !hasPage && !goneReason && (
+          <div className="browser-placeholder">
+            <Icon name="browser" size={30} />
+            <p>No page loaded</p>
+            <p className="browser-mode-b-hint">Type an address above and press Enter — or let the AI drive this browser.</p>
+          </div>
+        )}
         {/* round-256: renderer crash — recovery banner (the main process
             hides the dead native view so this SPA overlay shows through). */}
         {goneReason && (
@@ -283,7 +300,7 @@ export function EmbeddedBrowserPane({ token }: { token: string }) {
       <div className="browser-statusbar">
         <div className="browser-status-left">
           <span className="browser-fps" title="Real browser view (no screenshot stream)">
-            ● {ready ? "live (native render)" : "waiting"}
+            ● {hasPage ? "live (native render)" : ready ? "no page loaded" : "waiting"}
           </span>
           {/* round-253: event-driven AI-activity pulse — lights while the
               agent pushes browser-actions-changed (no polling), fades after

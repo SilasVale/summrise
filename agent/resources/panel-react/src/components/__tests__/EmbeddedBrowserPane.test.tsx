@@ -13,7 +13,7 @@ interface GoneHandler {
   (d: { reason: string; exitCode: number }): void;
 }
 
-const bridge = () => {
+const bridge = (url = "https://example.com/") => {
   const handlers = { nav: [] as NavHandler[], gone: [] as GoneHandler[] };
   return {
     handlers,
@@ -27,7 +27,7 @@ const bridge = () => {
       state: vi.fn(() =>
         Promise.resolve({
           ok: true,
-          url: "https://example.com/",
+          url,
           canBack: true,
           canFwd: false,
         }),
@@ -152,5 +152,36 @@ describe("EmbeddedBrowserPane", () => {
   it("no bridge → placeholder without crashing", () => {
     render(<EmbeddedBrowserPane token="t" />);
     expect(screen.getByText("Starting embedded browser…")).toBeTruthy();
+  });
+});
+
+
+// ── THE BLACK VIEWPORT (1.2.449) ──────────────────────────────────────────────────────────────────────────────────────────
+// The operator sent a screenshot of the desktop app: the browser page, address bar carrying a URL, and a viewport that was a
+// solid black rectangle with the words "Starting embedded browser…" gone and the status bar claiming "live (native render)".
+// That is `ready` (the bridge answered) rendered as if it were `loaded` (the view has a page). These two cases pin the
+// difference — and the empty state is not decoration: the native view is an OS-level child that paints nothing until a page
+// loads, so without words this state is indistinguishable from a broken app.
+describe("EmbeddedBrowserPane — ready is not loaded", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("says so when the bridge is ready and no page is loaded", async () => {
+    const b = bridge("about:blank");
+    vi.stubGlobal("valeEmbedded", b.mock);
+    render(<EmbeddedBrowserPane token="t" />);
+    expect(await screen.findByText("No page loaded")).toBeTruthy();
+    expect(screen.getByText(/no page loaded/)).toBeTruthy(); // the status bar agrees with the viewport
+    expect(screen.queryByText(/live \(native render\)/)).toBeNull();
+  });
+
+  it("claims live only once a real page is loaded", async () => {
+    const b = bridge();
+    vi.stubGlobal("valeEmbedded", b.mock);
+    render(<EmbeddedBrowserPane token="t" />);
+    expect(await screen.findByDisplayValue("https://example.com/")).toBeTruthy();
+    expect(await screen.findByText(/live \(native render\)/)).toBeTruthy();
+    expect(screen.queryByText("No page loaded")).toBeNull();
   });
 });

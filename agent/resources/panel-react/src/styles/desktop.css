@@ -305,7 +305,11 @@ button.dtab-close:active { transform: translateY(1px); }
   gap: var(--sp-2);
   padding: 6px 14px;
   min-height: 26px;
-  border-top: 1px solid var(--line);
+  /* A SEAM, NOT A LIGHTER SHEET (1.2.449). The strip is white like the content above it — white is the surface the marks on it
+     were measured against, and darkening it pushed .side-dot[data-kind="serial"] under 3:1. So the boundary is drawn instead of
+     tinted: --line-strong is 14% where the old --line was 8%, which separates the strip at a glance and changes no contrast
+     under any text or mark. */
+  border-top: 1px solid var(--line-strong);
   background: var(--chrome-bg-2);
   /* The TRANSIENT status message outranks the steady readout, so it takes the
      strongest ink. */
