@@ -199,7 +199,7 @@ data contradicted.
 
 | Thing | State |
 |---|---|
-| CDN worker | `summrise-dist`, with `agent.saisi.online` and `command.saisi.online` attached to it |
+| CDN worker | `summrise-dist`, with the download host and the command host (`<download-host>`, `<command-host>`) attached to it |
 | CDN content | `/summrise-agent/version.json` → `1.2.452`; `/summrise-agent/summrise-agent-latest.tgz` → 200 (6,690,379 B); `/vale-agent/*` → **404**, which is the design: the reinstall *is* the migration |
 | Release | `summrise-agent-1.2.452.tgz` published; landing page 200 |
 | Repo | three commits pushed — `9acb2db1` (the rename), `28887dd4` (the Access fix), `24bcc049` (prettier + mirror) |
@@ -213,7 +213,7 @@ data contradicted.
    invented. Deploying `summrise-gate` fresh would therefore not rename the gateway — it
    would **disable the model gateway and change the console password**. So
    `gateway/wrangler.jsonc` was set back to describe reality: the worker stays
-   `vale-gate`, and `api.saisi.online` / `ai.saisi.online` stay attached to it — untouched,
+   `vale-gate`, and the gateway and AI hosts (`<gate-host>`, `<ai-host>`) stay attached to it — untouched,
    zero downtime. (If the 15 values are ever re-entered, the rename is a two-line change
    plus a domain move.)
 2. **`vale-saisi.cloudflareaccess.com` — the Access team domain**, recorded in the table
@@ -238,12 +238,37 @@ namespace, so it is a client-restart action, not a rename side effect. Also
 
 **The one action left that only a human can take: reinstall the device.**
 
+Everything that could be prepared was prepared on 2026-09-27, from this session, while
+the old agent kept running — the steps below therefore only have to be *run*:
+
+| Already done on the device | Where |
+|---|---|
+| the old data dir copied (minus the 159 MB `pwout/` scrape scratch) | `C:\ProgramData\Summrise\` — `memory/`, `runs/`, `sessions/`, `logs/`, `monitors.json` |
+| the two config files renamed to what the new code looks for | `summrise-connections.json` (your SSH/serial connections), `summrise-known-hosts.json` |
+| the identity and config staged, with the label updated | `C:\ProgramData\Summrise\migrated-from-vale\`: `config.yaml` (carries `device_token` and `console_url`; `server.name` rewritten `vale-agent` → `summrise-agent`), `tunnel.yml`, `summrise-agent.hostname` (= `d1.<download-host>`) |
+
 ```powershell
-vale uninstall          # the OLD cli is still installed on the device and still works
-npm i -g --prefix (Split-Path (Get-Command npm).Source) `
-  https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
-summrise status
+# 1. the new CLI (the running old agent is untouched)
+npm i -g --prefix (Split-Path (Get-Command npm).Source) <download-host>/summrise-agent/summrise-agent-latest.tgz
+# 2. new registry key, D:\Summrise, C:\ProgramData\Summrise   (setup does NOT write config.yaml)
+summrise setup
+# 3. put the identity back BEFORE the new agent's first boot, or it registers a second device
+$e = (Get-ItemProperty 'HKLM:\SOFTWARE\Summrise\Agent').InstallDir + '\etc'
+Copy-Item 'C:\ProgramData\Summrise\migrated-from-vale\*' $e -Force
+# 4. remove the OLD agent -- the channel into this box drops here, which is expected
+Stop-Service ValeCommand -ErrorAction SilentlyContinue ; vale uninstall
+# 5. start, then confirm release 1.2.452 AND that the console still shows the SAME device
+summrise autostart ; summrise start ; summrise status
+# 6. only once it is healthy:
+Remove-Item D:\Vale,C:\ProgramData\Vale -Recurse -Force
 ```
+
+The shipped install command lives in `agent/AGENTS.md` (Release) and names the real host;
+it is deliberately not duplicated here. `--prefix` matters: without it npm installs
+elsewhere, reports success, and `summrise update` ships the old exe.
+
+**Rollback** (the old tgz is still served from the CDN): install
+`<download-host>/summrise-agent/vale-agent-1.2.451.tgz` and run `vale setup`.
 
 **It was deliberately NOT run from the session that did the rename.** That session reaches
 the device *through the agent being replaced*, and this repo's own notes record that
