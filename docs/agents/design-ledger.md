@@ -3378,3 +3378,23 @@ measurement can see all three.
 WHICH IS EXACTLY WHY ROUND 187'S QUESTION IS THE RIGHT ONE TO LEAVE OPEN: the static question has now been asked twice and
 answered twice in the same direction, and the only instrument that can ask it properly is the ack pass — which covers the
 console only where it discovers controls or keeps its curated pair.
+
+### A CORRECTION: THE CONSOLE HAS NO ACK PASS AT ALL (round 189, correcting round 187)
+
+Round 187 recorded that "the console's ack pass keeps a curated pair elsewhere" and left the extension as an open question. That
+sentence was WRONG, and the way it was wrong is this session's ninth misreading: the greps that produced it printed line numbers
+from TWO files (the panel sweep at 980 and 1002, the console sweep at 545), and I attributed the panel's wiring to the console.
+
+The measured state, verified three ways:
+
+    console-design-sweep.mjs   0 references to ackPass / ACK_BUDGET / data-busy / acknowledg*
+    panel-design-sweep.mjs     6 — a CURATED pair AND `discover: 4`, which asks the DOM for every visible control
+    lib/design-sweep.mjs:611   `export async function ackPass(page, targets, budgetMs, label)` — SHARED, so the console can use it
+
+So the console has NO acknowledgement measurement: its feedback is covered by the sheet-level `feedback-check` (an `:active`
+rule exists) and by the rendered press pass (the press paints), and nothing times a control's acknowledgement against the stated
+budget — while the panel measures 158 presses at 4-9 ms.
+
+THE CANDIDATE IS NOW ONE CALL SITE, and it is written here rather than started at the end of a round: add `ackPass` to the
+console sweep with `discover: N`, exactly as the panel does, and let the next design job measure what it finds. Its first run
+may well find controls that answer nothing — which is what the panel's first run found, and what the instrument exists for.
