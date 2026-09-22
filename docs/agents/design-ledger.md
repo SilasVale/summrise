@@ -3517,10 +3517,20 @@ then fixed with `transform: translateY(1px)` — the vocabulary every other pres
 THE SECOND ASK: THE EXE HAD NO ICON AT ALL. Task Manager drew a generic glyph because `vale-agent.exe` carried no
 resource of any kind — the brand mark existed in `brand/icon.ico` and was wired into the desktop app and the installer,
 never into the service binary the operator actually looks at. `agent/build.rs` now generates a `.rc`, compiles it with
-LLVM's `windres` (the sibling of the `llvm-rc` cargo-xwin already symlinks, so CI needs no new setup) and hands the
-object to the linker; MSVC's `rc.exe` + a `.res` — which lld-link accepts directly, measured — is the fallback. On the
-built exe: **6 resources, all four brand frames byte-present** (16/24/32/48), **no absolute path embedded** (0
-occurrences — the dual-builder audit's premise holds), and **two forced re-links are byte-identical**. The VERSIONINFO
+LLVM's `llvm-rc` and hands the `.res` to the linker (lld-link accepts a `.res` as an input file — measured before the
+rewrite). On the built exe: **6 resources, all four brand frames byte-present** (16/24/32/48), **no absolute path
+embedded** (0 occurrences — the dual-builder audit's premise holds), and **two forced re-links are byte-identical**.
+
+**AND THE FIRST VERSION OF THAT FIX WAS WRONG IN A WAY ONLY CI COULD SEE, which is the durable lesson of this round.**
+It asked for `llvm-windres`, because windres can emit a COFF object directly and the box here has it (LLVM 18, reached by
+resolving the `llvm-rc` symlink cargo-xwin creates in `~/.cache/cargo-xwin`). Every local measurement passed: the icon in
+the bytes, the four frames present, two re-links identical. Then `agent (xwin check windows-msvc)` went red with
+`cannot run llvm-windres` — that job installs APT's `llvm`, which ships `llvm-rc` and no such binary, and it never runs
+the symlink step `release.yml` does. "It works here" had been mistaken for "it works", and the environment that decides
+is the one that has none of this machine's conveniences. The fix is smaller than the bug: use `llvm-rc` (which every one
+of these environments has), emit a `.res`, link that — and SEARCH for it in the four places it is actually installed
+(PATH versioned and not, the cargo-xwin symlink, Ubuntu's `/usr/lib/llvm-*/bin`, MSVC's `rc.exe`) with a hard failure
+naming `VALE_LLVM_RC` if none exists. A warning-and-continue would have restored the original defect in silence. The VERSIONINFO
 carries the npm package's version (1.2.449) and FileDescription `Vale Agent`, because that file IS this binary's version
 at release time (the release flow bumps it before building) while the crate's own 1.0.x is not — and a process with no
 FileDescription is listed as `vale-agent.exe`, which is what the operator saw.

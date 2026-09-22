@@ -180,15 +180,16 @@ fn fnv1a64(bytes: &[u8], mut hash: u64) -> u64 {
 // `scripts/render-brand-icon.py` for exactly this purpose) and was wired into the desktop app and the
 // installer — and the SERVICE binary, the one Task Manager actually lists, was never given it.
 //
-// HOW: one `ICON` statement in a generated .rc, compiled to a COFF object by LLVM's resource compiler and
-// handed to the linker. No new crate: this build script stays pure std, which is what lets the Windows
-// cross-compile run with nothing installed but the toolchain cargo-xwin already sets up.
+// HOW: one `ICON` + one `VERSIONINFO` statement in a generated .rc, compiled to a `.res` by LLVM's resource
+// compiler and handed to the linker. No new crate: this build script stays pure std, which is what lets the
+// Windows cross-compile run with nothing installed but the toolchain cargo-xwin already sets up.
 //
-// WHERE THE COMPILER COMES FROM, and why it is looked for this way: `llvm-rc` is one of the five tools
-// cargo-xwin ALREADY puts in `~/.cache/cargo-xwin` (release.yml symlinks clang-cl, lld-link, llvm-rc,
-// llvm-lib, llvm-dlltool there), and `llvm-windres` — the driver that can emit COFF rather than a .res —
-// sits BESIDE the real `llvm-rc` in LLVM's bin directory. Resolving the symlink and looking next to it is
-// what makes this work in CI without adding another symlink to the workflow.
+// WHERE THE COMPILER COMES FROM: `find_resource_compiler` below searches every place these environments were
+// MEASURED to put `llvm-rc` — PATH (versioned and not), the `~/.cache/cargo-xwin` symlink release.yml creates,
+// Ubuntu's `/usr/lib/llvm-*/bin` from the apt package the `xwin check` job installs, and MSVC's `rc.exe` last.
+// The first version of this asked for `llvm-windres` instead and died in that CI job, whose LLVM has no such
+// binary — a build that was byte-perfect here and unbuildable there, which is the whole reason the search is
+// written down rather than assumed.
 fn embed_windows_icon(manifest: &Path) {
     // THE BRAND MARK IS THE REPO'S, not a copy made for the exe: one source, so the taskbar, the installer
     // and the landing cannot drift apart. Its 16/24/32/48 frames are the set the renderer deliberately
@@ -248,44 +249,30 @@ fn embed_windows_icon(manifest: &Path) {
     )
     .unwrap_or_else(|e| panic!("vale-agent build: cannot write {}: {e}", rc.display()));
 
-    // TWO COMPILERS, TWO OUTPUT FORMATS, ONE LINK ARG. LLVM's windres emits a COFF object; MSVC's rc.exe
-    // emits a `.res`, which lld-link accepts directly (measured: a .res handed to lld-link lands in the image
-    // as RT_GROUP_ICON + RT_ICON). Either artifact goes to the linker — without the `rustc-link-arg-bins`
-    // line at the end of this function the resource is compiled and thrown away, which is the shape of "the
-    // fix is in the build script but not in the binary" this repository keeps finding.
-    let (tool, obj, args) = match find_resource_compiler() {
-        ResourceCompiler::Windres(path) => (
-            path,
-            out_dir.join("vale-agent.res.o"),
-            vec![
-                rc.clone(),
-                "-O".into(),
-                "coff".into(),
-                "--target".into(),
-                "pe-x86-64".into(),
-                "-o".into(),
-                out_dir.join("vale-agent.res.o"),
-            ],
-        ),
-        ResourceCompiler::Rc(path) => (
-            path,
-            out_dir.join("vale-agent.res"),
-            vec![
-                "/nologo".into(),
-                "/fo".into(),
-                out_dir.join("vale-agent.res"),
-                rc.clone(),
-            ],
-        ),
-    };
-    let out = std::process::Command::new(&tool).args(&args).output().unwrap_or_else(|e| {
-        panic!(
-            "vale-agent build: cannot run {} ({e}) — it is the resource compiler that turns brand/icon.ico \
-             into something the linker can attach. Point VALE_LLVM_WINDRES at LLVM's llvm-windres, or put \
-             llvm-windres (or MSVC's rc.exe) on PATH",
-            tool.display()
-        )
-    });
+    // ONE TOOL, ONE OUTPUT, ONE LINK ARG — AND IT IS `llvm-rc`, NOT `llvm-windres` (round 265, measured the hard
+    // way). The first version of this asked for windres because it can emit a COFF object directly; the CI job that
+    // checks the Windows target (`agent (xwin check windows-msvc)`) installs apt's `llvm`, which ships `llvm-rc`
+    // and NOT `llvm-windres`, so the build died there with "cannot run llvm-windres" on a commit whose local build
+    // was byte-perfect. `llvm-rc` writes a `.res`, and lld-link accepts a `.res` as an input file directly (measured
+    // before this rewrite: a .res handed to lld-link lands in the image as RT_GROUP_ICON + RT_ICON) — so the tool
+    // every environment already has is also the simpler one. MSVC's `rc.exe` takes the SAME `/fo` argv, which is
+    // why there is one code path below rather than two.
+    let tool = find_resource_compiler();
+    let res = out_dir.join("vale-agent.res");
+    let out = std::process::Command::new(&tool)
+        .arg("/nologo")
+        .arg("/fo")
+        .arg(&res)
+        .arg(&rc)
+        .output()
+        .unwrap_or_else(|e| {
+            panic!(
+                "vale-agent build: cannot run {} ({e}) — it is the resource compiler that turns brand/icon.ico \
+                 into something the linker can attach. Point VALE_LLVM_RC at LLVM's llvm-rc, or put llvm-rc (or \
+                 MSVC's rc.exe) on PATH",
+                tool.display()
+            )
+        });
     if !out.status.success() {
         panic!(
             "vale-agent build: {} failed on {}: {}{}",
@@ -295,7 +282,9 @@ fn embed_windows_icon(manifest: &Path) {
             String::from_utf8_lossy(&out.stderr),
         );
     }
-    println!("cargo:rustc-link-arg-bins={}", obj.display());
+    // WITHOUT THIS LINE THE RESOURCE IS COMPILED AND THROWN AWAY — the shape of "the fix is in the build script
+    // but not in the binary" this repository keeps finding.
+    println!("cargo:rustc-link-arg-bins={}", res.display());
 }
 
 /// THE VERSION THE EXE REPORTS. It is the npm package's, not `CARGO_PKG_VERSION`: the crate's own version is
@@ -334,50 +323,87 @@ fn product_version(manifest: &Path) -> String {
     }
 }
 
-/// THE RESOURCE COMPILER, and which output it produces. LLVM's `windres` and MSVC's `rc.exe` take the same
-/// .rc and write different things — a COFF object and a `.res` respectively — so the caller has to know which
-/// one it got (the flags and the link argument both differ).
-enum ResourceCompiler {
-    Windres(PathBuf),
-    Rc(PathBuf),
-}
-
-/// Find a resource compiler: an explicit override, then PATH, then the cargo-xwin toolchain directory —
-/// resolving the `llvm-rc` symlink that IS already there and looking beside its real path, because both
-/// binaries ship in the same LLVM `bin/`. MSVC's `rc.exe` is the last resort, for a native Windows build.
-fn find_resource_compiler() -> ResourceCompiler {
-    if let Ok(p) = std::env::var("VALE_LLVM_WINDRES") {
-        return ResourceCompiler::Windres(PathBuf::from(p));
+/// FIND `llvm-rc`, IN EVERY PLACE THESE ENVIRONMENTS PUT IT (round 265). Written after a build that was
+/// byte-perfect locally died in CI on `cannot run llvm-windres`: the tool this job has is the one apt's `llvm`
+/// package ships, and the first version looked only on PATH and beside the cargo-xwin symlink. The order below is
+/// most-specific first, and every candidate is a place a real environment was measured to have it:
+///
+///   1. `VALE_LLVM_RC` — an explicit override for a machine nobody has thought of yet;
+///   2. PATH, unversioned then versioned (`llvm-rc-18` … `llvm-rc-14`): Debian and Ubuntu install the versioned
+///      names, and a CI image that has one does not always have the other;
+///   3. `~/.cache/cargo-xwin/llvm-rc` — the symlink `release.yml` creates, plus its RESOLVED directory, because
+///      LLVM's whole toolchain lives in one `bin/`;
+///   4. `/usr/lib/llvm-*/bin/llvm-rc` — Ubuntu's layout for the apt package, which is what the `xwin check` job
+///      installs. Highest version wins;
+///   5. MSVC's `rc.exe`, which takes the same `/fo` argv, for a native Windows build.
+///
+/// If none of them exists the build FAILS, naming the override — because a missing icon is precisely the defect
+/// this code exists to prevent, and "warned and continued" is how it went unnoticed for the product's whole life.
+fn find_resource_compiler() -> PathBuf {
+    if let Ok(p) = std::env::var("VALE_LLVM_RC") {
+        return PathBuf::from(p);
     }
-    let on_path = PathBuf::from("llvm-windres");
-    if std::process::Command::new(&on_path)
-        .arg("--version")
-        .output()
-        .is_ok()
-    {
-        return ResourceCompiler::Windres(on_path);
+    let mut names = vec!["llvm-rc".to_string()];
+    for v in (14..=20).rev() {
+        names.push(format!("llvm-rc-{v}"));
+    }
+    for name in &names {
+        let p = PathBuf::from(name);
+        if std::process::Command::new(&p)
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            return p;
+        }
     }
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_default();
-    // THE SYMLINK CARGO-XWIN ALREADY MAKES (release.yml points llvm-rc, clang-cl, lld-link, llvm-lib and
-    // llvm-dlltool at LLVM's bin/): canonicalising it lands in that bin directory, where llvm-windres is.
-    let rc = PathBuf::from(&home)
+    let cached = PathBuf::from(&home)
         .join(".cache")
         .join("cargo-xwin")
         .join("llvm-rc");
-    if let Ok(real) = std::fs::canonicalize(&rc) {
+    if std::process::Command::new(&cached)
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
+        return cached;
+    }
+    if let Ok(real) = std::fs::canonicalize(&cached) {
         if let Some(dir) = real.parent() {
-            let sibling = dir.join("llvm-windres");
+            let sibling = dir.join("llvm-rc");
             if sibling.is_file() {
-                return ResourceCompiler::Windres(sibling);
+                return sibling;
             }
         }
     }
+    // UBUNTU'S PACKAGE LAYOUT, scanned rather than guessed: /usr/lib/llvm-<n>/bin/llvm-rc, highest n first.
+    let mut versions: Vec<(u32, PathBuf)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("/usr/lib") {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let Some(v) = name.strip_prefix("llvm-") else {
+                continue;
+            };
+            let Ok(n) = v.split('.').next().unwrap_or("").parse::<u32>() else {
+                continue;
+            };
+            let cand = e.path().join("bin").join("llvm-rc");
+            if cand.is_file() {
+                versions.push((n, cand));
+            }
+        }
+    }
+    versions.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+    if let Some((_, p)) = versions.into_iter().next() {
+        return p;
+    }
     let msrc = PathBuf::from("rc.exe");
     if std::process::Command::new(&msrc).arg("/?").output().is_ok() {
-        return ResourceCompiler::Rc(msrc);
+        return msrc;
     }
-    // Last resort: the name, so the error the caller prints names the tool rather than a path.
-    ResourceCompiler::Windres(PathBuf::from("llvm-windres"))
+    // Last resort: the bare name, so the failure names the TOOL rather than a path that never existed.
+    PathBuf::from("llvm-rc")
 }
