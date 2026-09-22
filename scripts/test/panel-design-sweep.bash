@@ -58,37 +58,97 @@ fi
 # JSON strings, the idiom the contrast probe has used since round 88) and this is the check that keeps it: every
 # probe constant in the emitted script must be a JSON string whose VALUE equals the one the core produced.
 cat > "$TMP/probe-check.mjs" <<'JS'
+// THE PROBES MUST REACH THE PAGE UNCHANGED — checked against the VALUE, not against a carrying convention.
+//
+// Round 57 lost three rounds to this: the emitted script embedded its probes as TEMPLATE LITERALS, every nesting level
+// ate one backslash, `/^color\(/` reached the browser as `/^color(/`, and the loud axis counted EVERY element over
+// 400px2 for thirty-seven rounds while reporting a clean-looking six. The fix then was "probes go out as JSON strings,
+// spliced as `const NAME = ...` declarations", and this check pinned THAT SPELLING. Round 267 moved the payload into
+// real modules assembled by lib/sweep-bundle.mjs, so the probes now travel inside a generated pieces module — the rule
+// is the same, the spelling is not. So this reads the pieces module OUT OF THE ARTIFACT, evaluates it, and compares
+// every value with what the core produces, byte for byte. It also keeps the general form of the round-55 bug: no
+// template literal in the emitted script may contain a single (eaten) backslash.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const [, , root, emittedPath] = process.argv;
 const core = await import(pathToFileURL(root + "/agent/scripts/lib/design-sweep.mjs").href);
+const probeLib = await import(pathToFileURL(root + "/agent/scripts/lib/contrast-probe.mjs").href);
 const emitted = readFileSync(emittedPath, "utf8");
-const intended = core.pageChecks("#root");
-const jsonConst = (text, name) => {
-  const m = new RegExp("const " + name + " = (\"(?:[^\"\\\\]|\\\\.)*\");").exec(text);
-  return m ? m[1] : null;
-};
-const names = [...intended.matchAll(/const (\w+) = "/g)].map((m) => m[1]);
 const problems = [];
-if (names.length < 3) problems.push(`read ${names.length} probe constant(s) from the core, so this proves nothing`);
-for (const name of names) {
-  // a probe that reaches the page as a template literal loses one level of escaping on the way
-  if (new RegExp("const " + name + " = `").test(emitted)) {
-    problems.push(`${name} goes out as a TEMPLATE LITERAL — one level of escaping is lost before the page sees it`);
+
+// ── the pieces module, as the artifact carries it ─────────────────────────────────────────────────────────────
+const MARK = '__factories["pieces.cjs"] = function (module, exports, require) {';
+const at = emitted.indexOf(MARK);
+let pieces = null;
+if (at < 0) {
+  problems.push("the emitted artifact carries no pieces module — every probe value below would go unchecked");
+} else {
+  const bodyStart = at + MARK.length;
+  // THE END IS THE LAST `};` BEFORE THE NEXT REGISTRATION, not the first `\n};` after the start: a factory body
+  // contains functions of its own, and the first match cut the module in half ("Unexpected token ')'").
+  const nextReg = [emitted.indexOf("\n__factories[", bodyStart), emitted.indexOf("\n__require(", bodyStart)]
+    .filter((x) => x > 0).sort((a, b) => a - b)[0] ?? emitted.length;
+  const bodyEnd = emitted.lastIndexOf("\n};", nextReg);
+  if (bodyEnd < 0) problems.push("the pieces module has no end — the artifact was truncated");
+  else {
+    const body = emitted.slice(bodyStart, bodyEnd);
+    const mod = { exports: {} };
+    try {
+      // A REQUIRE THAT REFUSES: the pieces module is declarations plus one export; anything it tries to load at
+      // load time is a bug, and swallowing it here would hide exactly that.
+      new Function("module", "exports", "require", body)(mod, mod.exports, (spec) => {
+        throw new Error("the pieces module required " + spec + " at load time");
+      });
+      pieces = mod.exports;
+    } catch (e) {
+      problems.push("the pieces module does not evaluate: " + String(e.message).slice(0, 120));
+    }
+  }
+}
+
+// ── what the core produces for the same inputs ───────────────────────────────────────────────────────────────
+const checks = new Function(core.pageChecks("#root") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+const expected = [
+  ["probe", probeLib.PROBE_SOURCE],
+  ["unstyled", core.UNSTYLED_SOURCE],
+  ["targets", core.TARGETS_SOURCE],
+  ["theme", core.THEME_SOURCE],
+  ["checks.SURFACE", checks.SURFACE],
+  ["checks.NAMES", checks.NAMES],
+  ["checks.REFLOW", checks.REFLOW],
+  ["passes.focusPass", core.focusPass.toString()],
+  ["passes.pressDelta", core.pressDelta.toString()],
+  ["passes.discoverPressTargets", core.discoverPressTargets.toString()],
+  ["passes.pressPass", core.pressPass.toString()],
+  ["passes.revealPass", core.revealPass.toString()],
+  ["passes.ackPass", core.ackPass.toString()],
+  ["passes.ackNotes", core.ackNotes.toString()],
+  ["passes.idlePass", core.idlePass.toString()],
+  ["passes.motionPass", core.motionPass.toString()],
+  ["diag", core.DIAG_SOURCE],
+];
+if (expected.length < 15) problems.push(`the core produced only ${expected.length} value(s) to compare — this proves nothing`);
+
+const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
+for (const [name, want] of expected) {
+  if (!pieces) break;
+  const got = get(pieces, name);
+  if (got == null) { problems.push(name + " is MISSING from the pieces module"); continue; }
+  const gotText = typeof got === "function" ? got.toString() : String(got);
+  if (gotText !== want) {
+    problems.push(`${name} reaches the page CHANGED (${gotText.length} vs ${want.length} chars, first difference at ${[...gotText].findIndex((c, i) => c !== want[i])})`);
     continue;
   }
-  const a = jsonConst(emitted, name);
-  const b = jsonConst(intended, name);
-  if (!a || !b) { problems.push(`${name} is not a JSON string on both sides`); continue; }
-  if (JSON.parse(a) !== JSON.parse(b)) problems.push(`${name} reaches the page CHANGED (${JSON.parse(a).length} vs ${JSON.parse(b).length} chars)`);
+  // AND A STRING VALUE MUST CROSS AS JSON: that is what makes it lossless, and it is the property round 57 bought.
+  // FUNCTIONS CROSS AS CODE (that is what a function IS in a module), so the equivalent guarantee for them is the
+  // backslash walk below, which refuses an eaten escape anywhere in the artifact's template literals.
+  if (typeof got !== "function" && !emitted.includes(JSON.stringify(want))) {
+    problems.push(name + " does not cross as a JSON string — one escaping level can be eaten");
+  }
 }
-for (const name of ["PROBE", "UNSTYLED", "TARGETS", "THEME"]) {
-  if (new RegExp("const " + name + " = `").test(emitted)) problems.push(`${name} goes out as a template literal`);
-}
-// AND EVERY TEMPLATE LITERAL IN THE EMITTED SCRIPT, not just the probes: a backslash inside one is eaten when the
-// file is evaluated, so `split(/\\s+/)` reaches the page as `/s+/`. An escaped backtick (`\``) is the one legitimate
-// use. This is the general form of the bug that cost rounds 55-57 — it caught MOTION, which the probe check above
-// could not.
+if (pieces && pieces.config == null) problems.push("the pieces module carries no config (the artifact would run with undefined paths)");
+
+// ── and no template literal in the artifact may contain an eaten backslash ───────────────────────────────────
 {
   let inside = false, line = 1, i = 0;
   while (i < emitted.length) {
@@ -99,11 +159,7 @@ for (const name of ["PROBE", "UNSTYLED", "TARGETS", "THEME"]) {
       while (j < emitted.length && emitted[j] === "\\") j++;
       const run = j - i;
       const next = j < emitted.length ? emitted[j] : "";
-      // an EVEN run is a literal backslash and an ODD run ending on a backtick is an escaped backtick; an odd run
-      // ending anywhere else escapes the NEXT character at the template level and is eaten before the page sees it
-      if (run % 2 === 1 && next !== "`") {
-        problems.push(`line ${line}: a single backslash inside a template literal (\\${next}) is eaten before the page sees it`);
-      }
+      if (run % 2 === 1 && next !== "`") problems.push(`line ${line}: a single backslash inside a template literal (\\${next}) is eaten before the page sees it`);
       i = j; continue;
     }
     if (ch === "`") inside = !inside;
@@ -112,7 +168,7 @@ for (const name of ["PROBE", "UNSTYLED", "TARGETS", "THEME"]) {
   if (inside) problems.push("the emitted script ends inside a template literal");
 }
 if (problems.length) { for (const x of problems) console.error("  " + x); process.exit(1); }
-console.log("ok: " + names.length + " probe constant(s) reach the page byte-identical");
+console.log("ok: " + expected.length + " probe/pass/check value(s) reach the page byte-identical");
 JS
 if node "$TMP/probe-check.mjs" "$PWD" "$TMP/sweep.js" > "$TMP/probe-check.out" 2>&1; then
   ok "$(tail -1 "$TMP/probe-check.out")"

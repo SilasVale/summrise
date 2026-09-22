@@ -3623,6 +3623,43 @@ into functions that take the root selector as an argument (the landing's pieces 
 and only then delete the four parse guards, `assertEmbedded`, the bash backslash walk and the hook arm — deleting them
 before the last emitter is migrated would remove the guards from the emitters that still need them.
 
+### THE EMIT SEAM, SECOND SLICE: THE PANEL'S 1012-LINE PAYLOAD BECOMES A MODULE (round 267)
+
+The panel emitter was the big one: **1012 of its 1631 lines (62%) were the emitted program**, held inside a template
+literal with nineteen interpolations — nine passes via `.toString()`, four probes and the page checks via
+`JSON.stringify`, `${DIAG_SOURCE}` as code, `${MOTION}`/`${TIMING}` as snippets that themselves declared a const, and
+`${JSON.stringify(HARNESS_STAMP)}`. Every backtick in any of that text ended the HOST file mid-parse (53 incidents),
+the Windows defaults carried FOUR backslashes to survive one escaping level, and `assertEmbedded` existed to check by
+substring that a borrowed helper had also been spliced.
+
+**THE MOVE.** `agent/scripts/lib/sweep/panel-run.cjs` is the program as ordinary code — 956 of its 978 non-empty lines
+appear verbatim in the old artifact, which is what "moved, not rewritten" looks like when you measure it. The emitter
+generates the pieces module (passes, probes, checks, the diag helper, the two probe snippets, the run-varying config)
+and `bundleSweep` assembles the two. Three things died on the way: `assertEmbedded` (the passes and the payload meet in
+one module body, so a helper is in scope by construction), the hand-copied `new Function(script)` parse guard (the
+assembler compiles what it returns), and the four-backslash defaults (the values are values now — the landing's first
+migration caught the same over-escaping as a real path bug, and this one had `C:\\ProgramData` in its own defaults).
+
+**EQUIVALENCE, MEASURED TWICE.** Structure first: **17/17 program pieces appear BYTE-IDENTICALLY in both artifacts**
+(the four probes, the three page-check texts, the nine passes, the diag helper — each in the encoding it actually
+crosses by). Then behaviour, on d1, same harness, `--passes=timing`: the old script and the new bundle report
+**1138 rows, 24 surfaces, 24 name checks** each, and every report field is **identical** except `timing`, whose four
+rows differ only in wall-clock milliseconds (427/435/336/344 nodes in both). The 355 KB reports differ by ONE byte.
+
+**AND ONE GATE HAD PINNED THE OLD CARRYING CONVENTION.** `panel-design-sweep.bash`'s "the probes reach the page
+unchanged" check looked for `const NAME = "<json>";` declarations — the spelling round 57 introduced. It reported
+"SURFACE is not a JSON string on both sides" on a payload whose probes reach the page byte-identically. It now reads
+the pieces module OUT OF THE ARTIFACT, evaluates it in a sandbox, and compares all seventeen values with what the core
+produces; a string value must additionally cross as JSON (which is what makes it lossless), while a FUNCTION crosses as
+code — the backslash walk covers that half, and it stays. Two mistakes in writing THAT check are worth the line: the
+module's end was found with the first `\n};` (a factory body contains functions; it cut the module in half and the
+failure read "Unexpected token ')'"), and the JSON assertion was first applied to every value including functions
+(`.toString()` makes those look like strings). 83 ok, 0 failed.
+
+**WHAT REMAINS:** console (484 payload lines), the harness emitter (646, HTML not a script), the live probe (68); then
+`pageChecks`/`marksSource` become functions taking the root selector (the panel's pieces module evaluates them once and
+says so); only then can the four remaining guards, the bash backslash walk and the hook arm be deleted.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
