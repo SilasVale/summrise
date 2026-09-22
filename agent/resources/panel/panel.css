@@ -1719,7 +1719,7 @@ h3 { font-size: var(--fs-base); }
   opacity: 1;
 }
 .approval-refuse:hover:not(:disabled) { color: var(--danger-on-soft); border-color: var(--danger); }
-.approval-note { margin: 0; font-size: var(--fs-xs); color: var(--warn-ink); }
+.approval-note { margin: 0; font-size: var(--fs-xs); color: var(--warn-ink); max-width: 66ch; }
 /* "Always allow <word>" — the grant action. Carries the WORD it will cover in
    its own label, so the operator consents to a breadth they can read rather than
    to "remember this" in the abstract. */
@@ -3174,7 +3174,7 @@ h3 { font-size: var(--fs-base); }
    surface. `--danger-on-soft` is its text counterpart (#a51d1d / #ff8787), the same pair `--success-text`/`--chrome-active-text` already form. */
 .plug-btn.danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
 .plug-btn:disabled { opacity: 0.45; cursor: default; }
-.plug-card-desc { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); }
+.plug-card-desc { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); max-width: 66ch; }
 .plug-log {
   margin-top: var(--sp-2);
   max-height: 160px;
@@ -3966,7 +3966,7 @@ h3 { font-size: var(--fs-base); }
 /* The honesty note. Deliberately VISIBLE, not a tooltip: what this view does not
    record is part of reading it correctly. */
 .path-note {
-  flex: none; margin: 0; padding: 10px 14px 14px;
+  flex: none; margin: 0; padding: 10px 14px 14px; max-width: 66ch;
   font-size: var(--fs-sm); line-height: 1.55; color: var(--muted);
   border-top: 1px solid var(--line);
 }
@@ -4836,6 +4836,7 @@ button.dtab-close:hover { opacity: 1; }
   border-radius: var(--radius-xs);
   font: 400 var(--fs-xs) var(--font);
   color: var(--chrome-ink-dim);
+  max-width: 66ch;
 }
 
 /* The run a command CLAIMED to belong to. Deliberately quiet and monospaced: it

@@ -1328,7 +1328,11 @@ export function judgeReport(report, opts = {}) {
     // no cap was ever written" want different repairs.
     if (opts.proseFloor) {
       for (const row of ((s.measure && s.measure.worst) || []).filter((x) => x.cpl > opts.proseFloor)) {
-        findings.push(`${where}: ${row.sel} renders ${row.cpl} characters on ONE line (${row.chars} chars in ${row.lines} line(s) over ${row.w}px at ${row.fs}px, max-width ${row.maxw}) — past ${opts.proseFloor} a reader loses the line return; this sheet's own ledes cap at 66ch`);
+        // "PER LINE", NOT "ON ONE LINE": `cpl` is chars over rendered lines, so a block that wraps three times can
+        // still be over the floor — and this axis's first CI run called a 477-character note "159 characters on ONE
+        // line", a sentence about a defect that did not exist. The count is per line; the shape is the block's
+        // (round 265).
+        findings.push(`${where}: ${row.sel} renders ${row.cpl} characters PER LINE (${row.chars} chars in ${row.lines} line(s) over ${row.w}px at ${row.fs}px, max-width ${row.maxw}) — past ${opts.proseFloor} a reader loses the line return; this sheet's own ledes cap at 66ch`);
       }
     }
     // THE MARK LANGUAGE AS PAINTED. A family whose two states render identically is colour-only wherever a cascade
