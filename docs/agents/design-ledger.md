@@ -3307,3 +3307,25 @@ SO THE NEXT THREAD IS ALREADY WRITTEN: nine families the surface probe sees on s
 means their states' silhouettes and collisions are unproven — the same class of gap that hid the four collisions this objective
 found by hand. Recorded here rather than started, because the round that takes it should begin by READING the probe's grouping
 rule, not by assuming it.
+
+### THE NINE "CLASS IS ON SCREEN" NOTES ARE RIGHT, AND READING THE PROBE SETTLED IT (round 184)
+
+Round 183 saw a coverage note this repository had not produced before — nine families reported as "declares N state(s) and the
+CLASS IS ON SCREEN — the probe did not record it as a family of its own" — and the honest next step was to read the rule rather
+than to assume either way. The rule, in the probe's own template:
+
+    const present = new Set();                       collected for EVERY visible element, before any filter
+    for (const el of … ) { for (const c of cls) if (/(dot|dotcol|mark|led|chip|signal|state)$/.test(c)) present.add(c);
+      if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;        ← THE SIZE FILTER
+      const state = el.getAttribute('data-state') || el.getAttribute('data-live');
+      const base  = state ? cls[0] : cls.length > 1 ? cls.slice(0, -1).join('.') : null;
+
+So a class is "on screen" if any visible element wears it, and it becomes a FAMILY only if the element is a MARK — between 4
+and 40 pixels on both sides. The nine families are text lines and full-width rows (`health-state`, `dev-sig-state`,
+`run-row-state`, `archive-state`, `monitor-chip`, `side-dot`, `tab-dot`, `dtab-dot`), which the size filter excludes on purpose:
+round 32's comment says it in as many words — "a class on a full-width ROW is on screen and is not a mark, and collecting only
+from small elements made the judge call those NO SURFACE RENDERED — a queue of false gaps, which is worse than no queue".
+
+SO THE NINE NOTES ARE THE QUEUE WORKING, not a gap to close: those families are measured as TEXT by the contrast pass on every
+run, and their silhouettes are not a question that applies to them. The note's wording says exactly that, and this paragraph is
+here so the next round does not spend itself on nine families that are already covered — by the other instrument.
