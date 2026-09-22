@@ -43,7 +43,17 @@ const NOT_DEVICE_FIELDS = new Set([
  *
  *  The strip is deliberately conservative because `//` also opens a URL: whole-line comments and block comments always go,
  *  and a trailing `// …` goes only when it is not preceded by a colon. */
-const harness = readFileSync(join(ROOT, "agent/scripts/panel-render-audit.mjs"), "utf8");
+// THE HARNESS'S FIELDS NOW COME FROM TWO FILES (round 270). The emitter builds the page; the stubbed device API it
+// inlines — every fixture response the panel reads — is `agent/scripts/lib/sweep/panel-stub.cjs`. Reading only the
+// emitter left this corpus empty and reported `first_seq` as a field the panel reads and "neither the device harness
+// nor any fixture carries", which the stub carries twice. The floor below is the lesson every other scan in this
+// suite has had to learn: a scan that read nothing must not pass.
+const HARNESS_SOURCES = ["agent/scripts/panel-render-audit.mjs", "agent/scripts/lib/sweep/panel-stub.cjs"];
+const harness = HARNESS_SOURCES.map((rel) => readFileSync(join(ROOT, rel), "utf8")).join("\n");
+if (harness.length < 20000) {
+  console.error(`wire-field: read only ${harness.length} bytes of harness — the stub or the emitter moved, so this proves nothing`);
+  process.exit(1);
+}
 const fixtures = readdirSync(join(ROOT, "agent/tests/fixtures"))
   .filter((f) => f.endsWith(".json"))
   .map((f) => readFileSync(join(ROOT, "agent/tests/fixtures", f), "utf8"))

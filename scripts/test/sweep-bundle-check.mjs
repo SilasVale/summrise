@@ -155,6 +155,37 @@ try {
     else bad("a browser payload requiring a builtin is refused at bundle time", msg || "no error at all");
   }
 
+  // ── 8a. THE PIECES BINDING MUST NOT BE SHADOWED IN ITS OWN MODULE ─────────────────────────────────────────
+  // Round 270 shipped exactly this: the harness stub binds the pieces module to `P` at the top of the file and then
+  // declares its own `var P` for the query flags, which HID the fixture — SID, SESSION and EVENTS all became
+  // undefined, the page rendered ids where labels belonged and lost its goal and approval rows. Every local check
+  // passed, because the pieces VALUES in the artifact were byte-identical to before; only a page showed it. `var` is
+  // function-scoped and hoisted, so the shadowing is invisible at the binding line, which is why this is a scan and
+  // not a reading.
+  {
+    const dir = new URL("../../agent/scripts/lib/sweep/", import.meta.url);
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const payloads = readdirSync(dir).filter((f) => f.endsWith(".cjs"));
+    let checked = 0;
+    const shadowed = [];
+    for (const f of payloads) {
+      const src = readFileSync(new URL(f, dir), "utf8");
+      const m = /const\s+([A-Za-z_$][\w$]*)\s*=\s*require\("(\.\/pieces\.cjs)"\)/.exec(src);
+      if (!m) continue;
+      checked++;
+      const name = m[1];
+      const after = src.slice(src.indexOf(m[0]) + m[0].length);
+      // any other declaration of that name ANYWHERE in the module can shadow it (var hoists, a nested function scopes
+      // it, and both leave the binding line looking perfectly correct)
+      const re = new RegExp(`(?:^|[^\\w$.])(?:var|let|const|function)\\s+${name}\\b`);
+      if (re.test(after)) shadowed.push(`${f}: another ${name} is declared later in the same payload`);
+    }
+    if (checked < 4) bad("every payload module binds the pieces module", `read ${checked} of ${payloads.length} payload(s) — this proves nothing`);
+    else ok(`all ${checked} payload modules bind the pieces module to a name (scanned for shadowing)`);
+    if (shadowed.length === 0) ok("...and none of them declares that name again, which is how the harness fixture was hidden (round 270)");
+    else bad("a payload module shadows its own pieces binding", shadowed.join("; "));
+  }
+
   // ── 8. the bundle is SELF-CONTAINED: it runs with no payload module beside it ──────────────────────────────
   {
     const modules = { "a.cjs": 'const b = require("./nested/b.cjs");\nconsole.log(b.deep);\n', "nested/b.cjs": 'module.exports = { deep: "yes" };\n' };

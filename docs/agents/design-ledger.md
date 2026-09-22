@@ -3727,6 +3727,39 @@ harness with an inline `<script>` stub rather than a CommonJS script, so the ass
 `require` fallback in the loader) and the `/</script/` guard stays, because the stub is inline HTML. Then the page
 checks become functions that take the root selector, and only then can the guards go.
 
+### THE EMIT SEAM, FIFTH SLICE: THE HARNESS — AND THE BUG ONLY A PAGE COULD SEE (round 270)
+
+`panel-render-audit.mjs` was the last of the five and a different shape: 640 payload lines that produce an HTML HARNESS
+with an inline `<script>` stub which runs in a PAGE. So it needed `bundleSweep`'s browser target (round 269): no
+`require` in the preamble, a non-relative require refused at bundle time, the bundle wrapped in an IIFE. Three
+interpolations (the session id, the session object, the event list) became the pieces module, and two of the three
+guards went with the literal they guarded — the backtick search and the hand-copied compile. The third STAYS: a closing
+script tag inside a payload that is inlined into an HTML script element cuts the fixture in half, and the page still
+loads and still renders a panel with no sessions — which reads like a product bug.
+
+**IT CAUGHT ITS OWN AUTHOR.** The first version of `panel-stub.cjs` had a header comment that spelled the closing-tag
+sequence out (while explaining the guard), and the emitter refused to emit. The comment now says "a closing script
+tag" and records why.
+
+**AND THEN IT SHIPPED A DEFECT THAT EVERY LOCAL CHECK PASSED.** The stub binds the pieces module at the top of the
+file — I called it `P` — and the stub has its own `var P` for the query flags, declared INSIDE the IIFE. `var` hoists
+and shadows, so `P.sid`, `P.session` and `P.events` all read the params object and came back `undefined`. The page
+rendered session IDS where labels belonged and lost its goal and approval rows (Terminal: 156 rows against 170).
+Nothing local noticed: the pieces VALUES in the artifact were byte-identical to before, the stub's 639 lines were all
+present verbatim, the boot check passed, and `harness-fixture-check` regexed the emitted HTML happily. Only running the
+sweep against the harness on d1 showed it — 14 rows short, in rows whose TEXT said `term-audit-0` where the old run
+said `d1`. The binding is `FIXTURE` now, and `sweep-bundle-check` scans every payload module for a second declaration
+of the name it binds the pieces to (mutation: put `P` back and it fails, naming the file).
+
+EQUIVALENCE, on d1, both harnesses emitted from this checkout and driven by the same sweep artifact: **1120 rows
+each, zero rows present in only one, ZERO field differences**, and `surfaces` and `names` identical. The method that
+caught the shadowing is the one worth keeping: the device run is not a formality on top of the structural checks, it
+is a different instrument.
+
+WHAT REMAINS: `pageChecks`/`marksSource` become functions that take the root selector (the pieces of the panel, the
+console and the live probe each evaluate them once through `new Function` today, and each says so in a comment), and
+then the guards that only existed for the template literals can go.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
