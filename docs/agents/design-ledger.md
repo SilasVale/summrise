@@ -3341,3 +3341,20 @@ stdout/stderr distinction and not a silent failure — every CI runner shows bot
 So NO GATE FAILS SILENTLY, and the scan was narrow in the same way as six before it: it looked for one spelling of "reports a
 problem" and concluded from its absence. The rule this session keeps arriving at is the fix — a text scan chooses what to READ —
 and the count here (one) was small enough that reading it cost a single command.
+
+### THE CONSOLE'S ACKNOWLEDGEMENT: MEASURED, FAST, AND MECHANICALLY DIFFERENT (round 187)
+
+Round 186 found the panel's ack to be a positive model — one hook, nine components, latency measured. The obvious next question
+is whether the console has the same, and the answer is that it acknowledges just as well by DIFFERENT means:
+
+    panel     lib/useAck.ts → `{ busy, ack, run }` for nine components, with ackMechanism.test.ts beside it
+    console   per-view `useState`: DevicesPanel.tsx:603 `boolean`, Models.tsx:118 `string | null` (WHICH prefix is busy)
+
+So the console has no shared hook, and its busy state has TWO SHAPES for one idea — but its feedback is `disabled`, which the
+rendered ack pass recognises and times at 5-11 ms against the stated 100 ms budget, and that is the clause the objective asks
+about. A shared hook is a PANEL convention, not a requirement; what would be a defect is a control that does not answer at all.
+
+AND THAT IS THE OPEN QUESTION, named rather than assumed: the sweep's ack pass discovers its own controls where every button
+does device work and keeps a CURATED pair elsewhere (Settings monitors), so the console's coverage is partial by construction.
+The panel paid for the full treatment — a pass over every control it renders, with 158 presses and zero dead — and whether the
+console needs the same is a measurement nobody has taken.
