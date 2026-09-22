@@ -608,6 +608,37 @@ export async function discoverPressTargets(page, cap, skip) {
  *  the press pass already watches. `msToAck` is compared against `budgetMs` by the judge; `msToClear` is reported
  *  too, because that one is the network and the work, and it is NOT the promise being kept.
  */
+/** EVERY ACK ROW'S NUMBERS, AS LINES — one definition for both sweeps (round 194).
+ *
+ *  The panel printed these from its own copy and the console printed NONE, so the console's rows reached `report.ack`, were
+ *  judged, and were invisible: a run could show "0 findings" while saying nothing about whether any control answered. This
+ *  lived in the panel's sweep, which is the defect this objective removes one layer out — the CONTENT belongs here, and each
+ *  sweep still decides where to print it.
+ *
+ *  Round 26's reason for printing every row stands: the judge reports only failures, and a CI-only failure could not be
+ *  compared with a clean device run without re-running both by hand — eight controls "never acknowledged" in CI and answered
+ *  in 6-13 ms on the device, same sweep, same fixture. A measurement nobody can read is a measurement nobody can check. */
+export function ackNotes(rows, where) {
+  const out = [];
+  for (const a of rows || []) {
+    out.push(
+      `note: ack ${where} ${a.sel} — acked=${a.acked} via=${a.via || "none"} ` +
+        `ms=${a.msToAck === null || a.msToAck === undefined ? "-" : a.msToAck} budget=${a.budgetMs} ` +
+        `presses=${a.presses ?? a.attempts ?? 1}`,
+    );
+    if (a.acked && (a.attempts || 1) > 1) {
+      out.push(
+        `note: ${where} ${a.sel} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded ` +
+          `machine is a timing artefact and on a real control is an acknowledgement that depends on state`,
+      );
+    }
+    if (typeof a.msToAck === "number" && typeof a.budgetMs === "number" && a.msToAck > a.budgetMs) {
+      out.push(`note: ${where} ${a.sel} took ${a.msToAck}ms against a ${a.budgetMs}ms budget`);
+    }
+  }
+  return out;
+}
+
 export async function ackPass(page, targets, budgetMs, label = {}) {
   const rows = [];
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no

@@ -38,7 +38,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import {markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
+import {markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 // WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
@@ -126,6 +126,7 @@ const ACK_BUDGET_MS = 100;
 // press and the first visible acknowledgement against the stated budget, and with discover it asks the DOM for every
 // visible control instead of a list somebody thought of.
 const ackPass = ${ackPass.toString()};
+const ackNotes = ${ackNotes.toString()};
 // AND THE HELPER pressPass CALLS: it asks the DOM for the page's controls. A borrowed helper that calls another
 // one needs that one embedded too, or the run dies on the device with "is not defined" — the failure the emitted
 // check below exists for.
@@ -423,6 +424,9 @@ const fail = { api: false };
           // different rules (a row of another shape there would be read as a press that measured nothing).
           report.ack = report.ack || [];
           for (const r of ackRows) report.ack.push(r);
+          // AND ITS NUMBERS ARE PRINTED (round 194): the rows reached the judge and were invisible, so a green run said
+          // nothing about whether any control answered. The same shared lines the panel prints.
+          for (const line of ackNotes(ackRows, 'console/' + label)) console.log(line);
         }
       }
     }
@@ -632,7 +636,7 @@ function judge(file) {
 
 if (mode === "--emit") {
   const out = browserScript();
-  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "ackPass"]);
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "ackPass", "ackNotes"]);
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];
