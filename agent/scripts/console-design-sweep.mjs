@@ -38,7 +38,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import {markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
+import {markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
 import { bundleSweep } from "./lib/sweep-bundle.mjs";
 import { join } from "node:path";
 
@@ -123,18 +123,18 @@ function browserScript() {
 function piecesSource() {
   const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, ackPass, ackNotes, idlePass, motionPass };
   const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
-  // THE PAGE CHECKS ARE STILL SOURCE TEXT — this slice's honest boundary, unchanged: pageChecks() substitutes a root
-  // selector into a template and is evaluated once here into real values. The next slice makes them functions.
-  const checks = new Function(pageChecks("#root") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+  const checks = { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe };
   return `${decls}
 ${DIAG_SOURCE}
 module.exports = {
-  config: ${JSON.stringify({ root: DEFAULT_ROOT, reportPath: DEFAULT_REPORT_PATH, expectedEntry: ENTRY_STAMP, passes: PASSES })},
+  config: ${JSON.stringify({ root: DEFAULT_ROOT,
+    selector: "#root", reportPath: DEFAULT_REPORT_PATH, expectedEntry: ENTRY_STAMP, passes: PASSES })},
   probe: ${JSON.stringify(PROBE_SOURCE)},
   unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
   targets: ${JSON.stringify(TARGETS_SOURCE)},
   theme: ${JSON.stringify(THEME_SOURCE)},
-  checks: ${JSON.stringify(checks)},
+  checks: { SURFACE: ${surfaceProbe.toString()}, NAMES: ${namesProbe.toString()}, REFLOW: ${reflowProbe.toString()} },
+  marks: ${marksProbe.toString()},
   diag,
   passes: { ${Object.keys(helpers).join(", ")} },
 };

@@ -28,6 +28,11 @@ const TARGETS = P.targets;
 const SURFACE = P.checks.SURFACE;
 const NAMES = P.checks.NAMES;
 const REFLOW = P.checks.REFLOW;
+// THE ROOT SELECTOR IS AN ARGUMENT TO THE PROBES (round 271): it used to be substituted into their source text,
+// which is how a Node-side identifier once reached page code. The mark axis travels with the surface probe's
+// result, so it is evaluated alongside it and merged in, exactly where it used to be spliced.
+const MARKS = P.marks;
+const SELECTOR = P.config.selector;
 const focusPass = P.passes.focusPass;
 const pressDelta = P.passes.pressDelta;
 const pressPass = P.passes.pressPass;
@@ -73,9 +78,9 @@ const PAGES = ["installer", "npm-only"];
       if (wants("contrast")) {
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: where, width: 1440, density: "landing", theme: scheme });
-        report.surfaces.push({ page: where, width: 1440, theme: scheme, ...(await page.evaluate(SURFACE)) });
+        report.surfaces.push({ page: where, width: 1440, theme: scheme, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
       }
-      if (wants("names")) report.names.push({ page: where, ...(await page.evaluate(NAMES)) });
+      if (wants("names")) report.names.push({ page: where, ...(await page.evaluate(NAMES, SELECTOR)) });
       if (wants("focus")) report.focus.push(await focusPass(page, 14, { page: where, width: 1440 }));
       if (wants("idle")) {
         const idle = await idlePass(page, 6000);
@@ -95,7 +100,7 @@ const PAGES = ["installer", "npm-only"];
       for (const label of PAGES) {
         await page.goto("http://vale.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
         await page.waitForTimeout(900);
-        report.reflow.push({ page: label + "@" + width, width, density: "landing", theme: "light", ...(await page.evaluate(REFLOW)) });
+        report.reflow.push({ page: label + "@" + width, width, density: "landing", theme: "light", ...(await page.evaluate(REFLOW, SELECTOR)) });
       }
     }
   }

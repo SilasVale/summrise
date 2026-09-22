@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { markCoverageNotes } from "./lib/design-sweep.mjs";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
+import { marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
 import { bundleSweep } from "./lib/sweep-bundle.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
@@ -107,18 +107,15 @@ function browserScript() {
 function piecesSource(LOCAL_STAMP) {
   const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, idlePass, motionPass };
   const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
-  // THE PAGE CHECKS ARE STILL SOURCE TEXT, and this is the honest boundary of this slice: pageChecks() is a
-  // source-text generator (it substitutes a root selector into a template), so it is evaluated ONCE here into real
-  // string values. Converting the checks themselves into functions that take the root selector as an argument is the
-  // next slice, and it is the same move this round made for the landing's payload.
-  const checks = new Function(pageChecks("body") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+  const checks = { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe };
   return `${decls}
 module.exports = {
-  config: ${JSON.stringify({ root: ROOT, reportPath: "C:\\ProgramData\\Vale\\pwout\\landing-sweep.json", passes: PASSES, expectedEntry: LOCAL_STAMP })},
+  config: ${JSON.stringify({ root: ROOT, reportPath: "C:\\ProgramData\\Vale\\pwout\\landing-sweep.json", passes: PASSES, expectedEntry: LOCAL_STAMP, selector: "body" })},
   probe: ${JSON.stringify(PROBE_SOURCE)},
   unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
   targets: ${JSON.stringify(TARGETS_SOURCE)},
-  checks: ${JSON.stringify(checks)},
+  checks: { SURFACE: ${surfaceProbe.toString()}, NAMES: ${namesProbe.toString()}, REFLOW: ${reflowProbe.toString()} },
+  marks: ${marksProbe.toString()},
   passes: { ${Object.keys(helpers).join(", ")} },
 };
 `;

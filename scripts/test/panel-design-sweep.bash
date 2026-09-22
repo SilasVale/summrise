@@ -89,15 +89,17 @@ try {
   problems.push(String(e.message).slice(0, 200));
 }
 if (pieces) {
-  const checks = new Function(core.pageChecks("#root") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+  // THE PROBES ARE FUNCTIONS THAT TAKE THE ROOT SELECTOR (round 271) — no substitution, so this reads them
+  // directly instead of evaluating the source text pageChecks() used to return.
+  const checks = { SURFACE: core.surfaceProbe, NAMES: core.namesProbe, REFLOW: core.reflowProbe };
   expected = [
     ["probe", probeLib.PROBE_SOURCE],
     ["unstyled", core.UNSTYLED_SOURCE],
     ["targets", core.TARGETS_SOURCE],
     ["theme", core.THEME_SOURCE],
-    ["checks.SURFACE", checks.SURFACE],
-    ["checks.NAMES", checks.NAMES],
-    ["checks.REFLOW", checks.REFLOW],
+    ["checks.SURFACE", checks.SURFACE.toString()],
+    ["checks.NAMES", checks.NAMES.toString()],
+    ["checks.REFLOW", checks.REFLOW.toString()],
     ["diag", core.DIAG_SOURCE],
   ];
   // EVERY PASS THE PIECES CARRY, compared with the core's own function of that name. One program for both sweeps: the

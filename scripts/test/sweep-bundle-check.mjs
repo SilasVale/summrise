@@ -186,6 +186,28 @@ try {
     else bad("a payload module shadows its own pieces binding", shadowed.join("; "));
   }
 
+  // ── 8b. NO PROBE IS CALLED WITHOUT ITS SELECTOR (round 271) ────────────────────────────────────────────────
+  // The root selector used to be baked into each probe's TEXT, so a call could not be wrong. It is an argument now:
+  // `page.evaluate(SURFACE, SELECTOR)`. Forgetting the second argument throws in the page (a function receives
+  // undefined and builds `undefined + ' *'`), and this is the cheap scan that refuses it before a device run finds out.
+  {
+    const dir = new URL("../../agent/scripts/lib/sweep/", import.meta.url);
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const payloads = readdirSync(dir).filter((f) => f.endsWith(".cjs"));
+    const unparameterised = [];
+    let calls = 0;
+    for (const f of payloads) {
+      const src = readFileSync(new URL(f, dir), "utf8");
+      const all = src.match(/page\.evaluate\(\s*(SURFACE|NAMES|REFLOW|MARKS)\s*(,[^)]*)?\)/g) || [];
+      calls += all.length;
+      for (const call of all) if (!/,/.test(call)) unparameterised.push(`${f}: ${call}`);
+    }
+    if (calls < 20) bad("the probes are called with a selector", `found ${calls} probe call(s) — this proves nothing`);
+    else ok(`all ${calls} probe call(s) across ${payloads.length} payload module(s) pass the root selector`);
+    if (unparameterised.length === 0) ok("...and none calls a probe with the selector left out");
+    else bad("a probe is called without its selector — it would measure undefined", unparameterised.join("; "));
+  }
+
   // ── 8. the bundle is SELF-CONTAINED: it runs with no payload module beside it ──────────────────────────────
   {
     const modules = { "a.cjs": 'const b = require("./nested/b.cjs");\nconsole.log(b.deep);\n', "nested/b.cjs": 'module.exports = { deep: "yes" };\n' };

@@ -85,351 +85,339 @@ export const DECORATIVE_WAIVERS = [
  *  impossible to get wrong. */
 // THE MARK-AXIS SOURCE, EXTRACTED SO THERE IS ONE COPY (round 30 of the standing goal). The live-panel probe needs
 // the same measurement the sweeps' surface probe makes — families, per-state silhouettes, collisions — and a second
-// implementation would drift from this one the first time either changed. `pageChecks` interpolates this constant, and
-// `live-panel-probe.mjs` evaluates it against the device that is actually running.
-export function marksSource(rootSelector) {
-  // THE SAME PLACEHOLDER SUBSTITUTION `pageChecks` USES, and it has to be: this code runs inside the BROWSER, so an
-  // identifier from the Node side is simply undefined there — the first version of this extraction was a bare const
-  // and the live probe died on "ROOT_SEL is not defined", which is the same failure the comment above `pageChecks`
-  // records from the extension sweep.
-  return MARKS_TEMPLATE.replaceAll("ROOT_SEL", JSON.stringify(rootSelector));
+/** PAGE-SIDE PROBES MUST CARRY THEIR DEPENDENCIES, AND THIS IS THE ONE PLACE THAT DOES IT (round 271).
+ *  `page.evaluate(fn)` serializes the function ALONE, so anything it closes over is undefined in the page — which is
+ *  why these probes were template literals with helper source and the root selector substituted in at emit time. The
+ *  selector is an ARGUMENT now, so no identifier from this side can leak into the page; the one helper a probe needs
+ *  is bound here, once, at load, from its ONE module-level definition. Nothing else in this file composes source. */
+function withHelpers(body, helpers) {
+  const decls = Object.entries(helpers).map(([name, fn]) => "const " + name + " = " + fn.toString() + ";").join("\n");
+  return new Function("return function probe(root) {\n" + decls + "\n" + body + "\n};")();
 }
 
-const MARKS_TEMPLATE = `(() => {
-      const families = new Map();
-      // WHICH STATE-MARK CLASSES ARE ON SCREEN AT ALL (round 28). The probe attributes a mark to the family its
-      // STATE hangs off — a mark tab-dot element with data-live is family mark — so a class like tab-dot can be
-      // rendered on every tab and still never appear as a family of its own. Without this set, a judge asking "did
-      // anything render family X?" cannot tell A CLASS NOTHING PUTS ON SCREEN from ONE THE PROBE ATTRIBUTES
-      // ELSEWHERE, and the sheet-enumerated note reported both as gaps.
-      const present = new Set();
-      for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-        const st = getComputedStyle(el);
-        if (st.display === 'none' || st.visibility === 'hidden') continue;
-        const r = el.getBoundingClientRect();
-        // WHAT IS ON SCREEN IS COLLECTED BEFORE THE SIZE FILTER, because the two questions are different: present
-        // answers "does this class exist on this page at all", and the filter below answers "is this a MARK". A
-        // class on a full-width ROW (.run-row-state, .archive-state, .monitor-state) is on screen and is not a
-        // mark, and collecting only from small elements made the judge call those "NO SURFACE RENDERED" — a queue of
-        // false gaps, which is worse than no queue (round 32).
-        const cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/) : [];
-        for (const c of cls) if (/(dot|dotcol|mark|led|chip|signal|state)$/.test(c)) present.add(c);
-        if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
-        const state = el.getAttribute('data-state') || el.getAttribute('data-live');
-        // the family is the class the STATE rules hang off: with a data-attribute it is the first class, with a
-        // modifier class it is everything except the last one
-        const base = state ? cls[0] : cls.length > 1 ? cls.slice(0, -1).join('.') : null;
-        const which = state || (cls.length > 1 ? cls[cls.length - 1] : null);
-        if (!base || !which) continue;
-        if (!/\\.(dot|dotcol|mark|led|chip|signal|state)$|(dot|led|mark)$/.test(base)) continue;
-        const bg = st.backgroundColor;
-        // ZERO ALPHA IS NOT A FILL, IN WHATEVER SPELLING THE BROWSER RETURNS (round 76). This test excluded exactly
-        // two strings — "transparent" and "rgba(0, 0, 0, 0)" — which are the two forms the SHEETS write. A COMPUTED
-        // style returns a third: "color(srgb 0 0 0 / 0)", and a transparent ring was therefore read as a fill inside
-        // its own ring. Six CI findings against the console's device LED, whose off state is a ring and correct.
-        // Reading the components instead of matching strings covers all the syntaxes, and it cannot mistake a black
-        // CHANNEL for an alpha: three components means opaque, whatever they are.
-        const noFill = (c) => {
-          if (/^transparent$/i.test(c)) return true;
-          const inner = /\(([^)]*)\)/.exec(c);
-          if (!inner) return false;
-          const parts = inner[1].split(/[\s,/]+/).filter(Boolean);
-          return parts.length > 3 && Number(parts[3]) === 0;
-        };
-        const filled = !!bg && !noFill(bg);
-        const shadow = st.boxShadow;
-        // DEFINED HERE, AND MISSING FOR NINE ROUNDS (round 55). The kind expression below has used 'inset' since
-        // round 46 and nothing ever declared it — so this probe threw ReferenceError the moment it ran, and the
-        // sweep's marks axis would have died in CI on the next push. It survived because round 46 verified the RULE
-        // with a reimplementation on the device instead of running THIS probe, and the judge's self-test feeds the
-        // judge a synthetic report rather than the probe's output. A reimplementation is not a test of the original.
-        // (No backticks: this text is inside PAGE_CHECKS_TEMPLATE, and one would end the template — 40th time.)
-        const inset = /inset/.test(shadow);
-        // A FILL AND A RING AT ONCE IS ITS OWN KIND (round 46). Until now 'inset' won outright, so a mark that set a
-        // background and inherited an inset shadow computed as 'ring' — distinct from a solid, and therefore passing.
-        // That is how four broken plugin dots survived every sweep: the panel's own shape check had the same hole
-        // (round 45), the console's found it by mutation (round 44), and this probe reported them as clean rings.
-        // A BORDER IS A RING, AND THIS COULD NOT SEE ONE (round 88). The kind expression read FILLS and INSET
-        // SHADOWS only, so every mark the panel draws with a border computed as 'empty' — including BOTH of its
-        // rings: idle is 1.5px solid and off is 1.5px dashed, and the signature below could not tell them apart,
-        // nor either of them from a mark that draws nothing at all. The hole was invisible for as long as no
-        // surface rendered two border-drawn states side by side; the first surface that closed a session put off
-        // beside idle and the collision was immediate.
-        //
-        // DASHED IS ITS OWN KIND, because that is the whole design decision the 'off' state encodes — a dash and not
-        // a fade — and "shape first, colour second" means the signature must carry the dash. (No backticks: inside
-        // the emitted template.)
-        const bw = parseFloat(st.borderTopWidth) || 0;
-        const bstyle = bw > 0 ? st.borderTopStyle : 'none';
-        // A BORDER THAT PAINTS NOTHING IS NOT A RING (round 88). Width and style are not the whole question: a mark
-        // can carry a transparent border for layout and fill itself, and counting that as a ring would report every
-        // such mark as a FILL inside a RING. noFill, two lines up, already knows every spelling of "paints nothing".
-        const bordered = bstyle !== 'none' && bstyle !== 'hidden' && !noFill(st.borderTopColor);
-        const dashed = /dashed|dotted/.test(bstyle);
-        const kind = inset && filled ? 'ring+fill'
-          : bordered && filled ? 'ring+fill'
-          : inset ? 'ring'
-          : bordered ? (dashed ? 'dashed-ring' : 'ring')
-          : filled && shadow !== 'none' ? 'halo'
-          : filled ? 'solid' : 'empty';
-        // A CLIPPED SHAPE IS A SHAPE, AND THE SIGNATURE COULD NOT SEE ONE (round 97). The panel's fifth state draws
-        // its triangle with clip-path — a fill whose outline is cut — so without this term the failed mark and a
-        // plain fill computed the SAME signature, and the collision check would have passed two states that paint
-        // differently (or, worse, called a real collision clean). The four shape channels a mark can use are now all
-        // in the signature: corner radius, rotation, clip, and the fill/ring/halo/dash KIND. The whole clip string is
-        // carried rather than a boolean, because a second clipped shape would otherwise collide with this one.
-        // (No backticks: this probe is a template literal — 53rd time, caught by the emit.)
-        const clip = st.clipPath && st.clipPath !== 'none' ? st.clipPath : '-';
-        const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', clip, kind].join('/');
-        const key = base;
-        if (!families.has(key)) families.set(key, new Map());
-        families.get(key).set(which, sig);
-      }
-      const collisions = [];
-      for (const [fam, states] of families) {
-        if (states.size < 2) continue;
-        const bySig = new Map();
-        for (const [state, sig] of states) {
-          if (bySig.has(sig)) collisions.push(fam + ': ' + bySig.get(sig) + ' and ' + state + ' paint identically (' + sig + ')');
-          else bySig.set(sig, state);
-        }
-      }
-      const ringFill = [];
-      for (const [fam, states] of families) {
-        for (const [state, sig] of states) if (sig.indexOf('ring+fill') >= 0) ringFill.push(fam + '[' + state + ']');
-      }
-      return {
-        families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'),
-        collisions: collisions.slice(0, 6),
-        ringFill: ringFill.slice(0, 6),
-        present: [...present].sort(),
-      };
-    })()`;
-
-export function pageChecks(rootSelector) {
-  // TWO SUBSTITUTIONS, because the mark axis lives in its own exported source now (one copy, shared with the
-  // live-panel probe). The placeholder is replaced with the real expression here rather than interpolated in the
-  // template, which is evaluated at module load where `rootSelector` does not exist yet.
-  const text = PAGE_CHECKS_TEMPLATE
-    .replaceAll("ROOT_SEL", JSON.stringify(rootSelector))
-    .replace("/* MARKS_PLACEHOLDER */ {}", marksSource(rootSelector));
-  // EVERY PROBE GOES OUT AS A JSON STRING, not as a template literal (round 57). The emitted script does not run
-  // this text — it WRITES it into a file, and a probe left as a template literal there loses one more level of
-  // escaping on the way to the page: `/^color\(/` in the emitted file reached the browser as `/^color(/` and threw
-  // "Unterminated group", and the same mechanism turned `\s` into `s` for thirty-seven rounds. JSON.stringify has no
-  // levels to lose, which is why the contrast probe has been shipped this way since round 88.
-  return text.replace(/const (\w+) = `([\s\S]*?)`;/g, (_, name, body) => `const ${name} = ${JSON.stringify(body)};`);
-}
-
-const PAGE_CHECKS_TEMPLATE = `
-const SURFACE = \`(() => {
-  const desc = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\\\s+/).slice(0,2).join('.') : '') + (el.id ? '#' + el.id : '');
-  const heads = [...document.querySelectorAll('h1,h2,h3,h4')];
-  const lv = heads.map((e) => Number(e.tagName.slice(1)));
-  let skipped = 0;
-  for (let i = 1; i < lv.length; i++) if (lv[i] - lv[i - 1] > 1) skipped++;
-  const over = [], clipped = [], slivers = [];
-  for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-    const st = getComputedStyle(el);
-    if (st.display === 'none' || st.visibility === 'hidden') continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) continue;
-    const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
-    const scrolls = st.overflowX === 'auto' || st.overflowX === 'scroll';
-    const ellipsises = st.textOverflow === 'ellipsis';
-    if (el.scrollWidth > el.clientWidth + 1 && !scrolls && !ellipsises) over.push(desc(el) + ' ' + el.clientWidth + '<' + el.scrollWidth);
-    if (own && el.scrollWidth > el.clientWidth + 1 && !ellipsises) clipped.push(desc(el));
-    const text = (el.textContent || '').trim();
-    if (own && text.length > 24 && r.width < 60) slivers.push(desc(el) + ' w=' + Math.round(r.width));
-  }
-  const loudResult = (() => {
-    // FOUR SYNTAXES, because the browser does not hand back the one this was written for (round 57). Besides
-    // rgb(r, g, b) and rgba(r, g, b, a) it returns rgb(r g b / a) and — for any colour the sheet declares with a
-    // modern function — color(srgb 0.09 0.09 0.11 / 0.88), whose components are 0-1 floats. The old parser read those
-    // as raw 0-255 numbers, produced garbage, and (before the fail-closed guard above) counted them.
-    // (No backticks in this comment: it is inside PAGE_CHECKS_TEMPLATE — 41st time.)
-    const parse = (c) => {
-      const m = /(?:rgba?|color)\\(([^)]+)\\)/.exec(c);
-      if (!m) return null;
-      const parts = m[1].split(/[\\s,/]+/).filter(Boolean);
-      // ONLY THE NUMBERS: color(srgb 0.95 0.95 0.96 / 0.88) puts the COLOUR SPACE NAME first, and taking p[0] as r
-      // made it NaN — which the fail-closed guard above then counted (six of them, measured round 59, every one of
-      // them this one syntax). Filtering to finite numbers reads all four syntaxes with one rule.
-      // (No backticks in this comment: it lives inside PAGE_CHECKS_TEMPLATE — 42nd time.)
-      const p = parts.map(Number).filter(Number.isFinite);
-      const srgb = /^color\\(/.test(c);
-      const scale = srgb && p.length >= 3 && p[0] <= 1 && p[1] <= 1 && p[2] <= 1 ? 255 : 1;
-      return { r: p[0] * scale, g: p[1] * scale, b: p[2] * scale, a: p.length > 3 ? p[3] : 1 };
-    };
-    const isLoud = ${loudnessOf.toString()};
-    const loud = [];
-    let unreadable = 0;
-    const unreadableSamples = [];
-    for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-      const st = getComputedStyle(el);
-      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
-      const c = parse(st.backgroundColor);
-      if (!c || c.a < 0.5) continue;
-      const { sat, l, loud: shouts } = isLoud(c);
-      if (!Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; if (unreadableSamples.length < 3) unreadableSamples.push(st.backgroundColor); continue; }
-      if (!shouts) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
-      loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
-    }
-    return { list: [...new Set(loud)].slice(0, 6), unreadable, unreadableSamples };
-  })();
-  // ── HOW LONG IS A LINE OF PROSE ─────────────────────────────────────────────────────────────────────
-  // THE MEASURE (round 265). A line is read by its return: past roughly ninety characters the eye loses the
-  // start of the next one, which is why this sheet caps its ledes at 52ch / 56ch / 66ch / 72ch in five places.
-  // NOTHING MEASURED THAT. A paragraph could be added with no cap at all and every axis stayed green — which is
-  // exactly what the live panel showed: twelve single-line paragraphs of 93-206 characters on the Settings page
-  // at 1440px, in both densities, three blocks away from a History lede that had carried 66ch all along.
-  // COUNTED HERE, JUDGED BY THE CALLER (opts.proseFloor): the console and the landing carry the same numbers in
-  // their reports and are not failed by a floor somebody else chose until their own surfaces are measured.
-  const measureResult = (() => {
-    const lineCount = (el) => {
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      const rects = [...r.getClientRects()].filter((x) => x.width > 4 && x.height > 4);
-      return Math.max(1, new Set(rects.map((x) => Math.round(x.top))).size);
-    };
-    const rows = [];
-    let measured = 0;
-    for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
+/** THE MARK AXIS: families, per-state silhouettes, collisions, ring+fill. */
+export function marksProbe(root) {
+    const families = new Map();
+    // WHICH STATE-MARK CLASSES ARE ON SCREEN AT ALL (round 28). The probe attributes a mark to the family its
+    // STATE hangs off — a mark tab-dot element with data-live is family mark — so a class like tab-dot can be
+    // rendered on every tab and still never appear as a family of its own. Without this set, a judge asking "did
+    // anything render family X?" cannot tell A CLASS NOTHING PUTS ON SCREEN from ONE THE PROBE ATTRIBUTES
+    // ELSEWHERE, and the sheet-enumerated note reported both as gaps.
+    const present = new Set();
+    for (const el of document.querySelectorAll(root + ' *')) {
       const st = getComputedStyle(el);
       if (st.display === 'none' || st.visibility === 'hidden') continue;
-      // OWN text, not a container's: a row is a dozen spans, and its "line" is the row, not a sentence.
-      const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
-      if (!own) continue;
-      // NOT CODE. A log line, a config snippet or a session id is MEANT to be one unbroken run; a rule about
-      // where a sentence returns has nothing to say about it. (No backticks in this comment either.)
-      if (el.closest('pre, code') || /mono|code/i.test(st.fontFamily)) continue;
-      // AND NOT A DELIBERATE ONE-LINER (round 265). An element that ellipsises — nowrap plus text-overflow — is a
-      // LABEL, not prose that failed to wrap: the plugin row's description is one, with its full text on a title
-      // attribute, and a cap would truncate it SOONER rather than make it readable. The overflow axis already treats
-      // this idiom as legitimate (it excludes ellipsised elements from its clipping findings); this axis learned the
-      // same from a LIVE measurement — the plugin row's description reported 129 characters per line on the device
-      // at 1440px, and the honest reading is that the line was never going to wrap.
-      // (NO BACKTICKS ANYWHERE ABOVE — this is inside PAGE_CHECKS_TEMPLATE, and the line that warned about it was
-      // itself broken by one for the 53rd time. The pre-commit hook caught it in the next command, which is the
-      // whole argument for running that hook by hand.)
-      if (st.textOverflow === 'ellipsis' || st.whiteSpace === 'nowrap') continue;
-      const text = (el.textContent || '').trim();
-      if (text.length < 60) continue;
       const r = el.getBoundingClientRect();
-      if (r.width < 60 || r.height < 4) continue;
-      measured++;
-      const lines = lineCount(el);
-      rows.push({ sel: desc(el), cpl: Math.round(text.length / lines), chars: text.length, lines, w: Math.round(r.width), fs: Math.round(parseFloat(st.fontSize)), maxw: st.maxWidth });
+      // WHAT IS ON SCREEN IS COLLECTED BEFORE THE SIZE FILTER, because the two questions are different: present
+      // answers "does this class exist on this page at all", and the filter below answers "is this a MARK". A
+      // class on a full-width ROW (.run-row-state, .archive-state, .monitor-state) is on screen and is not a
+      // mark, and collecting only from small elements made the judge call those "NO SURFACE RENDERED" — a queue of
+      // false gaps, which is worse than no queue (round 32).
+      const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/) : [];
+      for (const c of cls) if (/(dot|dotcol|mark|led|chip|signal|state)$/.test(c)) present.add(c);
+      if (r.width < 4 || r.height < 4 || r.width > 40 || r.height > 40) continue;
+      const state = el.getAttribute('data-state') || el.getAttribute('data-live');
+      // the family is the class the STATE rules hang off: with a data-attribute it is the first class, with a
+      // modifier class it is everything except the last one
+      const base = state ? cls[0] : cls.length > 1 ? cls.slice(0, -1).join('.') : null;
+      const which = state || (cls.length > 1 ? cls[cls.length - 1] : null);
+      if (!base || !which) continue;
+      if (!/\.(dot|dotcol|mark|led|chip|signal|state)$|(dot|led|mark)$/.test(base)) continue;
+      const bg = st.backgroundColor;
+      // ZERO ALPHA IS NOT A FILL, IN WHATEVER SPELLING THE BROWSER RETURNS (round 76). This test excluded exactly
+      // two strings — "transparent" and "rgba(0, 0, 0, 0)" — which are the two forms the SHEETS write. A COMPUTED
+      // style returns a third: "color(srgb 0 0 0 / 0)", and a transparent ring was therefore read as a fill inside
+      // its own ring. Six CI findings against the console's device LED, whose off state is a ring and correct.
+      // Reading the components instead of matching strings covers all the syntaxes, and it cannot mistake a black
+      // CHANNEL for an alpha: three components means opaque, whatever they are.
+      const noFill = (c) => {
+        if (/^transparent$/i.test(c)) return true;
+        const inner = /(([^)]*))/.exec(c);
+        if (!inner) return false;
+        const parts = inner[1].split(/[s,/]+/).filter(Boolean);
+        return parts.length > 3 && Number(parts[3]) === 0;
+      };
+      const filled = !!bg && !noFill(bg);
+      const shadow = st.boxShadow;
+      // DEFINED HERE, AND MISSING FOR NINE ROUNDS (round 55). The kind expression below has used 'inset' since
+      // round 46 and nothing ever declared it — so this probe threw ReferenceError the moment it ran, and the
+      // sweep's marks axis would have died in CI on the next push. It survived because round 46 verified the RULE
+      // with a reimplementation on the device instead of running THIS probe, and the judge's self-test feeds the
+      // judge a synthetic report rather than the probe's output. A reimplementation is not a test of the original.
+      // (No backticks here: this body is carried in the ONE template literal that withHelpers() reads — see the note
+      // on withHelpers. Everything else in this file is an ordinary function and does not care.)
+      const inset = /inset/.test(shadow);
+      // A FILL AND A RING AT ONCE IS ITS OWN KIND (round 46). Until now 'inset' won outright, so a mark that set a
+      // background and inherited an inset shadow computed as 'ring' — distinct from a solid, and therefore passing.
+      // That is how four broken plugin dots survived every sweep: the panel's own shape check had the same hole
+      // (round 45), the console's found it by mutation (round 44), and this probe reported them as clean rings.
+      // A BORDER IS A RING, AND THIS COULD NOT SEE ONE (round 88). The kind expression read FILLS and INSET
+      // SHADOWS only, so every mark the panel draws with a border computed as 'empty' — including BOTH of its
+      // rings: idle is 1.5px solid and off is 1.5px dashed, and the signature below could not tell them apart,
+      // nor either of them from a mark that draws nothing at all. The hole was invisible for as long as no
+      // surface rendered two border-drawn states side by side; the first surface that closed a session put off
+      // beside idle and the collision was immediate.
+      //
+      // DASHED IS ITS OWN KIND, because that is the whole design decision the 'off' state encodes — a dash and not
+      // a fade — and "shape first, colour second" means the signature must carry the dash. (No backticks: inside
+      // the emitted template.)
+      const bw = parseFloat(st.borderTopWidth) || 0;
+      const bstyle = bw > 0 ? st.borderTopStyle : 'none';
+      // A BORDER THAT PAINTS NOTHING IS NOT A RING (round 88). Width and style are not the whole question: a mark
+      // can carry a transparent border for layout and fill itself, and counting that as a ring would report every
+      // such mark as a FILL inside a RING. noFill, two lines up, already knows every spelling of "paints nothing".
+      const bordered = bstyle !== 'none' && bstyle !== 'hidden' && !noFill(st.borderTopColor);
+      const dashed = /dashed|dotted/.test(bstyle);
+      const kind = inset && filled ? 'ring+fill'
+        : bordered && filled ? 'ring+fill'
+        : inset ? 'ring'
+        : bordered ? (dashed ? 'dashed-ring' : 'ring')
+        : filled && shadow !== 'none' ? 'halo'
+        : filled ? 'solid' : 'empty';
+      // A CLIPPED SHAPE IS A SHAPE, AND THE SIGNATURE COULD NOT SEE ONE (round 97). The panel's fifth state draws
+      // its triangle with clip-path — a fill whose outline is cut — so without this term the failed mark and a
+      // plain fill computed the SAME signature, and the collision check would have passed two states that paint
+      // differently (or, worse, called a real collision clean). The four shape channels a mark can use are now all
+      // in the signature: corner radius, rotation, clip, and the fill/ring/halo/dash KIND. The whole clip string is
+      // carried rather than a boolean, because a second clipped shape would otherwise collide with this one.
+      // (No backticks: this probe is a template literal — 53rd time, caught by the emit.)
+      const clip = st.clipPath && st.clipPath !== 'none' ? st.clipPath : '-';
+      const sig = [st.borderTopLeftRadius, st.transform === 'none' ? 'flat' : 'rotated', clip, kind].join('/');
+      const key = base;
+      if (!families.has(key)) families.set(key, new Map());
+      families.get(key).set(which, sig);
     }
-    // WORST FIRST, and the WIDTH AND MAX-WIDTH travel with each row: the finding has to say whether the line is
-    // long because the surface is wide or because nothing capped it, and those are different repairs.
-    rows.sort((a, b) => b.cpl - a.cpl);
-    return { measured, worst: rows.slice(0, 5) };
-  })();
-  return {
-    measure: measureResult,
-    loud: loudResult.list,
-    loudUnreadable: loudResult.unreadable,
-    loudUnreadableSamples: loudResult.unreadableSamples,
-    h1Count: heads.filter((e) => e.tagName === 'H1').length,
-    firstIsH1: heads.length > 0 && heads[0].tagName === 'H1',
-    skipped, mains: document.querySelectorAll('main').length, navs: document.querySelectorAll('nav').length,
-    over: [...new Set(over)].slice(0, 8), clipped: [...new Set(clipped)].slice(0, 8), slivers: [...new Set(slivers)].slice(0, 8),
-    // ── HOW MANY THINGS ON THIS PAGE ARE SHOUTING ─────────────────────────────────────────────────────────
-    // "One focal point per surface" is the last clause of the spine and the only one with no continuous check:
-    // it was measured by hand on four surfaces (panel Terminal 1, panel Settings 0, console Overview 0, landing 1
-    // — the download CTA) and then not measured again. LOUD is an element whose FILL is genuinely saturated
-    // (not white, black or grey) and big enough to be a surface rather than a dot. ONE is a page with something
-    // to say; ZERO is a page that is all context, which is right for a form or a dashboard; TWO means nothing on
-    // it is the focal point, because two things are asking to be looked at first.
-    // ── THE MARK LANGUAGE, AS THE BROWSER ACTUALLY PAINTS IT ────────────────────────────────────────────────
-    // The silhouettes are asserted against the SHEET by unit tests, and round 25 showed what that cannot see: a
-    // rule later in the cascade overrode '.plug-dot[error]''s diamond and left a stray halo around it. The sheet
-    // was right and the page was wrong. This reads the COMPUTED style of every state mark on the page, groups by
-    // family, and reports any family whose states share a shape.
-    //
-    // A FAMILY is a mark's class without its state qualifier ('.cmd-dot[data-state="fail"]' → '.cmd-dot'), and a
-    // STATE is whatever the element carries: 'data-state', 'data-live', or the second class. The signature is the
-    // geometry that survives colour blindness — radius, rotation, and whether it is a fill, a ring or a haloed
-    // fill — because colour is the SECOND channel and this check exists for the user who cannot read it.
-marks: /* MARKS_PLACEHOLDER */ {},
-    // DOES THIS SURFACE CLAIM A READ FAILED? (round 100) The fixture serves EVERY call on a normal surface, so a
-    // page that says "could not be read" or "did not answer, so ..." is making a claim about the device that the
-    // fixture contradicts. That is not a cosmetic defect: it is the panel BLAMING THE DEVICE for a question it
-    // answered, and it has happened three times (the update card, the monitors in round 100, the restart history
-    // in round 99) with every gate green, because a sentence is not a contrast ratio and nothing was reading them.
-    // The judge pairs this with report.sse, which says whether the fixture rejected the calls on purpose.
-    claims: (function () {
-      const out = [];
-      for (const el of document.querySelectorAll(ROOT_SEL + ' *')) {
-        const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => (n.textContent || '').trim()).join(' ').trim();
-        if (own.length < 12) continue;
-        // A CLAIM, NOT A MENTION: the panel explains these very distinctions in prose ("a device that has no watch
-        // list and a device that did not answer are different"), and an explanation must not be read as the claim.
-        // The claim shapes all name what could not be read, which is what these patterns match.
-        if (!/could not be read/i.test(own) && !/did not answer, so/i.test(own) && !/unavailable .{0,3} reconnecting/i.test(own)) continue;
-        const cls = (el.getAttribute && el.getAttribute('class')) || el.tagName.toLowerCase();
-        // THE DISPLAYED TEXT IS THE KEY, not the whole paragraph: the first run reported the same sentence FOUR times
-        // per surface, because the card's paragraph is split across sibling nodes that differ past the cut.
-        const claim = cls + ': ' + own.replace(/\s+/g, ' ').slice(0, 70);
-        if (out.indexOf(claim) < 0) out.push(claim);
+    const collisions = [];
+    for (const [fam, states] of families) {
+      if (states.size < 2) continue;
+      const bySig = new Map();
+      for (const [state, sig] of states) {
+        if (bySig.has(sig)) collisions.push(fam + ': ' + bySig.get(sig) + ' and ' + state + ' paint identically (' + sig + ')');
+        else bySig.set(sig, state);
       }
-      return [...new Set(out)].slice(0, 5);
-    })(),
-  };
-})()\`;
-
-const NAMES = \`(() => {
-  const SEL = 'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="switch"], [role="checkbox"], [role="link"]';
-  const name = (el) => {
-    const by = el.getAttribute('aria-labelledby');
-    if (by) { const t = by.split(/\\\\s+/).map((id) => (document.getElementById(id) || {}).textContent || '').join(' ').trim(); if (t) return t; }
-    const label = el.getAttribute('aria-label'); if (label && label.trim()) return label.trim();
-    if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
-      if (el.id) { const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); if (l && l.textContent.trim()) return l.textContent.trim(); }
-      const wrap = el.closest('label'); if (wrap && wrap.textContent.trim()) return wrap.textContent.trim();
-      if (el.tagName === 'INPUT' && (el.type === 'submit' || el.type === 'button') && el.value) return el.value;
     }
-    const text = (el.textContent || '').trim(); if (text) return text;
-    // AN IMAGE WITH ALT TEXT NAMES ITS LINK (measured: the console's rail brand read as "title-only"
-    // until this branch existed — a false positive in the detector, not a defect in the page).
-    const img = el.querySelector('img[alt]'); if (img && img.alt.trim()) return img.alt.trim();
-    const title = el.getAttribute('title'); if (title && title.trim()) return 'title-only: ' + title.trim();
-    return '';
+    const ringFill = [];
+    for (const [fam, states] of families) {
+      for (const [state, sig] of states) if (sig.indexOf('ring+fill') >= 0) ringFill.push(fam + '[' + state + ']');
+    }
+    return {
+      families: [...families].map(([f, m]) => f + '[' + [...m.keys()].join(',') + ']'),
+      collisions: collisions.slice(0, 6),
+      ringFill: ringFill.slice(0, 6),
+      present: [...present].sort(),
+    };
+}
+
+/** THE SURFACE PROBE: contrast rows, geometry, headings, landmarks, slivers — and the mark axis, which is why it is
+ *  the one probe that also reports `marks`. */
+export const surfaceProbe = withHelpers(`const desc = (el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\\\s+/).slice(0,2).join('.') : '') + (el.id ? '#' + el.id : '');
+const heads = [...document.querySelectorAll('h1,h2,h3,h4')];
+const lv = heads.map((e) => Number(e.tagName.slice(1)));
+let skipped = 0;
+for (let i = 1; i < lv.length; i++) if (lv[i] - lv[i - 1] > 1) skipped++;
+const over = [], clipped = [], slivers = [];
+for (const el of document.querySelectorAll(root + ' *')) {
+  const st = getComputedStyle(el);
+  if (st.display === 'none' || st.visibility === 'hidden') continue;
+  const r = el.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) continue;
+  const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
+  const scrolls = st.overflowX === 'auto' || st.overflowX === 'scroll';
+  const ellipsises = st.textOverflow === 'ellipsis';
+  if (el.scrollWidth > el.clientWidth + 1 && !scrolls && !ellipsises) over.push(desc(el) + ' ' + el.clientWidth + '<' + el.scrollWidth);
+  if (own && el.scrollWidth > el.clientWidth + 1 && !ellipsises) clipped.push(desc(el));
+  const text = (el.textContent || '').trim();
+  if (own && text.length > 24 && r.width < 60) slivers.push(desc(el) + ' w=' + Math.round(r.width));
+}
+const loudResult = (() => {
+  // FOUR SYNTAXES, because the browser does not hand back the one this was written for (round 57). Besides
+  // rgb(r, g, b) and rgba(r, g, b, a) it returns rgb(r g b / a) and — for any colour the sheet declares with a
+  // modern function — color(srgb 0.09 0.09 0.11 / 0.88), whose components are 0-1 floats. The old parser read those
+  // as raw 0-255 numbers, produced garbage, and (before the fail-closed guard above) counted them.
+  // (No backticks in this comment: the SURFACE body is carried in a template literal — see withHelpers.)
+  const parse = (c) => {
+    const m = /(?:rgba?|color)\\(([^)]+)\\)/.exec(c);
+    if (!m) return null;
+    const parts = m[1].split(/[\\s,/]+/).filter(Boolean);
+    // ONLY THE NUMBERS: color(srgb 0.95 0.95 0.96 / 0.88) puts the COLOUR SPACE NAME first, and taking p[0] as r
+    // made it NaN — which the fail-closed guard above then counted (six of them, measured round 59, every one of
+    // them this one syntax). Filtering to finite numbers reads all four syntaxes with one rule.
+    // (No backticks in this comment: the SURFACE body is carried in a template literal — see withHelpers.)
+    const p = parts.map(Number).filter(Number.isFinite);
+    const srgb = /^color\\(/.test(c);
+    const scale = srgb && p.length >= 3 && p[0] <= 1 && p[1] <= 1 && p[2] <= 1 ? 255 : 1;
+    return { r: p[0] * scale, g: p[1] * scale, b: p[2] * scale, a: p.length > 3 ? p[3] : 1 };
   };
-  const unnamed = [], titleOnly = [];
-  let checked = 0;
-  for (const el of document.querySelectorAll(SEL)) {
+  const isLoud = __loudnessOf;
+  const loud = [];
+  let unreadable = 0;
+  const unreadableSamples = [];
+  for (const el of document.querySelectorAll(root + ' *')) {
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.5) continue;
+    const c = parse(st.backgroundColor);
+    if (!c || c.a < 0.5) continue;
+    const { sat, l, loud: shouts } = isLoud(c);
+    if (!Number.isFinite(sat) || !Number.isFinite(l)) { unreadable++; if (unreadableSamples.length < 3) unreadableSamples.push(st.backgroundColor); continue; }
+    if (!shouts) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 14 || r.height < 12 || r.width * r.height < 400) continue;
+    loud.push(desc(el) + ' ' + Math.round(r.width * r.height) + 'px2 ' + st.backgroundColor.replace(/\\s/g, ''));
+  }
+  return { list: [...new Set(loud)].slice(0, 6), unreadable, unreadableSamples };
+})();
+// ── HOW LONG IS A LINE OF PROSE ─────────────────────────────────────────────────────────────────────
+// THE MEASURE (round 265). A line is read by its return: past roughly ninety characters the eye loses the
+// start of the next one, which is why this sheet caps its ledes at 52ch / 56ch / 66ch / 72ch in five places.
+// NOTHING MEASURED THAT. A paragraph could be added with no cap at all and every axis stayed green — which is
+// exactly what the live panel showed: twelve single-line paragraphs of 93-206 characters on the Settings page
+// at 1440px, in both densities, three blocks away from a History lede that had carried 66ch all along.
+// COUNTED HERE, JUDGED BY THE CALLER (opts.proseFloor): the console and the landing carry the same numbers in
+// their reports and are not failed by a floor somebody else chose until their own surfaces are measured.
+const measureResult = (() => {
+  const lineCount = (el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const rects = [...r.getClientRects()].filter((x) => x.width > 4 && x.height > 4);
+    return Math.max(1, new Set(rects.map((x) => Math.round(x.top))).size);
+  };
+  const rows = [];
+  let measured = 0;
+  for (const el of document.querySelectorAll(root + ' *')) {
     const st = getComputedStyle(el);
     if (st.display === 'none' || st.visibility === 'hidden') continue;
+    // OWN text, not a container's: a row is a dozen spans, and its "line" is the row, not a sentence.
+    const own = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0);
+    if (!own) continue;
+    // NOT CODE. A log line, a config snippet or a session id is MEANT to be one unbroken run; a rule about
+    // where a sentence returns has nothing to say about it. (No backticks in this comment either.)
+    if (el.closest('pre, code') || /mono|code/i.test(st.fontFamily)) continue;
+    // AND NOT A DELIBERATE ONE-LINER (round 265). An element that ellipsises — nowrap plus text-overflow — is a
+    // LABEL, not prose that failed to wrap: the plugin row's description is one, with its full text on a title
+    // attribute, and a cap would truncate it SOONER rather than make it readable. The overflow axis already treats
+    // this idiom as legitimate (it excludes ellipsised elements from its clipping findings); this axis learned the
+    // same from a LIVE measurement — the plugin row's description reported 129 characters per line on the device
+    // at 1440px, and the honest reading is that the line was never going to wrap.
+    // (NO BACKTICKS ANYWHERE ABOVE: the SURFACE body is carried in a template literal — see withHelpers. The line
+  // that used to warn about it was deleted by an edit, which is why the warning is repeated here.)
+    if (st.textOverflow === 'ellipsis' || st.whiteSpace === 'nowrap') continue;
+    const text = (el.textContent || '').trim();
+    if (text.length < 60) continue;
     const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) continue;
-    if (el.getAttribute('aria-hidden') === 'true') continue;
-    checked++;
-    const n = name(el);
-    const d = el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\\\s+/)[0] : '') + (el.id ? '#' + el.id : '');
-    if (!n) unnamed.push(d);
-    else if (n.startsWith('title-only:')) titleOnly.push(d + ' -> ' + n.slice(11));
+    if (r.width < 60 || r.height < 4) continue;
+    measured++;
+    const lines = lineCount(el);
+    rows.push({ sel: desc(el), cpl: Math.round(text.length / lines), chars: text.length, lines, w: Math.round(r.width), fs: Math.round(parseFloat(st.fontSize)), maxw: st.maxWidth });
   }
-  return { checked, unnamed: [...new Set(unnamed)], titleOnly: [...new Set(titleOnly)] };
-})()\`;
+  // WORST FIRST, and the WIDTH AND MAX-WIDTH travel with each row: the finding has to say whether the line is
+  // long because the surface is wide or because nothing capped it, and those are different repairs.
+  rows.sort((a, b) => b.cpl - a.cpl);
+  return { measured, worst: rows.slice(0, 5) };
+})();
+return {
+  measure: measureResult,
+  loud: loudResult.list,
+  loudUnreadable: loudResult.unreadable,
+  loudUnreadableSamples: loudResult.unreadableSamples,
+  h1Count: heads.filter((e) => e.tagName === 'H1').length,
+  firstIsH1: heads.length > 0 && heads[0].tagName === 'H1',
+  skipped, mains: document.querySelectorAll('main').length, navs: document.querySelectorAll('nav').length,
+  over: [...new Set(over)].slice(0, 8), clipped: [...new Set(clipped)].slice(0, 8), slivers: [...new Set(slivers)].slice(0, 8),
+  // ── HOW MANY THINGS ON THIS PAGE ARE SHOUTING ─────────────────────────────────────────────────────────
+  // "One focal point per surface" is the last clause of the spine and the only one with no continuous check:
+  // it was measured by hand on four surfaces (panel Terminal 1, panel Settings 0, console Overview 0, landing 1
+  // — the download CTA) and then not measured again. LOUD is an element whose FILL is genuinely saturated
+  // (not white, black or grey) and big enough to be a surface rather than a dot. ONE is a page with something
+  // to say; ZERO is a page that is all context, which is right for a form or a dashboard; TWO means nothing on
+  // it is the focal point, because two things are asking to be looked at first.
+  // ── THE MARK LANGUAGE, AS THE BROWSER ACTUALLY PAINTS IT ────────────────────────────────────────────────
+  // The silhouettes are asserted against the SHEET by unit tests, and round 25 showed what that cannot see: a
+  // rule later in the cascade overrode '.plug-dot[error]''s diamond and left a stray halo around it. The sheet
+  // was right and the page was wrong. This reads the COMPUTED style of every state mark on the page, groups by
+  // family, and reports any family whose states share a shape.
+  //
+  // A FAMILY is a mark's class without its state qualifier ('.cmd-dot[data-state="fail"]' → '.cmd-dot'), and a
+  // STATE is whatever the element carries: 'data-state', 'data-live', or the second class. The signature is the
+  // geometry that survives colour blindness — radius, rotation, and whether it is a fill, a ring or a haloed
+  // fill — because colour is the SECOND channel and this check exists for the user who cannot read it.
 
-const REFLOW = \`(() => ({
-  docScrollWidth: document.documentElement.scrollWidth,
-  viewport: window.innerWidth,
-  docScrollsSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
-  sideScrollers: [...new Set([...document.querySelectorAll(ROOT_SEL + ' *')]
-    .filter((el) => {
-      const st = getComputedStyle(el);
-      if (st.display === 'none' || st.visibility === 'hidden') return false;
-      const r = el.getBoundingClientRect();
-      return r.width >= 40 && r.height >= 20 && el.scrollWidth > el.clientWidth + 2 && (st.overflowX === 'auto' || st.overflowX === 'scroll');
-    })
-    .map((el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\\\s+/)[0] : '') + ' ' + el.clientWidth + '<' + el.scrollWidth))].slice(0, 8),
-}))()\`;
-`;
+  // DOES THIS SURFACE CLAIM A READ FAILED? (round 100) The fixture serves EVERY call on a normal surface, so a
+  // page that says "could not be read" or "did not answer, so ..." is making a claim about the device that the
+  // fixture contradicts. That is not a cosmetic defect: it is the panel BLAMING THE DEVICE for a question it
+  // answered, and it has happened three times (the update card, the monitors in round 100, the restart history
+  // in round 99) with every gate green, because a sentence is not a contrast ratio and nothing was reading them.
+  // The judge pairs this with report.sse, which says whether the fixture rejected the calls on purpose.
+  claims: (function () {
+    const out = [];
+    for (const el of document.querySelectorAll(root + ' *')) {
+      const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => (n.textContent || '').trim()).join(' ').trim();
+      if (own.length < 12) continue;
+      // A CLAIM, NOT A MENTION: the panel explains these very distinctions in prose ("a device that has no watch
+      // list and a device that did not answer are different"), and an explanation must not be read as the claim.
+      // The claim shapes all name what could not be read, which is what these patterns match.
+      if (!/could not be read/i.test(own) && !/did not answer, so/i.test(own) && !/unavailable .{0,3} reconnecting/i.test(own)) continue;
+      const cls = (el.getAttribute && el.getAttribute('class')) || el.tagName.toLowerCase();
+      // THE DISPLAYED TEXT IS THE KEY, not the whole paragraph: the first run reported the same sentence FOUR times
+      // per surface, because the card's paragraph is split across sibling nodes that differ past the cut.
+      const claim = cls + ': ' + own.replace(/s+/g, ' ').slice(0, 70);
+      if (out.indexOf(claim) < 0) out.push(claim);
+    }
+    return [...new Set(out)].slice(0, 5);
+  })(),
+};`, { __loudnessOf: loudnessOf });
+/** THE ACCESSIBLE-NAME PROBE. */
+export function namesProbe(root) {
+const SEL = 'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="switch"], [role="checkbox"], [role="link"]';
+const name = (el) => {
+  const by = el.getAttribute('aria-labelledby');
+  if (by) { const t = by.split(/\\s+/).map((id) => (document.getElementById(id) || {}).textContent || '').join(' ').trim(); if (t) return t; }
+  const label = el.getAttribute('aria-label'); if (label && label.trim()) return label.trim();
+  if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
+    if (el.id) { const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); if (l && l.textContent.trim()) return l.textContent.trim(); }
+    const wrap = el.closest('label'); if (wrap && wrap.textContent.trim()) return wrap.textContent.trim();
+    if (el.tagName === 'INPUT' && (el.type === 'submit' || el.type === 'button') && el.value) return el.value;
+  }
+  const text = (el.textContent || '').trim(); if (text) return text;
+  // AN IMAGE WITH ALT TEXT NAMES ITS LINK (measured: the console's rail brand read as "title-only"
+  // until this branch existed — a false positive in the detector, not a defect in the page).
+  const img = el.querySelector('img[alt]'); if (img && img.alt.trim()) return img.alt.trim();
+  const title = el.getAttribute('title'); if (title && title.trim()) return 'title-only: ' + title.trim();
+  return '';
+};
+const unnamed = [], titleOnly = [];
+let checked = 0;
+for (const el of document.querySelectorAll(SEL)) {
+  const st = getComputedStyle(el);
+  if (st.display === 'none' || st.visibility === 'hidden') continue;
+  const r = el.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) continue;
+  if (el.getAttribute('aria-hidden') === 'true') continue;
+  checked++;
+  const n = name(el);
+  const d = el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/)[0] : '') + (el.id ? '#' + el.id : '');
+  if (!n) unnamed.push(d);
+  else if (n.startsWith('title-only:')) titleOnly.push(d + ' -> ' + n.slice(11));
+}
+return { checked, unnamed: [...new Set(unnamed)], titleOnly: [...new Set(titleOnly)] };
+}
+
+/** THE REFLOW PROBE: horizontal scrollers at whatever width the caller has set. */
+export function reflowProbe(root) {
+return ({
+docScrollWidth: document.documentElement.scrollWidth,
+viewport: window.innerWidth,
+docScrollsSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
+  .filter((el) => {
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden') return false;
+    const r = el.getBoundingClientRect();
+    return r.width >= 40 && r.height >= 20 && el.scrollWidth > el.clientWidth + 2 && (st.overflowX === 'auto' || st.overflowX === 'scroll');
+  })
+  .map((el) => el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/)[0] : '') + ' ' + el.clientWidth + '<' + el.scrollWidth))].slice(0, 8),
+});
+}
+
 
 /** Every class on screen that no parsed rule styles — asked of the BROWSER (CSSOM), not of the
  *  stylesheet read as text.
@@ -486,13 +474,7 @@ export const UNSTYLED_SOURCE = `(() => {
  *  Escaping to the body is COUNTED, not passed: a page with nothing focusable would otherwise report a
  *  clean sheet indistinguishable from a page with good rings. `judgeReport` fails a row that landed on
  *  nothing. */
-export const FOCUS_SOURCE = `(() => {
-  const el = document.activeElement;
-  if (!el || el === document.body) return 'escaped';
-  const st = getComputedStyle(el);
-  const visible = (parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none') || (st.boxShadow && st.boxShadow !== 'none');
-  return visible ? 'ok' : 'no-ring';
-})()`;
+
 
 /** THE SWEEP REPORTS ITSELF TO THE AGENT'S DIAGNOSTIC RING (round 196).
  *

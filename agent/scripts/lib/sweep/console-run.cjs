@@ -50,6 +50,11 @@ const THEME = P.theme;
 const diag = P.diag;
 const motionPass = P.passes.motionPass;
 const { SURFACE, NAMES, REFLOW } = P.checks;
+// THE ROOT SELECTOR IS AN ARGUMENT TO THE PROBES (round 271): it used to be substituted into their source text,
+// which is how a Node-side identifier once reached page code. The mark axis travels with the surface probe's
+// result, so it is evaluated alongside it and merged in, exactly where it used to be spliced.
+const MARKS = P.marks;
+const SELECTOR = P.config.selector;
 const PASSES = P.config.passes;
 const wants = (name) => !PASSES.length || PASSES.includes('all') || PASSES.includes(name);
 const now = Date.now();
@@ -192,8 +197,8 @@ const fail = { api: false };
     report.themeChecks.push({ page: label + '-dark', intended: 'dark', ...(await page.evaluate(THEME)) });
     const rows = await page.evaluate(PROBE);
     for (const r of rows) report.rows.push({ ...r, page: label + '-dark', width: 1440, density: 'console', theme: 'dark' });
-    report.surfaces.push({ page: label + '-dark', width: 1440, ...(await page.evaluate(SURFACE)) });
-    report.names.push({ page: label + '-dark', ...(await page.evaluate(NAMES)) });
+    report.surfaces.push({ page: label + '-dark', width: 1440, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+    report.names.push({ page: label + '-dark', ...(await page.evaluate(NAMES, SELECTOR)) });
     // THE SAME WINDOW IN DARK, off the page that was just set to it. The panel's idle finding was a THEME-shaped
     // one once (the rail dot froze its paint across a flip), so the dark pass is not a formality here.
     if (wants('idle')) {
@@ -250,11 +255,11 @@ const fail = { api: false };
       if (wants('contrast')) {
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
-        report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE)) });
+        report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
       }
       if (width === 1440) {
         // (a press-only run pays for this width and nothing else)
-        if (wants('names')) report.names.push({ page: label, ...(await page.evaluate(NAMES)) });
+        if (wants('names')) report.names.push({ page: label, ...(await page.evaluate(NAMES, SELECTOR)) });
         // Rendered classes with no matching rule — the mirror of dead CSS, and the failure a prune
         // causes. The browser's parsed selectors are the authority (rounds 79-80 removed 300+ lines
         // from this sheet). The styled count travels with the list as the tripwire. (No backticks in
@@ -431,8 +436,8 @@ const fail = { api: false };
         report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
-        report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE)) });
-        report.names.push({ page: name, ...(await page.evaluate(NAMES)) });
+        report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+        report.names.push({ page: name, ...(await page.evaluate(NAMES, SELECTOR)) });
       }
     }
     empty.fleet = false;
@@ -459,8 +464,8 @@ const fail = { api: false };
         report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
-        report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE)) });
-        report.names.push({ page: name, ...(await page.evaluate(NAMES)) });
+        report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+        report.names.push({ page: name, ...(await page.evaluate(NAMES, SELECTOR)) });
       }
     }
     fail.api = false;
@@ -483,8 +488,8 @@ const fail = { api: false };
     const name = 'login' + (theme === 'dark' ? '-dark' : '');
     report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
     for (const r of await page.evaluate(PROBE)) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
-    report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE)) });
-    report.names.push({ page: name, ...(await page.evaluate(NAMES)) });
+    report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+    report.names.push({ page: name, ...(await page.evaluate(NAMES, SELECTOR)) });
   }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));

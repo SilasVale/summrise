@@ -165,7 +165,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { DECORATIVE_WAIVERS, markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { DECORATIVE_WAIVERS, markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 import { bundleSweep } from "./lib/sweep-bundle.mjs";
 
 const mode = process.argv[2];
@@ -261,19 +261,18 @@ function probeOf(snippet, name) {
 function piecesSource() {
   const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, revealPass, ackPass, ackNotes, idlePass, motionPass };
   const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
-  // THE PAGE CHECKS ARE STILL SOURCE TEXT — the honest boundary this slice does not cross: pageChecks() substitutes a
-  // root selector into a template, so it is evaluated ONCE here into real string values. Converting the checks into
-  // functions that take the root selector as an argument is the next slice.
-  const checks = new Function(pageChecks("#root") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+  const checks = { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe };
   return `${decls}
 ${DIAG_SOURCE}
 module.exports = {
-  config: ${JSON.stringify({ harnessPath: DEFAULT_HARNESS_PATH, reportPath: DEFAULT_REPORT_PATH, expectedHarnessBuild: HARNESS_STAMP, passes: PASSES })},
+  config: ${JSON.stringify({ harnessPath: DEFAULT_HARNESS_PATH,
+    selector: "#root", reportPath: DEFAULT_REPORT_PATH, expectedHarnessBuild: HARNESS_STAMP, passes: PASSES })},
   probe: ${JSON.stringify(PROBE_SOURCE)},
   unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
   targets: ${JSON.stringify(TARGETS_SOURCE)},
   theme: ${JSON.stringify(THEME_SOURCE)},
-  checks: ${JSON.stringify(checks)},
+  checks: { SURFACE: ${surfaceProbe.toString()}, NAMES: ${namesProbe.toString()}, REFLOW: ${reflowProbe.toString()} },
+  marks: ${marksProbe.toString()},
   motion: ${JSON.stringify(probeOf(MOTION, "MOTION"))},
   timing: ${JSON.stringify(probeOf(TIMING, "TIMING"))},
   diag,

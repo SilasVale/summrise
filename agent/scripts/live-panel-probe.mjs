@@ -81,7 +81,7 @@ import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 // THE SAME MARK AXIS THE SWEEPS RUN, not a second copy of it (round 30 of the standing goal). The sweeps measure the
 // HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
 // live one renders (the approval gate's disarmed ring is one — it measured 2.56 here and nothing else could see it).
-import { marksSource } from "./lib/design-sweep.mjs";
+import { marksProbe } from "./lib/design-sweep.mjs";
 import { bundleSweep } from "./lib/sweep-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -115,8 +115,9 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 function piecesSource() {
   return `module.exports = {
   probe: ${JSON.stringify(PROBE_SOURCE)},
-  marks: ${JSON.stringify(marksSource("#root"))},
+  marks: ${marksProbe.toString()},
   configPaths: ${JSON.stringify(CONFIG_PATHS)},
+  selector: "#root",
 };
 `;
 }

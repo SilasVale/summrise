@@ -24,6 +24,11 @@ const REPORT_PATH = process.env.VALE_SWEEP_REPORT || P.config.reportPath;
 const EXPECTED_HARNESS_BUILD = P.config.expectedHarnessBuild;
 const PROBE = P.probe;
 const { SURFACE, NAMES, REFLOW } = P.checks;
+// THE ROOT SELECTOR IS AN ARGUMENT TO THE PROBES (round 271): it used to be substituted into their source text,
+// which is how a Node-side identifier once reached page code. The mark axis travels with the surface probe's
+// result, so it is evaluated alongside it and merged in, exactly where it used to be spliced.
+const MARKS = P.marks;
+const SELECTOR = P.config.selector;
 const UNSTYLED = P.unstyled;
 const TARGETS = P.targets;
 const THEME = P.theme;
@@ -137,8 +142,8 @@ const TIMING = P.timing;
           await page.waitForTimeout(450);
           const rows = await page.evaluate(PROBE);
           for (const row of rows) report.rows.push({ ...row, density, theme, mode: mode_, page: label });
-          report.surfaces.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(SURFACE)) });
-          report.names.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(NAMES)) });
+          report.surfaces.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+          report.names.push({ density, theme, mode: mode_, page: density + '-' + label, ...(await page.evaluate(NAMES, SELECTOR)) });
           // DID THE HARNESS DELIVER THE PUSH? The panel's connected state comes from a complete frame on
           // /api/events/term, and the fixture that serves it is the only thing that knows whether it was served.
           // This was a NOTE in the harness for many rounds ("with the stream shut, every panel measurement this
@@ -173,8 +178,8 @@ const TIMING = P.timing;
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty' });
     report.themeChecks.push({ page: 'Desktop-empty', intended: theme, ...(await page.evaluate(THEME)) });
-    report.surfaces.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(SURFACE)) });
-    report.names.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES)) });
+    report.surfaces.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+    report.names.push({ density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty', ...(await page.evaluate(NAMES, SELECTOR)) });
   }
 
   // THE NEW-SESSION MENU, WHICH ONLY A CLICK CAN RENDER (round 92). DesktopShell holds it: a .btn-new button with
@@ -197,8 +202,8 @@ const TIMING = P.timing;
     const pname = 'Desktop-NewMenu-' + theme;
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'menu', page: pname });
-    report.surfaces.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(SURFACE)) });
-    report.names.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(NAMES)) });
+    report.surfaces.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+    report.names.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
     report.sse.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(SSE)) });
   }
 
@@ -224,8 +229,8 @@ const TIMING = P.timing;
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty' });
     report.themeChecks.push({ page: 'Panel-empty', intended: theme, ...(await page.evaluate(THEME)) });
-    report.surfaces.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(SURFACE)) });
-    report.names.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(NAMES)) });
+    report.surfaces.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+    report.names.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(NAMES, SELECTOR)) });
     // THE FLAG TRAVELS WITH THIS ONE, unlike the desktop block above: it is the whole reason the surface can exist.
     report.sse.push({ density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty', ...(await page.evaluate(SSE)) });
   }
@@ -256,8 +261,8 @@ const TIMING = P.timing;
     const name = (density === 'desktop' ? 'Desktop-settings-busy' : 'Settings-busy');
     for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'busy', page: name });
     report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
-    report.surfaces.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(SURFACE)) });
-    report.names.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(NAMES)) });
+    report.surfaces.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+    report.names.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(NAMES, SELECTOR)) });
   }
   }
 
@@ -324,8 +329,8 @@ const TIMING = P.timing;
         const rows = await page.evaluate(PROBE);
         for (const row of rows) report.rows.push({ ...row, density, theme: pageTheme, mode: 'rail', page: name });
         report.themeChecks.push({ page: name, intended: theme, ...themeRead });
-        report.surfaces.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE)) });
-        report.names.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(NAMES)) });
+        report.surfaces.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+        report.names.push({ density, theme: pageTheme, mode: 'rail', page: name, ...(await page.evaluate(NAMES, SELECTOR)) });
         // AND THE STATE A HOVER REVEALS, ASKED FOR RATHER THAN STUMBLED INTO (round 16). .side-actions is
         // display:none until the row is hovered, so the target probe has always read 0x0 and skipped it; the one
         // time it was measured, the press pass happened to leave the pointer on a row. This hovers a row, measures,
@@ -379,8 +384,8 @@ const TIMING = P.timing;
       const name = (density === 'desktop' ? 'Desktop-16-sessions' : 'Terminal-16-sessions');
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'overflow', page: name });
       report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
-      report.surfaces.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(NAMES, SELECTOR)) });
     }
   }
 
@@ -417,8 +422,8 @@ const TIMING = P.timing;
       const pname = (density === 'desktop' ? 'Desktop-' : '') + page_;
       report.themeChecks.push({ page: pname, intended: qTheme, ...(await page.evaluate(THEME)) });
       for (const row of rows) report.rows.push({ ...row, density, theme: qTheme, mode: 'fixture', page: pname });
-      report.surfaces.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
       // THE FAILURE SURFACES REPORT TOO, and they are the reason the flag travels WITH the reading: ?fail=1 rejects
       // every /api/ call, so this harness legitimately never opens the stream and the panel is SUPPOSED to say
       // "Sessions unavailable". A judge that guessed that from a page name would be reading a label; this reads the
@@ -466,8 +471,8 @@ const TIMING = P.timing;
       const rname = 'PluginRunning-' + theme;
       const rrows = await page.evaluate(PROBE);
       for (const row of rrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-running', page: rname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -509,8 +514,8 @@ const TIMING = P.timing;
       const fname = 'PluginStartFail-' + theme;
       const frows = await page.evaluate(PROBE);
       for (const row of frows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-fail', page: fname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -530,8 +535,8 @@ const TIMING = P.timing;
         const mname = label + '-' + theme;
         const mrows = await page.evaluate(PROBE);
         for (const row of mrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'monitor-' + dir, page: mname });
-        report.surfaces.push({ density: 'panel', theme, mode: 'monitor-' + dir, page: mname, ...(await page.evaluate(SURFACE)) });
-        report.names.push({ density: 'panel', theme, mode: 'monitor-' + dir, page: mname, ...(await page.evaluate(NAMES)) });
+        report.surfaces.push({ density: 'panel', theme, mode: 'monitor-' + dir, page: mname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+        report.names.push({ density: 'panel', theme, mode: 'monitor-' + dir, page: mname, ...(await page.evaluate(NAMES, SELECTOR)) });
         report.sse.push({ density: 'panel', theme, mode: 'monitor-' + dir, page: mname, ...(await page.evaluate(SSE)) });
       }
     }
@@ -550,8 +555,8 @@ const TIMING = P.timing;
       const bname = 'BootReplaced-' + theme;
       const brows = await page.evaluate(PROBE);
       for (const row of brows) report.rows.push({ ...row, density: 'panel', theme, mode: 'boot-replaced', page: bname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -566,8 +571,8 @@ const TIMING = P.timing;
       const aname = 'ApprovalOff-' + theme;
       const arows = await page.evaluate(PROBE);
       for (const row of arows) report.rows.push({ ...row, density: 'panel', theme, mode: 'approval-off', page: aname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -582,8 +587,8 @@ const TIMING = P.timing;
       const pname = 'LastFail-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail', page: pname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -602,8 +607,8 @@ const TIMING = P.timing;
       const pname = 'LastFailActive-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail-active', page: pname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -628,8 +633,8 @@ const TIMING = P.timing;
       await page.waitForTimeout(1500);
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'logs-warn', page: pname });
-      report.surfaces.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
     }
   }
 
@@ -677,8 +682,8 @@ const TIMING = P.timing;
             + (trimmed ? '-trimmed' : '');
           const rows = await page.evaluate(PROBE);
           for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'record', page: pname });
-          report.surfaces.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SURFACE)) });
-          report.names.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(NAMES)) });
+          report.surfaces.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+          report.names.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
           report.sse.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SSE)) });
           }
         }
@@ -711,8 +716,8 @@ const TIMING = P.timing;
       const rowsName = 'ArchiveRows-' + theme;
       const rowsA = await page.evaluate(PROBE);
       for (const row of rowsA) report.rows.push({ ...row, density: 'panel', theme, mode: 'archive', page: rowsName });
-      report.surfaces.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(SSE)) });
 
       // (b) THE TRAIL INSIDE AN ARCHIVED SESSION — one click, the same page
@@ -724,8 +729,8 @@ const TIMING = P.timing;
       const trailName = 'ArchiveTrail-' + theme;
       const rowsB = await page.evaluate(PROBE);
       for (const row of rowsB) report.rows.push({ ...row, density: 'panel', theme, mode: 'archive-trail', page: trailName });
-      report.surfaces.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(SSE)) });
     }
     for (const theme of ['light', 'dark']) {
@@ -744,8 +749,8 @@ const TIMING = P.timing;
       const runsName = 'HistoryRuns-' + theme;
       const rowsC = await page.evaluate(PROBE);
       for (const row of rowsC) report.rows.push({ ...row, density: 'panel', theme, mode: 'runs', page: runsName });
-      report.surfaces.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(SSE)) });
     }
   }
@@ -825,8 +830,8 @@ const TIMING = P.timing;
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'NoGoal-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'no-goal', page: pname });
-      report.surfaces.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -848,8 +853,8 @@ const TIMING = P.timing;
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Held-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'held', page: pname });
-      report.surfaces.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -889,8 +894,8 @@ const TIMING = P.timing;
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Closed-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'closed', page: pname });
-      report.surfaces.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(SURFACE)) });
-      report.names.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(NAMES)) });
+      report.surfaces.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
+      report.names.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(SSE)) });
     }
   }
@@ -1015,7 +1020,7 @@ const TIMING = P.timing;
     await page.evaluate(() => { try { localStorage.setItem('valeGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1500);
-    report.reflow.push({ width, ...(await page.evaluate(REFLOW)) });
+    report.reflow.push({ width, ...(await page.evaluate(REFLOW, SELECTOR)) });
   }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));

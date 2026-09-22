@@ -10,6 +10,7 @@ const P = require("./pieces.cjs");
 const fs = require("fs");
 const PROBE = P.probe;
 const MARKS = P.marks;
+const SELECTOR = P.selector;
 const CONFIGS = P.configPaths;
 (async () => {
   let token = null, where = null;
@@ -37,7 +38,7 @@ const CONFIGS = P.configPaths;
       tabs: document.querySelectorAll('.tab, .dtab').length,
       railDots: [...document.querySelectorAll('.rail-dot, .dtab-dot')].map((d) => d.getAttribute('data-state')).slice(0, 8),
     }));
-    const marks = await page.evaluate(MARKS);
+    const marks = await page.evaluate(MARKS, SELECTOR);
     const rows = await page.evaluate(PROBE);
     const text = rows.filter((r) => r.kind !== 'graphic');
     const graphics = rows.filter((r) => r.kind === 'graphic');

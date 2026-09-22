@@ -3760,6 +3760,49 @@ WHAT REMAINS: `pageChecks`/`marksSource` become functions that take the root sel
 console and the live probe each evaluate them once through `new Function` today, and each says so in a comment), and
 then the guards that only existed for the template literals can go.
 
+### THE EMIT SEAM, LAST SLICE: THE PROBES BECOME FUNCTIONS, AND THREE COLLAPSED REGEXES COME TO LIGHT (round 271)
+
+The five emitters no longer build payloads from template literals, but the PAGE CHECKS still did: `pageChecks(rootSelector)`
+returned 209 lines of source text with the selector substituted in (`replaceAll("ROOT_SEL", ...)`) and the mark axis spliced
+into it at a `/* MARKS_PLACEHOLDER */` marker; `marksSource(rootSelector)` did the same for the live probe. That
+substitution is what once put a Node-side identifier into page code and killed the extension sweep with `ROOT_SEL is not
+defined`, and the splice was silent: renaming the marker would leave `marks: {}` with no error anywhere.
+
+**THEY ARE FOUR REAL FUNCTIONS NOW** — `marksProbe(root)`, `surfaceProbe(root)`, `namesProbe(root)`, `reflowProbe(root)` —
+and the payloads call `page.evaluate(probe, SELECTOR)`. Two consequences worth stating: the selector cannot leak as an
+identifier because it is an argument, and the mark axis is evaluated alongside the surface probe and merged in Node
+(the report's shape is unchanged; the JSON key order moved by one position, which is why `surfaces` compares unequal
+while its length is byte-identical — a deep comparison shows ZERO differences).
+
+**ONE COMPOSITION POINT REMAINS, AND IT IS NAMED.** `page.evaluate(fn)` serializes the function ALONE, so anything a probe
+closes over is undefined in the page: `surfaceProbe` needs `loudnessOf`, which is also imported by
+`state-colour-check.mjs`, so it cannot simply move inside. `withHelpers(body, helpers)` binds a module-level helper into a
+probe's body once, at load, from its ONE definition — the job the old interpolation did, isolated to one documented
+function instead of scattered through a template. Nothing else in the library composes source.
+
+**EQUIVALENCE.** Locally, each new probe's body was compared with the string the old emitter shipped: NAMES, REFLOW and
+MARKS byte-identical modulo the selector now being an argument, SURFACE identical except that its helper declaration
+moved to the top of the function. On d1, the same sweep artifact emitted before and after: 1138 rows each, and `rows`,
+`reflow`, `names`, `focus`, `motion`, `hover`, `unstyled`, `targets`, `themeChecks` and `sse` IDENTICAL; `surfaces`
+deep-equal (the key-order note above); `timing` differs only in wall-clock milliseconds. The live probe reports
+`verdict.ok` with the same families, collisions and ring+fill.
+
+**AND THE CONVERSION EXPOSED THREE COLLAPSED REGEXES, which is the round-57 bug family surviving in the one place nobody
+re-read:**
+  * `namesProbe`: `own.replace(/\s+/g, ' ')` — the emitted probe has `s+`, so the claim text replaces runs of the LETTER
+    "s" with spaces. This is the same collapse that once made the loud axis count every element for thirty-seven rounds.
+  * `marksProbe`: `split(/[\s,/]+/)` — emitted as `[s,/]`, so class names are also split on the letter "s".
+  * `marksProbe`: `/\\.(dot|dotcol|...)$/` — this one is OVER-escaped (the emitted regex wants a literal backslash).
+They are preserved EXACTLY as they behave today by this round's conversion — fixing them changes what the probes measure,
+so it belongs in its own round with the report diff in front of it, not folded into a refactor whose whole claim is
+"nothing changed".
+
+`FOCUS_SOURCE` (exported, imported by nothing) is deleted, and the "no backticks inside PAGE_CHECKS_TEMPLATE" warnings
+now name the constraint that still exists: the SURFACE body is carried in the one template literal `withHelpers` reads.
+
+**THE RULE HAS A GATE**: `sweep-bundle-check` scans every payload for a probe called without its selector (90 calls
+across 5 modules; mutation: drop the argument and it fails, naming the file).
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
