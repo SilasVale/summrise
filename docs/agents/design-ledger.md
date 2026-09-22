@@ -3288,3 +3288,22 @@ ROUND 180 CLOSED THE SURVEY, and the RELEASE CHAIN is the fourth answer: `agent/
 RECORDED WITH THE TWO THINGS IT IS WORTH: the assets are committed (the inconsistency is gone), and the gap is named — a
 freshly checked-out tree can serve a console built from older source, and the test that would notice is a comparison between
 the built assets and a rebuild, which is a candidate rather than something started here.
+
+### THE FIRST COMPLETE DESIGN MEASUREMENT SINCE ROUND 81, AND A NEW KIND OF COVERAGE NOTE (round 183)
+
+`226a42f2` is the first run since round 81 whose design job finished, because every push before it cancelled the one in
+flight — a discipline this session re-learned twice. It is GREEN, with 142 surfaces and 8266 rows, and it reports two things:
+
+    note: mark family traj-ev-dot declares 6 state(s) and this run rendered 5 (bg, fail, muted, ok, warn)
+          — the known one: `running` is a state the derivation carries and no surface paints.
+
+    note: mark family X declares N state(s) and the CLASS IS ON SCREEN — the probe did not record it as a family of its own
+
+NINE of the second kind: side-dot, tab-dot, monitor-chip, run-row-state, archive-state, dtab-dot, health-state, dev-sig-state and
+one more. That note is new — it distinguishes "the class renders but the probe did not group it" from "nothing renders it", and
+it is the coverage queue doing exactly what it was built for: naming, per run, the families whose silhouettes remain UNVERIFIED.
+
+SO THE NEXT THREAD IS ALREADY WRITTEN: nine families the surface probe sees on screen but never measures as families, which
+means their states' silhouettes and collisions are unproven — the same class of gap that hid the four collisions this objective
+found by hand. Recorded here rather than started, because the round that takes it should begin by READING the probe's grouping
+rule, not by assuming it.
