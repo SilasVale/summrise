@@ -1233,7 +1233,7 @@ test("the update staleness window is the same on both sides of the lock", () => 
 // once three in one round) and every time the ONLY thing that noticed was a
 // human looking. `status` answered "what is this device running" and never "is
 // that current", and those two questions are answered by different machines.
-const { statusReport, behindBy } = require("../bin/vale.js");
+const { statusReport, behindBy, isBehind } = require("../bin/vale.js");
 const DRIFT_BASE = {
   agentRunning: true,
   installDir: "D:\\Vale",
@@ -1274,6 +1274,15 @@ test("delivery drift: an unreadable CDN is NOT agreement", () => {
 test("delivery drift: counts patches within a minor, refuses a count across one", () => {
   assert.equal(behindBy("1.2.9", "1.2.12"), "3 releases");
   assert.equal(behindBy("1.2.9", "1.2.10"), "1 release");
+  // AND THE SAME FACT AS A BOOLEAN (round 202). The update guard needs "is the CDN ahead of me", and its first version
+  // asked `behindBy(...)` — whose answer is a PHRASE, truthy for "0 releases" and "-1 releases" alike, so it would have
+  // refused every update including the correct one. These cases are the ones that caught it.
+  assert.equal(isBehind("1.2.439", "1.2.440"), true);
+  assert.equal(isBehind("1.2.440", "1.2.440"), false);
+  assert.equal(isBehind("1.2.440", "1.2.439"), false);
+  assert.equal(isBehind("1.2.440", "1.3.0"), false);
+  assert.equal(isBehind("", "1.2.440"), false);
+  assert.equal(isBehind("garbage", "1.2.440"), false);
   // A cross-minor jump is a different operation (the CDN prunes last-5-per-minor
   // and `vale rollback` refuses it), so it is not "N releases".
   assert.equal(behindBy("1.1.9", "1.2.0"), "a release line, not a patch count");

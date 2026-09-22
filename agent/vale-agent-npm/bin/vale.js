@@ -58,6 +58,7 @@ exports.playwrightProbePs = playwrightProbePs;
 exports.busyIsFresh = busyIsFresh;
 exports.latestCdnVersion = latestCdnVersion;
 exports.statusReport = statusReport;
+exports.isBehind = isBehind;
 exports.behindBy = behindBy;
 exports.updateReceiptPs = updateReceiptPs;
 exports.updateBusyPath = updateBusyPath;
@@ -812,12 +813,28 @@ function statusReport(f) {
  * stated as such. The last-5-per-minor CDN prune means a cross-minor jump is a
  * different operation anyway (`vale rollback` refuses it for the same reason).
  */
+/** ONE PARSE, TWO PRESENTATIONS (round 202). The comparison between two x.y.z strings was written out once, for the
+ *  sentence `status` prints. The update guard needed the same fact as a BOOLEAN, and its first version tested the
+ *  sentence's truthiness — where "0 releases" and "-1 releases" are both TRUTHY, so it would have refused every update,
+ *  including the correct one. Caught by asking the artefact before shipping it. */
+function versionTriple(v) {
+    const t = String(v || "").split(".").map(Number);
+    return t.length === 3 && t.every((n) => Number.isFinite(n)) ? t : null;
+}
+/** Is `latest` ahead of `device` on the SAME release line? */
+function isBehind(device, latest) {
+    const a = versionTriple(device);
+    const b = versionTriple(latest);
+    if (!a || !b)
+        return false;
+    if (a[0] !== b[0] || a[1] !== b[1])
+        return false;
+    return b[2] > a[2];
+}
 function behindBy(device, latest) {
-    const a = device.split(".").map(Number);
-    const b = latest.split(".").map(Number);
-    if (a.length !== 3 ||
-        b.length !== 3 ||
-        [...a, ...b].some((n) => !Number.isFinite(n))) {
+    const a = versionTriple(device);
+    const b = versionTriple(latest);
+    if (!a || !b) {
         return "an unknown number of releases";
     }
     if (a[0] !== b[0] || a[1] !== b[1])
@@ -1838,7 +1855,7 @@ const commands = {
         // thing that works — the release flow has always been two steps.
         const cdnLatest = latestCdnVersion();
         const selfVersion = String(require("../package.json").version || "");
-        if (cdnLatest && selfVersion && behindBy(selfVersion, cdnLatest)) {
+        if (cdnLatest && selfVersion && isBehind(selfVersion, cdnLatest)) {
             console.error(`update: this CLI is ${selfVersion} and the CDN has ${cdnLatest}.` +
                 "\n  Updating from here would stamp the device with " +
                 selfVersion +
