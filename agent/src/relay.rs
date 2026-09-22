@@ -122,17 +122,27 @@ pub fn spawn(
     ct: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let client = match reqwest::Client::builder()
-            .timeout(Duration::from_secs(45))
-            .build()
-        {
+        let base = url.trim_end_matches('/').to_string();
+        // A LOOPBACK RELAY MUST NOT GO THROUGH A PROXY (round 209, measured on the device). This agent sits behind a
+        // corporate proxy and reqwest honours the proxy environment by default, so `http://127.0.0.1:18990/agent/pull` was
+        // handed to the proxy — which cannot reach anybody's loopback — and the device reported eleven consecutive failures
+        // with "error sending request" while the relay was answering /healthz perfectly on that same host. A relay on a THIRD
+        // machine still uses the proxy, which is correct and unchanged.
+        let loopback_relay = base.contains("//127.0.0.1")
+            || base.contains("//localhost")
+            || base.contains("//[::1]");
+        let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(45));
+        if loopback_relay {
+            builder = builder.no_proxy();
+            tracing::info!("relay: {base} is loopback — bypassing any configured proxy");
+        }
+        let client = match builder.build() {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!("relay: no HTTP client: {e}");
                 return;
             }
         };
-        let base = url.trim_end_matches('/').to_string();
         let mut backoff_ms: u64 = 500;
         tracing::info!("relay: dialling out to {base}");
         loop {
