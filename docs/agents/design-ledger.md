@@ -3358,3 +3358,23 @@ AND THAT IS THE OPEN QUESTION, named rather than assumed: the sweep's ack pass d
 does device work and keeps a CURATED pair elsewhere (Settings monitors), so the console's coverage is partial by construction.
 The panel paid for the full treatment — a pass over every control it renders, with 158 presses and zero dead — and whether the
 console needs the same is a measurement nobody has taken.
+
+### DOES EVERY BUSY FLAG DRIVE SOMETHING VISIBLE? MEASURED, AND THE SCAN MISSED TEXT (round 188)
+
+The follow-up to round 187's open question, asked statically first: of the console's many per-view busy states, do any guard
+NOTHING — a flag that changes no pixel and so acknowledges nobody? A scan for `disabled={…busy…}`, `data-busy`, `aria-busy` and a
+class interpolation reported three: `loading` in Models, Routes and AuthContext.
+
+READING THEM SETTLES IT, and the answer is that all three acknowledge in a spelling the scan did not know:
+
+    Models.tsx:573      <Badge tone="muted">{loading ? t("loading") : `${total} …`}</Badge>   a TEXT ack, in place of a count
+    Routes.tsx:80       if (loading) { … <p className="muted">{t("loading")}</p> }            an early-return loading screen
+    AuthContext.tsx:68  the flag is exposed to the whole app and consumed there               a session-level state
+
+So NO busy flag is silent, and the scan was narrow in the familiar way — the eighth time this session that a text check was
+mistaken for a rule. The console acknowledges with `disabled`, with TEXT, and with a whole SCREEN, and only a rendered
+measurement can see all three.
+
+WHICH IS EXACTLY WHY ROUND 187'S QUESTION IS THE RIGHT ONE TO LEAVE OPEN: the static question has now been asked twice and
+answered twice in the same direction, and the only instrument that can ask it properly is the ack pass — which covers the
+console only where it discovers controls or keeps its curated pair.
