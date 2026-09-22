@@ -107,7 +107,8 @@ const CASES = [
   },
   {
     gate: "scripts/test/harness-fixture-check.mjs",
-    file: "agent/scripts/panel-render-audit.mjs",
+    // THE STUB MOVED (round 270): the emitter builds the page, the stubbed device API lives in this module.
+    file: "agent/scripts/lib/sweep/panel-stub.cjs",
     why: "the query is parsed ONCE again, which is what made the page answer 'crashed' with the flag in its URL",
     from: `  var P = { get: function (n) { return new URLSearchParams(location.search).get(n); },
             has: function (n) { return new URLSearchParams(location.search).has(n); } };`,
@@ -151,7 +152,8 @@ const CASES = [
     file: "agent/resources/panel-react/src/hooks/useAgentVitals.ts",
     also: [
       {
-        file: "agent/scripts/panel-render-audit.mjs",
+        // THE STUB MOVED (round 270) — the fixtures the harness serves are in the payload module now.
+        file: "agent/scripts/lib/sweep/panel-stub.cjs",
         from: "      running: P.get('pwrun') === '1',",
         to: "      running: P.get('pwrun') === '1', stub_only_field: 1,",
       },
@@ -198,7 +200,7 @@ const CASES = [
     file: "agent/resources/panel-react/src/hooks/useAgentVitals.ts",
     also: [
       {
-        file: "agent/scripts/panel-render-audit.mjs",
+        file: "agent/scripts/lib/sweep/panel-stub.cjs",
         from: "      running: P.get('pwrun') === '1',",
         to: "      running: P.get('pwrun') === '1', only_a_comment_field: 1,",
       },
