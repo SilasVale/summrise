@@ -3,20 +3,22 @@
   "stable_keys": [
     "ok",
     "version",
+    "host",
     "port",
     "uptime_secs",
     "live_sessions",
     "relay",
-    "serial_ports"
+    "serial_ports",
+    "config_path"
   ],
   "conditional_keys": {
-    "pending_approvals": "inserted only when non-zero \u2014 the device's own comment explains why: built inside json! it would be present as null on every response, and a consumer could not tell 'nothing waiting' from 'an older agent that never sends this'",
+    "pending_approvals": "inserted only when non-zero — the device's own comment explains why: built inside json! it would be present as null on every response, and a consumer could not tell 'nothing waiting' from 'an older agent that never sends this'",
     "release": "present only when the device knows which release it came up on",
     "last_boot": "present only when a previous run left a verdict, and ALWAYS with last_boot_kind",
     "last_boot_kind": "the same verdict as data, for consumers that must not parse a sentence",
-    "cpu_pct": "present only when the sampler has a reading \u2014 the device's comment: other hosts return None, so the fields are omitted and the endpoint shape stays additive",
+    "cpu_pct": "present only when the sampler has a reading — the device's comment: other hosts return None, so the fields are omitted and the endpoint shape stays additive",
     "mem_pct": "same as cpu_pct; the pair arrives together from `metrics::latest()`",
-    "mem_total_mb": "the third vitals field, and the one the PANEL DOES NOT READ: it rides this endpoint for the other consumers the device names (the Electron tray's health poll, the console's fleet card). Declared here because an undeclared field on the response is how this contract would stop describing reality \u2014 which is precisely what this check caught on its first run."
+    "mem_total_mb": "the third vitals field, and the one the PANEL DOES NOT READ: it rides this endpoint for the other consumers the device names (the Electron tray's health poll, the console's fleet card). Declared here because an undeclared field on the response is how this contract would stop describing reality — which is precisely what this check caught on its first run."
   },
   "pairing": {
     "last_boot + last_boot_kind": "the sentence and the data travel together; parseLastBoot drops a kind with no sentence rather than rendering a bare word, so sending one without the other is a field the panel silently discards"
@@ -29,11 +31,15 @@
     "release",
     "last_boot",
     "last_boot_kind",
-    "relay"
+    "relay",
+    "host",
+    "config_path"
   ],
   "example": {
     "ok": true,
     "version": "1.2.433",
+    "config_path": "C:\\\\ProgramData\\\\Vale\\\\etc\\\\config.yaml",
+    "host": "127.0.0.1",
     "port": 18080,
     "uptime_secs": 5412,
     "live_sessions": 3,
@@ -44,7 +50,7 @@
     "cpu_pct": 12.5,
     "mem_pct": 41.7,
     "pending_approvals": 1,
-    "last_boot": "2026-09-13 04:12:03 +08:00 \u2014 unexpected exit",
+    "last_boot": "2026-09-13 04:12:03 +08:00 — unexpected exit",
     "last_boot_kind": "crashed",
     "relay": {
       "configured": false,

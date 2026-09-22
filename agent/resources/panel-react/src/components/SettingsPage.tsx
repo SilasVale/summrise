@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, getToken } from "../lib/api";
 import { ConnectCard } from "./ConnectCard";
 import { DeviceLogsCard } from "./DeviceLogsCard";
 import { RestartHistoryCard } from "./RestartHistoryCard";
@@ -36,6 +36,12 @@ function UpdateSection({ runningRelease }: { runningRelease?: string }) {
   );
 }
 
+/** The spellings a loopback bind can have. Written out rather than imported, because what is being decided is which SENTENCE
+ *  to print, and that sentence differs only for these. */
+function isLoopback(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
 export function SettingsPage({
   onOpenMemory,
   restarts,
@@ -43,6 +49,7 @@ export function SettingsPage({
   vitals,
   vitalsFailed,
   runningRelease,
+  config,
   monitors,
   monitorsFailed,
   onMonitorAdd,
@@ -78,7 +85,12 @@ export function SettingsPage({
   /** The release the shell sees the device RUNNING (`/api/status`). The update card watches
    *  it change to recognise a swap that happened while the operator was looking. */
   runningRelease?: string;
+  /** The CONFIGURED bind, from /api/status. Optional: a caller that does not pass it renders no bind line rather than a
+   *  guessed one — the rule the device line below already follows for `location.host`. */
+  config?: { host?: string; port?: number; path?: string } | null;
 }) {
+  const [revealed, setRevealed] = useState(false);
+  const token = getToken();
   const [bufferMb, setBufferMb] = useState("8");
   const [status, setStatus] = useState("");
 
@@ -253,13 +265,48 @@ export function SettingsPage({
           and a lie for every remote or tunnelled user — the rule `ConnectCard` states two files away: "A hardcoded value here
           would be wrong for every remote/tunnel user." `location.host` is the same string the browser itself is talking to. */}
       <p className="muted">Device: local agent on {location.host}</p>
+      {/* AND WHAT IT IS BOUND TO, WHICH IS A DIFFERENT FACT. The line above is the address this browser reached the agent
+          on; this is the address the agent was CONFIGURED to listen on. They agree for a local browser and differ for a
+          relayed or tunnelled caller — and until 1.2.448 the configured bind existed only inside config.yaml on the device,
+          so "where is that set?" had no answer anywhere in the interface. The second half is printed ONLY for a loopback
+          bind: there it is both true and useful, and for a network-bound device it would be a lie. */}
+      {config?.host ? (
+        <p className="muted">
+          Bound to {config.host}
+          {typeof config.port === "number" ? `:${config.port}` : ""}
+          {isLoopback(config.host)
+            ? " — this machine only. To reach it from another one: the relay, a VPN, or ssh -L."
+            : " — reachable on the network; keep the device token secret."}
+        </p>
+      ) : null}
 
       {/* Onboarding FIRST. Until an AI client is pointed here, none of the rest
           of this page matters — the measured gap this card closes was that a
           new user's first screen was a terminal and the product's promise was
           invisible. See docs/adr/proposal-game-design.md §4. */}
-      <ConnectCard />
+      {/* THE TWO THINGS THE OPERATOR NAMED, ON THE SURFACE (1.2.448). He asked for the device token and the config file by
+          name and said the rest of this page was clutter. The token is this device's credential and the panel already holds
+          it; the config file is where every value below comes from. Each used to require knowing where to look — one inside a
+          client snippet, the other inside a YAML file on disk. */}
+      <p className="muted">
+        Device token: <code>{revealed ? token : "••••••••••••"}</code>{" "}
+        <button className="btn" onClick={() => setRevealed((v) => !v)}>{revealed ? "Hide" : "Reveal"}</button>{" "}
+        <button className="btn" onClick={() => void navigator.clipboard?.writeText(token)}>Copy</button>
+      </p>
+      {config?.path ? (
+        <p className="muted">Config file: <code>{config.path}</code></p>
+      ) : null}
 
+      {/* FOLDED, NOT DELETED. The client snippets are what a new client needs and the diagnostics are what a BROKEN device
+          needs; neither is a setting, and both were competing with the twenty controls that are. A `details` keeps them one
+          click away and out of the page's reading order. */}
+      <details className="settings-fold">
+        <summary>Connect an AI client</summary>
+        <ConnectCard />
+      </details>
+
+      <details className="settings-fold">
+        <summary>Diagnostics</summary>
       <DeviceHealthCard series={vitals ?? EMPTY_SERIES} failed={vitalsFailed} />
 
       <UpdateSection runningRelease={runningRelease} />
@@ -282,6 +329,7 @@ export function SettingsPage({
       <DeviceLogsCard />
 
       <RestartHistoryCard history={restarts ?? EMPTY_BOOT_HISTORY} failed={restartsFailed} />
+      </details>
 
       <div className="settings-section">
         <h2>Gateway</h2>

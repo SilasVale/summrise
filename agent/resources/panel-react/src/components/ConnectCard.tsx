@@ -72,36 +72,6 @@ const CLIENTS: ClientSpec[] = [
   },
 ];
 
-/** Tool families, in the order a newcomer should meet them. Anything not
- *  listed still counts toward the total — this is a summary, not a registry. */
-const FAMILIES: Array<{ prefix: string; label: string; blurb: string }> = [
-  {
-    prefix: "terminal_",
-    label: "Terminal",
-    blurb:
-      "PTY / SSH / serial sessions — run commands, read output, drive hardware consoles",
-  },
-  {
-    prefix: "system_",
-    label: "System",
-    blurb: "files, processes, network reachability",
-  },
-  {
-    prefix: "browser_",
-    label: "Browser",
-    blurb: "a real browser the AI and you both watch",
-  },
-  {
-    prefix: "memory_",
-    label: "Memory",
-    blurb: "device-local knowledge shared across AI clients",
-  },
-  {
-    prefix: "mcp_client_",
-    label: "MCP bridge",
-    blurb: "connect further MCP servers",
-  },
-];
 
 type Probe = { state: "idle" | "running" | "ok" | "fail"; detail?: string };
 
@@ -175,20 +145,6 @@ export function ConnectCard() {
       );
   }, []);
 
-  const counts = useMemo(() => {
-    const out: Array<{ label: string; blurb: string; n: number }> = [];
-    let claimed = 0;
-    for (const f of FAMILIES) {
-      const n = (tools ?? []).filter((t) => t.startsWith(f.prefix)).length;
-      claimed += n;
-      if (n > 0) out.push({ label: f.label, blurb: f.blurb, n });
-    }
-    const rest = (tools?.length ?? 0) - claimed;
-    if (rest > 0)
-      out.push({ label: "Other", blurb: "updates, page inspection", n: rest });
-    return out;
-  }, [tools]);
-
   return (
     <>
       <div className="settings-section">
@@ -210,15 +166,6 @@ export function ConnectCard() {
             <div className="connect-total">
               <b>{tools.length}</b> tools available on this device
             </div>
-            <ul className="connect-families">
-              {counts.map((c) => (
-                <li key={c.label}>
-                  <span className="connect-fam-label">{c.label}</span>
-                  <span className="connect-fam-n">{c.n}</span>
-                  <span className="connect-fam-blurb">{c.blurb}</span>
-                </li>
-              ))}
-            </ul>
           </>
         )}
       </div>

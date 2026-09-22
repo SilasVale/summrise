@@ -2122,6 +2122,17 @@ async fn api_status(state: &AppState) -> serde_json::Value {
             "consecutive_failures": relay_view.consecutive_failures,
             "last_error": relay_view.last_error,
         },
+        // WHAT THE DEVICE IS BOUND TO, AS CONFIGURED — and the answer to a question the operator could not answer from any
+        // surface: "where is this configured?" `port` was already here and nothing showed it; `host` was not here at all, so
+        // the loopback bind existed only in a YAML file on the device. Both are reported now, and the panel shows them beside
+        // the address it was actually reached on — which is a DIFFERENT fact (a relayed or tunnelled caller sees its own URL
+        // there, and both are true).
+        "host": state.config_snapshot().server.host,
+        // WHERE EVERY VALUE ON THE SETTINGS PAGE COMES FROM. The operator asked for two things by name — the device token and
+        // the config file — and neither was on any surface: the token was buried inside a client snippet, and the file was
+        // only discoverable by knowing the install layout. `paths::config_file()` is the same answer the agent itself reads
+        // from, so this cannot drift from it.
+        "config_path": crate::paths::config_file().display().to_string(),
         "port": state.config_snapshot().server.port,
         "uptime_secs": uptime_secs,
         "live_sessions": live_sessions,

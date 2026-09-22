@@ -157,17 +157,10 @@ describe("ConnectCard", () => {
     await renderCard();
     // 3 terminal + 2 system + 1 memory + 1 other = 7 total, derived from SPEC.
     expect(screen.getByText("7")).toBeTruthy();
-    const families = [...document.querySelectorAll(".connect-families li")].map(
-      (li) => li.textContent,
-    );
-    expect(
-      families.some((f) => f?.includes("Terminal") && f.includes("3")),
-    ).toBe(true);
-    expect(families.some((f) => f?.includes("System") && f.includes("2"))).toBe(
-      true,
-    );
-    // `agent_update` matches no family prefix and must still be counted.
-    expect(families.some((f) => f?.includes("Other"))).toBe(true);
+    // THE FAMILY BREAKDOWN IS GONE ON PURPOSE (1.2.448). The operator's complaint was that Settings had become cluttered, and
+    // this list — five rows of prose counting tools by prefix — was the largest thing on the page that was not a setting. The
+    // number above is the part that survived, and it is still derived from the live spec rather than a baked-in list, which
+    // is what this test was ever about. `.connect-families` no longer exists; `deadStyles` holds that it stays gone.
   });
 
   it("reports a WORKING credential as connected, with real detail", async () => {

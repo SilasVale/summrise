@@ -19,6 +19,15 @@ export interface AgentVitals {
    *  default and is NOT the same as "a relay that is broken", and the difference is the whole reason the field exists.
    *  Null until the first sample, like every other reading here. */
   relay?: { configured: boolean; connected: boolean; failures: number; lastError: string | null } | null;
+  /** WHERE THE DEVICE IS BOUND, AS CONFIGURED — a DIFFERENT fact from `location.host`, which is the address this browser
+   *  reached it on. They are the same string on a local browser and differ the moment a relay or a tunnel is in the path,
+   *  which is why Settings shows both and says which is which. Reported since 1.2.448: the bind lived only in a YAML file
+   *  on the device, so an operator asking "where is that configured?" had no surface to ask. */
+  host?: string;
+  port?: number;
+  /** WHERE THE CONFIG FILE IS, reported by the agent from the same path helper it reads the file with. The operator asked for
+   *  the config file by name: every value on the Settings page comes from it, and nothing said where it was. */
+  configPath?: string;
   /** Release the device reports (NOT the Cargo version — see lib/agentVersion.ts). */
   release: string;
   /** Human uptime, already formatted. Empty until the first sample. */
@@ -117,6 +126,10 @@ export function useAgentVitals(intervalMs = 15000): AgentVitals {
                   lastError: typeof j.relay.last_error === "string" ? j.relay.last_error : null,
                 }
               : null;
+          // Kept while present, like cpu and mem below: an agent that does not report a bind has not moved its bind.
+          if (typeof j.host === "string") next.host = j.host;
+          if (typeof j.config_path === "string") next.configPath = j.config_path;
+          if (typeof j.port === "number") next.port = j.port;
           if (typeof j.cpu_pct === "number") next.cpu = j.cpu_pct;
           if (typeof j.mem_pct === "number") next.mem = j.mem_pct;
           // THE ONE FIELD THAT IS CLEARED RATHER THAN KEPT. Every other reading here

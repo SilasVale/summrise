@@ -109,3 +109,66 @@ describe("SettingsPage memory card", () => {
     expectNoSkippedLevel(container);
   });
 });
+
+
+// ── THE CONFIGURED BIND (1.2.448) ────────────────────────────────────────────────────────────────────────────────────────
+// The operator asked "where is server.host configured?" and no surface could answer: it lived only inside config.yaml on the
+// device. The panel now shows it beside `location.host`, which is a DIFFERENT fact, and the sentence after it depends on
+// whether the bind is loopback — for a network-bound device "this machine only" would be a lie, which is the case these
+// three tests pin.
+describe("SettingsPage — the configured bind", () => {
+  beforeEach(() => {
+    mockCallApi.mockResolvedValue({ ok: true });
+  });
+
+  it("shows a loopback bind with the reason and the alternatives", () => {
+    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080 }} />);
+    expect(screen.getByText(/Bound to 127\.0\.0\.1:18080/)).toBeTruthy();
+    expect(screen.getByText(/this machine only/)).toBeTruthy();
+    expect(screen.getByText(/the relay, a VPN, or ssh -L/)).toBeTruthy();
+  });
+
+  it("does NOT tell a network-bound device that it is local", () => {
+    render(<SettingsPage config={{ host: "0.0.0.0", port: 18080 }} />);
+    expect(screen.getByText(/Bound to 0\.0\.0\.0:18080/)).toBeTruthy();
+    expect(screen.queryByText(/this machine only/)).toBeNull();
+    expect(screen.getByText(/keep the device token secret/)).toBeTruthy();
+  });
+
+  it("renders nothing rather than a guess when the agent reports no bind", () => {
+    render(<SettingsPage />);
+    expect(screen.queryByText(/Bound to/)).toBeNull();
+  });
+});
+
+
+// ── THE DECLUTTER (1.2.448) ──────────────────────────────────────────────────────────────────────────────────────────────
+// The operator's words: "too much unnecessary stuff; the device token and the config file are the two that are needed, trim the
+// rest, the panel looks cluttered". Three things follow from that, and each is pinned here: the two named things are ON the
+// surface (not behind a click, not in a snippet), the client snippets and the diagnostics are FOLDED, and the config file's
+// path is shown when the agent reports it.
+describe("SettingsPage — the two things that stay on the surface", () => {
+  beforeEach(() => {
+    mockCallApi.mockResolvedValue({ ok: true });
+  });
+
+  it("shows the device token masked, with a way to reveal it", () => {
+    render(<SettingsPage />);
+    expect(screen.getByText(/Device token:/)).toBeTruthy();
+    expect(screen.getByText("••••••••••••")).toBeTruthy();
+    expect(screen.getByText("Reveal")).toBeTruthy();
+  });
+
+  it("shows the config file the agent reports", () => {
+    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080, path: "C:\\ProgramData\\Vale\\etc\\config.yaml" }} />);
+    expect(screen.getByText(/Config file:/)).toBeTruthy();
+    expect(screen.getByText(/config\.yaml/)).toBeTruthy();
+  });
+
+  it("folds the client snippets and the diagnostics away", () => {
+    const { container } = render(<SettingsPage />);
+    const folds = [...container.querySelectorAll("details")].map((d) => d.querySelector("summary")?.textContent);
+    expect(folds).toContain("Connect an AI client");
+    expect(folds).toContain("Diagnostics");
+  });
+});

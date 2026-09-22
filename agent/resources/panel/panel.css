@@ -3672,12 +3672,9 @@ h3 { font-size: var(--fs-base); }
   display: flex; align-items: baseline; gap: var(--sp-2);
   padding: var(--sp-1) 0; font-size: var(--fs-base);
 }
-.connect-fam-label { flex: none; width: 84px; color: var(--ink); font-weight: var(--fw-semi); }
-.connect-fam-n {
-  flex: none; min-width: 24px; text-align: right;
-  font: 600 var(--fs-sm) var(--font-mono); color: var(--accent-on-soft);
-}
-.connect-fam-blurb { color: var(--muted); }
+
+
+
 .connect-tabs { display: flex; gap: var(--sp-1); margin-bottom: 9px; flex-wrap: wrap; }
 .connect-tab {
   font-size: var(--fs-sm); padding: var(--sp-1) 11px; border-radius: var(--radius-sm2); cursor: pointer;
@@ -5090,6 +5087,25 @@ button.dtab-close:hover { opacity: 1; }
 }
 .idle-x:hover { color: var(--ink); background: var(--chrome-hover); }
 .idle-x svg { width: 12px; height: 12px; }
+
+
+/* THE FOLDS ON SETTINGS (1.2.448). The operator's complaint was that the page was cluttered: the client snippets and the
+   diagnostics are both real, and neither is a setting, so they now live behind a summary instead of in the reading order. The
+   summary is chrome — neutral, one line, the same ink as a section heading — because it is a doorway, not a state. */
+.settings-fold {
+  margin: var(--sp-4) 0;
+  border-top: 1px solid var(--line);
+}
+.settings-fold > summary {
+  padding: var(--sp-3) 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  cursor: pointer;
+}
+/* NO COLOUR OF ITS OWN: the summary inherits the page's ink, and the first version of this rule named `--ink-dim`, a token that
+   does not exist — the build's `build-css` step refused it by name, which is what that step is for. A doorway does not need its
+   own ink; only its hover does. */
+.settings-fold > summary:hover { text-decoration: underline; }
 
 
 /* ============ dial.css ============ */

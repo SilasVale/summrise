@@ -252,6 +252,7 @@ export function PanelApp(props: Props) {
                 onTestNotify={testNotification}
                 attention={attention}
                 runningRelease={vitals.release}
+                config={{ host: vitals.host, port: vitals.port, path: vitals.configPath }}
               />
             )}
           </div>
