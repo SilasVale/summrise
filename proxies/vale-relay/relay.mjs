@@ -40,6 +40,13 @@ function tokenOk(given, want) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/// A LAST-RESORT NET: a relay that exits because one socket misbehaved is worse than a relay that logs and keeps carrying.
+/// Nothing here swallows a BUG silently — both handlers log with a stack — they only refuse to die for a single caller.
+function survive(log) {
+  process.on("uncaughtException", (e) => log(`uncaught exception, carrying on: ${e && e.stack ? e.stack : e}`));
+  process.on("unhandledRejection", (e) => log(`unhandled rejection, carrying on: ${e && e.stack ? e.stack : e}`));
+}
+
 export function createRelay({ token, deviceName = "device", log = () => {} }) {
   /** Requests waiting for the agent, and answers waiting for the client. */
   const pending = new Map();   // id -> { resolve, timer }
@@ -68,13 +75,18 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
   }
 
   const server = createServer((req, res) => {
+    // THE 'error' EVENT WITH NO LISTENER IS WHAT ACTUALLY KILLED IT (round 212). Writing to a response whose socket is gone does
+    // NOT throw — Node emits 'error' on the response instead, and an 'error' event with no listener is THROWN, which ends the
+    // process. That is how an agent being killed mid-poll took the relay down three times while this was being brought up.
+    // A vanished caller is normal for a pipe; this is where the pipe says so.
+    res.on("error", (e) => log(`a caller's socket failed: ${e && e.message ? e.message : e}`));
     const url = new URL(req.url, "http://relay");
     const auth = req.headers.authorization || "";
     const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
 
     // ---- the agent's two endpoints ---------------------------------------------------------------------------------
     if (url.pathname === "/agent/pull") {
-      if (!tokenOk(bearer, token)) return res.writeHead(401, { "Content-Type": "application/json" }).end('{"ok":false}');
+      if (!tokenOk(bearer, token)) return respond(res, 401, '{"ok":false}');
       agentSeenMs = Date.now();
       const job = pendingJob();
       if (job) return handToAgentNow(res, job);
@@ -96,6 +108,8 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
     }
 
     // ---- everything else is for the agent --------------------------------------------------------------------------
+    server.on("error", (e) => log(`server error, carrying on: ${e && e.message ? e.message : e}`));
+
     if (url.pathname === "/healthz") {
       return res.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({ ok: true, device: deviceName, agentConnectedMsAgo: agentSeenMs ? Date.now() - agentSeenMs : null, waiting: waiting.length }),
@@ -149,7 +163,12 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
       // A parked agent gets it at once; otherwise it waits in the one queue until an agent polls.
       if (handToAgent(frame)) job.taken = true;
       promise.then((answer) => {
-        if (res.writableEnded) return;
+        // THE CLIENT MAY BE GONE, AND THAT MUST NOT TAKE THE RELAY WITH IT (round 212). An agent being swapped for an update
+        // is killed mid-poll, which destroys the socket this response was going to be written to; the write then throws
+        // asynchronously, and an unhandled throw in a promise callback ENDS THE PROCESS. It ended this one three times while
+        // the feature was being brought up, and each time the device correctly reported "relay unreachable" — the relay really
+        // was dead. A relay is a pipe: a vanished caller is normal, not fatal.
+        if (res.writableEnded || res.destroyed) return;
         if (!answer) {
           return job.expired && !agentSeenMs
             ? res.writeHead(503, { "Content-Type": "application/json" }).end('{"ok":false,"error":"no agent has connected to this relay yet"}')
@@ -160,6 +179,16 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
         res.writeHead(answer.status || 502, headers).end(Buffer.from(answer.bodyB64 || "", "base64"));
       });
     });
+  }
+
+  /// Write, or don't, but never throw: this is the point where a vanished caller used to end the process.
+  function respond(res, status, body, headers = { "Content-Type": "application/json" }) {
+    try {
+      if (res.writableEnded || res.destroyed) return;
+      res.writeHead(status, headers).end(body);
+    } catch (e) {
+      log(`could not answer a caller that went away: ${e && e.message ? e.message : e}`);
+    }
   }
 
   function readBody(req, cb) {
@@ -176,6 +205,8 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
       return new Promise((resolve) => server.listen(port, host, () => resolve(server.address())));
     },
     close() { for (const e of waiting) drop(e); return new Promise((r) => server.close(r)); },
+    /// Exposed so a caller can install the safety net it wants; the CLI entry point installs this one.
+    survive: () => survive(log),
     stats() { return { waiting: waiting.length, pending: pending.size, agentSeenMs }; },
   };
 }
@@ -194,6 +225,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   }
   const [host, port] = [listen.slice(0, listen.lastIndexOf(":")), Number(listen.slice(listen.lastIndexOf(":") + 1))];
   const relay = createRelay({ token, deviceName: device, log: (m) => console.log(`[relay] ${m}`) });
+  relay.survive();
   relay.listen(port, host).then(() => {
     console.log(`vale-relay listening on ${host}:${port} for agent "${device}"`);
     if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {

@@ -18,13 +18,14 @@ async function withRelay(fn) {
 }
 
 /// The agent side, as the real one behaves: poll, answer whatever arrives, repeat until told to stop.
-function startFakeAgent(base, { answer = (f) => ({ status: 200, headers: { "content-type": "text/plain" }, bodyB64: Buffer.from(`echo:${f.path}`).toString("base64") }) } = {}) {
+function startFakeAgent(base, { delayMs = 0, answer = (f) => ({ status: 200, headers: { "content-type": "text/plain" }, bodyB64: Buffer.from(`echo:${f.path}`).toString("base64") }) } = {}) {
   let stop = false;
   const done = (async () => {
     while (!stop) {
       const pull = await fetch(`${base}/agent/pull`, { headers: { authorization: `Bearer ${TOKEN}` } });
       if (pull.status === 204) continue;
       const frame = await pull.json();
+      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
       const reply = answer(frame);
       await fetch(`${base}/agent/answer`, {
         method: "POST",
@@ -102,6 +103,26 @@ test("a client that arrived first is served when the agent connects (parked-agen
     const res = await inflight;
     assert.equal(res.status, 200);
     assert.equal(await res.text(), "echo:/panel/");
+    await agent.stop();
+  });
+});
+
+test("a caller that vanishes mid-request does not take the relay with it", async () => {
+  // THE DEFECT THIS PINS (round 212). An agent being swapped for an update is killed mid-poll, which destroys the socket the
+  // answer was going to be written to; the write threw asynchronously and the unhandled throw ENDED THE PROCESS — three times
+  // while the feature was being brought up, with the device correctly reporting "relay unreachable". The fake agent here
+  // answers LATE on purpose, so the client is certainly gone by the time the answer arrives.
+  await withRelay(async ({ base }) => {
+    const agent = startFakeAgent(base, { delayMs: 150 });
+    await new Promise((r) => setTimeout(r, 50));
+    const ac = new AbortController();
+    const inflight = fetch(`${base}/slow`, { method: "POST", signal: ac.signal }).catch(() => "client gave up");
+    await new Promise((r) => setTimeout(r, 30));
+    ac.abort();
+    await inflight;
+    await new Promise((r) => setTimeout(r, 400)); // long enough for the late answer to be written to a socket that is gone
+    const health = await (await fetch(`${base}/healthz`)).json();
+    assert.equal(health.ok, true, "the relay must still be answering after a caller vanished");
     await agent.stop();
   });
 });
