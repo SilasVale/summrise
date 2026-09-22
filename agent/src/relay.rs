@@ -162,7 +162,19 @@ pub fn spawn(
                         tracing::warn!("relay: could not deliver an answer: {e}");
                     }
                 }
-                Ok(None) => backoff_ms = 500, // 204: the long poll expired with nothing to do
+                Ok(None) => {
+                    // A 204 IS EVIDENCE OF HEALTH (round 210, measured on the device): the relay answered. The first version
+                    // recorded health only when a JOB arrived, so a working but IDLE relay read as connected:false with a
+                    // stale failure count — the agent was parked on its long poll, the relay reported `waiting: 1`, and
+                    // /api/status told the operator "relay unreachable". The interface must say what is true: answering a
+                    // poll is contact, and it happens at least once per poll window.
+                    backoff_ms = 500;
+                    if let Ok(mut st) = state.lock() {
+                        st.last_ok_ms = Some(now_ms());
+                        st.consecutive_failures = 0;
+                        st.last_error = None;
+                    }
+                }
                 Err(e) => {
                     tracing::warn!("relay: {e} — retrying in {backoff_ms}ms");
                     if let Ok(mut st) = state.lock() {
