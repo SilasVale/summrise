@@ -38,8 +38,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import {markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
-import { bundleSweep } from "./lib/sweep-bundle.mjs";
+import {markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
+import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 import { join } from "node:path";
 
 const mode = process.argv[2];
@@ -121,24 +121,25 @@ function browserScript() {
 
 /** The run-varying pieces, as a module (the same shape as the landing's and the panel's). */
 function piecesSource() {
-  const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, ackPass, ackNotes, idlePass, motionPass };
-  const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
-  const checks = { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe };
-  return `${decls}
-${DIAG_SOURCE}
-module.exports = {
-  config: ${JSON.stringify({ root: DEFAULT_ROOT,
-    selector: "#root", reportPath: DEFAULT_REPORT_PATH, expectedEntry: ENTRY_STAMP, passes: PASSES })},
-  probe: ${JSON.stringify(PROBE_SOURCE)},
-  unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
-  targets: ${JSON.stringify(TARGETS_SOURCE)},
-  theme: ${JSON.stringify(THEME_SOURCE)},
-  checks: { SURFACE: ${surfaceProbe.toString()}, NAMES: ${namesProbe.toString()}, REFLOW: ${reflowProbe.toString()} },
-  marks: ${marksProbe.toString()},
-  diag,
-  passes: { ${Object.keys(helpers).join(", ")} },
-};
-`;
+  // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272). This function used to spell out the quoting rule itself —
+  // functions by `.toString()`, everything else by JSON — in four different emitters. What is left is the facts.
+  return piecesModule({
+    config: {
+      root: DEFAULT_ROOT,
+      selector: "#root",
+      reportPath: DEFAULT_REPORT_PATH,
+      expectedEntry: ENTRY_STAMP,
+      passes: PASSES,
+    },
+    probe: PROBE_SOURCE,
+    unstyled: UNSTYLED_SOURCE,
+    targets: TARGETS_SOURCE,
+    theme: THEME_SOURCE,
+    checks: { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe },
+    marks: marksProbe,
+    diag,
+    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, ackPass, ackNotes, idlePass, motionPass },
+  });
 }
 
 function judge(file) {

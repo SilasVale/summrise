@@ -15,11 +15,6 @@
 // belonged and lost the goal and approval rows, and NOTHING local noticed, because the pieces values in the
 // artifact were byte-identical all along. Only running it against a page caught it (round 270).
 const FIXTURE = require("./pieces.cjs");
-
-// NO BACKTICKS IN THIS TEMPLATE, AND NO CLOSING SCRIPT TAG EITHER — not even inside a comment.
-// A backtick ends the literal and the file stops parsing; a closing script tag ends the HTML tag
-// and the rest of this stub is silently dropped by the parser (measured: round 41, three times,
-// twice in comments that were explaining something else). Quote identifiers with 'single quotes'.
 (function(){
   // EVERY FLAG IS READ PER USE, NOT ONCE AT INSTALL (round 84). This was var P = new URLSearchParams(location.search),
   // parsed once — and a device probe showed what that costs: a page whose URL carried ?boot=replaced got crashed
@@ -86,8 +81,7 @@ const FIXTURE = require("./pieces.cjs");
     // around the command it is waiting for — and it is the ONLY way a SILENT command can read as working: this
     // session has been quiet for 45s, well past the recency window, so a panel that shows it working is showing
     // the device fact and not the inference. Without it in the fixture the state exists on the wire and nowhere a
-    // sweep can photograph it, which is the lesson round 9 learned about idle_ms. (No backticks in here: this
-    // text lives INSIDE the emitted template literal, and a stray one ends it — the 37th time.)
+    // sweep can photograph it, which is the lesson round 9 learned about idle_ms.
     { label: 'serial:COM4', kind: 'serial', idle_ms: 45_000, command_running: true, held_by_human: false, pending_approval: null, approval_required: false },
     { label: 'stc@192.168.1.1', kind: 'ssh', idle_ms: 120_000, held_by_human: false, pending_approval: null },
   ];
@@ -131,7 +125,7 @@ const FIXTURE = require("./pieces.cjs");
   // the lesson rounds 88-92 paid for four times running: A STATE NO SURFACE RENDERS IS A STATE NO SURFACE
   // MEASURES. The chip's three states are all on one page: the first session failed (Some(1) -> chip), the
   // rest report nothing (absent -> no chip), and ?exitok=1 below is the third.
-  // (No backticks: this comment lives inside the emitted template literal — 51st time, caught by the emit.)
+  //
   // ON THE SSH SEED (index 2), NOT THE FIRST SESSION, and that is what puts FOUR states on one page: with
   // mode=pending the first seed is the one holding the question (WAITING outranks everything) and the second is
   // the busy serial session (WORKING), so a failure on either of those would be invisible. Index 2 is the quiet
@@ -326,8 +320,7 @@ const FIXTURE = require("./pieces.cjs");
   }
   // THE MEMORY PAGE, POPULATED. It reads through the TOOL route (POST /api/tools/memory_list,
   // answered by callTool), which the stub also never served — so this page, like the plugins one,
-  // had only ever been rendered empty. Same lesson, same round. (No backticks in here: this text
-  // lives INSIDE the emitted template literal, and a stray one ends it — the sixth time.)
+  // had only ever been rendered empty. Same lesson, same round.
   if (u.indexOf('/api/tools/memory_list') >= 0) {
     return Promise.resolve(J({ ok: true, result: { results: [
       { id: 'mem-1', title: 'Router admin host', content: 'The NP3081G router answers on 192.168.1.1 with SSH user stc.', tags: ['network', 'router'], namespace: 'default', source: 'chat', created_at: 1789000000, updated_at: 1789000000 },
@@ -380,7 +373,7 @@ const FIXTURE = require("./pieces.cjs");
     // as a FAILED read, so a body that looked perfectly good here made the Restarts card render "The device did not
     // answer, so its restart history could not be read" on EVERY Settings surface — a false claim about the device,
     // photographed and judged clean for as long as the surface has existed, with the card's real content (the
-    // summary line and the crash rows) measured by nothing at all. (No backticks: emitted template literal.)
+    // summary line and the crash rows) measured by nothing at all.
     return Promise.resolve(J({ ok: true, boots: [
       { ts_ms: 1789000000000, kind: 'crashed', detail: '2026-09-13 04:12:03 +08:00 - unexpected exit', uptime_secs: 5412, gap_secs: 1, release: '1.2.433' },
       { ts_ms: 1788900000000, kind: 'replaced', detail: '2026-09-12 09:00:00 +08:00 - replaced by vale update', uptime_secs: 0, gap_secs: 1, release: '1.2.433' },
@@ -393,7 +386,7 @@ const FIXTURE = require("./pieces.cjs");
   // showed it. The device serves a merge of the terminal audit trail, the browser feed and the run boundaries
   // (agent/src/web/mod.rs, /api/operation); this mirrors the client's own types (lib/runs.ts: OperationEvent,
   // RunBoundary) so the run strip, the grouping and the per-row states all have something real to draw.
-  // (No backticks: emitted template literal.)
+  //
   if (u.indexOf('/api/operation') >= 0) {
     var opRows = [];
     var mk = function (source, ts, kind, extra) {
@@ -435,8 +428,7 @@ const FIXTURE = require("./pieces.cjs");
   // the monitors card made (round 100), found this time by the sweep's new CLAIM clause rather than by hand. The
   // real card renders a VERDICT derived from vale-update.log's tail (updateDiagnosis's four-way table), a receipt,
   // the directory, and one row per log file with an ABSENT file named as absent. The payload below mirrors
-  // api_logs() in agent/src/web/mod.rs: ok, dir, logs[] with name/present/log. (No backticks: emitted template —
-  // and this one broke the EMITTER'S OWN MODULE rather than the emitted text, 57th time.)
+  // api_logs() in agent/src/web/mod.rs: ok, dir, logs[] with name/present/log.
   if (u.indexOf('/api/logs') >= 0) {
     // ?logs=warn — THE OTHER VERDICT TONE, which the default payload cannot show (round 100). The four-way table
     // from updateDiagnosis gives cli-swap-launched/rust-swap an OK tone and cli-only/never-arrived a WARN one, so a
@@ -475,8 +467,7 @@ const FIXTURE = require("./pieces.cjs");
     var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };
     // THE ENVELOPE MATTERS: the hook requires ok === true and treats anything else as a FAILED read
     // — which is what made this surface render nothing in round 100, with the payload looking
-    // perfectly good to me. The device sends it (monitor.rs, snapshot). (No backticks: this text lives
-    // inside the emitted template, and the tenth stray one shut --emit down.)
+    // perfectly good to me. The device sends it (monitor.rs, snapshot).
     return Promise.resolve(J({ ok: true, targets: [
       {
         id: 'mon-router', host: '192.168.1.1', port: 22, path: null, expect: null,
@@ -516,7 +507,7 @@ const FIXTURE = require("./pieces.cjs");
   // Trajectory and Path views drew "No commands in this session yet" and "No path yet" on every surface that has
   // ever shown them, and the panel's two most information-dense views were measured against an empty page. THE SAME
   // DEFECT CLASS as the last three rounds — a fixture answering a question nobody asked — found this time by
-  // clicking a tab no sweep had clicked. (No backticks: emitted template.)
+  // clicking a tab no sweep had clicked.
   // NO REGEX AND NO BACKSLASHES, deliberately: three nesting levels (this template, the emitted stub, the
   // browser) eat them, which is the lesson the diag helper records in this same file. A path COMPARISON says
   // exactly what the broad indexOf could not: the route is /api/sessions and nothing beyond it.

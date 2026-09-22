@@ -165,8 +165,8 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { DECORATIVE_WAIVERS, markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
-import { bundleSweep } from "./lib/sweep-bundle.mjs";
+import { DECORATIVE_WAIVERS, markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta } from "./lib/design-sweep.mjs";
+import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -259,26 +259,30 @@ function probeOf(snippet, name) {
 
 /** The run-varying pieces, as a module (the same shape and the same reasoning as the landing's, round 266). */
 function piecesSource() {
-  const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, revealPass, ackPass, ackNotes, idlePass, motionPass };
-  const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
-  const checks = { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe };
-  return `${decls}
-${DIAG_SOURCE}
-module.exports = {
-  config: ${JSON.stringify({ harnessPath: DEFAULT_HARNESS_PATH,
-    selector: "#root", reportPath: DEFAULT_REPORT_PATH, expectedHarnessBuild: HARNESS_STAMP, passes: PASSES })},
-  probe: ${JSON.stringify(PROBE_SOURCE)},
-  unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
-  targets: ${JSON.stringify(TARGETS_SOURCE)},
-  theme: ${JSON.stringify(THEME_SOURCE)},
-  checks: { SURFACE: ${surfaceProbe.toString()}, NAMES: ${namesProbe.toString()}, REFLOW: ${reflowProbe.toString()} },
-  marks: ${marksProbe.toString()},
-  motion: ${JSON.stringify(probeOf(MOTION, "MOTION"))},
-  timing: ${JSON.stringify(probeOf(TIMING, "TIMING"))},
-  diag,
-  passes: { ${Object.keys(helpers).join(", ")} },
-};
-`;
+  // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272). This function used to spell out the quoting rule itself —
+  // functions by `.toString()`, everything else by JSON — in four different emitters. What is left is the facts.
+  return piecesModule({
+    config: {
+      harnessPath: DEFAULT_HARNESS_PATH,
+      selector: "#root",
+      reportPath: DEFAULT_REPORT_PATH,
+      expectedHarnessBuild: HARNESS_STAMP,
+      passes: PASSES,
+    },
+    probe: PROBE_SOURCE,
+    unstyled: UNSTYLED_SOURCE,
+    targets: TARGETS_SOURCE,
+    theme: THEME_SOURCE,
+    checks: { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe },
+    marks: marksProbe,
+    // THE PANEL'S TWO EXTRA PROBES. MOTION and TIMING are written as snippets that DECLARE a const holding the probe
+    // text (they predate this seam); probeOf() reads the text out of them and THROWS if the shape changes, because a
+    // silent undefined here would make the motion and timing axes measure nothing at all.
+    motion: probeOf(MOTION, "MOTION"),
+    timing: probeOf(TIMING, "TIMING"),
+    diag,
+    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, revealPass, ackPass, ackNotes, idlePass, motionPass },
+  });
 }
 
 function judge(file) {

@@ -262,8 +262,7 @@ const fail = { api: false };
         if (wants('names')) report.names.push({ page: label, ...(await page.evaluate(NAMES, SELECTOR)) });
         // Rendered classes with no matching rule — the mirror of dead CSS, and the failure a prune
         // causes. The browser's parsed selectors are the authority (rounds 79-80 removed 300+ lines
-        // from this sheet). The styled count travels with the list as the tripwire. (No backticks in
-        // here: this text is inside the emitted template, and the ninth stray one shut --emit down.)
+        // from this sheet). The styled count travels with the list as the tripwire.
         if (wants('unstyled')) report.unstyled.push({ page: label, ...(await page.evaluate(UNSTYLED)) });
         // HOVER, the state round 84 added for the panel — where its first run found a dark-theme
         // button at 1.94. The console has its own 24 :hover rules and a different token set, and had
@@ -304,7 +303,7 @@ const fail = { api: false };
         // the language button, the auth tab, .btn-dashed, .card-link, .dev-mini and every link) by reading the sheet
         // alone. This measures them as the browser paints them. The pointer is moved OFF the element before release
         // so nothing is clicked; a target this page does not render is a NOTE, and the measured count is what keeps
-        // a pass that pressed nothing from reading as clean. (No backticks in this comment: 43rd time.)
+        // a pass that pressed nothing from reading as clean.
         const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], { page: label, width }) : [];
         if (wants('press')) report.press.push({ density: 'console', theme: 'light', page: label, width, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
         // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round

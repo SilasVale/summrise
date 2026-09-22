@@ -82,7 +82,7 @@ import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 // HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
 // live one renders (the approval gate's disarmed ring is one — it measured 2.56 here and nothing else could see it).
 import { marksProbe } from "./lib/design-sweep.mjs";
-import { bundleSweep } from "./lib/sweep-bundle.mjs";
+import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -113,13 +113,13 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 
 /** The three values this probe varies, as a module. */
 function piecesSource() {
-  return `module.exports = {
-  probe: ${JSON.stringify(PROBE_SOURCE)},
-  marks: ${marksProbe.toString()},
-  configPaths: ${JSON.stringify(CONFIG_PATHS)},
-  selector: "#root",
-};
-`;
+  // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272).
+  return piecesModule({
+    probe: PROBE_SOURCE,
+    marks: marksProbe,
+    configPaths: CONFIG_PATHS,
+    selector: "#root",
+  });
 }
 
 if (process.argv.includes("--emit")) {

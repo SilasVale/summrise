@@ -20,7 +20,7 @@ import { markCoverageNotes } from "./lib/design-sweep.mjs";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
 import { marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
-import { bundleSweep } from "./lib/sweep-bundle.mjs";
+import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -105,20 +105,22 @@ function browserScript() {
  *  body, which is what makes a helper that a pass calls by name resolve: `pressPass` calls `discoverPressTargets`,
  *  which used to be a hand-listed "must also be embedded" and is now simply in scope. */
 function piecesSource(LOCAL_STAMP) {
-  const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, idlePass, motionPass };
-  const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
-  const checks = { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe };
-  return `${decls}
-module.exports = {
-  config: ${JSON.stringify({ root: ROOT, reportPath: "C:\\ProgramData\\Vale\\pwout\\landing-sweep.json", passes: PASSES, expectedEntry: LOCAL_STAMP, selector: "body" })},
-  probe: ${JSON.stringify(PROBE_SOURCE)},
-  unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
-  targets: ${JSON.stringify(TARGETS_SOURCE)},
-  checks: { SURFACE: ${surfaceProbe.toString()}, NAMES: ${namesProbe.toString()}, REFLOW: ${reflowProbe.toString()} },
-  marks: ${marksProbe.toString()},
-  passes: { ${Object.keys(helpers).join(", ")} },
-};
-`;
+  // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272) — this emitter used to spell the quoting rule out itself.
+  return piecesModule({
+    config: {
+      root: ROOT,
+      reportPath: "C:\\ProgramData\\Vale\\pwout\\landing-sweep.json",
+      passes: PASSES,
+      expectedEntry: LOCAL_STAMP,
+      selector: "body",
+    },
+    probe: PROBE_SOURCE,
+    unstyled: UNSTYLED_SOURCE,
+    targets: TARGETS_SOURCE,
+    checks: { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe },
+    marks: marksProbe,
+    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, idlePass, motionPass },
+  });
 }
 
 function judge(file) {

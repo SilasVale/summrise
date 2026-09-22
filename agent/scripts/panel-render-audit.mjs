@@ -52,7 +52,7 @@ import { PROBE_SOURCE, failures as contrastFailures, unmeasurable } from "./lib/
 // in `lib/design-sweep.mjs` now and both read it, band semantics included (a row matching a waived selector at a
 // DIFFERENT ratio is still a failure — a waiver is for the ratio it was measured at).
 import { DECORATIVE_WAIVERS } from "./lib/design-sweep.mjs";
-import { bundleSweep } from "./lib/sweep-bundle.mjs";
+import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PANEL = join(ROOT, "agent", "resources", "panel");
@@ -137,12 +137,9 @@ const REQUIRED = [
 
 /** The harness fixture's own data, as a module (the three values that used to be interpolated into the stub). */
 function stubPieces() {
-  return `module.exports = {
-  sid: ${JSON.stringify(SID)},
-  session: ${JSON.stringify(SESSION)},
-  events: ${JSON.stringify(EVENTS)},
-};
-`;
+  // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272) — these three are plain data, so there is no quoting to think
+  // about here at all; that is the point of the generator owning it.
+  return piecesModule({ sid: SID, session: SESSION, events: EVENTS });
 }
 
 function buildHarness() {

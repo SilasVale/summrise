@@ -3803,6 +3803,39 @@ now name the constraint that still exists: the SURFACE body is carried in the on
 **THE RULE HAS A GATE**: `sweep-bundle-check` scans every payload for a probe called without its selector (90 calls
 across 5 modules; mutation: drop the argument and it fails, naming the file).
 
+### THE EMIT SEAM, CLOSING THE REVIEW'S CRITERIA: ONE PIECES GENERATOR, AND THE WARNINGS THE LITERALS NEEDED (round 272)
+
+The architecture review's candidate 1 said it precisely: *one module whose interface is "named browser-side pieces + a
+JSON config in, a runnable script out": it owns quoting, splicing, which helpers travel, and refuses to print a script
+that does not compile. The five emitters become adapters that supply only their genuinely local facts.* Rounds 266-271
+built the assembler and emptied the literals; two of its stated success criteria were still open, and both are closed
+here.
+
+**"ESCAPING OWNED ONCE" WAS NOT YET TRUE.** Four emitters had each grown a `piecesSource()` spelling out the same two
+rules — a function crosses as code (`fn.toString()`), everything else as JSON — and the live probe and the harness had
+two more. `piecesModule(pieces)` in `sweep-bundle.mjs` generates that module now, from one implementation, and the five
+emitters pass FACTS (a config object, probe texts, the passes, `diag`). The subtlety worth its line: a function is
+declared at the top of the generated module and referenced by name, never inlined into the exports object, because the
+passes CALL EACH OTHER by name (`pressPass` calls `discoverPressTargets`) and an inline function expression would leave
+that name undefined at run time. `DIAG_SOURCE` — the last payload piece that was still source TEXT, kept regex-free and
+backslash-free because of the escaping layers — is an ordinary `async function diag(line)` now, which is what the
+review meant by guards evaporating: the rule that shaped it ("no regex, no backslashes, deliberately") was a
+consequence of the seam, not of the job.
+
+**AND 17 WARNINGS THAT ONLY THE LITERALS NEEDED ARE DELETED** — "(No backticks: emitted template literal.)" and its
+siblings, scattered through the payload modules by a decade of rounds that had each been bitten by one. The one that
+stays is the one that says the rule is gone.
+
+**EQUIVALENCE, MEASURED ON THE ARTIFACTS.** Every piece was compared before and after by VALUE, not by text: the panel
+exports 11 pieces and 8 compare identical, the three that differ being the intended shape changes (a probe is a
+function now, a comment was rewritten) — `passes.pressPass` is byte-identical; the harness's three fixture pieces are
+3/3 identical; the landing emits and parses; all five emit and `node --check` clean. The gate that compares every
+probe/pass/check value against the core still reports 17 for the panel and 16 for the console, byte for byte.
+
+**WHAT A REVIEW CRITERION IS WORTH.** "Escaping owned once" reads like a slogan until you count the implementations:
+four, each a copy of the same two rules, none of them wrong — which is exactly the state that produces a fifth that is.
+The criterion was measurable and it was measured.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.

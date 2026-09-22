@@ -490,14 +490,14 @@ export const UNSTYLED_SOURCE = `(() => {
  *  Self-contained on purpose: the adapters inline this source into the emitted script, so it may not
  *  reference anything from this module. Failures are swallowed because a sweep must never die of bookkeeping:
  *  a device whose agent is down still needs its design measured. */
-export const DIAG_SOURCE = `async function diag(line) {
+export async function diag(line) {
   try {
-    // NO REGEX AND NO BACKSLASHES, DELIBERATELY. The first version of this helper was written inside a
-    // template literal and emitted as /tokens*:s*.../ — every backslash eaten by one of the three escaping
-    // layers this file has — so it never matched, and the guard below returned silently. It took a direct
-    // endpoint probe to find, because the helper is designed to swallow its own failures. Reading the token
-    // by line prefix and the path with forward slashes (Node accepts them on Windows) removes both hazards
-    // rather than counting backslashes correctly, which is the mistake this session has now made 29 times.
+    // THIS READS THE TOKEN BY LINE PREFIX AND THE PATH WITH FORWARD SLASHES, AND THAT IS HISTORY RATHER THAN A RULE
+    // NOW. It was written inside a template literal and emitted as /tokens*:s*.../ — every backslash eaten by one of
+    // the three escaping layers — so it never matched and the catch below swallowed the evidence; it took a direct
+    // endpoint probe to find. The shape that removed the hazard for good was not counting backslashes correctly: it
+    // was moving this function out of the emitted text (round 272), where it is ordinary code and a regex would be
+    // just a regex.
     const cfg = require("fs").readFileSync("D:/Vale/etc/config.yaml", "utf8");
     let token = "";
     for (const l of cfg.split(String.fromCharCode(10))) {
@@ -514,7 +514,8 @@ export const DIAG_SOURCE = `async function diag(line) {
       body: JSON.stringify({ line: "sweep " + line }),
     });
   } catch (e) { /* a sweep must not die of bookkeeping */ }
-}`;
+}
+
 
 /** WHICH VERDICTS TRUST A COMPUTED VALUE, AND WHY EACH ONE IS STILL HONEST (round 187).
  *

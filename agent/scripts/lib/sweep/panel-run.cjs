@@ -109,7 +109,7 @@ const TIMING = P.timing;
         // sitting right there in the sheet. Targets differ per density — the panel renders .tab where the desktop
         // renders .dtab — and one that is absent is a NOTE, not a finding, because the two surfaces do not carry
         // the same controls. The measured count is what keeps that from becoming a pass that presses nothing.
-        // (No backticks in this comment: it lives inside the emitted template literal, and one ends it — 39th time.)
+        //
         // IDLE REPAINT (round 64): the page is settled, the fixtures are static, and the panel should be writing
         // nothing at all. Anything it does write is a clock or a recomputation from unchanged inputs.
         // ONE PAGE, not six: the measurement is a SIX-SECOND window, and running it on every page of every density
@@ -322,8 +322,7 @@ const TIMING = P.timing;
         // INTENDED; the document's data-theme attribute is what it IS. They can disagree — that is the whole subject
         // of the theme-lie axis — and when they do, labelling the rows with the intention is how six contrast
         // findings were filed against a theme that was not on screen. One reading, used for every label, and the
-        // disagreement is still recorded against the intention so the axis keeps its evidence. (No backticks: this
-        // comment is inside the emitted template literal — 45th time.)
+        // disagreement is still recorded against the intention so the axis keeps its evidence.
         const themeRead = await page.evaluate(THEME);
         const pageTheme = themeRead.attr === 'dark' ? 'dark' : themeRead.attr === 'light' ? 'light' : theme;
         const rows = await page.evaluate(PROBE);
@@ -397,8 +396,7 @@ const TIMING = P.timing;
   //                  operator sees when the device is unreachable, and no sweep has ever rendered it.
   //   ?monitor=down  a monitor target that is down, which flips a chip and the alert strip.
   //
-  // Same top-level recipe as the empty and busy surfaces. (No backticks in this comment: 23 rounds have
-  // paid for that lesson and the emitter now refuses to ship one.)
+  // Same top-level recipe as the empty and busy surfaces.
   if (wants("pages")) {
     for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
     for (const [page_, query, lands] of [
@@ -435,7 +433,7 @@ const TIMING = P.timing;
   // THE DEVICE'S LAST-COMMAND OUTCOME, PHOTOGRAPHED (round 96). liveness.ts names this hole in its own
   // comment — "'Failed' is not here because no field reports it per session" — and the device reports it now
   // (last_exit_code), so the panel's session row wears a chip for a NON-ZERO code.
-  // (No backticks: this comment is inside the emitted template literal — 52nd time, caught by the emit.) Every seed this harness
+  // Every seed this harness
   // builds reports no code at all, so without a surface the chip exists on the wire and nowhere a sweep can
   // measure it: the same gap rounds 88-92 closed four times, and the fifth state found the same way.
   //
@@ -445,7 +443,7 @@ const TIMING = P.timing;
   // only surface where a collapsed failed/idle or failed/waiting can be caught at all; off is the fifth and
   // lives on the closed surface. The states that render IDENTICALLY are pinned by tests instead of pixels: exit
   // ZERO and absent both draw nothing, and liveness.test.ts is where that difference lives.
-  // (No backticks: this comment is inside the emitted template literal.)
+  //
   //
   // PANEL DENSITY ONLY: the desktop shell renders its own tab strip and no side list, so the chip has no
   // desktop surface to photograph — measured, not assumed (the press pass reports .side-row as NOT RENDERED
@@ -962,7 +960,7 @@ const TIMING = P.timing;
         // SKIP WHAT CANNOT BE HOVERED BEFORE ASKING. hover() waits out its timeout on a hidden or
         // zero-size element, and 31 elements x 4 passes of that made this pass longer than the whole
         // rest of the sweep (the first live run timed out at the call boundary, not in the page).
-        // (No backticks in this comment: it lives inside the emitted template — seventh time.)
+        //
         const box = await h.boundingBox();
         if (!box || box.width < 2 || box.height < 2) continue;
         try {

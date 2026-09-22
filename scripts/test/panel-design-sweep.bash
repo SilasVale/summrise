@@ -100,7 +100,7 @@ if (pieces) {
     ["checks.SURFACE", checks.SURFACE.toString()],
     ["checks.NAMES", checks.NAMES.toString()],
     ["checks.REFLOW", checks.REFLOW.toString()],
-    ["diag", core.DIAG_SOURCE],
+    ["diag", core.diag.toString()],
   ];
   // EVERY PASS THE PIECES CARRY, compared with the core's own function of that name. One program for both sweeps: the
   // panel carries nine passes and two extra probe strings, the console eight, and neither needs its own list here.
