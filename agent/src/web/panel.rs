@@ -70,6 +70,15 @@ pub(crate) fn serve_panel_file(file: &str, content_type: &'static str) -> Respon
             "Access-Control-Allow-Origin",
             axum::http::HeaderValue::from_static("*"),
         );
+        // AND THE PRIVATE-NETWORK PERMISSION (round 247), a SECOND and newer gate on the same journey: Chrome asks it of any
+        // request from a public-origin page to 127.0.0.1, and without it the load is refused with "the resource is in
+        // more-private address space (?local?)" EVEN THOUGH the header above is present. Measured on the device with a harness
+        // served from http://vale.test: both panel.js and panel.css refused, while the same harness served from 127.0.0.1
+        // loaded them — so the variable is the address space, not the CORS header that was already there.
+        resp.headers_mut().insert(
+            "Access-Control-Allow-Private-Network",
+            axum::http::HeaderValue::from_static("true"),
+        );
     }
     resp
 }
@@ -471,6 +480,16 @@ mod panel_tests {
                 js.headers().get("access-control-allow-origin").and_then(|v| v.to_str().ok()),
                 Some("*"),
                 "panel.js must be cross-origin readable, or an off-origin harness renders an empty page"
+            );
+            // AND THE PRIVATE-NETWORK HEADER, which is what a page on a PUBLIC name needs to reach 127.0.0.1 at all
+            // (round 247). Chrome's PNA check refuses the load without it even when CORS says `*`.
+            let js2 = serve_panel_file("panel.js", panel_content_type("panel.js"));
+            assert_eq!(
+                js2.headers()
+                    .get("access-control-allow-private-network")
+                    .and_then(|v| v.to_str().ok()),
+                Some("true"),
+                "a public-origin harness cannot load panel.js from 127.0.0.1 without this"
             );
             let html = serve_panel_file("index.html", panel_content_type("index.html"));
             assert!(

@@ -788,6 +788,37 @@ async fn route_pre_dispatch(
             handle_panel_home(state, path, query, host, auth_header, peer_is_loopback).await,
         );
     }
+    // THE PREFLIGHT COMES FIRST, AND THE GET-ONLY ROUTE NEVER SAW IT (round 247). A cross-origin asset load is preceded by
+    // an OPTIONS with `Access-Control-Request-Private-Network: true`, and it fell through this dispatcher entirely. Answering
+    // it is what makes the headers above reachable at all. Scoped exactly like them: the assets, never index.html.
+    if *method == Method::OPTIONS && (path.starts_with("/panel/") || path.starts_with("/desktop/"))
+    {
+        let plen = if path.starts_with("/desktop/") {
+            "/desktop/".len()
+        } else {
+            "/panel/".len()
+        };
+        let file = path[plen..].split('?').next().unwrap_or("");
+        if file != "index.html" {
+            let mut resp = built_response(
+                StatusCode::NO_CONTENT,
+                "text/plain; charset=utf-8",
+                Body::empty(),
+            );
+            for (k, v) in [
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Private-Network", "true"),
+                ("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"),
+                ("Access-Control-Allow-Headers", "*"),
+                ("Access-Control-Max-Age", "600"),
+            ] {
+                resp.headers_mut()
+                    .insert(k, axum::http::HeaderValue::from_static(v));
+            }
+            return Some(resp);
+        }
+    }
+
     if *method == Method::GET && (path.starts_with("/panel/") || path.starts_with("/desktop/")) {
         // Strip any ?v=… cache-buster before whitelist matching.
         let prefix_len = if path.starts_with("/desktop/") {
