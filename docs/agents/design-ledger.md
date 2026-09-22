@@ -3416,3 +3416,18 @@ printer first, because that is the cheapest of the three to rule out.
 
 RECORDED RATHER THAN GUESSED, which is the habit this session has paid for repeatedly: the instrument ran, the run is green, and
 what it did or did not find is a question with three candidate answers and a one-command test for each.
+
+### THE EMBED GUARD IS SATISFIED BY THE CALL ITSELF (round 195)
+
+Pointing the panel at the shared `ackNotes` looked like a one-line follow-up. It was not, and the reason is a weakness in the
+guard round 103 added for exactly this class: `assertEmbedded(out, [... "ackNotes" ...])` checks that the NAME APPEARS in the
+emitted text — and the CALL site supplies it. So the emitter exited 0 with the helper's definition missing, and the emitted
+sweep would have thrown `ackNotes is not defined` at its first console page.
+
+MEASURED: with the panel's import, embed line, call and assert all present, the emitted script contained `ackNotes` exactly
+ONCE — which is the call, not the definition. The panel's copy of those three note lines therefore STAYS, and the revert is the
+round's honest action rather than a half-wired sweep.
+
+WHAT WOULD FIX IT, recorded for the round that takes it: the guard should ask for the DEFINITION, not the name — the emitted
+embed is `const NAME = ` immediately followed by the function's own text, so `new RegExp("const " + name + " = ")` is the shape,
+and it cannot be satisfied by a call.
