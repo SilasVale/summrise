@@ -390,6 +390,22 @@ const fail = { api: false };
         // a pass that pressed nothing from reading as clean. (No backticks in this comment: 43rd time.)
         const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], { page: label, width }) : [];
         if (wants('press')) report.press.push({ density: 'console', theme: 'light', page: label, width, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
+        // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round
+        // 64 and it found a live duration being called a repaint; the console polls its own views twice a second, so
+        // "the page is settled and writing nothing" is exactly the claim its live views could break. It runs on
+        // EVERY console page, in both themes, because this sweep has three pages and a six-second window each —
+        // 36 seconds for the whole axis, which is cheaper than the panel's two densities and six pages make it.
+        // The window lives inside the 1440 block where the other per-class passes are, because width changes what
+        // is on screen and the idle question is about what a settled page does.
+        if (wants('idle')) {
+          const idle = await idlePass(page, 6000);
+          report.idle.push({ page: label, width, density: 'console', theme: 'light', seconds: 6, ...idle });
+        }
+
+        // AND IT RUNS LAST, AFTER THE IDLE MEASUREMENT (round 192). This pass CLICKS — it has to, to see whether the
+        // control answers — and its first placement sat before the idle window, so the presses' own state updates were
+        // reported as "a repaint of unchanged output" on two console pages. pressPass never had that problem because it
+        // moves the pointer OFF the element before releasing.
         // THE ACKNOWLEDGEMENT'S LATENCY, which this end had never measured (round 190). The press pass proves a press
         // PAINTS; this proves the control ANSWERS, and how fast, against the stated 100 ms budget. discover asks the DOM
         // for every visible control rather than a list somebody thought of — a list can only contain what somebody thought
@@ -407,17 +423,6 @@ const fail = { api: false };
           // different rules (a row of another shape there would be read as a press that measured nothing).
           report.ack = report.ack || [];
           for (const r of ackRows) report.ack.push(r);
-        }
-        // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round
-        // 64 and it found a live duration being called a repaint; the console polls its own views twice a second, so
-        // "the page is settled and writing nothing" is exactly the claim its live views could break. It runs on
-        // EVERY console page, in both themes, because this sweep has three pages and a six-second window each —
-        // 36 seconds for the whole axis, which is cheaper than the panel's two densities and six pages make it.
-        // The window lives inside the 1440 block where the other per-class passes are, because width changes what
-        // is on screen and the idle question is about what a settled page does.
-        if (wants('idle')) {
-          const idle = await idlePass(page, 6000);
-          report.idle.push({ page: label, width, density: 'console', theme: 'light', seconds: 6, ...idle });
         }
       }
     }
