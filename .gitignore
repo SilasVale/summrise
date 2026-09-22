@@ -38,3 +38,11 @@ cloudflared-run.sh
 /patch-dsh-trusted-host.sh
 /scripts/restart-dsh.sh
 /ecosystem.config.js
+
+# The CDN-vs-GitHub reconcile ledger: one line per version published with no release to audit
+# against, and DELIBERATELY MACHINE-LOCAL (scripts/lib/release-lib.sh says so where it defines
+# the path). `git add -A` swept it into the 1.2.450 release commit on 2026-09-22, which put a
+# live debt into every checkout and made `scripts/test/publish-release.bash` fail in CI — its
+# scenarios got the reconcile refusal where they expect the stale-exe one. Ignored so the next
+# `git add -A` cannot do it again.
+docs/agents/release-reconcile.txt

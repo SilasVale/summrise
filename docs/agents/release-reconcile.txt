@@ -1,3 +1,0 @@
-# Versions on the CDN with no GitHub release to audit against.
-# Written by scripts/publish-release.sh --skip-reconcile; cleared by --audit-only <ver>.
-1.2.450 2026-09-22T09:18:01Z --skip-reconcile: no GitHub release v1.2.450 at publish time
