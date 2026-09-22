@@ -74,10 +74,14 @@ if [ "${1:-}" = "--audit-only" ]; then
   # shellcheck source=lib/release-audit.sh
   source "scripts/lib/release-audit.sh"
   if audit_release_asset "$VER" "${SMOKE_BASE_URL:-https://agent.saisi.online}"; then
-    # The audit ran and passed for this version: whatever the reconcile ledger
-    # carried for it is settled. Commit the change — this path otherwise does
-    # not touch the tree.
+    # The audit ran and passed for this version: whatever the reconcile ledger carried for it is settled.
+    # CLEARING IT IS THE POINT OF THIS BRANCH, and the first version only SAID so — it echoed "settled" and
+    # left the line in place, so the debt outlived the audit that discharged it and the NEXT publish refused
+    # with "these versions are on the CDN with no GitHub release to audit against" (measured 2026-09-22, on
+    # 1.2.450: the audit passed, the ledger still named it). A record that says a version owes something it
+    # has already paid is the kind of stale sentence this repository keeps having to unpick.
     if grep -qx "$VER" <<<"$(reconcile_pending)"; then
+      reconcile_clear "$VER"
       echo "audit: v$VER settled"
     fi
     exit 0

@@ -134,6 +134,28 @@ check "empty asset dir installer-prunes nothing and stays silent" "$out" ""
 # were never compared against the GitHub asset" — is now the audit's own output.
 
 
+# ── a SETTLED debt must leave the ledger (round 265) ────────────────────────
+# The audit-only path printed "audit: v1.2.450 settled" and left the entry in place, so the debt outlived the
+# audit that discharged it and the next publish refused. Two checks, because the defect was a CALL that was
+# missing rather than a function that was wrong: the pair behaves, and the call site is where it has to happen.
+L="$T/reconcile.txt"
+RECONCILE_LEDGER="$L" reconcile_record "1.2.450" "test" >/dev/null
+RECONCILE_LEDGER="$L" reconcile_record "1.2.451" "test" >/dev/null
+check "two debts are owed" "$(RECONCILE_LEDGER="$L" reconcile_pending | tr '\n' ' ')" "1.2.450 1.2.451 "
+RECONCILE_LEDGER="$L" reconcile_clear "1.2.450"
+check "a settled version leaves the ledger" "$(RECONCILE_LEDGER="$L" reconcile_pending | tr '\n' ' ')" "1.2.451 "
+RECONCILE_LEDGER="$L" reconcile_record "1.2.450" "test" >/dev/null
+RECONCILE_LEDGER="$L" reconcile_clear "1.2.450"
+check "...and clearing it twice is not an error" "$(RECONCILE_LEDGER="$L" reconcile_pending | tr '\n' ' ')" "1.2.451 "
+# THE CALL SITE, pinned as source: publish-release.sh has no harness (this file's own note above), and the
+# shape that shipped was an echo with no clear next to it.
+check_match "the audit-only branch CLEARS the ledger it declares settled" \
+  "$(sed -n '/^if \[ "${1:-}" = "--audit-only" \]/,/^fi$/p' scripts/publish-release.sh)" "reconcile_clear"
+case "$(sed -n '/^if \[ "${1:-}" = "--audit-only" \]/,/^fi$/p' scripts/publish-release.sh)" in
+  *'echo "audit: v$VER settled"'*'reconcile_clear'*|*'reconcile_clear'*'echo "audit: v$VER settled"'*) PASS=$((PASS+1));;
+  *) echo "FAIL: the audit-only branch says settled without clearing — the debt would outlive its audit"; exit 1;;
+esac
+
 # ── the release scripts' own silent self-disabling checks (round 127) ────────
 # These are SOURCE pins, the instrument this file already uses for the reconcile
 # gate: publish-release.sh has no harness of its own, and the two shapes below
