@@ -763,15 +763,26 @@ if node "$TOOL" --judge "$TMP/press-one-of-four.json" > /dev/null 2>&1; then
 else
   ok "and a page with four controls still has to have more than one pressed"
 fi
-# AND THE EMITTERS KEEP THEIR GUARD: every borrowed helper must be defined in what they print, or the run dies on
-# the device with "is not defined" while every local gate (which reads text) passes.
+# AND THE EMITTERS KEEP THEIR GUARANTEE. The rule is "an emitter must not print a script that cannot run", and
+# there are two mechanisms that satisfy it: its own `new Function(script)` parse guard, or the assembler
+# (`bundleSweep`) — which COMPILES what it is about to return. This assertion named only the first, so when the
+# landing's payload moved to real modules (round 266) the gate went red on a landing that was BETTER protected than
+# before: until then it was the one emitter with NO parse guard at all. A check that pins a mechanism instead of the
+# rule is the shape this suite warns about everywhere else — so the second half below pins the RULE by emitting the
+# artifact and parsing it with the same command CI uses.
 for f in panel console landing; do
-  if grep -q "assertEmbedded(out" "agent/scripts/$f-design-sweep.mjs"; then
-    ok "the $f emitter asserts that what it borrows is defined"
+  if grep -qE "assertEmbedded\(out|bundleSweep\(" "agent/scripts/$f-design-sweep.mjs"; then
+    ok "the $f emitter carries a guarantee that what it prints can run"
   else
-    bad "the $f emitter prints its script without checking that the helpers it calls are defined"
+    bad "the $f emitter prints its script with neither a parse guard nor an assembler that compiles"
   fi
 done
+if VALE_LANDING_OUT="$TMP/landing-emit" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing-check.js" 2>/dev/null \
+   && node --check "$TMP/landing-check.js"; then
+  ok "and the landing's artifact PARSES — the rule, measured rather than inferred from a mechanism"
+else
+  bad "the landing emitter printed a script that does not parse"
+fi
 
 # AND THE CLAIM A FIXTURE MEANS: the same sentence on a surface whose run REJECTED every call (?fail=1) is TRUE,
 # and the judge must excuse it from the fixture's own answer rather than from a list inside the judge.
