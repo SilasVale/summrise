@@ -395,15 +395,18 @@ const fail = { api: false };
         // for every visible control rather than a list somebody thought of — a list can only contain what somebody thought
         // of, and the controls that answer nothing are exactly the ones nobody thought about. Chrome is skipped: the rail
         // and the language button are navigation, not actions.
+        // ACKPASS RETURNS THE ROWS THEMSELVES, not an object around them: the panel iterates its result directly, and
+        // reading the artefact is what settled it after CI said "ackRows.rows is not iterable". Parsing is not running, and
+        // the emitted script parsing was never evidence that this line worked.
         const ackRows = wants('ack') ? await ackPass(page, [], ACK_BUDGET_MS, {
           density: 'console', theme: 'light', page: label, mode: 'ack', discover: 8,
           skip: ['.rail-btn', '.lang-btn', '.avatar', 'a'],
-        }) : { rows: [], found: 0, pressed: 0 };
+        }) : [];
         if (wants('ack')) {
           // ONLY the ack rows go into report.ack: the shared judge reads that array, and the press array is judged by
           // different rules (a row of another shape there would be read as a press that measured nothing).
           report.ack = report.ack || [];
-          for (const r of ackRows.rows) report.ack.push(r);
+          for (const r of ackRows) report.ack.push(r);
         }
         // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round
         // 64 and it found a live duration being called a repaint; the console polls its own views twice a second, so
