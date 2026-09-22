@@ -801,7 +801,11 @@ function buildHarness() {
   // sweep reported real-looking overflow findings, and a waiver hid them. Nothing in a report said which
   // generation had been measured. This stamp is that missing fact — the built stylesheet's size and hash,
   // carried into every report so a reader can see the harness is older than the build it should match.
-  const stamp = (() => {
+  // THE STAMP CAN COME FROM THE CALLER (round 237). When the sheet is not in this tree — a device running URL mode, where the
+  // panel is served rather than checked out — the only way to keep one identity for it is for whoever CAN read it to hand the
+  // value over. One environment variable, the same on both emitters, so the harness and the sweep that judges it cannot
+  // disagree about which stylesheet was measured.
+  const stamp = process.env.VALE_HARNESS_STAMP || (() => {
     try {
       const css = readFileSync(join(ROOT, "agent", "resources", "panel", "panel.css"));
       return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);

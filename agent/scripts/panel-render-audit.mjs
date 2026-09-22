@@ -35,7 +35,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -879,7 +879,13 @@ async function main() {
     console.log("EXIT 2: THE AUDIT DID NOT RUN — this is a SKIP, not a pass.");
     process.exit(2);
   }
-  const { acquireBrowser } = await import(helper);
+  // A DYNAMIC import() NEEDS A URL ON WINDOWS (round 242). `VALE_BROWSER_HELPER` is an absolute path like
+  // `D:\Vale\components\playwright\helper.mjs`, and `await import()` of that string dies with
+  // "Only URLs with a scheme in: file, data, and node are supported ... Received protocol 'c:'" — which is what a runner sets
+  // and what a bare terminal does NOT, so the same emitter worked from a PTY and failed under `browser_run_script`. The
+  // emitted PROBE never hit this because its `require(process.env.VALE_BROWSER_HELPER)` is CommonJS, which is happy with a
+  // Windows path: one environment value, two module systems, one of them strict about it.
+  const { acquireBrowser } = await import(pathToFileURL(helper).href);
   const { page, close } = await acquireBrowser();
 
   // Served at a REAL origin and path, satisfied by interception — the panel sees

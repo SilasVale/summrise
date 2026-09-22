@@ -204,7 +204,10 @@ const TIMING = \`(() => {
 // and only its result is inlined into the emitted script — the computation itself uses import.meta, which is
 // a syntax error in the CommonJS script the device runs. (The emitter's own parse guard caught that, which is
 // what it is for.)
-const HARNESS_STAMP = (() => {
+// AND IT CAN BE HANDED OVER (round 237): on a device there is no ../resources/panel to read, so the value comes from the
+// caller — the same variable the harness emitter reads, which is what keeps their two identities equal by construction rather
+// than by both happening to read the same file. Inlined at emit time, so this is a decision the EMITTING environment makes.
+const HARNESS_STAMP = process.env.VALE_HARNESS_STAMP || (() => {
   try {
     const css = readFileSync(new URL("../resources/panel/panel.css", import.meta.url));
     return css.length + "-" + createHash("sha256").update(css).digest("hex").slice(0, 12);
