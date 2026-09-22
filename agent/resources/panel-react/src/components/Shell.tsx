@@ -1,6 +1,8 @@
 // Shell — ONE shell for both densities (per the core design doc §4).
 //   density="panel"   → icon rail | context rail | canvas + status bar
-//   density="desktop" → icon rail | canvas (context rail + status bar hidden)
+//   density="desktop" → icon rail | canvas, with the SAME full-width status bar under both (round 265).
+//   It used to hide the status bar in this density, and DesktopShell drew its own inside the content
+//   card — which is why the desktop strip started at the rail's edge while the panel's spanned the window.
 // The density difference is PURELY visibility; navigation and pages are shared.
 import type { ReactNode } from "react";
 
@@ -29,13 +31,24 @@ export function Shell({ density, iconRail, contextRail, canvas, statusBar }: {
   iconRail: ReactNode;
   contextRail?: ReactNode;   // panel density only
   canvas: ReactNode;
-  statusBar?: ReactNode;     // panel density only
+  /** BOTH densities (round 265). It was "panel density only" — and the desktop density paid for that in
+   *  GEOMETRY: with no slot to render into, `DesktopShell` folded its strip into the content card, so the
+   *  same device-level facts (version, uptime, CPU/MEM, relay, watches) were a full-width bar in one density
+   *  and a card footer starting after the rail in the other. They are the same bar now, in the same place,
+   *  and the operator's question — "why does the bottom bar not start at the window's edge?" — has the same
+   *  answer in both. */
+  statusBar?: ReactNode;
 }) {
   if (density === "desktop") {
     return (
       <div className="desktop-shell">
-        <nav className="desktop-rail" aria-label="Pages">{iconRail}</nav>
-        <main className="desktop-main">{canvas}</main>
+        {/* THE RAIL AND THE CANVAS SHARE THE ROW, the bar gets the full width under both — exactly the
+            shape the panel density has had all along (`#shell-main` + `{statusBar}`). */}
+        <div className="desktop-body">
+          <nav className="desktop-rail" aria-label="Pages">{iconRail}</nav>
+          <main className="desktop-main">{canvas}</main>
+        </div>
+        {statusBar}
       </div>
     );
   }

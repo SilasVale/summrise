@@ -513,83 +513,6 @@ export function DesktopShell({
             )}
           </div>
 
-          {/* ── Status strip: folded into the content card footer ── */}
-          {showStatus && (
-            <div className={`desktop-status${statusError ? " error" : ""}`}>
-              <span className="desktop-status-msg">
-                {status ||
-                  (sseState === "down"
-                    ? "Connection lost — reconnecting…"
-                    : "")}
-              </span>
-              {/* This density has no StatusBar, so the device-level waiting
-                  count lives here instead (same shared chip). */}
-              {/* THE RELAY, WHEN THERE IS ONE (round 207). The device reports it in /api/status; the panel shows it here,
-                  beside the facts the strip already carries. A device with NO relay renders nothing at all — "not configured"
-                  is not news, and the field exists precisely so this can tell "none" from "broken" rather than guessing from
-                  silence. Wording only for now: this is a text strip, and the silhouette work belongs with the other marks. */}
-              {vitals.relay?.configured && (
-                <span
-                  className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
-                  title={
-                    vitals.relay.connected
-                      ? "This device dialled out to its configured relay and the relay answers"
-                      : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
-                  }
-                >
-                  {vitals.relay.connected ? "relay connected" : "relay unreachable"}
-                </span>
-              )}
-              <BootChip
-                lastBoot={vitals.lastBoot}
-                uptimeSecs={vitals.uptimeSecs}
-                recentCrashes={restarts.summary.crashes}
-              />
-              <LoadChip series={vitalsSeries} />
-              <MonitorChip monitors={monitors} />
-              <WaitingChip sessions={sessions} />
-            </div>
-          )}
-          {!showStatus && (
-            <div className="desktop-status idle">
-              {/* The dial reads the same vitals the sentence spells out. Two
-                  densities, ONE instrument — the desktop strip is a footer rather
-                  than an instrument line, so the arcs sit beside the text instead of
-                  replacing it. The sentence keeps every value, so nothing here is
-                  colour-only. */}
-              <VitalsDial cpu={vitals.cpu} mem={vitals.mem} size={18} />
-              <span className="desktop-status-msg">
-                {connected
-                  ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
-                  : "connecting…"}
-              </span>
-              {/* THE SAME FACT, IN THIS STRIP TOO (round 216). This file renders TWO status strips and only the other one
-                  was taught about the relay, so the live panel showed nothing while /api/status said connected:true — found by
-                  reading the rendered DOM's children, not the source. The FACT has one source (the hook reads it from
-                  /api/status); this is the second place it is DRAWN, and both now draw it. */}
-              {vitals.relay?.configured && (
-                <span
-                  className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
-                  title={
-                    vitals.relay.connected
-                      ? "This device dialled out to its configured relay and the relay answers"
-                      : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
-                  }
-                >
-                  {vitals.relay.connected ? "relay connected" : "relay unreachable"}
-                </span>
-              )}
-              <BootChip
-                lastBoot={vitals.lastBoot}
-                uptimeSecs={vitals.uptimeSecs}
-                recentCrashes={restarts.summary.crashes}
-              />
-              <LoadChip series={vitalsSeries} />
-              <MonitorChip monitors={monitors} />
-              <WaitingChip sessions={sessions} />
-            </div>
-          )}
-
           {/* SSH/Serial connection modal — desktop density mounts it here
               (App's setModalKind is shared with PanelApp; the modal itself
               must render in THIS shell or SSH/Serial buttons are dead). */}
@@ -603,6 +526,90 @@ export function DesktopShell({
             />
           )}
         </div>
+      }
+      statusBar={
+        <>
+              {/* ── Status strip: the shell's BOTTOM BAR (round 265) ──
+                  It was folded into the content card footer, which made it start at the rail's edge and stop
+                  at the canvas inset; the operator asked why the bar does not reach the window's left. Now it
+                  renders into `Shell`'s statusBar slot, under the rail, exactly like the panel density's. */}
+              {showStatus && (
+                <div className={`desktop-status${statusError ? " error" : ""}`}>
+                  <span className="desktop-status-msg">
+                    {status ||
+                      (sseState === "down"
+                        ? "Connection lost — reconnecting…"
+                        : "")}
+                  </span>
+                  {/* This density has no StatusBar, so the device-level waiting
+                      count lives here instead (same shared chip). */}
+                  {/* THE RELAY, WHEN THERE IS ONE (round 207). The device reports it in /api/status; the panel shows it here,
+                      beside the facts the strip already carries. A device with NO relay renders nothing at all — "not configured"
+                      is not news, and the field exists precisely so this can tell "none" from "broken" rather than guessing from
+                      silence. Wording only for now: this is a text strip, and the silhouette work belongs with the other marks. */}
+                  {vitals.relay?.configured && (
+                    <span
+                      className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
+                      title={
+                        vitals.relay.connected
+                          ? "This device dialled out to its configured relay and the relay answers"
+                          : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
+                      }
+                    >
+                      {vitals.relay.connected ? "relay connected" : "relay unreachable"}
+                    </span>
+                  )}
+                  <BootChip
+                    lastBoot={vitals.lastBoot}
+                    uptimeSecs={vitals.uptimeSecs}
+                    recentCrashes={restarts.summary.crashes}
+                  />
+                  <LoadChip series={vitalsSeries} />
+                  <MonitorChip monitors={monitors} />
+                  <WaitingChip sessions={sessions} />
+                </div>
+              )}
+              {!showStatus && (
+                <div className="desktop-status idle">
+                  {/* The dial reads the same vitals the sentence spells out. Two
+                      densities, ONE instrument — the desktop strip is a footer rather
+                      than an instrument line, so the arcs sit beside the text instead of
+                      replacing it. The sentence keeps every value, so nothing here is
+                      colour-only. */}
+                  <VitalsDial cpu={vitals.cpu} mem={vitals.mem} size={18} />
+                  <span className="desktop-status-msg">
+                    {connected
+                      ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
+                      : "connecting…"}
+                  </span>
+                  {/* THE SAME FACT, IN THIS STRIP TOO (round 216). This file renders TWO status strips and only the other one
+                      was taught about the relay, so the live panel showed nothing while /api/status said connected:true — found by
+                      reading the rendered DOM's children, not the source. The FACT has one source (the hook reads it from
+                      /api/status); this is the second place it is DRAWN, and both now draw it. */}
+                  {vitals.relay?.configured && (
+                    <span
+                      className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
+                      title={
+                        vitals.relay.connected
+                          ? "This device dialled out to its configured relay and the relay answers"
+                          : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
+                      }
+                    >
+                      {vitals.relay.connected ? "relay connected" : "relay unreachable"}
+                    </span>
+                  )}
+                  <BootChip
+                    lastBoot={vitals.lastBoot}
+                    uptimeSecs={vitals.uptimeSecs}
+                    recentCrashes={restarts.summary.crashes}
+                  />
+                  <LoadChip series={vitalsSeries} />
+                  <MonitorChip monitors={monitors} />
+                  <WaitingChip sessions={sessions} />
+                </div>
+              )}
+    
+        </>
       }
       />
     </>

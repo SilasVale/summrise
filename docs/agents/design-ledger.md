@@ -3560,6 +3560,21 @@ reports `not rendered on this page` instead of accusing it. `press-anchor-check`
 guard assertion matched the string ANYWHERE, which passed with the guard deleted from `discoverPressTargets` because the
 same three lines live in the two press probes. Scoped to that function's own text, the mutation bites.
 
+**AND THE OPERATOR ASKED ABOUT THE BOTTOM BAR, WHICH TURNED OUT TO BE A GEOMETRY DIFFERENCE BETWEEN THE TWO
+DENSITIES** (his words: "最底下的一栏为什么不是左侧到头的"). Measured on his window, 1181x798: `nav.desktop-rail` was
+0,0,57x798 — a FULL-HEIGHT column — while `.desktop-status` was 73,743,1092x39 with `border-radius: 0 0 14px 14px`,
+i.e. the content card's footer, inset 16px from the right and bottom; `elementFromPoint(40, 790)` was the rail. That
+was not an accident: `desktop.css` says "icon rail | canvas … a status strip folded into the content card footer —
+surfaces, not bars". The PANEL density does the opposite (its `StatusBar` is a sibling of the row, so it spans the
+window), and the same device-level facts — version, uptime, CPU/MEM, relay, watches — were therefore drawn in two
+different geometries depending on which shell you were in. HIS CALL, TAKEN: make it a bar. `Shell`'s desktop branch
+now renders the same shape the panel branch always had (`desktop-body` holding rail + main, then `{statusBar}`),
+`DesktopShell` passes its strip through the new slot instead of folding it into the canvas, and the strip's own rule
+loses the card's bottom rounding. Re-measured: `.desktop-status` 0,759,1181x39, radius 0, `elementFromPoint(6, 790)`
+AND `(1175, 790)` both the bar, rail 759 tall. The test that pinned the old rule ("hides context rail and status bar")
+now pins the new one and names why. This is also the round's clearest example of the loop's own rule working: the
+operator's question was the SPEC, and the answer was a measurement rather than an opinion.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.

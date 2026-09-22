@@ -185,7 +185,18 @@
   position: fixed;
   inset: 0;
   display: flex;
+  /* COLUMN, because the status bar is the last child and spans the window (round 265). It was a row with
+     no status slot at all, so the desktop density's strip had to live inside the content card and started
+     at the rail's edge — the same facts as the panel density, in a different geometry. */
+  flex-direction: column;
   background: var(--bg);
+}
+/* THE ROW THE RAIL AND THE CANVAS SHARE. The rail is as tall as this row, which is what leaves the bar its
+   full width underneath. */
+.desktop-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
 }
 .desktop-main {
   flex: 1 1 0;

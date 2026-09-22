@@ -1,7 +1,8 @@
-// Shell pins — ONE shell, two densities (core design §4): panel density
-// lays out icon rail + context rail + canvas with the status bar as a
-// BOTTOM bar (round-161 stray-column fix); desktop hides context rail +
-// status bar. PAGES/PAGE_LABELS are the shared page contract.
+// Shell pins — ONE shell, two densities (core design §4): BOTH lay out their rails and canvas in a row with
+// the status bar as a full-width BOTTOM bar (round-161 fixed the stray column in the panel density; round 265
+// gave the desktop density the same slot, because its strip used to be the content card's footer and started
+// at the rail's edge — the operator asked why the bar does not reach the window's left). The desktop density
+// hides the CONTEXT RAIL only. PAGES/PAGE_LABELS are the shared page contract.
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Shell, PAGES, PAGE_LABELS, type Page } from "../Shell";
@@ -70,7 +71,7 @@ describe("Shell panel density", () => {
 });
 
 describe("Shell desktop density", () => {
-  it("hides context rail and status bar", () => {
+  it("hides the context rail but keeps the status bar, as a bottom bar across the window", () => {
     const { container } = render(
       <Shell
         density="desktop"
@@ -80,9 +81,16 @@ describe("Shell desktop density", () => {
         statusBar={<span>status</span>}
       />,
     );
-    expect(container.querySelector(".desktop-shell")).toBeTruthy();
+    const shell = container.querySelector(".desktop-shell")!;
+    expect(shell).toBeTruthy();
     expect(screen.queryByText("ctx")).toBeNull();
-    expect(screen.queryByText("status")).toBeNull();
     expect(screen.getByText("canvas")).toBeTruthy();
+    // THE BAR IS A CHILD OF THE SHELL, NOT OF THE CANVAS — that is the whole rule: the rail and the canvas
+    // share `.desktop-body`, and the bar sits under BOTH, so it spans the window from its left edge.
+    const status = screen.getByText("status");
+    expect(status.parentElement).toBe(shell);
+    expect(status.previousElementSibling?.className).toBe("desktop-body");
+    expect(shell.querySelector(".desktop-body .desktop-rail")).toBeTruthy();
+    expect(shell.querySelector(".desktop-body .desktop-main")).toBeTruthy();
   });
 });
