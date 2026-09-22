@@ -193,21 +193,72 @@ data contradicted.
 | App Store | public iTunes Search API (`itunes.apple.com/search?term=…&entity=software`) | Windows, web, Steam; and it matches loosely |
 | Trademark | **nothing yet** — web search only, which is not a register search | everything that matters. The open row. |
 
+## Deployment state (2026-09-27, end of the rename)
+
+**Live and verified.**
+
+| Thing | State |
+|---|---|
+| CDN worker | `summrise-dist`, with `agent.saisi.online` and `command.saisi.online` attached to it |
+| CDN content | `/summrise-agent/version.json` → `1.2.452`; `/summrise-agent/summrise-agent-latest.tgz` → 200 (6,690,379 B); `/vale-agent/*` → **404**, which is the design: the reinstall *is* the migration |
+| Release | `summrise-agent-1.2.452.tgz` published; landing page 200 |
+| Repo | three commits pushed — `9acb2db1` (the rename), `28887dd4` (the Access fix), `24bcc049` (prettier + mirror) |
+
+**Two infrastructure names keep the old spelling. Neither is a brand surface.**
+
+1. **`vale-gate` — the Cloudflare worker name.** Worker secrets are *write-only*:
+   `vale-gate` holds **15** of them (`ADMIN_PASSWORD`, `SESSION_SECRET`, `DO_AUTH`,
+   `UPLOAD_KEY`, `API_HOST`, `CLIENT_KEY`, `CMD_API_KEY`, `R4_API_KEY`, and seven upstream
+   model keys). A new worker name starts with none, and the seven upstream keys cannot be
+   invented. Deploying `summrise-gate` fresh would therefore not rename the gateway — it
+   would **disable the model gateway and change the console password**. So
+   `gateway/wrangler.jsonc` was set back to describe reality: the worker stays
+   `vale-gate`, and `api.saisi.online` / `ai.saisi.online` stay attached to it — untouched,
+   zero downtime. (If the 15 values are ever re-entered, the rename is a two-line change
+   plus a domain move.)
+2. **`vale-saisi.cloudflareaccess.com` — the Access team domain**, recorded in the table
+   above.
+
+Both are the same lesson as the account name: *a string that names a live resource holding
+state we cannot copy is not ours to find-and-replace.*
+
+**Left running on purpose as rollback — delete when the new CDN has served a day:**
+
+```bash
+wrangler delete vale-dist                          # no domain points at it any more
+wrangler r2 bucket delete vale-temp-files          # empty; only 24h relay temp files lived there
+```
+
+**Out of this repo's scope, still carrying the old name** (separate components, not
+renamed): `~/vale-forge` + `~/.local/bin/vale-forge` + `~/.vale-forge.json` — the MCP
+client behind the `vale-gate` server label — and the label itself in
+`~/.dsh/profiles/web/cordis.patch.yml`. Renaming that label renames the live MCP tool
+namespace, so it is a client-restart action, not a rename side effect. Also
+`~/vale-deploy`, `~/vale-signing-test`, `~/vale-stage-l-*`.
+
+**The one action left that only a human can take: reinstall the device.**
+
+```powershell
+vale uninstall          # the OLD cli is still installed on the device and still works
+npm i -g --prefix (Split-Path (Get-Command npm).Source) `
+  https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
+summrise status
+```
+
+**It was deliberately NOT run from the session that did the rename.** That session reaches
+the device *through the agent being replaced*, and this repo's own notes record that
+killing or relaunching the agent from an agent-hosted PTY kills the running agent. A
+device whose agent is removed while it is the only way in is a device nobody can finish
+installing. Until it is reinstalled the device keeps working on the old build; it simply
+cannot update itself, because the path it would ask for returns 404.
+
 ## Open
 
 - **Trademark** — US/UK/EU, classes 9/42/38. The largest open risk, and the reason
   `caprise` is kept above as a fallback.
-- **The device reinstall — not yet executed anywhere.** Intended procedure, to be
-  verified on the device before it is trusted:
-  ```powershell
-  vale uninstall          # the OLD cli is still installed on the device and still works
-  npm i -g --prefix (Split-Path (Get-Command npm).Source) `
-    https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
-  summrise status
-  ```
-  The `--prefix` matters: without it npm installs elsewhere, reports success, and
-  `summrise update` ships the old exe.
-- **Claim today**: npm `summrise` (a placeholder), and the five domains — all free.
+- **Claim today**: npm `summrise` (a placeholder — a coined name's whole value is being
+  first; `solune` was coined in the same session and is already registered in the UK), and
+  the five domains `summrise.io` / `.dev` / `.sh` / `.app` / `.cn`, all free.
 - **Chinese name**: 峰起 (recommended — 峰 = summit, 起 = rise) vs 山起 vs 云起.
   「顶升」is out on two counts: a registered mark being traded, and a heavy-machinery
   term (顶升法, 液压顶升).
