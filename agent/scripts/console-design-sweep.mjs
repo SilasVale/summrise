@@ -38,7 +38,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import {markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
+import {markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 // WHICH AXES TO RUN. The panel sweep has had this since round 31 and the console had none: every run measured
@@ -121,6 +121,11 @@ const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
 const focusPass = ${focusPass.toString()};
 const pressDelta = ${pressDelta.toString()};
 const pressPass = ${pressPass.toString()};
+const ACK_BUDGET_MS = 100;
+// AND THE ACK PASS (round 190). Same helper the panel uses, embedded the same way: it times the gap between a
+// press and the first visible acknowledgement against the stated budget, and with discover it asks the DOM for every
+// visible control instead of a list somebody thought of.
+const ackPass = ${ackPass.toString()};
 // AND THE HELPER pressPass CALLS: it asks the DOM for the page's controls. A borrowed helper that calls another
 // one needs that one embedded too, or the run dies on the device with "is not defined" — the failure the emitted
 // check below exists for.
@@ -385,6 +390,21 @@ const fail = { api: false };
         // a pass that pressed nothing from reading as clean. (No backticks in this comment: 43rd time.)
         const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], { page: label, width }) : [];
         if (wants('press')) report.press.push({ density: 'console', theme: 'light', page: label, width, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
+        // THE ACKNOWLEDGEMENT'S LATENCY, which this end had never measured (round 190). The press pass proves a press
+        // PAINTS; this proves the control ANSWERS, and how fast, against the stated 100 ms budget. discover asks the DOM
+        // for every visible control rather than a list somebody thought of — a list can only contain what somebody thought
+        // of, and the controls that answer nothing are exactly the ones nobody thought about. Chrome is skipped: the rail
+        // and the language button are navigation, not actions.
+        const ackRows = wants('ack') ? await ackPass(page, [], ACK_BUDGET_MS, {
+          density: 'console', theme: 'light', page: label, mode: 'ack', discover: 8,
+          skip: ['.rail-btn', '.lang-btn', '.avatar', 'a'],
+        }) : { rows: [], found: 0, pressed: 0 };
+        if (wants('ack')) {
+          // ONLY the ack rows go into report.ack: the shared judge reads that array, and the press array is judged by
+          // different rules (a row of another shape there would be read as a press that measured nothing).
+          report.ack = report.ack || [];
+          for (const r of ackRows.rows) report.ack.push(r);
+        }
         // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round
         // 64 and it found a live duration being called a repaint; the console polls its own views twice a second, so
         // "the page is settled and writing nothing" is exactly the claim its live views could break. It runs on
@@ -604,7 +624,7 @@ function judge(file) {
 
 if (mode === "--emit") {
   const out = browserScript();
-  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets"]);
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "ackPass"]);
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];
