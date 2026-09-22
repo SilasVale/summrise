@@ -138,7 +138,14 @@ x86_64-pc-windows-msvc --features terminal,keyring` exit 0 · npm package `npm t
 | `agent/deploy/retired/*` | Retired installers, kept as the record of what was shipped. |
 | The ~60 published `*.tgz` in the repo | Their sha256 is recorded in the CDN manifest; renaming a file changes its identity and would break the audit forever. |
 | `LICENSE:3` — `Copyright (c) 2026 SilasVale` | That is the **account** name, and accounts are not renamed: GitHub's redirect for a *repository* is reliable, for a *user* it is not, and once the old account name is taken by anyone else every old clone, link and release URL breaks at once. |
+| `ACCESS_TEAM_DOMAIN=vale-saisi.cloudflareaccess.com` (`gateway/wrangler.jsonc`) | A Cloudflare Access **team domain is an account resource that already exists**. The rename produced `summrise-saisi.cloudflareaccess.com`, which resolves to nothing: a gateway deployed with it fails every JWT check and **authentication dies for everyone**. Renaming the team is a Zero Trust dashboard action that invalidates existing sessions — until that is taken deliberately, this var keeps the real domain. Caught by diffing the wrangler configs against the live account, not by a test. |
 | `equivalent`, `equivalence(s)`, `valence`, `valet` | English words that merely contain the string. |
+
+**Two more names are real resources, and the rename did re-point them** (so they are
+*not* in the table above, but they are not free either): the **R2 bucket** became
+`summrise-temp-files`, which `wrangler deploy` auto-provisioned as a **new, empty**
+bucket — the old one holds only 24 h relay temp files, so nothing durable was lost; and
+the **Cloudflare Access team** name, handled above.
 
 ## The runner-up, recorded so the choice is reconstructable
 
