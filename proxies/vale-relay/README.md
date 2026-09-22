@@ -44,6 +44,25 @@ Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ Comma
 (a child parented by WmiPrvSE survives its caller), or register it as a service. Redirect its output to a file either way: a
 relay whose stdout is a terminal loses its logs and can be killed by that terminal closing.
 
+### The deployment that was VERIFIED end to end (2026-09-22)
+
+A scheduled task under SYSTEM, with restart-on-failure and no execution time limit. This exact command registered it, the
+relay came up, the agent reconnected within a second, and the panel's status strip read "relay connected":
+
+```powershell
+$a = New-ScheduledTaskAction -Execute "<path>\node.exe" -Argument '"<path>\vale-relay.mjs" --listen 127.0.0.1:18990 --token <secret>'
+$t = New-ScheduledTaskTrigger -AtStartup
+$s = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+     -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$p = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+Register-ScheduledTask -TaskName "ValeRelay" -Action $a -Trigger $t -Settings $s -Principal $p -Force
+Start-ScheduledTask -TaskName "ValeRelay"
+```
+
+`-Principal SYSTEM` IS REQUIRED: without it, `Register-ScheduledTask` fails with "no mapping between account names and security
+IDs" when it is run from a service account, and the task is never created. `RestartCount`/`RestartInterval` are the supervision
+the section above says a bare `node` process cannot provide for itself.
+
 ## What it is not
 
 One agent per relay (first token wins), no TLS, no per-client identity, no rate limiting of its own. It is a pipe with a shared
