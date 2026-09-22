@@ -523,6 +523,22 @@ export function DesktopShell({
               </span>
               {/* This density has no StatusBar, so the device-level waiting
                   count lives here instead (same shared chip). */}
+              {/* THE RELAY, WHEN THERE IS ONE (round 207). The device reports it in /api/status; the panel shows it here,
+                  beside the facts the strip already carries. A device with NO relay renders nothing at all — "not configured"
+                  is not news, and the field exists precisely so this can tell "none" from "broken" rather than guessing from
+                  silence. Wording only for now: this is a text strip, and the silhouette work belongs with the other marks. */}
+              {vitals.relay?.configured && (
+                <span
+                  className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
+                  title={
+                    vitals.relay.connected
+                      ? "This device dialled out to its configured relay and the relay answers"
+                      : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
+                  }
+                >
+                  {vitals.relay.connected ? "relay connected" : "relay unreachable"}
+                </span>
+              )}
               <BootChip
                 lastBoot={vitals.lastBoot}
                 uptimeSecs={vitals.uptimeSecs}
