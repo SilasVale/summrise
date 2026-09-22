@@ -26,6 +26,7 @@ use axum::response::{IntoResponse, Response};
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::Service;
@@ -226,6 +227,60 @@ impl<S> TokenGate<S> {
 /// rejection response is built in the same shape here.
 type McpBoxBody = http_body_util::combinators::BoxBody<bytes::Bytes, Infallible>;
 
+/// HOW LONG A FAILED AUTHENTICATION COSTS THE CALLER (round 206).
+///
+/// The operator asked what protects MCP if the port is reachable — a VPN, SSH or a bound LAN address all end with THIS gate
+/// and a bearer token as the only wall, and MEASURED, the production paths had no throttle of any kind (every `sleep` in
+/// this file is in a test). A token is a long secret, so the goal is not to lock anybody out; it is to make guessing cost
+/// time instead of being free:
+///
+/// ```text
+///     0 -> 0ms, 1 -> 100ms, 2 -> 200, 3 -> 400, 4 -> 800, 5 -> 1600, >=6 -> 2000, and it stays there.
+/// ```
+///
+/// An honest typo pays 100ms once; a script pays two seconds per attempt after the sixth. Success clears it, so the
+/// operator who mistypes and then pastes the right token is never slowed down again.
+pub(crate) fn auth_backoff_ms(fails: u32) -> u64 {
+    match fails {
+        0 => 0,
+        1 => 100,
+        2 => 200,
+        3 => 400,
+        4 => 800,
+        5 => 1600,
+        _ => 2000,
+    }
+}
+
+static AUTH_FAILS: AtomicU32 = AtomicU32::new(0);
+static AUTH_PENALTY_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Milliseconds still owed to the penalty window, 0 when none is active.
+fn auth_penalty_remaining_ms() -> u64 {
+    let until = AUTH_PENALTY_UNTIL_MS.load(Ordering::Relaxed);
+    until.saturating_sub(now_ms())
+}
+
+/// One failed authentication: extend the window. Called by both gates, so the count is per PROCESS and not per route.
+fn note_auth_failure() {
+    let fails = AUTH_FAILS.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+    let until = now_ms().saturating_add(auth_backoff_ms(fails));
+    AUTH_PENALTY_UNTIL_MS.store(until, Ordering::Relaxed);
+}
+
+/// A caller that authenticated: forgive everything, immediately.
+fn note_auth_success() {
+    AUTH_FAILS.store(0, Ordering::Relaxed);
+    AUTH_PENALTY_UNTIL_MS.store(0, Ordering::Relaxed);
+}
+
 fn unauthorized_mcp_response() -> axum::http::Response<McpBoxBody> {
     let body = http_body_util::Full::new(bytes::Bytes::from_static(
         br#"{"ok":false,"error":"unauthorized"}"#,
@@ -262,16 +317,26 @@ where
         let Some(token) = token else {
             return Box::pin(async { Ok(unauthorized_mcp_response()) });
         };
+        // PAY THE PENALTY FIRST (round 206), so a caller inside the window cannot even have its guess compared.
+        let owed = auth_penalty_remaining_ms();
+        let token_for_check = token.clone();
         let authorized = token_is_usable(&token)
             && req
                 .headers()
                 .get(axum::http::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.strip_prefix("Bearer "))
-                .is_some_and(|h| timing_safe_eq(h.as_bytes(), token.as_bytes()));
+                .is_some_and(|h| timing_safe_eq(h.as_bytes(), token_for_check.as_bytes()));
         if !authorized {
-            return Box::pin(async { Ok(unauthorized_mcp_response()) });
+            note_auth_failure();
+            return Box::pin(async move {
+                if owed > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(owed)).await;
+                }
+                Ok(unauthorized_mcp_response())
+            });
         }
+        note_auth_success();
         Box::pin(self.inner.call(req))
     }
 }
@@ -3568,6 +3633,25 @@ mod tests {
         assert!(
             err.contains("playwright"),
             "error must point at the playwright bundle: {err}"
+        );
+    }
+
+    /// The backoff's SHAPE, as a pure function (round 206). The two atomics around it are process-wide and other tests in
+    /// this file authenticate, so a test that drove them would race; the state machine is six lines long and visible in
+    /// `note_auth_failure`, and the 401 path itself is covered by `auth_401_without_token` below.
+    #[test]
+    fn auth_backoff_grows_then_holds() {
+        assert_eq!(auth_backoff_ms(0), 0, "no failures, no penalty");
+        assert_eq!(auth_backoff_ms(1), 100);
+        assert_eq!(auth_backoff_ms(2), 200);
+        assert_eq!(auth_backoff_ms(3), 400);
+        assert_eq!(auth_backoff_ms(5), 1600);
+        assert_eq!(auth_backoff_ms(6), 2000);
+        assert_eq!(
+            auth_backoff_ms(600),
+            2000,
+            "it HOLDS at two seconds rather than growing without bound: the token is a long secret, so the job is to make \
+             guessing cost time, not to lock an operator out"
         );
     }
 
