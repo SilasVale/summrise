@@ -244,8 +244,15 @@ export function SettingsPage({
 
   return (
     <div className="desktop-settings">
-      <h1>Settings</h1>
-      <p className="muted">Device: local agent on 127.0.0.1:18080</p>
+      {/* ONE h1, FOR THE OUTLINE ONLY (round 199). The shell renders the page's VISIBLE title in the card header, and
+          `DesktopShell` mounts a hidden h1 for the terminal page for exactly this reason — its own comment records that the
+          desktop measured ZERO headings while every other page had one. A visible h1 here made Settings the only page that
+          said its own name twice on screen. */}
+      <h1 className="sr-only">Settings</h1>
+      {/* AND THE ADDRESS IS THE DEVICE'S, NOT A LITERAL (round 199). It was 127.0.0.1:18080, which is the local agent's port
+          and a lie for every remote or tunnelled user — the rule `ConnectCard` states two files away: "A hardcoded value here
+          would be wrong for every remote/tunnel user." `location.host` is the same string the browser itself is talking to. */}
+      <p className="muted">Device: local agent on {location.host}</p>
 
       {/* Onboarding FIRST. Until an AI client is pointed here, none of the rest
           of this page matters — the measured gap this card closes was that a
