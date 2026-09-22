@@ -3329,3 +3329,14 @@ from small elements made the judge call those NO SURFACE RENDERED — a queue of
 SO THE NINE NOTES ARE THE QUEUE WORKING, not a gap to close: those families are measured as TEXT by the contrast pass on every
 run, and their silhouettes are not a question that applies to them. The note's wording says exactly that, and this paragraph is
 here so the next round does not spend itself on nine families that are already covered — by the other instrument.
+
+### CAN A GATE FAIL SILENTLY? MEASURED, AND THE SCAN WAS NARROW AGAIN (round 185)
+
+The question is worth asking — an operator who sees a red X with nothing in the log learns nothing — so it was measured: of the
+34 `.mjs` gates, ONE has `process.exit(1)` paths and no `console.error` at all, `harness-fixture-check.mjs`. Reading it settles
+the matter: it reports through `console.log` (`FAIL: …` per check, and a summary line that says "N FAILED"), which is the
+stdout/stderr distinction and not a silent failure — every CI runner shows both streams interleaved.
+
+So NO GATE FAILS SILENTLY, and the scan was narrow in the same way as six before it: it looked for one spelling of "reports a
+problem" and concluded from its absence. The rule this session keeps arriving at is the fix — a text scan chooses what to READ —
+and the count here (one) was small enough that reading it cost a single command.
