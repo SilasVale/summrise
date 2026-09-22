@@ -57,6 +57,20 @@ pub(crate) fn serve_panel_file(file: &str, content_type: &'static str) -> Respon
     };
     let mut resp = built_response(StatusCode::OK, content_type, body);
     set_cache_control(&mut resp, "no-cache");
+    // CROSS-ORIGIN FOR THE ASSETS, NEVER FOR THE PAGE (round 234). A harness that renders this panel from another origin cannot
+    // load `panel.js` at all: it is a <script type="module">, modules are fetched with CORS, and the browser refuses it without
+    // this header — measured on the device, console and all ("blocked by CORS policy: No 'Access-Control-Allow-Origin' header
+    // is present").
+    //
+    // THE NARROW SCOPE IS THE POINT. `index.html` flows through this same function on its way to `panel_token_response`, which
+    // INJECTS THE DEVICE TOKEN into it for loopback callers — a blanket header here would let any web page read that token.
+    // The assets below ship in the .exe and in the npm tarball, so `*` tells an attacker nothing they cannot already download.
+    if file != "index.html" {
+        resp.headers_mut().insert(
+            "Access-Control-Allow-Origin",
+            axum::http::HeaderValue::from_static("*"),
+        );
+    }
     resp
 }
 
@@ -255,6 +269,11 @@ impl Service<Request<Body>> for WebPanel {
             // cross-origin JS cannot read panel responses at all; the panel
             // itself is same-origin and needs no CORS. MCP clients (Claude
             // Code) are not browsers and are unaffected.
+            //
+            // STILL TRUE, AND NOW SCOPED RATHER THAN ABSENT (round 234): the ASSETS alone carry the header, from
+            // `serve_panel_file`, and `index.html` — the one response that ever carries a token — is excluded there by name.
+            // A harness on another origin needs the header to load `panel.js` at all (it is a module, modules are CORS-fetched);
+            // it cannot learn anything from it, because the same bytes ship in the .exe and in the npm tarball.
             Ok(resp)
         })
     }
@@ -443,6 +462,21 @@ mod panel_tests {
             "/panel.js",
         ] {
             let resp = serve_panel_file(evil, "text/plain; charset=utf-8");
+
+            // THE SCOPE, BOTH WAYS (round 234). A cross-origin harness cannot load panel.js without the header — modules are
+            // fetched with CORS — and index.html must NEVER carry it, because that is the response the device token is
+            // injected into. One assertion each, on the same function, so the boundary cannot move without this failing.
+            let js = serve_panel_file("panel.js", panel_content_type("panel.js"));
+            assert_eq!(
+                js.headers().get("access-control-allow-origin").and_then(|v| v.to_str().ok()),
+                Some("*"),
+                "panel.js must be cross-origin readable, or an off-origin harness renders an empty page"
+            );
+            let html = serve_panel_file("index.html", panel_content_type("index.html"));
+            assert!(
+                html.headers().get("access-control-allow-origin").is_none(),
+                "index.html is the token carrier — a CORS header here hands the device token to any web page"
+            );
             assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{evil:?}");
         }
     }

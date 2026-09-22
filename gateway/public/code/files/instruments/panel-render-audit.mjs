@@ -120,7 +120,12 @@ const REQUIRED = [
 ];
 
 function buildHarness() {
-  const css = readFileSync(join(PANEL, "panel.css"), "utf8");
+  // A URL MODE (round 230). With VALE_PANEL_BUNDLE_URL set, the harness REFERENCES the panel instead of inlining it: the
+  // emitter then runs where the repo is NOT (on a device), and the page it builds loads the very bundle that device serves —
+  // the same principle the live probe follows, and the reason a device run no longer needs the 660 KB artifact carried to it.
+  // Read-only, no writes: the emitter's only other job is to write the harness out.
+  const bundleUrl = (process.env.VALE_PANEL_BUNDLE_URL || "").replace(/\/+$/, "");
+  const css = bundleUrl ? "" : readFileSync(join(PANEL, "panel.css"), "utf8");
   // WHAT THIS HARNESS CANNOT REACH, measured rather than assumed (round 45): the evidence drawer —
   // and with it the browser-action badges and the screenshot timestamp — renders ONLY in the
   // Electron shell, because BrowserPage mounts its pane behind `window.valeEmbedded` and a plain
@@ -128,12 +133,12 @@ function buildHarness() {
   // render, and a dead fixture is a lie about coverage. Those three badge inks were therefore fixed
   // on the STATIC pair sweep's measurement (1.99 -> 5.73+ on the light chrome surface) and are
   // confirmed there and in the token contract; the rendered confirmation needs the desktop app.
-  const js = readFileSync(join(PANEL, "panel.js"), "utf8");
+  const js = bundleUrl ? "" : readFileSync(join(PANEL, "panel.js"), "utf8");
   // No closing script tag may appear in ANY inline script, and there are two of them: the bundle
   // here and the stub below. Checking only the bundle is how a comment in the stub silently cut the
   // whole fixture in half — the page still loaded, still rendered a panel, and simply had no
   // sessions, which reads like a product bug rather than a broken harness.
-  if (/<\/script/i.test(js)) throw new Error("panel.js contains a closing script tag — inline embedding is unsafe");
+  if (!bundleUrl && /<\/script/i.test(js)) throw new Error("panel.js contains a closing script tag — inline embedding is unsafe");
 
   const stub = `
 // NO BACKTICKS IN THIS TEMPLATE, AND NO CLOSING SCRIPT TAG EITHER — not even inside a comment.
@@ -805,8 +810,8 @@ function buildHarness() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="vale-harness-build" content="${stamp}">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Vale Agent</title>
-<style>${css}</style></head><body><div id="root"></div>
-<script>${stub}</script><script type="module">${js}</script></body></html>`;
+<style>${css}</style>${bundleUrl ? `<link rel="stylesheet" href="${bundleUrl}/panel.css">` : ""}</head><body><div id="root"></div>
+<script>${stub}</script>${bundleUrl ? `<script type="module" src="${bundleUrl}/panel.js"></script>` : `<script type="module">${js}</script>`}</body></html>`;
 }
 
 const OVERFLOW = `(() => {

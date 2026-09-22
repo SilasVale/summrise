@@ -11,6 +11,32 @@
 //
 // THE TOKEN IS READ FROM THE DEVICE'S OWN CONFIG IN-PROCESS and never printed — not to stdout, not into the
 // report. If the config moves, the script says where it looked rather than failing silently.
+//
+// ── HOW TO RUN IT ON A DEVICE (round 228 — this cost four rounds to work out, so it is written down) ──────────────────
+//
+//   1. GET THE TREE THERE. The console's code viewer mirrors these instruments, so a device can fetch them from the CDN —
+//      which is the ONLY channel that worked: raw githubusercontent times out on lib/design-sweep.mjs (116 KB), the device
+//      has no `git`, and the relay inbox wants an admin token.
+//
+//          https://<dist-host>/code/files/instruments/live-panel-probe.mjs
+//          https://<dist-host>/code/files/instruments/lib/design-sweep.mjs
+//          https://<dist-host>/code/files/instruments/lib/contrast-probe.mjs
+//
+//      (All three, into a directory with `lib/` beside the probe — the imports are relative.) `manifest.json` lists them.
+//   2. EMIT ON THE DEVICE, with its bundled node:
+//          node live-panel-probe.mjs --emit > probe-live.js
+//   3. RUN IT THROUGH `browser_run_script`, and do NOT re-transcribe it — that runner INJECTS the two environment pieces the
+//      emitted script needs, one of which does not exist as a file anywhere:
+//
+//          require("D:\\path\\to\\probe-live.js");
+//
+//      THE TRAP: run it from a terminal instead and it dies with `The "id" argument must be of type string. Received
+//      undefined` — that is `require(undefined)`, because `VALE_BROWSER_HELPER` is set by the RUNNER and by nothing else. Two
+//      rounds were spent guessing environment variables at a terminal before anyone read the emitted script's first line.
+//   4. A GREEN RUN looks like this (the operator's device, 2026-09-22, both densities): `textFailing: []`,
+//      `graphicFailing: []`, `unmeasurable: 0`, `marks.collisions: []`, `marks.ringFill: []`, `errors: []`, and
+//      `verdict.ok: true`. A NON-ZERO `unmeasurable` is not a pass: an absence is not evidence until the instrument is shown
+//      to see.
 import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 // THE SAME MARK AXIS THE SWEEPS RUN, not a second copy of it (round 30 of the standing goal). The sweeps measure the
 // HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
