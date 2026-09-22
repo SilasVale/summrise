@@ -2071,6 +2071,27 @@ const commands = {
   },
 
   async update() {
+    // THE CLI CANNOT DELIVER A VERSION IT DOES NOT CARRY (round 201, measured on the operator's device):
+    // "update requested 1.2.438 -> 1.2.438", "copy ok=True", and the release unchanged — while `vale status` kept saying
+    // "THIS DEVICE IS BEHIND ... run 'vale update'", i.e. the product pointed at a command that could not help. The reason
+    // is the parity marker below: `<install>/.vale-release` is stamped with THIS PACKAGE'S version, and the device's
+    // `agent_update` reads that file as its LOCAL version. An older CLI therefore stamps the install with the version it
+    // already has, the swap installs the same build, and nothing moves. Refuse before touching the device, and say the
+    // thing that works — the release flow has always been two steps.
+    const cdnLatest = latestCdnVersion();
+    const selfVersion = String(require("../package.json").version || "");
+    if (cdnLatest && selfVersion && behindBy(selfVersion, cdnLatest)) {
+      console.error(
+        `update: this CLI is ${selfVersion} and the CDN has ${cdnLatest}.` +
+          "\n  Updating from here would stamp the device with " +
+          selfVersion +
+          " and change nothing, because the device reads <install>/.vale-release (written by this package) as its version." +
+          "\n  Install the new CLI first, then update again:" +
+          '\n    npm i -g --prefix (Split-Path (Get-Command vale).Source) https://agent.saisi.online/vale-agent/vale-agent-latest.tgz' +
+          "\n    vale update",
+      );
+      process.exit(1);
+    }
     // npm audit #10: no mutual exclusion — two updates (or setup racing a
     // swap) interleave Copy-Item on *.new, leaving a half-written exe "ok".
     // setup REMOVES the marker; update now CREATES it (refuse if <10 min
