@@ -245,9 +245,7 @@ pub async fn bind(
 
     // MCP service at /mcp (token-gated, live snapshot — round-366) +
     // the web surface via fallback_service (Tower layer)
-    let mcp_app = axum::Router::new()
-        .nest_service("/mcp", crate::web::TokenGate::new(service, state.clone()))
-        .fallback_service(crate::web::WebPanel::new(state.clone()));
+    let mcp_app = compose(state.clone(), service);
     let mcp_listener = tokio::net::TcpListener::bind(addr).await?;
     let actual = mcp_listener.local_addr()?;
 
@@ -277,6 +275,23 @@ pub async fn bind(
     });
 
     Ok((actual, mcp_handle))
+}
+
+/// THE ONE COMPOSITION (round 207). `/mcp` behind its token gate, and EVERYTHING ELSE through the panel's Tower service
+/// (`crate::web::handle_request`: `/api/*`, `/panel/*`, the SPA fallback and the discovery route).
+///
+/// It is a function because there is now a SECOND way in: the relay (`agent/src/relay.rs`) pushes requests it received from a
+/// remote relay through the SAME app. Composing the two surfaces a second time over there would give the remote path its own
+/// set of rules — its own route order, its own fallback, its own gate — which is the exact defect this whole objective exists
+/// to remove, one layer out. `ConnectInfo` is attached by whichever server accepted the connection, so the loopback policies
+/// keep working: a relayed request is not loopback, and is treated as what it is.
+pub fn compose(
+    state: Arc<AppState>,
+    service: StreamableHttpService<DeviceServer, LocalSessionManager>,
+) -> axum::Router {
+    axum::Router::new()
+        .nest_service("/mcp", crate::web::TokenGate::new(service, state.clone()))
+        .fallback_service(crate::web::WebPanel::new(state))
 }
 
 /// Serve MCP+Web with an external CancellationToken.
