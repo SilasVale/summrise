@@ -49,6 +49,13 @@ const CASES = [
   {
     gate: "scripts/test/sweep-bundle-check.mjs",
     file: "agent/scripts/lib/sweep-bundle.mjs",
+    why: "the browser target's preamble reaches for the native require — the harness payload would throw on load, in a page whose fixture is half-installed",
+    from: `  if (target === "node") parts.push("const __nativeRequire = require;");`,
+    to: `  parts.push("const __nativeRequire = require;");`,
+  },
+  {
+    gate: "scripts/test/sweep-bundle-check.mjs",
+    file: "agent/scripts/lib/sweep-bundle.mjs",
     why: "the loader's relative require returns the module id instead of calling __require (the defect round 266 shipped and its own gate caught)",
     from: `parts.push("  const local = (spec) => (spec.startsWith('.') ? __require(__map[id][spec]) : __nativeRequire(spec));");`,
     to: `parts.push("  const local = (spec) => (spec.startsWith('.') ? __map[id][spec] : __nativeRequire(spec));");`,

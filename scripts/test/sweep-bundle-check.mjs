@@ -117,6 +117,44 @@ try {
     else bad("assertParses refuses unparsable code", direct || "no error at all");
   }
 
+  // ── 8b. THE BROWSER TARGET: a harness payload runs in a PAGE, where require does not exist ────────────────
+  {
+    const modules = {
+      "stub.cjs": 'const help = require("./help.cjs");\n(function () { globalThis.__stubRan = help.value; })();\n',
+      "help.cjs": 'module.exports = { value: "stubbed" };\n',
+    };
+    const { code } = bundleSweep({ modules, entry: "stub.cjs", target: "browser" });
+    // RUN IT WITH NO require IN SCOPE, which is the only way to prove the preamble does not reach for one.
+    let ran = null;
+    try {
+      new Function("globalThis", code)({});
+      ran = "no-error";
+    } catch (e) {
+      ran = "threw: " + String(e.message).slice(0, 80);
+    }
+    // the payload sets a global on ITS globalThis; in this sandbox that is the fake one passed in
+    const sandbox = {};
+    try {
+      new Function("globalThis", code)(sandbox);
+    } catch (e) {
+      /* recorded below by the value */
+    }
+    if (ran === "no-error" && sandbox.__stubRan === "stubbed") ok("a browser-target bundle loads with NO require in scope");
+    else bad("a browser-target bundle loads with no require in scope", `ran=${ran} value=${sandbox.__stubRan}`);
+    if (!/__nativeRequire/.test(code)) ok("...and the word __nativeRequire does not appear anywhere in it");
+    else bad("the browser preamble still names __nativeRequire");
+    if (/^\(function \(\) \{/.test(code)) ok("...and it is wrapped, so the loader's names stay out of the page's global scope");
+    else bad("a browser bundle is not wrapped in an IIFE");
+    let msg = "";
+    try {
+      bundleSweep({ modules: { "stub.cjs": 'require("fs");\n' }, entry: "stub.cjs", target: "browser" });
+    } catch (e) {
+      msg = String(e.message);
+    }
+    if (/browser/.test(msg) && /fs/.test(msg)) ok("a browser payload that requires a BUILTIN is refused at bundle time, naming it");
+    else bad("a browser payload requiring a builtin is refused at bundle time", msg || "no error at all");
+  }
+
   // ── 8. the bundle is SELF-CONTAINED: it runs with no payload module beside it ──────────────────────────────
   {
     const modules = { "a.cjs": 'const b = require("./nested/b.cjs");\nconsole.log(b.deep);\n', "nested/b.cjs": 'module.exports = { deep: "yes" };\n' };
