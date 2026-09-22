@@ -67,6 +67,17 @@ pub struct ServerConfig {
     /// the token survives the rename without regeneration.
     #[serde(skip_serializing_if = "Option::is_none", alias = "auth_token")]
     pub device_token: Option<String>,
+    /// OUTBOUND RELAY (round 207). When `relay_url` is set the agent dials OUT to that relay and keeps polling it, carrying
+    /// whole HTTP requests through the SAME composed app the local listener serves — so `/mcp` and `/panel/` behave identically
+    /// for a remote caller, which is the only reason this is worth having. Nothing inbound is opened, which is the shape every
+    /// comparable product uses (Portainer Edge, VS Code tunnels, Nabu Casa, the CI runners).
+    ///
+    /// `relay_token` is the RELAY's shared secret; the agent's own `device_token` still gates `/mcp`, so a relayed caller needs
+    /// both. Absent `relay_url` means no relay: the default, and nothing changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_token: Option<String>,
     /// Shared secret for the gateway proxy (round-103): the gateway proxy
     /// sends this as X-Vale-Auth when proxying /panel/ so the agent can
     /// distinguish a gateway-authenticated request (safe to inject the
@@ -256,6 +267,8 @@ impl Default for ServerConfig {
             port: 18080,
             name: "vale-agent".into(),
             device_token: None,
+            relay_url: None,
+            relay_token: None,
             proxy_secret: None,
         }
     }

@@ -48,7 +48,7 @@ test("health: breaker closed → all channels ok, recommended cm", async () => {
 
 test("health: channels cover all prefixes in priority order", async () => {
   const h = await buildHealth(closedEnv);
-  assert.deepEqual(h.channels.map((c) => c.id), ["qw", "qw", "qw", "og", "og", "og", "og", "og", "or", "or", "or", "or", "nv", "gmi", "gmi", "cm", "cm", "cm", "r4"]);
+  assert.deepEqual(h.channels.map((c) => c.id), ["qw", "qw", "qw", "og", "og", "og", "og", "og", "og", "or", "or", "or", "or", "nv", "gmi", "gmi", "cm", "cm", "cm", "r4"]);
   assert.deepEqual(h.channels.map((c) => c.model), [
     "qw/qwen3.8-max-preview",
     "qw/qwen3.8-flash",
@@ -56,6 +56,7 @@ test("health: channels cover all prefixes in priority order", async () => {
     "og/deepseek-v4.1-flash",
     "og/gpt-5.6-luna",
     "og/mimo-v2.5",
+    "og/mimo-v2.6-flash",
     "og/ox-alpha-free",
     "og/muse-spark-1.3-contributor",
     "or/openai/gpt-5.6-luna:floor[1m]",

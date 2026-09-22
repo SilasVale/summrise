@@ -70,6 +70,7 @@ test("the advertised ORDER is pinned (it is the /v1/models response)", () => {
     "og/deepseek-v4.1-flash",
     "og/minimax-m3",
     "og/mimo-v2.5",
+    "og/mimo-v2.6-flash",
     "og/ox-alpha-free",
     "og/muse-spark-1.3-contributor",
     "og/muse-spark-1.2-contributor",

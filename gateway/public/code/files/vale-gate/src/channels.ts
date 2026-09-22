@@ -170,6 +170,31 @@ export const MODEL_REGISTRY: ModelSpec[] = [
     probeWhy: "translate-only model; the og/ health card covers the channel",
   },
   { id: "og/mimo-v2.5", ownedBy: "opencode", probe: true },
+  // MiMo V2.6 Flash — the v2.6 refresh of the mimo lane (registered
+  // 2026-09-22). NO `wire` FACET, and that one is measured: zen/go's own
+  // /v1/models lists `mimo-v2.6-flash` verbatim, so the prefix-stripped id IS
+  // the upstream slug — unlike og/deepseek-v4.1-flash, whose lane slug is the
+  // version-less `deepseek-flash`.
+  //
+  // Facets measured through this worker before the record was written
+  // (2026-09-22):
+  //   * both protocols answer 200 and stream: /v1/chat/completions returns
+  //     reasoning_content, /v1/messages returns thinking + text blocks;
+  //   * an image_url request read a 320x100 PNG's text verbatim, so the model
+  //     SEES images itself and its ADVERTISED id goes on
+  //     VISION_CAPABLE_MODELS (wrangler.jsonc) — the bare wire spelling stays
+  //     out, for the reason the r4/ entry spells out: a bare entry would claim
+  //     vision for every channel serving that slug;
+  //   * `reasoning_effort` accepts none|low|medium|high and REJECTS minimal
+  //     and max with a 400 ("Invalid request parameters"). The settings.yaml
+  //     entry therefore does NOT follow the og/ off→max convention — that one
+  //     would 400 on the level DSH sends by default; off→none and max→high are
+  //     the honest ends of THIS model's ladder.
+  //   * NO `search` FACET: a web_search request naming this model is swapped to
+  //     the version-less Flash lane by searchTargetFor and the reply comes back
+  //     echoing `deepseek-flash` (measured) — the treatment every og/ model
+  //     except og/deepseek-v4.1-flash gets.
+  { id: "og/mimo-v2.6-flash", ownedBy: "opencode", probe: true },
   // Reasoning-effort model — see `reasoningMax` and `reasoningDefaultMaxFor`.
   { id: "og/ox-alpha-free", ownedBy: "opencode", reasoningMax: "parsed", probe: true },
   // Meta Muse Spark Contributor: /v1/responses ONLY (chat/completions 500s,
@@ -599,6 +624,10 @@ export const HEALTH_CHANNELS: { id: string; model: string }[] = [
   // find() (first match).
   { id: "og", model: "og/gpt-5.6-luna" },
   { id: "og", model: "og/mimo-v2.5" },
+  // The v2.6 refresh (2026-09-22). A card costs NOTHING upstream: buildHealth
+  // reads the channel's circuit breaker, it does not call zen (tooling.ts), and
+  // the registry gate requires a card for every probe:true record.
+  { id: "og", model: "og/mimo-v2.6-flash" },
   { id: "og", model: "og/ox-alpha-free" },
   // muse-spark Contributor — /v1/responses model; health probe must ride the
   // responses endpoint through the US exit (see translate.ts).

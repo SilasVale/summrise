@@ -83,7 +83,10 @@
     //     widened to the bare wire slug, which would silently claim vision for
     //     the text-only seven.
     // The amd/ vision-exp entry left with the amd/ catalog (no V4.1 upstream).
-    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash, r4/deepseek-v4.1-flash"
+    //   - og/mimo-v2.6-flash — zen/go (2026-09-22): an image_url request read a
+    //     320x100 PNG's text verbatim, so the picture reaches the model instead
+    //     of being described for it. ADVERTISED id only, as above.
+    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash, r4/deepseek-v4.1-flash, og/mimo-v2.6-flash"
   }
   // Vale Gate — unified AI gateway + device console. Custom domains are added
   // in the dashboard (custom_domains API is OAuth-only).

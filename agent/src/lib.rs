@@ -12,6 +12,7 @@ pub use vale_agent_core::{
 
 pub mod bootstrap;
 pub mod register;
+pub mod relay;
 /// RUN identity — one AI execution's mint/end log (a label, never a credential).
 pub(crate) mod runs;
 

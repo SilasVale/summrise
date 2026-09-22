@@ -20,6 +20,10 @@ use vale_agent_core::events::{AppEventBus, EventBus};
 use vale_agent_core::Config;
 
 pub struct AppState {
+    /// THE RELAY'S OWN STATE (round 207): whether one is configured, when it last answered, and why it last failed. It lives
+    /// here because `/api/status` reports it — an operator who configured a relay must be able to see whether their agent is
+    /// connected to it, and a fact the interface shows belongs in the state the interface reads, not in a task's local scope.
+    pub relay: crate::relay::SharedRelayState,
     // Lock posture: managers own their locks internally (callers hold
     // Arc<Manager>); AppState itself holds the config RwLock below + the
     // small config_path Mutex.
@@ -146,6 +150,7 @@ impl AppState {
         });
 
         Self {
+            relay: crate::relay::shared(),
             serial_pool,
             terminal_mgr,
             event_bus,

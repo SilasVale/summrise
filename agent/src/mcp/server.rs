@@ -246,6 +246,29 @@ pub async fn bind(
     // MCP service at /mcp (token-gated, live snapshot — round-366) +
     // the web surface via fallback_service (Tower layer)
     let mcp_app = compose(state.clone(), service);
+
+    // THE RELAY DIALS OUT (round 207), if one is configured. It is handed the SAME app the listener is about to serve, so a
+    // relayed request meets the same routes, the same gate and the same fallback as a local one. Its state is published for
+    // `/api/status`, because an operator who configured a relay must be able to see whether it is connected.
+    {
+        let relay_state = state.relay.clone();
+        let snapshot = state.config_snapshot();
+        if let Some(url) = snapshot
+            .server
+            .relay_url
+            .clone()
+            .filter(|u| !u.trim().is_empty())
+        {
+            let token = snapshot.server.relay_token.clone().unwrap_or_default();
+            if token.is_empty() {
+                tracing::warn!("relay: relay_url is set but relay_token is empty — the relay will refuse every poll");
+            }
+            crate::relay::spawn(url, token, mcp_app.clone(), relay_state.clone(), ct.clone());
+            if let Ok(mut st) = relay_state.lock() {
+                st.configured = true;
+            }
+        }
+    }
     let mcp_listener = tokio::net::TcpListener::bind(addr).await?;
     let actual = mcp_listener.local_addr()?;
 

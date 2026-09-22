@@ -2044,6 +2044,7 @@ async fn api_status(state: &AppState) -> serde_json::Value {
     // (leaked sessions show up here without needing terminal_history).
     let uptime_secs = state.started_at.elapsed().as_secs();
     let live_sessions = state.terminal_mgr.term_list().await.len();
+    let relay_view = state.relay.lock().map(|g| g.clone()).unwrap_or_default();
     // How many commands are WAITING on a human decision, device-wide.
     //
     // Round 14 made the approval gate answerable: a question now outlives the
@@ -2079,6 +2080,17 @@ async fn api_status(state: &AppState) -> serde_json::Value {
     let mut out = serde_json::json!({
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
+        // THE RELAY, AS THE DEVICE SEES IT (round 207). An operator who configured an outbound relay has exactly one question
+        // about it — is my agent connected? — and it belongs in the report the panel already reads, not in a log file. A
+        // device with no relay says so with a single flag rather than by omission, so the interface can tell "not configured"
+        // from "configured and broken".
+        "relay": {
+            "configured": relay_view.configured,
+            "connected": relay_view.last_ok_ms.is_some() && relay_view.consecutive_failures == 0,
+            "last_ok_ms": relay_view.last_ok_ms,
+            "consecutive_failures": relay_view.consecutive_failures,
+            "last_error": relay_view.last_error,
+        },
         "port": state.config_snapshot().server.port,
         "uptime_secs": uptime_secs,
         "live_sessions": live_sessions,
