@@ -82,6 +82,10 @@ import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 // HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
 // live one renders (the approval gate's disarmed ring is one — it measured 2.56 here and nothing else could see it).
 import { marksSource } from "./lib/design-sweep.mjs";
+import { bundleSweep } from "./lib/sweep-bundle.mjs";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 const CONFIG_PATHS = [
   "D:\\\\Vale\\\\etc\\\\config.yaml", // layout-v2 (where it is today)
@@ -90,85 +94,31 @@ const CONFIG_PATHS = [
 ];
 
 function emitted() {
-  const script = `const fs = require('fs');
-const PROBE = ${JSON.stringify(PROBE_SOURCE)};
-const MARKS = ${JSON.stringify(marksSource("#root"))};
-const CONFIGS = ${JSON.stringify(CONFIG_PATHS)};
-(async () => {
-  let token = null, where = null;
-  for (const c of CONFIGS) {
-    if (!fs.existsSync(c)) continue;
-    const m = /token\\s*:\\s*["']?([A-Za-z0-9_\\-]{8,})/.exec(fs.readFileSync(c, 'utf8'));
-    if (m) { token = m[1]; where = c; break; }
-  }
-  if (!token) {
-    console.log(JSON.stringify({ error: 'no token found in any known config', tried: CONFIGS }));
-    process.exit(1);
-  }
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
-  const { page, close } = await acquireBrowser();
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 120)));
-  const out = { configAt: where, densities: {} };
-  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
-    await page.setViewportSize(vp);
-    await page.goto('http://127.0.0.1:18080' + path_ + '?token=' + token, { waitUntil: 'load' });
-    await page.waitForTimeout(3500);
-    const state = await page.evaluate(() => ({
-      connForm: !!document.getElementById('conn-form'),
-      rootNodes: document.querySelectorAll('#root *').length,
-      tabs: document.querySelectorAll('.tab, .dtab').length,
-      railDots: [...document.querySelectorAll('.rail-dot, .dtab-dot')].map((d) => d.getAttribute('data-state')).slice(0, 8),
-    }));
-    const marks = await page.evaluate(MARKS);
-    const rows = await page.evaluate(PROBE);
-    const text = rows.filter((r) => r.kind !== 'graphic');
-    const graphics = rows.filter((r) => r.kind === 'graphic');
-    out.densities[density] = {
-      state,
-      rows: rows.length,
-      text: text.length,
-      graphics: graphics.length,
-      textFailing: text.filter((r) => !r.inactive && r.cr < r.need).map((r) => r.sel + ' ' + r.cr + '<' + r.need),
-      graphicFailing: graphics.filter((r) => !r.inactive && r.cr < r.need).map((r) => r.sel + ' ' + r.cr + '<' + r.need),
-      unmeasurable: rows.filter((r) => r.cr === null || r.cr === undefined).length,
-      // WHAT THE LIVE PANEL PAINTS, family by family, and any two states of one family that paint IDENTICALLY. The
-      // harness reports the same shape; the value here is that these are the states the DEVICE renders, which is not
-      // the same set — the sweeps' mark-coverage note counts six families the harness never paints.
-      marks,
-    };
-  }
-  out.errors = errors.slice(0, 4);
-  // A READING BECOMES A GUARD (round 30 of the standing goal). Everything this probe collects is a list that must be
-  // EMPTY on a healthy panel: failing text, failing graphics, and the two mark-axis verdicts the sweeps also make —
-  // two states of one family painting identically, and a mark that is both a fill and a ring. Printing them and
-  // exiting 0 would make the probe a report nobody has to answer; the exit code is what the runbook step can act on.
-  // Note what a non-zero exit MEANS here: the live panel's state varies with what the device is doing (two sessions
-  // today, fourteen another day), so it says "look at this", not "the build is broken".
-  const bad = [];
-  for (const [density, d] of Object.entries(out.densities)) {
-    for (const key of ['textFailing', 'graphicFailing']) {
-      for (const f of d[key]) bad.push(density + ' ' + key + ': ' + f);
-    }
-    if (d.marks && d.marks.collisions) for (const c of d.marks.collisions) bad.push(density + ' mark collision: ' + c);
-    if (d.marks && d.marks.ringFill) for (const c of d.marks.ringFill) bad.push(density + ' ring+fill: ' + c);
-  }
-  out.verdict = bad.length ? { ok: false, problems: bad } : { ok: true };
-  console.log(JSON.stringify(out, null, 1));
-  await close();
-  process.exit(bad.length ? 1 : 0);
-})().catch((e) => { console.error('FATAL', e.message); process.exit(1); });`;
+  // THE PAYLOAD IS A REAL MODULE NOW (round 269) — the fifth and last of the emitters that built a device script inside
+  // a template literal. lib/sweep/live-run.cjs is the program; the three values that vary (the probe, the marks source,
+  // the config paths it looks for a device token in) arrive as the generated pieces module beside it; the assembler
+  // resolves the payload's requires and compiles what it returns — which is the guard this emitter hand-copied from the
+  // panel in round 167 after a backtick in a comment would have shipped a broken script "in the middle of 16 KB".
+  const { code } = bundleSweep({
+    entry: "live-run.cjs",
+    modules: {
+      "live-run.cjs": readFileSync(join(HERE, "lib", "sweep", "live-run.cjs"), "utf8"),
+      "pieces.cjs": piecesSource(),
+    },
+  });
+  return code;
+}
 
-  // THE EMITTED SCRIPT MUST PARSE — the last of the five emitters in this repository to get the check the
-  // panel has had since round 155. Five emit a standalone script for the device, and four were guarded:
-  // this one, written in round 167, was not. A backtick in a comment here would have produced a broken
-  // script for a run to fail on later, in the middle of 16 KB.
-  try {
-    new Function(script);
-  } catch (e) {
-    throw new Error("the emitted script does not parse: " + e.message);
-  }
-  return script;
+const HERE = fileURLToPath(new URL(".", import.meta.url));
+
+/** The three values this probe varies, as a module. */
+function piecesSource() {
+  return `module.exports = {
+  probe: ${JSON.stringify(PROBE_SOURCE)},
+  marks: ${JSON.stringify(marksSource("#root"))},
+  configPaths: ${JSON.stringify(CONFIG_PATHS)},
+};
+`;
 }
 
 if (process.argv.includes("--emit")) {

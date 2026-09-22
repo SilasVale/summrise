@@ -3698,6 +3698,35 @@ WHAT REMAINS: the harness emitter (`panel-render-audit.mjs`, 646 lines that prod
 script — it has one guard that must stay, `/</script/`, because the stub is inline HTML), then the live probe (68);
 then `pageChecks`/`marksSource` become functions taking the root selector; then the guards.
 
+### THE EMIT SEAM, FOURTH SLICE: THE LIVE PROBE, AND THE CHECK THAT MAKES EACH MOVE SAFE (round 269)
+
+`live-panel-probe.mjs` is the last of the five emitters that build a device script inside a template literal, and the
+smallest: 68 payload lines, three interpolations (the probe, the marks source, the config paths it looks for a device
+token in), and — since round 167 — a parse guard copied from the panel after a backtick in a comment would have shipped
+a broken script "in the middle of 16 KB". `agent/scripts/lib/sweep/live-run.cjs` is that program as ordinary code; the
+three values arrive as the pieces module beside it; `bundleSweep` assembles and compiles it.
+
+**EQUIVALENCE, AND THIS TIME IT IS EXACT.** The probe's output is JSON on stdout, so the comparison is direct: the old
+artifact and the new bundle run one after the other against the panel d1 is actually serving (1.2.451) and print **the
+same bytes** — `configAt` the same, panel 58 rows (47 text / 11 graphics), desktop 28 (17 / 11), zero failing, zero
+unmeasurable, the same four mark families (`mark[working]`, `sc-dot[ai]`, `ag-dot[off]`, `monitor-mark[is-down]`), no
+collisions, no ring+fill, `errors: []`, `verdict.ok: true`. Structure first: 3/3 pieces byte-identical, and 64 of the 68
+payload lines verbatim in the old artifact — the four that differ are the header and the three bindings that replaced an
+interpolation.
+
+**AND THE METHOD IS NOW THE POINT.** Three migrations in, the safe way to move a payload is mechanical and checkable, and
+it is what the last two rounds converged on: (1) cut the literal's text into a module, (2) point each interpolation at
+the pieces module, (3) **compare every payload line against the artifact the OLD emitter produced, and treat every
+difference that is not a binding as a bug**. Step 3 is what caught the console's six escape-residue lines (round 268)
+and this emitter's token regex — a template literal's SOURCE is not its VALUE, and copying one for the other is
+invisible in a diff of the new code alone. It also gives the two measurements that go in the commit: pieces
+byte-identical, and payload lines verbatim.
+
+WHAT REMAINS: the harness emitter (`panel-render-audit.mjs`, 646 lines). It is a different shape — it emits an HTML
+harness with an inline `<script>` stub rather than a CommonJS script, so the assembler needs a browser target (no
+`require` fallback in the loader) and the `/</script/` guard stays, because the stub is inline HTML. Then the page
+checks become functions that take the root selector, and only then can the guards go.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
