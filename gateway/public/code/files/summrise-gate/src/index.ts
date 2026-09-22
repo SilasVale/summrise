@@ -175,7 +175,11 @@ export default {
       ) {
         const cli = await serveAssetText(env, "/summrise");
         if (cli === null)
-          return withCors(request, jsonError(404, "summrise CLI not found", "not_found_error"), env);
+          return withCors(
+            request,
+            jsonError(404, "summrise CLI not found", "not_found_error"),
+            env,
+          );
         // Genuinely-public installer payloads (curl|sh / irm|iex — CORS-
         // irrelevant non-browser clients): KEEP the ACAO:* wildcard so any
         // browser-hosted install helper keeps working. No session, no secret.

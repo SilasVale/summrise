@@ -259,6 +259,11 @@
       "name": "lib/design-sweep.mjs",
       "path": "files/instruments/lib/design-sweep.mjs",
       "group": "instruments"
+    },
+    {
+      "name": "lib/sweep-bundle.mjs",
+      "path": "files/instruments/lib/sweep-bundle.mjs",
+      "group": "instruments"
     }
   ]
 }
