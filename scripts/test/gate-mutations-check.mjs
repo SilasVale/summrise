@@ -128,7 +128,9 @@ const CASES = [
 
   {
     gate: "scripts/test/sweep-fixture-dupes-check.mjs",
-    file: "agent/scripts/console-design-sweep.mjs",
+    // THE PAYLOAD MODULE, WHERE THE TABLE MOVED (round 268): the emitter holds no fixture markup any more, so a
+    // mutation planted there was never read and the gate looked unproven.
+    file: "agent/scripts/lib/sweep/console-run.cjs",
     why: "a sweep's fixture table answers one endpoint TWICE, so the last key silently wins and a page renders what nobody meant it to",
     from: "  '/api/version': { version: '1.0.106' },\n",
     to: "  '/api/version': { version: '1.0.106' },\n  '/api/version': { version: '9.9.9' },\n",
@@ -154,7 +156,8 @@ const CASES = [
     file: "gateway/ui/src/views/DevicesPanel.tsx",
     also: [
       {
-        file: "agent/scripts/console-design-sweep.mjs",
+        // THE SWEEP'S FIXTURE IS IN ITS PAYLOAD MODULE NOW (round 268) — this anchor moved with it.
+        file: "agent/scripts/lib/sweep/console-run.cjs",
         from: "tunnel_up: true,",
         to: "tunnel_up: true, only_in_the_sweep: true,",
       },
