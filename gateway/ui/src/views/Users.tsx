@@ -17,6 +17,11 @@ export default function Users() {
   const [usersError, setUsersError] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
+  // THE OTHER TWO CONTROLS THAT DO DEVICE WORK DID NOT ACKNOWLEDGE THE PRESS (round 198, from the console's first ack
+  // measurement): `handleChangePw` and `handleToggle` answered only after the network, while the invite button beside them
+  // disables on the event. Same pattern, one field each — the id for the row being toggled, a flag for the password button.
+  const [pwBusy, setPwBusy] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // THREE STATES, NOT TWO. Both reads used to swallow their failure into `noop`, so
   // a FAILED read rendered as a definite negative: the password card said "not set"
@@ -46,12 +51,15 @@ export default function Users() {
   }, [loadUsers]);
 
   const handleToggle = async (id: string, currentEnabled: boolean) => {
+    setTogglingId(id);
     try {
       await api.setEnabled(id, !currentEnabled);
       toast(currentEnabled ? t("user.disableToast") : t("user.enableToast"));
       await loadUsers();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "…", true);
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -61,6 +69,7 @@ export default function Users() {
       setPwMsg(t("adminpw.short"));
       return;
     }
+    setPwBusy(true);
     try {
       await api.setAdminPassword(newPw);
       setPwSet(true);
@@ -69,6 +78,8 @@ export default function Users() {
       toast(`${t("adminpw.title")} ${t("key.saved")}`);
     } catch (err) {
       setPwMsg(err instanceof ApiError ? err.message : t("adminpw.changeFail"));
+    } finally {
+      setPwBusy(false);
     }
   };
 
@@ -115,7 +126,7 @@ export default function Users() {
             onChange={(e) => setNewPw(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleChangePw()}
           />
-          <button className="btn btn-primary" onClick={handleChangePw}>
+          <button className="btn btn-primary" disabled={pwBusy} onClick={handleChangePw}>
             {t("adminpw.change")}
           </button>
         </div>
@@ -179,6 +190,7 @@ export default function Users() {
                   {u.role !== "admin" && (
                     <button
                       className="btn btn-ghost btn-mini"
+                      disabled={togglingId === u.id}
                       onClick={() => handleToggle(u.id, u.enabled)}
                     >
                       {u.enabled ? t("btn.disable") : t("btn.enable")}
