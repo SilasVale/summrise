@@ -118,7 +118,24 @@ try {
       // NOT part of the emitted sweep, so it is planted at the judge: `panel-design-sweep.bash`.)
       // THE PASS PRESSES WHAT IT WAS ASKED TO PRESS: rows are annotated, never dropped, because a pass that presses
       // nothing proves nothing (CI's floor said so twice while this was being got wrong).
-      assert.ok(src.includes("const reached = !(box.movedPage && hovered && hovered.hit === false)"), `${name}: the row no longer carries whether the pointer arrived`);
+      // AND "ARRIVED" IS DECIDED AT THE POINT PRESSED (round 265). This pinned
+      // `!(box.movedPage && hovered && hovered.hit === false)` — which counted the hit test ONLY when the element had
+      // to be scrolled first. The connect tabs inside a closed `<details>` were already "in the viewport" by their
+      // rect while the section behind them took every hit, so a control that presses perfectly was reported twelve
+      // times as one that ignores a press. `box.reaches` is `elementFromPoint` AT THE CLAMPED CENTRE — the coordinate
+      // the press uses — so it is the honest test, and `checkVisibility` keeps the passes from offering a control the
+      // browser does not render in the first place.
+      assert.ok(src.includes("const reached = box.reaches !== false"), `${name}: the row no longer carries whether the pointer arrived`);
+      // SCOPED TO THE DISCOVERY, because the first version of this assertion matched the guard's TEXT ANYWHERE and
+      // the same three lines also live in the two press probes — so deleting the discovery's copy still passed. A
+      // check that a string exists is not a check that the RULE is where it has to be (round 265's own mutation
+      // caught it: the guard was removed from `discoverPressTargets` and the gate stayed green).
+      const discovery = src.indexOf("function discoverPressTargets");
+      assert.ok(discovery >= 0, `${name}: the DOM discovery is not embedded`);
+      assert.ok(
+        src.slice(discovery, discovery + 4000).includes("checkVisibilityCSS: true"),
+        `${name}: the DOM discovery offers controls the browser does not render — a closed <details> keeps layout boxes for its content, which is how the connect tabs were pressed through the section drawn over them`,
+      );
       // AND IT ASKS THE DOM FOR THE CONTROLS, with the count that lets the judge size its floor to the page.
       assert.ok(src.includes("function discoverPressTargets"), `${name}: the DOM discovery is not embedded — a control on a page no list names is never pressed (that is how the log toggle was missed)`);
       assert.ok(src.includes("found,"), `${name}: the row does not carry what the page HAD, so the judge cannot tell a one-control page from a vacuous pass`);

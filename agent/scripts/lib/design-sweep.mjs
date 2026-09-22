@@ -677,6 +677,16 @@ export async function discoverPressTargets(page, cap, skip) {
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        // A BOX IS NOT A SURFACE (round 265). A CLOSED `<details>` KEEPS LAYOUT BOXES for its content in Chromium:
+        // the Settings page's connect tabs measured 49x24 and were offered as targets while the pointer could not
+        // reach them — `elementFromPoint` over them returns the section painted there instead. Twelve CI findings
+        // were filed against `.connect-tab.on`, a control that presses correctly, before this was traced.
+        // `checkVisibility` is the DOM's OWN answer and it accounts for what a rect cannot: an ancestor's
+        // display/visibility, `content-visibility: hidden` (how a closed details hides its content), and
+        // `content-visibility: auto` off-screen subtrees. Opacity is deliberately NOT asked about: a control
+        // mid-fade is still hit-testable, so its press is still measurable.
+        if (typeof el.checkVisibility === "function" &&
+            !el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true, visibilityProperty: true })) continue;
         if (st.pointerEvents === "none") continue;
         if (skip.some((s) => el.matches(s))) continue;
         const cls =
@@ -780,6 +790,15 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        // A BOX IS NOT A SURFACE (round 265), in BOTH passes that press at a computed point: a control inside a
+        // closed `<details>` keeps a layout box in Chromium while `elementFromPoint` over it returns whatever is
+        // painted there, so the press lands on the wrong element and the control is accused of ignoring it. That is
+        // how twelve CI findings were filed against `.connect-tab.on`, which presses perfectly. `checkVisibility` is
+        // the DOM's own answer — an ancestor's display/visibility, `content-visibility: hidden` (a closed details),
+        // and off-screen `content-visibility: auto` subtrees. Opacity is not asked about: a control mid-fade is
+        // still hit-testable, so its press is still measurable.
+        if (typeof el.checkVisibility === "function" &&
+            !el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true, visibilityProperty: true })) continue;
         if (el.disabled === true) continue;
         const left = Math.max(r.left, 0), right = Math.min(r.right, innerWidth);
         const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
@@ -1000,6 +1019,15 @@ export async function pressPass(page, targets, label = {}) {
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        // A BOX IS NOT A SURFACE (round 265), in BOTH passes that press at a computed point: a control inside a
+        // closed `<details>` keeps a layout box in Chromium while `elementFromPoint` over it returns whatever is
+        // painted there, so the press lands on the wrong element and the control is accused of ignoring it. That is
+        // how twelve CI findings were filed against `.connect-tab.on`, which presses perfectly. `checkVisibility` is
+        // the DOM's own answer — an ancestor's display/visibility, `content-visibility: hidden` (a closed details),
+        // and off-screen `content-visibility: auto` subtrees. Opacity is not asked about: a control mid-fade is
+        // still hit-testable, so its press is still measurable.
+        if (typeof el.checkVisibility === "function" &&
+            !el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true, visibilityProperty: true })) continue;
         const left = Math.max(r.left, 0), right = Math.min(r.right, innerWidth);
         const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
         if (right - left < 4 || bottom - top < 4) {
@@ -1038,7 +1066,14 @@ export async function pressPass(page, targets, label = {}) {
     const props = pressDelta(hovered, pressed);
     // A PRESS NOTHING RECEIVED IS NOT A PRESS NOTHING ANSWERED — but the row IS still a measurement, and the JUDGE
     // is where `reached` changes the verdict. The pass presses what it was asked to press.
-    const reached = !(box.movedPage && hovered && hovered.hit === false);
+    //
+    // AND "RECEIVED" IS DECIDED AT THE POINT ACTUALLY PRESSED (round 265). This read
+    // `!(box.movedPage && hovered && hovered.hit === false)`: the hit test only counted when the element had to be
+    // SCROLLED first, so a control that was already "in the viewport" by its rect but covered — the connect tabs
+    // inside a closed `<details>`, where the section behind them takes the hit — was reported as a control that
+    // ignores a press. `box.reaches` is `elementFromPoint` at the clamped centre, which IS the coordinate the press
+    // uses; when it is false the pointer never arrived, and the row says so instead of accusing the control.
+    const reached = box.reaches !== false;
     rows.push({
       sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
       // WHAT THE PAGE HAD, on every row of a discovered pass: the harness's Browser page renders an EXPLANATION with

@@ -3535,6 +3535,22 @@ carries the npm package's version (1.2.449) and FileDescription `Vale Agent`, be
 at release time (the release flow bumps it before building) while the crate's own 1.0.x is not — and a process with no
 FileDescription is listed as `vale-agent.exe`, which is what the operator saw.
 
+**AND THE LAST RED JOB WAS THE INSTRUMENT'S OWN BLIND SPOT, NOT THE PANEL'S.** With prose clean, the design job still
+failed on twelve identical findings: `button.connect-tab (button.connect-tab.on) renders NOTHING when pressed`. The device
+said otherwise — pressing it in a relaxed-mode surface reported `transform: none -> matrix(1, 0, 0, 1, 0, 1)` — and
+reproducing CI's exact rail sequence reproduced the finding, with `hit: false` carried in the row. What the probe was
+looking at: the connect tabs sit inside a CLOSED `<details>`, and **Chromium keeps LAYOUT BOXES for a closed details'
+content** (49x24 measured) while `checkVisibility()` returns false and `elementFromPoint` over them returns the section
+painted there. So discovery offered three controls the pointer could never reach, and `reached` — the flag that exists
+precisely so that "a press the pointer never delivered is a note, never a dead-control finding" — was computed as
+`!(box.movedPage && hovered.hit === false)`, which consults the hit test ONLY when the element had to be scrolled first.
+Two fixes, both in the pass, both about the same sentence: `checkVisibility` now gates discovery AND both press probes
+(a box is not a surface), and `reached` is `box.reaches !== false` — the hit test AT THE COORDINATE PRESSED. Rendered on
+the device after: the rail pass discovers five real controls and ZERO connect tabs, and a curated press of the hidden one
+reports `not rendered on this page` instead of accusing it. `press-anchor-check` pins both — and its first version of the
+guard assertion matched the string ANYWHERE, which passed with the guard deleted from `discoverPressTargets` because the
+same three lines live in the two press probes. Scoped to that function's own text, the mutation bites.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
