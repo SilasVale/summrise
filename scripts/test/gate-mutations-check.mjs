@@ -57,8 +57,11 @@ const CASES = [
     gate: "scripts/test/sweep-bundle-check.mjs",
     file: "agent/scripts/lib/sweep-bundle.mjs",
     why: "the loader's relative require returns the module id instead of calling __require (the defect round 266 shipped and its own gate caught)",
-    from: `parts.push("  const local = (spec) => (spec.startsWith('.') ? __require(__map[id][spec]) : __nativeRequire(spec));");`,
-    to: `parts.push("  const local = (spec) => (spec.startsWith('.') ? __map[id][spec] : __nativeRequire(spec));");`,
+    // RE-PAIRED (round 269): the loader line moved inside a per-target ternary when the browser target arrived, so the
+    // anchor had to move with it — the same "the mutation's anchor is GONE" the meta-gate reports, twice now, each time
+    // because code moved rather than because the gate stopped working.
+    from: `      ? "  const local = (spec) => (spec.startsWith('.') ? __require(__map[id][spec]) : __nativeRequire(spec));"`,
+    to: `      ? "  const local = (spec) => (spec.startsWith('.') ? __map[id][spec] : __nativeRequire(spec));"`,
   },
   {
     gate: "scripts/test/session-row-check.mjs",
