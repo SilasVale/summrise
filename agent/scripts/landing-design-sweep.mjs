@@ -19,7 +19,8 @@ import { join } from "node:path";
 import { markCoverageNotes } from "./lib/design-sweep.mjs";
 import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
-import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets, assertEmbedded } from "./lib/design-sweep.mjs";
+import { pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
+import { bundleSweep } from "./lib/sweep-bundle.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -65,7 +66,7 @@ function render() {
 
 // ONE ROOT, BOTH ENDS (round 77's lesson): the stamp is baked from the entry the RUN will serve, and the default is
 // the device path so a delivered copy is compared against the copy it was emitted for.
-const ROOT = process.env.VALE_SWEEP_ROOT || "C:\\\\ProgramData\\\\Vale\\\\pwout\\\\landing";
+const ROOT = process.env.VALE_SWEEP_ROOT || "C:\\ProgramData\\Vale\\pwout\\landing";
 const stampOf = (file) => {
   try {
     const b = readFileSync(file);
@@ -80,109 +81,47 @@ function browserScript() {
   // — a true sentence about two artefacts and a useless one about a commit. The call order is the fix: render()
   // runs first in the --emit branch, and the stamp is read here, from the file that branch just wrote.
   const LOCAL_STAMP = stampOf(join(OUT, "installer.html"));
-  const script = `const fs = require('fs');
-const path = require('path');
-const ROOT = process.env.VALE_SWEEP_ROOT || '${ROOT}';
-const REPORT_PATH = process.env.VALE_SWEEP_REPORT || 'C:\\\\ProgramData\\\\Vale\\\\pwout\\\\landing-sweep.json';
-const EXPECTED_ENTRY = ${JSON.stringify(LOCAL_STAMP)};
-const EXPECTED_ENTRY_PATH = path.join(ROOT, 'installer.html');
-const PROBE = ${JSON.stringify(PROBE_SOURCE)};
-const UNSTYLED = ${JSON.stringify(UNSTYLED_SOURCE)};
-const TARGETS = ${JSON.stringify(TARGETS_SOURCE)};
-const focusPass = ${focusPass.toString()};
-const pressDelta = ${pressDelta.toString()};
-const pressPass = ${pressPass.toString()};
-// AND THE HELPER pressPass CALLS: it asks the DOM for the page's controls. A borrowed helper that calls another
-// one needs that one embedded too, or the run dies on the device with "is not defined" — the failure the emitted
-// check below exists for.
-const discoverPressTargets = ${discoverPressTargets.toString()};
-const idlePass = ${idlePass.toString()};
-const motionPass = ${motionPass.toString()};
-${pageChecks("body")}
-const PASSES = ${JSON.stringify(PASSES)};
-const wants = (name) => !PASSES.length || PASSES.includes('all') || PASSES.includes(name);
-const PAGES = ['installer', 'npm-only'];
-
-(async () => {
-  const { acquireBrowser } = require(process.env.VALE_BROWSER_HELPER);
-  const { page, close } = await acquireBrowser();
-  const report = { rows: [], surfaces: [], names: [], focus: [], press: [], idle: [], hover: [], unstyled: [], motion: [], reflow: [], targets: [], themeChecks: [], entryCheck: (() => { try { const b = fs.readFileSync(EXPECTED_ENTRY_PATH); const c = require('crypto').createHash('sha256').update(b).digest('hex').slice(0, 12); return { bytes: b.length, sha: c, expected: EXPECTED_ENTRY, stale: b.length !== EXPECTED_ENTRY.bytes || c !== EXPECTED_ENTRY.sha }; } catch (e) { return { error: String(e.message).slice(0, 60), expected: EXPECTED_ENTRY, stale: true }; } })() };
-  await page.route('http://vale.test/**', (route) => {
-    const p = new URL(route.request().url()).pathname;
-    const file = p === '/' || p === '' ? 'installer.html' : p.replace(/^\\//, '');
-    const full = path.join(ROOT, file);
-    if (!fs.existsSync(full)) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' });
-    const ext = path.extname(full);
-    const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
-    return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body: fs.readFileSync(full) });
+  // THE PAYLOAD IS A REAL MODULE NOW (round 266). It used to be this file's own template literal, with the probe,
+  // the six passes and the page checks interpolated as text — which is why a backtick in a pass's comment could end
+  // this file mid-parse, and why `assertEmbedded` existed to check by substring that a borrowed helper had also been
+  // spliced. lib/sweep/landing-run.cjs is ordinary code; what varies per run arrives as the generated pieces module
+  // beside it, and the assembler compiles the result before returning it.
+  const pieces = piecesSource(LOCAL_STAMP);
+  // MODULE IDS ARE NORMALISED PATHS, no leading "./" (the resolver collapses "." segments, so an id spelled one way
+  // and required another would be two modules — measured: the first run of this bundler refused "./pieces.cjs"
+  // because the id carried a prefix the resolver had already stripped).
+  const { code } = bundleSweep({
+    entry: "landing-run.cjs",
+    modules: {
+      "landing-run.cjs": readFileSync(join(HERE, "lib", "sweep", "landing-run.cjs"), "utf8"),
+      "pieces.cjs": pieces,
+    },
   });
-  for (const scheme of ['light', 'dark']) {
-    await page.emulateMedia({ colorScheme: scheme });
-    for (const label of PAGES) {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('http://vale.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
-      await page.waitForTimeout(1200);
-      const where = label + '@1440' + (scheme === 'dark' ? '-dark' : '');
-      report.themeChecks.push({ page: where, intended: scheme, scheme: await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches) });
-      if (wants('contrast')) {
-        const rows = await page.evaluate(PROBE);
-        for (const r of rows) report.rows.push({ ...r, page: where, width: 1440, density: 'landing', theme: scheme });
-        report.surfaces.push({ page: where, width: 1440, theme: scheme, ...(await page.evaluate(SURFACE)) });
-      }
-      if (wants('names')) report.names.push({ page: where, ...(await page.evaluate(NAMES)) });
-      // KEYBOARD FOCUS, the axis the panel and the console have had and this surface never. The landing renders a
-      // theme toggle and two or three links; ONE focus style exists in the whole page (.btn-primary), so the question
-      // the pass asks is whether the rest are visible when reached by Tab — and whether Tab can ESCAPE the page,
-      // which is what the escaped counter is for. Judged by the shared clause, which reads the focus rows, so
-      // wiring the pass is the whole change.
-      if (wants('focus')) report.focus.push(await focusPass(page, 14, { page: where, width: 1440 }));
-      // IDLE REPAINT. The same axis the panel has had since round 64 and the console since round 79, on the surface
-      // that has never been asked: the landing sets its footer clock ONCE at load and its canvas paints without
-      // touching the DOM, so the claim to test is that a settled landing writes NOTHING at all. If the verdict names
-      // a clock, the shared table is where a clock gets declared with its reason — that is what the table is for, and
-      // it is not for guessing in advance.
-      if (wants('idle')) {
-        const idle = await idlePass(page, 6000);
-        report.idle.push({ page: where, width: 1440, density: 'landing', theme: scheme, seconds: 6, ...idle });
-      }
-      if (wants('unstyled')) report.unstyled.push({ page: where, ...(await page.evaluate(UNSTYLED)) });
-      if (wants('targets')) report.targets.push({ page: where, width: 1440, ...(await page.evaluate(TARGETS)) });
-      if (wants('press')) {
-        // WHAT THE PAGE ACTUALLY RENDERS, measured rather than assumed: the landing has a theme TOGGLE, one or
-        // more plain links, and a .btn-primary that exists only in the installer state. The first list named
-        // '.copy' — a class this page has never had — and missed the toggle, so the shared clause's floor of two
-        // (which exists to make a STALE SELECTOR LIST loud) fired on a page that was rendering three controls.
-        // The clause was right and the list was wrong: the floor did exactly its job.
-        const rows = await pressPass(page, ['.btn-primary', 'a', '.theme-toggle'], { page: where, width: 1440 });
-        report.press.push({ page: where, width: 1440, density: 'landing', theme: scheme, measured: rows.filter((r) => !r.note).length, rows });
-      }
-    }
-  }
-  // REFLOW, THE LAST AXIS ON A STATIC PROXY. The static landing check answers the 320px question by reading page.js's own
-  // values — a proxy for the measurement the panel and the console take from the rendered document. The claim WCAG
-  // 1.4.10 makes is about what the BROWSER lays out, so this asks the browser, at both widths the standard names and
-  // in BOTH installer states: the npm-only state swaps a button for a sentence, which is exactly the kind of change
-  // that pushes a line past the viewport. The judge's clause is shared, so this is wiring only.
-  if (wants('reflow')) {
-    for (const width of [640, 320]) {
-      await page.setViewportSize({ width, height: 800 });
-      for (const label of PAGES) {
-        await page.goto('http://vale.test/' + label + '.html?cb=' + Date.now(), { waitUntil: 'load' });
-        await page.waitForTimeout(900);
-        report.reflow.push({ page: label + '@' + width, width, density: 'landing', theme: 'light', ...(await page.evaluate(REFLOW)) });
-      }
-    }
-  }
-  if (wants('motion')) report.motion.push(await motionPass(page, async () => {
-    await page.goto('http://vale.test/installer.html?cb=' + Date.now(), { waitUntil: 'load' });
-    await page.waitForTimeout(1500);
-  }, { page: 'installer', width: 1440, density: 'landing', theme: 'light' }));
-  fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
-  console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length, press: report.press.length }));
-  await close();
-})().catch((e) => { console.error('FATAL ' + String(e && e.message).slice(0, 200)); process.exit(1); });
+  return code;
+}
+
+/** The run-varying pieces, as a MODULE rather than as interpolations in a template literal. The passes are real
+ *  values here (`fn.toString()` at emit time, declarations in the generated module) and they all land in ONE module
+ *  body, which is what makes a helper that a pass calls by name resolve: `pressPass` calls `discoverPressTargets`,
+ *  which used to be a hand-listed "must also be embedded" and is now simply in scope. */
+function piecesSource(LOCAL_STAMP) {
+  const helpers = { focusPass, pressDelta, discoverPressTargets, pressPass, idlePass, motionPass };
+  const decls = Object.entries(helpers).map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
+  // THE PAGE CHECKS ARE STILL SOURCE TEXT, and this is the honest boundary of this slice: pageChecks() is a
+  // source-text generator (it substitutes a root selector into a template), so it is evaluated ONCE here into real
+  // string values. Converting the checks themselves into functions that take the root selector as an argument is the
+  // next slice, and it is the same move this round made for the landing's payload.
+  const checks = new Function(pageChecks("body") + "\nreturn { SURFACE, NAMES, REFLOW };")();
+  return `${decls}
+module.exports = {
+  config: ${JSON.stringify({ root: ROOT, reportPath: "C:\\ProgramData\\Vale\\pwout\\landing-sweep.json", passes: PASSES, expectedEntry: LOCAL_STAMP })},
+  probe: ${JSON.stringify(PROBE_SOURCE)},
+  unstyled: ${JSON.stringify(UNSTYLED_SOURCE)},
+  targets: ${JSON.stringify(TARGETS_SOURCE)},
+  checks: ${JSON.stringify(checks)},
+  passes: { ${Object.keys(helpers).join(", ")} },
+};
 `;
-  return script;
 }
 
 function judge(file) {
@@ -235,7 +174,10 @@ if (mode === "--emit") {
   const labels = render();
   console.error(`landing: rendered ${labels.join(", ")} into ${OUT}`);
   const out = browserScript();
-  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets"]);
+  // THE BUNDLER COMPILED IT ALREADY (bundleSweep's last act), which is the guard THIS emitter never had — the other
+  // four had a hand-copied `new Function` and this one printed its ~79 KB script to stdout without ever asking
+  // whether it parsed. What replaces `assertEmbedded` is the pieces being a real module: their names are in scope by
+  // construction, not by a substring test that a CALL could satisfy.
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];

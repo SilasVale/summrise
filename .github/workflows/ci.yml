@@ -146,6 +146,12 @@ jobs:
         # failed with "Executable doesn't exist at .../chromium_headless_shell-1228/...". Running the local
         # CLI installs the builds the local version will look for, which is the whole question.
         run: node node_modules/playwright-core/cli.js install --with-deps
+      # THE ASSEMBLER RUNS BEFORE THE SWEEPS, because the sweeps' device scripts are assembled by it. It needs no
+      # browser and no network: it builds three-module payloads in memory, writes the bundle into a temp directory
+      # that holds NOTHING else, and runs it — so a bundle that still needs its sources, or that resolves a relative
+      # require to an id string instead of to the exports (the defect its own first version shipped), fails here.
+      - name: the sweep assembler runs what it emits
+        run: node scripts/test/sweep-bundle-check.mjs
       - name: Design sweep (contrast, spacing, hierarchy, typography, states)
         run: bash scripts/design-sweep-ci.bash
 

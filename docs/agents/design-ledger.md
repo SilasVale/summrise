@@ -3575,6 +3575,54 @@ AND `(1175, 790)` both the bar, rail 759 tall. The test that pinned the old rule
 now pins the new one and names why. This is also the round's clearest example of the loop's own rule working: the
 operator's question was the SPEC, and the answer was a measurement rather than an opinion.
 
+### THE EMIT SEAM, FIRST SLICE: THE LANDING'S PAYLOAD BECOMES A MODULE (round 266)
+
+The architecture review's top candidate was the emit seam — five scripts that build their device-side program INSIDE A
+TEMPLATE LITERAL in their own source, so the emitted text is a second grammar and six modules exist only to compensate
+(four parse guards, `assertEmbedded`, a bash program that walks the emitted text counting backslash runs, a pre-commit
+hook). 53 recorded incidents came from that one rule.
+
+**DECIDED, AND TAKEN AS RECOMMENDED (the operator said "自动完成上面的这些" rather than answering the four questions):**
+(1) the delivered artifact stays a single self-contained CommonJS file, so the device contract does not move; (2) the
+seam stays where it is — the JSON report is the interface, the verdict stays host-side; (3) migrate ONE emitter first and
+prove the seam before touching the other four; (4) equivalence is the bar, measured, not argued.
+
+**WHY NOT A BUNDLER.** esbuild 0.21.5 IS in `agent/resources/panel-react/node_modules` (a vite transitive dep), but
+`--emit` has to work where the emitters actually run: on the device, under its bundled node, with no node_modules. A
+bundler that only exists on CI trades one broken environment for another. So `agent/scripts/lib/sweep-bundle.mjs` — about
+100 lines, zero dependencies — resolves the payload's literal relative requires, refuses a cycle or a missing module BY
+NAME at bundle time, wraps each module in a factory, and COMPILES what it is about to return.
+
+**THE SLICE.** The landing's payload is now `agent/scripts/lib/sweep/landing-run.cjs`; the run-varying pieces (paths, the
+baked stamp, the probe texts, the six passes) arrive as a generated module beside it, so nothing is escaped and the
+"borrowed helper must also be embedded" list is not a list any more — `pressPass` calls `discoverPressTargets` because
+they are declared in one module body. `landing-design-sweep.mjs --emit` assembles it. **AND THE LANDING EMITTER WAS THE
+ONE WITH NO PARSE GUARD AT ALL** (verified: `new Function` appears twice in the panel emitter, once each in console and
+audit, ZERO times in landing) — its `--emit` would print a 79 KB script to stdout without ever asking whether it parsed,
+which is now impossible by construction.
+
+**EQUIVALENCE, MEASURED ON THE DEVICE.** Same rendered landing, same pass subset (`contrast,names`), the old emitter's
+script and the new bundle run one after the other on d1: 102 contrast rows each, 4 surfaces, 4 name checks, and
+`surfaces`/`names`/`themeChecks`/`entryCheck` byte-identical. The four rows that differ are the landing's own footer
+CLOCK (`12:17:16` vs `12:17:23`, seven seconds apart) — a timestamp, not a behaviour. The program pieces were also
+compared directly before that: 12/12 identical (three probe texts raw, three page-check texts decoded, six pass sources).
+
+**AND THE FIRST VERSION OF THE ASSEMBLER WAS BROKEN IN A WAY THE PIECE COMPARISON COULD NOT SEE.** Its loader resolved a
+relative require to the module ID STRING instead of calling `__require`, so the first payload that touched a required
+value died with `Cannot read properties of undefined (reading 'root')` — while every piece was byte-identical and the
+emitted file parsed. Comparing text proves the text; a seam is proved by EXECUTING it. That is why
+`scripts/test/sweep-bundle-check.mjs` (wired into the design job) assembles three-module payloads in memory, writes the
+bundle into a temp directory that holds NOTHING else, and RUNS it: the exports-vs-id case fails loudly (`require
+returned string`), as do a cycle, a missing module, an unparsable payload, and a payload whose comment carries a
+backtick plus an interpolation plus a `\s` regex — the three shapes that used to end a host file mid-parse.
+`gate-mutations-check.mjs` carries that lookup-without-the-call as its mutation; it exits 1 naming the case.
+
+**WHAT REMAINS, in order:** migrate `panel-design-sweep.mjs` (the big one: 1012 of its 1631 lines are payload), then
+console, then the harness emitter, then the live probe; convert `pageChecks`/`marksSource` from source-text generators
+into functions that take the root selector as an argument (the landing's pieces module evaluates them once and says so);
+and only then delete the four parse guards, `assertEmbedded`, the bash backslash walk and the hook arm — deleting them
+before the last emitter is migrated would remove the guards from the emitters that still need them.
+
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
