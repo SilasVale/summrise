@@ -60,9 +60,23 @@
 //      preflight is answered. The live probe never met this because ITS page is served from 127.0.0.1 — the same address
 //      space. If a sweep renders an empty page and times out on `.side-row, .dtab, .tab`, READ THE PAGE'S CONSOLE before
 //      theorising: it says this in one line, and four wrong theories in a row did not.
-//   D. ONE STAGE PER `browser_run_script` CALL. Its timeout is shorter than a full sweep: emit in one call, run in another,
-//      read the report file in a third. A call that does all three dies mid-way and leaves a report from the PREVIOUS run,
-//      which reads exactly like a real result.
+//   D. ONE STAGE PER `browser_run_script` CALL, AND KNOW WHAT A CALL CANNOT DO. Its timeout is shorter than a full sweep:
+//      emit in one call, run in another, read the report file in a third. A call that does all three dies mid-way and leaves
+//      a report from the PREVIOUS run, which reads exactly like a real result.
+//
+//      AND A PASS LONGER THAN A CALL CANNOT BE RUN FROM THAT RUNNER AT ALL (round 253, measured). The sweep writes its report
+//      at the END, and when the call is killed the process goes with it, so a `--passes=pages` run (48 surfaces) leaves
+//      NOTHING — not a partial report, not a line. Starting it `detached` with `.unref()` does not help: this device kills a
+//      runner's children when the call ends (the same job-object behaviour that ate the relay). Measured: a detached run
+//      started, and minutes later no report existed and no sweep process did either.
+//
+//      The passes that fit in one call DO work and are worth running — `focus,motion,type` reported 1136 rows and zero
+//      failures against the operator's own panel. For `pages`, either give the detached child a console it can write to and
+//      start it where the call is not the parent (a scheduled task, the way the relay was made durable), or measure those
+//      axes from the harness in CI, which is where they already run.
+//
+//      One more, mine: `stdio: 'ignore'` on the detached attempt meant I could not read WHY it died. A background process you
+//      cannot hear is a background process you cannot debug.
 import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 // THE SAME MARK AXIS THE SWEEPS RUN, not a second copy of it (round 30 of the standing goal). The sweeps measure the
 // HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
