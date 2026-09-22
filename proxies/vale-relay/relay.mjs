@@ -23,6 +23,7 @@
 // surface, unchanged: /mcp, /panel/*, /api/*.
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { pathToFileURL } from "node:url";
 
 const MAX_BODY = 8 * 1024 * 1024;
 const LONG_POLL_MS = 25_000;
@@ -179,7 +180,11 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// IS THIS FILE THE PROGRAM, OR A MODULE SOMEONE IMPORTED? The obvious comparison — `import.meta.url === "file://" +
+// process.argv[1]` — is UNIX-SHAPED and never true on Windows, where argv[1] is `D:\dir\relay.mjs` and import.meta.url is
+// `file:///D:/dir/relay.mjs`. The relay therefore did NOTHING when run directly on the device, while every test passed,
+// because tests IMPORT it. Found by running it end to end (round 209); `pathToFileURL` is the platform-correct answer.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const listen = arg("listen", "127.0.0.1:18990");
   const token = arg("token", process.env.VALE_RELAY_TOKEN || "");
   const device = arg("device", "d1");
