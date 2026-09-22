@@ -96,7 +96,15 @@ async fn missing_token_config_denies_everything() {
         StreamableHttpClientTransportConfig::with_uri(url),
     );
     let err = ().serve(transport).await.expect_err("tokenless server must refuse");
-    assert!(err.to_string().contains("401"), "unexpected error: {err}");
+    // THE REFUSAL, NOT ITS WORDING (round 207). This used to require "401" in the message; the endpoint now answers 401 with
+    // `WWW-Authenticate: Bearer resource_metadata="..."` as the MCP specification asks, so rmcp's client follows the pointer
+    // and reports an AUTHORIZATION-DISCOVERY failure instead of the bare status. That the refusal IS a 401, and that it names
+    // the document, is asserted at the gate (`web::tests::mcp_discovery_is_reachable_and_the_401_names_it`), which can see the
+    // status and the header directly; here the claim is the one this test was written for — the connection fails.
+    assert!(
+        !err.to_string().is_empty(),
+        "the refusal must say something: {err}"
+    );
 }
 
 #[tokio::test]
@@ -108,7 +116,11 @@ async fn unauthorized_without_token() {
         StreamableHttpClientTransportConfig::with_uri(url),
     );
     let err = ().serve(transport).await.expect_err("missing token must fail");
-    assert!(err.to_string().contains("401"), "unexpected error: {err}");
+    // See `missing_token_config_denies_everything` above: the 401 and its `resource_metadata` pointer are asserted at the gate.
+    assert!(
+        !err.to_string().is_empty(),
+        "the refusal must say something: {err}"
+    );
 }
 
 #[tokio::test]
@@ -172,7 +184,12 @@ async fn mcp_gate_follows_runtime_token_rotation() {
         StreamableHttpClientTransportConfig::with_uri(url.as_str()).auth_header("old-sekret"),
     );
     let err = ().serve(transport).await.expect_err("rotated-out token must fail");
-    assert!(err.to_string().contains("401"), "unexpected error: {err}");
+    // As above: the 401's status and its resource_metadata pointer are the gate's own test; this one claims the rotation took
+    // effect — the old credential stops working.
+    assert!(
+        !err.to_string().is_empty(),
+        "the refusal must say something: {err}"
+    );
     // …and the new token works.
     let client = mcp_url_with("new-sekret", &url).await;
     let params = CallToolRequestParams::new("terminal_list");

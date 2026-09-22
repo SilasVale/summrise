@@ -26,7 +26,6 @@ use axum::response::{IntoResponse, Response};
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::Service;
@@ -227,7 +226,7 @@ impl<S> TokenGate<S> {
 /// rejection response is built in the same shape here.
 type McpBoxBody = http_body_util::combinators::BoxBody<bytes::Bytes, Infallible>;
 
-/// HOW LONG A FAILED AUTHENTICATION COSTS THE CALLER (round 206).
+/// HOW LONG A FAILED AUTHENTICATION COSTS THE CALLER (rounds 206-207).
 ///
 /// The operator asked what protects MCP if the port is reachable — a VPN, SSH or a bound LAN address all end with THIS gate
 /// and a bearer token as the only wall, and MEASURED, the production paths had no throttle of any kind (every `sleep` in
@@ -252,8 +251,32 @@ pub(crate) fn auth_backoff_ms(fails: u32) -> u64 {
     }
 }
 
-static AUTH_FAILS: AtomicU32 = AtomicU32::new(0);
-static AUTH_PENALTY_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+/// PER PEER, NOT PER PROCESS (round 207). The first version kept one counter for the whole agent, which meant one caller's
+/// failures slowed EVERY other client — a denial of service handed to whoever guesses wrong first, and the integration tests
+/// found it before any operator did: one test's 401 made another test's client time out.
+///
+/// The peer comes from `ConnectInfo`, which the real server attaches and which is ABSENT when there is no socket to ask
+/// (in-process tests, and any future non-TCP transport) — and absent is treated as LOCAL, which pays nothing. That is the
+/// honest reading: an unknown peer cannot be one of many remote guessers, and penalising it would only slow the operator.
+fn peer_key<B>(req: &Request<B>) -> Option<std::net::IpAddr> {
+    // FROM THE SOCKET, NEVER FROM A HEADER. The first version read an `x-vale-peer` header, which a caller sets freely — it
+    // could have skipped its own penalty or framed another address with one. `ConnectInfo` is attached by the server from the
+    // accepted connection, and its absence (in-process tests, non-TCP transports) means "unknown", which pays nothing.
+    req.extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip())
+}
+
+fn auth_penalties(
+) -> &'static std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, u64)>> {
+    static M: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, u64)>>,
+    > = std::sync::OnceLock::new();
+    M.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Bound the map so a spoofed-source flood cannot grow it without limit: 512 peers is far more than a device's working set.
+const AUTH_PEERS_MAX: usize = 512;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -262,31 +285,82 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Milliseconds still owed to the penalty window, 0 when none is active.
-fn auth_penalty_remaining_ms() -> u64 {
-    let until = AUTH_PENALTY_UNTIL_MS.load(Ordering::Relaxed);
-    until.saturating_sub(now_ms())
+/// Milliseconds still owed by this peer, 0 when none is active (or when the peer is unknown — see `peer_key`).
+fn auth_penalty_remaining_ms(peer: Option<std::net::IpAddr>) -> u64 {
+    let Some(peer) = peer else { return 0 };
+    let Ok(map) = auth_penalties().lock() else {
+        return 0;
+    };
+    map.get(&peer)
+        .map(|(_, until)| until.saturating_sub(now_ms()))
+        .unwrap_or(0)
 }
 
-/// One failed authentication: extend the window. Called by both gates, so the count is per PROCESS and not per route.
-fn note_auth_failure() {
-    let fails = AUTH_FAILS.fetch_add(1, Ordering::Relaxed).saturating_add(1);
-    let until = now_ms().saturating_add(auth_backoff_ms(fails));
-    AUTH_PENALTY_UNTIL_MS.store(until, Ordering::Relaxed);
+/// One failed authentication: extend THIS PEER's window.
+fn note_auth_failure(peer: Option<std::net::IpAddr>) {
+    let Some(peer) = peer else { return };
+    let Ok(mut map) = auth_penalties().lock() else {
+        return;
+    };
+    if map.len() >= AUTH_PEERS_MAX && !map.contains_key(&peer) {
+        // Full: drop the entries whose windows have already expired rather than growing, and if none have, do nothing —
+        // refusing to record is a smaller failure than slowing an innocent peer.
+        let now = now_ms();
+        map.retain(|_, (_, until)| *until > now);
+        if map.len() >= AUTH_PEERS_MAX {
+            return;
+        }
+    }
+    let e = map.entry(peer).or_insert((0, 0));
+    e.0 = e.0.saturating_add(1);
+    e.1 = now_ms().saturating_add(auth_backoff_ms(e.0));
 }
 
-/// A caller that authenticated: forgive everything, immediately.
-fn note_auth_success() {
-    AUTH_FAILS.store(0, Ordering::Relaxed);
-    AUTH_PENALTY_UNTIL_MS.store(0, Ordering::Relaxed);
+/// A caller that authenticated: forgive it, immediately.
+fn note_auth_success(peer: Option<std::net::IpAddr>) {
+    if let Some(peer) = peer {
+        if let Ok(mut map) = auth_penalties().lock() {
+            map.remove(&peer);
+        }
+    }
 }
 
-fn unauthorized_mcp_response() -> axum::http::Response<McpBoxBody> {
+/// WHERE A CLIENT LEARNS HOW TO AUTHENTICATE (round 207, from the research in docs/research/remote-mcp-access.md).
+///
+/// The MCP specification's own requirement for a 401 is `WWW-Authenticate: Bearer resource_metadata="..."`, pointing at an
+/// RFC 9728 protected-resource document. Without it a remote client has nothing to discover from, and this gate can only
+/// answer "unauthorized" to a client that was never told what would authorise it.
+///
+/// The resource identifier is built from the REQUEST (host header + forwarded scheme), because the same agent is reached as
+/// 127.0.0.1 by the panel, as a tailnet name, or through a tunnel — and the identifier has to be the one the caller used.
+fn resource_base(headers: &axum::http::HeaderMap) -> String {
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| *v == "http" || *v == "https")
+        .unwrap_or("http");
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .filter(|h| !h.is_empty() && h.len() < 128 && !h.contains('/'))
+        .unwrap_or("127.0.0.1");
+    format!("{scheme}://{host}")
+}
+
+fn unauthorized_mcp_response(headers: &axum::http::HeaderMap) -> axum::http::Response<McpBoxBody> {
     let body = http_body_util::Full::new(bytes::Bytes::from_static(
         br#"{"ok":false,"error":"unauthorized"}"#,
     ));
+    let resource_metadata = format!(
+        "{}/.well-known/oauth-protected-resource",
+        resource_base(headers)
+    );
     axum::http::Response::builder()
         .status(StatusCode::UNAUTHORIZED)
+        .header(
+            "WWW-Authenticate",
+            format!("Bearer resource_metadata=\"{resource_metadata}\""),
+        )
         .header("Content-Type", "application/json")
         .body(http_body_util::combinators::BoxBody::new(body))
         .unwrap_or_else(|_| {
@@ -313,12 +387,14 @@ where
         // Live snapshot (see struct docs): a runtime token rotation takes
         // effect on /mcp immediately, exactly like /api/*. Fail closed when
         // no token is configured, mirroring check_auth above.
+        let headers_for_401 = req.headers().clone();
         let token = self.state.config_snapshot().server.device_token;
         let Some(token) = token else {
-            return Box::pin(async { Ok(unauthorized_mcp_response()) });
+            return Box::pin(async move { Ok(unauthorized_mcp_response(&headers_for_401)) });
         };
         // PAY THE PENALTY FIRST (round 206), so a caller inside the window cannot even have its guess compared.
-        let owed = auth_penalty_remaining_ms();
+        let peer = peer_key(&req);
+        let owed = auth_penalty_remaining_ms(peer);
         let token_for_check = token.clone();
         let authorized = token_is_usable(&token)
             && req
@@ -328,15 +404,15 @@ where
                 .and_then(|v| v.strip_prefix("Bearer "))
                 .is_some_and(|h| timing_safe_eq(h.as_bytes(), token_for_check.as_bytes()));
         if !authorized {
-            note_auth_failure();
+            note_auth_failure(peer);
             return Box::pin(async move {
                 if owed > 0 {
                     tokio::time::sleep(std::time::Duration::from_millis(owed)).await;
                 }
-                Ok(unauthorized_mcp_response())
+                Ok(unauthorized_mcp_response(&headers_for_401))
             });
         }
-        note_auth_success();
+        note_auth_success(peer);
         Box::pin(self.inner.call(req))
     }
 }
@@ -724,6 +800,24 @@ async fn route_pre_dispatch(
     }
 
     // GET non-API — minimal status page: public (no token needed).
+    // DISCOVERY, BEFORE THE SPA FALLBACK (round 207): everything that is not /api or /mcp is served the panel HTML below, so
+    // this route has to be answered first. It is deliberately UNAUTHENTICATED — it is how a client that has no credential yet
+    // learns what would authorise it — and it carries no secret: the resource identifier, the bearer method, and nothing else.
+    if *method == Method::GET && path == "/.well-known/oauth-protected-resource" {
+        let base = resource_base(headers);
+        return Some(built_response(
+            StatusCode::OK,
+            "application/json",
+            Body::from(
+                serde_json::json!({
+                    "resource": format!("{base}/mcp"),
+                    "bearer_methods_supported": ["header"],
+                    "resource_documentation": format!("{base}/panel/"),
+                })
+                .to_string(),
+            ),
+        ));
+    }
     if *method == Method::GET && !path.starts_with("/api") && path != "/mcp" {
         let mut resp = built_response(
             StatusCode::OK,
@@ -3652,6 +3746,82 @@ mod tests {
             2000,
             "it HOLDS at two seconds rather than growing without bound: the token is a long secret, so the job is to make \
              guessing cost time, not to lock an operator out"
+        );
+    }
+
+    /// DISCOVERY IS UNAUTHENTICATED, AND THE 401 POINTS AT IT (round 207). The MCP specification asks a 401 to carry
+    /// `WWW-Authenticate: Bearer resource_metadata="..."`; without the document behind that pointer a remote client has
+    /// nothing to discover from. Both halves are asserted, because either one alone is useless: a metadata document nobody
+    /// is pointed at, or a pointer to a document that 404s (which is what the SPA fallback would have served before this
+    /// route was placed above it).
+    #[tokio::test]
+    async fn mcp_discovery_is_reachable_and_the_401_names_it() {
+        let mut cfg = Config::default();
+        cfg.server.device_token = Some("sekret".into());
+        let st = Arc::new(AppState::new(cfg));
+
+        let doc = handle_request(
+            req_anon("GET", "/.well-known/oauth-protected-resource"),
+            st.clone(),
+        )
+        .await;
+        assert_eq!(
+            doc.status(),
+            StatusCode::OK,
+            "discovery must not require a credential"
+        );
+        let body = axum::body::to_bytes(doc.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("/mcp"),
+            "the document names the resource: {text}"
+        );
+        assert!(
+            text.contains("bearer_methods_supported"),
+            "and how to present a token: {text}"
+        );
+        assert!(
+            !text.contains("authorization_servers"),
+            "this agent mints no tokens, so it names no authorization server (RFC 9728 makes the field optional): {text}"
+        );
+
+        // THE 401 COMES FROM THE GATE, which is the OWNER of the MCP endpoint (the dispatcher's `/api` auth never sees
+        // `/mcp` in production — the MCP router claims it first), so the gate is what this test drives. The inner service
+        // is a stand-in that answers "ok": the point here is the gate's own refusal, not what it protects.
+        struct OkSvc;
+        impl Service<Request<Body>> for OkSvc {
+            type Response = axum::http::Response<McpBoxBody>;
+            type Error = Infallible;
+            type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Infallible>> + Send>>;
+            fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
+                Poll::Ready(Ok(()))
+            }
+            fn call(&mut self, _req: Request<Body>) -> Self::Future {
+                Box::pin(async {
+                    Ok(axum::http::Response::new(
+                        http_body_util::combinators::BoxBody::new(http_body_util::Full::new(
+                            bytes::Bytes::from_static(b"ok"),
+                        )),
+                    ))
+                })
+            }
+        }
+
+        let mut gate = TokenGate::new(OkSvc, st.clone());
+        let denied = gate.call(req_anon("POST", "/mcp")).await.unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        let www = denied
+            .headers()
+            .get("WWW-Authenticate")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            www.contains("resource_metadata=")
+                && www.contains("/.well-known/oauth-protected-resource"),
+            "the 401 must point at the document above, got: {www:?}"
         );
     }
 
