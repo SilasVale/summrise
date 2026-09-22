@@ -3431,3 +3431,25 @@ round's honest action rather than a half-wired sweep.
 WHAT WOULD FIX IT, recorded for the round that takes it: the guard should ask for the DEFINITION, not the name — the emitted
 embed is `const NAME = ` immediately followed by the function's own text, so `new RegExp("const " + name + " = ")` is the shape,
 and it cannot be satisfied by a call.
+
+### THE CONSOLE'S FIRST ACKNOWLEDGEMENT MEASUREMENT (round 197)
+
+The instrument rounds 187-196 built finally answered, on a green run: 33 `note: ack console` rows over the console's pages.
+
+    acked=true            27
+    acked=false            3      and 6 rows carry via=none — the ones that asked the device NOTHING
+    via=disabled          19
+    via=paint             16
+    via=data               8
+    over the 100ms budget  0
+    "the SECOND press"    35      almost every row
+
+Three things worth keeping from it. The console's controls DO answer — 24-42 ms against a 100 ms budget, with `disabled` and
+`paint` doing most of the work. The rows that asked nothing are notes and not findings, which is the rule this suite settled in
+round 19 after it accused three innocent connect-tab controls: a control with no work to do cannot be judged for not
+acknowledging. And the "acknowledged only on the SECOND press" note fires on 35 rows, which is a PATTERN rather than a defect:
+the first sample after a fresh page paint sees nothing, and the second sees the change — exactly the timing artefact the note's
+own wording describes, and the reason it is a note and not a finding.
+
+The run is GREEN: nothing exceeded the budget and nothing is silently dead. What the console's feedback clause needed was the
+measurement, and it now has one.
