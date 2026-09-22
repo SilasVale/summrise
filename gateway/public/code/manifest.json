@@ -219,6 +219,46 @@
       "name": "src/store/users.ts",
       "path": "files/vale-gate/src/store/users.ts",
       "group": "vale-gate"
+    },
+    {
+      "name": "console-design-sweep.mjs",
+      "path": "files/instruments/console-design-sweep.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "harness-boot-check.mjs",
+      "path": "files/instruments/harness-boot-check.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "landing-design-sweep.mjs",
+      "path": "files/instruments/landing-design-sweep.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "live-panel-probe.mjs",
+      "path": "files/instruments/live-panel-probe.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "panel-design-sweep.mjs",
+      "path": "files/instruments/panel-design-sweep.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "panel-render-audit.mjs",
+      "path": "files/instruments/panel-render-audit.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "lib/contrast-probe.mjs",
+      "path": "files/instruments/lib/contrast-probe.mjs",
+      "group": "instruments"
+    },
+    {
+      "name": "lib/design-sweep.mjs",
+      "path": "files/instruments/lib/design-sweep.mjs",
+      "group": "instruments"
     }
   ]
 }

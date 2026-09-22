@@ -37,6 +37,30 @@ cp "$PWD"/src/lib/*.ts "$DEST/vale-gate/src/lib/"
 cp public/index.html public/style.css "$DEST/vale-gate/public/"
 cp wrangler.jsonc "$DEST/vale-gate/"
 
+# ── THE INSTRUMENTS (round 225) ───────────────────────────────────────────────────────────────────────────────────────
+# The viewer showed only the worker, so the scripts that MEASURE a device were the one thing an operator could not fetch from
+# it — and getting a 116 KB library onto a device turned out to be the hard part of running the live probe there (raw GitHub
+# times out on it, the device has no git, and the relay inbox wants an admin token). They are small, self-contained node files
+# and they are exactly what someone debugging a device reaches for, so the mirror carries them too:
+#
+#     https://<dist-host>/code/files/instruments/live-panel-probe.mjs
+#     https://<dist-host>/code/files/instruments/lib/design-sweep.mjs
+#
+# The tree under agent/scripts is mirrored SHALLOW (the top level plus lib/), because that is where the emitters, the probes and
+# the shared helpers live; the per-suite directories are not part of any device-side run.
+# THE SCRIPT'S OWN CONVENTION IS $PWD (= gateway/), so the repo root is ONE level up; it defines no $ROOT, and my first
+# version used a `$ROOT` that does not exist AND a `../..` that overshoots the repo, so the guard was false and the block
+# never ran (44 files, no instruments, exit 0). The second wrong guess is why the guard now says WHICH path it looked in.
+REPO_ROOT="$PWD/.."
+if [ -d "$REPO_ROOT/agent/scripts" ]; then
+  mkdir -p "$DEST/instruments/lib"
+  cp "$REPO_ROOT"/agent/scripts/*.mjs "$DEST/instruments/" 2>/dev/null || true
+  cp "$REPO_ROOT"/agent/scripts/lib/*.mjs "$DEST/instruments/lib/" 2>/dev/null || true
+  echo "  instruments mirrored: $(find "$DEST/instruments" -type f | wc -l | tr -d ' ') file(s)"
+else
+  echo "  !! agent/scripts not found from $PWD — instruments NOT mirrored" >&2
+fi
+
 # (openrouter-proxy mirror removed with the worker's 2026-09-07 retirement —
 # the sibling-path block never fired inside the monorepo anyway.)
 
@@ -49,11 +73,19 @@ import json, os, sys
 dest = sys.argv[1]
 files = []
 vg = os.path.join(dest, "vale-gate")
-for root, _dirs, names in os.walk(vg):
-    for n in sorted(names):
-        full = os.path.join(root, n)
-        rel = os.path.relpath(full, vg).replace(os.sep, "/")
-        files.append({"name": rel, "path": f"files/vale-gate/{rel}", "group": "vale-gate"})
+def walk(base, group, prefix):
+    for root, _dirs, names in os.walk(base):
+        for n in sorted(names):
+            full = os.path.join(root, n)
+            rel = os.path.relpath(full, base).replace(os.sep, "/")
+            files.append({"name": rel, "path": f"{prefix}/{rel}", "group": group})
+
+walk(vg, "vale-gate", "files/vale-gate")
+# The instruments are listed too (round 225): a tree the viewer does not enumerate is a tree nobody finds, and the whole point
+# of mirroring them is that an operator can reach the probe that measures their own device.
+instruments = os.path.join(dest, "instruments")
+if os.path.isdir(instruments):
+    walk(instruments, "instruments", "files/instruments")
 with open(os.path.join(dest, "..", "manifest.json"), "w") as f:
     json.dump({"files": files}, f, indent=2, ensure_ascii=False)
 print(f"generated manifest: {len(files)} files → public/code/")
