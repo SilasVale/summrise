@@ -629,26 +629,6 @@ export function pressDelta(hovered, pressed) {
   return KEYS.filter((k) => hovered[k] !== pressed[k]);
 }
 
-/** THE EMITTER MUST DEFINE WHAT IT BORROWS (round 103).
- *
- * Each sweep borrows its helpers by name (`const pressPass = ${pressPass.toString()};`), and a borrowed helper that
- * calls another one needs THAT one embedded too. When that was missed the emitted file PARSED — it throws when the
- * function is reached — so every local gate passed (they read the artifact's text or judge a planted report; none of
- * them RUNS it) and CI died two minutes into the design job. Each emitter calls this before printing.
- */
-export function assertEmbedded(out, names) {
-  const missing = names.filter((n) => !out.includes("function " + n));
-  if (missing.length) {
-    throw new Error(
-      "the emitted sweep CALLS " +
-        missing.join(", ") +
-        " but does not define " +
-        (missing.length === 1 ? "it" : "them") +
-        " — the run would die on the device with 'is not defined'",
-    );
-  }
-}
-
 /** EVERY CONTROL ON THE PAGE, deduped by class+size — for the surfaces where no curated list applies.
  *
  *  WHY IT EXISTS (round 15 of the standing goal). The press targets are a CURATED list, which means a control nobody

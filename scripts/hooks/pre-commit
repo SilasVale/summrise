@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # pre-commit — refuse a commit whose EMITTED scripts do not parse.
 #
-# WHY THIS EXISTS (round 225). Six emitters in this repository build a standalone script for the device inside
-# a template literal, and a backtick anywhere inside that literal ends it early — the emitted file then stops
-# parsing somewhere in the middle of 30 KB. That has happened THIRTY-FOUR times in this project, and in the last
-# six of them the failing check was already on screen: `emit=1`, and the commit made anyway. CI caught every one
-# afterwards, which cost a red build each time.
+# WHY THIS EXISTS (round 225, REWRITTEN round 272). It used to guard a specific accident: each emitter built its
+# payload inside a template literal, so a backtick anywhere in that text ended the literal early and the emitted file
+# stopped parsing somewhere in the middle of 30 KB. THAT CLASS IS GONE — rounds 266-271 moved all five payloads into
+# real modules assembled by `agent/scripts/lib/sweep-bundle.mjs`, which resolves the payload's own requires and
+# COMPILES what it returns, so an emitter can no longer print something that does not parse.
 #
-# THE CHECK IS THE EMITTER'S OWN GUARD, not a copy of it: `--emit` compiles what it emits and exits non-zero
-# when the result will not parse, so this hook cannot disagree with the thing it guards. It is fast — five
-# emitters, well under a second each — because a hook that costs time is a hook people bypass with --no-verify.
+# WHAT IT STILL BUYS: `--emit` is the only command that assembles every artifact end to end, and this runs all five in
+# under a second — a payload module that does not parse, a relative require the assembler cannot resolve, an emitter
+# that was renamed or deleted, or a pieces module that no longer evaluates all fail here rather than in the design job
+# two minutes later. (The incident counts that used to be in this comment disagreed across three files — 34 here, 52
+# in AGENTS.md, 38 in the operator's inbox. They are history; the ledger holds the incidents, and what this file needs
+# is the RULE, not a number.)
+#
+# THE CHECK IS THE EMITTER'S OWN GUARANTEE, not a copy of it — which is what "the assembler compiles what it emits"
+# means. A hook that costs time is a hook people bypass with --no-verify, so it stays five fast commands.
 #
 # IT CAUGHT ITS OWN STALENESS IN ROUND 243: the extension was removed and this loop still named its emitter, so the
 # hook refused the very commit that removed it. That is the whole point of running the thing you guard.
@@ -29,11 +35,10 @@ if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
 fi
 
 fail=0
-# SIX EMITTERS, NOT FOUR (round 29 of the standing goal). The audit pointed out that this loop covered panel, console,
-# the harness and the probe — while `landing-design-sweep.mjs` (a real emitter: a 72 KB script for the device) and
-# `live-panel-probe.mjs` were checked only by CI, or by nobody until somebody ran them. Both take `--emit`, both exit 0
-# on success, and the probe carries its OWN parse guard (it was the last of the five to get one), so the hook's job is
-# only to run them — which is what "the check is the emitter's own guard, not a copy of it" has always meant here.
+# FIVE EMITTERS, AND NOW ALL FIVE ARE LISTED (round 272). The count in this comment has been wrong twice: it said four
+# while the landing and the live probe were checked only by CI, then said six after an extension emitter that no longer
+# exists was removed. The set is: panel, console, landing, the harness (`panel-render-audit.mjs`, whose success code in
+# emit mode is 2) and `live-panel-probe.mjs` — the same five `panel-design-sweep.bash` proves use the assembler.
 for f in panel console landing; do
   if ! node "agent/scripts/$f-design-sweep.mjs" --emit >/dev/null 2>/tmp/vale-hook-$f.err; then
     echo "pre-commit: the $f sweep does not emit — $(tail -1 /tmp/vale-hook-$f.err 2>/dev/null)" >&2

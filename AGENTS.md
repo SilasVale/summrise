@@ -144,16 +144,18 @@ learned something new adds a section THERE, not here.
 
 ## Committing
 
-**A pre-commit hook runs the emitters** (`scripts/hooks/pre-commit`, round 225). Five scripts build a
-standalone script for the device inside a template literal, and a backtick anywhere inside that literal ends it
-early — the emitted file then stops parsing in the middle of 30 KB. That has happened **52 times**, and in the
-last six of the first 34 the failing check was already on screen: `emit=1`, and the commit made anyway. The hook
-runs the emitters' OWN guards, so it cannot disagree with what it guards.
+**A pre-commit hook runs the emitters** (`scripts/hooks/pre-commit`, round 225; rationale rewritten round 272).
+It used to guard the backtick-in-a-template-literal accident — **and that class is gone**: all five emitters now hand
+their payload to `agent/scripts/lib/sweep-bundle.mjs`, which resolves the payload's own requires and COMPILES what it
+returns. (The incident count was quoted as 52 here, 34 in the hook and 38 in the operator's inbox; the three never
+agreed, and they are history — the ledger holds the incidents.) What the hook still buys is the only end-to-end
+assembly of all five artifacts in under a second: a payload module that does not parse, a require the assembler cannot
+resolve, or an emitter that was renamed or deleted fails at the commit instead of in the design job.
 
 **AND IT IS STILL NOT INSTALLED, WHICH HAS NOW COST A PUSH.** Round 93's commit carried a backtick in a comment,
 the probe module stopped PARSING, and five of the ten CI jobs went red (ui, panel, gateway, design, pack-chain —
 everything that imports it). The hook refuses that commit in under a second, and so does
-`contrast-probe-check.mjs`, which CI runs at `ci.yml:437` — but nothing runs the hook unless the loop does it by
+`contrast-probe-check.mjs`, which CI runs at `ci.yml:460` — but nothing runs the hook unless the loop does it by
 hand, because `core.hooksPath` is global. RUN IT BY HAND BEFORE EVERY COMMIT until the symlink below exists; the
 story is in the ledger under "THE 46TH BACKTICK REACHED A COMMIT".
 

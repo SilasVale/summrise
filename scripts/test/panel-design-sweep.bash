@@ -130,25 +130,12 @@ if (pieces) {
   if (pieces.config == null) problems.push("the pieces module carries no config (the artifact would run with undefined paths)");
 }
 
-// ── AND NO TEMPLATE LITERAL IN THE ARTIFACT MAY CONTAIN AN EATEN BACKSLASH ──────────────────────────────────
-{
-  let inside = false, line = 1, i = 0;
-  while (i < emitted.length) {
-    const ch = emitted[i];
-    if (ch === "\n") line++;
-    if (ch === "\\" && inside) {
-      let j = i;
-      while (j < emitted.length && emitted[j] === "\\") j++;
-      const run = j - i;
-      const next = j < emitted.length ? emitted[j] : "";
-      if (run % 2 === 1 && next !== "`") problems.push(`line ${line}: a single backslash inside a template literal (\\${next}) is eaten before the page sees it`);
-      i = j; continue;
-    }
-    if (ch === "`") inside = !inside;
-    i++;
-  }
-  if (inside) problems.push("the emitted script ends inside a template literal");
-}
+// ── THE EATEN-BACKSLASH WALK MOVED (round 272) ──────────────────────────────────────────────────────────────
+// It used to walk THIS artifact looking for a single backslash inside a template literal — the round-55 bug, where
+// `/\s+/` reaches the page as `/s+/`. That was the right instrument while the payload WAS a template literal. The
+// payloads are real modules now and hold no template literals of their own, so the walk only reacted to backticks in
+// COMMENTS. The invariant is unchanged and now checked where it can still be violated: `sweep-bundle-check` scans every
+// payload module's source for an odd backslash inside a template literal (with a mutation that plants one).
 if (problems.length) { for (const x of problems) console.error("  " + x); process.exit(1); }
 console.log("ok: " + expected.length + " probe/pass/check value(s) reach the page byte-identical");
 JS
@@ -808,11 +795,15 @@ fi
 # before: until then it was the one emitter with NO parse guard at all. A check that pins a mechanism instead of the
 # rule is the shape this suite warns about everywhere else — so the second half below pins the RULE by emitting the
 # artifact and parsing it with the same command CI uses.
-for f in panel console landing; do
-  if grep -qE "assertEmbedded\(out|bundleSweep\(" "agent/scripts/$f-design-sweep.mjs"; then
-    ok "the $f emitter carries a guarantee that what it prints can run"
+# THE ASSEMBLER IS THE GUARANTEE (round 272). Every emitter hands its payload to `bundleSweep`, which resolves the
+# payload's own requires and COMPILES what it returns. The substring assertion that stood here (`assertEmbedded`,
+# round 103) is deleted with the template literals it existed for: a helper that is CALLED but not EMBEDDED is not
+# expressible when the payload and the passes meet in one module body.
+for f in panel-design-sweep console-design-sweep landing-design-sweep live-panel-probe panel-render-audit; do
+  if grep -q "bundleSweep(" "agent/scripts/$f.mjs"; then
+    ok "the $f emitter assembles its payload with the compiler"
   else
-    bad "the $f emitter prints its script with neither a parse guard nor an assembler that compiles"
+    bad "the $f emitter does not use the assembler — nothing guarantees what it prints can run"
   fi
 done
 if VALE_LANDING_OUT="$TMP/landing-emit" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing-check.js" 2>/dev/null \

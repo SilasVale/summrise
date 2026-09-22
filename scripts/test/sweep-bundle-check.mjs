@@ -208,6 +208,51 @@ try {
     else bad("a probe is called without its selector — it would measure undefined", unparameterised.join("; "));
   }
 
+  // ── 8c. NO EATEN BACKSLASH INSIDE THE TEXT THAT BECOMES THE PAYLOAD (round 272) ────────────────────────────
+  // THIS IS THE ROUND-55 BUG, CHECKED WHERE IT CAN STILL HAPPEN. The emitted script used to BE a template literal, so
+  // `/\s+/` written in the emitter reached the page as `/s+/` and the loud axis counted every element for
+  // thirty-seven rounds; `panel-design-sweep.bash` walked the ARTIFACT for that. The payloads are real modules now and
+  // hold no template literals of their own, so the walk only reacted to backticks in comments — the invariant moved
+  // here, to the source an author actually writes. A template literal in a module is fine; a single backslash inside
+  // one is eaten when the module runs, and this is the thing that says so.
+  {
+    const dir = new URL("../../agent/scripts/lib/sweep/", import.meta.url);
+    const { readdirSync, readFileSync } = await import("node:fs");
+    // THE FILES WHOSE TEXT ENDS UP IN THE ARTIFACT: the payload modules, and the library that holds every probe, pass
+    // and *_SOURCE constant the emitters embed. Comments are stripped first (`decomment`) — a backtick quoted in a
+    // comment is not a template literal, and counting those is what made the first version of this scan look busier
+    // than it was (it reported 20 "literals", nearly all of them in the migration notes).
+    const { decomment } = await import("./lib/decomment.mjs");
+    const sources = readdirSync(dir).filter((f) => f.endsWith(".cjs")).map((f) => [f, new URL(f, dir)]);
+    sources.push(["lib/design-sweep.mjs", new URL("../../agent/scripts/lib/design-sweep.mjs", import.meta.url)]);
+    const problems = [];
+    let literals = 0;
+    for (const [f, url] of sources) {
+      const src = decomment(readFileSync(url, "utf8"));
+      let inside = false, line = 1, i = 0;
+      while (i < src.length) {
+        const ch = src[i];
+        if (ch === "\n") line++;
+        if (ch === "\\" && inside) {
+          let j = i;
+          while (j < src.length && src[j] === "\\") j++;
+          const run = j - i;
+          const next = j < src.length ? src[j] : "";
+          // an EVEN run is a literal backslash and an ODD run ending on a backtick is an escaped backtick; an odd run
+          // ending anywhere else escapes the next character at the template level and is eaten before the module runs
+          if (run % 2 === 1 && next !== "`") problems.push(`${f}:${line}: a single backslash inside a template literal (\\${next}) is eaten when the payload runs`);
+          i = j; continue;
+        }
+        if (ch === "`") { inside = !inside; if (inside) literals++; }
+        i++;
+      }
+      if (inside) problems.push(`${f}: a template literal is never closed`);
+    }
+    if (problems.length === 0) {
+      ok(`no eaten backslash in the text that becomes the payload (${literals} template literal(s) across ${sources.length} source file(s))`);
+    } else bad("a payload template literal eats a backslash", problems.join("; "));
+  }
+
   // ── 8. the bundle is SELF-CONTAINED: it runs with no payload module beside it ──────────────────────────────
   {
     const modules = { "a.cjs": 'const b = require("./nested/b.cjs");\nconsole.log(b.deep);\n', "nested/b.cjs": 'module.exports = { deep: "yes" };\n' };

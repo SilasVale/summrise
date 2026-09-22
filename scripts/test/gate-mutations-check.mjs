@@ -48,6 +48,14 @@ if (dirty) {
 const CASES = [
   {
     gate: "scripts/test/sweep-bundle-check.mjs",
+    file: "agent/scripts/lib/design-sweep.mjs",
+    why: "a single backslash inside a template literal is eaten when the payload runs (round 55: `/\\s+/` reached the page as `/s+/` and the loud axis counted everything for thirty-seven rounds)",
+    from: "export const THEME_SOURCE = `(() => {\n  const body = getComputedStyle(document.body).backgroundColor;",
+    to: "export const THEME_SOURCE = `(() => {\n  const body = getComputedStyle(document.body).backgroundColor.replace(/\\s/g, '');",
+  },
+
+  {
+    gate: "scripts/test/sweep-bundle-check.mjs",
     file: "agent/scripts/lib/sweep-bundle.mjs",
     why: "the browser target's preamble reaches for the native require — the harness payload would throw on load, in a page whose fixture is half-installed",
     from: `  if (target === "node") parts.push("const __nativeRequire = require;");`,
