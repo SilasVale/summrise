@@ -22,7 +22,12 @@
 //          https://<dist-host>/code/files/instruments/lib/design-sweep.mjs
 //          https://<dist-host>/code/files/instruments/lib/contrast-probe.mjs
 //
-//      (All three, into a directory with `lib/` beside the probe — the imports are relative.) `manifest.json` lists them.
+//      (All three, into a directory with `lib/` beside the probe — this PROBE's imports are relative and it needs nothing
+//      else, so it can live anywhere. THE SWEEPS CANNOT: they infer their repo root from their own location, so
+//      `panel-design-sweep.mjs` and `panel-render-audit.mjs` must sit at `<somewhere>/agent/scripts/` with `lib/` beside them,
+//      or they look for `<root>/agent/resources/panel/panel.css` in a place that does not exist. Measured: from
+//      `D:\Vale\etc` the emitter died on `D:\agent\resources\panel\panel.css`, and from
+//      `D:\vale-dev\agent\scripts` it worked. `manifest.json` lists everything.
 //   2. EMIT ON THE DEVICE, with its bundled node:
 //          node live-panel-probe.mjs --emit > probe-live.js
 //   3. RUN IT THROUGH `browser_run_script`, and do NOT re-transcribe it — that runner INJECTS the two environment pieces the
@@ -37,6 +42,27 @@
 //      `graphicFailing: []`, `unmeasurable: 0`, `marks.collisions: []`, `marks.ringFill: []`, `errors: []`, and
 //      `verdict.ok: true`. A NON-ZERO `unmeasurable` is not a pass: an absence is not evidence until the instrument is shown
 //      to see.
+//
+// ── WHAT THE SWEEPS NEED ON TOP OF THAT (rounds 229-248, the same recipe plus four things) ──────────────────────────────
+//
+//   A. THE LAYOUT, as above: `<root>/agent/scripts/`. This is the one that cost the most — the probe hid it, because the
+//      probe is the only instrument here that does not care where it lives.
+//   B. THE STAMP, handed over: `VALE_HARNESS_STAMP="<len>-<sha256[:12]>"`. Both emitters read it, so the harness and the
+//      sweep that judges it agree by construction instead of both happening to read the same file — which on a device
+//      neither of them can. Compute it from the sheet the device serves:
+//          curl -s http://127.0.0.1:18080/panel/panel.css   →   length + sha256[:12]
+//      Without it the sweep reports `harnessStale: true` and refuses to vouch for its own numbers. That guard is right; give
+//      it something true to compare.
+//   C. THE AGENT MUST ANSWER CHROME'S PRIVATE NETWORK CHECK (1.2.447+). The sweeps serve their harness from
+//      `http://vale.test` — a PUBLIC name — and a public-origin page is refused a request to 127.0.0.1 even when the response
+//      says `Access-Control-Allow-Origin: *`: "the request client is not a secure context and the resource is in
+//      more-private address space (?local?)". The assets carry `Access-Control-Allow-Private-Network: true` and the OPTIONS
+//      preflight is answered. The live probe never met this because ITS page is served from 127.0.0.1 — the same address
+//      space. If a sweep renders an empty page and times out on `.side-row, .dtab, .tab`, READ THE PAGE'S CONSOLE before
+//      theorising: it says this in one line, and four wrong theories in a row did not.
+//   D. ONE STAGE PER `browser_run_script` CALL. Its timeout is shorter than a full sweep: emit in one call, run in another,
+//      read the report file in a third. A call that does all three dies mid-way and leaves a report from the PREVIOUS run,
+//      which reads exactly like a real result.
 import { PROBE_SOURCE, failures, unmeasurable } from "./lib/contrast-probe.mjs";
 // THE SAME MARK AXIS THE SWEEPS RUN, not a second copy of it (round 30 of the standing goal). The sweeps measure the
 // HARNESS; this measures the panel the device actually serves, and the harness has no surface for several states the
