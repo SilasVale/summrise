@@ -562,6 +562,22 @@ export function DesktopShell({
                   ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
                   : "connecting…"}
               </span>
+              {/* THE SAME FACT, IN THIS STRIP TOO (round 216). This file renders TWO status strips and only the other one
+                  was taught about the relay, so the live panel showed nothing while /api/status said connected:true — found by
+                  reading the rendered DOM's children, not the source. The FACT has one source (the hook reads it from
+                  /api/status); this is the second place it is DRAWN, and both now draw it. */}
+              {vitals.relay?.configured && (
+                <span
+                  className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
+                  title={
+                    vitals.relay.connected
+                      ? "This device dialled out to its configured relay and the relay answers"
+                      : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
+                  }
+                >
+                  {vitals.relay.connected ? "relay connected" : "relay unreachable"}
+                </span>
+              )}
               <BootChip
                 lastBoot={vitals.lastBoot}
                 uptimeSecs={vitals.uptimeSecs}
