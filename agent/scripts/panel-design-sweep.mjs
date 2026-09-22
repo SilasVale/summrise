@@ -164,7 +164,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
+import { markCoverageNotes, pageChecks, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, assertEmbedded, TARGETS_SOURCE, THEME_SOURCE, DIAG_SOURCE, pressDelta } from "./lib/design-sweep.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
@@ -241,6 +241,7 @@ const pressPass = ${pressPass.toString()};
 const discoverPressTargets = ${discoverPressTargets.toString()};
 const revealPass = ${revealPass.toString()};
 const ackPass = ${ackPass.toString()};
+const ackNotes = ${ackNotes.toString()};
 const idlePass = ${idlePass.toString()};
 const motionPass = ${motionPass.toString()};
 ${MOTION}
@@ -1439,12 +1440,11 @@ function judge(file) {
     // not be compared with a clean device run without re-running both by hand: eight controls "never acknowledged"
     // in CI and answered in 6-13ms on the device, same sweep, same fixture. A measurement nobody can read is a
     // measurement nobody can check.
-    console.log(
-      `note: ack ${where} ${a.sel} — acked=${a.acked} via=${a.via || "none"} ms=${a.msToAck === null ? "-" : a.msToAck} budget=${a.budgetMs} presses=${a.attempts || 1} asked=${a.asked !== false} calls=${a.calls}/${a.callsInWindow}`,
-    );
-    if (a.acked && (a.attempts || 1) > 1) {
-      console.log(`note: ${where} ${a.sel} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded machine is a timing artifact and on a slow device is a real delay worth watching`);
-    }
+    // THE TWO NOTE LINES COME FROM THE SHARED PRINTER (round 196): the console printed none and the panel printed its own
+    // copy. The FINDING below stays, because it is the enforcing half — the shared function reports, the sweep decides what
+    // fails. Round 195 reverted this because a line count made the embed look missing; the guard asks for the DEFINITION
+    // (`function ackNotes`), which only the embed provides, and it passes.
+    for (const line of ackNotes([a], where)) console.log(line);
     if (typeof a.msToAck === "number" && typeof a.budgetMs === "number" && a.msToAck > a.budgetMs) {
       findings.push(`${where}: ${a.sel} (${a.where}) acknowledged the press after ${a.msToAck}ms — the budget is ${a.budgetMs}ms, so this feedback waited on the ${a.msToClear}ms network round trip instead of firing on the event`);
     }
@@ -1631,7 +1631,7 @@ if (mode === "--emit") {
   // THE EMITTER NAMES WHAT IT BORROWS, and a borrowed helper that CALLS another one needs that one embedded too:
   // missing it, the emitted file still parses (it throws when reached), every local gate passes because they read
   // the artifact's text, and CI finds out. The shared assertion is in lib/design-sweep.mjs.
-  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "revealPass", "ackPass", "idlePass", "motionPass"]);
+  assertEmbedded(out, ["focusPass", "pressDelta", "pressPass", "discoverPressTargets", "revealPass", "ackPass", "ackNotes", "idlePass", "motionPass"]);
   process.stdout.write(out);
 } else if (mode === "--judge") {
   const file = process.argv[3];
