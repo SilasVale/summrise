@@ -99,10 +99,22 @@ export function attentionFrom(
 /** The `document.title` for this much attention. The count comes FIRST because a browser tab
  *  truncates from the right, and a title that ends in `…` before the number is a title that told
  *  nobody anything. */
-export function titleFor(items: AttentionItem[], base: string = BASE_TITLE): string {
+export function titleFor(items: AttentionItem[], base: string = BASE_TITLE, tab: boolean = true): string {
   if (items.length === 0) return base;
+  // THE COUNT IS FOR A TAB, NOT FOR A WINDOW (round 199, from the operator's screen: "(2) Vale Agent, the (2) should not be
+  // there"). The prefix exists because a browser tab TRUNCATES FROM THE RIGHT — the reason is written above — and that
+  // reason does not hold in the desktop app, which is a native window whose title is its identity rather than a queue of
+  // pages. It also does not need the count: the status bar it always draws carries the same attention ("192.168.1.1:443
+  // down 1h 20m (+1)"), with the hosts named, which a window title could never do.
+  if (!tab) return base;
   const urgent = items.some((i) => i.kind === "approval");
   return `(${items.length})${urgent ? " ⚠" : ""} ${base}`;
+}
+
+/** Is this the desktop app's own window rather than a page in a browser? The desktop density is served at /desktop/ and
+ *  mounted by a WebView2 window; the browser densities are served at / and /panel/. */
+export function inDesktopWindow(): boolean {
+  return typeof location !== "undefined" && location.pathname.startsWith("/desktop");
 }
 
 /** The favicon for this much attention, as a data URL.

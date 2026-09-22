@@ -18,6 +18,7 @@ import {
   stateKey,
   titleFor,
   BASE_TITLE,
+  inDesktopWindow,
   type AttentionItem,
 } from "../lib/attention";
 import {
@@ -90,7 +91,9 @@ export function useAttentionTitle(items: AttentionItem[]) {
     const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     const baseHref = link?.getAttribute("href") ?? "";
     const count = items.length;
-    document.title = titleFor(items);
+    // THE DESKTOP WINDOW KEEPS ITS PLAIN NAME (round 199): see `titleFor` — the count is a tab idiom, and this surface
+    // shows the same attention, with hosts named, in its own status bar.
+    document.title = titleFor(items, BASE_TITLE, !inDesktopWindow());
     if (link) link.setAttribute("href", badgeIcon(count, items.some((i) => i.kind === "approval"), baseHref));
     return () => {
       // Leaving the panel restores the plain title/icon: a stale count in a tab that no longer
