@@ -75,11 +75,11 @@ jobs:
               esac
             done < /tmp/ci-gate-runs.tsv
             if [ -n "$BAD" ]; then
-              echo "::error::tag commit ${SHA} has FAILED checks: ${BAD} — not releasing a red commit (bypass: fix CI on main, move the tag, re-run this workflow)"
+              echo "::error::tag commit ${SHA} has FAILED checks: ${BAD} — not releasing a red commit (bypass: fix CI on main, then re-run THIS job. Do NOT move the tag: a moved tag demotes the release to a DRAFT, which the audit cannot see, and it makes CI package a DIFFERENT artifact under the SAME version number)"
               exit 1
             fi
             if [ "$EXT_N" -gt 0 ] && { [ "$EXT_STATE" = "failure" ] || [ "$EXT_STATE" = "error" ]; }; then
-              echo "::error::tag commit ${SHA} has FAILED external statuses (state=${EXT_STATE}) — not releasing a red commit (bypass: fix CI on main, move the tag, re-run this workflow)"
+              echo "::error::tag commit ${SHA} has FAILED external statuses (state=${EXT_STATE}) — not releasing a red commit (bypass: fix CI on main, then re-run THIS job. Do NOT move the tag: a moved tag demotes the release to a DRAFT, which the audit cannot see, and it makes CI package a DIFFERENT artifact under the SAME version number)"
               exit 1
             fi
             # Fail-CLOSED on silence: zero check-runs + zero statuses means

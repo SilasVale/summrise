@@ -163,7 +163,7 @@ same shape (an npm-installed agent with a large dependency tree) and a public re
 | the landing page's quick start is **`npx @deepseek-ai/dsh web`** | ours becomes **`npx summrise-agent setup`** on the CDN landing page, once the registry carries a real version |
 
 **Step 1 is implemented (2026-09-23).** `publish-release.sh` grew `--npm` /
-`--npm-tag <alpha|next|latest>` (default `alpha`), a trimmed `~/.npm-token` or `NPM_TOKEN` credential
+`--npm-tag <alpha|next|latest>` (default `latest`; `alpha` is for a deliberate prerelease — the CDN's `-latest.tgz` alias moves on every release, so the registry's `latest` has to move with it), a trimmed `~/.npm-token` or `NPM_TOKEN` credential
 following the `cf_token` idiom — *trimmed*, because a token file ending in a newline authenticates as
 nothing — a **fail-fast precondition placed with the other guards** (a missing token must not surface
 after the CDN has already been deployed; a half-published release is the one state that script must

@@ -192,7 +192,7 @@ fi
 # A DEPLOY THAT LEAVES THE MANIFEST BEHIND IS NOT A SUCCESS (round 130).
 # This path staged the exe, deployed the worker and printed "== done ==" with the
 # new URLs while `/api/version` still described the PREVIOUS installer (or none),
-# because nothing rewrote version.json — and publish-release.sh:309 tells operators
+# because nothing rewrote version.json — and publish-release.sh tells operators
 # to run this script standalone. Since round 125 the landing page asks the manifest
 # BEFORE offering the button, so such a build is invisible at best; at worst the
 # door keeps serving the previous installer with the manifest's blessing.

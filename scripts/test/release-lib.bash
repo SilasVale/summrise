@@ -142,10 +142,16 @@ rm -rf "$T" && mkdir -p "$T"
 out=$(prune_installers "$T")
 check "empty asset dir installer-prunes nothing and stays silent" "$out" ""
 
-# ── the reconcile ledger was deleted 2026-09-14 ─────────────────────────────
+# ── the MARKDOWN reconcile ledger was deleted 2026-09-14 ────────────────────
 # The publish step stopped writing it: it produced a markdown file per release and a
 # gate that had to be satisfied by hand. What it recorded — "this version's CDN bytes
 # were never compared against the GitHub asset" — is now the audit's own output.
+#
+# NOT THE SAME THING as docs/agents/release-reconcile.txt, which the reconcile gate in
+# publish-release.sh still reads (and .gitignore ignores): one was a hand-satisfied
+# document, the other is a mechanical list of versions on the CDN with no release to
+# audit against. A reader who conflates them concludes the gate is dead code. It is not,
+# and it refused a publish on 2026-09-23 — for 1.2.453, whose asset packages a later tree.
 
 
 # ── a SETTLED debt must leave the ledger (round 265) ────────────────────────

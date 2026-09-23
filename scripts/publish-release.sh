@@ -21,9 +21,17 @@
 #      enforced on manual publishes and 46 old tgz accumulated on the CDN)
 #      without evicting the previous minor line (pinned installs keep
 #      working while the new line ramps)
-#   5. commit the tracked files (package.json bump + version.json)
-#   6. wrangler deploy (CDN sync — deletes pruned assets too)
+#   5. wrangler deploy (CDN sync — deletes pruned assets too) + the post-publish smoke
+#   6. [--npm] publish THE SAME PACK to the npm registry — BEFORE THE AUDIT, on purpose:
+#      the audit cannot pass on a first publish (the asset is built after the tag) and its
+#      failure branch exits, so a step ordered after it never runs at all — measured on
+#      1.2.454, where the CDN deployed, the smoke went green, --npm was passed, and the
+#      registry still answered `latest: 1.2.453`.
 #   7. P0 AUDIT: CDN tgz vs GitHub release asset (scripts/lib/release-audit.sh).
+#   THEN A HUMAN — this is where the command ends. Commit the two tracked files, push, WAIT
+#   for CI to go green on that commit, tag through the API, let release.yml attach the
+#   asset, then `--audit-only <ver>` to settle the debt. Every one of those orderings was
+#   paid for by a failed release; the transcripts are in docs/agents/design-ledger.md.
 #      Every SOURCE-DERIVED file must match byte-for-byte; only summrise-agent.exe
 #      may differ, because the two builders do not share a toolchain (local
 #      rustc stable + hand-built llvm18 vs release.yml's floating stable +
@@ -32,12 +40,13 @@
 #      only a genuine first publish (no asset built yet) and refuses once one
 #      exists.
 #
-#   8. [--npm] publish THE SAME PACK to the npm registry, under a dist-tag
-#      (alpha by default). Modelled on what dsh publishes: dist-tags are
-#      CHANNELS, so a release goes to alpha first and is promoted to latest once
-#      a device has proved it, and nobody has to trust a mutable -latest.tgz
-#      alias. Without --npm the run prints a ::warning:: naming the consequence
-#      rather than drifting in silence.
+#   8. [--npm] the dist-tag: `latest` by default, `alpha|next` for a deliberate
+#      prerelease. NOT alpha-by-default — this product's CDN `-latest.tgz` alias moves on
+#      every release, so the registry's `latest` has to move with it, or `npm i -g
+#      summrise-agent` installs a CLI OLDER than the release the agent is being asked to
+#      take (the 1.2.453 deadlock). dsh can afford alpha-first because its `latest` is a
+#      release candidate, not an alias a device already follows. Without --npm the run
+#      prints a ::warning:: naming the consequence rather than drifting in silence.
 # After this: push main, create the GitHub tag v1.2.N via the API, and let
 # release.yml build the GitHub release asset (keep-latest manual).
 

@@ -184,10 +184,6 @@ audit_release_asset() {
   # failed on CI while passing on the machine that wrote it (twice: rounds 102 and 124). `tar tzvf`
   # prints the mode STORED in the archive, so the environment cannot influence the reading at all.
   # The extraction above is still used, for CONTENT.
-  # MODES COME FROM THE ARCHIVE LISTING, NOT FROM THE EXTRACTED FILES. `stat` on an extracted tree is
-  # what the umask can reach — even with `tar -p`, and even for DIRECTORIES — which is how this case
-  # failed on CI while passing on the machine that wrote it (twice: rounds 102 and 124). `tar tzvf`
-  # prints the mode STORED in the archive, so the environment cannot influence the reading at all.
   # Built as a TEXT listing and compared with diff, the same shape as the content comparison above: an
   # associative array fought the input (empty and dotted names gave "bad array subscript") and this is
   # simpler besides. A listing that cannot be taken yields an empty side, and the diff below then FAILS
@@ -199,12 +195,22 @@ audit_release_asset() {
   modes_cdn="$(mode_list "$work/cdn.tgz")" || { echo "::error::release audit: cannot list the CDN tarball's modes" >&2; return 1; }
   modes_gh="$(mode_list "$work/gh.tgz")"  || { echo "::error::release audit: cannot list the GitHub tarball's modes" >&2; return 1; }
   if [[ -z "$modes_cdn" || "$modes_cdn" != "$modes_gh" ]]; then
-    echo "::error::release audit FAILED: the two tarballs' FILE MODES differ (or a listing could not be taken)" >&2
+    # NAME THE CAUSE, AND NAME IT AS A FAILURE OF ARTIFACT IDENTITY. "packaging metadata" told a
+    # reader nothing and was wrong: the difference is a FILE MODE, and it is fixable rather than a
+    # property of the universe. The tgz IS the release, and two different tgz files are two
+    # different releases however identical their contents. (This rationale used to live on a dead
+    # branch — an array a refactor stopped filling — while the check that actually fires printed one
+    # bare line. The reason moved here with the check.)
+    echo "::error::release audit FAILED: the two tarballs' FILE MODES differ (or a listing could not be taken) — the same bytes, a different artifact" >&2
     diff <(printf '%s\n' "$modes_cdn") <(printf '%s\n' "$modes_gh") | sed 's/^/  /' >&2
+    echo "  Cause: npm pack preserves each SOURCE file's mode, so a worktree whose" >&2
+    echo "  permissions differ from a fresh CI checkout packs a different tarball." >&2
+    echo "  Fix: make the tracked files' modes match the index (git ls-files -s)" >&2
+    echo "       e.g. \`chmod 644 agent/summrise-agent-npm/README.md\`." >&2
     return 1
   fi
 
-  local f a b drifted=0 exe_cdn="" exe_gh="" mode_drift=()
+  local f a b drifted=0 exe_cdn="" exe_gh=""
   while IFS= read -r f; do
     a="$(sha256sum "$work/cdn/package/$f" | cut -d' ' -f1)"
     b="$(sha256sum "$work/gh/package/$f"  | cut -d' ' -f1)"
@@ -232,21 +238,6 @@ audit_release_asset() {
 
   if [[ "$drifted" == 1 ]]; then
     echo "::error::release audit: the two builders packaged DIFFERENT SOURCE — do not ship" >&2
-    return 1
-  fi
-
-  if [[ "${#mode_drift[@]}" -gt 0 ]]; then
-    # NAME THE CAUSE. "packaging metadata" told a reader nothing and was wrong:
-    # the difference is a FILE MODE, and it is fixable rather than a property of
-    # the universe. It is reported as a failure of ARTIFACT IDENTITY, not as a
-    # curiosity — the tgz IS the release, and two different tgz files are two
-    # different releases however identical their contents.
-    echo "::error::release audit FAILED: the two tarballs differ in FILE MODES — the same bytes, a different artifact" >&2
-    printf '  %s\n' "${mode_drift[@]}" >&2
-    echo "  Cause: npm pack preserves each SOURCE file's mode, so a worktree whose" >&2
-    echo "  permissions differ from a fresh CI checkout packs a different tarball." >&2
-    echo "  Fix: make the tracked files' modes match the index (git ls-files -s)" >&2
-    echo "       e.g. \`chmod 644 agent/summrise-agent-npm/README.md\`." >&2
     return 1
   fi
 

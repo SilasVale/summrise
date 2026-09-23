@@ -138,7 +138,7 @@ build_agent() {
   # INSTALLER IS **NOT** RETIRED, and this comment said it was for long enough
   # that a reader would have believed it: round-320 deleted build-installer.sh
   # (182a0347), a later round restored it for the online setup.exe (cf6b3383),
-  # and scripts/publish-release.sh:344 calls it on every release today. The
+  # and `scripts/publish-release.sh` calls it on every release today (its pack step). The
   # manifest simply carries no `installer` field at the moment, which is why the
   # landing shows no Setup.exe button — a publication state, not a retirement.
 }
@@ -331,7 +331,7 @@ case "$cmd" in
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
   # build-installer.sh is ALIVE and is not part of `deploy` by design: it is a
-  # release step (scripts/publish-release.sh:344 runs it after staging the tgz).
+  # release step (`scripts/publish-release.sh` runs it after staging the tgz).
   # Round-320 deleted it (182a0347) because the version then staged a dead Vercel
   # mirror and demanded retired Tauri exes; cf6b3383 restored it for the NSIS
   # online setup.exe, and the landing's Setup.exe button is driven by the

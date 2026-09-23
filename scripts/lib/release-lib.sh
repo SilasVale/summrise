@@ -214,7 +214,7 @@ reconcile_clear() {
 # the PREVIOUS installer (or none), because nothing rewrote version.json. The
 # landing page asks the manifest before offering the button (round 125), so that
 # build was invisible at best and advertised a stale digest at worst, and the run
-# said it succeeded. `publish-release.sh:309` tells operators to run this script
+# said it succeeded. `publish-release.sh` tells operators to run this script
 # standalone, so the path is not hypothetical.
 #
 # Echoes one verdict for <manifest-json> <sha256-of-the-exe-just-deployed>:
