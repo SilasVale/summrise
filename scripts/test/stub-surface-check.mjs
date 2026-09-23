@@ -19,7 +19,23 @@ const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
 const REAL = "agent/src/tools/terminal/mod.rs";
 const STUB = "agent/src/tools/terminal/stub.rs";
 
-const fns = (p) => new Set([...readFileSync(`${ROOT}/${p}`, "utf8").matchAll(/pub async fn (\w+)/g)].map((m) => m[1]));
+// COMMENTS ARE STRIPPED FIRST, the lesson two sibling gates already record (css-vars-check and
+// retired-colours-check learned it the same way): this scan reads source TEXT, so without stripping,
+// a comment that DOCUMENTS a removal — quoting the signature it removed, which is the clearest way
+// to write it — reads as the method still being offered. A gate that cannot see past a comment
+// forbids documenting a removal, and the next contributor documents it anyway and then declares a
+// difference that does not exist. Found 2026-09-24 when `touch` was deleted and its epitaph tripped
+// this check.
+const stripComments = (s) =>
+  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+const fns = (p) =>
+  new Set(
+    [
+      ...stripComments(readFileSync(`${ROOT}/${p}`, "utf8")).matchAll(
+        /pub async fn (\w+)/g,
+      ),
+    ].map((m) => m[1]),
+  );
 const real = fns(REAL);
 const stub = fns(STUB);
 
@@ -31,7 +47,9 @@ const DECLARED = {
 };
 
 if (real.size < 20) {
-  console.error(`FAIL read only ${real.size} method(s) from the real backend — the tree moved, so this proves nothing`);
+  console.error(
+    `FAIL read only ${real.size} method(s) from the real backend — the tree moved, so this proves nothing`,
+  );
   process.exit(1);
 }
 
@@ -46,11 +64,16 @@ for (const name of real) {
 }
 for (const name of stub) {
   if (!real.has(name)) {
-    findings.push(`${STUB} offers \`${name}\` and ${REAL} does not — the two surfaces have drifted apart`);
+    findings.push(
+      `${STUB} offers \`${name}\` and ${REAL} does not — the two surfaces have drifted apart`,
+    );
   }
 }
 if (findings.length) {
-  console.error(`stub-surface: ${findings.length} difference(s) between the backends:\n  ` + findings.join("\n  "));
+  console.error(
+    `stub-surface: ${findings.length} difference(s) between the backends:\n  ` +
+      findings.join("\n  "),
+  );
   process.exit(1);
 }
 console.log(

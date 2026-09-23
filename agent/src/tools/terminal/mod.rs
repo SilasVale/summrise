@@ -866,13 +866,16 @@ mod desktop_impl {
             evicted
         }
 
-        /// Mark a session as recently active (called when output is received).
-        pub async fn touch(&self, sid: &str) {
-            let mut inner = self.inner.lock().await;
-            if let Some(s) = inner.sessions.iter_mut().find(|s| s.id == sid) {
-                s.last_output = std::time::Instant::now();
-            }
-        }
+        // REMOVED 2026-09-24: `pub async fn touch(&self, sid: &str)`, which set `last_output` for a
+        // session. It had ZERO callers — not even a test — and its doc ("called when output is
+        // received") described the policy round-54 explicitly forbids: output activity is not
+        // presence, because touching on every chunk kept abandoned high-output sessions (`tail -f`,
+        // `yes`) alive forever, with only the 16-session cap to reap them.
+        //
+        // The live mechanism is `find_backend(sid, touch: bool)`, and its three callers are the
+        // CLIENT actions (write, resize, select). Keeping a dead method named `touch`, documented as
+        // the opposite of that rule, was a trap: the next contributor to reach the drainer would
+        // have called it and silently restored the behaviour round-54 removed.
 
         /// Open a new terminal session. Returns (session_id, channel_receiver) for streaming output.
         pub async fn term_open(

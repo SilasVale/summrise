@@ -44,7 +44,8 @@ impl TerminalManager {
         Err(disabled_err())
     }
     pub async fn term_unregister(&self, _sid: &str) {}
-    pub async fn touch(&self, _sid: &str) {}
+    // `touch()` was removed from the real manager (zero callers, and a doc that contradicted
+    // round-54's presence rule); the surface check requires the stub to lose it in the same step.
     pub async fn term_terminate(&self, _sid: &str) -> Result<(), DeviceError> {
         Err(disabled_err())
     }
