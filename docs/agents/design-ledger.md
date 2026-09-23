@@ -4310,3 +4310,29 @@ self-minted header through.
 THE LESSON IS ABOUT THE QUESTION, NOT THE CODE: "needs no registration" describes a DIFFERENT property
 than "needs no authorization", and the two are easy to conflate when one door has a registry and the
 other has a policy. This one has a policy, it is written down where the code is, and it is enforced.
+
+**AND IT IS TESTED — the third negative result in a row, and the one that redirects effort.** Having
+verified the proxy's authorization by READING, the honest follow-up is whether reading is all there is.
+It is not: `gateway/test/proxy-auth.test.mjs` walks the matrix.
+
+  * paired plugin token → proxied, device Bearer injected server-side;
+  * token bound to a DIFFERENT device → 401 and no upstream call — the exact cell that mattered;
+  * no auth → 401; garbage token → 401; non-admin session without a plugin token → 401;
+  * `?token=` on a non-navigation → plain 401; on a navigation → 302 with the token stripped and the
+    cookie minted; an EXPIRED token on a navigation → the readable HTML page rather than JSON,
+    because the panel's own recovery UI can never load if the bootstrap navigation 401s;
+  * the minted per-device cookie authenticates, and a malformed value is absent (401);
+  * an unknown device → 401 for the unauthenticated caller, which closes the device-name oracle;
+  * metadata/unspec/mapped hostnames are refused WITHOUT dialing (the SSRF gate);
+  * SSE responses pass through with the plugin token.
+
+And `gateway/test/auth-gates.test.mjs` holds the audit P1 finding ("per-device summrise_pt_* cookies
+are gated too"), while `device-proxy-rewrite.test.mjs` covers the body rewriting: the proxy mount for
+live paths, removed table entries, double-prefix avoidance, template-interpolation close, and the
+injected device token stripped in both quote styles.
+
+So the answer to "the exploration flagged this door" is: the door has a documented policy, every auth
+path is device-scoped in the code, and the policy is tested cell by cell — including the two security
+subtleties (the name oracle and the SSRF gate) that a reviewer would have to think of before looking
+for them. THE VALUE OF THIS RESULT IS WHERE IT POINTS: not at this file. A review finding is a
+hypothesis, and this one was worth three reads and no edits.
