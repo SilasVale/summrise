@@ -1145,12 +1145,10 @@ test("the console's tool descriptions name every field the device's name", () =>
 // fails this test, because a waiver that outlives its defect is how a list like this becomes a
 // graveyard nobody trusts.
 const CONTAINMENT_DEBT = new Set([
-  "monitor_add",
   "monitor_probe",
   "run_begin",
   "secret_delete",
   "secret_get",
-  "system_file_download",
   "system_file_upload",
   "terminal_connect_saved",
   "terminal_diag_write",

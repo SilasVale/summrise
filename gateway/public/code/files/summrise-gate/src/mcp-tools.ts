@@ -540,7 +540,7 @@ const SYSTEM_TOOLS: McpTool[] = [
   {
     name: "system_file_upload",
     description:
-      "Send a file FROM the device to the Summrise relay and return its one-time download URL (any other machine or device can then pull it). THE BYTES NEVER PASS THROUGH THE AI CONTEXT, so 100 MB is fine. The device reads the file into memory before relaying, so the cost is bounded by the 100 MiB cap and the upload is NOT streamed from disk (the download direction is). The relay holds the file until first download or 24 h. Returns {ok, url, bytes}. Pair: system_file_download.",
+      "Send a local file to the Summrise relay and return its one-time download URL (the other half of the file-transfer pair: hand that URL to system_file_download on the receiving device, or fetch it here on Linux). THE BYTES NEVER PASS THROUGH THE AI CONTEXT, so a 100 MB image is fine. The agent DOES read the file into memory before relaying it, so the cost is bounded by the 100 MiB transfer cap and the upload is NOT streamed from disk — this sentence claimed streaming, which the code has never done (`fs::read` + a buffered body); the DOWNLOAD direction really does stream, which is what made the claim look verified (system_file_write is the ≤4 MiB inline path only). The relay holds it until first download or 24 h. Returns {ok, url, bytes}.",
     inputSchema: {
       type: "object",
       properties: {
@@ -556,7 +556,7 @@ const SYSTEM_TOOLS: McpTool[] = [
   {
     name: "system_file_download",
     description:
-      "Land a URL ON the device (the receive half of the relay pair — hand it the url from system_file_upload, or any HTTP(S) URL). The device fetches directly, so the bytes never pass through the AI context and 100 MB works; the write is staged as <path>.part and renamed, so a truncated transfer never appears complete. Returns {ok, path, bytes}. IP-literal hosts are refused (SSRF guard) — use a hostname.",
+      "Receive a file onto THIS device (the agent host) from a URL — the device fetches it directly, so the bytes NEVER pass through the AI context (this is how a 100 MB firmware image moves; system_file_write is only for ≤4 MiB inline text). Pair with system_file_upload: the sender uploads to the Summrise relay and hands back the one-time URL, this tool lands it. Returns {ok, path, bytes}. Destination is any absolute path (parents are created; relative = <data dir>/downloads). The write is staged as <path>.part and renamed, so a truncated transfer never appears complete. IP-literal hosts are refused (SSRF guard) — use a hostname.",
     inputSchema: {
       type: "object",
       properties: {
@@ -726,7 +726,7 @@ const MONITOR_TOOLS: McpTool[] = [
   {
     name: "monitor_add",
     description:
-      "Start watching a host:port on this device and leave the watch in place — the list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards. Add one when something you are about to touch must be seen coming back. Without a path the probe is a TCP connect (a REFUSED connection counts as down); with `path` it is a real HTTP GET and the status code is recorded, where `ok` means a response arrived with a status below 500 AND, when `expect` is given, that the body contains it — so a UI answering 500 is DOWN, and so is one answering 200 with a login page. HTTP only. Adding the same host:port (and path) twice is idempotent. Name the SERVICE (22 for SSH, 80 for a web UI) — guessing a port would probe the wrong thing and report it as fact.",
+      'Start watching a host:port on this device and leave the watch in place. The list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards — add one when something you are about to touch must be seen coming back. The probe is a TCP connect: a REFUSED connection counts as down (the service is not there), which is the question this instrument answers. Adding the same host:port (and path) twice is idempotent — it is the same watch, not a second one. A port is required: name the SERVICE (22 for SSH, 80 for a web UI), because guessing it would probe the wrong thing and report it as fact.          `path` turns the check into a real HTTP GET of that path ("/" for a UI\'s front page, "/api/health" for a health endpoint): the probe then records the STATUS CODE, and `ok` means a response arrived with a status below 500 — so a UI answering 500 is DOWN while one answering 401 is UP (it wants credentials, and it is serving). Without a path the probe is a bare TCP connect, which cannot tell those apart. HTTP only: a TLS check needs a certificate story this instrument does not have. When `expect` is given, `ok` also means the body contained it — so a UI answering 200 with a login page is DOWN.',
     inputSchema: {
       type: "object",
       properties: {
