@@ -368,22 +368,22 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     <div class="card">
       <div class="actions">
         ${setupBlock}
-        <code class="cmd">npm i -g ${safeInstaller}</code>
+        <code class="cmd">npx summrise-agent setup --reg-key &lt;key&gt;</code>
         <span class="hint">Run on the Windows machine connected to the device. Requires Node.js + admin rights.</span>
       </div>
 
       <div class="steps">
         <div class="step">
           <div class="step-num">1</div>
-          <div class="step-body">Install the package: <code>npm i -g ${safeInstaller}</code> — then run <code>summrise setup --reg-key &lt;key&gt;</code> (get a key from the <a href="${safeConsole}">Summrise console</a> → Devices).</div>
+          <div class="step-body">Install and set up in one command: <code>npx summrise-agent setup --reg-key &lt;key&gt;</code> (get a key from the <a href="${safeConsole}">Summrise console</a> → Devices). With no key it still installs, local-only. <b>Behind a locked-down network</b> that cannot reach the npm registry, install from the release host instead: <code>npm i -g ${safeInstaller}</code></div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
-          <div class="step-body">The setup installs the agent service, auto-registers the device, and prints the panel URL + token. Copy them for the next step.</div>
+          <div class="step-body">The setup installs the agent service, fetches the boxed components it needs (the tunnel binary, the browser bundle, the desktop runtime), auto-registers the device, and prints the panel URL + token. Copy them for the next step.</div>
         </div>
         <div class="step">
           <div class="step-num">3</div>
-          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) ${safeInstaller}</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code.</div>
+          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) summrise-agent</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code.</div>
         </div>
       </div>
     </div>
