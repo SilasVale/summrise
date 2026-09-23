@@ -376,7 +376,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "secret_set",
     description:
-      "Store a secret (e.g. SSH password) in the DEVICE agent's secret store (OS keychain / file fallback). Lives on the device agent — the browser extension is not involved.",
+      "Store a secret (an SSH password) for a target host, so later sessions to that host do not need it inline. The device is a SERVICE, not a desktop app: it tries the OS keychain first and falls back to a file store, so this works headless. PREFER THIS over putting a password in a command — the audit trail records full command text, and a password in it is a password in the record. Lives on the device agent — the browser extension is not involved.",
     inputSchema: {
       type: "object",
       properties: {
@@ -492,7 +492,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "browser_pw_info",
     description:
-      "Info about the device's BUNDLED Playwright runtime (paths, versions, template) — AI should reuse it instead of installing its own.",
+      "Info about the BUNDLED Playwright runtime on this device (no install needed — AI agents must reuse it instead of installing their own): returns pw_dir, playwright-core version, node.exe path, chromium availability, screenshot output dir, and a ready-to-use script template. Combined with browser_run_script this is the canonical way to drive this device's browser.",
     inputSchema: {
       type: "object",
       properties: {
@@ -504,7 +504,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "browser_run_script",
     description:
-      "Run a Node/Playwright script with the device's bundled runtime. Params: script (JS source), timeout_secs. Returns exit_code/stdout/stderr/screenshots.",
+      'Run a self-contained Node/Playwright script with the device\'s BUNDLED node + playwright-core (never install your own). Scripts run with SUMMRISE_BROWSER_HELPER set (acquireBrowser(): attaches to the visible embedded view when present so actions show live, else private headless) — prefer it over launching your own browser; headless only for batch jobs that must not disturb the watched screen. Concurrency: calls run as independent processes with NO runner lock — headless runs are fully parallel, but attached runs SHARE the single visible tab (one view shows one page; parallel visible drivers interleave, so keep interactive work serial). Screenshot namespacing: pass shots as "<SUMMRISE_RUN_ID>-*.png" (env, unique per call) for exact attribution under concurrency; the returned list is otherwise a best-effort before/after diff. Params: script (JS source, CommonJS; follow the browser_pw_info template), timeout_secs (default 120, max 600). Screenshots saved to the pwout dir are listed in the result. Returns exit_code, stdout, stderr (each capped), screenshots, timed_out.',
     inputSchema: {
       type: "object",
       properties: {

@@ -1099,10 +1099,18 @@ test("the console's tool descriptions name every field the device's name", () =>
     if (i < 0) return null;
     const j = ts.indexOf("description:", i);
     if (j < 0) return null;
-    const open = ts.indexOf('"', j);
+    // PRETTIER PICKS THE QUOTE STYLE THAT NEEDS FEWER ESCAPES, so a description containing a double
+    // quote (browser_run_script names "<SUMMRISE_RUN_ID>-*.png") is written with SINGLE quotes. The
+    // first version of this walker only knew about double quotes and returned a truncated string for
+    // it — a gate that mis-reads its input reports violations that are not there.
+    const q = ts.slice(j).match(/description:\s*(["'])/);
+    if (!q) return null;
+    const quote = q[1];
+    const open = ts.indexOf(quote, j);
     let k = open + 1;
-    while (k < ts.length && !(ts[k] === '"' && ts[k - 1] !== "\\")) k++;
-    return ts.slice(open + 1, k);
+    while (k < ts.length && !(ts[k] === quote && ts[k - 1] !== "\\")) k++;
+    const lit = ts.slice(open + 1, k);
+    return quote === "'" ? lit.replace(/\\'/g, "'") : lit;
   };
   const fields = (s) => new Set([...String(s).matchAll(/`([a-z][a-z0-9_]{2,})`/g)].map((m) => m[1]));
 
