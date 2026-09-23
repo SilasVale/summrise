@@ -863,6 +863,45 @@ export function resolveComponent(name: string, pkgPath: string): string | null {
   return dest;
 }
 
+/**
+ * Ensure the desktop shell's electron RUNTIME. The shell's sources are ~90 KB
+ * and ship in the package; the runtime is 234 MB and deliberately does not.
+ *
+ * WHY IT IS FETCHED AND NOT `npx electron`: the release host serves a PINNED
+ * upstream proxy of the official build (v33.4.11 when this was written), so a
+ * device behind the GFW needs no GitHub access and no ELECTRON_MIRROR — the two
+ * things that made the hand-install on 2026-09-23 need a mirror variable at all.
+ * `npx electron` would also mean rewriting the launcher, which calls
+ * `<shell>\node_modules\electron\dist\electron.exe` directly.
+ *
+ * The zip's ROOT is the dist contents (`LICENSES.chromium.html` is its first
+ * entry — measured through the route, not assumed), so it expands into `dist`.
+ * Idempotent, and non-fatal: an install without a window still installs an agent.
+ */
+export function ensureElectron(): string | null {
+  const elDir = path.join(DESK_DIR, "node_modules", "electron");
+  const dist = path.join(elDir, "dist");
+  if (fs.existsSync(path.join(dist, "electron.exe"))) return dist;
+  const zip = resolveComponent(
+    "electron-win32-x64.zip",
+    path.join(__dirname, "..", "electron-win32-x64.zip"),
+  );
+  if (!zip) return null;
+  fs.mkdirSync(dist, { recursive: true });
+  sh(
+    `powershell -NoProfile -Command "Expand-Archive -Force -Path '${psq(zip)}' -DestinationPath '${psq(dist)}'"`,
+  );
+  if (!fs.existsSync(path.join(dist, "electron.exe"))) return null;
+  try {
+    // The electron package's own lookup file; the launcher does not need it, but
+    // anything that resolves the package the npm way will.
+    fs.writeFileSync(path.join(elDir, "path.txt"), "electron.exe");
+  } catch {
+    /* best-effort */
+  }
+  return dist;
+}
+
 export function statusReport(f: StatusFacts): string[] {
   const out: string[] = [];
   out.push(
@@ -1803,6 +1842,15 @@ const commands = {
       deskStaged > 0
         ? `setup: summrise-desktop-electron sources staged (${deskStaged} files)`
         : "setup: summrise-desktop-electron sources NOT staged -- the package did not ship them; the desktop shell will not update",
+    );
+    // …and the runtime those sources need. Sources without a runtime is a shell
+    // that cannot start: no window, and (before this) nothing in the output said
+    // why — the operator saw only an absent window.
+    const elDist = ensureElectron();
+    console.log(
+      elDist
+        ? "setup: electron runtime ready for the desktop shell"
+        : "setup: WARNING -- the electron runtime could not be obtained (not in the package, and the release host did not serve it); start-desktop.ps1 will not open a window until it can be fetched.",
     );
     // Layout v2: write the start-desktop.ps1 launcher into scripts\ (the
     // SummriseDesktop onlogon task + desktop Summrise.lnk both call it). Was never
