@@ -192,6 +192,11 @@ git push origin main          # CI green on the pushed commit
 #    on 1.2.453: tagging a local-only commit returns "Object does not exist", and tagging a pushed
 #    commit whose CI was superseded by the next push fails release.yml's own "Gate on tag-commit CI
 #    status" — so push first, WAIT for that commit's CI to go green, and only then:
+#    AND A TAG MOVE DEMOTES THE RELEASE TO A DRAFT. GitHub turns a release back into a draft when its
+#    tag goes away, and a draft is INVISIBLE to GET /releases/tags/<tag> — the read the audit makes —
+#    while `gh` finds it happily. That is how 1.2.453 got two "successful" release steps and a release
+#    with zero assets. release.yml now PATCHes draft=false and verifies with the audit's own endpoint;
+#    if you move a tag for a version that already has a release, expect to re-run and re-audit it.
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
