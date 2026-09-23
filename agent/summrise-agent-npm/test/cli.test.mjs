@@ -105,9 +105,19 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   // ORDER IS THE PROPERTY: "already running" has to be decided BEFORE anything is started,
   // or asking for a window that is already there would launch a second shell and steal focus.
   assert.ok(
-    start.indexOf("already-running") < start.indexOf("ensure-desktop.ps1"),
+    start.indexOf("already-running") < start.indexOf("Start-ScheduledTask"),
     "the already-running check must come first",
   );
+  // AND THE TWO THINGS THE DEVICE TAUGHT US, both of which made the first version wrong:
+  // (a) `-File` takes DOUBLE quotes — single quotes are literal at the cmd layer, and the
+  //     device answered "unsupported path format" with the quotes still in the path;
+  // (b) it must NOT re-register the task to start it — Register-ScheduledTask needs the
+  //     interactive user's principal, and a service-account shell has no such mapping.
+  assert.ok(start.includes('-File "C:\\Summrise\\scripts\\register-desktop-task.ps1"'),
+    "the register script must be passed with double quotes");
+  assert.ok(!start.includes("-File '"), "no single-quoted -File argument (that is the device bug)");
+  assert.ok(start.includes("if (-not $t)"), "re-registration must be conditional on the task being absent");
+  assert.ok(start.includes("Start-ScheduledTask"), "and starting it is what actually happens");
 });
 
 test("newestOf: the newer of two channels — and silence is never agreement", () => {

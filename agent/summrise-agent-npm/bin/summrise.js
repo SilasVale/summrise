@@ -337,11 +337,29 @@ function desktopTaskPs(installQ) {
 /** Ask whether the shell is up, and start it if it is not — printing ONE WORD the caller
  *  can trust: `already-running`, `started`, or `not-started`. A command that says "ok"
  *  without distinguishing those three is how an operator ends up staring at a desktop
- *  wondering whether anything happened. Pure; the CLI runs it. */
+ *  wondering whether anything happened.
+ *
+ *  TWO THINGS MEASURED ON THE DEVICE, both of which made the first version of this wrong:
+ *
+ *  1. `powershell -File '<path>'` DOES NOT WORK. The single quotes are for PowerShell's own
+ *     strings; at the cmd layer they are literal characters, so PowerShell received a path
+ *     with quotes in it and answered "不支持给定路径的格式" (the path format is not
+ *     supported). Double quotes are what `-File` wants, and `psq()` — which escapes for a
+ *     PS string — is the wrong tool here. The same mistake sat in `setup`, unnoticed because
+ *     the task had been registered by hand.
+ *
+ *  2. DO NOT RE-REGISTER THE TASK TO START IT. `Register-ScheduledTask` needs the user's
+ *     principal as `DOMAIN\user`, and a shell running as a service account has no such
+ *     mapping: from a PTY running as systemprofile the device answered "帐户名与安全标识间
+ *     无任何映射完成 … UserId" while the task itself was Ready. The task already carries the
+ *     right principal — it is `setup` that creates it — so starting it is all that is needed,
+ *     and registering is reserved for the case where it is genuinely absent. */
 function desktopStartPs(installQ) {
     return [
         `if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }`,
-        `& powershell -NoProfile -ExecutionPolicy Bypass -File '${installQ}\\scripts\\ensure-desktop.ps1'`,
+        `$t = Get-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue`,
+        `if (-not $t) { & powershell -NoProfile -ExecutionPolicy Bypass -File "${installQ}\\scripts\\register-desktop-task.ps1" }`,
+        `Start-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue`,
         `Start-Sleep -Seconds 3`,
         `if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'started' } else { Write-Output 'not-started'; exit 1 }`,
     ].join("; ");
@@ -1775,7 +1793,11 @@ const commands = {
         try {
             const reg = path.join(SCRIPTS_DIR, "register-desktop-task.ps1");
             fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
-            sh(`powershell -NoProfile -ExecutionPolicy Bypass -File '${(0, exports.psq)(reg)}'`);
+            sh(
+            // DOUBLE quotes — a cmd-layer argument. The single-quoted version this shipped with
+            // reached PowerShell with the quotes included and died on the device with
+            // "不支持给定路径的格式" (unsupported path format).
+            `powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`);
             console.log("setup: SummriseDesktop registered (logon + a 5-minute watchdog) and started");
         }
         catch {
@@ -1996,7 +2018,10 @@ const commands = {
             fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
         }
         try {
-            sh(`powershell -NoProfile -ExecutionPolicy Bypass -File '${(0, exports.psq)(reg)}'`);
+            // DOUBLE quotes: this is a cmd-layer argument, and `psq()` escapes for a PowerShell
+            // string instead — the single-quoted version reached PowerShell with the quotes still in
+            // it and failed on the device with "unsupported path format". Same fix in `setup` below.
+            sh(`powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`);
         }
         catch {
             /* the task may already exist and be healthy; the check below is the verdict */
