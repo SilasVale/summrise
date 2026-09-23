@@ -1144,7 +1144,26 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
                                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                                 // Session closed → release; retain_live already
                                 // logged the end.
-                                if mgr2.term_info(&sid2).await.is_none() { break; }
+                                if mgr2.term_info(&sid2).await.is_none() {
+                                    // AND CLOSE THE JOB RECORD, which this path did not. Breaking
+                                    // here released the lock and left `done = false` for good, so
+                                    // terminal_jobs reported a job as RUNNING for a session that no
+                                    // longer exists — the same symptom the P2-6 comment twelve lines
+                                    // below fixed on the marker path, on the one path that has no
+                                    // marker to wait for (the user closed the tab, the sweeper reaped
+                                    // it, or the cap evicted it).
+                                    //
+                                    // The exit code stays None on purpose: the session is gone, so
+                                    // nothing can prove the command ended, and the registry's own
+                                    // rule is that an unprovable answer is None rather than a guess.
+                                    {
+                                        let mut jm = jobs_bg.lock().unwrap_or_else(|p| p.into_inner());
+                                        if let Some(j) = jm.get_mut(&job_id2) {
+                                            j.done = true;
+                                        }
+                                    }
+                                    break;
+                                }
                                 let (chunk, chunk_len) =
                                     poll_output_chunk(&buf2, &sid2, &mut read_abs, None);
                                 if chunk_len > 0 {
