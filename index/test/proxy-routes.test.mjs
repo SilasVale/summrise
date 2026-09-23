@@ -59,6 +59,13 @@ test("playwright bundle: a matching If-None-Match is a 304 with no body — not 
   assert.equal(await second.text(), "", "a 304 must carry no body");
 });
 
+test("playwright bundle: an EMPTY object answers 502, not a 200 that stages nothing", async () => {
+  const r2 = makeR2();
+  await r2.put("summrise-playwright.zip", "");
+  const resp = await worker.fetch(get(PW), { TEMP_FILES: r2 });
+  await assertJsonError(resp, 502, "playwright bundle unavailable: not in R2");
+});
+
 test("playwright bundle: REPLACING the bundle changes the ETag — the staleness F2 named", async () => {
   const r2 = makeR2();
   await r2.put("summrise-playwright.zip", "BUNDLE-V1");
@@ -106,27 +113,32 @@ test("cloudflared proxy: a REJECTED fetch → 502 JSON (the path left uncemented
   assert.equal(resp.headers.get("cache-control"), "no-store");
 });
 
-test("electron proxy: a REJECTED fetch → 502 JSON (the path left uncemented before)", async () => {
-  const resp = await withStubFetch(
-    async () => {
+test("electron runtime: an R2 read that throws → 502 JSON (the path left uncemented before)", async () => {
+  // The route moved from a fetch() to R2; the property this test was written for —
+  // a failure becomes the JSON envelope, never the platform's 500 HTML page — did
+  // not move with it.
+  const r2 = {
+    get: async () => {
       throw new TypeError("fetch failed");
     },
-    () => worker.fetch(get(EL), {}),
-  );
-  await assertJsonError(resp, 502, "electron upstream fetch failed: TypeError: fetch failed");
+  };
+  const resp = await worker.fetch(get(EL), { TEMP_FILES: r2 });
+  await assertJsonError(resp, 502, "electron runtime read failed: TypeError: fetch failed");
   assert.equal(resp.headers.get("cache-control"), "no-store");
 });
 
-test("cloudflared and electron: a non-ok upstream answers the SAME envelope as a throw", async () => {
-  for (const [path, what] of [
-    [CF, "cloudflared upstream fetch failed"],
-    [EL, "electron upstream fetch failed"],
-  ]) {
-    const resp = await withStubFetch(
-      async () => new Response("nope", { status: 503 }),
-      () => worker.fetch(get(path), {}),
-    );
-    await assertJsonError(resp, 502, `${what}: 503`);
-    assert.equal(resp.headers.get("cache-control"), "no-store", `${path} failure is not cacheable`);
-  }
+test("cloudflared (upstream proxy) and electron (R2): ONE failure envelope", async () => {
+  // cloudflared still proxies an upstream, so "the upstream said no" is its failure.
+  const cf = await withStubFetch(
+    async () => new Response("nope", { status: 503 }),
+    () => worker.fetch(get(CF), {}),
+  );
+  await assertJsonError(cf, 502, "cloudflared upstream fetch failed: 503");
+  assert.equal(cf.headers.get("cache-control"), "no-store", "a failure is not cacheable");
+
+  // electron's failure is now "R2 has nothing", and it answers the SAME shape. The
+  // envelope is the contract; which component failed and how is the message.
+  const el = await worker.fetch(get(EL), { TEMP_FILES: makeR2() });
+  await assertJsonError(el, 502, "electron runtime unavailable: not in R2");
+  assert.equal(el.headers.get("cache-control"), "no-store", "a failure is not cacheable");
 });

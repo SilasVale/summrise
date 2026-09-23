@@ -281,6 +281,27 @@ commit; never move the tag onto different content). The reconcile debt for 1.2.4
 the tooling provides for it — acknowledged at the next publish, in the ledger — rather than by
 uploading the shipped pack by hand to make the audit agree with itself.
 
+**Two operational findings from the 1.2.454 cycle (2026-09-23, both open).**
+
+1. **The R2 objects did not move with the rename.** `summrise-playwright.zip` is expected in
+   `summrise-temp-files` — the bucket the worker reads, created 2026-09-22 — and the object is in
+   neither that bucket nor the pre-rename `vale-temp-files`, so
+   `/summrise-agent/summrise-playwright.zip` answers **502** and has since the worker was pointed at
+   the new bucket. Nobody noticed because every existing device already has the bundle expanded in
+   `components\playwright` and nothing fetched it through the route. Nothing in the repo *produces*
+   that zip either (no script, no release step names it), which is why the route had no owner to
+   notice its own 502. A rebuilt bundle — 32,366,699 bytes, sha256 `952cd252…` — sits on d1 at
+   `D:\Summrise\playwright-rebuild.zip` waiting for a transfer path. The **electron** runtime was
+   moved into R2 the same day and does serve (`cache-control: public, no-cache` + a digest ETag,
+   `f64c8a5a…`), so the device no longer needs GitHub for it at all.
+
+2. **The file relay's upload leg answers 401.** `system_file_upload` (device → relay) fails
+   consistently, and a `wrangler tail` on `vale-gate` shows the request never reaches the gateway, so
+   the rejection is the relay worker's own bearer check — the shared secret the rename left
+   mismatched, which is exactly the repair ADR 0010's D6 already calls for ("a fresh shared secret is
+   required"). **Until it is rotated on both sides, the only sanctioned cross-machine file path is
+   down in that direction**: the live-panel probe and the rebuilt bundle above both wait on it.
+
 **The reinstall — EXECUTED 2026-09-23** (the run, its two failures and what they taught are
 recorded below, because the *steps* were right and the run still went dark for an hour).
 

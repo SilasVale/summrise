@@ -531,25 +531,51 @@ export default {
     // Cloudflare's edge reaches GitHub fine, so the device pulls Electron from
     // THIS worker (same origin it already reaches for the tgz + cloudflared).
     // Pinned to the version the installer's $ElectronVersion expects.
+    // electron runtime: STAGED IN R2, NOT PROXIED (2026-09-23). It used to be a
+    // fetch() through this worker to a PINNED upstream GitHub asset ("Cloudflare's
+    // edge reaches GitHub fine"), which was the right answer while the alternative
+    // was the device reaching GitHub at all. Two things changed that:
+    //
+    //   1. IT COULD NOT BE HASHED. The release flow writes a sha256 per component
+    //      into version.json so `summrise setup` can verify what it fetched, and a
+    //      proxy has no bytes to hash without downloading 234MB at build time.
+    //   2. R2 already holds the playwright bundle, so this is one mechanism
+    //      instead of two -- and the device's dependency on GitHub becomes ZERO
+    //      rather than "the edge proxies it".
+    //
+    // The object was staged FROM the pinned v33.4.11 upstream asset (the version
+    // `summrise setup` expects), and version.json's component digest is what pins
+    // the content now -- the same pair of ideas as cloudflared's CLOUDFLARED_SHA256.
     if (pathname === "/summrise-agent/electron-win32-x64.zip") {
-      const upstream =
-        "https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip";
-      let resp;
+      let obj;
       try {
-        resp = await fetch(upstream, { redirect: "follow" });
+        obj = await env.TEMP_FILES.get("electron-win32-x64.zip");
       } catch (err) {
-        return proxyFailure("electron upstream fetch failed", String(err));
+        return proxyFailure("electron runtime read failed", String(err));
       }
-      if (!resp.ok) {
-        return proxyFailure("electron upstream fetch failed", resp.status);
+      if (!obj || obj.size === 0) {
+        // A ZERO-BYTE OBJECT IS NOT A BUNDLE. Measured the hard way: an absent
+        // object answers 502 and `summrise setup` warns; an EMPTY object answers
+        // 200 and stages nothing, which is the same false-success shape this
+        // suite keeps finding. Absent and empty are the same verdict here.
+        return proxyFailure("electron runtime unavailable", "not in R2");
       }
-      return new Response(resp.body, {
+      // Same validator rule as the playwright bundle below: an EXECUTED artifact
+      // at a mutable key must revalidate, or a device can spend a day being handed
+      // a stale archive after the object is replaced.
+      const etag = obj.httpEtag;
+      const validators = { etag, "cache-control": "public, no-cache" };
+      if (etag && request.headers.get("if-none-match") === etag) {
+        return new Response(null, { status: 304, headers: validators });
+      }
+      return new Response(obj.body, {
         status: 200,
         headers: {
           "content-type": "application/zip",
           "content-disposition":
             'attachment; filename="electron-win32-x64.zip"',
-          "cache-control": "public, max-age=86400",
+          "cache-control": "public, no-cache",
+          ...(etag ? { etag } : {}),
         },
       });
     }
@@ -575,7 +601,10 @@ export default {
       } catch (err) {
         return proxyFailure("playwright bundle read failed", String(err));
       }
-      if (!obj) {
+      if (!obj || obj.size === 0) {
+        // Same rule as the electron runtime above: an EMPTY object answers 200 and
+        // stages nothing, where an absent one answers 502 and warns. Absent and
+        // empty are the same verdict.
         return proxyFailure("playwright bundle unavailable", "not in R2");
       }
       const etag = obj.httpEtag;
