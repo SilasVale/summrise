@@ -4141,3 +4141,27 @@ and when either route works, it passes.
 The general shape is worth keeping: a timeout answers "how long am I willing to wait", which is the
 wrong question for a transfer that is moving but not arriving. Throughput is the question, and curl
 can be told to ask it.
+
+**THE REVIEW MEASURED INTERFACE *SIZE*, AND SIZE IS NOT DEPTH.** Working through the architecture
+review's candidates to the end produced one real defect and three negative results, and the pattern
+in the negatives is the useful part:
+
+| the review said | inspection found |
+|---|---|
+| `cf_token()` duplicated 4× | four byte-identical COPIES whose comments had begun to diverge — **real**, and fixed (one owner, and it trims) |
+| `--check-modes-only` is "a 4-line entry point whose only job is to expose a function the chain made unreachable" | that IS its job. `--dry-run` refuses at the FIRST failing gate, so on CI (no staged exe) the mid-chain mode gate is unreachable through it — the narrow entry point is what makes a single gate testable on a tree where other gates fail |
+| `assert_want_sha256` is "a 6-line regex wrapper, re-called by its own caller" | five call sites across three scripts, plus its own test file with several cases: a shared precondition check, not a wrapper |
+| C1: "582 lines, no seam in the middle" | thin adapters around decisions that already have seams and suites; most of the file is prose |
+
+The DELETION TEST is what separates them, and the skill states it precisely: deleting three copies of
+`cf_token` CONCENTRATES the behaviour in one place; deleting the other three MOVES their job to their
+callers and leaves it written once per caller. A small module with one job is not a shallow module —
+depth is leverage per unit of interface, and a 4-line function whose interface is "the mode gate's
+verdict" is deep by that measure. The review produced a good list of *small* things and correctly
+found the *copied* one among them; three of its five candidates were size mistaken for shallowness.
+
+It also means the candidate list is worked through: C1 (negative), C2 (`SEQUENCE=` + `--dry-run`),
+C3 (the ledger as an input with a fixture adapter), C4 (one owner for the packed-tgz list), C5 (the
+residue), and the shallow-module list (one real fix, three negatives). The next iteration should
+start from a FRESH exploration rather than from this list — and it should scope itself to a different
+subsystem, because the release pipeline has now been measured, corrected, and re-measured.
