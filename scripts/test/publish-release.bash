@@ -72,7 +72,14 @@ touch -d '2020-01-01' "$BUILD_EXE"
 # The REAL version: with a bogus one the script refuses on the version gate first and this case
 # would prove nothing about the exe check (measured — that is exactly what the first draft did).
 WANT_VERSION=$(python3 -c "import json;print(json.load(open('agent/summrise-agent-npm/package.json'))['version'])")
-out=$(bash scripts/publish-release.sh "$WANT_VERSION" 2>&1); rc=$?
+# --acknowledge-unreconciled: the RECONCILE gate is not what this case asserts, and
+# it fires first whenever the CDN carries a version whose GitHub asset is missing or
+# packages a different tree (1.2.453 does, on purpose and on the record). Without the
+# flag the case reads that refusal and reports ITSELF as failed -- which is how this
+# suite sat at 8/10 for two checks that belonged to a state it does not own. The flag
+# is the documented escape ("this run ADDS to the ledger"), so the case reaches the
+# exe check it is actually about.
+out=$(bash scripts/publish-release.sh "$WANT_VERSION" --acknowledge-unreconciled 2>&1); rc=$?
 touch -d "@$SAVED_BUILD_MTIME" "$BUILD_EXE"
 [ "$CREATED_BUILD" = "1" ] && rm -f "$BUILD_EXE"
 if [ "$CREATED_STAGED" = "1" ]; then rm -f "$EXE"; else touch -d "@$SAVED_MTIME" "$EXE"; fi
@@ -142,7 +149,7 @@ rm -rf "$FIX_TMP"
 # MESSAGE is the evidence the guard ran (round 124's lesson: a check a removal
 # can leave green proves nothing).
 VER_NOW=$(node -p "require('./agent/summrise-agent-npm/package.json').version")
-out=$(env -u NPM_TOKEN HOME=/nonexistent bash scripts/publish-release.sh "$VER_NOW" --npm 2>&1); rc=$?
+out=$(env -u NPM_TOKEN HOME=/nonexistent bash scripts/publish-release.sh "$VER_NOW" --npm --acknowledge-unreconciled 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && grep -q 'no token' <<<"$out" && grep -q 'NPM_TOKEN' <<<"$out"; then
   ok "--npm with no token refuses early, and names NPM_TOKEN / ~/.npm-token"
 else
