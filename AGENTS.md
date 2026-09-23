@@ -204,6 +204,10 @@ git push origin main          # CI green on the pushed commit
 #    go green, then tag it; and if CI must go green again for an already-published
 #    version, put an EMPTY commit on the release commit (`git commit --allow-empty`) —
 #    the tree is unchanged, so the asset matches what shipped. Transcripts: the ledger.
+#    AND DO NOT PUSH ANYTHING WHILE A RELEASE COMMIT'S CI IS RUNNING. A push supersedes it,
+#    GitHub cancels the run, and the tag then has no green CI to point at — twice on
+#    2026-09-23 (94cb06fd and fe29a24d), both times because the next piece of work was
+#    pushed by hand before the tag existed. Release, then resume.
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
@@ -234,12 +238,10 @@ is what `setup` uses for the same reason. Verify with `summrise status` (`this C
 
 **AND MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the
 HARNESS (a stubbed device, this checkout's bundle); nothing measured the live panel until
-`agent/scripts/live-panel-probe.mjs` was pointed at `127.0.0.1:18080` on d1 — and it found, on the first run,
-`span.ag-dot 2.56<3`: the approval gate's DISARMED ring used `--faint`, the exact ink round 101 replaced in its three
-sibling rings, in a rule the harness could not see because it only ever rendered the gate ARMED. The fix shipped in
-1.2.438 and the same probe then reported `graphicFailing: []` on both densities. It needs a browser and a running
-panel, so it cannot be a CI job: run it on the device after a `summrise update` (emit with `--emit`, hand the script to the
-device's node or to `browser_run_script`).
+`agent/scripts/live-panel-probe.mjs` was pointed at `127.0.0.1:18080` on d1, where it immediately found the approval
+gate's disarmed ring using the ink round 101 had replaced — in a rule no harness run could see. It needs a browser and
+a running panel, so it cannot be a CI job: run it on the device after a `summrise update` (emit with `--emit`, hand the
+script to the device's node or to `browser_run_script`).
 
 **HOW TO HAND IT OVER, since a 38 KB script must not be pasted into anything:** emit it into the CDN's public dir
 (`node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js`), deploy, and let
