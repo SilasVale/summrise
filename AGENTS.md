@@ -216,6 +216,18 @@ Two things that cost a device restart when ignored: **never launch a second `sum
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
 kill/copy the exe inline over a PTY** — use the npm flow above.
 
+**THE npm PACKAGE CARRIES NO BOXED COMPONENTS.** `summrise-agent-<v>.tgz` is ~6.7 MB — the exe, the
+CLI, the desktop shell's *sources*. It does **not** contain `cloudflared.exe` (54 MB),
+`summrise-playwright.zip` (31 MB) or the **electron runtime** the desktop shell launches. A fresh
+install therefore comes up **local-only while looking perfectly healthy**: no tunnel (so the console
+cannot reach it), no browser tools, no desktop window — and `summrise setup` says only
+`no tunnel configured (local mode)`. An *upgrade* is unaffected (components live in
+`<install>\components` and survive), so this bites at install and migration time, and nowhere else.
+What it cost to learn is in `docs/BRAND.md` → "The reinstall — EXECUTED 2026-09-23": the tunnel one
+is invisible-reachability (an hour dark, visible only from outside), and the electron one needs
+`ELECTRON_MIRROR`, because the package's postinstall fetches from GitHub releases — a host this
+network drops — so it reports `added 13 packages` and installs no binary.
+
 ## Agent layout
 
 ```

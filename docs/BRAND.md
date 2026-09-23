@@ -267,10 +267,11 @@ client behind the `vale-gate` server label — and the label itself in
 namespace, so it is a client-restart action, not a rename side effect. Also
 `~/vale-deploy`, `~/vale-signing-test`, `~/vale-stage-l-*`.
 
-**The one action left that only a human can take: reinstall the device.**
+**The reinstall — EXECUTED 2026-09-23** (the run, its two failures and what they taught are
+recorded below, because the *steps* were right and the run still went dark for an hour).
 
-Everything that could be prepared was prepared on 2026-09-23, from this session, while
-the old agent kept running — the steps below therefore only have to be *run*:
+Everything that could be prepared was prepared the same day, while the old agent kept
+running, so the steps below only had to be *run*:
 
 | Already done on the device | Where |
 |---|---|
@@ -339,12 +340,73 @@ elsewhere, reports success, and `summrise update` ships the old exe.
 **Rollback** (the old tgz is still served from the CDN): install
 `<download-host>/summrise-agent/vale-agent-1.2.451.tgz` and run `vale setup`.
 
-**It was deliberately NOT run from the session that did the rename.** That session reaches
-the device *through the agent being replaced*, and this repo's own notes record that
-killing or relaunching the agent from an agent-hosted PTY kills the running agent. A
-device whose agent is removed while it is the only way in is a device nobody can finish
-installing. Until it is reinstalled the device keeps working on the old build; it simply
-cannot update itself, because the path it would ask for returns 404.
+**How it was actually run (2026-09-23, 12:53 → 14:10 +0800), and the four things it taught.**
+An agent session ran it, which meant engineering around the hazard above instead of accepting
+it — and the run still produced the longest outage this device has had.
+
+1. **The script ran DETACHED**, as SYSTEM from a one-shot scheduled task, because any process
+   inside the agent's own tree dies at the moment the agent stops. It ran fail-closed: a
+   pre-flight proved the staged `device_token` matched the running agent, then npm →
+   pre-stage → stop the old task → `summrise setup`. **Phase 1 passed at 12:54:19** — the box
+   served `summrise-agent`, release `1.2.452`, on the **same `device_token`**, five seconds
+   after setup began.
+2. **AND THEN THE DEVICE WAS INVISIBLE TO THE CONSOLE FOR ~70 MINUTES (12:54 → 14:08).** The
+   agent was running perfectly *locally* the whole time. The cause is a **release gap, not a
+   cutover bug**: the published npm package is **6.7 MB and carries no boxed components** —
+   `cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) and the **electron runtime**
+   the desktop shell launches (234.6 MB once installed) are none of them in the tarball
+   (`tar tzf` verified: `summrise-agent.exe` present, all three absent). So
+   `setup` logged `no tunnel configured (local mode)`, the supervisor had no
+   `components\cloudflared.exe` to spawn, and **a device with no tunnel is invisible to the
+   console while /api/status answers 200 from inside**. A human running these very steps by
+   hand would have hit it identically. The repair was one local copy — available *only*
+   because phase 1 had deliberately left the old install in place:
+   `Copy-Item D:\Vale\components\cloudflared.exe D:\Summrise\components\cloudflared.exe`,
+   after which the supervisor spawned it within seconds and the console reconnected to the
+   **same device**. **On a fresh machine there is no old install to copy from** — there the
+   tunnel needs `summrise tunnel install <hostname>` (which provisions a *new* tunnel) or a
+   package that ships the components. *That is the open product question this run produced.*
+3. **A cutover must be able to fail OPEN, and this one briefly could not.** The script's
+   rollback ran on *exceptions*, and a *hang* is not an exception. Worse, `ValeAgent` was
+   **disabled** rather than merely stopped — necessary, because its 5-minute watchdog would
+   otherwise have resurrected the old agent to fight for `18080` — and that removed the one
+   thing that would have brought an agent back by itself. The right shape is a **separate
+   watchdog task that outlives the cutover task**: *if nothing serves `summrise-agent` on
+   18080 after N minutes, enable and start `ValeAgent`*. Independent of what it watches, and
+   never the same script.
+4. **Two smaller ones.** The retired `vale-desktop-electron` shell was still running (five
+   `electron.exe`), and **those processes, not permissions, are what locked `D:\Vale`**
+   against removal — the directory looked undeletable until they were stopped. And the
+   monitor added to *watch* this cutover **did not survive it**: targets persist in the data
+   dir, and the staged `C:\ProgramData\Summrise\monitors.json` had been copied *before* the
+   target was added, so the new agent loaded a list without it. **A cutover instrument must be
+   written where the NEW agent will read it.**
+
+**A fifth consequence, found when the operator asked where the app had gone.** Deleting the
+old install took the box's **only electron runtime** with it. The new package stages the
+desktop shell's *sources* (`src\main.js`, `preload.js`, `url-policy.js`, icons — setup logs
+`summrise-desktop-electron sources staged (3 files)`) but not the runtime they need, so
+`scripts\start-desktop.ps1` had nothing at
+`components\summrise-desktop-electron\node_modules\electron\dist\electron.exe` to launch. It
+was restored with `npm i electron --prefix <shell dir>` **plus `ELECTRON_MIRROR`**: the
+package's own postinstall fetches from GitHub releases, which this network drops, so the first
+install cheerfully reported `added 13 packages in 6s` and produced **no binary at all** — the
+mirror is what made it real (`electron 44.4.4`). Two more things about starting it: the window
+must be launched **in the operator's interactive session** (this box: session 1, `administrator`
+over RDP) because a window started from an agent session lands in session 0 where a human can
+never see it; and `summrise setup` **does not register the logon task on npm installs** (only
+the NSIS installer does), so the app does not come back by itself after a logon unless one is
+added.
+
+**Phase 2, run only after the console proved the migration end to end:** the old `Vale*` tasks
+were unregistered, `D:\Vale` and `C:\ProgramData\Vale` removed, the one-shot cutover task
+deleted. Verified afterwards: `summrise-agent` + `cloudflared` both run from `D:\Summrise`, no
+old-brand process remains, `vale` is gone, `summrise` resolves to
+`D:\Program Files\nodejs\summrise.ps1`, and the console reaches the box on the same identity.
+**Neither uninstaller was used, deliberately: both kill the *currently installed* agent by
+image name** — `summrise uninstall` runs `taskkill /F /IM summrise-agent.exe` and
+`taskkill /F /IM cloudflared.exe` (`summrise.ts:2770-2786`) — so running either one from inside
+the migrated install would have taken the device down a second time.
 
 ## Open
 
