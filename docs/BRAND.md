@@ -1,6 +1,6 @@
 # BRAND — Summrise
 
-> **Named 2026-09-27 by the operator**, on sound: *「我觉得 summrise 很好听，就用这个。」*
+> **Named 2026-09-23 by the operator**, on sound: *「我觉得 summrise 很好听，就用这个。」*
 > **Renamed completely the same day** (decision ①: every layer, including the ones the
 > installed device reads, accepting **one device reinstall** as the price of leaving no
 > remnant behind).
@@ -48,7 +48,7 @@ Standardise it in public text: `Summrise /ˈsʌmraɪz/ — SUM-rize, like sunris
 Chinese stays **意译, never 音译** — 音译 would be 萨姆赖兹 / 苏姆莱兹, unstable and
 surname-shaped.
 
-### What is known about the name (measured 2026-09-27)
+### What is known about the name (measured 2026-09-23)
 
 | Layer | Reading |
 |---|---|
@@ -73,7 +73,7 @@ surname-shaped.
    `/sʌm/` as *some* and *summer*, not as *summit*. Cost: the meaning needs one sentence
    the first time. Judged acceptable; **the sound decided it.**
 
-## The rename — what actually changed (2026-09-27)
+## The rename — what actually changed (2026-09-23)
 
 Three token-aware passes: **431 files rewritten, ~7,500 occurrences, 29 paths renamed**.
 Nothing below is aspirational; each row was verified afterwards.
@@ -125,7 +125,7 @@ Nothing below is aspirational; each row was verified afterwards.
   `bin/summrise.js` and the electron `dist/` (tsc). The rebuilt `panel.js` contains **0**
   occurrences of the old name.
 
-**Verification, all green (2026-09-27):** `cargo xwin check --target
+**Verification, all green (2026-09-23):** `cargo xwin check --target
 x86_64-pc-windows-msvc --features terminal,keyring` exit 0 · npm package `npm test`
 44/44 · panel `npm test` 814 passed / 103 files · gateway `npm test` 917/917.
 
@@ -193,7 +193,7 @@ data contradicted.
 | App Store | public iTunes Search API (`itunes.apple.com/search?term=…&entity=software`) | Windows, web, Steam; and it matches loosely |
 | Trademark | **nothing yet** — web search only, which is not a register search | everything that matters. The open row. |
 
-## Deployment state (2026-09-27, end of the rename)
+## Deployment state (2026-09-23, end of the rename)
 
 **Live and verified.**
 
@@ -247,7 +247,7 @@ namespace, so it is a client-restart action, not a rename side effect. Also
 
 **The one action left that only a human can take: reinstall the device.**
 
-Everything that could be prepared was prepared on 2026-09-27, from this session, while
+Everything that could be prepared was prepared on 2026-09-23, from this session, while
 the old agent kept running — the steps below therefore only have to be *run*:
 
 | Already done on the device | Where |
