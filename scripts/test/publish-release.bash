@@ -167,5 +167,107 @@ else
   bad "the not-published branch lost its warning"
 fi
 
+# ── C2, THE ARCHITECTURE ROUND: the order is data, and --dry-run is the seam ────────────────
+# A release's order used to live in four places — the script's layout, its header comment,
+# AGENTS.md, and cases HERE that asserted it by line number. The header had already drifted from
+# the code once (it listed the audit before npm, which is the order a FIRST publish never
+# survives). `SEQUENCE=` declares it now; this walks the EFFECT banners in the source and fails
+# when they run in a different order.
+#
+# EXACT banner names, with an alias table for the decorated ones. The first version matched
+# SUBSTRINGS and called a CORRECT script non-monotonic: "deploy" also appears in the installer's
+# banner ("installer (self-contained, staged, no deploy yet)"). A check that lies about a good
+# artifact is worse than no check — so the alias table is explicit, and the case below proves the
+# check fails on a mutated copy.
+seq_check() {
+  python3 - "$1" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+m = re.search(r'^SEQUENCE="([^"]+)"', src, re.M)
+if not m:
+    print("no SEQUENCE declaration"); sys.exit(1)
+seq = m.group(1).split()
+ALIAS = {"prune": "last-5-per-minor prune", "smoke": "post-publish smoke",
+         "npm": "npm registry", "audit": "release audit"}
+banners = []
+for i, l in enumerate(src.split("\n")):
+    b = re.match(r'echo "== (.+?) =="\s*$', l.strip())
+    if b:
+        banners.append((i, b.group(1)))
+pos = []
+for tok in seq:
+    want = ALIAS.get(tok, tok)
+    hit = [i for i, n in banners if n == want or n.startswith(want + " ") or n.startswith(want + ":")]
+    if not hit:
+        print("no banner for step %r" % tok); sys.exit(1)
+    pos.append((tok, hit[0]))
+if [p for _, p in pos] != sorted(p for _, p in pos):
+    print("the source runs these in a DIFFERENT order than SEQUENCE declares: %s" % pos); sys.exit(1)
+print("sequence ok: %s" % " ".join(t for t, _ in pos))
+PY
+}
+
+if out=$(seq_check scripts/publish-release.sh); then
+  ok "the declared SEQUENCE matches the order the source actually runs ($out)"
+else
+  bad "the sequence check failed on the real script: $out"
+fi
+
+# AND IT MUST BE ABLE TO FAIL, or it is decoration. MOVE a banner line, so both banners still
+# exist and ONLY the order changes — and require the refusal to NAME THE ORDER.
+# THE FIRST VERSION OF THIS CASE RENAMED one banner instead of moving it: the check then failed
+# with "no banner for step 'deploy'", which is the PRESENCE rule, not the ordering rule, and the
+# case passed while proving something else. A mutation aimed at the wrong property is evidence
+# about the mutation first.
+MUT=$(mktemp)
+python3 - scripts/publish-release.sh "$MUT" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+lines = open(src).read().split("\n")
+d = next(i for i, l in enumerate(lines) if l.strip() == 'echo "== deploy =="')
+n = next(i for i, l in enumerate(lines) if l.strip() == 'echo "== npm registry =="')
+lines[d], lines[n] = lines[n], lines[d]          # both survive; the order does not
+open(dst, "w").write("\n".join(lines))
+PY
+if out=$(seq_check "$MUT" 2>&1); then
+  bad "the sequence check PASSED a script with deploy and npm swapped — it proves nothing"
+elif grep -q 'DIFFERENT order' <<<"$out"; then
+  ok "the sequence check bites on ORDER (not presence) when two effect banners trade places"
+else
+  bad "the mutation was caught for the wrong reason: $(head -c 90 <<<"$out")"
+fi
+rm -f "$MUT"
+
+# --dry-run: EVERY GATE, NOTHING CHANGED. This is the seam the round added — the 30 refusals are
+# this module's real interface, the whole gate block needs no credential, and it used to sit
+# inline above the first effect, where no test could reach it.
+#
+# THE ASSERTION IS THE INVARIANT, NOT THE VERDICT: on CI there is no staged exe, so a dry run
+# there MUST refuse. What holds everywhere is that it either passed or refused BY A GATE, and
+# that it left the worktree exactly as it found it.
+TREE_B4=$(git status --porcelain --untracked-files=no | sort)
+out=$(timeout 300 bash scripts/publish-release.sh 1.2.999 --dry-run --acknowledge-unreconciled 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'package.json version is' <<<"$out"; then
+  ok "--dry-run runs the version gate and refuses a version package.json does not carry"
+else
+  bad "--dry-run with a wrong version: rc=$rc out=$(head -c 200 <<<"$out")"
+fi
+
+REAL_VER=$(python3 -c "import json;print(json.load(open('agent/summrise-agent-npm/package.json'))['version'])")
+out=$(timeout 600 bash scripts/publish-release.sh "$REAL_VER" --dry-run --acknowledge-unreconciled 2>&1); rc=$?
+TREE_AF=$(git status --porcelain --untracked-files=no | sort)
+if [ "$TREE_B4" = "$TREE_AF" ]; then
+  ok "a dry run changes NOTHING (rc=$rc)"
+else
+  bad "the dry run changed the worktree: $(diff <(printf '%s\n' "$TREE_B4") <(printf '%s\n' "$TREE_AF") | head -3 | tr '\n' ' ')"
+fi
+if [ "$rc" -eq 0 ]; then
+  if grep -q '== dry run ==' <<<"$out" && grep -q 'sequence: pack stage prune deploy smoke npm audit' <<<"$out"; then
+    ok "and when every gate passes it exits 0 with the sequence printed (no credentials used)"
+  else
+    bad "dry run exited 0 without its verdict block"
+  fi
+fi
+
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

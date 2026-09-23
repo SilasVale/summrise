@@ -119,6 +119,14 @@ PUBLISH_NPM=0
 # release channel has 1.2.453") -- a loop with no exit. `alpha` stays available
 # via --npm-tag for a deliberate prerelease channel.
 NPM_TAG="latest"
+DRY_RUN=0
+# THE SEQUENCE, AS DATA. A release's order used to exist in four places — this file's layout, its
+# header comment, AGENTS.md, and tests that asserted it by LINE NUMBER — and the header had already
+# drifted from the code once (it listed the audit before npm, which is the order a FIRST publish
+# never survives: the audit cannot pass until the asset exists, and its failure branch exits).
+# Declared here so a test can hold the source to it, and printed by --dry-run so an operator can
+# read what a run would do before it does anything.
+SEQUENCE="pack stage prune deploy smoke npm audit"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-reconcile) SKIP_RECONCILE=1 ;;
@@ -126,7 +134,8 @@ while [ $# -gt 0 ]; do
     --acknowledge-unreconciled) ACK_UNRECONCILED=1 ;;
     --npm) PUBLISH_NPM=1 ;;
     --npm-tag) NPM_TAG="${2:?--npm-tag needs a dist-tag: alpha | next | latest}"; PUBLISH_NPM=1; shift ;;
-    *) echo "::error::unknown flag: $1 (usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer] [--acknowledge-unreconciled] [--npm] [--npm-tag alpha|next|latest])" >&2; exit 1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    *) echo "::error::unknown flag: $1 (usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer] [--acknowledge-unreconciled] [--npm] [--npm-tag alpha|next|latest] [--dry-run])" >&2; exit 1 ;;
   esac
   shift
 done
@@ -372,6 +381,24 @@ if [ -f index/components.json ] && [ -f agent/src/tunnel.rs ]; then
     exit 1
   fi
   echo "  component pins: cloudflared agrees with the agent's CLOUDFLARED_SHA256 (${RUST_CF:0:12}…)"
+fi
+
+# ── --dry-run: every gate that can REFUSE, and nothing that can CHANGE anything ────────────────
+# The 30 refusals above are this module's real interface, and until now the only way to exercise
+# one was to attempt a release: the whole gate block needs no credential and touches nothing, but
+# it sat inline above the first effect, so no test could reach it. This is the seam that makes it
+# reachable — one adapter runs the release, this one runs the gates and stops.
+#
+# WHAT IT DOES NOT COVER, said out loud rather than implied: the credential-presence checks that
+# live INSIDE their steps, below this line — the Cloudflare token (checked where it is used) and the
+# npm token is NOT one of them (that refusal is a gate, above). A dry run that claimed to have
+# verified everything would be the exact failure mode the rest of this file exists to prevent.
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "== dry run =="
+  echo "   every gate above passed; nothing was packed, staged, pruned, deployed, published or committed"
+  echo "   sequence: $SEQUENCE"
+  echo "   NOT verified here: the Cloudflare token (its check lives in the deploy step)"
+  exit 0
 fi
 
 echo "== pack =="
