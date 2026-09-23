@@ -1197,3 +1197,24 @@ test("the console carries the device's description, or is a listed debt that is 
     `these were listed as debt but now satisfy containment — delete them from CONTAINMENT_DEBT: ${paid.join(", ")}`,
   );
 });
+
+// THE CATALOGUE HAS ONE OWNER, AND THIS IS WHAT KEEPS IT THAT WAY (architecture round 20). Door A
+// withholds tools by name here in NOT_EXPOSED; door B (the device proxy) now refuses the ones no
+// panel component calls, from gateway/src/tool-policy.ts. Two lists of one fact drift — so every
+// name the POLICY knows must exist in this catalogue: a tool cannot be withheld from one door and
+// unknown to the other. The reverse is deliberately not required: NOT_EXPOSED carries names withheld
+// for MCP-client reasons that the panel legitimately uses (the memory family, agent_update).
+test("contract: every name the tool policy withholds is decided in NOT_EXPOSED too", () => {
+  const src = readFileSync(new URL("../src/tool-policy.ts", import.meta.url), "utf8");
+  const known = Object.keys(NOT_EXPOSED);
+  const unknown = [];
+  for (const name of src.matchAll(/^  ([a-z][a-z0-9_]*): \{ reason:/gm)) {
+    if (!known.includes(name[1])) unknown.push(name[1]);
+  }
+  assert.ok(src.includes("WITHHELD_TOOLS"), "the policy module was not read — this proves nothing");
+  assert.deepEqual(
+    unknown,
+    [],
+    `these are withheld by tool-policy.ts but not decided in NOT_EXPOSED: ${unknown.join(", ")}`,
+  );
+});

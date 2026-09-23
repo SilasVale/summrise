@@ -20,6 +20,7 @@ import { parseCookie } from "../auth.ts";
 import { build101Response, deviceFetch } from "../device-fetch.ts";
 import { jsonError, stampCors } from "../http.ts";
 import { requireSession } from "../session.ts";
+import { proxyMayReachTool } from "../tool-policy.ts";
 
 export const DEVICE_BASE = "/api/devices";
 
@@ -142,6 +143,28 @@ async function proxyDevice(
   restPath: string,
 ): Promise<Response> {
   const url = new URL(request.url);
+
+  // THE CATALOGUE THE OTHER DOOR CURATES, ENFORCED HERE TOO. `/mcp` withholds some device tools by
+  // name, each with a reason ("terminal_sftp … takes arbitrary SSH credentials an MCP client should
+  // not be offered"), and this route used to forward any /api/tools/<name> verbatim — so the
+  // curation was one proxied POST away from being bypassed by anyone holding an admin cookie or a
+  // 30-day plugin cookie. The policy AND its audience are in src/tool-policy.ts; this applies it.
+  // 403, not 401: the console treats any 401 as a dead session and ejects the operator.
+  const tool = /^\/api\/tools\/([^/?#]+)/.exec(restPath);
+  if (tool) {
+    // `?? ""`: the capture group cannot be undefined for this pattern, but noUncheckedIndexedAccess
+    // cannot know that — and an empty name is not in the policy, so it forwards and the device
+    // answers for it exactly as it would have before this check existed.
+    const name = decodeURIComponent(tool[1] ?? "");
+    const verdict = proxyMayReachTool(name);
+    if (!verdict.ok) {
+      return jsonError(
+        403,
+        `The device proxy does not relay ${name}: ${verdict.reason}`,
+        "forbidden",
+      );
+    }
+  }
 
   // The panel sits behind a tunnel that adds its own x-forwarded-*; don't pass
   // the console's through. deviceFetch injects the Bearer token and strips

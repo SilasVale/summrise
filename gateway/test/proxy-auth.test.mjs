@@ -377,3 +377,41 @@ test("rewriteDeviceBody via proxy: mount insert, token scrub, no double-prefix",
     globalThis.fetch = real;
   }
 });
+// THE DEVICE PROXY ENFORCES THE CATALOGUE THE MCP DOOR CURATES (architecture round 20).
+// terminal_sftp is kept off the MCP surface because it "takes arbitrary SSH credentials an MCP
+// client should not be offered" — and this route used to forward any /api/tools/<name> verbatim, so
+// a 30-day plugin cookie was one POST away from it. Both directions are asserted: the withheld name
+// is refused BEFORE the device is dialed, and the panel's own tools still pass through.
+test("proxy: a tool withheld from the MCP surface is refused here too, before dialing", async () => {
+  await withDeviceFetch(async (calls) => {
+    const res = await worker.fetch(
+      new Request(PROXY_URL.replace("terminal_list", "terminal_sftp"), {
+        method: "POST",
+        headers: { authorization: "Bearer tok-d1" },
+        body: JSON.stringify({}),
+      }),
+      makeEnv(),
+    );
+    assert.equal(res.status, 403, "refused with 403, not 401 — the console ejects a session on any 401");
+    const body = await res.json();
+    assert.match(String(body.error?.message || ""), /arbitrary SSH credentials/, "the refusal carries the reason");
+    assert.equal(calls.length, 0, "the device must not be dialed for a refused tool");
+  });
+});
+
+test("proxy: the panel's own tools still pass through (agent_update among them)", async () => {
+  await withDeviceFetch(async (calls) => {
+    for (const name of ["terminal_list", "agent_update", "memory_list", "terminal_saved_connections"]) {
+      const res = await worker.fetch(
+        new Request(PROXY_URL.replace("terminal_list", name), {
+          method: "POST",
+          headers: { authorization: "Bearer tok-d1" },
+          body: JSON.stringify({}),
+        }),
+        makeEnv(),
+      );
+      assert.equal(res.status, 200, `${name} must still be reachable through the proxy`);
+    }
+    assert.equal(calls.length, 4, "each allowed tool reaches the device once");
+  });
+});
