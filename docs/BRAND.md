@@ -437,12 +437,19 @@ operator's accounts.** Written out here so the next session does not re-derive i
 **npm — a name is reserved by PUBLISHING, not by registering intent.**
 
 ```bash
-npm login                      # the account that should own it (needs a verified email)
+# account: https://www.npmjs.com/signup  (verify the email, then turn on 2FA)
+npm login --registry=https://registry.npmjs.org/
 # from a directory whose package.json says "name": "summrise" — a placeholder is normal:
-# a one-line README pointing at the real package is enough to hold the name.
-npm publish --access public    # npm asks for a 2FA one-time code
-# then repeat for summrise-agent, summrise-cli, and create the @summrise org
+# a description pointing at the real package is enough to hold the name.
+npm publish --registry=https://registry.npmjs.org/ --access public   # asks for a 2FA code
+# then repeat for summrise-agent and summrise-cli; to own the SCOPE, create the org:
+# https://www.npmjs.com/org/create
 ```
+
+**`--registry` is not optional on these machines.** Both the build host and d1 have npm
+pointed at `https://registry.npmmirror.com` (verified 2026-09-23), which is a **read mirror**:
+a publish aimed there claims nothing on npmjs. And a name is claimed by **publishing**, not by
+registering intent — there is no "reserve this name" page.
 
 There is **no npm credential on the host** (`~/.npmrc` carries no `_authToken`, `NPM_TOKEN`
 is unset, nothing in the credentials store), so this cannot be done by an agent session —
