@@ -269,5 +269,39 @@ if [ "$rc" -eq 0 ]; then
   fi
 fi
 
+# ── C3, THE ARCHITECTURE ROUND: the reconcile ledger is an INPUT, and its contract is tested
+# through its interface. `RECONCILE_LEDGER` has been overridable in release-lib.sh since the gate
+# was written, and NOTHING EVER OVERRODE IT — the seam existed and stayed hypothetical, so the one
+# piece of state that can refuse a publish was only ever observed against the real, gitignored,
+# machine-local file. A reviewer reading the code concluded the gate was dead code; it refused a
+# publish on 2026-09-23. The cases below drive the REAL script with a FIXTURE ledger.
+LED=$(mktemp)
+printf '# fixture\n9.9.99 2026-01-01T00:00:00Z published with no GitHub release\n' > "$LED"
+out=$(RECONCILE_LEDGER="$LED" timeout 300 bash scripts/publish-release.sh 9.9.99 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'refusing to publish' <<<"$out" && grep -q '9\.9\.99' <<<"$out"; then
+  ok "a pending version REFUSES the publish, and the refusal names it (fixture ledger)"
+else
+  bad "the reconcile gate did not fire for a fixture ledger: rc=$rc $(head -c 200 <<<"$out")"
+fi
+# THE OTHER SIDE, which is what makes the case above evidence rather than decoration: an EMPTY
+# ledger must let the run continue to the NEXT gate. Without it, "the gate fired" could be any
+# refusal at all.
+EMPTY=$(mktemp)
+printf '# empty fixture\n' > "$EMPTY"
+out=$(RECONCILE_LEDGER="$EMPTY" timeout 600 bash scripts/publish-release.sh 1.2.999 --dry-run 2>&1)
+if ! grep -q 'refusing to publish' <<<"$out" && grep -q 'package.json version is' <<<"$out"; then
+  ok "an empty ledger does not refuse — the run reaches the NEXT gate (a control, not decoration)"
+else
+  bad "an empty ledger changed the outcome: $(head -c 200 <<<"$out")"
+fi
+# AND THE ACKNOWLEDGEMENT, the documented escape, carries it past.
+out=$(RECONCILE_LEDGER="$LED" timeout 600 bash scripts/publish-release.sh 1.2.999 --acknowledge-unreconciled --dry-run 2>&1)
+if ! grep -q 'refusing to publish' <<<"$out"; then
+  ok "--acknowledge-unreconciled carries the run past a pending ledger entry"
+else
+  bad "the acknowledgement did not clear the gate"
+fi
+rm -f "$LED" "$EMPTY"
+
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
