@@ -182,17 +182,29 @@ TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
 # 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
-# 2. publish (pack + manifest + prune + deploy + smoke; it does NOT commit):
-./scripts/publish-release.sh 1.2.N
+# 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):
+#    --npm needs $NPM_TOKEN or ~/.npm-token, and publishes to `latest` (see below for why not alpha)
+./scripts/publish-release.sh 1.2.N --npm
 # 3. ONE commit that includes agent/summrise-agent-npm/package.json and index/public/summrise-agent/version.json
 git push origin main          # CI green on the pushed commit
-# 4. tag through the API (git push of tags times out here) — this triggers release.yml:
+# 4. tag through the API (git push of tags times out here) — this triggers release.yml.
+#    THE SHA MUST BE A COMMIT THAT IS PUSHED **AND** GREEN. Both halves were learned the hard way
+#    on 1.2.453: tagging a local-only commit returns "Object does not exist", and tagging a pushed
+#    commit whose CI was superseded by the next push fails release.yml's own "Gate on tag-commit CI
+#    status" — so push first, WAIT for that commit's CI to go green, and only then:
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
-# 5. audit CDN vs the GitHub asset, byte for byte:
+# 5. audit CDN vs the GitHub asset, byte for byte (needs the asset, which is why step 4 comes first):
 ./scripts/publish-release.sh --audit-only 1.2.N
 ```
+
+**PUBLISH TO `latest`, NOT `alpha`.** The CDN's `-latest.tgz` alias moves on every release, so npm's
+`latest` must move with it. 1.2.453 shipped to `alpha` first and deadlocked a real device:
+`npm i -g summrise-agent` installed a CLI older than the release the agent was asked to take, and the
+CLI's own guard ("this CLI is 1.2.452 and the release channel has 1.2.453 — install the new CLI
+first") pointed at a command that could not deliver it. `--npm-tag alpha` remains for a deliberate
+prerelease channel.
 
 On the device (PowerShell) — the `--prefix` matters: without it npm installs elsewhere, reports
 success, and `summrise update` ships the old exe:
@@ -216,17 +228,24 @@ Two things that cost a device restart when ignored: **never launch a second `sum
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
 kill/copy the exe inline over a PTY** — use the npm flow above.
 
-**THE npm PACKAGE CARRIES NO BOXED COMPONENTS.** `summrise-agent-<v>.tgz` is ~6.7 MB — the exe, the
-CLI, the desktop shell's *sources*. It does **not** contain `cloudflared.exe` (54 MB),
-`summrise-playwright.zip` (31 MB) or the **electron runtime** the desktop shell launches. A fresh
-install therefore comes up **local-only while looking perfectly healthy**: no tunnel (so the console
-cannot reach it), no browser tools, no desktop window — and `summrise setup` says only
-`no tunnel configured (local mode)`. An *upgrade* is unaffected (components live in
-`<install>\components` and survive), so this bites at install and migration time, and nowhere else.
-What it cost to learn is in `docs/BRAND.md` → "The reinstall — EXECUTED 2026-09-23": the tunnel one
-is invisible-reachability (an hour dark, visible only from outside), and the electron one needs
-`ELECTRON_MIRROR`, because the package's postinstall fetches from GitHub releases — a host this
-network drops — so it reports `added 13 packages` and installs no binary.
+**THE npm PACKAGE CARRIES NO BOXED COMPONENTS — AND SINCE 1.2.454 `setup` FETCHES THEM.** The package
+is ~6.7 MB: the exe, the CLI, the desktop shell's *sources*. It does **not** contain
+`cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) or the **electron runtime** the desktop
+shell launches — and it should not: the release host already serves all three, cloudflared's and
+electron's as **PINNED** proxies of the upstream releases (`/summrise-agent/cloudflared.exe`,
+`.../electron-win32-x64.zip`), which is why a device behind the GFW needs no GitHub access and no
+`ELECTRON_MIRROR`. What was wrong was the FETCH: `setup` looked only INSIDE the package, printed
+`not in package (browser tools disabled)` for playwright, and for cloudflared said **nothing at all**.
+So a fresh install came up **local-only while looking perfectly healthy** — no tunnel (the console
+cannot reach it), no browser tools, no window. `resolveComponent()` now resolves each one (package
+copy first, else the host's route, `curl -fsSL` so an HTTP error is a FAILURE and not a 404 page on
+disk), and the failure branches WARN, because the failure they hide is unreachability. An *upgrade*
+was never affected (components live in `<install>\components` and survive), so this bites at install
+and migration time and nowhere else. What it cost to learn is in `docs/BRAND.md` → "The reinstall —
+EXECUTED 2026-09-23": the tunnel one is invisible-reachability (an hour dark, visible only from
+outside), and the electron one needed `ELECTRON_MIRROR` by hand, because the hand-install reached
+electron's npm postinstall, which fetches from GitHub releases — a host this network drops — and
+reported `added 13 packages` while installing no binary.
 
 ## Agent layout
 
