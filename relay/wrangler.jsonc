@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "summrise-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  // The file relay, split out of summrise-dist (docs/design/0010, D6). The point
+  // is that "retire the CDN worker" and "keep the relay" stop being the same
+  // question.
+  //
+  // ITS OWN BUCKET, not summrise-temp-files: that bucket stays bound to the CDN
+  // worker, which reads the playwright bundle out of it, and sharing one bucket
+  // across the split would keep the two coupled in exactly the way this change
+  // exists to undo. In-flight temp files (24 h TTL) drain rather than migrate.
+  "r2_buckets": [{ "binding": "TEMP_FILES", "bucket_name": "summrise-relay-files" }],
+  // One-time-download claim serializer. The DO is SHORT-LIVED per claim
+  // (milliseconds, no storage/alarms/sockets) and is the reason the relay can
+  // promise "exactly one download" at all: R2 has no conditional delete.
+  "durable_objects": {
+    "bindings": [{ "name": "TEMP_CLAIM", "class_name": "TempClaimDO" }]
+  },
+  "migrations": [{ "tag": "v1-temp-claim", "new_sqlite_classes": ["TempClaimDO"] }],
+  // THE DOWNLOAD LEG rides the existing host, by a ROUTE (agent.saisi.online/files/*).
+  // Routes take precedence over a Custom Domain on the same hostname — which is what
+  // makes this cutover possible at all: summrise-dist owns agent.saisi.online as a
+  // DASHBOARD-managed Custom Domain, so a Route on the /files/* PATH hands exactly that
+  // path to this worker and leaves every other path with summrise-dist. That is also
+  // why the URL the upload handler mints (${url.origin}/files/<token>) keeps its host:
+  // no doc, no tool and no device-side change.
+  "routes": [{ "pattern": "agent.saisi.online/files/*", "zone_name": "saisi.online" }],
+  // The origin a CLIENT can reach, because the UPLOAD leg arrives through a service
+  // binding whose own URL is an internal hostname: without this the minted download URL
+  // reads https://summrise-relay.internal/files/<token>, which nothing can resolve.
+  "vars": { "PUBLIC_BASE": "https://agent.saisi.online" },
+  //
+  // THE UPLOAD LEG does NOT ride it: the gateway reaches that endpoint with a
+  // same-zone fetch(), and Cloudflare is explicit that "Routes cannot be the target
+  // of a same-zone fetch() call" while Custom Domains can. So the gateway calls
+  // this worker over a SERVICE BINDING instead (wrangler `services`), which also
+  // takes /api/upload off the public internet entirely.
+  //
+  // Secrets (wrangler secret put, never committed): UPLOAD_KEY (compared against
+  // the bearer the gateway injects) and DO_AUTH (the internal DO credential).
+  "observability": { "enabled": false }
+}
