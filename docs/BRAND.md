@@ -235,6 +235,26 @@ the git remote works around with its own push proxy. The identical comparison ru
 against the **API asset URL** (`api.github.com/.../releases/assets/<id>`) passes, which is
 what the hashes above are from.
 
+## Deployment state (2026-09-23, after 1.2.455)
+
+The rename snapshot below is kept as it was written. This is where the deployment stands after the
+two releases that followed it.
+
+| Thing | State |
+|---|---|
+| CDN | `summrise-dist` at **1.2.455**: `/api/version` carries `version` + `sha256` + **a sha256 and URL per boxed component**, the tgz is 200, and cloudflared / electron / playwright all stream 200 |
+| npm | `summrise-agent@1.2.455` under `latest`, **byte-identical to the CDN** (`cb5999c9…` was 1.2.454; 1.2.455 was verified the same way at publish) |
+| GitHub release | `v1.2.454` published with its CI-built asset, and the **dual-builder audit passed byte-for-byte, exe included** — the first release where it could, because the tag sits on the commit the pack was built from |
+| Device d1 | **1.2.455**, both the agent and the CLI; the three components present; `SummriseDesktop` registered (logon + a 5-minute watchdog) so the shell no longer dies with the console that started it |
+| **File relay** | its own worker `summrise-relay`, its own bucket `summrise-relay-files`, its own secrets; the gateway reaches uploads over a **service binding** and downloads ride the route `<download-host>/files/*`, which takes precedence over `summrise-dist`'s Custom Domain. `summrise-dist`'s handlers are gone, `TempClaimDO` retired |
+| Diagnostics | `live-panel-probe.js` is published beside the release and fetched BY the device (a 38 KB script is not pasteable into a tool call); its first run on the post-rename panel measured both densities clean |
+
+**Two things this cycle found in production, both fixed and verified the same day** (the long form is
+in `docs/agents/design-ledger.md`): the rename's new worker had **no secrets** — so the relay's upload
+leg answered 401 to the gateway's real key for a day — and `summrise-playwright.zip` was in neither
+bucket, so that route had answered 502 for the same day. Neither was visible from inside: every device
+already had the components expanded locally.
+
 **Two infrastructure names keep the old spelling. Neither is a brand surface.**
 
 1. **`vale-gate` — the Cloudflare worker name.** Worker secrets are *write-only*:

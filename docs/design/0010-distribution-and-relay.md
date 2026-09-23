@@ -271,7 +271,7 @@ Done in exactly that order, and each step verified before the next:
    relay exists. A same-zone `fetch()` would have been the documented failure case: the relay's
    download leg is a Route, and Routes cannot be the target of a same-zone fetch while Custom Domains
    can.
-4. **Handed it the route** (`agent.saisi.online/files/*`). A Route on the PATH takes precedence over
+4. **Handed it the route** (`<download-host>/files/*`). A Route on the PATH takes precedence over
    `summrise-dist`'s dashboard-managed Custom Domain on the HOST — that is what makes a path-level
    handover possible without touching the hostname, the docs, the console or any device.
 5. **Trimmed `summrise-dist`**: 173 lines of handlers, six test files and `claim.js` left (the index
