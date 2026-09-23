@@ -10,8 +10,6 @@ import {
   registerPlugins,
   dispatch,
   route,
-  emit,
-  on,
   provideApi,
   requireApi,
   optionalApi,
@@ -139,22 +137,6 @@ test("registry framework: dispatch first-match, no-match null, bad plugins skipp
   assert.equal(dispatch(ctx, "GET", "/api/c"), "c");
   assert.equal(dispatch(ctx, "DELETE", "/api/a"), null, "method mismatch → null");
   assert.equal(dispatch(ctx, "GET", "/nope"), null, "no match → null");
-});
-
-test("registry events: emit delivers, unsubscribe stops, throwers/rejecters swallowed", async () => {
-  const ctx = createPluginContext(null, {});
-  const seen = [];
-  const off = on(ctx, "ev", (p) => seen.push(p));
-  on(ctx, "ev", () => { throw new Error("sync boom"); });
-  on(ctx, "ev", async () => { throw new Error("async boom"); });
-  emit(ctx, "missing", 1); // no listeners → no-op, never throws
-  emit(ctx, "ev", 42);
-  await new Promise((r) => setTimeout(r, 10)); // let the async listener settle
-  assert.deepEqual(seen, [42], "good listener got the payload despite the throwers");
-  off();
-  emit(ctx, "ev", 43);
-  await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(seen, [42], "unsubscribed listener stays silent");
 });
 
 test("registerPlugins: declared deps register before their consumers (topo order)", () => {

@@ -59,8 +59,17 @@ export interface PluginRoute {
   hits?: number;
 }
 
-/** Cross-plugin event emitter (fire-and-forget listeners). */
-export type PluginListener = (payload: unknown) => void | Promise<void>;
+/**
+ * REMOVED 2026-09-24: PluginListener and the cross-plugin event bus (ctx.events, emit, on).
+ * It had zero live consumers — every apparent use was a comment — and the deletion test is
+ * unambiguous about that shape: removing it takes the Map, the subscribe/unsubscribe plumbing and
+ * the listener-error swallowing out of the system rather than moving them anywhere.
+ *
+ * WHAT TO REACH FOR INSTEAD, because the need is plausible: plugins already share state through
+ * the CAPABILITY mechanism below (provideApi/optionalApi/requireApi over ctx.api), which is alive
+ * (translate.ts and auth.ts use it) and typed, and a direct call is one import away. A bus is for
+ * listeners you cannot name; nothing here has ever had one.
+ */
 
 /** The shared context injected into every plugin's setup(). */
 export interface PluginContext {
@@ -80,8 +89,6 @@ export interface PluginContext {
   api: Record<string, unknown>;
   /** Plugin-configurable values (writable in setup). */
   config: Record<string, unknown>;
-  /** Cross-plugin event bus. */
-  events: Map<string, Set<PluginListener>>;
 }
 
 /** A plugin: declared deps + setup that registers routes/api on the ctx. */
@@ -102,7 +109,6 @@ export function createPluginContext(env: PluginEnv | null, helpers: PluginHelper
     routes: [],
     api: {},
     config: {},
-    events: new Map(),
   };
 }
 
@@ -235,24 +241,4 @@ export function requireApi<T>(ctx: PluginContext, name: string): T {
 export function optionalApi<T>(ctx: PluginContext, name: string): T | null {
   const cap = ctx.api[name] as T | undefined;
   return cap === undefined ? null : cap;
-}
-
-/** Emit a cross-plugin event (fire-and-forget; listeners may be async). */
-export function emit(ctx: PluginContext, name: string, payload: unknown): void {
-  const listeners = ctx.events.get(name);
-  if (!listeners) return;
-  for (const fn of listeners) {
-    try {
-      Promise.resolve(fn(payload)).catch(() => {});
-    } catch {
-      /* listener error */
-    }
-  }
-}
-
-/** Subscribe to a cross-plugin event. Returns an unsubscribe fn. */
-export function on(ctx: PluginContext, name: string, fn: PluginListener): () => void {
-  if (!ctx.events.has(name)) ctx.events.set(name, new Set());
-  ctx.events.get(name)!.add(fn);
-  return () => ctx.events.get(name)?.delete(fn);
 }
