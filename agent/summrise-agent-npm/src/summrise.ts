@@ -282,35 +282,35 @@ export function desktopTaskPs(installQ: string): string[] {
   ];
 }
 
-/** Ask whether the shell is up, and start it if it is not — printing ONE WORD the caller
- *  can trust: `already-running`, `started`, or `not-started`. A command that says "ok"
- *  without distinguishing those three is how an operator ends up staring at a desktop
- *  wondering whether anything happened.
+/** The desktop shell's START script, as a file — NOT a `-Command` string.
  *
- *  TWO THINGS MEASURED ON THE DEVICE, both of which made the first version of this wrong:
+ *  WHY A FILE, and this is the third thing the device taught us: the CLI spawns with
+ *  `shell: true`, so every command goes through cmd.exe, and **cmd treats `&` as a command
+ *  separator**. The PowerShell call operator `&` therefore split the command in half, the
+ *  `$t` assignment never ran, and the command fell through to re-registering the task —
+ *  which then failed on the service account's principal. One metacharacter, two unrelated
+ *  looking failures. `powershell -File "<path>"` has no metacharacters to mangle, and the
+ *  operator can READ what the command does.
  *
- *  1. `powershell -File '<path>'` DOES NOT WORK. The single quotes are for PowerShell's own
- *     strings; at the cmd layer they are literal characters, so PowerShell received a path
- *     with quotes in it and answered "不支持给定路径的格式" (the path format is not
- *     supported). Double quotes are what `-File` wants, and `psq()` — which escapes for a
- *     PS string — is the wrong tool here. The same mistake sat in `setup`, unnoticed because
- *     the task had been registered by hand.
- *
- *  2. DO NOT RE-REGISTER THE TASK TO START IT. `Register-ScheduledTask` needs the user's
- *     principal as `DOMAIN\user`, and a shell running as a service account has no such
- *     mapping: from a PTY running as systemprofile the device answered "帐户名与安全标识间
- *     无任何映射完成 … UserId" while the task itself was Ready. The task already carries the
- *     right principal — it is `setup` that creates it — so starting it is all that is needed,
- *     and registering is reserved for the case where it is genuinely absent. */
-export function desktopStartPs(installQ: string): string {
+ *  Prints ONE WORD the CLI can trust: `already-running`, `started`, or `not-started`.
+ *  Pure; the CLI writes it and runs it. unit-tested. */
+export function desktopStartPs(installQ: string): string[] {
   return [
-    `if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }`,
-    `$t = Get-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue`,
+    "# written by `summrise desktop` -- ask for the window, or say it is already there.",
+    "$ErrorActionPreference = 'Stop'",
+    "if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }",
+    "# DO NOT RE-REGISTER THE TASK TO START IT. Register-ScheduledTask needs the interactive",
+    "# user's principal as DOMAIN\\user, and a shell running as a service account has no such",
+    "# mapping -- the device answered \"No mapping between account names and security IDs was",
+    "# done ... UserId\" from a PTY running as systemprofile, while the task itself was Ready.",
+    "# The task already carries the right principal -- `summrise setup` creates it -- so starting",
+    "# it is all that is needed.",
+    "$t = Get-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue",
     `if (-not $t) { & powershell -NoProfile -ExecutionPolicy Bypass -File "${installQ}\\scripts\\register-desktop-task.ps1" }`,
-    `Start-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue`,
-    `Start-Sleep -Seconds 3`,
-    `if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'started' } else { Write-Output 'not-started'; exit 1 }`,
-  ].join("; ");
+    "Start-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue",
+    "Start-Sleep -Seconds 3",
+    "if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'started' } else { Write-Output 'not-started'; exit 1 }",
+  ];
 }
 // exported: agent bind port plumbing (custom-port installs). server.port
 // out of <dir>/config.yaml (first `port:` under top-level `server:`),
@@ -2012,8 +2012,8 @@ const commands = {
       fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
       sh(
         // DOUBLE quotes — a cmd-layer argument. The single-quoted version this shipped with
-        // reached PowerShell with the quotes included and died on the device with
-        // "不支持给定路径的格式" (unsupported path format).
+        // reached PowerShell with the quotes included and died on the device with "unsupported
+        // path format" for a path that was perfectly valid.
         `powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`,
       );
       console.log(
@@ -2249,7 +2249,7 @@ const commands = {
   //
   // WHY IT EXISTS. The shell is normally started by the SummriseDesktop task, but the LAUNCHER
   // dies with the console that started it — measured twice on 2026-09-23, both times arriving
-  // as "electron 又不见了" — and until now there was no command to ask for it, only a .ps1 path
+  // as "the electron window is gone again" — and until now there was no command to ask for it, only a .ps1 path
   // an operator had to know. Idempotent by construction (the task's ensure-desktop.ps1 exits
   // when electron is alive, so a running shell is never disturbed), and it distinguishes the
   // three outcomes. "ok" without saying WHICH is how an operator ends up staring at a desktop.
@@ -2261,17 +2261,19 @@ const commands = {
       // writes, from the same builder, so the two cannot drift.
       fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
     }
-    try {
-      // DOUBLE quotes: this is a cmd-layer argument, and `psq()` escapes for a PowerShell
-      // string instead — the single-quoted version reached PowerShell with the quotes still in
-      // it and failed on the device with "unsupported path format". Same fix in `setup` below.
-      sh(`powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`);
-    } catch {
-      /* the task may already exist and be healthy; the check below is the verdict */
-    }
+    // THE START SCRIPT GOES IN A FILE, AND ONLY IT DECIDES WHETHER TO REGISTER. Spawning with
+    // `shell: true` means cmd.exe, and **cmd splits a command on `&`** — the PowerShell call
+    // operator in the middle of this logic cut the command in half on the device, so the `$t`
+    // assignment never ran and it fell through to re-registering a task that already existed,
+    // which then failed on the service account's principal. Two failures, one metacharacter.
+    const start = path.join(SCRIPTS_DIR, "desktop-start.ps1");
+    fs.writeFileSync(start, desktopStartPs(DIR).join("\r\n") + "\r\n");
+    // The register script is WRITTEN here (a machine that never ran setup still gets a working
+    // task, from the same builder setup uses) but NOT run: desktop-start.ps1 runs it only when
+    // the task is genuinely missing.
     const r = spawnSync(
       "powershell",
-      ["-NoProfile", "-Command", desktopStartPs(DIR)],
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", start],
       { encoding: "utf8", shell: true },
     );
     const out = String(r.stdout || "").trim();

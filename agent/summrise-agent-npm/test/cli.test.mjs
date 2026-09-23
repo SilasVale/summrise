@@ -98,7 +98,7 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   assert.match(task, /Register-ScheduledTask SummriseDesktop/);
   assert.match(task, /Start-ScheduledTask -TaskName SummriseDesktop/);
 
-  const start = desktopStartPs("C:\\Summrise");
+  const start = desktopStartPs("C:\\Summrise").join("\n");
   for (const word of ["already-running", "started", "not-started"]) {
     assert.ok(start.includes(word), `the command must be able to say ${word}`);
   }
@@ -108,16 +108,25 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
     start.indexOf("already-running") < start.indexOf("Start-ScheduledTask"),
     "the already-running check must come first",
   );
-  // AND THE TWO THINGS THE DEVICE TAUGHT US, both of which made the first version wrong:
-  // (a) `-File` takes DOUBLE quotes — single quotes are literal at the cmd layer, and the
-  //     device answered "unsupported path format" with the quotes still in the path;
+  // THE THREE THINGS THE DEVICE TAUGHT US, each of which broke this command in a different way:
+  // (a) `-File` takes DOUBLE quotes — single quotes are literal at the cmd layer, and the device
+  //     answered "unsupported path format" with the quotes still in the path;
   // (b) it must NOT re-register the task to start it — Register-ScheduledTask needs the
-  //     interactive user's principal, and a service-account shell has no such mapping.
+  //     interactive user's principal, and a service-account shell has no such mapping;
+  // (c) IT MUST NOT BE A `-Command` STRING AT ALL. The CLI spawns with `shell: true`, so the
+  //     command goes through cmd.exe, and cmd splits on `&` — the PowerShell call operator cut
+  //     the command in half and the `$t` assignment never ran. A file has nothing to mangle.
   assert.ok(start.includes('-File "C:\\Summrise\\scripts\\register-desktop-task.ps1"'),
     "the register script must be passed with double quotes");
-  assert.ok(!start.includes("-File '"), "no single-quoted -File argument (that is the device bug)");
+  assert.ok(!start.includes("-Command"), "the start script must not be a -Command string (cmd splits on &)");
   assert.ok(start.includes("if (-not $t)"), "re-registration must be conditional on the task being absent");
   assert.ok(start.includes("Start-ScheduledTask"), "and starting it is what actually happens");
+  // AND THE CLI MUST ACTUALLY USE IT AS A FILE. This is the wiring half: the builder above can be
+  // perfect while the caller still spawns `-Command`, which is exactly what shipped in 1.2.456.
+  const built = readFileSync(new URL("../bin/summrise.js", import.meta.url), "utf8");
+  assert.ok(built.includes("desktop-start.ps1"), "the CLI must write the start script to a file");
+  assert.ok(!/"-Command",\s*desktopStartPs/.test(built),
+    "the CLI must not spawn desktopStartPs() as a -Command string");
 });
 
 test("newestOf: the newer of two channels — and silence is never agreement", () => {
