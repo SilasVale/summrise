@@ -38,6 +38,8 @@ exports.BOOT_TASKS = exports.psq = void 0;
 exports.psArgv = psArgv;
 exports.deskShortcutRepairPs = deskShortcutRepairPs;
 exports.startDesktopPs = startDesktopPs;
+exports.desktopTaskPs = desktopTaskPs;
+exports.desktopStartPs = desktopStartPs;
 exports.parseAgentPort = parseAgentPort;
 exports.parseDeviceToken = parseDeviceToken;
 exports.parseTargetArg = parseTargetArg;
@@ -304,6 +306,45 @@ function startDesktopPs(deskDirQ) {
         `Set-Location $dir`,
         `& "$dir\\node_modules\\electron\\dist\\electron.exe" .`,
     ];
+}
+/** The desktop shell's watchdog pair + its task, as ONE PowerShell script.
+ *
+ *  WHY IT IS A FILE AND NOT AN INLINE -Command: it has to write two other files whose
+ *  contents contain quotes, and every attempt to do that inside one command string turns
+ *  into quoting hell — the first version of this shipped as a hand-written file for that
+ *  reason. `summrise setup` writes it and `summrise desktop` runs it, so a machine that
+ *  never ran setup can still get a working task by asking for the window. Idempotent:
+ *  ensure-desktop.ps1 exits when electron is already alive, so the 5-minute trigger never
+ *  steals focus. unit-tested. */
+function desktopTaskPs(installQ) {
+    return [
+        "# written by `summrise setup` / `summrise desktop` -- the desktop shell's task + watchdog.",
+        "$ErrorActionPreference = 'Stop'",
+        `$q = '${installQ}'`,
+        `$en = Join-Path $q 'scripts\\ensure-desktop.ps1'`,
+        `$vb = Join-Path $q 'scripts\\desktop-pulse.vbs'`,
+        `Set-Content -Path $en -Value ('if (Get-Process electron -ErrorAction SilentlyContinue) { exit }; & powershell -NoProfile -ExecutionPolicy Bypass -File "' + $q + '\\scripts\\start-desktop.ps1"') -Force`,
+        `Set-Content -Path $vb -Value ('CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "' + $en + '" & Chr(34), 0, False') -Force`,
+        `$da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb + '"') -WorkingDirectory $q`,
+        `$dt1 = New-ScheduledTaskTrigger -AtLogOn`,
+        `$dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
+        `$pr = New-ScheduledTaskPrincipal -UserId ('{0}\\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest`,
+        `$st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew`,
+        `Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1,$dw1) -Principal $pr -Settings $st -Force | Out-Null`,
+        `Start-ScheduledTask -TaskName SummriseDesktop`,
+    ];
+}
+/** Ask whether the shell is up, and start it if it is not — printing ONE WORD the caller
+ *  can trust: `already-running`, `started`, or `not-started`. A command that says "ok"
+ *  without distinguishing those three is how an operator ends up staring at a desktop
+ *  wondering whether anything happened. Pure; the CLI runs it. */
+function desktopStartPs(installQ) {
+    return [
+        `if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }`,
+        `& powershell -NoProfile -ExecutionPolicy Bypass -File '${installQ}\\scripts\\ensure-desktop.ps1'`,
+        `Start-Sleep -Seconds 3`,
+        `if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'started' } else { Write-Output 'not-started'; exit 1 }`,
+    ].join("; ");
 }
 // exported: agent bind port plumbing (custom-port installs). server.port
 // out of <dir>/config.yaml (first `port:` under top-level `server:`),
@@ -1733,22 +1774,7 @@ const commands = {
         // repetition is what reborns a dead shell.
         try {
             const reg = path.join(SCRIPTS_DIR, "register-desktop-task.ps1");
-            fs.writeFileSync(reg, [
-                "# written by `summrise setup` -- the desktop shell's ONLOGON task + watchdog.",
-                "$ErrorActionPreference = 'Stop'",
-                `$q = '${(0, exports.psq)(DIR)}'`,
-                `$en = Join-Path $q 'scripts\\ensure-desktop.ps1'`,
-                `$vb = Join-Path $q 'scripts\\desktop-pulse.vbs'`,
-                `Set-Content -Path $en -Value ('if (Get-Process electron -ErrorAction SilentlyContinue) { exit }; & powershell -NoProfile -ExecutionPolicy Bypass -File "' + $q + '\\scripts\\start-desktop.ps1"') -Force`,
-                `Set-Content -Path $vb -Value ('CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "' + $en + '" & Chr(34), 0, False') -Force`,
-                `$da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb + '"') -WorkingDirectory $q`,
-                `$dt1 = New-ScheduledTaskTrigger -AtLogOn`,
-                `$dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
-                `$pr = New-ScheduledTaskPrincipal -UserId ('{0}\\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest`,
-                `$st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew`,
-                `Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1,$dw1) -Principal $pr -Settings $st -Force | Out-Null`,
-                `Start-ScheduledTask -TaskName SummriseDesktop`,
-            ].join("\r\n") + "\r\n");
+            fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
             sh(`powershell -NoProfile -ExecutionPolicy Bypass -File '${(0, exports.psq)(reg)}'`);
             console.log("setup: SummriseDesktop registered (logon + a 5-minute watchdog) and started");
         }
@@ -1953,6 +1979,41 @@ const commands = {
     },
     // Live view: redraw in place every few seconds until Ctrl+C. `summrise watch
     // <host:port[/path]>` narrows it to one target and adds its outage log.
+    // `summrise desktop` = put the window back, or say it is already there.
+    //
+    // WHY IT EXISTS. The shell is normally started by the SummriseDesktop task, but the LAUNCHER
+    // dies with the console that started it — measured twice on 2026-09-23, both times arriving
+    // as "electron 又不见了" — and until now there was no command to ask for it, only a .ps1 path
+    // an operator had to know. Idempotent by construction (the task's ensure-desktop.ps1 exits
+    // when electron is alive, so a running shell is never disturbed), and it distinguishes the
+    // three outcomes. "ok" without saying WHICH is how an operator ends up staring at a desktop.
+    desktop() {
+        const reg = path.join(SCRIPTS_DIR, "register-desktop-task.ps1");
+        fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
+        if (!fs.existsSync(reg)) {
+            // A machine that never ran setup still gets a working task: the same script setup
+            // writes, from the same builder, so the two cannot drift.
+            fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
+        }
+        try {
+            sh(`powershell -NoProfile -ExecutionPolicy Bypass -File '${(0, exports.psq)(reg)}'`);
+        }
+        catch {
+            /* the task may already exist and be healthy; the check below is the verdict */
+        }
+        const r = (0, child_process_1.spawnSync)("powershell", ["-NoProfile", "-Command", desktopStartPs(DIR)], { encoding: "utf8", shell: true });
+        const out = String(r.stdout || "").trim();
+        if (out.endsWith("already-running")) {
+            console.log("desktop: the Summrise shell is ALREADY RUNNING (look for the window, or the tray icon)");
+            return;
+        }
+        if (out.endsWith("started")) {
+            console.log("desktop: started -- the window should be on your desktop now");
+            return;
+        }
+        console.error(`desktop: the shell did NOT come up. Try it directly to see why: powershell -File "${path.join(SCRIPTS_DIR, "start-desktop.ps1")}"`);
+        process.exit(1);
+    },
     status() {
         // NOT via shell: `shell: true` concatenates argv into one cmd.exe string,
         // so the unquoted filter "IMAGENAME eq …" was split at its spaces, tasklist

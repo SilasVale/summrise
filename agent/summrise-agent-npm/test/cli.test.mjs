@@ -34,7 +34,9 @@ const {
   rollbackVersionOk,
   newestOf,
   componentUrl,
-  componentKey
+  componentKey,
+  desktopTaskPs,
+  desktopStartPs
 } = require("../bin/summrise.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -81,6 +83,30 @@ test("componentUrl: a component comes from the release host, under the agent pat
   assert.ok(
     componentUrl("anything").indexOf("/summrise-agent/") > 0,
     "components live under the agent path",
+  );
+});
+
+test("desktopTaskPs / desktopStartPs: asking for the window, and answering with a FACT", () => {
+  const task = desktopTaskPs("C:\\Program Files\\Summrise").join("\n");
+  // The app's own shape, so `summrise desktop` and `summrise setup` cannot drift: logon plus a
+  // 5-minute watchdog, launched through a .vbs so no console flashes, with the guard that
+  // stops the watchdog stealing focus from whatever the operator is doing.
+  assert.match(task, /New-ScheduledTaskTrigger -AtLogOn/);
+  assert.match(task, /RepetitionInterval \(New-TimeSpan -Minutes 5\)/);
+  assert.match(task, /Get-Process electron -ErrorAction SilentlyContinue\) \{ exit \}/);
+  assert.match(task, /desktop-pulse\.vbs/);
+  assert.match(task, /Register-ScheduledTask SummriseDesktop/);
+  assert.match(task, /Start-ScheduledTask -TaskName SummriseDesktop/);
+
+  const start = desktopStartPs("C:\\Summrise");
+  for (const word of ["already-running", "started", "not-started"]) {
+    assert.ok(start.includes(word), `the command must be able to say ${word}`);
+  }
+  // ORDER IS THE PROPERTY: "already running" has to be decided BEFORE anything is started,
+  // or asking for a window that is already there would launch a second shell and steal focus.
+  assert.ok(
+    start.indexOf("already-running") < start.indexOf("ensure-desktop.ps1"),
+    "the already-running check must come first",
   );
 });
 
