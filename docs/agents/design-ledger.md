@@ -4125,3 +4125,19 @@ stubbed curl, and `release-audit.sh` with 27 checks — and most of the 582 line
 plus the reason beside each gate). The part of C1 that was real was the ordering, and C2 addressed it
 with `--dry-run` and `SEQUENCE=`. A review finding is a hypothesis; this one was worth checking
 rather than acting on.
+
+**AND A STALL NEEDS A SPEED BOUND, NOT A LONGER TIMEOUT.** The audit's fallback to the API asset
+route (added the same evening) never fired: `-m 300 --retry 5` can spend THIRTY MINUTES proving a
+route is stalled, and my own 25-minute cap killed the run before the API route was ever tried. The
+measurements, four attempts in one run: 15,459 / 32,488 / 0 / 0 bytes of 6,698,935.
+
+`--speed-limit 20000 --speed-time 20` is the instrument for this: abort a transfer that stays under
+20 KB/s for 20 seconds, and the stall this host produces is under 200 B/s. Retries then cost seconds
+instead of minutes, so they drop to 2, and the fallback carries the same bound. Measured after:
+direct dies in ~20 s, the fallback fires and NAMES the asset id, and the whole audit resolves in
+201 s with a message that says both routes were tried. Ten times faster to the same honest answer —
+and when either route works, it passes.
+
+The general shape is worth keeping: a timeout answers "how long am I willing to wait", which is the
+wrong question for a transfer that is moving but not arriving. Throughput is the question, and curl
+can be told to ask it.
