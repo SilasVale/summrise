@@ -1,5 +1,10 @@
 {
   "_why": "The boxed components `summrise setup` FETCHES (grilling Q4, 2026-09-23). The npm package carries none of them, and until now setup verified none of them either: a worker serving different bytes would have been staged without complaint. publish-release.sh copies this file into version.json's `components` block, and setup refuses a mismatch. cloudflared's sha256 is CROSS-CHECKED against agent/src/tunnel.rs (CLOUDFLARED_SHA256) at publish time -- the agent re-checks that one at run time and the two must not drift. REPLACE A COMPONENT => UPDATE ITS PIN HERE IN THE SAME COMMIT, or every fresh install fails closed (loudly, which is the point).",
+  "_how_to_replace": [
+    "cloudflared: a PINNED upstream asset, proxied by the worker's route. The pin lives in agent/src/tunnel.rs; move it there and here together (publish-release.sh refuses a publish when they disagree).",
+    "electron: STAGED IN R2. Fetch the pinned upstream asset once, then `wrangler r2 object put summrise-temp-files/electron-win32-x64.zip --file=<zip> --remote`, sha256 it and pin it here.",
+    "playwright: STAGED IN R2, and NOTHING IN THIS REPO BUILDS IT -- which is why its route answered 502 for a day after the rename and nobody noticed. It is the contents of <install>\\components\\playwright on a device that has a working bundle: node.exe (the Windows node the CLI spawns), node_modules/{@playwright/mcp,playwright-core} (versions in <install>\\etc\\boxed-versions.json) and probe.js. Rebuild it by zipping that folder (the archive's ROOT must be the `playwright` folder, which Expand-Archive into components\\ expects), stage it in R2 the same way, and pin the sha256 here. A real producer script is still owed."
+  ],
   "cloudflared": {
     "url": "https://agent.saisi.online/summrise-agent/cloudflared.exe",
     "sha256": "83e726ed18ea78c5ad5213c4c3a3a27051393950d2bc8ed4de69bec12d14eaae"
