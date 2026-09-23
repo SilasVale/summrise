@@ -281,26 +281,31 @@ commit; never move the tag onto different content). The reconcile debt for 1.2.4
 the tooling provides for it — acknowledged at the next publish, in the ledger — rather than by
 uploading the shipped pack by hand to make the audit agree with itself.
 
-**Two operational findings from the 1.2.454 cycle (2026-09-23, both open).**
+**Two operational findings from the 1.2.454 cycle (2026-09-23) — BOTH FIXED THE SAME DAY.**
 
-1. **The R2 objects did not move with the rename.** `summrise-playwright.zip` is expected in
-   `summrise-temp-files` — the bucket the worker reads, created 2026-09-22 — and the object is in
+1. **The R2 objects did not move with the rename.** `summrise-playwright.zip` was expected in
+   `summrise-temp-files` — the bucket the worker reads, created 2026-09-22 — and the object was in
    neither that bucket nor the pre-rename `vale-temp-files`, so
-   `/summrise-agent/summrise-playwright.zip` answers **502** and has since the worker was pointed at
+   `/summrise-agent/summrise-playwright.zip` answered **502** and had since the worker was pointed at
    the new bucket. Nobody noticed because every existing device already has the bundle expanded in
-   `components\playwright` and nothing fetched it through the route. Nothing in the repo *produces*
-   that zip either (no script, no release step names it), which is why the route had no owner to
-   notice its own 502. A rebuilt bundle — 32,366,699 bytes, sha256 `952cd252…` — sits on d1 at
-   `D:\Summrise\playwright-rebuild.zip` waiting for a transfer path. The **electron** runtime was
-   moved into R2 the same day and does serve (`cache-control: public, no-cache` + a digest ETag,
-   `f64c8a5a…`), so the device no longer needs GitHub for it at all.
+   `components\playwright` and nothing fetched it through the route. **FIXED**: the bundle was
+   rebuilt from d1's expanded copy (32,366,699 bytes, sha256 `952cd252…`), transferred over the relay
+   and staged in R2; the route now answers 200 with that content-length, `public, no-cache` and a
+   digest ETag. **The producer gap is still open**: nothing in the repo *builds* that zip (no script,
+   no release step names it), which is how the route came to have no owner — the rebuild was by hand.
 
-2. **The file relay's upload leg answers 401.** `system_file_upload` (device → relay) fails
-   consistently, and a `wrangler tail` on `vale-gate` shows the request never reaches the gateway, so
-   the rejection is the relay worker's own bearer check — the shared secret the rename left
-   mismatched, which is exactly the repair ADR 0010's D6 already calls for ("a fresh shared secret is
-   required"). **Until it is rotated on both sides, the only sanctioned cross-machine file path is
-   down in that direction**: the live-panel probe and the rebuilt bundle above both wait on it.
+2. **The file relay's upload leg answered 401 for the same reason.** `summrise-dist` — the worker
+   the rename created — had **`wrangler secret list` = `[]`**, while `/api/upload` compares the bearer
+   against `env.UPLOAD_KEY`; with the secret unset the only accepted value was `Bearer ` and the
+   gateway's real key was rejected. **FIXED**: a fresh `UPLOAD_KEY` was written to BOTH sides (values
+   are write-only, so making them agree means rotating both) plus `DO_AUTH` on the worker, and the fix
+   was verified end to end — a 32 MB upload, an identical sha256 on arrival, and the one-time URL
+   correctly answering **404** on the second fetch.
+
+   **THE CLASS, which is the part to keep:** twice in one rename, a NEW resource was created and its
+   CONFIGURATION was not carried over — a bucket's objects and a worker's secrets. Whenever a
+   resource is recreated under a new name, `wrangler secret list` and the new bucket's contents are
+   part of the cutover, not follow-up work.
 
 **The reinstall — EXECUTED 2026-09-23** (the run, its two failures and what they taught are
 recorded below, because the *steps* were right and the run still went dark for an hour).

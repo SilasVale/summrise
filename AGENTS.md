@@ -15,6 +15,15 @@ The operator's own rules are `docs/CHARTER.md`; their inbox is `docs/agents/idea
 cargo xwin check --target x86_64-pc-windows-msvc --features terminal,keyring   # fast agent check
 ```
 
+**A NEWLY CREATED WORKER NEEDS ITS SECRETS AND ITS BUCKET'S CONTENTS — the cutover, not follow-up
+work.** The rename created `summrise-dist` and `summrise-temp-files` and carried over neither: the
+worker's `wrangler secret list` was `[]` (so `/api/upload`, which compares the bearer against
+`env.UPLOAD_KEY`, answered 401 to the gateway's real key — the file relay's upload leg, dead), and the
+playwright bundle never moved, so that route answered 502. Both were invisible for a day because every
+existing device already had the components and nothing fetched them through the routes. After creating
+or renaming a worker: `wrangler secret list --name <worker>` must not be `[]`, and every object the
+routes read must be listed in the new bucket.
+
 Panel-first: `panel.js` is embedded with `include_str!`, so a change under
 `agent/resources/panel-react/` needs `npm run build` there (or `build.sh agent`, which does it).
 The exe lands in `agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe`.
