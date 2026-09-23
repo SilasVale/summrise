@@ -1130,3 +1130,83 @@ test("the console's tool descriptions name every field the device's name", () =>
     `console copies that drop a field the device names: ${dropped.join(" | ")}`,
   );
 });
+
+// AND CONTAINMENT, THE STRONGER RULE (architecture round 11). The field-presence gate above catches
+// a DROPPED field; it cannot see a MOVED explanation, which was the other half of the original drift
+// (`drops`' text attaching to `last_status`). Containment catches both: the device's description
+// must appear, verbatim, inside the console's.
+//
+// SEVENTEEN CONSOLE COPIES STILL FAIL IT, every one a lossy paraphrase measured on 2026-09-24
+// (monitor_add worst: 1122 device characters against 788). They are listed as DEBT rather than
+// silently tolerated — and the list is SELF-CLEANING: an entry that no longer fails containment
+// fails this test, because a waiver that outlives its defect is how a list like this becomes a
+// graveyard nobody trusts.
+const CONTAINMENT_DEBT = new Set([
+  "monitor_add",
+  "monitor_probe",
+  "run_begin",
+  "secret_delete",
+  "secret_get",
+  "system_file_download",
+  "system_file_upload",
+  "terminal_connect_saved",
+  "terminal_diag_write",
+  "terminal_env",
+  "terminal_history",
+  "terminal_list",
+  "terminal_list_ports",
+  "terminal_open",
+  "terminal_saved_connections",
+  "terminal_select",
+  "terminal_write",
+]);
+
+test("the console carries the device's description, or is a listed debt that is still owed", () => {
+  const raw = readFileSync(new URL("../../agent/spec-tools.json", import.meta.url), "utf8");
+  const spec = JSON.parse(raw.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
+  const ts = readFileSync(new URL("../src/mcp-tools.ts", import.meta.url), "utf8");
+
+  const consoleDescription = (name) => {
+    const i = ts.indexOf(`name: "${name}"`);
+    if (i < 0) return null;
+    const j = ts.indexOf("description:", i);
+    if (j < 0) return null;
+    const q = ts.slice(j).match(/description:\s*(["'])/);
+    if (!q) return null;
+    const quote = q[1];
+    const open = ts.indexOf(quote, j);
+    let k = open + 1;
+    while (k < ts.length && !(ts[k] === quote && ts[k - 1] !== "\\")) k++;
+    const lit = ts.slice(open + 1, k);
+    // A SINGLE-QUOTED LITERAL MUST BE UNESCAPED, which is what prettier uses when the text contains
+    // a double quote (browser_run_script names "<SUMMRISE_RUN_ID>-*.png"). This is a SECOND COPY of
+    // the walker the field-presence gate above defines correctly — one fact, two owners, the pattern
+    // this session keeps finding; consolidating them is on the next round's list.
+    return quote === "'" ? lit.replace(/\\'/g, "'") : lit;
+  };
+  const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+
+  let exposed = 0;
+  const stillOwed = new Set();
+  const unexpected = [];
+  for (const e of spec) {
+    const c = consoleDescription(e.name);
+    if (c === null) continue; // deliberately not console-exposed
+    exposed++;
+    if (norm(c).includes(norm(e.description))) continue;
+    if (CONTAINMENT_DEBT.has(e.name)) stillOwed.add(e.name);
+    else unexpected.push(e.name);
+  }
+  assert.ok(exposed >= 25, `only ${exposed} console-exposed tools were read — this proves nothing`);
+  assert.deepEqual(
+    unexpected,
+    [],
+    `console descriptions that neither carry the device's text nor are listed debt: ${unexpected.join(", ")}`,
+  );
+  const paid = [...CONTAINMENT_DEBT].filter((n) => !stillOwed.has(n));
+  assert.deepEqual(
+    paid,
+    [],
+    `these were listed as debt but now satisfy containment — delete them from CONTAINMENT_DEBT: ${paid.join(", ")}`,
+  );
+});

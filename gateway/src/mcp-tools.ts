@@ -339,7 +339,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   },
   {
     name: "terminal_close",
-    description: "Close a terminal session on a device.",
+    description: "Close a terminal session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -364,7 +364,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   },
   {
     name: "terminal_diag_read",
-    description: "Read the panel diagnostic ring buffer (newest last).",
+    description: "Read the panel diagnostic ring buffer (newest last). Returns {entries: [...]}.",
     inputSchema: {
       type: "object",
       properties: {
