@@ -21,16 +21,23 @@ import { WORKING_MS } from "../hooks/useDeviceActivity";
 // survives greyscale, colour-vision deficiencies, and `prefers-reduced-motion`, where an animation
 // channel disappears entirely.
 //
-// THE VOCABULARY IS ONLY WHAT THE DEVICE CAN ACTUALLY REPORT. Four states, because four are
-// derivable: a transport that is down, a question holding, activity, and neither. "Failed" is not
-// here because no field reports it per session — inventing a state would put a shape on the screen
-// that nothing can ever mean.
+// THE VOCABULARY IS ONLY WHAT THE DEVICE CAN ACTUALLY REPORT. Five states, because five are
+// derivable: a transport that is down, a question holding, activity, FAILURE, and neither.
+//
+// THIS SAID FOUR UNTIL IT WAS CORRECTED, and the correction is the principle working rather than
+// bending: the paragraph used to end "'Failed' is not here because no field reports it per session —
+// inventing a state would put a shape on the screen that nothing can ever mean". That was true when
+// it was written. Round 96 made it false — the device learned to report `last_exit_code`
+// (TermSessionInfo, tools/terminal/mod.rs) — and round 97 added the state and argued its position in
+// the urgency order below. A vocabulary that grows only when the device can feed it, and says so
+// when it does, is the whole point of this file.
 
 /** What a mark can say about an entity's LIVENESS. Urgency, not category. */
 export type Liveness = "off" | "waiting" | "working" | "failed" | "idle";
 
 /** The silhouette a state draws — the channel that survives colour loss. */
-type Silhouette = "diamond" | "solid-halo" | "ring" | "dashed-ring" | "triangle";
+type Silhouette =
+  "diamond" | "solid-halo" | "ring" | "dashed-ring" | "triangle";
 
 /** Ordered by URGENCY, and the order is the contract: a mark may only be louder than another if it
  *  outranks it. `waiting` beats `working` because a question DECAYS if it is not seen, while work
@@ -41,7 +48,13 @@ type Silhouette = "diamond" | "solid-halo" | "ring" | "dashed-ring" | "triangle"
  *  question is not described by its last exit code. It outranks `idle` because "quiet, and the last thing here
  *  broke" is more than "quiet". And it LINGERS by design: the device clears the code when the next command is
  *  written, so the state ends when the session does something else, not on a timer this surface invents. */
-export const URGENCY: Record<Liveness, number> = { waiting: 4, working: 3, failed: 2, idle: 1, off: 0 };
+export const URGENCY: Record<Liveness, number> = {
+  waiting: 4,
+  working: 3,
+  failed: 2,
+  idle: 1,
+  off: 0,
+};
 
 /** One shape per state, no two alike. Pinned by liveness.test.ts, because "shape carries the state"
  *  is worthless if two states share a shape. */
@@ -55,7 +68,13 @@ export const SILHOUETTE: Record<Liveness, Silhouette> = {
 
 /** Motion is an ADDITION, never the message: only `working` moves, and it still reads as a solid
  *  mark with a halo when motion is off. */
-export const MOVES: Record<Liveness, boolean> = { waiting: false, working: true, failed: false, idle: false, off: false };
+export const MOVES: Record<Liveness, boolean> = {
+  waiting: false,
+  working: true,
+  failed: false,
+  idle: false,
+  off: false,
+};
 
 /**
  * THE PRECEDENCE, in one place. Every surface that shows liveness calls this rather than writing its
@@ -65,7 +84,12 @@ export const MOVES: Record<Liveness, boolean> = { waiting: false, working: true,
  * `reachable` is about the TRANSPORT, not the entity: a session on a dead connection cannot be
  * answered even if a question is outstanding, so it is `off` and the mark must not claim otherwise.
  */
-export function livenessOf(input: { reachable: boolean; pending: boolean; active: boolean; failed?: boolean }): Liveness {
+export function livenessOf(input: {
+  reachable: boolean;
+  pending: boolean;
+  active: boolean;
+  failed?: boolean;
+}): Liveness {
   if (!input.reachable) return "off";
   if (input.pending) return "waiting";
   if (input.active) return "working";
@@ -82,8 +106,16 @@ export function livenessOf(input: { reachable: boolean; pending: boolean; active
  *  on most of the time and therefore means nothing. The failure belongs on the SESSION's mark, where the operator
  *  can see which session it is, and the rail keeps answering the question it was built for: is this machine doing
  *  something, and does anything want me. */
-export function deviceLiveness(input: { connected: boolean; pendingCount: number; working: boolean }): Liveness {
-  return livenessOf({ reachable: input.connected, pending: input.pendingCount > 0, active: input.working });
+export function deviceLiveness(input: {
+  connected: boolean;
+  pendingCount: number;
+  working: boolean;
+}): Liveness {
+  return livenessOf({
+    reachable: input.connected,
+    pending: input.pendingCount > 0,
+    active: input.working,
+  });
 }
 
 /** A session. `reachable` follows the device because a session lives on it; a CLOSED session is not
@@ -102,7 +134,11 @@ export function deviceLiveness(input: { connected: boolean; pendingCount: number
  * closed session is `off`), and the DESKTOP tab's title said "waiting for your approval" about a tab that cannot be
  * answered at all. The two densities disagreed about one session, which is the failure this model exists to stop.
  */
-export function sessionWaiting(session: { pendingApproval?: unknown; closed?: boolean; commandRunning?: boolean }): boolean {
+export function sessionWaiting(session: {
+  pendingApproval?: unknown;
+  closed?: boolean;
+  commandRunning?: boolean;
+}): boolean {
   return !session.closed && !!session.pendingApproval;
 }
 
@@ -122,7 +158,10 @@ export function sessionWaiting(session: { pendingApproval?: unknown; closed?: bo
  * THE WINDOW IS `WORKING_MS`, the same number the device-wide signal uses — imported rather than restated, so the
  * two cannot drift into disagreeing about what "recently" means.
  */
-export function sessionActive(session: { idleMs?: number; commandRunning?: boolean }): boolean {
+export function sessionActive(session: {
+  idleMs?: number;
+  commandRunning?: boolean;
+}): boolean {
   // THE DEVICE'S ANSWER FIRST. `command_running` is the manager's own busy flag — the execute wait-loop sets it
   // around the command it is waiting for — so it is true for the WHOLE life of a command, including the silent
   // minutes that output recency cannot see (a flash, a long probe, a serial command that prints one final line).
@@ -139,7 +178,9 @@ export function sessionActive(session: { idleMs?: number; commandRunning?: boole
  * IDLE there — the same blindness the per-session marks had until the device started reporting `command_running`
  * (round 28). This is that fact, at device scope: one derivation, next to the per-session one it belongs with.
  */
-export function anyCommandRunning(sessions: Array<{ commandRunning?: boolean }> | undefined): boolean {
+export function anyCommandRunning(
+  sessions: Array<{ commandRunning?: boolean }> | undefined,
+): boolean {
   return !!sessions?.some((s) => s.commandRunning);
 }
 
@@ -176,6 +217,8 @@ export function sessionLiveness(session: {
  *  NON-ZERO IS A FAILURE, with no judgement about WHICH codes deserve it: the panel's command cards have called
  *  every non-zero exit "Failed (exit N)" since they existed (`cardState`), and a surface that decided a 1 from a
  *  `grep` was not worth mentioning would be making a claim the device never made. */
-export function sessionFailed(session: { lastExitCode?: number | null }): boolean {
+export function sessionFailed(session: {
+  lastExitCode?: number | null;
+}): boolean {
   return typeof session.lastExitCode === "number" && session.lastExitCode !== 0;
 }
