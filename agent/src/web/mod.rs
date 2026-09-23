@@ -2235,7 +2235,6 @@ fn api_spec(state: &AppState) -> serde_json::Value {
         .plugins
         .iter()
         .map(|p| {
-            let nav = p.nav_item();
             let tools: Vec<serde_json::Value> = state
                 .plugin_registry
                 .plugin_tools(p.name())
@@ -2248,20 +2247,12 @@ fn api_spec(state: &AppState) -> serde_json::Value {
                     })
                 })
                 .collect();
-            let mut obj = serde_json::json!({
+            let obj = serde_json::json!({
                 "name": p.name(),
                 "displayName": p.display_name(),
                 "description": p.description(),
                 "tools": tools,
             });
-            if let Some(n) = nav {
-                obj["navItem"] = serde_json::json!({
-                    "id": n.id,
-                    "icon": n.icon,
-                    "label": n.label,
-                    "html": n.html_snippet,
-                });
-            }
             obj
         })
         .collect();

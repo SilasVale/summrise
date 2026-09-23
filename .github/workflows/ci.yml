@@ -677,19 +677,23 @@ jobs:
           mkdir -p /tmp/packcheck
           mv "summrise-agent-npm/$TGZ_NAME" /tmp/packcheck/
           tar tzf "/tmp/packcheck/$TGZ_NAME" > /tmp/tgz-list-ci.txt
-          for F in "README.md" \
-                   "summrise-desktop-electron/src/main.js" \
-                   "summrise-desktop-electron/src/preload.js" \
-                   "summrise-desktop-electron/src/url-policy.js" \
-                   "summrise-desktop-electron/icon.png" \
-                   "summrise-desktop-electron/icon.ico" \
-                   "bin/summrise.js"; do
+          # THE ONE OWNER (architecture round C4): summrise-agent-npm/required-in-tgz.txt, which
+          # scripts/publish-release.sh and release.yml read too — this list used to be a fourth
+          # verbatim copy. This job has no cargo-xwin, so summrise-agent.exe is skipped: the job
+          # name says so, and build-pins.bash checks that the exception stays documented.
+          REQUIRED_IN_TGZ="summrise-agent-npm/required-in-tgz.txt"
+          [ -f "$REQUIRED_IN_TGZ" ] || { echo "::error::the packed-tgz content list is missing: $REQUIRED_IN_TGZ"; exit 1; }
+          n=0
+          while IFS= read -r F; do
+            case "$F" in ''|'#'*) continue ;; esac
+            [ "$F" = "summrise-agent.exe" ] && continue
             if ! grep -qE "(^|/)${F}$" /tmp/tgz-list-ci.txt; then
               echo "::error::packed tgz missing required file: $F"
               exit 1
             fi
-          done
-          echo "pack content subset check OK (6/6 — exe excluded, no xwin in this job)"
+            n=$((n+1))
+          done < "$REQUIRED_IN_TGZ"
+          echo "pack content check OK ($n files, exe excluded — no xwin in this job)"
       # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
       # package has zero dependencies and no lockfile, so npm ci would
       # fail with EUSAGE. `npm test` (node --test over node builtins) runs

@@ -40,11 +40,6 @@ pub trait Plugin: Send + Sync {
     fn tools(&self) -> Vec<ToolDef> {
         vec![]
     }
-
-    /// Dashboard navigation item (optional — returns None if no UI needed)
-    fn nav_item(&self) -> Option<NavItem> {
-        None
-    }
 }
 
 // ── Tool Definition ───────────────────────────────────────────
@@ -122,18 +117,6 @@ impl ToolDef {
     }
 }
 
-// ── Navigation Item ───────────────────────────────────────────
-
-pub struct NavItem {
-    /// Unique page id, used as HTML id: "page-{id}"
-    pub id: &'static str,
-    /// Sidebar icon (emoji or SVG)
-    pub icon: &'static str,
-    /// Sidebar label
-    pub label: &'static str,
-    /// HTML snippet injected into the dashboard page div
-    pub html_snippet: &'static str,
-}
 
 #[cfg(test)]
 mod guard_tests {

@@ -157,7 +157,8 @@ test("mcp: tools/call terminal_execute → device /api/tools/terminal_execute wi
     assert.equal(res.status, 200);
     let data = await res.json();
     assert.equal(data.result.content[0].type, "text");
-    // quiet_ms defaults to 400 when omitted
+    // quiet_ms defaults to 200 when omitted (it said 400 here for a while, while the assertion
+    // below sent 200 and both ends defaulted to 200 — a comment that contradicted its own case)
     res = await handleMcp(
       post({
         jsonrpc: "2.0",

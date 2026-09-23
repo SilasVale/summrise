@@ -7,7 +7,7 @@ pub use summrise_agent_core::config;
 pub use summrise_agent_core::error;
 pub use summrise_agent_core::events;
 pub use summrise_agent_core::{
-    AgentEvent, AppEventBus, Config, DeviceError, EventBus, NavItem, Plugin, ToolDef, ToolHandler,
+    AgentEvent, AppEventBus, Config, DeviceError, EventBus, Plugin, ToolDef, ToolHandler,
 };
 
 pub mod bootstrap;

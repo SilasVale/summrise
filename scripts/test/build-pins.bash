@@ -46,32 +46,26 @@ while IFS= read -r l; do
   has "every ci.yml cargo-xwin install carries the release's pin (--version $XWIN)" "$l" "--version $XWIN"
 done < <(grep -h "cargo install cargo-xwin" .github/workflows/ci.yml)
 
-# ── 3. the shipped-file list vs the three content gates ─────────────────────
+# ── 3. the shipped-file list vs the ONE owner, and the builders that read it ─
 FILES="$(node -p "require('./agent/summrise-agent-npm/package.json').files.join('\n')")"
 [ -n "$FILES" ] || { echo "FAIL: agent/summrise-agent-npm/package.json declares no files[]"; exit 1; }
-# gate path : entry this job legitimately cannot contain (with its reason)
-GATES=(
-  "scripts/publish-release.sh:"
-  ".github/workflows/release.yml:"
-  # "no exe in this job" — the job name says so; it has no cargo-xwin.
-  ".github/workflows/ci.yml:summrise-agent.exe"
-)
-for g in "${GATES[@]}"; do
-  path="${g%%:*}"
-  excluded="${g#*:}"
-  # The gate block: from its `tar tzf …` listing to the closing `; do`.
-  block="$(awk '/tar tzf .*tgz-list/{p=1} p{print} p && /; do$/{exit}' "$path")"
-  [ -n "$block" ] || { echo "FAIL: no tgz content gate found in $path"; exit 1; }
-  while IFS= read -r entry; do
-    [ -n "$entry" ] || continue
-    [ "$entry" = "$excluded" ] && continue
-    case "$entry" in
-      */) # a directory in files[] is covered by the files under it
-        has "$path's gate covers $entry" "$block" "$entry" ;;
-      *)
-        has "$path's gate ships $entry" "$block" "\"$entry\"" ;;
-    esac
-  done <<<"$FILES"
+# THE MANY OWNERS BECAME ONE (architecture round C4). The packed-tgz content list stood verbatim in
+# three builders and this gate compared their TEXT to package.json's files[]; both builders now read
+# agent/summrise-agent-npm/required-in-tgz.txt, so the question that still has teeth is the one
+# below: does the ONE owner name every file the package declares? It also catches the drift the old
+# shape could not — a file ADDED to files[] and never added to the required list.
+OWNER="agent/summrise-agent-npm/required-in-tgz.txt"
+OWNER_TEXT="$(cat "$OWNER" 2>/dev/null)"
+[ -n "$OWNER_TEXT" ] || { echo "FAIL: the packed-tgz content list is missing or empty: $OWNER"; exit 1; }
+while IFS= read -r entry; do
+  [ -n "$entry" ] || continue
+  case "$entry" in */) continue ;; esac   # a directory in files[] is covered by the files under it
+  has "$OWNER names $entry (package.json declares it)" "$OWNER_TEXT" "$entry"
+done <<<"$FILES"
+# AND EVERY BUILDER MUST READ IT rather than restate it: a restated copy is exactly the defect C4
+# removed, and it is what let the local gate and the CI gate drift apart.
+for path in scripts/publish-release.sh .github/workflows/release.yml .github/workflows/ci.yml; do
+  has "$path reads the one owner" "$(cat "$path")" "required-in-tgz.txt"
 done
 check "the documented exception is still documented" \
   "$(grep -c 'no exe in this job' .github/workflows/ci.yml)" "1"
