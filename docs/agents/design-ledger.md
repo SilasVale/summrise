@@ -4250,3 +4250,31 @@ merely preceded by a failure it happens to print.
 
 The check itself deserved the last word, though: it named the exact entry (`system_file_upload`) that
 had been paid and left in the list, which is what a self-cleaning list is for.
+
+**THE TOOL-PROSE WORK IS FINISHED: 32 CONSOLE-EXPOSED TOOLS, 24 IDENTICAL, 8 WITH THE CONSOLE'S OWN
+ADDITIONS KEPT, ZERO REWRITES, EMPTY DEBT LIST.** It started at five identical and twenty-two
+rewrites, with one live contract drift that ten green contract tests had passed through.
+
+What did the work, in order: the snapshot learned to carry descriptions (nothing could compare prose
+that existed in one machine-readable place); a field-presence gate caught the dropped-field half and
+was proven on the real drift; a containment gate caught the moved-explanation half, with a
+self-cleaning debt list that twice refused a commit — once because entries were paid, once because I
+left one behind; and then each of the 22 pairs was READ and judged. That last part is the part a
+mechanical pass would have got wrong: the verdicts flipped twice. The device's text won most often,
+but for `monitor_add`, `system_file_download` and the secret store's locator the CONSOLE knew facts the
+device's text omits, and for `terminal_diag_write` the two sides disagreed about who calls the tool —
+which I could not adjudicate without reading the callers, so the device's text won and the question is
+named in the commit rather than papered over with an invented sentence.
+
+TWO REAL DEFECTS CAME OUT OF THE COMPARISON ITSELF. `terminal_write`'s console copy showed a DOUBLED
+escape, `\\n`, so a model reading the console was told to send a literal double-backslash where the
+tool wants `\n` — visible only by comparing stored strings, not rendered prose. And the walker that
+does the comparing needed THREE fixes: it knew only double quotes (prettier writes single ones when the
+text contains a quote), then only unescaped the single-quoted style, then did not decode a
+double-quoted literal as JSON at all — each fix made by comparing the artefact rather than trusting the
+instrument. That walker is now defined once, which is the reason it only had to be fixed once at the
+end.
+
+The shape of the whole episode is the shape of every round in this file: one fact with two owners and
+no gate. What is different here is that the fix was not a deletion or a merge but an ARTEFACT — putting
+the device's prose somewhere a check could read it — and the gates fell out of that.
