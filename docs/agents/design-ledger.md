@@ -4165,3 +4165,53 @@ C3 (the ledger as an input with a fixture adapter), C4 (one owner for the packed
 residue), and the shallow-module list (one real fix, three negatives). The next iteration should
 start from a FRESH exploration rather than from this list — and it should scope itself to a different
 subsystem, because the release pipeline has now been measured, corrected, and re-measured.
+
+---
+
+## 2026-09-23/24 — the tool layer: a live drift, and the artifact that makes prose checkable
+
+A fresh exploration (the release pipeline had been worked through) went at the tool-registration
+path, and found the thing every previous round kept finding in a new place: **one fact, two owners,
+no gate.**
+
+**THE DEVICE AND THE CONSOLE TOLD THE MODEL DIFFERENT CONTRACTS**, with all ten contract tests
+green. `monitor_list`'s console copy had lost `last_expect_ok` while `drops`' explanation moved onto
+`last_status`. Nothing could compare prose that existed in only one machine-readable place: the
+snapshot pins NAMES and PARAMETER NAMES deliberately ("a type difference between the two sides is a
+separate question this snapshot is not trying to answer"), and the code-viewer mirror gate compares
+the console's copy **to itself**.
+
+**SO THE FIRST HALF WAS TO MAKE THE DEVICE'S PROSE EXIST SOMEWHERE A CHECK CAN READ IT**: the
+snapshot now carries all 56 descriptions. The measurement that followed turned one known drift into a
+systemic one — of the 32 console-exposed tools, 5 were identical, 27 differed, and FIVE had lost a
+field the device names (terminal_execute's session_id; terminal_read's offset/start/end;
+terminal_resize's rows/cols; terminal_screen's lines; terminal_write's break_ms). Those five were
+carried over MECHANICALLY from the spec, and they carry lessons: terminal_resize now tells a console
+client that rows/cols are OPTIONAL and default to 24x80, knowledge from a schema that once claimed
+otherwise.
+
+**THE GATE IS FIELD PRESENCE, AND IT WAS PROVEN ON THE REAL DRIFT.** No console copy may drop a
+backticked field the device names — the spelling both sides use — with a floor so a scan that reads
+nothing fails. Proven by re-introducing tonight's exact loss: `console copies that drop a field the
+device names: monitor_list: last_expect_ok`. THE FIRST MUTATION ATTEMPT DID NOT BITE, and that was
+the third such lesson in one evening: my perl pattern guessed at the file's formatting, matched
+nothing, and the gate rightly passed an UNCHANGED file. A mutation that does not bite is evidence
+about the mutation first — so the second attempt used the same walker the gate uses.
+
+**AND THE GATE ITSELF HAD THE BUG IT EXISTS TO CATCH.** Its walker assumed descriptions are written
+with double quotes; prettier picks whichever quote needs fewer escapes, so `browser_run_script`'s
+description (containing `"<SUMMRISE_RUN_ID>-*.png"`) is written with SINGLE quotes. The walker
+returned 23 characters of a 1080-character text — a gate mis-reading its input reports violations
+that are not there, or misses ones that are. Both quote styles now, and the measurement script was
+corrected too, because its numbers are what this ledger records.
+
+**STATE AFTER THE ROUND, MEASURED:** 11 identical, 2 containment (secret_set's merge keeps the
+console's "Lives on the device agent — the browser extension is not involved."), 19 REWRITES — every
+one still lossy (monitor_add 1122 device chars -> 788 console). The next iteration is a CONTAINMENT
+rule (device text must appear in the console's), which catches both halves of the original drift —
+a dropped field AND a moved explanation — and its work list is those 19, in the order of how much
+each lost.
+
+**AND CI CAUGHT WHAT NO LOCAL CHECK OF MINE HAD:** deleting the dead `NavItem` left
+`summrise-command-core/src/lib.rs` unformatted. `cargo fmt --check` runs in CI and I had never run
+it. The repo's own rule — run the command the other end runs — applied to the loop that wrote it.
