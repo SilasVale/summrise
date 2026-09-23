@@ -129,6 +129,15 @@ pub(super) fn tool_connect_saved(ctx: &super::ctx::ToolCtx) -> ToolDef {
                     // doc's "connections reuses sessions::tool_open" exception
                     // no longer needs five locals unpacked back into five
                     // arguments.
+                    //
+                    // THE COST, NAMED SO THE NEXT READER DOES NOT HAVE TO MEASURE IT: this
+                    // constructs terminal_open's whole ToolDef — its description and its ~2.6 KB
+                    // input_schema literal — and keeps only `.handler`, so the definition is
+                    // allocated per call and discarded. The reuse is deliberate (the paragraph
+                    // above is the argument, and it won), and the waste is negligible for a tool
+                    // called by hand. The cheap fix when someone next touches this: give
+                    // sessions a `pub(crate) fn open_handler(...)` that both `tool_open` and this
+                    // call site use, so the definition is built once, for the tool that owns it.
                     let handler = tool_open(&ctx).handler;
                     return handler.call(serde_json::Value::Object(open_params)).await;
                 }
