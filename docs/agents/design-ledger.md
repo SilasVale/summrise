@@ -4336,3 +4336,31 @@ path is device-scoped in the code, and the policy is tested cell by cell — inc
 subtleties (the name oracle and the SSRF gate) that a reviewer would have to think of before looking
 for them. THE VALUE OF THIS RESULT IS WHERE IT POINTS: not at this file. A review finding is a
 hypothesis, and this one was worth three reads and no edits.
+
+**THE DEVICE-DOOR EXPLORATION FOUND ONE REAL GAP AND ONE FINDING I HAD TO CORRECT MYSELF ON.**
+
+**THE REAL GAP: A CURATED CATALOGUE WITH A SECOND DOOR THAT DOES NOT KNOW IT EXISTS.** Door A, `/mcp`,
+withholds tools from MCP clients by name, each with a reason, in `NOT_EXPOSED` — `terminal_sftp`
+"takes arbitrary SSH credentials an MCP client should not be offered", `agent_update`
+"self-modifying", `mcp_client_call` "internal bridge plumbing". Door B, the device proxy, enforces
+none of it: `restPath` goes from the route straight into `deviceFetch` with no check, and the device
+itself authorizes nothing per tool — `api_call_tool` does `find_tool` then `handler.call`, with no
+caller identity and no allowlist. So the curation exists in exactly one place.
+
+What makes it precise rather than alarming is the evidence, which took two greps: the PANEL needs some
+of those names — `UpdateCard.tsx` calls `/api/tools/agent_update` through door B — so door A's reason
+("self-modifying") is coherently about MCP clients rather than the operator's UI, and blocking the
+catalogue at door B would break the panel. Of the withheld names, `terminal_sftp`, `mcp_client_call`
+and `system_file_write` appear in NO UI file at all: reachable through door B with a 30-day plugin
+cookie, needed by nobody. That is the escalation path, and whether a browser cookie may reach an
+SSH-credential tool is a product decision, not a refactor — so it is asked, not assumed.
+
+**AND THE FINDING I CORRECTED: "the event/capability surface is dead" SURVIVED, but not the way it was
+argued.** `emit`, `on`, `requireApi`, `ctx.events` and `ctx.api` have no live consumers — but my first
+grep said `ctx.api` had three and `ctx.events` five, and all eight were COMMENTS, one of them the old
+code the policy replaced (`// the old (ctx.api?.translate as any)?.resolveAutoModel || null`). Live
+framework use is `ctx.routes` (29) plus `ctx.user`, `ctx.model`, `ctx.generationId`. So the surface is
+dead, and the deletion test says deleting it REMOVES complexity rather than moving it — but it is also
+the IMPLEMENTATION of a policy adopted after an incident, kept beside the practice it guarded. The
+honest move is therefore not a late-night deletion: the candidate is recorded with its reason intact,
+because this file already knows what happens when code outlives the reason for it.
