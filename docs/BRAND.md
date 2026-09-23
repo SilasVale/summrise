@@ -267,6 +267,20 @@ client behind the `vale-gate` server label — and the label itself in
 namespace, so it is a client-restart action, not a rename side effect. Also
 `~/vale-deploy`, `~/vale-signing-test`, `~/vale-stage-l-*`.
 
+**The 1.2.453 release — shipped, with one thing a gate caught (2026-09-23).** The pack went to the CDN
+and to npm (`latest`), and d1 updated to it, so what devices run is real and independently checked: the
+CDN's `version.json` sha256, the CDN tarball and the npm tarball are the same bytes, and the device
+itself reports `release: 1.2.453`. **The GitHub release asset for that version is a different
+artifact**, and the dual-builder audit says so in as many words: *"source-derived file drifted:
+./bin/summrise.js … the two builders packaged DIFFERENT SOURCE — do not ship"*. That verdict is
+CORRECT: the pack was published from one tree, the `v1.2.453` tag was later moved onto a commit whose
+tree carries the component-fetch CLI, and the asset is built from the tagged tree. The rule this broke
+— one version number means one artifact — is now in AGENTS.md's release steps together with the fix
+(if CI must go green again for an already-published version, put an **empty commit** on the release
+commit; never move the tag onto different content). The reconcile debt for 1.2.453 is settled the way
+the tooling provides for it — acknowledged at the next publish, in the ledger — rather than by
+uploading the shipped pack by hand to make the audit agree with itself.
+
 **The reinstall — EXECUTED 2026-09-23** (the run, its two failures and what they taught are
 recorded below, because the *steps* were right and the run still went dark for an hour).
 

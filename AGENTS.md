@@ -197,6 +197,14 @@ git push origin main          # CI green on the pushed commit
 #    while `gh` finds it happily. That is how 1.2.453 got two "successful" release steps and a release
 #    with zero assets. release.yml now PATCHes draft=false and verifies with the audit's own endpoint;
 #    if you move a tag for a version that already has a release, expect to re-run and re-audit it.
+#    AND DO NOT MOVE A TAG ACROSS A CONTENT CHANGE. The GitHub asset is built from the TAGGED COMMIT'S
+#    TREE, so moving the tag onto a commit that carries different files makes CI package a DIFFERENT
+#    artifact under the same version number — and the audit says so, correctly: on 1.2.453 it reported
+#    "source-derived file drifted: ./bin/summrise.js … the two builders packaged DIFFERENT SOURCE — do
+#    not ship", because the pack had been published from one tree and the tag later moved onto the
+#    commit carrying the component-fetch CLI. THAT IS A REAL VERSIONING VIOLATION, not a false alarm.
+#    If CI must go green again for an already-published version, put an EMPTY commit on the release
+#    commit (`git commit --allow-empty`) — the tree is unchanged, so the asset matches what shipped.
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
