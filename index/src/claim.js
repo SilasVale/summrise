@@ -3,11 +3,16 @@
 // RACE this fixes: GET /files/<token> used to R2-get (existence check),
 // then stream, then delete. Two concurrent GETs could BOTH pass the get()
 // before either delete landed, so the "one-time" file downloaded twice.
-// R2 has no compare-and-swap and KV is last-write-wins, so neither can
-// close the race. A Durable Object instance named by the token is the
-// correct primitive: the runtime delivers one instance's requests strictly
-// one at a time, so the first claim wins and losers observe the winner's
-// delete.
+// R2 has a compare-and-swap on CREATE (conditional put via onlyIf) but NO
+// conditional DELETE — and consuming a one-time file IS a delete — while KV
+// is last-write-wins. Neither can close the consume race. (Checked against
+// the R2 docs 2026-09-23: the binding's delete takes no options, and the S3
+// compatibility matrix lists conditional operations for Get/Head/Put/Copy
+// but not for DeleteObject. The earlier wording here said "R2 has no
+// compare-and-swap", which was too broad.) A Durable Object instance named
+// by the token is the correct primitive: the runtime delivers one instance's
+// requests strictly one at a time, so the first claim wins and losers observe
+// the winner's delete.
 //
 // COST: this DO is SHORT-LIVED per claim (milliseconds). It holds no
 // WebSocket, installs no alarm, writes no storage — it runs one R2 get +

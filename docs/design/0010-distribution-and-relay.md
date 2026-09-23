@@ -41,6 +41,31 @@ short-lived per claim (milliseconds), holds no WebSocket, installs no alarm and 
 Removing it would save almost nothing measurable and reintroduce a defect that has already been
 fixed once. What it *does* need is a page of documentation, not a rewrite.
 
+**Checked against the platform's documentation the same day, and the decision survived — with one
+correction to its stated reason.** The comment's "R2 has no compare-and-swap" is **half wrong**: R2
+*does* have a compare-and-swap on **create** (conditional `put` via `onlyIf` / the `Headers` form;
+on precondition failure `put()` returns `null` and nothing is stored; writes and deletes are
+strongly consistent — [Workers API reference](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)).
+What R2 lacks is exactly the operation a one-time **consume** needs: a **conditional delete**. The
+binding's `delete` takes no options, and the S3 compatibility matrix lists conditional operations
+for Get/Head/Put/Copy but **not** for `DeleteObject`/`DeleteObjects`
+([S3 compatibility](https://developers.cloudflare.com/r2/api/s3/api/)). So "delete it only if the
+ETag still matches" is impossible here, and the DO stays the correct primitive.
+
+The alternatives were checked too, so the next reader does not re-open them blind:
+**presigned URLs** are *"reused multiple times until it expires"*, bypass the Worker entirely (so
+nothing learns the download happened) and cannot use custom domains
+([presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)); **KV** is
+last-write-wins with up to 60 s propagation; **Queues** is at-least-once and **Workflows** retries
+steps — neither is a claim primitive. If the DO is ever to go, the documented answer is **D1**:
+single-threaded, one query at a time, implicit transaction, and `D1Result.meta.changes` gives
+`DELETE … WHERE token = ?` + `changes === 1` as an atomic claim
+([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)) — with the caveat that *"each
+individual D1 database is backed by a single Durable Object"*, i.e. that relocates the primitive
+rather than removing it. **Non-Cloudflare note:** AWS S3 *does* support conditional deletes
+(`If-Match`, 412 on mismatch), so an S3-based relay could be DO-free — D3 is what rules that out,
+not the availability of the primitive.
+
 **D5 — The CDN stays the install and update channel for now; the npm package name stays a
 reservation.** Because (a) the version contract has two readers on the device side, (b) the CDN
 is also the rollback (the previous release's tgz), and (c) nothing is broken about it. This is the
@@ -55,21 +80,38 @@ the DO and keeps the endpoint **paths** (`/api/upload`, `/files/<token>`).
 
 **Correction, same day, from the platform's own docs — the first version of this paragraph said
 "every device-side tool is untouched, therefore no semantic risk", and that was wrong.** The relay
-cannot simply take those paths on the CDN worker's hostname, because the gateway reaches the
-upload endpoint with a **same-zone `fetch()`**, and Cloudflare is explicit that *"Routes cannot be
-the target of a same-zone `fetch()` call"* while *"Custom Domains can be invoked within the same
-zone via `fetch()`"* ([Routes and domains](https://developers.cloudflare.com/workers/configuration/routing/)).
-So the relay needs **its own custom domain**, which means:
+cannot simply take those paths on the CDN worker's hostname **for the upload leg**, because the
+gateway reaches the upload endpoint with a **same-zone `fetch()`**, and Cloudflare is explicit that
+*"Routes cannot be the target of a same-zone `fetch()` call"* while *"Custom Domains can be invoked
+within the same zone via `fetch()`"*, and — the sentence that settles it — *"On the same zone, the
+only way for a Worker to communicate with another Worker running on a route … is via **service
+bindings**"* ([Routes and domains](https://developers.cloudflare.com/workers/configuration/routing/)).
 
-- the gateway's one knob (`indexWorkerBase(env)`) points at the new host;
-- the download URL the upload handler mints changes host, so the places that name the relay host
-  (the operator's cross-machine file rule, and any tool text) follow it — the device's SSRF guard
-  only refuses IP literals, so a hostname change is allowed but must be *made*;
+**And a second correction, an hour later: no new hostname is needed either.** The Custom Domains
+page documents the interaction with Routes, from the other side: *"A Worker running on a Custom
+Domain is treated as an origin. Any Workers running on routes **before** your Custom Domain can …
+call the Worker registered on your Custom Domain"* — with the worked example of a route on
+`api.example.com/auth` triggering `auth-worker` while `api.example.com` itself belongs to a Custom
+Domain ([Custom Domains → Interaction with Routes](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)).
+So a route on the **existing** host wins for the paths it matches. The settled mechanics:
+
+- **download** — a route `…/files/*` on the existing download host → `summrise-relay`. External
+  clients fetch it (device, build host), where the same-zone limitation does not apply, and the URL
+  the upload handler mints (`${url.origin}/files/${token}`) therefore keeps its host: **no doc, no
+  tool and no device-side change**;
+- **upload** — a **service binding** `gateway → summrise-relay`, so this leg is not public at all
+  (a smaller surface than today, where `/api/upload` is reachable) and no custom domain is involved;
+- **the secret** — the gateway injects `Bearer ${env.UPLOAD_KEY}` (`devices.ts:406`) and the worker
+  compares it, and worker secrets are **write-only** (the same constraint BRAND.md records for the
+  `vale-gate` worker name), so the shared value cannot be copied to the new worker. A fresh value is
+  therefore minted and set on both — a coordinated deploy, and the one genuinely risky step;
 - the old bucket drains on its 24 h TTL rather than being migrated.
 
-The relay worker is named **`summrise-relay`** and its host **`relay.<zone>`**; attaching a custom
-domain is a dashboard click *or* the Workers custom-domains API with the same token that already
-deploys.
+**The mechanical split is already done and test-verified** (2026-09-23): `relay/` holds the upload
+and claim halves plus their tests, and the two suites report **relay 49/49** and **index 90/90** —
+the 16 failing cases in the first run were precisely the CDN's concerns (landing page, the
+playwright/cloudflared/electron proxies, `/api/version`), which is how the boundary was confirmed
+rather than assumed.
 
 **D7 — Components ship as OUR OWN pinned per-platform npm packages**, declared as
 `optionalDependencies` with `os`/`cpu` gating — not as a postinstall download and not as "copy
