@@ -17,14 +17,33 @@ write_version_json() {
   local ver="$1" tgz="$2" out="$3" installer_exe="${4:-}"
   local sha
   sha=$(sha256sum "$tgz" | cut -d' ' -f1)
+  # THE BOXED COMPONENTS, PINNED (grilling Q4, 2026-09-23). `summrise setup` fetches
+  # cloudflared, the playwright bundle and the electron runtime from this host and
+  # verified NONE of them: a worker serving different bytes would have been staged
+  # without complaint. The manifest now carries a URL and a sha256 per component and
+  # setup REFUSES a mismatch. The pins live in index/components.json, checked in
+  # beside the worker that serves them; publish-release.sh cross-checks cloudflared's
+  # against the agent's own CLOUDFLARED_SHA256, because the agent re-checks that one
+  # at run time and the two must not drift. Absent file => the manifest keeps its old
+  # shape and every old consumer keeps working.
+  local comp=""
+  if [[ -f index/components.json ]]; then
+    comp=$(python3 - <<'PY'
+import json
+pins = {k: v for k, v in json.load(open("index/components.json")).items() if not k.startswith("_")}
+if pins:
+    print(',"components":' + json.dumps(pins, separators=(",", ":"), sort_keys=True), end="")
+PY
+)
+  fi
   if [[ -n "$installer_exe" && -f "$installer_exe" ]]; then
     local ish
     ish=$(sha256sum "$installer_exe" | cut -d' ' -f1)
-    printf '{"version":"%s","tarball":"summrise-agent-latest.tgz","updated":"%s","sha256":"%s","installer":"%s","installer_sha256":"%s"}\n' \
-      "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$(basename "$installer_exe")" "$ish" > "$out/version.json"
+    printf '{"version":"%s","tarball":"summrise-agent-latest.tgz","updated":"%s","sha256":"%s","installer":"%s","installer_sha256":"%s"%s}\n' \
+      "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$(basename "$installer_exe")" "$ish" "$comp" > "$out/version.json"
   else
-    printf '{"version":"%s","tarball":"summrise-agent-latest.tgz","updated":"%s","sha256":"%s"}\n' \
-      "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" > "$out/version.json"
+    printf '{"version":"%s","tarball":"summrise-agent-latest.tgz","updated":"%s","sha256":"%s"%s}\n' \
+      "$ver" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sha" "$comp" > "$out/version.json"
   fi
   echo "$sha"
 }

@@ -350,6 +350,21 @@ if ! MODE_BAD=$(pack_input_mode_verdict "$PWD" "$NPM_DIR"); then
 fi
 echo "pack input modes match a fresh checkout OK"
 
+# ── the component pins must AGREE with the agent's own (grilling Q4) ──────────
+# cloudflared's sha256 appears TWICE: index/components.json (published in the
+# manifest so `summrise setup` can verify what it fetched) and agent/src/tunnel.rs
+# (the pin the agent re-checks at run time). If they drift, a fresh install verifies
+# against one value and the running agent against another — so this refuses to pack.
+if [ -f index/components.json ] && [ -f agent/src/tunnel.rs ]; then
+  MANIFEST_CF=$(python3 -c "import json;print(json.load(open('index/components.json')).get('cloudflared',{}).get('sha256',''))")
+  RUST_CF=$(grep -oE 'CLOUDFLARED_SHA256: &str = "[0-9a-f]{64}"' agent/src/tunnel.rs | grep -oE '[0-9a-f]{64}')
+  if [ -n "$RUST_CF" ] && [ "$MANIFEST_CF" != "$RUST_CF" ]; then
+    echo "::error::cloudflared pin drift: index/components.json says ${MANIFEST_CF:0:12}… and agent/src/tunnel.rs says ${RUST_CF:0:12}… — update BOTH in one commit" >&2
+    exit 1
+  fi
+  echo "  component pins: cloudflared agrees with the agent's CLOUDFLARED_SHA256 (${RUST_CF:0:12}…)"
+fi
+
 echo "== pack =="
 (cd "$NPM_DIR" && npm pack >/dev/null)
 TGZ="$NPM_DIR/summrise-agent-$VER.tgz"

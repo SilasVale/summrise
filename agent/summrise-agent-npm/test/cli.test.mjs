@@ -33,7 +33,8 @@ const {
   startDesktopPs,
   rollbackVersionOk,
   newestOf,
-  componentUrl
+  componentUrl,
+  componentKey
 } = require("../bin/summrise.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -45,6 +46,17 @@ test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task s
   assert.equal(psq(""), "");
   assert.equal(psq("'"), "''");
   assert.equal(psq("a'b'c"), "a''b''c");
+});
+
+test("componentKey: the manifest's keys and the FILE names are not the same strings", () => {
+  // The manifest pins `playwright` / `electron` / `cloudflared`; the files are
+  // summrise-playwright.zip / electron-win32-x64.zip / cloudflared.exe. Mapping them
+  // is what lets setup verify a fetched component against the release manifest — and
+  // a file this release does NOT pin must not borrow somebody else's pin.
+  assert.equal(componentKey("summrise-playwright.zip"), "playwright");
+  assert.equal(componentKey("electron-win32-x64.zip"), "electron");
+  assert.equal(componentKey("cloudflared.exe"), "cloudflared");
+  assert.equal(componentKey("fix-tunnel.ps1"), null);
 });
 
 test("componentUrl: a component comes from the release host, under the agent path", () => {

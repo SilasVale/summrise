@@ -67,16 +67,28 @@ GOT_SHA=$(write_version_json "1.2.297" "$T/payload.tgz" "$T")
 check "writer echoes the sha" "$GOT_SHA" "$WANT_SHA"
 check_match "manifest is valid JSON with version+tarball" \
   "$(cat "$T/version.json")" \
-  '^\{"version":"1\.2\.297","tarball":"summrise-agent-latest\.tgz","updated":"[0-9TZ:+-]+","sha256":"[0-9a-f]{64}"\}$'
+  '^\{"version":"1\.2\.297","tarball":"summrise-agent-latest\.tgz","updated":"[0-9TZ:+-]+","sha256":"[0-9a-f]{64}"(,"components":\{.*\})?\}$'
 # The written sha must equal an independent hash of the tgz (agent_update
 # REFUSES installs without a correct sha — round-119).
 WRITTEN_SHA=$(node -p "JSON.parse(require('fs').readFileSync('$T/version.json','utf8')).sha256")
 check "manifest sha256 matches the packed tgz" "$WRITTEN_SHA" "$WANT_SHA"
-# No installer staged: the manifest keeps the tgz-only shape (old consumers
-# ignore nothing, new consumers treat missing installer fields as absent).
-check "tgz-only manifest has no installer fields" \
+# The components block is ADDITIVE and CWD-DEPENDENT BY DESIGN (grilling Q4): run
+# where index/components.json exists — the repo — and the manifest pins the three
+# boxed components `summrise setup` fetches and verifies; run where it does not and
+# the shape is exactly what it always was, so an older consumer sees nothing new.
+check "manifest written from the repo pins the three components" \
+  "$(node -p "JSON.stringify(Object.keys(JSON.parse(require('fs').readFileSync('$T/version.json','utf8')).components).sort())")" \
+  '["cloudflared","electron","playwright"]'
+( cd "$T" && write_version_json "1.2.297" "$T/payload.tgz" "$T" >/dev/null )
+check "with no index/components.json in sight the manifest has NO components key" \
   "$(node -p "JSON.stringify(Object.keys(JSON.parse(require('fs').readFileSync('$T/version.json','utf8'))).sort())")" \
   '["sha256","tarball","updated","version"]'
+# No installer staged: the manifest keeps the tgz + components shape (old consumers
+# ignore nothing, new consumers treat missing installer fields as absent).
+write_version_json "1.2.297" "$T/payload.tgz" "$T" >/dev/null
+check "no-installer manifest carries no installer fields" \
+  "$(node -p "Object.keys(JSON.parse(require('fs').readFileSync('$T/version.json','utf8'))).filter(k=>k.startsWith('installer')).join(',')")" \
+  ''
 
 # With a staged installer: additive installer + installer_sha256 fields.
 echo "fake-exe-payload" > "$T/SummriseAgent-Setup-1.2.297.exe"
@@ -90,11 +102,13 @@ check "manifest installer_sha256 matches the staged exe" \
   "$(node -p "JSON.parse(require('fs').readFileSync('$T/version.json','utf8')).installer_sha256")" \
   "$WANT_ISH"
 # Missing installer path: falls back to the tgz-only shape (never writes a
-# dangling installer name).
+# dangling installer name). Asserted on the INSTALLER keys rather than the whole
+# key list: the components block is additive, and a test that pins every key turns
+# every future addition into a red suite for no reason.
 write_version_json "1.2.297" "$T/payload.tgz" "$T" "$T/SummriseAgent-Setup-9.9.9.exe" >/dev/null
-check "dangling installer path keeps tgz-only shape" \
-  "$(node -p "JSON.stringify(Object.keys(JSON.parse(require('fs').readFileSync('$T/version.json','utf8'))).sort())")" \
-  '["sha256","tarball","updated","version"]'
+check "dangling installer path writes NO installer fields" \
+  "$(node -p "Object.keys(JSON.parse(require('fs').readFileSync('$T/version.json','utf8'))).filter(k=>k.startsWith('installer')).join(',')")" \
+  ''
 
 # ── installer prune ────────────────────────────────────────────────────
 rm -rf "$T" && mkdir -p "$T"

@@ -62,6 +62,9 @@ exports.newestOf = newestOf;
 exports.latestReleaseVersion = latestReleaseVersion;
 exports.cdnBase = cdnBase;
 exports.componentUrl = componentUrl;
+exports.componentKey = componentKey;
+exports.componentPins = componentPins;
+exports.sha256File = sha256File;
 exports.resolveComponent = resolveComponent;
 exports.ensureElectron = ensureElectron;
 exports.statusReport = statusReport;
@@ -810,6 +813,37 @@ function cdnBase() {
 function componentUrl(name) {
     return `${cdnBase()}/summrise-agent/${name}`;
 }
+/** The release manifest's key for a component's FILE name (they are not the same string). */
+function componentKey(fileName) {
+    if (fileName.startsWith("summrise-playwright"))
+        return "playwright";
+    if (fileName.startsWith("electron-"))
+        return "electron";
+    if (fileName.startsWith("cloudflared"))
+        return "cloudflared";
+    return null; // a file this release does not pin (e.g. fix-tunnel.ps1)
+}
+/** The manifest's component pins, or {} when it carries none (an older release). */
+function componentPins() {
+    const r = (0, child_process_1.spawnSync)("curl", ["-s", "-m", "5", `${cdnBase()}/api/version`], {
+        encoding: "utf8",
+        timeout: 8000,
+    });
+    if (r.status !== 0 || !r.stdout)
+        return {};
+    try {
+        const j = JSON.parse(r.stdout);
+        const c = j && typeof j.components === "object" ? j.components : null;
+        return c || {};
+    }
+    catch {
+        return {};
+    }
+}
+/** sha256 of a file. Read whole: the electron runtime is 115 MB and node's heap is fine with it. */
+function sha256File(p) {
+    return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+}
 /**
  * A boxed component's local path: the copy inside the package if it is there,
  * otherwise the release host's route for it, downloaded to a temp file.
@@ -836,6 +870,27 @@ function resolveComponent(name, pkgPath) {
     const r = (0, child_process_1.spawnSync)("curl", ["-fsSL", "-m", "300", "-o", dest, componentUrl(name)], { encoding: "utf8", timeout: 320000 });
     if (r.status !== 0 || !fs.existsSync(dest) || fs.statSync(dest).size === 0) {
         return null;
+    }
+    // VERIFY WHAT WAS FETCHED (grilling Q4). Until this existed, a worker serving
+    // different bytes would have been staged without complaint — the components are
+    // executed or loaded, so "the host said so" is not an anchor. The manifest that
+    // /api/version serves carries a sha256 per component (index/components.json,
+    // copied in at publish time); a pin that does not match REFUSES the component,
+    // because the failure it prevents is a device running bytes nobody published.
+    // No pin at all (an older release) is a warning, not a refusal: it must not make
+    // an install impossible.
+    const key = componentKey(name);
+    const pin = key ? (componentPins()[key] || {}).sha256 || "" : "";
+    if (pin) {
+        const got = sha256File(dest);
+        if (got !== pin) {
+            console.error(`setup: REFUSING ${name} — sha256 ${got.slice(0, 12)}… does not match the release manifest's ${pin.slice(0, 12)}… (the host served different bytes than it published)`);
+            return null;
+        }
+        console.log(`setup: ${name} verified against the release manifest (${pin.slice(0, 12)}…)`);
+    }
+    else if (key) {
+        console.log(`setup: ${name} fetched WITHOUT a manifest pin — not verified`);
     }
     console.log(`setup: ${name} fetched from the release host (not in the package)`);
     return dest;
@@ -1638,6 +1693,68 @@ const commands = {
         console.log(elDist
             ? "setup: electron runtime ready for the desktop shell"
             : "setup: WARNING -- the electron runtime could not be obtained (not in the package, and the release host did not serve it); start-desktop.ps1 will not open a window until it can be fetched.");
+        // ── Q9: leave a `summrise` COMMAND behind ──────────────────────────────────
+        // `npx summrise-agent setup` installs the service and nothing puts the CLI on
+        // PATH, so the very commands this output recommends (`summrise update`,
+        // `summrise status`) are command-not-found — measured on d1 on 2026-09-23.
+        // Installing THIS version by name keeps it deterministic and uses npm's own
+        // shims rather than hand-written ones; when npm cannot, say the command.
+        {
+            const selfVer = String(require("../package.json").version || "");
+            const pfx = (0, child_process_1.spawnSync)("npm", ["prefix", "-g"], { encoding: "utf8", shell: true });
+            const pre = pfx.status === 0 ? String(pfx.stdout || "").trim() : "";
+            if (selfVer && pre) {
+                const inst = (0, child_process_1.spawnSync)("npm", [
+                    "i",
+                    "-g",
+                    `summrise-agent@${selfVer}`,
+                    "--prefix",
+                    pre,
+                    "--registry=https://registry.npmjs.org/",
+                    "--no-audit",
+                    "--no-fund",
+                ], { encoding: "utf8", shell: true, timeout: 300000 });
+                console.log(inst.status === 0
+                    ? `setup: ${selfVer} installed globally -- \`summrise status\` works from any shell`
+                    : `setup: WARNING -- could not install the CLI globally; run: npm i -g summrise-agent@${selfVer}`);
+            }
+            else {
+                console.log(`setup: WARNING -- could not resolve npm's global prefix; run: npm i -g summrise-agent@${selfVer || "<version>"}`);
+            }
+        }
+        // ── the desktop shell's task: ONLOGON + a 5-minute watchdog ────────────────
+        // `summrise autostart` has always said "the desktop task comes from the
+        // installer", and the NSIS installer is RETIRED — so NOTHING created it. Measured
+        // on d1: the window vanished with the console that launched it and
+        // SummriseDesktop did not exist at all. The shape is the app's own, written to a
+        // .ps1 so it can be read rather than escaped into one unreadable line:
+        // ensure-desktop.ps1 exits when electron is already alive (the watchdog never
+        // steals focus), the .vbs wrapper runs it with no console flash, and the 5-minute
+        // repetition is what reborns a dead shell.
+        try {
+            const reg = path.join(SCRIPTS_DIR, "register-desktop-task.ps1");
+            fs.writeFileSync(reg, [
+                "# written by `summrise setup` -- the desktop shell's ONLOGON task + watchdog.",
+                "$ErrorActionPreference = 'Stop'",
+                `$q = '${(0, exports.psq)(DIR)}'`,
+                `$en = Join-Path $q 'scripts\\ensure-desktop.ps1'`,
+                `$vb = Join-Path $q 'scripts\\desktop-pulse.vbs'`,
+                `Set-Content -Path $en -Value ('if (Get-Process electron -ErrorAction SilentlyContinue) { exit }; & powershell -NoProfile -ExecutionPolicy Bypass -File "' + $q + '\\scripts\\start-desktop.ps1"') -Force`,
+                `Set-Content -Path $vb -Value ('CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "' + $en + '" & Chr(34), 0, False') -Force`,
+                `$da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb + '"') -WorkingDirectory $q`,
+                `$dt1 = New-ScheduledTaskTrigger -AtLogOn`,
+                `$dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
+                `$pr = New-ScheduledTaskPrincipal -UserId ('{0}\\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest`,
+                `$st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew`,
+                `Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1,$dw1) -Principal $pr -Settings $st -Force | Out-Null`,
+                `Start-ScheduledTask -TaskName SummriseDesktop`,
+            ].join("\r\n") + "\r\n");
+            sh(`powershell -NoProfile -ExecutionPolicy Bypass -File '${(0, exports.psq)(reg)}'`);
+            console.log("setup: SummriseDesktop registered (logon + a 5-minute watchdog) and started");
+        }
+        catch {
+            console.log(`setup: WARNING -- could not register SummriseDesktop; run: powershell -File "${SCRIPTS_DIR}\\register-desktop-task.ps1"`);
+        }
         // Layout v2: write the start-desktop.ps1 launcher into scripts\ (the
         // SummriseDesktop onlogon task + desktop Summrise.lnk both call it). Was never
         // written before — a real gap that left the shell unlaunchable.
