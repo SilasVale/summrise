@@ -172,6 +172,49 @@ since this box's npm points at a read mirror. Without `--npm` the run prints a *
 instead of drifting in silence. Its suite grew two cases that assert the refusal and the warning's
 presence (10 checks, green).
 
-**What step 1 still needs is one credential**, and nothing else: the first `--npm` release requires a
-token with publish rights, and the `0.0.1` placeholder should be unpublished while it is still inside
-npm's 72-hour window.
+**Step 1 is DONE and measured on the target OS (2026-09-23).** The audited pack
+(`summrise-agent-1.2.452.tgz`, sha256 `4e48905a…`) was published to the registry under `alpha` and
+then promoted to `latest` — which is the rule above applied literally: 1.2.452 is the version d1 has
+been running, so it has been proved. On the device, from the registry and not the CDN:
+
+| what was run on d1 | what it printed |
+|---|---|
+| `npx summrise-agent status` | `status: RUNNING / install dir: D:\Summrise / release: 1.2.452 / this CLI: 1.2.452` |
+| `npx summrise-agent autostart` | `SummriseAgent: Running` |
+| `npm i -g summrise-agent --prefix …` | shims `summrise`, `summrise.cmd`, `summrise.ps1` at the prefix ROOT, and the shim reports the same status |
+| the tarball the registry serves | sha256 `4e48905a…` — **byte-identical to the audited artifact**, so the two channels cannot disagree |
+
+**Three things this measured that the reasoning got wrong, recorded because each would otherwise be
+written down as fact later:**
+
+1. *"npx only runs a command named after the package, so a `summrise` bin makes `npx summrise-agent`
+   useless."* **Wrong.** It ran. With a single `bin`, npx uses that one. (dsh works by the same rule,
+   not by a special one.)
+2. *"The global install created no shim."* **Wrong** — looked for it at `<prefix>/bin`, which is the
+   POSIX convention. On Windows the shims land at the **prefix root**.
+3. The failures on the build host were **`os`/`cpu` gating working as designed** (`"os": ["win32"]`,
+   `"cpu": ["x64"]`): a Windows-only agent refusing to install on Linux is the feature, and npm's
+   message (`notsup Actual cpu: x64`) says so. Testing a Windows package on Linux proved nothing, and
+   the honest test had to move to the device.
+
+**And one npm policy fact worth keeping:** a granular access token with *Bypass 2FA* may **publish**
+but may **not** unpublish — `403 … may not perform this action`, npm's newer hardening. So the
+`0.0.1` placeholder cannot be retired with the credential that created it; it needs either an
+interactive 2FA session or the website, inside the 72-hour window. It is harmless meanwhile: both
+dist-tags point at 1.2.452.
+
+**Sequencing decision (changed on purpose):** the landing page keeps advertising the CDN tarball
+until **step 2** lands. The page is the promise and the package is the delivery, and advertising a
+one-command install that yields a tunnel-less agent would be worse than a URL that does — both
+channels ship the same incomplete pack today, so the text is not the bottleneck. Fix the delivery,
+then make the promise.
+
+**What step 2 now is**, in order: publish the pinned components as our own per-platform packages
+(`@summrise/cloudflared-win32-x64` first — `cloudflared` is Apache-2.0, so redistribution carries a
+licence and attribution obligation, and the binary is fetched from the official release and
+sha256-verified in the pipeline, never on a device); declare them as `optionalDependencies` with
+`os`/`cpu` gating; and teach `setup` to stage them out of `node_modules` into `<install>\components`,
+which is where the agent looks (`paths::cloudflared_bin()`). The electron runtime stays the odd one
+out: it is already a dependency, but its binary arrives through a **postinstall download** — the
+pattern that needed `ELECTRON_MIRROR` here — so a complete install on a locked-down network means
+either carrying its `dist` as a package too, or documenting the mirror variable as a prerequisite.
