@@ -96,6 +96,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/tool-policy.ts",
+      "path": "files/summrise-gate/src/tool-policy.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/tooling.ts",
       "path": "files/summrise-gate/src/tooling.ts",
       "group": "summrise-gate"

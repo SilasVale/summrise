@@ -242,8 +242,8 @@ const CASES = [
   {
     gate: "scripts/test/production-host-check.mjs",
     file: "scripts/test/production-host-check.mjs",
-    why: "the declared list GROWS — the sentence 'the list may only shrink' had no gate until round 155",
-    from: "const MAX_ALLOWED = 41;",
+    why: "the declared list GROWS — the sentence 'the list may only shrink' had no gate until round 155. RE-PAIRED 2026-09-24: the ratchet went 41 -> 42 when relay/ was declared with its reason, and this pairing is what noticed — an anchor that silently rots is a gate that silently stops being proven",
+    from: "const MAX_ALLOWED = 42;",
     to: "const MAX_ALLOWED = 9;",
   },
 
