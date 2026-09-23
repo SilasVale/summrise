@@ -26,6 +26,13 @@ const ALLOWED = [
   ["agent/deploy/", "installer templates and their docs: the URL a customer installs from"],
   ["agent/summrise-agent-npm/", "the npm package's README and CLI defaults name the update channel"],
   ["proxies/", "the satellite workers' routes and their operational README"],
+  // ADDED 2026-09-24, AND THE COMMIT SAYS WHY — which is the gate's own instruction for a genuine
+  // need ("that is a conversation, not an edit"). The relay's worker config names the host twice by
+  // necessity: the route pattern that hands it /files/*, and PUBLIC_BASE, which is what it mints
+  // one-time download URLs from. The alternative was to move both to the Cloudflare dashboard, which
+  // would make declared config manual config — the opposite of what AGENTS.md asks for after a
+  // cutover. `relay/` had been undeclared in git entirely until the previous day.
+  ["relay/", "the file relay's OWN worker config: its /files/* route and PUBLIC_BASE must name the host to mint one-time download URLs (D6 cut the relay out of the CDN worker)"],
   // ── the worker's own configuration ──
   ["gateway/wrangler", "the deployment's own routes and vars"],
   ["gateway/src/http.ts", "the CONSOLE_HOST allowed-origins list, which is the deployment's identity"],
@@ -84,7 +91,7 @@ const ALLOWED = [
 // it: adding an entry passed silently, which is a debt that could grow while the comment claimed otherwise. The ratchet is
 // the sentence made mechanical — it goes DOWN whenever an entry leaves, and UP never. If a file genuinely must name a
 // deployment host, that is a conversation, not an edit.
-const MAX_ALLOWED = 41;
+const MAX_ALLOWED = 42;
 if (ALLOWED.length > MAX_ALLOWED) {
   console.error(
     `production-host: the declared list GREW to ${ALLOWED.length} from ${MAX_ALLOWED}. This list is a debt with owners, not ` +
