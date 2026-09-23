@@ -147,3 +147,31 @@ fetched on a device).
 2. **D7 second** — needs exactly one npm credential (publish rights) at the moment of the first
    publish; the packages themselves can be built and tested before that.
 3. D5/D1 are then re-evaluated on evidence, not on argument.
+
+## The publishing model, read off what dsh actually publishes (measured 2026-09-23)
+
+Rather than invent a registry flow, the design was taken from `@deepseek-ai/dsh` — a product with the
+same shape (an npm-installed agent with a large dependency tree) and a public registry record:
+
+| what the registry and the installed tree show | what it means here |
+|---|---|
+| **One scope, many small packages** — `@deepseek-ai/dsh-agent`, `dsh-agent-loop`, `dsh-api-gateway`, `dsh-anonymous-user-id`, … | D7's component packages are this pattern: `@summrise/cloudflared-win32-x64` and friends |
+| **dist-tags as channels**: `latest: 0.1.5-rc.2`, `next: 0.1.5-rc.3`, **`alpha: 0.1.7-alpha.2`** — `latest` is *older* than `alpha` | a release goes to **`alpha`** first and is promoted to `latest` once a device has proved it. Better than the CDN's mutable `-latest.tgz` alias, which is trusted by construction |
+| the `latest` tarball is **48,910 bytes / 10 files**, while the installed tree is 537 MB | the meta-package stays tiny; the fat parts are dependencies (D7) |
+| **25 versions in ~6 weeks** (created 2026-08-10, modified 2026-09-22) | a fast alpha cadence is normal for this shape — their `1.2.N` cadence fits it |
+| `attestations: false` | they do not use npm provenance. Summrise could: `--provenance` needs a public repo plus CI OIDC, and the repo is public |
+| the landing page's quick start is **`npx @deepseek-ai/dsh web`** | ours becomes **`npx summrise-agent setup`** on the CDN landing page, once the registry carries a real version |
+
+**Step 1 is implemented (2026-09-23).** `publish-release.sh` grew `--npm` /
+`--npm-tag <alpha|next|latest>` (default `alpha`), a trimmed `~/.npm-token` or `NPM_TOKEN` credential
+following the `cf_token` idiom — *trimmed*, because a token file ending in a newline authenticates as
+nothing — a **fail-fast precondition placed with the other guards** (a missing token must not surface
+after the CDN has already been deployed; a half-published release is the one state that script must
+never leave behind), and a publish through a **temporary 600 userconfig** to `registry.npmjs.org`,
+since this box's npm points at a read mirror. Without `--npm` the run prints a *named* `::warning::`
+instead of drifting in silence. Its suite grew two cases that assert the refusal and the warning's
+presence (10 checks, green).
+
+**What step 1 still needs is one credential**, and nothing else: the first `--npm` release requires a
+token with publish rights, and the `0.0.1` placeholder should be unpublished while it is still inside
+npm's 72-hour window.

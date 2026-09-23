@@ -136,5 +136,29 @@ else
 fi
 rm -rf "$FIX_TMP"
 
+# D7: --npm without a credential must refuse BEFORE anything is packed, deployed
+# or pruned, and the message must name where the token goes. Asserting only
+# "non-zero" would pass if the script died later for an unrelated reason, so the
+# MESSAGE is the evidence the guard ran (round 124's lesson: a check a removal
+# can leave green proves nothing).
+VER_NOW=$(node -p "require('./agent/summrise-agent-npm/package.json').version")
+out=$(env -u NPM_TOKEN HOME=/nonexistent bash scripts/publish-release.sh "$VER_NOW" --npm 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'no token' <<<"$out" && grep -q 'NPM_TOKEN' <<<"$out"; then
+  ok "--npm with no token refuses early, and names NPM_TOKEN / ~/.npm-token"
+else
+  bad "--npm with no token: rc=$rc out=$(head -c 200 <<<"$out")"
+fi
+
+# And WITHOUT --npm the run must say out loud that the registry was not updated.
+# Silence is the drift the flag exists to prevent: the CDN would move, the
+# registry would keep serving the placeholder, and 'npx summrise-agent' would
+# keep installing nothing. Cannot be exercised end-to-end without a release, so
+# the branch's presence is the seam — a deletion fails this.
+if grep -q 'the npm registry was NOT updated' scripts/publish-release.sh; then
+  ok "without --npm the script carries the named warning (no silent drift)"
+else
+  bad "the not-published branch lost its warning"
+fi
+
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

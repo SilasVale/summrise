@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Summrise agent release publisher — the ONE command for a CDN release.
 #
-#   ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer]
+#   ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer] [--npm [--npm-tag alpha|next|latest]]
 #
 # Assumes the exe is already built and staged (cargo xwin build + cp into
 # agent/summrise-agent-npm/summrise-agent.exe) and package.json version == 1.2.N.
@@ -32,6 +32,12 @@
 #      only a genuine first publish (no asset built yet) and refuses once one
 #      exists.
 #
+#   8. [--npm] publish THE SAME PACK to the npm registry, under a dist-tag
+#      (alpha by default). Modelled on what dsh publishes: dist-tags are
+#      CHANNELS, so a release goes to alpha first and is promoted to latest once
+#      a device has proved it, and nobody has to trust a mutable -latest.tgz
+#      alias. Without --npm the run prints a ::warning:: naming the consequence
+#      rather than drifting in silence.
 # After this: push main, create the GitHub tag v1.2.N via the API, and let
 # release.yml build the GitHub release asset (keep-latest manual).
 
@@ -95,12 +101,16 @@ shift
 SKIP_RECONCILE=0
 WITH_INSTALLER=0
 ACK_UNRECONCILED=0
+PUBLISH_NPM=0
+NPM_TAG="alpha"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-reconcile) SKIP_RECONCILE=1 ;;
     --with-installer) WITH_INSTALLER=1 ;;
     --acknowledge-unreconciled) ACK_UNRECONCILED=1 ;;
-    *) echo "::error::unknown flag: $1 (usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer] [--acknowledge-unreconciled])" >&2; exit 1 ;;
+    --npm) PUBLISH_NPM=1 ;;
+    --npm-tag) NPM_TAG="${2:?--npm-tag needs a dist-tag: alpha | next | latest}"; PUBLISH_NPM=1; shift ;;
+    *) echo "::error::unknown flag: $1 (usage: ./scripts/publish-release.sh <1.2.N> [--skip-reconcile] [--with-installer] [--acknowledge-unreconciled] [--npm] [--npm-tag alpha|next|latest])" >&2; exit 1 ;;
   esac
   shift
 done
@@ -130,10 +140,32 @@ cf_token() {
   else echo ""; fi
 }
 
+# D7 (docs/design/0010): the npm registry is the SECOND channel, and it follows
+# the same shape as cf_token — env first, then a file — with one difference that
+# cost an hour on 2026-09-23: the file is TRIMMED. A token written with a
+# trailing newline authenticates as nothing, and "401 while the file looks right"
+# is a bad hour to spend. Publishing also needs 2FA, or a token with Bypass 2FA
+# enabled; a granular token without it is refused with exactly that sentence.
+npm_token() {
+  if [[ -n "${NPM_TOKEN:-}" ]]; then echo "$NPM_TOKEN";
+  elif [[ -f "$HOME/.npm-token" ]]; then tr -d ' \t\r\n' < "$HOME/.npm-token";
+  else echo ""; fi
+}
+
 # Guard: package.json version must already be bumped to $VER.
 PKG_VER=$(node -p "require('./$PKG').version")
 if [ "$PKG_VER" != "$VER" ]; then
   echo "::error::package.json version is $PKG_VER, want $VER — bump it first" >&2
+  exit 1
+fi
+
+# D7 fail-fast: if npm publishing was ASKED for, prove the credential BEFORE a
+# single artifact is packed, deployed or pruned. Checking it at the publish step
+# instead would fail AFTER the CDN was already updated — a release half-published,
+# which is the one state this script must never leave behind.
+NPM_TOKEN_VAL="$(npm_token)"
+if [ "$PUBLISH_NPM" = "1" ] && [ -z "$NPM_TOKEN_VAL" ]; then
+  echo "::error::--npm was asked for but there is no token — set NPM_TOKEN or write ~/.npm-token (npmjs.com > Access Tokens; publishing needs 2FA, or a granular token with 'Bypass 2FA' enabled)" >&2
   exit 1
 fi
 
@@ -461,6 +493,29 @@ else
   fi
   echo "audit OK: CDN serves this run's pack, and its source-derived files match the GitHub asset"
   # (the reconcile ledger this wrote is gone with the rest of the bookkeeping)
+fi
+
+# ── D7: the npm registry, the second channel ────────────────────────────────
+# The design is copied from what dsh actually publishes (measured 2026-09-23):
+# a tiny meta-package whose fat parts are DEPENDENCIES, and DIST-TAGS AS
+# CHANNELS -- their `latest` was an older rc while `alpha` carried the newer
+# builds. So a release goes to `alpha` first and is promoted to `latest` when a
+# device has proved it; nobody has to trust a mutable `-latest.tgz` alias.
+echo "== npm registry =="
+if [ "$PUBLISH_NPM" = "1" ]; then
+  # A TEMP userconfig, not ~/.npmrc: this box's npm points at a read mirror
+  # (registry.npmmirror.com), and --registry alone would leave the token nowhere
+  # to live. 600 + trap: the credential never outlives the run.
+  NPMRC="$(mktemp)"; chmod 600 "$NPMRC"
+  trap 'rm -f "$NPMRC"' EXIT
+  printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN_VAL" > "$NPMRC"
+  npm publish "$TGZ" --registry=https://registry.npmjs.org/ --userconfig "$NPMRC" \
+    --tag "$NPM_TAG" --access public
+  NPM_NAME=$(node -p "require('./$PKG').name")
+  echo "   published $NPM_NAME@$VER under dist-tag '$NPM_TAG'"
+  echo "   verify: curl -s https://registry.npmjs.org/$NPM_NAME | grep -o '\"dist-tags\".*'"
+else
+  echo "::warning::the npm registry was NOT updated — it still serves the 0.0.1 placeholder, so 'npx summrise-agent' installs nothing. Pass --npm (with ~/.npm-token) when npm should carry this release."
 fi
 
 echo "== done. Next: push main, then create the GitHub tag v$VER via the API"
