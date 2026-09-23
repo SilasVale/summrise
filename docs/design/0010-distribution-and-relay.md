@@ -176,7 +176,6 @@ presence (10 checks, green).
 (`summrise-agent-1.2.452.tgz`, sha256 `4e48905a…`) was published to the registry under `alpha` and
 then promoted to `latest` — which is the rule above applied literally: 1.2.452 is the version d1 has
 been running, so it has been proved. On the device, from the registry and not the CDN:
-
 | what was run on d1 | what it printed |
 |---|---|
 | `npx summrise-agent status` | `status: RUNNING / install dir: D:\Summrise / release: 1.2.452 / this CLI: 1.2.452` |
@@ -202,6 +201,23 @@ but may **not** unpublish — `403 … may not perform this action`, npm's newer
 `0.0.1` placeholder cannot be retired with the credential that created it; it needs either an
 interactive 2FA session or the website, inside the 72-hour window. It is harmless meanwhile: both
 dist-tags point at 1.2.452.
+
+**One design error this release found by being RUN — the useful kind.** 1.2.453 was published to
+`alpha` with `latest` promoted afterwards, and that deadlocked the device: the CDN's `-latest.tgz`
+alias moves on *every* release, so `npm i -g summrise-agent` installed a CLI **older** than the
+release, and the CLI's own refusal guard ("this CLI is 1.2.452 and the release channel has 1.2.453 —
+install the new CLI first") then pointed at a command that could not deliver it. The fix is in the
+script's DEFAULT: publish to `latest`, because for this product the CDN alias defines what latest
+means; `alpha` stays available through `--npm-tag` for a deliberate prerelease channel. dsh can
+afford alpha-first because its `latest` is a *release candidate*, not an alias a device already
+follows.
+
+**One leftover the same release surfaced.** d1's config still pointed `relay_url` at
+`http://127.0.0.1:18990` — a LOCAL helper that lived in the old install and left with it — so the
+new agent's relay client retried a dead port every 30 s. Emptying the key stops it
+(`mcp/server.rs:256` spawns the client only for a non-empty URL). Mind the name collision: that
+`relay` is the **outbound relay client** for remote MCP access (`agent/src/relay.rs`, the agent half
+of `proxies/summrise-relay/`), and it is NOT the file relay this document is about.
 
 **Sequencing decision (changed on purpose):** the landing page keeps advertising the CDN tarball
 until **step 2** lands. The page is the promise and the package is the delivery, and advertising a

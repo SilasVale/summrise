@@ -102,7 +102,14 @@ SKIP_RECONCILE=0
 WITH_INSTALLER=0
 ACK_UNRECONCILED=0
 PUBLISH_NPM=0
-NPM_TAG="alpha"
+# `latest`, NOT `alpha` -- corrected after the first real two-channel release
+# (1.2.453) deadlocked. The CDN's `-latest.tgz` alias moves on EVERY release, so
+# npm's `latest` must move with it: publish to alpha only and `npm i -g
+# summrise-agent` installs an OLDER CLI than the release the agent is being asked
+# to take, which the CLI's own guard then refuses ("this CLI is 1.2.452 and the
+# release channel has 1.2.453") -- a loop with no exit. `alpha` stays available
+# via --npm-tag for a deliberate prerelease channel.
+NPM_TAG="latest"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-reconcile) SKIP_RECONCILE=1 ;;
