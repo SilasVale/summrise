@@ -256,3 +256,38 @@ gateway is pointed at it FIRST; the file-relay routes come out of `summrise-dist
 `index/` before the relay answers would open a window with no file relay at all — and that relay is
 the only sanctioned way to move bytes between these machines, so the window would be a self-inflicted
 outage of the tool doing the work.
+
+### D6 — EXECUTED 2026-09-23
+
+Done in exactly that order, and each step verified before the next:
+
+1. **Created** `summrise-relay-files` (its OWN bucket — sharing the CDN's would re-couple the two
+   stores, and `summrise-temp-files` still feeds the playwright route on the other side), then put a
+   fresh `UPLOAD_KEY` and its own `DO_AUTH` on the new worker.
+2. **Deployed the relay with NO route**, so nothing could reach it: the state where a mistake costs
+   nothing.
+3. **Pointed the gateway at it over a SERVICE BINDING** (`RELAY` in `gateway/wrangler.jsonc`), with the
+   existing URL path kept, unchanged, as the fallback — so the code is correct before AND after the
+   relay exists. A same-zone `fetch()` would have been the documented failure case: the relay's
+   download leg is a Route, and Routes cannot be the target of a same-zone fetch while Custom Domains
+   can.
+4. **Handed it the route** (`agent.saisi.online/files/*`). A Route on the PATH takes precedence over
+   `summrise-dist`'s dashboard-managed Custom Domain on the HOST — that is what makes a path-level
+   handover possible without touching the hostname, the docs, the console or any device.
+5. **Trimmed `summrise-dist`**: 173 lines of handlers, six test files and `claim.js` left (the index
+   suite went 99 → 43; the relay's is 49), and `TempClaimDO` retired with a `deleted_classes`
+   migration — the same step the gateway took for `PluginHubDO`, and safe because that DO held no
+   storage. **`TEMP_FILES` stays**: this worker still streams the playwright bundle out of it.
+
+**TWO MISTAKES, both caught by testing rather than reasoning, and both now impossible to repeat
+silently.** A fresh `UPLOAD_KEY` written to the relay but NOT to the gateway answered 401 — "a fresh
+shared secret is required" means both sides in one command. And the relay built its download URL from
+`request.url.origin`, which through a binding is `https://summrise-relay.internal/…`, a host nothing
+can resolve: `PUBLIC_BASE` is a var on the relay now, with the route's own origin as the fallback. A
+unit test would not have caught the second one; a real transfer did.
+
+**VERIFIED on the live host, twice** — once at cutover and again after the trim was deployed, so the
+negative is covered too: with `summrise-dist`'s handlers gone, `/files/*` can only be the relay, and
+it served the exact bytes, answered 404 to a second fetch (the one-time claim), and left every route
+the CDN still owns at 200 (`/api/version`, the tgz, cloudflared, electron, playwright, the probe and
+the landing).
