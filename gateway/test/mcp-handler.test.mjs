@@ -278,7 +278,23 @@ const consoleDescriptionOf = (ts, name) => {
   let k = open + 1;
   while (k < ts.length && !(ts[k] === quote && ts[k - 1] !== "\\")) k++;
   const lit = ts.slice(open + 1, k);
-  return quote === "'" ? lit.replace(/\\'/g, "'") : lit;
+  // UNESCAPE BOTH STYLES. A double-quoted literal is JSON, so let JSON decode it; prettier's
+  // single-quoted style needs the same treatment by hand, escapes first and backslashes last so the
+  // collapse does not eat the one it just produced. A reader that does not decode escapes reports
+  // violations that are not there — terminal_write's `\n` reads as `\\n` in the file and matched
+  // nothing, which is the third bug this walker has had and the reason there is only one of it.
+  if (quote === '"') {
+    try {
+      return JSON.parse(`"${lit}"`);
+    } catch {
+      return lit;
+    }
+  }
+  return lit
+    .replace(/\\'/g, "'")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\");
 };
 
 /** Device tools deliberately NOT on the console MCP surface. Each needs a
@@ -1144,16 +1160,11 @@ test("the console's tool descriptions name every field the device's name", () =>
 // silently tolerated — and the list is SELF-CLEANING: an entry that no longer fails containment
 // fails this test, because a waiver that outlives its defect is how a list like this becomes a
 // graveyard nobody trusts.
-const CONTAINMENT_DEBT = new Set([
-  "run_begin",
-  "secret_delete",
-  "secret_get",
-  "terminal_history",
-  "terminal_list",
-  "terminal_list_ports",
-  "terminal_select",
-  "terminal_write",
-]);
+// EMPTY, AND THAT IS THE POINT (architecture round 16). Every console-exposed tool's description now
+// carries the device's text, so containment holds everywhere and there is nothing left to waive. The
+// set stays as the place a future exception must be declared AND justified, with the staleness check
+// below still failing on any entry that is no longer owed.
+const CONTAINMENT_DEBT = new Set([]);
 
 test("the console carries the device's description, or is a listed debt that is still owed", () => {
   const raw = readFileSync(new URL("../../agent/spec-tools.json", import.meta.url), "utf8");

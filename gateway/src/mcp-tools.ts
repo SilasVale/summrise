@@ -265,7 +265,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_select",
     description:
-      "Mark a session as actively watched (client-liveness heartbeat — keeps the idle sweeper from reaping a quiet-but-watched session).",
+      "Set the active terminal session. This is a client-liveness heartbeat: it keeps the idle sweeper from reaping a quiet-but-watched session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -302,7 +302,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_history",
     description:
-      'List terminal sessions with their byte ranges: LIVE sessions AND closed ones retained in history. (This said "closed sessions" only, contradicting its own `limit` parameter below and the device, which always includes live sessions.)',
+      "List ALL terminal sessions, including closed ones retained in history. Each entry: {id, kind, label, status: 'live'|'closed', bytes, closed_at? (unix seconds), exit_code? (natural shell exit code)}. Closed entries sorted newest-first. (This said \"closed sessions\" only, contradicting its own `limit` parameter below and the device, which always includes live sessions.)",
     inputSchema: {
       type: "object",
       properties: {
@@ -317,7 +317,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   },
   {
     name: "terminal_list",
-    description: "List open terminal sessions on a device.",
+    description: "List all active terminal sessions (PTY, SSH, and serial).",
     inputSchema: {
       type: "object",
       properties: {
@@ -328,7 +328,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   },
   {
     name: "terminal_list_ports",
-    description: "List available serial ports on a device.",
+    description: "List available serial ports on this machine.",
     inputSchema: {
       type: "object",
       properties: {
@@ -390,7 +390,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "secret_get",
     description:
-      "Retrieve a stored secret from the DEVICE agent's secret store (OS keychain / file). Returns the password or null.",
+      "Retrieve a stored secret for a target host. Returns the password or null. The store is the DEVICE agent's own — OS keychain first, then a file.",
     inputSchema: {
       type: "object",
       properties: {
@@ -403,7 +403,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "secret_delete",
     description:
-      "Delete a stored secret from the DEVICE agent's secret store (OS keychain / file).",
+      "Delete a stored secret for a target host. The store is the DEVICE agent's own — OS keychain first, then a file.",
     inputSchema: {
       type: "object",
       properties: {
@@ -779,7 +779,7 @@ const RUNS_TOOLS: McpTool[] = [
   {
     name: "run_begin",
     description:
-      "Declare the start of ONE run — one execution of your work on this device — and get back the `run_id` that names it. Call it when you begin a piece of work that spans more than a single command, then pass the id to run_end when you stop. The device cannot tell two AIs apart (the token identifies the device, not the caller), so this declared boundary is what lets an operator see that a set of commands and browser actions belonged to one execution rather than to the day's whole traffic. The id is minted by the device and embeds its start time; store it and pass it back verbatim.",
+      "Declare the start of ONE run — one execution of your work on this device — and get back the `run_id` that names it. Call it when you begin a piece of work that spans more than a single command, then pass the id to run_end when you stop. The device cannot tell two AIs apart (the token identifies the device, not the caller), so this declared boundary is what lets an operator see that a set of commands and browser actions belonged to one execution rather than to the day's whole traffic. The id is minted here and embeds its start time; store it and pass it back verbatim.",
     inputSchema: {
       type: "object",
       properties: {
