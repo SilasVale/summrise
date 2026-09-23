@@ -416,7 +416,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_saved_connections",
     description:
-      "List saved terminal connections on the device (successfully-opened sessions). Each entry: id (kind:target), kind, target, label, params — reconnect with terminal_connect_saved.",
+      "List saved terminal connections (successfully-opened sessions). Each entry has id (kind:target), kind, target, label and the original open params — reconnect with terminal_connect_saved. Connect-failures are not saved; a reconnect updates the entry.",
     inputSchema: {
       type: "object",
       properties: {
@@ -465,7 +465,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_connect_saved",
     description:
-      "Reconnect to a saved terminal connection by id (from terminal_saved_connections). Replays the saved params; returns the new session id.",
+      "Reconnect to a saved terminal connection (from terminal_saved_connections) by id. Replays the saved params through terminal_open; returns the new session id. Optional params override the saved ones.",
     inputSchema: {
       type: "object",
       properties: {
@@ -480,7 +480,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_env",
     description:
-      "Environment info for driving the device's terminal (default shell, install dir, bundled node, guidance). Run before opening sessions.",
+      "Environment info for the AI when driving this device's terminal: default shell, install dir, bundled node.exe (for one-off node scripts run via terminal_execute), and usage guidance. Run BEFORE opening sessions/executing commands.",
     inputSchema: {
       type: "object",
       properties: {
