@@ -88,16 +88,34 @@ audit_release_asset() {
   fi
 
   # 1. The release asset must exist (CI builds it after the tag push).
-  local api="https://api.github.com/repos/${AUDIT_REPO}/releases/tags/v${ver}"
+  #
+  # READ THE ASSETS SUB-RESOURCE, NOT /releases/tags/<tag>. That endpoint is
+  # CACHED and an asset upload does NOT invalidate it: measured on 1.2.453, it
+  # answered with an empty asset list for minutes while /releases/<id>/assets
+  # listed the 6,694,727-byte tgz — so this check reported "has no asset" for a
+  # release that had one, the reconcile debt stayed open, and the release suite
+  # failed two checks that belonged to a cache. The release ID is stable, so take
+  # it from the tags read and ask the assets endpoint, which was fresh.
+  local base="https://api.github.com/repos/${AUDIT_REPO}"
   local listing; listing="$(curl -fsSL -m 60 -H "Authorization: Bearer ${token}" \
-    -H "Accept: application/vnd.github+json" "$api" 2>/dev/null)" || {
+    -H "Accept: application/vnd.github+json" "${base}/releases/tags/v${ver}" 2>/dev/null)" || {
     echo "::error::release audit: no GitHub release v${ver} (or no access) — CI may still be building" >&2
+    return 1
+  }
+  local rid; rid="$(grep -o '"id": *[0-9]\+' <<< "$listing" | head -1 | tr -dc '0-9')"
+  if [[ -z "$rid" ]]; then
+    echo "::error::release audit: could not read the release id for v${ver} from the tags response" >&2
+    return 1
+  fi
+  local assets; assets="$(curl -fsSL -m 60 -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" "${base}/releases/${rid}/assets?per_page=100" 2>/dev/null)" || {
+    echo "::error::release audit: could not list the assets of release ${rid}" >&2
     return 1
   }
   # Here-string, NOT `printf | grep -q`: under `set -o pipefail` an early
   # grep -q exit SIGPIPEs the producer and the pipeline reports failure even on
   # a match (the round-288 lesson).
-  if ! grep -q "\"name\": *\"${tgz}\"" <<< "$listing"; then
+  if ! grep -q "\"name\": *\"${tgz}\"" <<< "$assets"; then
     echo "::error::release audit: release v${ver} has no asset ${tgz}" >&2
     return 1
   fi

@@ -84,7 +84,15 @@ run_audit() { # run_audit <gh.tgz> <cdn.tgz> -> rc, prints the audit's output
       esac
     done
     case "$url" in
-      *api.github.com*) printf '{"assets":[{"name":"summrise-agent-9.9.9.tgz"}]}\n'; return 0;;
+      # THE CACHED LIE, REPRODUCED ON PURPOSE. /releases/tags/<tag> answers with
+      # an EMPTY asset list -- an asset upload does not invalidate that endpoint --
+      # while the assets sub-resource lists the tgz. That is what 1.2.453 really
+      # did (the tags read said assets:0 for minutes while /releases/<id>/assets
+      # listed the 6,694,727-byte file), and it is why the audit reads the
+      # sub-resource. This fixture fails if that read is ever "simplified" back to
+      # the tags response alone.
+      */releases/tags/*) printf '{"id":424242,"assets":[]}\n'; return 0;;
+      */releases/*/assets*) printf '[{"name":"summrise-agent-9.9.9.tgz"}]\n'; return 0;;
       *releases/download*) cp "$fix_gh" "$out"; return 0;;
       *summrise-agent/summrise-agent-*) cp "$fix_cdn" "$out"; return 0;;
       *) return 22;;
@@ -236,5 +244,31 @@ case "$GUARD" in *"audit_asset_names \"\$VER\" >\"\$SKIP_LIST\" 2>/dev/null || t
 esac
 has "and distinguishes 'does not exist' from 'could not ask'" "$GUARD" 'SKIP_RC" -ne 3'
 has "and refuses rather than skipping when it could not ask" "$GUARD" "refusing to skip the audit"
+
+# A MISSING ASSET MUST STILL FAIL. The fixture above proves the audit reads the
+# endpoint that tells the truth; this proves it can still say no. A check that
+# cannot fail is worse than no check, and the read was just rewritten.
+missing_asset() { # -> rc, prints the audit's output
+  curl() {
+    local url="" out=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -o) out="$2"; shift 2;;
+        -m|--retry|--retry-delay) shift 2;;
+        -*) shift;;
+        *) url="$1"; shift;;
+      esac
+    done
+    case "$url" in
+      */releases/tags/*) printf '{"id":424242,"assets":[]}\n'; return 0;;
+      */releases/*/assets*) printf '[]\n'; return 0;;
+      *) return 22;;
+    esac
+  }
+  audit_release_asset 9.9.9 "https://cdn.example"
+}
+out="$(missing_asset 2>&1)" && rc=0 || rc=$?
+check "a release whose ASSETS endpoint has no tgz must FAIL" "$rc" "1"
+has "and it names the asset that is missing" "$out" "has no asset summrise-agent-9.9.9.tgz"
 
 echo "release-audit: all $PASS checks passed"
