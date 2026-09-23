@@ -252,12 +252,31 @@ jobs:
           done
           echo "tgz content check OK ($TGZ)"
           echo "VER=$VER" >> "$GITHUB_ENV"
-      - name: Create release with the tgz asset
+      - name: Create the release if it does not exist
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "agent/summrise-agent-npm/summrise-agent-${VER}.tgz" \
-            --title "Summrise Agent ${VER}" \
-            --notes "Built by CI from ${GITHUB_REF_NAME}. Install: npm i -g https://agent.saisi.online/summrise-agent/summrise-agent-${VER}.tgz && summrise update" \
-            --verify-tag
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Summrise Agent ${VER}" \
+              --notes "Built by CI from ${GITHUB_REF_NAME}. Install: npm i -g https://agent.saisi.online/summrise-agent/summrise-agent-${VER}.tgz && summrise update" \
+              --verify-tag
+      # THE UPLOAD IS ITS OWN STEP, ON PURPOSE. The single `gh release create`
+      # that used to live here took the tgz as an argument and assumed that meant
+      # the asset would be attached. On 1.2.453 it was not: the release existed
+      # already (as a draft), `create` published it and attached NOTHING, the step
+      # reported SUCCESS in four seconds with no output, and the release audit
+      # then refused the version outright -- "release v1.2.453 has no asset" --
+      # which kept the reconcile debt open and failed the release suite. A step
+      # whose success can mean "nothing was uploaded" is the same class of lie the
+      # repo already records elsewhere, so the asset now has its own step whose
+      # success IS the asset.
+      - name: Attach the tgz asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "agent/summrise-agent-npm/summrise-agent-${VER}.tgz" --clobber
+          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' \
+            | grep -qx "summrise-agent-${VER}.tgz" \
+            || { echo "::error::the asset is STILL not attached after upload"; exit 1; }
