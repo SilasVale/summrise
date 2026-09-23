@@ -2271,9 +2271,12 @@ const commands = {
     // The register script is WRITTEN here (a machine that never ran setup still gets a working
     // task, from the same builder setup uses) but NOT run: desktop-start.ps1 runs it only when
     // the task is genuinely missing.
+    // ONE STRING, NOT an args array. With `shell: true` Node concatenates the arguments and warns
+    // about it (DEP0190: "the arguments are not escaped, only concatenated") — a warning the
+    // operator saw on the device the first time this command worked. The path is double-quoted,
+    // which is what -File accepts at the cmd layer; nothing here needs an argument list.
     const r = spawnSync(
-      "powershell",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", start],
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "${start}"`,
       { encoding: "utf8", shell: true },
     );
     const out = String(r.stdout || "").trim();
