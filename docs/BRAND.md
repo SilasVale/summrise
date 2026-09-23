@@ -1,6 +1,9 @@
 # BRAND — Summrise
 
 > **Named 2026-09-23 by the operator**, on sound: *「我觉得 summrise 很好听，就用这个。」*
+> **Kept the same day, with the register's answer in hand**: *「用summrise」* — after the
+> search that closed the `UNVERIFIED` row found live `SUMRISE` marks in classes 9/42
+> (**risk 4**). The name stands as a decision, not as a default.
 > **Renamed completely the same day** (decision ①: every layer, including the ones the
 > installed device reads, accepting **one device reinstall** as the price of leaving no
 > remnant behind).
@@ -54,17 +57,18 @@ surname-shaped.
 |---|---|
 | Software | 12 GitHub repositories named `summrise`, highest **★1**. **No software product carries the name.** |
 | npm | `summrise`, `summrise-cli`, `summrisehq` — all unregistered. |
-| Domains | **`summrise.io` / `.dev` / `.sh` / `.app` / `.cn` — all five free.** Only `summrise.com` is taken. |
+| Domains | **`.io` / `.dev` / `.sh` / `.app` / `.net` verified unregistered** (2026-09-23, each registry's own RDAP service). `summrise.com` is **registered** (IONOS SE since 2015-01-09). **`.cn` and `.co` are UNVERIFIED** — the earlier "all five free" reading of them was a bootstrap miss, not evidence (see the instrument table below). |
 | App Store | **One same-name app: *Summrise*** (SIMLAB, 2025-07-09, "AI-powered learning assistant … summarizing YouTube videos"). The `-mmri-` family also holds `Summrize — AI Summaries` (Chrome) and `AI-Summriser` (GitHub). |
 | Companies | No software company found under the name. |
-| Trademark | **UNVERIFIED.** No register search has been run. The largest open risk. |
+| Trademark | **Searched 2026-09-23** — US, UK and EU, classes 9/42/38. `Summrise` itself is clear: the string `summri` occurs **zero** times in TMview's 142,985,928 records, and the US register returns 0 for every spelling variant. **But two live marks sit one repeated letter away: EUTM 018936322 `SUMRISE` (word, classes 9/35/42, Admisol N.V., until 2033) and UK00003902207 `SUMRISE` (figurative, classes 9/45).** See risk 4 below and `docs/brand/trademark-search-2026-09-23.md`. |
 
 ### Accepted risks — recorded because the choice was made with them known
 
 1. **Orthographic collision with *summarise*** — one letter short of one of the most
    frequent verbs in software, and the name of the category that App Store app sits in.
    Cost lands on writing and search; speech is unaffected. Mitigations: own the search
-   term (all five domains free today), and always print the category beside the name —
+   term (the obvious domains were still unregistered on 2026-09-23 — re-check before
+   quoting that), and always print the category beside the name —
    *Summrise, the Windows device agent*.
 2. **A same-name App Store app exists** — an iOS learning assistant, where this is a
    Windows agent distributed over npm. No platform overlap, no competitive conflict; the
@@ -72,6 +76,24 @@ surname-shaped.
 3. **`summ` is a written abbreviation, not a lexical clipping** — English pronounces
    `/sʌm/` as *some* and *summer*, not as *summit*. Cost: the meaning needs one sentence
    the first time. Judged acceptable; **the sound decided it.**
+4. **`SUMRISE` is live in the EU and the UK** — this was recorded as *unverified* when the
+   name was chosen, and the search that closed that row (2026-09-23) found this. Nothing
+   identical to `Summrise` exists in any register searched, **but EUTM 018936322 is a
+   `SUMRISE` WORD mark** — no figurative element to tell it apart — **registered until
+   2033-10-11 in classes 9, 35 and 42**, with class 9 covering software for online
+   administration and data management and class 42 covering *writing of computer code,
+   SaaS, PaaS*. It differs from this name by one repeated letter **in a position that does
+   not change the pronunciation**: both read /ˈsʌmraɪz/. A UK registration
+   `UK00003902207` (figurative, classes 9/45) is live as well. The US register is clear.
+   Cost: EU/UK commercial use in classes 9/42 carries a likelihood-of-confusion exposure
+   that a personal or US-only use does not. **Accepted knowingly on 2026-09-23** —
+   *「用summrise」* — which is what this list is for: the name was chosen on sound, and it is
+   kept with the register's answer in hand rather than in ignorance of it. Two things the
+   decision does not soften, kept here so they are not rediscovered: **nothing was filed**
+   by it (no EUTM, no UK application), so a commercial EU/UK launch in classes 9/42 is the
+   moment the exposure stops being theoretical — and the point at which an opinion is worth
+   buying; and the fallback `caprise` has **not** been searched, so it is not a safe harbour
+   either.
 
 ## The rename — what actually changed (2026-09-23)
 
@@ -189,9 +211,9 @@ data contradicted.
 |---|---|---|
 | npm names | `registry.npmjs.org/<name>` (404 = free) | — reliable |
 | GitHub crowding | search API `q=<name> in:name` | substring noise — `sunrise` matches 11,247 rows, most of them `sunriseSunset`-style |
-| Domains | RDAP (`rdap.org/domain/<d>`, 404 = unregistered) | whether a registered name is *in use* |
+| Domains | RDAP — `rdap.org`, then each registry's OWN service (Identity Digital for `.io`/`.sh`, Google Registry for `.dev`/`.app`, Verisign for `.com`/`.net`) | whether a registered name is *in use*; and for **`.cn` and `.co` it sees nothing at all** — those TLDs have no IANA RDAP bootstrap entry, so `rdap.org`'s 404 means "no service exists", not "available". Reading that 404 as availability is exactly how `.cn` got listed as free here without evidence. |
 | App Store | public iTunes Search API (`itunes.apple.com/search?term=…&entity=software`) | Windows, web, Steam; and it matches loosely |
-| Trademark | **nothing yet** — web search only, which is not a register search | everything that matters. The open row. |
+| Trademark | USPTO's own search index (the endpoint is named in its `configuration.json`), TMview (EUIPO-operated) for the UK and EU, and the **official EUIPO register** to confirm a hit by application number | **UKIPO directly** (403 CAPTCHA on every path, browser-proof — the UK row is therefore TMview's UKIPO feed, and the goods specification behind `UK00003902207` has not been read); **WIPO/Madrid** (Altcha CAPTCHA, not queried); USPTO **assignments** (those hosts do not answer here) and its class filter, which failed its own positive control; classes 35/45 systematically. The zeros rest on **phrase matching** — the US index rejects wildcards, so `summri*` could not be enumerated by prefix. |
 
 ## Deployment state (2026-09-23, end of the rename)
 
@@ -326,11 +348,17 @@ cannot update itself, because the path it would ask for returns 404.
 
 ## Open
 
-- **Trademark** — US/UK/EU, classes 9/42/38. The largest open risk, and the reason
-  `caprise` is kept above as a fallback.
-- **Claim today**: npm `summrise` (a placeholder — a coined name's whole value is being
-  first; `solune` was coined in the same session and is already registered in the UK), and
-  the five domains `summrise.io` / `.dev` / `.sh` / `.app` / `.cn`, all free.
+- **The EU/UK `SUMRISE` marks — decided, not open.** The search found no identical mark
+  anywhere searched, and found EUTM 018936322 (live **word** mark, classes 9/35/42,
+  identical pronunciation). **The operator kept the name on 2026-09-23** (*「用summrise」*),
+  so this is recorded as an accepted risk rather than a pending one. What the decision does
+  not do: it files nothing, so the EU/UK question returns only if and when this is sold
+  there in classes 9/42; and it does not clear `caprise`, which remains unsearched.
+- **Claim today** (re-verified at decision time, 2026-09-23, via `rdap.org` **and** each
+  registry's own RDAP service): npm `summrise`, `summrise-agent`, `summrise-cli` and the
+  whole `@summrise` scope are free — the only part of this that is first-come. Domains
+  `.io`, `.dev`, `.sh`, `.app` and `.net` are unregistered; `.com` has been held since 2015;
+  `.cn` and `.co` are **unverified** and must not be quoted as free.
 - **Chinese name**: 峰起 (recommended — 峰 = summit, 起 = rise) vs 山起 vs 云起.
   「顶升」is out on two counts: a registered mark being traded, and a heavy-machinery
   term (顶升法, 液压顶升).
