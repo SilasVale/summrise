@@ -4092,3 +4092,36 @@ removing `bin/summrise.js` from the listing makes the gate say exactly that. Nei
 a restated copy any more, and two suite cases hold it — a source assertion of the honest kind, since
 a second copy IS the defect and a behavioural test cannot see a copy that happens to agree today.
 Suite 18 -> 20.
+
+**CF_TOKEN: FOUR COPIES, ONE OWNER, AND A DISAGREEMENT NOBODY HAD NOTICED.** The review listed this
+almost in passing ("`cf_token()` duplicated 4x, each with its own rationale") and it was the real
+remaining thing: four byte-identical bodies in `build.sh`, `publish-release.sh`,
+`build-installer.sh` and `publish-cdn-from-ci.sh`, whose COMMENTS had already begun to diverge —
+which is how a fifth copy gets written with a fifth idea. Three of the four already sourced
+`scripts/lib/release-lib.sh`; `build.sh` now does, at the site where its copy used to be.
+
+The copies also disagreed with the rest of the system about TRIMMING. The npm token path learned on
+2026-09-23 that a token file written with a trailing newline authenticates as nothing — "401 while
+the file looks right" cost an hour — and the fix was `tr -d`. The Cloudflare copies still `cat`'d
+the file raw. The one owner trims, and the reason sits where the code is.
+
+**THE SEAM MADE THE TESTS REAL.** `cf_token` resolves `${CLOUDFLARE_API_TOKEN}` first and
+`$HOME/.cloudflare-token` second, so a fixture home is a second adapter — the cases exercise the
+resolution order instead of asserting source text: file, environment-beats-file, the trailing
+newline, and no-token-prints-nothing. `release-lib.bash` 40 -> 44, release suite still 20, and all
+four scripts resolve a token through the one owner when run with a fixture home.
+
+**AND THE CASES DID NOT RUN AT FIRST, TWICE, IN TWO DIFFERENT WAYS.** The first version used the
+`ok`/`bad` helpers from `publish-release.bash`, which this suite does not define; the second was
+appended with `cat >>` AFTER the suite's summary line and `exit`, so it never executed and the
+suite cheerfully reported 40. Neither mistake was visible in the output — the second one especially,
+because this suite's `check` prints ONLY on failure, so "no output" is indistinguishable from "not
+run" unless you are watching the count. Watching the count is what caught it.
+
+**AND A NEGATIVE RESULT ON THE REVIEW'S TOP CANDIDATE.** C1 ("582 lines, no seam in the middle") does
+not survive inspection: the middle is thin adapters around decisions that ALREADY have seams and
+suites — `write_version_json`, `prune_last5_per_minor`, the packed-tgz gate, `smoke-index.sh` with its
+stubbed curl, and `release-audit.sh` with 27 checks — and most of the 582 lines is prose (the header
+plus the reason beside each gate). The part of C1 that was real was the ordering, and C2 addressed it
+with `--dry-run` and `SEQUENCE=`. A review finding is a hypothesis; this one was worth checking
+rather than acting on.
