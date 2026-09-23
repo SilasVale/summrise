@@ -4278,3 +4278,35 @@ end.
 The shape of the whole episode is the shape of every round in this file: one fact with two owners and
 no gate. What is different here is that the fix was not a deletion or a merge but an ARTEFACT — putting
 the device's prose somewhere a check could read it — and the gates fell out of that.
+
+**A NEGATIVE RESULT WITH EVIDENCE: THE DEVICE-PROXY DOOR IS NOT A BACK DOOR.** The tool-registration
+exploration ended by noticing that `gateway/src/plugins/device-proxy.ts` "forwards any /api/tools/<name>
+with the device token, needing no registration at all" — accurate as a fact, and worth examining as a
+question: two doors to the same device tools, with different rules. Reading it answers the question the
+other way round.
+
+The route's own header states its three auth paths (admin session cookie, paired plugin token, or the
+per-device `summrise_pt_<name>` cookie minted by the `?token=` bootstrap) and the code enforces device
+scoping on every one of them:
+
+  * the per-device cookie is scoped BY CONSTRUCTION — a request for device `b` reads
+    `summrise_pt_b`, so device `a`'s cookie is never even looked at;
+  * the paired plugin token is checked explicitly: `if (link && link.device === deviceName)`;
+  * `?token=` is accepted ONLY on a top-level navigation, because otherwise "a leaked URL
+    (history/sync/screenshot/log) would otherwise grant full device terminal control via /proxy/* for
+    the 30-day plugin-link TTL" — and `Sec-Fetch-Mode` is the signal, chosen because it cannot be
+    spoofed cross-origin;
+  * the cookie exists in a per-device form SPECIFICALLY to prevent cross-device hijack, which the
+    comment names: "one origin-wide cookie would let a later-opened device's page steal an earlier
+    device's terminal".
+
+And the file carries three past fixes with their reasoning, each a real vulnerability found and closed
+in place: round-103's proxy secret (`X-Summrise-Auth`, added because the R102 marker header "was
+client-spoofable end-to-end (a direct curl could set it and read the token → /api/tools RCE)"),
+round-124's 302 bootstrap (which kept the token out of the omnibox and minted the cookie even when the
+panel failed to boot), and the stripping of inbound `x-summrise-auth` so a client cannot ride a
+self-minted header through.
+
+THE LESSON IS ABOUT THE QUESTION, NOT THE CODE: "needs no registration" describes a DIFFERENT property
+than "needs no authorization", and the two are easy to conflate when one door has a registry and the
+other has a policy. This one has a policy, it is written down where the code is, and it is enforced.
