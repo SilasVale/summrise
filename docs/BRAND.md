@@ -429,6 +429,9 @@ the migrated install would have taken the device down a second time.
   Domains remain unclaimed: `.io`, `.dev`, `.sh`, `.app`, `.net` were still unregistered when
   re-checked the same day; `.com` has been held since 2015; `.cn` and `.co` are **unverified**
   and must not be quoted as free.
+  A second account, **`summise`**, was registered during that same confusion and is **left
+  dormant on purpose**: it publishes nothing, and holding it keeps the nearest typo of the brand
+  out of anyone else's hands — deleting it would hand that handle back to whoever asks next.
 - **Chinese name — deferred 2026-09-23** (*「中文名先不起」*). Nothing is chosen, so nothing
   is used: in Chinese text the product is written `Summrise` alone. The candidates stay as
   the record of the thinking rather than a shortlist to act on: 峰起 (was recommended —
