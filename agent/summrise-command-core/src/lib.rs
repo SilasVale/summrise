@@ -117,7 +117,6 @@ impl ToolDef {
     }
 }
 
-
 #[cfg(test)]
 mod guard_tests {
     //! round-385: recover_guard is the codebase-wide poison contract —

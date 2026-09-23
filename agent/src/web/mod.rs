@@ -3100,6 +3100,16 @@ mod tests {
         // failure that matters — an unadvertised one cannot be sent), while a
         // type difference between the two sides is a separate question this
         // snapshot is not trying to answer.
+        //
+        // DESCRIPTIONS JOINED IT AFTER ONE DRIFTED, and that drift is the reason
+        // this file now carries prose: the gateway advertises its OWN copy of
+        // every device-direct tool's description, and `monitor_list`'s copy had
+        // lost `last_expect_ok` while `drops`' explanation moved onto
+        // `last_status` — a model on the console was told a different contract
+        // than the device implements, with every contract test green. Nothing can
+        // compare prose that lives in only one machine-readable place, so the
+        // device's is here now, and a change to it is a committed diff instead of
+        // a silent divergence.
         let spec = api_spec(&state());
         let mut entries: Vec<serde_json::Value> = Vec::new();
         for p in spec["plugins"].as_array().unwrap() {
@@ -3128,6 +3138,7 @@ mod tests {
                 entries.push(serde_json::json!({
                     "name": t["name"].as_str().unwrap(),
                     "plugin": p["name"].as_str().unwrap(),
+                    "description": t["description"].as_str().unwrap_or(""),
                     "params": params,
                     "required": required,
                 }));
@@ -3135,8 +3146,8 @@ mod tests {
         }
         entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
         let rendered = format!(
-            "// Device MCP tool inventory (name + owning plugin + parameter names +\n\
-             // required),\n\
+            "// Device MCP tool inventory (name + owning plugin + description + parameter\n\
+             // names + required),\n\
              // generated from\n\
              // the live PluginRegistry by web::tests::spec_snapshot_pins_every_device_tool_for_the_gateway_contract.\n\
              // The gateway MCP registry contract test reads this file.\n\

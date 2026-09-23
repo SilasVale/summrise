@@ -1,11 +1,12 @@
-// Device MCP tool inventory (name + owning plugin + parameter names +
-// required),
+// Device MCP tool inventory (name + owning plugin + description + parameter
+// names + required),
 // generated from
 // the live PluginRegistry by web::tests::spec_snapshot_pins_every_device_tool_for_the_gateway_contract.
 // The gateway MCP registry contract test reads this file.
 // Do not hand-edit: SUMMRISE_REFRESH_SPEC=1 cargo test spec_snapshot, then commit.
 [
   {
+    "description": "Check the release server for a newer summrise-agent and install it on this device. On a newer version (or force:true) the installer runs silently and the agent restarts — MCP disconnects briefly and reconnects ~1 minute later on the new build. Returns up_to_date when already current. Fails explicitly when no update channel is configured (platform.download_url unset).",
     "name": "agent_update",
     "params": [
       "force"
@@ -14,12 +15,14 @@
     "required": []
   },
   {
+    "description": "Info about the BUNDLED Playwright runtime on this device (no install needed — AI agents must reuse it instead of installing their own): returns pw_dir, playwright-core version, node.exe path, chromium availability, screenshot output dir, and a ready-to-use script template. Combined with browser_run_script this is the canonical way to drive this device's browser.",
     "name": "browser_pw_info",
     "params": [],
     "plugin": "playwright",
     "required": []
   },
   {
+    "description": "Run a self-contained Node/Playwright script with the device's BUNDLED node + playwright-core (never install your own). Scripts run with SUMMRISE_BROWSER_HELPER set (acquireBrowser(): attaches to the visible embedded view when present so actions show live, else private headless) — prefer it over launching your own browser; headless only for batch jobs that must not disturb the watched screen. Concurrency: calls run as independent processes with NO runner lock — headless runs are fully parallel, but attached runs SHARE the single visible tab (one view shows one page; parallel visible drivers interleave, so keep interactive work serial). Screenshot namespacing: pass shots as \"<SUMMRISE_RUN_ID>-*.png\" (env, unique per call) for exact attribution under concurrency; the returned list is otherwise a best-effort before/after diff. Params: script (JS source, CommonJS; follow the browser_pw_info template), timeout_secs (default 120, max 600). Screenshots saved to the pwout dir are listed in the result. Returns exit_code, stdout, stderr (each capped), screenshots, timed_out.",
     "name": "browser_run_script",
     "params": [
       "run_id",
@@ -32,6 +35,7 @@
     ]
   },
   {
+    "description": "Call a tool on the connected browser MCP server (playwright-mcp: browser_navigate with {url}, browser_click with {selector}, ...). Call mcp_client_list first to see available tools.",
     "name": "mcp_client_call",
     "params": [
       "arguments",
@@ -43,6 +47,7 @@
     ]
   },
   {
+    "description": "Connect this device to a local browser MCP server. transport='stdio' (default) spawns the bundled playwright-mcp over stdin/stdout — no listening port. transport='http' connects to an already-running server at url (default http://localhost:9229/mcp). Returns the number of tools exposed once connected.",
     "name": "mcp_client_connect",
     "params": [
       "headers",
@@ -53,18 +58,21 @@
     "required": []
   },
   {
+    "description": "Close the browser MCP client session (frees the connection and the spawned playwright process in stdio mode).",
     "name": "mcp_client_disconnect",
     "params": [],
     "plugin": "mcp-client",
     "required": []
   },
   {
+    "description": "List the tools exposed by the connected browser MCP server (playwright-mcp: browser_navigate, browser_snapshot, browser_click, ...).",
     "name": "mcp_client_list",
     "params": [],
     "plugin": "mcp-client",
     "required": []
   },
   {
+    "description": "Soft-delete a memory entry by id (it stays recoverable via memory_update deleted=false until compaction). Returns success or an error when the id is unknown.",
     "name": "memory_delete",
     "params": [
       "id"
@@ -75,6 +83,7 @@
     ]
   },
   {
+    "description": "Export all memory entries (including soft-deleted, flagged) as JSONL text — for backup, migration, or human review. Optionally scoped to a namespace.",
     "name": "memory_export",
     "params": [
       "namespace"
@@ -83,6 +92,7 @@
     "required": []
   },
   {
+    "description": "List memory entries (newest-first), optionally filtered by namespace and tag. Use to enumerate what is stored on this device.",
     "name": "memory_list",
     "params": [
       "include_deleted",
@@ -94,6 +104,7 @@
     "required": []
   },
   {
+    "description": "Save a knowledge entry to the device-local memory store, shared across all AI clients and sessions on this device. Title is required and should be a short unique summary; content is the knowledge body (sanitized: credential-shaped values are redacted); tags help later discovery; namespace defaults to 'shared'. Returns the new entry id. Pass the id run_begin gave you as run_id so this entry is attributable to the execution that learned it; omit it (never send a placeholder) when you are not working inside a declared run.",
     "name": "memory_save",
     "params": [
       "content",
@@ -109,6 +120,7 @@
     ]
   },
   {
+    "description": "Search the device-local memory store (shared across clients/sessions) by case-insensitive substring over title, content, and tags. Returns entries newest-first with content truncated to a 4KB snippet. Use before starting work to recall prior knowledge, and after work to confirm what was stored.",
     "name": "memory_search",
     "params": [
       "limit",
@@ -122,6 +134,7 @@
     ]
   },
   {
+    "description": "Update an existing memory entry (by id). Provide any subset of title/content/tags/namespace; set deleted=false to restore a soft-deleted entry. Returns success or an error when the id is unknown.",
     "name": "memory_update",
     "params": [
       "content",
@@ -137,6 +150,7 @@
     ]
   },
   {
+    "description": "Start watching a host:port on this device and leave the watch in place. The list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards — add one when something you are about to touch must be seen coming back. The probe is a TCP connect: a REFUSED connection counts as down (the service is not there), which is the question this instrument answers. Adding the same host:port (and path) twice is idempotent — it is the same watch, not a second one. A port is required: name the SERVICE (22 for SSH, 80 for a web UI), because guessing it would probe the wrong thing and report it as fact.          `path` turns the check into a real HTTP GET of that path (\"/\" for a UI's front page, \"/api/health\" for a health endpoint): the probe then records the STATUS CODE, and `ok` means a response arrived with a status below 500 — so a UI answering 500 is DOWN while one answering 401 is UP (it wants credentials, and it is serving). Without a path the probe is a bare TCP connect, which cannot tell those apart. HTTP only: a TLS check needs a certificate story this instrument does not have.",
     "name": "monitor_add",
     "params": [
       "expect",
@@ -151,12 +165,14 @@
     ]
   },
   {
+    "description": "List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it), `last_status` (the HTTP status code, for a target watched with a path) and `last_expect_ok` (whether the body contained the expected text, when one was given). The series is oldest-first; a probe with `ok: false` carries NO latency (nothing was measured) and a GAP in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE), which is the form a person writes into a report. The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.",
     "name": "monitor_list",
     "params": [],
     "plugin": "monitor",
     "required": []
   },
   {
+    "description": "Probe one watched target RIGHT NOW and return the result plus the refreshed summary — the synchronous half of the instrument, against the 15 s timer that runs on its own. Use it as a BEFORE and AFTER around anything that could take a host down or bring it back: probe, act, probe. It is recorded in the series like any other probe, so the pair also becomes part of what the operator sees.",
     "name": "monitor_probe",
     "params": [
       "id"
@@ -167,6 +183,7 @@
     ]
   },
   {
+    "description": "Stop watching a target. `removed` says whether anything was being watched under that id — removing one that is not there is reported as a no-op, never as a success. Removing a watch DISCARDS its series: the record is gone, not hidden.",
     "name": "monitor_remove",
     "params": [
       "id"
@@ -177,6 +194,7 @@
     ]
   },
   {
+    "description": "View a Summrise page's design by fetching its HTML/CSS. Pages: status (/), panel (/panel/), panel-js, panel-css, panel-html, console (gateway page), console-css (gateway style.css), console-js, download (download site). Returns up to 64KB of source — read the CSS tokens (--accent, --bg, radii, glass) and HTML structure to evaluate the design. `target` is LOOPBACK ONLY (the agent's own port by default); the remote pages come from the configured console/download URL, and fail explicitly when that is not configured.",
     "name": "page_view",
     "params": [
       "page",
@@ -188,6 +206,7 @@
     ]
   },
   {
+    "description": "Declare the start of ONE run — one execution of your work on this device — and get back the `run_id` that names it. Call it when you begin a piece of work that spans more than a single command, then pass the id to run_end when you stop. The device cannot tell two AIs apart (the token identifies the device, not the caller), so this declared boundary is what lets an operator see that a set of commands and browser actions belonged to one execution rather than to the day's whole traffic. The id is minted here and embeds its start time; store it and pass it back verbatim.",
     "name": "run_begin",
     "params": [
       "goal",
@@ -197,6 +216,7 @@
     "required": []
   },
   {
+    "description": "Declare that a run started with run_begin is finished, so an operator sees a closed interval instead of work that never stopped. Pass back the `run_id` run_begin gave you. A run left unclosed is NOT an error — the device renders it as open with the extent of the events it actually carries, because a client may still be working, may have stopped, or the agent may have restarted. `known` in the reply says whether this id was ever minted here; it is information for you, never a permission.",
     "name": "run_end",
     "params": [
       "outcome",
@@ -208,6 +228,7 @@
     ]
   },
   {
+    "description": "Delete a stored secret for a target host.",
     "name": "secret_delete",
     "params": [
       "target"
@@ -218,6 +239,7 @@
     ]
   },
   {
+    "description": "Retrieve a stored secret for a target host. Returns the password or null.",
     "name": "secret_get",
     "params": [
       "target"
@@ -228,6 +250,7 @@
     ]
   },
   {
+    "description": "Store a secret (an SSH password) for a target host, so later sessions to that host do not need it inline. The device is a SERVICE, not a desktop app: it tries the OS keychain first and falls back to a file store, so this works headless. PREFER THIS over putting a password in a command — the audit trail records full command text, and a password in it is a password in the record.",
     "name": "secret_set",
     "params": [
       "password",
@@ -240,6 +263,7 @@
     ]
   },
   {
+    "description": "SFTP file transfer over SSH (stateless one-shot): connect with host/user/password or key_path, perform ONE operation, close. Ops: 'list' (remote_path dir → names+attrs), 'upload' (data base64 → remote_path), 'download' (remote_path → local_path on this device), 'delete' (remote_path), 'mkdir' (remote_path). Returns result summary. For persistent browsing use a terminal ssh session.",
     "name": "sftp",
     "params": [
       "data",
@@ -261,6 +285,7 @@
     ]
   },
   {
+    "description": "Receive a file onto THIS device (the agent host) from a URL — the device fetches it directly, so the bytes NEVER pass through the AI context (this is how a 100 MB firmware image moves; system_file_write is only for ≤4 MiB inline text). Pair with system_file_upload: the sender uploads to the Summrise relay and hands back the one-time URL, this tool lands it. Returns {ok, path, bytes}. Destination is any absolute path (parents are created; relative = <data dir>/downloads).",
     "name": "system_file_download",
     "params": [
       "path",
@@ -273,6 +298,7 @@
     ]
   },
   {
+    "description": "List a directory on THIS device (the agent host). Returns entries with name, kind (file/dir/symlink), size, and modified time. Absolute or relative paths (relative = agent working dir). Capped at 500 entries.",
     "name": "system_file_list",
     "params": [
       "path",
@@ -284,6 +310,7 @@
     ]
   },
   {
+    "description": "Read a file on THIS device (the agent host). Returns the content as UTF-8 text (binary files return an error — use a terminal session for binary inspection), capped at 1 MiB. `raw: true` returns base64 for binary-safe reads. Content passes through the AI context (costs tokens) — to move a large file from this device outward WITHOUT context cost, use system_file_upload and read the returned R2 URL instead.",
     "name": "system_file_read",
     "params": [
       "limit",
@@ -297,6 +324,7 @@
     ]
   },
   {
+    "description": "Stat a file or directory on THIS device: size, modified time, kind. Use it BEFORE a transfer to plan paging (system_file_read offset/limit + system_file_write append), or to check a path exists.",
     "name": "system_file_stat",
     "params": [
       "path"
@@ -307,6 +335,7 @@
     ]
   },
   {
+    "description": "Send a local file to the Summrise relay and return its one-time download URL (the other half of the file-transfer pair: hand that URL to system_file_download on the receiving device, or fetch it here on Linux). THE BYTES NEVER PASS THROUGH THE AI CONTEXT, so a 100 MB image is fine. The agent DOES read the file into memory before relaying it, so the cost is bounded by the 100 MiB transfer cap and the upload is NOT streamed from disk — this sentence claimed streaming, which the code has never done (`fs::read` + a buffered body); the DOWNLOAD direction really does stream, which is what made the claim look verified (system_file_write is the ≤4 MiB inline path only). The relay holds it until first download or 24 h. Returns {ok, url, bytes}.",
     "name": "system_file_upload",
     "params": [
       "path"
@@ -317,6 +346,7 @@
     ]
   },
   {
+    "description": "Write text or base64 data to a file on THIS device (the agent host). Creates the file if missing, overwrites by default; set `append: true` to append instead. Capped at 4 MiB per call. Returns bytes written. Content passes through the AI context (costs tokens) — to place a large file here WITHOUT context cost, upload it to R2 first and then use system_file_download with the URL.",
     "name": "system_file_write",
     "params": [
       "append",
@@ -330,6 +360,7 @@
     ]
   },
   {
+    "description": "Network diagnostics from THIS device (the agent host): TCP connect test to host:port (with timeout), and ICMP ping. Returns {tcp_reachable, ping_ms, error?}. Use to verify connectivity before SSH/SFTP/browser operations.",
     "name": "system_net_test",
     "params": [
       "host",
@@ -342,6 +373,7 @@
     ]
   },
   {
+    "description": "Kill a process on THIS device (the agent host) by PID or by name (kills all matching). Use system_process_list first to find the target. Returns what was killed. Uses taskkill on Windows and kill/pgrep elsewhere; if a kill cannot be ATTEMPTED at all it says so rather than reporting that nothing matched.",
     "name": "system_process_kill",
     "params": [
       "name",
@@ -351,6 +383,7 @@
     "required": []
   },
   {
+    "description": "List running processes on THIS device (the agent host). Returns pid, name, and memory (KB). Optional `name` filter (case-insensitive substring).",
     "name": "system_process_list",
     "params": [
       "name"
@@ -359,6 +392,7 @@
     "required": []
   },
   {
+    "description": "Close a terminal session.",
     "name": "terminal_close",
     "params": [
       "session_id"
@@ -369,6 +403,7 @@
     ]
   },
   {
+    "description": "Reconnect to a saved terminal connection (from terminal_saved_connections) by id. Replays the saved params through terminal_open; returns the new session id. Optional params override the saved ones.",
     "name": "terminal_connect_saved",
     "params": [
       "cols",
@@ -381,12 +416,14 @@
     ]
   },
   {
+    "description": "Read the panel diagnostic ring buffer (newest last). Returns {entries: [...]}.",
     "name": "terminal_diag_read",
     "params": [],
     "plugin": "terminal",
     "required": []
   },
   {
+    "description": "POST a diagnostic line from the terminal panel (poll results, adopt events, SSE status, errors). Stored in a process-lifetime ring buffer (cap 200), read via terminal_diag_read.",
     "name": "terminal_diag_write",
     "params": [
       "line"
@@ -397,12 +434,14 @@
     ]
   },
   {
+    "description": "Environment info for the AI when driving this device's terminal: default shell, install dir, bundled node.exe (for one-off node scripts run via terminal_execute), and usage guidance. Run BEFORE opening sessions/executing commands.",
     "name": "terminal_env",
     "params": [],
     "plugin": "terminal",
     "required": []
   },
   {
+    "description": "Run a command. If `session_id` is given, writes the command to that session and waits for output (prompt-marker detection on PTY shells, quiet-period fallback otherwise). Otherwise spawns a local shell with enforced timeout. Session mode returns {kind, state, text, read_from, wait_reason, exit_code, truncated, still_running}: state=done means text is COMPLETE; partial/timeout means text is a PREFIX and `still_running=true` — the command is STILL RUNNING, continue with terminal_read(offset=read_from) until you see the prompt/exit. NEVER re-run a command or open a new session just because a partial was returned: the output arrives in the SAME session's buffer; opening new sessions (terminal_open) while old commands run is what causes output to look interleaved/queued. Long silent SSH commands: prefer run_in_background:true or bigger timeout_secs (idle window scales: ssh 3s, serial 4s, pty 1s). Local mode returns {kind, text, truncated}. `run_in_background: true` (session mode) writes the command and returns immediately with a read_from cursor — collect output via terminal_read; do NOT busy-poll, the wait loop is the foreground path. Note: a quiet timeout or truncation does not prove the foreground command exited.",
     "name": "terminal_execute",
     "params": [
       "approval_id",
@@ -422,6 +461,7 @@
     ]
   },
   {
+    "description": "Remove a saved terminal connection by id (from terminal_saved_connections) and delete its stored password (ssh targets). The live session, if any, is untouched.",
     "name": "terminal_forget_saved",
     "params": [
       "id"
@@ -432,6 +472,7 @@
     ]
   },
   {
+    "description": "List ALL terminal sessions, including closed ones retained in history. Each entry: {id, kind, label, status: 'live'|'closed', bytes, closed_at? (unix seconds), exit_code? (natural shell exit code)}. Closed entries sorted newest-first.",
     "name": "terminal_history",
     "params": [
       "limit"
@@ -440,6 +481,7 @@
     "required": []
   },
   {
+    "description": "Background-job registry. With no params: list recent run_in_background jobs {job_id, command, done, exit_code}. With {job_id, wait_secs}: block until that job finishes or the timeout elapses, then return its final state.",
     "name": "terminal_jobs",
     "params": [
       "job_id",
@@ -449,18 +491,21 @@
     "required": []
   },
   {
+    "description": "List all active terminal sessions (PTY, SSH, and serial).",
     "name": "terminal_list",
     "params": [],
     "plugin": "terminal",
     "required": []
   },
   {
+    "description": "List available serial ports on this machine.",
     "name": "terminal_list_ports",
     "params": [],
     "plugin": "terminal",
     "required": []
   },
   {
+    "description": "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). Returns session ID.",
     "name": "terminal_open",
     "params": [
       "auto_reconnect",
@@ -480,6 +525,7 @@
     ]
   },
   {
+    "description": "Declare, revise, clear or read this session's PLAN — the steps you intend to take, in order. Call it before starting a multi-step task so the operator can see what you are about to do and judge it; call it again with a revised list when the plan changes. Pass an empty array to clear it. With `plan` omitted it just returns the current plan. Steps are short labels, not explanations — put the reasoning for a specific command in terminal_execute's `intent`, and name the step a command advances with terminal_execute's `plan_step`.",
     "name": "terminal_plan",
     "params": [
       "plan",
@@ -492,6 +538,7 @@
     ]
   },
   {
+    "description": "Read buffered output from a terminal session. Non-destructive: uses a cursor so repeating the call without `offset` returns only new output since last read. `offset` is an ABSOLUTE byte offset into the session's byte stream; the response's `start`/`end` are the absolute span actually returned. A single read returns AT MOST 1 MiB: for a session that has produced more, the oldest bytes in the requested window are not returned, and `start` will be GREATER than the `offset` you asked for — that gap is the only signal, and it cannot be retrieved by any offset, so treat a `start` above your `offset` as the head being unavailable. Reads work on closed sessions (retained history). ANSI escapes are stripped and line endings normalized by default (AI-readable); pass `clean: false` for raw bytes.",
     "name": "terminal_read",
     "params": [
       "clean",
@@ -504,6 +551,7 @@
     ]
   },
   {
+    "description": "Resize a terminal session (PTY or SSH). `rows`/`cols` are OPTIONAL and default to 24x80 — the handler has always defaulted them, so declaring them required was a schema claim the code contradicted, and it forbade a call the device answers.",
     "name": "terminal_resize",
     "params": [
       "cols",
@@ -516,12 +564,14 @@
     ]
   },
   {
+    "description": "List saved terminal connections (successfully-opened sessions). Each entry has id (kind:target), kind, target, label and the original open params — reconnect with terminal_connect_saved. Connect-failures are not saved; a reconnect updates the entry.",
     "name": "terminal_saved_connections",
     "params": [],
     "plugin": "terminal",
     "required": []
   },
   {
+    "description": "Get the current on-screen text of a terminal session — the tail of the output buffer (ANSI-stripped), for AI readability. Returns up to `lines` lines (default 60).",
     "name": "terminal_screen",
     "params": [
       "lines",
@@ -533,6 +583,7 @@
     ]
   },
   {
+    "description": "Delete a stored secret for a target host.",
     "name": "terminal_secret_delete",
     "params": [
       "target"
@@ -543,6 +594,7 @@
     ]
   },
   {
+    "description": "Retrieve a stored secret for a target host. Returns the password or null.",
     "name": "terminal_secret_get",
     "params": [
       "target"
@@ -553,6 +605,7 @@
     ]
   },
   {
+    "description": "Store a secret (an SSH password) for a target host, so later sessions to that host do not need it inline. The device is a SERVICE, not a desktop app: it tries the OS keychain first and falls back to a file store, so this works headless. PREFER THIS over putting a password in a command — the audit trail records full command text, and a password in it is a password in the record.",
     "name": "terminal_secret_set",
     "params": [
       "password",
@@ -565,6 +618,7 @@
     ]
   },
   {
+    "description": "Set the active terminal session.",
     "name": "terminal_select",
     "params": [
       "session_id"
@@ -575,6 +629,7 @@
     ]
   },
   {
+    "description": "SFTP file transfer over SSH (stateless one-shot): connect with host/user/password or key_path, perform ONE operation, close. Ops: 'list' (remote_path dir → names+attrs), 'upload' (data base64 → remote_path), 'download' (remote_path → local_path on this device), 'delete' (remote_path), 'mkdir' (remote_path). Returns result summary. For persistent browsing use a terminal ssh session.",
     "name": "terminal_sftp",
     "params": [
       "data",
@@ -596,6 +651,7 @@
     ]
   },
   {
+    "description": "Write data to a terminal session, or assert a line BREAK on a serial one. `data` is UTF-8 text (JSON strings cannot carry arbitrary bytes); use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols) — it is decoded and written exactly as given. For shell commands on Unix devices (serial/ssh to Linux), the command must end with a newline (\\n) — otherwise the shell joins it with whatever is typed next, mangling both. For Windows PowerShell use \\r\\n. Control characters (e.g. \\u0003 for Ctrl+C) are sent verbatim and need no newline. `break_ms` (serial sessions only) asserts a BREAK on the line for that many milliseconds — the signal that interrupts a bootloader's autoboot or drops into a ROM monitor, and the one thing a browser terminal cannot send.",
     "name": "terminal_write",
     "params": [
       "break_ms",

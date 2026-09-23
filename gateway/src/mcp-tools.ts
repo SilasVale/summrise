@@ -125,7 +125,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_screen",
     description:
-      "Get the current on-screen text of a terminal session (tail of the output buffer, ANSI-stripped). Use after terminal_execute to see the result.",
+      "Get the current on-screen text of a terminal session — the tail of the output buffer (ANSI-stripped), for AI readability. Returns up to `lines` lines (default 60).",
     inputSchema: {
       type: "object",
       properties: {
@@ -139,7 +139,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_execute",
     description:
-      "Send input to a terminal session and wait for output (prompt-marker detection on PTY shells, quiet-period fallback otherwise). Returns the accumulated output with wait_reason and exit_code.",
+      "Run a command. If `session_id` is given, writes the command to that session and waits for output (prompt-marker detection on PTY shells, quiet-period fallback otherwise). Otherwise spawns a local shell with enforced timeout. Session mode returns {kind, state, text, read_from, wait_reason, exit_code, truncated, still_running}: state=done means text is COMPLETE; partial/timeout means text is a PREFIX and `still_running=true` — the command is STILL RUNNING, continue with terminal_read(offset=read_from) until you see the prompt/exit. NEVER re-run a command or open a new session just because a partial was returned: the output arrives in the SAME session's buffer; opening new sessions (terminal_open) while old commands run is what causes output to look interleaved/queued. Long silent SSH commands: prefer run_in_background:true or bigger timeout_secs (idle window scales: ssh 3s, serial 4s, pty 1s). Local mode returns {kind, text, truncated}. `run_in_background: true` (session mode) writes the command and returns immediately with a read_from cursor — collect output via terminal_read; do NOT busy-poll, the wait loop is the foreground path. Note: a quiet timeout or truncation does not prove the foreground command exited.",
     inputSchema: {
       type: "object",
       properties: {
@@ -195,7 +195,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_write",
     description:
-      "Write data to a terminal session, or assert a line BREAK on a serial one. `data` is UTF-8 text; use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols). For shell commands the command must end with a newline (\\n; \\r\\n for PowerShell). Control characters (e.g. \\u0003 for Ctrl+C) are sent verbatim and need no newline.",
+      "Write data to a terminal session, or assert a line BREAK on a serial one. `data` is UTF-8 text (JSON strings cannot carry arbitrary bytes); use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols) — it is decoded and written exactly as given. For shell commands on Unix devices (serial/ssh to Linux), the command must end with a newline (\\n) — otherwise the shell joins it with whatever is typed next, mangling both. For Windows PowerShell use \\r\\n. Control characters (e.g. \\u0003 for Ctrl+C) are sent verbatim and need no newline. `break_ms` (serial sessions only) asserts a BREAK on the line for that many milliseconds — the signal that interrupts a bootloader's autoboot or drops into a ROM monitor, and the one thing a browser terminal cannot send.",
     inputSchema: {
       type: "object",
       properties: {
@@ -222,7 +222,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_read",
     description:
-      // The claim that `offset: 0` "re-reads from the beginning" was FALSE past
+      // The claim that `offset: 0` "Read buffered output from a terminal session. Non-destructive: uses a cursor so repeating the call without `offset` returns only new output since last read. `offset` is an ABSOLUTE byte offset into the session's byte stream; the response's `start`/`end` are the absolute span actually returned. A single read returns AT MOST 1 MiB: for a session that has produced more, the oldest bytes in the requested window are not returned, and `start` will be GREATER than the `offset` you asked for — that gap is the only signal, and it cannot be retrieved by any offset, so treat a `start` above your `offset` as the head being unavailable. Reads work on closed sessions (retained history). ANSI escapes are stripped and line endings normalized by default (AI-readable); pass `clean: false` for raw bytes." was FALSE past
       // 1 MiB of spill and was corrected on the device in round 21 — while this
       // hand-copied string kept serving it to every console client. A single
       // read returns AT MOST 1 MiB and then the window's TAIL, so a `start`
@@ -249,7 +249,8 @@ const TERMINAL_TOOLS: McpTool[] = [
   },
   {
     name: "terminal_resize",
-    description: "Resize a terminal session (PTY/SSH).",
+    description:
+      "Resize a terminal session (PTY or SSH). `rows`/`cols` are OPTIONAL and default to 24x80 — the handler has always defaulted them, so declaring them required was a schema claim the code contradicted, and it forbade a call the device answers.",
     inputSchema: {
       type: "object",
       properties: {

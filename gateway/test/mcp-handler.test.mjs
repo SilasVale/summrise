@@ -1079,3 +1079,46 @@ test("mcp: a 2xx with a NON-JSON body is an error, not an empty success", async 
     }
   }
 });
+
+// THE CONSOLE'S PROSE IS A HAND-COPY OF THE DEVICE'S, AND ONE DRIFTED (architecture round 9).
+// `monitor_list`'s console copy had lost `last_expect_ok` while `drops`' explanation moved onto
+// `last_status`, so a model on the console was told a different contract than the device implements
+// — with every other contract test green. Nothing could compare prose that existed in only one
+// machine-readable place; the device's is in agent/spec-tools.json now (the snapshot carries it),
+// and this asks the question that would have caught it: does any console copy DROP a field the
+// device names? Fields are spelled as `backticked_identifiers` on both sides, which is what makes
+// the comparison mechanical rather than a reading exercise.
+test("the console's tool descriptions name every field the device's name", () => {
+  const raw = readFileSync(new URL("../../agent/spec-tools.json", import.meta.url), "utf8");
+  // the file is JSONC: a generated header of // comments, then the array
+  const spec = JSON.parse(raw.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
+  const ts = readFileSync(new URL("../src/mcp-tools.ts", import.meta.url), "utf8");
+
+  const consoleDescription = (name) => {
+    const i = ts.indexOf(`name: "${name}"`);
+    if (i < 0) return null;
+    const j = ts.indexOf("description:", i);
+    if (j < 0) return null;
+    const open = ts.indexOf('"', j);
+    let k = open + 1;
+    while (k < ts.length && !(ts[k] === '"' && ts[k - 1] !== "\\")) k++;
+    return ts.slice(open + 1, k);
+  };
+  const fields = (s) => new Set([...String(s).matchAll(/`([a-z][a-z0-9_]{2,})`/g)].map((m) => m[1]));
+
+  let exposed = 0;
+  const dropped = [];
+  for (const e of spec) {
+    const desc = consoleDescription(e.name);
+    if (desc === null) continue; // deliberately not console-exposed (the NOT_EXPOSED decision)
+    exposed++;
+    const lost = [...fields(e.description)].filter((f) => !fields(desc).has(f));
+    if (lost.length) dropped.push(`${e.name}: ${lost.join(", ")}`);
+  }
+  assert.ok(exposed >= 25, `only ${exposed} console-exposed tools were read — this proves nothing`);
+  assert.deepEqual(
+    dropped,
+    [],
+    `console copies that drop a field the device names: ${dropped.join(" | ")}`,
+  );
+});
