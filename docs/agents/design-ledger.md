@@ -4364,3 +4364,35 @@ dead, and the deletion test says deleting it REMOVES complexity rather than movi
 the IMPLEMENTATION of a policy adopted after an incident, kept beside the practice it guarded. The
 honest move is therefore not a late-night deletion: the candidate is recorded with its reason intact,
 because this file already knows what happens when code outlives the reason for it.
+
+**THE CATALOGUE HAS ONE OWNER NOW, AND THE PROXY ENFORCES IT.** `/mcp` withheld device tools by name
+with a reason each; the device proxy forwarded any `/api/tools/<name>` verbatim; and the device
+authorizes nothing per tool. So the curation was one proxied POST away from being bypassed by anyone
+holding an admin cookie or a 30-day plugin cookie. `gateway/src/tool-policy.ts` now records, per
+withheld name, the reason AND the audience — whether the device proxy may relay it — and
+`device-proxy.ts` refuses the rest with a 403 that carries the reason, before the device is dialed. A
+403 and not a 401 because the console ejects a session on any 401.
+
+**THE AUDIENCE WAS THE MISSING FACT, AND IT IS EVIDENCE.** Every call site in the panel goes through
+`callTool()`/`callApi()` with a LITERAL name — the whole surface is `terminal_*`, the `memory_*`
+family, `agent_update` and `terminal_saved_connections` — so `panel: true` is exactly what the panel
+calls, and blanket enforcement would have broken the Update Card. That is also how a claim I made an
+hour earlier was corrected: "three tools reachable, needed by nobody" came from a SAMPLE of the
+catalogue, and the catalogue is ~22 names.
+
+`gateway/test/mcp-handler.test.mjs` asserts every policy name is decided in `NOT_EXPOSED`, so a tool
+cannot be withheld from one door and unknown to the other. The reverse is not required: the catalogue
+carries names the panel legitimately uses.
+
+**THREE MISTAKES OF MINE ON THE WAY, EVERY ONE CAUGHT BY A GATE RATHER THAN BY ME.** The test URL used
+a host the route table does not key on (404 — and the fix was to READ A WORKING CASE rather than guess
+at the shape); the refusal message is NESTED at `error.message`, because `jsonError` wraps it; and the
+typecheck failed SILENTLY because I had put it in an `&&` chain — the same masking a pipe caused a
+round earlier, which is why the repo's rule is about exit codes and not about reading output.
+
+**AND A GATE I HAD NOT MET: THE ONE THAT CHECKS THE OTHER GATES ARE STILL PROVEN.** CI refused the
+build with "its mutation's anchor is GONE from scripts/test/production-host-check.mjs — re-pair it, or
+the gate is unproven". Bumping `MAX_ALLOWED` 41 -> 42 when `relay/` was declared removed the literal
+its mutation flips, so the proof that the ratchet BITES had quietly stopped being a proof.
+`gate-mutations-check.mjs` re-paired, and running it locally prints the line worth keeping: **26 gates
+broken on purpose and every one of them bit.**
