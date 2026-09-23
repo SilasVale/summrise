@@ -1149,7 +1149,6 @@ const CONTAINMENT_DEBT = new Set([
   "run_begin",
   "secret_delete",
   "secret_get",
-  "system_file_upload",
   "terminal_connect_saved",
   "terminal_diag_write",
   "terminal_env",
