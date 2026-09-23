@@ -395,5 +395,6 @@ about the name is already done; this is the only part that is **first-come**.
 - More decisively, the Registrar API is **list/get**: there is no method that *registers* a
   domain. So buying is a dashboard action — **Domain Registration → search → buy** — for
   `.io`, `.dev`, `.sh`, `.app`, `.net`. `.com` is not available (held since 2015).
-- Buy the domains **with the same Cloudflare account** that already holds `saisi.online`
-  (checked: that is the only zone on it), so nameservers and Access come along for free.
+- Buy the domains **with the same Cloudflare account that already holds the operator's
+  existing zone** (checked: that zone is the only one on the account), so nameservers and
+  Access come along for free.
