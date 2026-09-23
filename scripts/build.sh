@@ -19,11 +19,10 @@ TARGET="x86_64-pc-windows-msvc"
 FEATURES="terminal,keyring"   # terminal backends + OS keychain (file fallback for the service context)
 
 # --- token: prefer $CLOUDFLARE_API_TOKEN, else ~/.cloudflare-token ---
-cf_token() {
-  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then echo "$CLOUDFLARE_API_TOKEN";
-  elif [[ -f "$HOME/.cloudflare-token" ]]; then cat "$HOME/.cloudflare-token";
-  else echo ""; fi
-}
+# cf_token lives in ONE place now (it was byte-identical in four scripts, with four comments
+# starting to diverge). Sourced here; the others already sourced it.
+# shellcheck source=lib/release-lib.sh
+source "scripts/lib/release-lib.sh"
 
 # Shared deploy gate: fetch the CF token once and bail with the same
 # "missing — skipping" message when absent. deploy_worker and

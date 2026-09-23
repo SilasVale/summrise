@@ -255,3 +255,22 @@ pack_input_mode_verdict() {
   if [ -n "$bad" ]; then printf '%s' "$bad"; return 1; fi
   return 0
 }
+
+# cf_token — the Cloudflare API token: env first, then ~/.cloudflare-token.
+#
+# ONE OWNER. It used to be written out four times, byte-identical, in build.sh,
+# publish-release.sh, build-installer.sh and publish-cdn-from-ci.sh — and the copies had already
+# started to diverge in their COMMENTS, which is how a fifth copy gets written with a fifth idea.
+#
+# AND IT TRIMS, which the copies did not. The npm path learned this the expensive way on
+# 2026-09-23: a token file written with a trailing newline authenticates as nothing, and "401
+# while the file looks right" cost an hour. There is no reason the Cloudflare token file is a
+# different kind of file, and every consumer here wants the token, not the bytes.
+#
+# Pure and side-effect free: reads ${CLOUDFLARE_API_TOKEN} or $HOME/.cloudflare-token, prints the
+# token or nothing. unit-tested with a fixture HOME.
+cf_token() {
+  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then printf '%s' "$CLOUDFLARE_API_TOKEN";
+  elif [[ -f "$HOME/.cloudflare-token" ]]; then tr -d ' \t\r\n' < "$HOME/.cloudflare-token";
+  else printf ''; fi
+}

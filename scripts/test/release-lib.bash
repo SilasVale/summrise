@@ -221,6 +221,31 @@ D_LINE="$(grep -n '^echo "== done =="' scripts/build-installer.sh | cut -d: -f1)
 check "the verdict runs BEFORE the success line" \
   "$([ "${V_LINE:-0}" -lt "${D_LINE:-0}" ] && echo before || echo after)" "before"
 
+
+# ── cf_token: ONE owner, and a REAL seam (round 6 of the architecture objective) ────────────────
+# It was byte-identical in build.sh, publish-release.sh, build-installer.sh and
+# publish-cdn-from-ci.sh — four copies whose COMMENTS had already started to diverge, which is how
+# a fifth copy gets written with a fifth idea. It lives in release-lib.sh now.
+#
+# THE SEAM IS $HOME. The function resolves ${CLOUDFLARE_API_TOKEN} first and $HOME/.cloudflare-token
+# second, so a fixture home is a second adapter: these cases exercise the real resolution order
+# instead of asserting the source text.
+FIXHOME=$(mktemp -d)
+printf 'file-token\n' > "$FIXHOME/.cloudflare-token"
+check "cf_token reads \$HOME/.cloudflare-token" \
+  "$(env -u CLOUDFLARE_API_TOKEN HOME="$FIXHOME" bash -c 'source scripts/lib/release-lib.sh; cf_token')" "file-token"
+check "cf_token prefers the ENVIRONMENT over the file" \
+  "$(CLOUDFLARE_API_TOKEN=env-token HOME="$FIXHOME" bash -c 'source scripts/lib/release-lib.sh; cf_token')" "env-token"
+# AND IT TRIMS. The npm path learned this the expensive way on 2026-09-23: a token file written
+# with a trailing newline authenticates as nothing, and "401 while the file looks right" cost an
+# hour. The four copies did not trim, and the Cloudflare file is not a different kind of file.
+printf 'trailing-token\r\n' > "$FIXHOME/.cloudflare-token"
+check "cf_token TRIMS a trailing newline/CR (the npm lesson)" \
+  "$(env -u CLOUDFLARE_API_TOKEN HOME="$FIXHOME" bash -c 'source scripts/lib/release-lib.sh; cf_token')" "trailing-token"
+rm -rf "$FIXHOME"
+check "cf_token prints NOTHING when there is no env and no file (callers gate on that)" \
+  "$(env -u CLOUDFLARE_API_TOKEN HOME=/nonexistent bash -c 'source scripts/lib/release-lib.sh; cf_token')" ""
+
 echo "release-lib: $PASS checks passed"
 
 

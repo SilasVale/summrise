@@ -54,11 +54,8 @@ ASSET_DIR=index/public/summrise-agent
 TGZ_NAME="summrise-agent-${VER}.tgz"
 CDN_BASE="${SMOKE_BASE_URL:-https://agent.saisi.online}"
 
-cf_token() {
-  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then echo "$CLOUDFLARE_API_TOKEN";
-  elif [[ -f "$HOME/.cloudflare-token" ]]; then cat "$HOME/.cloudflare-token";
-  else echo ""; fi
-}
+# cf_token comes from the ONE owner (scripts/lib/release-lib.sh, sourced above): it was
+# byte-identical here and in three other scripts, with four comments starting to diverge.
 
 echo "== 1. audit: does the CI artifact package the same SOURCE? =="
 # shellcheck source=lib/release-audit.sh

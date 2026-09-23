@@ -159,11 +159,7 @@ PKG="$NPM_DIR/package.json"
 # P2-3 token (same logic as scripts/build.sh cf_token): env first,
 # ~/.cloudflare-token fallback — never a bare `cat` (missing file used to
 # die with an opaque cat error deep in the deploy step).
-cf_token() {
-  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then echo "$CLOUDFLARE_API_TOKEN";
-  elif [[ -f "$HOME/.cloudflare-token" ]]; then cat "$HOME/.cloudflare-token";
-  else echo ""; fi
-}
+
 
 # D7 (docs/design/0010): the npm registry is the SECOND channel, and it follows
 # the same shape as cf_token — env first, then a file — with one difference that

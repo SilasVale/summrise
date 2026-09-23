@@ -76,11 +76,7 @@ sign_exe() { # $1 = exe path to sign in place
   echo "signed: $exe ($(stat -c %s "$exe") bytes)"
 }
 
-cf_token() {
-  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then echo "$CLOUDFLARE_API_TOKEN";
-  elif [[ -f "$HOME/.cloudflare-token" ]]; then cat "$HOME/.cloudflare-token";
-  else echo ""; fi
-}
+
 
 need_toolchain() {
   [[ -x "$MAKENSIS" ]] || return 0
