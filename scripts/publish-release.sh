@@ -441,6 +441,41 @@ source "scripts/smoke-index.sh"
 assert_want_sha256 "$SHA" || exit 1
 smoke_index_release "$VER" "$SHA" || exit 1
 
+# ── D7: the npm registry, the second channel ────────────────────────────────
+# THIS RUNS BEFORE THE AUDIT, ON PURPOSE. The audit cannot pass on a first
+# publish -- the GitHub asset is built by release.yml AFTER the tag -- and its
+# failure branch exits, so while this block sat BELOW the audit, a first publish
+# deployed the CDN, refused the audit, and never reached the registry. Measured
+# on 1.2.454: the CDN served the new version, `--npm` was passed, and npm still
+# answered latest=1.2.453. Putting a step that MUST happen after a step that is
+# EXPECTED to fail is the whole bug; the audit stays last, where its verdict
+# belongs.
+#
+# The design is copied from what dsh actually publishes (measured 2026-09-23):
+# a tiny meta-package whose fat parts are DEPENDENCIES, and DIST-TAGS AS
+# CHANNELS -- their `latest` was an older rc while `alpha` carried the newer
+# builds. The tag defaults to `latest` here, NOT `alpha`: this product's CDN
+# `-latest.tgz` alias moves on every release, so npm `latest` must move with it
+# or `npm i -g summrise-agent` installs a CLI older than the release the agent is
+# being asked to take (the 1.2.453 deadlock). `--npm-tag alpha` is available for a
+# deliberate prerelease channel.
+echo "== npm registry =="
+if [ "$PUBLISH_NPM" = "1" ]; then
+  # A TEMP userconfig, not ~/.npmrc: this box's npm points at a read mirror
+  # (registry.npmmirror.com), and --registry alone would leave the token nowhere
+  # to live. 600 + trap: the credential never outlives the run.
+  NPMRC="$(mktemp)"; chmod 600 "$NPMRC"
+  trap 'rm -f "$NPMRC"' EXIT
+  printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN_VAL" > "$NPMRC"
+  npm publish "$TGZ" --registry=https://registry.npmjs.org/ --userconfig "$NPMRC" \
+    --tag "$NPM_TAG" --access public
+  NPM_NAME=$(node -p "require('./$PKG').name")
+  echo "   published $NPM_NAME@$VER under dist-tag '$NPM_TAG'"
+  echo "   verify: curl -s https://registry.npmjs.org/$NPM_NAME | grep -o '\"dist-tags\".*'"
+else
+  echo "::warning::the npm registry was NOT updated — it still serves the 0.0.1 placeholder, so 'npx summrise-agent' installs nothing. Pass --npm (with ~/.npm-token) when npm should carry this release."
+fi
+
 echo "== release audit: CDN vs GitHub release asset (P0 dual-builder) =="
 # The audit lives in scripts/lib/release-audit.sh. It demands that every
 # SOURCE-DERIVED file in the two tarballs be byte-identical and tolerates ONLY
@@ -502,28 +537,9 @@ else
   # (the reconcile ledger this wrote is gone with the rest of the bookkeeping)
 fi
 
-# ── D7: the npm registry, the second channel ────────────────────────────────
-# The design is copied from what dsh actually publishes (measured 2026-09-23):
-# a tiny meta-package whose fat parts are DEPENDENCIES, and DIST-TAGS AS
-# CHANNELS -- their `latest` was an older rc while `alpha` carried the newer
-# builds. So a release goes to `alpha` first and is promoted to `latest` when a
-# device has proved it; nobody has to trust a mutable `-latest.tgz` alias.
-echo "== npm registry =="
-if [ "$PUBLISH_NPM" = "1" ]; then
-  # A TEMP userconfig, not ~/.npmrc: this box's npm points at a read mirror
-  # (registry.npmmirror.com), and --registry alone would leave the token nowhere
-  # to live. 600 + trap: the credential never outlives the run.
-  NPMRC="$(mktemp)"; chmod 600 "$NPMRC"
-  trap 'rm -f "$NPMRC"' EXIT
-  printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN_VAL" > "$NPMRC"
-  npm publish "$TGZ" --registry=https://registry.npmjs.org/ --userconfig "$NPMRC" \
-    --tag "$NPM_TAG" --access public
-  NPM_NAME=$(node -p "require('./$PKG').name")
-  echo "   published $NPM_NAME@$VER under dist-tag '$NPM_TAG'"
-  echo "   verify: curl -s https://registry.npmjs.org/$NPM_NAME | grep -o '\"dist-tags\".*'"
-else
-  echo "::warning::the npm registry was NOT updated — it still serves the 0.0.1 placeholder, so 'npx summrise-agent' installs nothing. Pass --npm (with ~/.npm-token) when npm should carry this release."
-fi
+# (the npm registry block used to sit HERE, below the audit. It moved above it --
+# see the ordering note there. A first publish deployed the CDN, refused the
+# audit, and never reached the registry.)
 
 echo "== done. Next: push main, then create the GitHub tag v$VER via the API"
 echo "  (release.yml builds the GitHub asset; keep-latest stays manual)."
