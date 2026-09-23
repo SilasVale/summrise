@@ -57,6 +57,9 @@ exports.autostartArgv = autostartArgv;
 exports.playwrightProbePs = playwrightProbePs;
 exports.busyIsFresh = busyIsFresh;
 exports.latestCdnVersion = latestCdnVersion;
+exports.latestNpmVersion = latestNpmVersion;
+exports.newestOf = newestOf;
+exports.latestReleaseVersion = latestReleaseVersion;
 exports.statusReport = statusReport;
 exports.isBehind = isBehind;
 exports.behindBy = behindBy;
@@ -739,6 +742,60 @@ function latestCdnVersion() {
         // tool path had to learn.
         return null;
     }
+}
+/**
+ * The registry's own answer to "what is latest", asked in the smallest way npm
+ * offers: `/-/package/<name>/dist-tags` is a few bytes, where the packument is a
+ * document. Same 3 s cap and the same rule as the CDN read — a failure is
+ * `null`, which the report renders as "could NOT be checked", never as
+ * agreement.
+ */
+function latestNpmVersion() {
+    const r = (0, child_process_1.spawnSync)("curl", [
+        "-s",
+        "-m",
+        "3",
+        "https://registry.npmjs.org/-/package/summrise-agent/dist-tags",
+    ], { encoding: "utf8", timeout: 5000 });
+    if (r.status !== 0 || !r.stdout)
+        return null;
+    try {
+        const j = JSON.parse(r.stdout);
+        const v = j && typeof j.latest === "string" ? j.latest.trim() : "";
+        // A dist-tag can point at a prerelease; the device's update path only
+        // understands x.y.z, and a tag it cannot parse is not a version.
+        return /^\d+\.\d+\.\d+$/.test(v) ? v : null;
+    }
+    catch {
+        return null;
+    }
+}
+/** The newer of two release versions; either may be unknown. */
+function newestOf(a, b) {
+    if (!a)
+        return b;
+    if (!b)
+        return a;
+    const ta = versionTriple(a);
+    const tb = versionTriple(b);
+    if (!ta)
+        return b;
+    if (!tb)
+        return a;
+    for (let i = 0; i < 3; i++) {
+        if (ta[i] !== tb[i])
+            return ta[i] > tb[i] ? a : b;
+    }
+    return a;
+}
+/**
+ * What "latest" means now that there are TWO channels: the newer of the CDN's
+ * `version.json` and the registry's dist-tag. `null` only when NEITHER
+ * answered — one silent channel must not be reported as agreement, which is the
+ * property the CDN-only version already had.
+ */
+function latestReleaseVersion() {
+    return newestOf(latestCdnVersion(), latestNpmVersion());
 }
 function statusReport(f) {
     const out = [];
@@ -1726,13 +1783,14 @@ const commands = {
         catch {
             /* best-effort */
         }
-        // What the CDN advertises, so `status` can answer "is this device current" —
-        // the question every round of this project's log answered by hand. Bounded
-        // HARD (3 s): `status` is the command an operator runs when something is
-        // already wrong, and a status that hangs on a network blip is worse than one
-        // that says it could not check. A failure yields `null`, which the report
-        // renders as "could NOT be checked" — never as agreement.
-        const latestVersion = latestCdnVersion();
+        // What the TWO channels advertise, so `status` can answer "is this device
+        // current" — the question every round of this project's log answered by
+        // hand. Bounded HARD (3 s each): `status` is the command an operator runs
+        // when something is already wrong, and a status that hangs on a network
+        // blip is worse than one that says it could not check. `null` only when
+        // BOTH are silent, which the report renders as "could NOT be checked" —
+        // never as agreement.
+        const latestVersion = latestReleaseVersion();
         for (const line of statusReport({
             agentRunning: agentState === "unknown" ? null : agentState === "yes",
             installDir: DIR,
@@ -1853,15 +1911,15 @@ const commands = {
         // `agent_update` reads that file as its LOCAL version. An older CLI therefore stamps the install with the version it
         // already has, the swap installs the same build, and nothing moves. Refuse before touching the device, and say the
         // thing that works — the release flow has always been two steps.
-        const cdnLatest = latestCdnVersion();
+        const latest = latestReleaseVersion();
         const selfVersion = String(require("../package.json").version || "");
-        if (cdnLatest && selfVersion && isBehind(selfVersion, cdnLatest)) {
-            console.error(`update: this CLI is ${selfVersion} and the CDN has ${cdnLatest}.` +
+        if (latest && selfVersion && isBehind(selfVersion, latest)) {
+            console.error(`update: this CLI is ${selfVersion} and the release channel has ${latest}.` +
                 "\n  Updating from here would stamp the device with " +
                 selfVersion +
                 " and change nothing, because the device reads <install>/.summrise-release (written by this package) as its version." +
                 "\n  Install the new CLI first, then update again:" +
-                '\n    npm i -g --prefix (Split-Path (Get-Command summrise).Source) https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz' +
+                "\n    npm i -g summrise-agent" +
                 "\n    summrise update");
             process.exit(1);
         }

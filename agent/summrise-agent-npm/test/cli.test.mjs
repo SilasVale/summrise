@@ -31,7 +31,8 @@ const {
   bootTaskPs,
   migrateLayoutPs,
   startDesktopPs,
-  rollbackVersionOk
+  rollbackVersionOk,
+  newestOf
 } = require("../bin/summrise.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -43,6 +44,24 @@ test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task s
   assert.equal(psq(""), "");
   assert.equal(psq("'"), "''");
   assert.equal(psq("a'b'c"), "a''b''c");
+});
+
+test("newestOf: the newer of two channels — and silence is never agreement", () => {
+  assert.equal(newestOf("1.2.452", "1.2.453"), "1.2.453");
+  assert.equal(newestOf("1.2.453", "1.2.452"), "1.2.453");
+  // Across a release line the triple still decides — the check that matters
+  // when one channel has moved on and the other has not.
+  assert.equal(newestOf("1.2.9", "1.3.0"), "1.3.0");
+  // ONE channel silent: the other still answers.
+  assert.equal(newestOf(null, "1.2.452"), "1.2.452");
+  assert.equal(newestOf("1.2.452", null), "1.2.452");
+  // BOTH silent: unknown. This is the property the CDN-only read already had
+  // and the reason it is a pure function now — a status that cannot check must
+  // never render as "this device is current".
+  assert.equal(newestOf(null, null), null);
+  // An unparseable version is not a version.
+  assert.equal(newestOf("garbage", "1.2.452"), "1.2.452");
+  assert.equal(newestOf("1.2.452", "not-a-version"), "1.2.452");
 });
 
 test("busyIsFresh: the 10-minute update-exclusion window", () => {
