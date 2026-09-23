@@ -9,6 +9,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 const EXE_SRC = path.join(__dirname, "..", "summrise-agent.exe");
@@ -813,6 +814,53 @@ export function newestOf(a: string | null, b: string | null): string | null {
  */
 export function latestReleaseVersion(): string | null {
   return newestOf(latestCdnVersion(), latestNpmVersion());
+}
+
+/** The release host this CLI already trusts for version checks. */
+export function cdnBase(): string {
+  return (process.env.SUMMRISE_CDN || "https://agent.saisi.online").replace(
+    /\/+$/,
+    "",
+  );
+}
+
+/** Where a boxed component lives on that host. Pure — the tests pin it. */
+export function componentUrl(name: string): string {
+  return `${cdnBase()}/summrise-agent/${name}`;
+}
+
+/**
+ * A boxed component's local path: the copy inside the package if it is there,
+ * otherwise the release host's route for it, downloaded to a temp file.
+ *
+ * WHY THIS EXISTS (2026-09-23). The npm package carries NONE of the big
+ * binaries on purpose (cloudflared 54 MB, playwright 31 MB, electron 234 MB), so
+ * "not in the package" used to mean "you do not get it, ever" — setup printed a
+ * line and moved on. The same shape for cloudflared left a freshly migrated
+ * device with no tunnel, and a device with no tunnel is INVISIBLE TO THE
+ * CONSOLE while looking perfectly healthy from inside: an hour of that is what
+ * this function is for. The release host serves all three, and for cloudflared
+ * it proxies a PINNED upstream asset, which the agent's own sha256 pin then
+ * checks again on the path it uses.
+ *
+ * `null` when neither source works: every component here is optional to the
+ * AGENT, and a failed fetch must not fail the install.
+ */
+export function resolveComponent(name: string, pkgPath: string): string | null {
+  if (fs.existsSync(pkgPath)) return pkgPath;
+  const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "summrise-comp-")), name);
+  // -f: an HTTP error is a FAILURE, not a 404 page written to disk (the
+  // HTML-polluted download that round-54 exists to remember).
+  const r = spawnSync(
+    "curl",
+    ["-fsSL", "-m", "300", "-o", dest, componentUrl(name)],
+    { encoding: "utf8", timeout: 320000 },
+  );
+  if (r.status !== 0 || !fs.existsSync(dest) || fs.statSync(dest).size === 0) {
+    return null;
+  }
+  console.log(`setup: ${name} fetched from the release host (not in the package)`);
+  return dest;
 }
 
 export function statusReport(f: StatusFacts): string[] {
@@ -1647,8 +1695,11 @@ const commands = {
     // B2: stage the boxed playwright bundle (node_modules ONLY — node.exe is
     // NOT bundled; the system node detected below runs it). Single small
     // artifact in the npm package, Summrise version-locked.
-    const PW_ZIP = path.join(__dirname, "..", "summrise-playwright.zip");
-    if (fs.existsSync(PW_ZIP)) {
+    const PW_ZIP = resolveComponent(
+      "summrise-playwright.zip",
+      path.join(__dirname, "..", "summrise-playwright.zip"),
+    );
+    if (PW_ZIP) {
       const pwDir = PW_DIR;
       fs.mkdirSync(pwDir, { recursive: true });
       sh(
@@ -1694,8 +1745,8 @@ const commands = {
         }
       }
     } else {
-      console.log(
-        "setup: summrise-playwright.zip not in package (browser tools disabled)",
+      console.error(
+        "setup: WARNING -- the playwright bundle could not be obtained (not in the package, and the release host did not serve it); browser tools stay disabled.",
       );
     }
     // Node runtime: the device has node (npm works), but the agent runs as
@@ -1720,12 +1771,23 @@ const commands = {
     }
     // C2: stage the boxed cloudflared binary into components/ (optional — local
     // mode works without it; only used when the user opts into public access).
-    const CF_SRC = path.join(__dirname, "..", "cloudflared.exe");
-    if (fs.existsSync(CF_SRC)) {
+    const CF_SRC = resolveComponent(
+      "cloudflared.exe",
+      path.join(__dirname, "..", "cloudflared.exe"),
+    );
+    if (CF_SRC) {
       fs.mkdirSync(COMPONENTS_DIR, { recursive: true });
       fs.copyFileSync(CF_SRC, path.join(COMPONENTS_DIR, "cloudflared.exe"));
       console.log(
         "setup: cloudflared staged (tunnel optional -- `summrise tunnel install` to enable)",
+      );
+    } else {
+      // This branch used to be SILENT, and that silence is what the 2026-09-23
+      // migration cost an hour of: a device with no cloudflared has no tunnel,
+      // and a device with no tunnel cannot be reached from the console at all
+      // while `summrise status` reports it healthy from inside.
+      console.error(
+        "setup: WARNING -- cloudflared could NOT be staged (not in the package, and the release host did not serve it); this device will be unreachable from the console until the binary can be fetched.",
       );
     }
     // P2-4: record the boxed-component versions (never fail-closed).

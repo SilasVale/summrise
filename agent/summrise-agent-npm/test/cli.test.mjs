@@ -32,7 +32,8 @@ const {
   migrateLayoutPs,
   startDesktopPs,
   rollbackVersionOk,
-  newestOf
+  newestOf,
+  componentUrl
 } = require("../bin/summrise.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -44,6 +45,31 @@ test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task s
   assert.equal(psq(""), "");
   assert.equal(psq("'"), "''");
   assert.equal(psq("a'b'c"), "a''b''c");
+});
+
+test("componentUrl: a component comes from the release host, under the agent path", () => {
+  // The shape setup now depends on: the package carries none of the big
+  // binaries, so "not in package" must mean "fetch it from the host that
+  // already serves it" -- not "give up", which left a migrated device with no
+  // tunnel and no way for the console to reach it.
+  const cf = componentUrl("cloudflared.exe");
+  assert.match(cf, /^https:\/\/[^/]+\/summrise-agent\/cloudflared\.exe$/);
+  assert.match(
+    componentUrl("summrise-playwright.zip"),
+    /\/summrise-agent\/summrise-playwright\.zip$/,
+  );
+  // The name is APPENDED under the agent path, so it cannot move the request to
+  // another host — and every component resolves to the SAME host, which is the
+  // property the fetch depends on.
+  assert.equal(
+    componentUrl("anything").split("/")[2],
+    cf.split("/")[2],
+    "every component must come from one host",
+  );
+  assert.ok(
+    componentUrl("anything").indexOf("/summrise-agent/") > 0,
+    "components live under the agent path",
+  );
 });
 
 test("newestOf: the newer of two channels — and silence is never agreement", () => {
