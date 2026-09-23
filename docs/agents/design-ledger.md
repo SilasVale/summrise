@@ -4238,3 +4238,15 @@ THE TEXT, NOT THE ONE THAT PARSES IT.
 The consolidation itself is one definition and two call sites now, which is what the containment gate
 needed: with two walkers, only one of them unescaped single-quoted literals, and the newer copy
 reported a false violation on a description that was already verbatim the device's.
+
+**A RED TREE REACHED MAIN BECAUSE A TEST AND A COMMIT WERE CHAINED WITHOUT `set -e`.** The gate
+refused the commit — correctly, it had found a name the merge had paid — and the shell ran the commit
+anyway: `npm test | grep …` on one line and `git commit` on the next, in one command, with no `set -e`
+and no `&&`. A red tree sat on main for two minutes, and the CI run for that commit will be red in the
+history forever. The repo already carries the rule for this shape — READ THE EXIT CODE, NOT THE
+OUTPUT — written for a different failure mode one level down. This is the same rule applied to the
+command line that does the committing: a step that must not run on failure has to BE conditional, not
+merely preceded by a failure it happens to print.
+
+The check itself deserved the last word, though: it named the exact entry (`system_file_upload`) that
+had been paid and left in the list, which is what a self-cleaning list is for.
