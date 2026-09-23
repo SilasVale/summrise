@@ -416,11 +416,19 @@ the migrated install would have taken the device down a second time.
   so this is recorded as an accepted risk rather than a pending one. What the decision does
   not do: it files nothing, so the EU/UK question returns only if and when this is sold
   there in classes 9/42; and it does not clear `caprise`, which remains unsearched.
-- **Claim today** (re-verified at decision time, 2026-09-23, via `rdap.org` **and** each
-  registry's own RDAP service): npm `summrise`, `summrise-agent`, `summrise-cli` and the
-  whole `@summrise` scope are free — the only part of this that is first-come. Domains
-  `.io`, `.dev`, `.sh`, `.app` and `.net` are unregistered; `.com` has been held since 2015;
-  `.cn` and `.co` are **unverified** and must not be quoted as free.
+- **Claims — npm DONE 2026-09-23; domains still open.** The three names are **published and
+  owned**: `summrise`, `summrise-agent` and `summrise-cli` at 0.0.1, `maintainers: ["summrise"]`
+  as the registry itself serves them (read back from the registry, not from the publish
+  command's exit code). **The npm ACCOUNT `summrise` is the operator's**, so the `@summrise`
+  scope is theirs as a user scope — and the org by that name is unavailable *because a user
+  holds it*, which is all the org page's "not available" ever meant; npm offers to convert the
+  account instead. Two things cost time and are worth keeping: publishing needs **2FA or a
+  granular token with "bypass 2FA" enabled** (a granular token without it is refused with
+  exactly that message), and both machines' npm points at `registry.npmmirror.com`, so **every**
+  npm command needs `--registry=https://registry.npmjs.org/` or it aims at a read mirror.
+  Domains remain unclaimed: `.io`, `.dev`, `.sh`, `.app`, `.net` were still unregistered when
+  re-checked the same day; `.com` has been held since 2015; `.cn` and `.co` are **unverified**
+  and must not be quoted as free.
 - **Chinese name — deferred 2026-09-23** (*「中文名先不起」*). Nothing is chosen, so nothing
   is used: in Chinese text the product is written `Summrise` alone. The candidates stay as
   the record of the thinking rather than a shortlist to act on: 峰起 (was recommended —
@@ -429,9 +437,13 @@ the migrated install would have taken the device down a second time.
   rule above still holds — **意译, never 音译** — and it would want the same register search
   this name just had, for the same reason.
 
-### Claiming the name — the steps, ready to run (not done yet)
+### Claiming the name — npm done, domains not
 
-Checked 2026-09-23: **neither claim can be made from the build host, and both are the
+**npm: claimed 2026-09-23** (all three names, owned by the `summrise` account — see §Open).
+The steps are kept below because they are what a second name, or a re-claim after a mistake,
+would need. **Domains: still to buy**, from the Cloudflare dashboard, five of them.
+
+Checked 2026-09-23: **neither claim can be made from the build host unattended, and both are the
 operator's accounts.** Written out here so the next session does not re-derive it.
 
 **npm — a name is reserved by PUBLISHING, not by registering intent.**
@@ -441,9 +453,13 @@ operator's accounts.** Written out here so the next session does not re-derive i
 npm login --registry=https://registry.npmjs.org/
 # from a directory whose package.json says "name": "summrise" — a placeholder is normal:
 # a description pointing at the real package is enough to hold the name.
-npm publish --registry=https://registry.npmjs.org/ --access public   # asks for a 2FA code
-# then repeat for summrise-agent and summrise-cli; to own the SCOPE, create the org:
-# https://www.npmjs.com/org/create
+npm publish --registry=https://registry.npmjs.org/ --access public
+# Unattended publishing needs a token that MAY bypass 2FA: a Classic "Automation" token, or a
+# Granular one with "Bypass 2FA" enabled. A granular token WITHOUT it is refused with exactly
+# that sentence — publishing itself always wants 2FA.
+# the SCOPE comes from the ACCOUNT, not from an org: an account named `summrise` owns
+# `@summrise/*`. An ORG cannot take that name while the user exists (npm shares the namespace) —
+# which is what "the organization name is not available" meant. npm offers to convert instead.
 ```
 
 **`--registry` is not optional on these machines.** Both the build host and d1 have npm
