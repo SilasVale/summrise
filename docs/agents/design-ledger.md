@@ -3897,3 +3897,67 @@ SERVICE BINDING, that is `https://summrise-relay.internal/...`, a host nothing c
 caught it, and a unit test would not have. `PUBLIC_BASE` is a var on the relay now, with the route's own origin as the
 fallback. The route (`agent.saisi.online/files/*`) takes precedence over summrise-dist's dashboard-managed Custom
 Domain, which is what made a path-level handover possible at all.
+
+---
+
+## 2026-09-23 (later) — the architecture pass on the release pipeline
+
+The operator asked whether releasing could be one `npx` command the way dsh installs; the honest answer
+was NO, and the question was sharp enough to run the architecture process on the release pipeline
+itself. Five candidates came back; this is the first, the cheapest, and the one that makes the others
+smaller.
+
+**THE INTERFACE IS AS WIDE AS THE IMPLEMENTATION, MEASURED.** `publish-release.sh` is 582 lines and
+carries **30 refusal/usage branches** — a stale exe, uncommitted pack inputs, worktree permissions that
+differ from a fresh checkout, a foreign `tsc` major, a missing one, pin drift between
+`index/components.json` and `agent/src/tunnel.rs`, three credentials, and a CDN carrying a version with
+no release to audit against. Every one is a PRECONDITION THE CALLER MUST ALREADY HAVE SATISFIED, and
+none is expressible except by running the thing: the middle of the script (pack → stage → installer →
+prune → deploy → smoke → npm → audit) has no seam, and its own suites say so in their headers. The
+contrast is inside this repo: `release-audit.sh` HAS a real seam — its tests substitute a `curl` shell
+function — which is what two adapters at one seam buys.
+
+**C5, DONE FIRST: delete the residue.** Each item was checked before it was touched, and one of the
+review's findings did not survive that check.
+
+- `mode_drift` in `release-audit.sh` was initialised at :207 and branched on at :234, and **nothing
+  appended to it** — the live mode check had moved to the tar-listing comparison above. Deleted. Its
+  branch carried a better rationale than the check that actually fires ("the tgz IS the release, and two
+  different tgz files are two different releases however identical their contents"), so the REASON moved
+  to the firing check rather than dying with the dead code, and that check's message gained the
+  Cause/Fix lines it never had. The audit suite is 27/27 and its mode-drift case still bites on the
+  words FILE MODES.
+- A four-line comment appeared twice, verbatim, twelve lines apart. Deduped.
+- **THE SCRIPT'S OWN HEADER DESCRIBED THE WRONG ORDER.** It listed `5 commit → 6 deploy → 7 audit →
+  8 npm`; the code runs `deploy → smoke → npm → audit`, because npm had to move before the audit when a
+  first publish never reached the registry. This is the C2 problem in miniature — a release's order
+  living in prose that drifted from the code — and the fix was to make the prose TRUE and to mark where
+  the command ENDS and a human begins.
+- The npm dist-tag was described three contradictory ways in one file ("alpha by default", the
+  `NPM_TAG="latest"` assignment, and "defaults to `latest` here, NOT `alpha`") plus a fourth in the
+  design doc. One statement each now.
+- Four comments cited `publish-release.sh:344` and `:309`. The real call had moved to `:416`, twice in
+  one night. **A line number in a comment is a claim with no owner; a function name is not.** All four
+  now name the function.
+- `release.yml`'s own failure message advised the bypass "move the tag" — the procedure 1.2.453
+  disproved, and which `AGENTS.md` recorded the same evening. An error message is where an operator
+  reads the procedure, so it now carries both halves: fix CI and re-run THIS job; a moved tag demotes
+  the release to a DRAFT and makes CI package a different artifact under the same version.
+
+**THE FINDING I REJECTED, because verification is not optional.** The review called
+`grep -q "summrise-release"` a magic-string gate that proves nothing and should be deleted; it noted in
+the same breath that the freshness `cmp` right after it is what bites. Both halves are true and neither
+is a defect: the grep is a cheap "did you compile at all" pre-check with an accurate message, and
+deleting it removes an early exit without concentrating complexity anywhere. Left alone. The same pass
+caught a second over-claim: the review read a test's "the reconcile ledger was deleted 2026-09-14" as
+contradicting the live reconcile gate. They are DIFFERENT LEDGERS — the test means the hand-satisfied
+MARKDOWN one; the gate reads `docs/agents/release-reconcile.txt`, gitignored and mechanical. Not a
+contradiction, but a trap for the next reader, who would conclude the gate is dead code (it refused a
+publish that same day), so the test now says which ledger it means.
+
+**AND THE LESSON THAT COST TWO CANCELLED RUNS.** The release rule already said "push, WAIT for that
+commit's CI to go green, then tag it". What it did not say is that pushing the NEXT piece of work
+cancels the run you are waiting for: GitHub supersedes it, the tag has no green CI to point at, and
+`release.yml`'s own gate refuses. It happened on `94cb06fd` and again on `fe29a24d`, both times because
+the loop kept working while waiting. AGENTS.md now says it, and this round obeyed it: the C5 commit was
+held locally until 1.2.456's tag existed.
