@@ -69,7 +69,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_open",
     description:
-      "Open a terminal connection on a device. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1). Returns session ID.",
+      "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). Returns session ID.",
     inputSchema: {
       type: "object",
       properties: {
@@ -352,7 +352,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_diag_write",
     description:
-      "POST a diagnostic line from the calling client (poll results, SSE status, errors). Stored in a process-lifetime ring buffer.",
+      "POST a diagnostic line from the terminal panel (poll results, adopt events, SSE status, errors). Stored in a process-lifetime ring buffer (cap 200), read via terminal_diag_read.",
     inputSchema: {
       type: "object",
       properties: {
@@ -763,7 +763,7 @@ const MONITOR_TOOLS: McpTool[] = [
   {
     name: "monitor_probe",
     description:
-      "Probe one watched target RIGHT NOW and return the result plus the refreshed summary — the synchronous half of the instrument, against the 15 s timer that runs on its own. Use it as a BEFORE and AFTER around anything that could take a host down or bring it back: probe, act, probe. The probe is recorded in the series like any other.",
+      "Probe one watched target RIGHT NOW and return the result plus the refreshed summary — the synchronous half of the instrument, against the 15 s timer that runs on its own. Use it as a BEFORE and AFTER around anything that could take a host down or bring it back: probe, act, probe. It is recorded in the series like any other probe, so the pair also becomes part of what the operator sees.",
     inputSchema: {
       type: "object",
       properties: {
