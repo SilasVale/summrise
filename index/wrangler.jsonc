@@ -16,17 +16,20 @@
   // Temporary file hosting: upload -> one-time download URL -> auto-deleted.
   // R2 bucket: `wrangler r2 bucket create summrise-temp-files`.
   // NOTE: no KV binding — one-time state lives on the R2 key + expiresAt
-  // deadline (see src/claim.js).
+  // deadline, and the claim serializer moved to the relay worker with the rest of
+  // the file relay (ADR 0010 D6).
+  //
+  // TEMP_FILES STAYS: this worker still serves the boxed components, and
+  // /summrise-agent/summrise-playwright.zip streams out of this bucket. The relay
+  // has its OWN bucket (summrise-relay-files) — sharing one would re-couple exactly
+  // what the split exists to separate.
   "r2_buckets": [{ "binding": "TEMP_FILES", "bucket_name": "summrise-temp-files" }],
-  // One-time-download claim serializer: GET /files/<token> is forwarded to
-  // the TempClaimDO instance named by the token, whose input queue closes
-  // the concurrent-get race (first claim wins, losers 404). Short-lived
-  // per claim only (no storage/alarms/sockets — duration billing forbids
-  // an always-on shape). Add-only migration: no deleted_classes needed.
-  "durable_objects": {
-    "bindings": [{ "name": "TEMP_CLAIM", "class_name": "TempClaimDO" }]
-  },
-  "migrations": [{ "tag": "v1-temp-claim", "new_sqlite_classes": ["TempClaimDO"] }],
+  // TempClaimDO is RETIRED here: its handlers (/api/upload, /files/<token>) belong to
+  // `summrise-relay` now, and a class with no producer is dead weight in the one file a
+  // reader consults to learn what this worker does. deleted_classes is the documented
+  // way to remove one (the gateway did the same for PluginHubDO). The DO held NO
+  // storage, so nothing is lost by the deletion.
+  "migrations": [{ "tag": "v2-drop-temp-claim", "deleted_classes": ["TempClaimDO"] }],
   // Custom domain (added in the Cloudflare dashboard, like the other Summrise
   // workers — wrangler 4.x ignores the custom_domains field): <download-host>
   // Vars (set via `wrangler var put`, NOT committed): CONSOLE_URL (the Summrise

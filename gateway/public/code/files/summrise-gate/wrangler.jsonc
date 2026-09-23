@@ -42,6 +42,15 @@
     "not_found_handling": "none",
     "run_worker_first": true
   },
+  // THE RELAY, BY SERVICE BINDING (ADR 0010 D6). The file relay is its own worker now
+  // (`summrise-relay`), and the gateway reaches its /api/upload through this binding
+  // rather than a same-zone fetch: Cloudflare is explicit that a Route cannot be the
+  // target of a same-zone fetch() while a Custom Domain can — and the relay's DOWNLOAD
+  // leg IS a Route (`/files/*`, which takes precedence over summrise-dist's Custom
+  // Domain), so a fetch would be exactly the case the docs warn about. The binding also
+  // takes the upload endpoint off the public internet: nothing but this worker can call
+  // it, because `workers_dev` is false and no route is declared for it.
+  "services": [{ "binding": "RELAY", "service": "summrise-relay" }],
   "vars": {
     "CONSOLE_HOST": "ai.saisi.online,api.saisi.online",
     // Browser tool chain: cold-start chromium (~20s) + device SPA loading make the 30s default bound to time out

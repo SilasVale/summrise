@@ -414,6 +414,26 @@ async function proxyUploadToWorker(request: Request, env: any, url: URL): Promis
     if (v) headers.set(h, v);
   }
 
+  // THE RELAY, BY SERVICE BINDING (ADR 0010 D6). The file relay is its own worker now,
+  // and a same-zone fetch() to it would be the documented failure case: its DOWNLOAD leg
+  // is a Route, and Cloudflare states that Routes cannot be the target of a same-zone
+  // fetch while Custom Domains can. The binding needs no host and CANNOT redirect, so the
+  // `redirect: "manual"` defence below is not even reachable on this path — and it takes
+  // /api/upload off the public internet entirely.
+  //
+  // The URL path below is kept as the fallback, unchanged, so this code is correct both
+  // before and after the relay exists: the binding is preferred when it is there.
+  const relay = (env as any).RELAY;
+  if (relay) {
+    return await relay.fetch(
+      new Request(`https://summrise-relay.internal/api/upload${url.search}`, {
+        method: request.method,
+        headers,
+        body: request.body,
+      }),
+    );
+  }
+
   const resp = await fetchWithTimeout(
     uploadUrl,
     {
