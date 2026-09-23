@@ -4396,3 +4396,33 @@ the gate is unproven". Bumping `MAX_ALLOWED` 41 -> 42 when `relay/` was declared
 its mutation flips, so the proof that the ratchet BITES had quietly stopped being a proof.
 `gate-mutations-check.mjs` re-paired, and running it locally prints the line worth keeping: **26 gates
 broken on purpose and every one of them bit.**
+
+**THREE ROUNDS OF PROPOSING GAPS THE REPO HAD ALREADY CLOSED, AND THE POINT IS THE PROCESS.** Each of
+these began as a finding I was about to act on, and each ended with the ledger — or a script named in
+it — already carrying the answer. Written down because the alternative (acting first) would have added
+a fourth copy of something that exists:
+
+1. "The 13,000-line session/terminal layer has NO recorded history" — because its identifiers
+   (`kill-on-close`, `idle sweeper`, `broadcast`, `serial pool`, `read_from`) appear ZERO times in the
+   ledger. The layer is thoroughly covered: the record simply writes in its own vocabulary, not the
+   code's — `pty` 53 mentions, `session` 116, `panel` 285, plus sections like "THE MOMENT THE DEVICE
+   KNOWS" and "THE LIVE PANEL, RE-MEASURED AFTER FORTY ROUNDS". Searching for identifiers is searching
+   for the wrong string.
+
+2. "Merged is not live: the gateway deploy is manual and CI only dry-runs it" — TRUE, and it mattered:
+   the catalogue enforcement from round 20 sat in main while production still forwarded any tool. Fixed
+   by deploying (`Version ID 18554136…`, live surface verified: `/` 200, `/api/devices` and `/mcp` and
+   the proxy guarded with 401).
+
+3. "Nothing gates 'the deployed worker is N commits behind main'" — `gateway/scripts/check-live-parity.sh`
+   has done exactly that since round 542, and its comment records why it exists: "the round-537 stale
+   deploy proved green tests don't imply a fresh worker (19 src commits sat undeployed)". Round 546 then
+   fixed its own false verdict (a fixed `sleep 8` compared against the PREVIOUS assets and reported a
+   successful deploy as a failure — "the one verdict a deploy gate must not get wrong"), which is why
+   the probe carries its own retry. Run after this round's deploy: `checked 45 files, 0 drifted`.
+
+So the answer to "why read first" is not politeness: two of these three would have produced a duplicate
+mechanism or a redundant list, and the third — the deploy — was a real gap that ONLY reading the build
+script revealed (`wrangler deploy --dry-run` in CI, a manual deploy in production). The instruction at
+the top of `AGENTS.md` — read the ledger before proposing anything is a defect — is doing measurable
+work, which is the only kind of rule this file is interested in.
