@@ -303,5 +303,29 @@ else
 fi
 rm -f "$LED" "$EMPTY"
 
+# ── C4, THE ARCHITECTURE ROUND: the packed-tgz content list has ONE owner, and it cannot be
+# emptied in silence. It used to be written out verbatim in scripts/publish-release.sh AND
+# .github/workflows/release.yml — two owners of one fact as long as nobody edits it, and two
+# DIFFERENT release gates the moment somebody does. Both read this file now, which is exactly why
+# DELETING or TRUNCATING it would disable the gate in both builders at once.
+REQ="agent/summrise-agent-npm/required-in-tgz.txt"
+req_n=$(grep -vcE '^[[:space:]]*(#|$)' "$REQ" 2>/dev/null || echo 0)
+if [ -f "$REQ" ] && [ "$req_n" -ge 5 ] && grep -qx 'summrise-agent\.exe' "$REQ" && grep -qx 'bin/summrise\.js' "$REQ"; then
+  ok "the packed-tgz content list has $req_n entries, with the exe and the CLI among them"
+else
+  bad "the packed-tgz content list is missing, empty, or lacks the exe/CLI: $REQ"
+fi
+# AND NEITHER BUILDER RESTATES IT. This is a source assertion, and it is the honest kind: the
+# property IS about the source (a second copy is the defect), and a behavioural test cannot see a
+# copy that happens to agree today.
+if grep -q 'required-in-tgz.txt' scripts/publish-release.sh \
+   && grep -q 'required-in-tgz.txt' .github/workflows/release.yml \
+   && ! grep -q '"summrise-agent.exe" \\' scripts/publish-release.sh \
+   && ! grep -q '"summrise-agent.exe" \\' .github/workflows/release.yml; then
+  ok "both builders derive the list from the one owner (no restated copy in either)"
+else
+  bad "the packed-tgz list is restated in a builder again"
+fi
+
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

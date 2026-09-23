@@ -1,0 +1,23 @@
+# THE FILES A PACKED TGZ MUST CONTAIN — the ONE owner of this list.
+#
+# WHY A FILE, and why this exact list. Round 278/282: a file missing from the tarball does not
+# fail anything — the device's update flow swaps what is there and silently KEEPS THE STALE FILE
+# for what is not, so the release looks fine and the device runs a mixture. The list is the set of
+# files that flow swaps, which is why it is written down rather than derived from package.json's
+# `files[]`: that array lists `bin/` as a DIRECTORY, and a gate that checked for a directory entry
+# would pass while the CLI itself was missing.
+#
+# IT USED TO EXIST TWICE — verbatim, in scripts/publish-release.sh and .github/workflows/release.yml
+# — which is two owners of one fact as long as nobody edits it, and a release gate that checks
+# something different on CI than it does locally the moment somebody does. Both now read THIS file.
+#
+# FORMAT: one path relative to the package root per line; `#` comments and blank lines are ignored.
+# Every entry is required — absence fails the release in both builders.
+summrise-agent.exe
+README.md
+bin/summrise.js
+summrise-desktop-electron/src/main.js
+summrise-desktop-electron/src/preload.js
+summrise-desktop-electron/src/url-policy.js
+summrise-desktop-electron/icon.png
+summrise-desktop-electron/icon.ico

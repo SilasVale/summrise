@@ -412,19 +412,18 @@ TGZ="$NPM_DIR/summrise-agent-$VER.tgz"
 # never `tar tzf | grep -q` under pipefail — list to a temp file first,
 # then grep with basename-tolerant anchors).
 tar tzf "$TGZ" > "/tmp/tgz-list-${VER}.txt"
-for F in "summrise-agent.exe" \
-         "README.md" \
-         "summrise-desktop-electron/src/main.js" \
-         "summrise-desktop-electron/src/preload.js" \
-         "summrise-desktop-electron/src/url-policy.js" \
-         "summrise-desktop-electron/icon.png" \
-         "summrise-desktop-electron/icon.ico" \
-         "bin/summrise.js"; do
+# THE LIST HAS ONE OWNER: agent/summrise-agent-npm/required-in-tgz.txt, which release.yml reads
+# too. It used to be written out verbatim in both files — two owners of one fact as long as nobody
+# touched it, and two DIFFERENT release gates the moment somebody did.
+REQUIRED_IN_TGZ="agent/summrise-agent-npm/required-in-tgz.txt"
+[ -f "$REQUIRED_IN_TGZ" ] || { echo "::error::the packed-tgz content list is missing: $REQUIRED_IN_TGZ (a missing owner would silently disable this gate in BOTH builders)" >&2; exit 1; }
+while IFS= read -r F; do
+  case "$F" in ''|'#'*) continue ;; esac
   if ! grep -qE "(^|/)${F}$" "/tmp/tgz-list-${VER}.txt"; then
     echo "::error::tgz missing required file: $F" >&2
     exit 1
   fi
-done
+done < "$REQUIRED_IN_TGZ"
 echo "tgz content check OK ($TGZ)"
 
 echo "== stage =="

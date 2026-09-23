@@ -237,19 +237,17 @@ jobs:
           # pipeline FAILS even when the file IS present (device-caught on
           # release 1.2.272) — list to a temp file first, then grep.
           tar tzf "$TGZ" > "/tmp/tgz-list-${VER}.txt"
-          for F in "summrise-agent.exe" \
-                   "README.md" \
-                   "summrise-desktop-electron/src/main.js" \
-                   "summrise-desktop-electron/src/preload.js" \
-                   "summrise-desktop-electron/src/url-policy.js" \
-                   "summrise-desktop-electron/icon.png" \
-                   "summrise-desktop-electron/icon.ico" \
-                   "bin/summrise.js"; do
+          # THE LIST HAS ONE OWNER: required-in-tgz.txt, which scripts/publish-release.sh reads
+          # too (this loop used to be a verbatim copy of that one).
+          REQUIRED_IN_TGZ="required-in-tgz.txt"
+          [ -f "$REQUIRED_IN_TGZ" ] || { echo "::error::the packed-tgz content list is missing: $REQUIRED_IN_TGZ"; exit 1; }
+          while IFS= read -r F; do
+            case "$F" in ''|'#'*) continue ;; esac
             if ! grep -qE "(^|/)${F}$" "/tmp/tgz-list-${VER}.txt"; then
               echo "::error::tgz missing required file: $F"
               exit 1
             fi
-          done
+          done < "$REQUIRED_IN_TGZ"
           echo "tgz content check OK ($TGZ)"
           echo "VER=$VER" >> "$GITHUB_ENV"
       # ONE STEP, THROUGH THE API, VERIFIED BY THE READ THE AUDIT ITSELF MAKES.
