@@ -21,7 +21,7 @@
 | Pronunciation | `/ˈsʌmraɪz/` — **SUM-rize**, two syllables |
 | Structure | `summ`(summit 的缩写)+ `rise` — the [noun]+[verb] shape *sunrise* uses |
 | Command | `summrise` (was `vale`; the `caprise` dual-bin went with the old name) |
-| Chinese name | **峰起** (candidate — see §Open) |
+| Chinese name | **None chosen — deferred 2026-09-23** (*「中文名先不起」*). `Summrise` is written alone; 峰起 was the recommendation, not a decision. |
 | Tagline (EN) | *The summit rises into first light.* |
 | Tagline (CN) | 山顶先见光。 |
 
@@ -359,6 +359,10 @@ cannot update itself, because the path it would ask for returns 404.
   whole `@summrise` scope are free — the only part of this that is first-come. Domains
   `.io`, `.dev`, `.sh`, `.app` and `.net` are unregistered; `.com` has been held since 2015;
   `.cn` and `.co` are **unverified** and must not be quoted as free.
-- **Chinese name**: 峰起 (recommended — 峰 = summit, 起 = rise) vs 山起 vs 云起.
-  「顶升」is out on two counts: a registered mark being traded, and a heavy-machinery
-  term (顶升法, 液压顶升).
+- **Chinese name — deferred 2026-09-23** (*「中文名先不起」*). Nothing is chosen, so nothing
+  is used: in Chinese text the product is written `Summrise` alone. The candidates stay as
+  the record of the thinking rather than a shortlist to act on: 峰起 (was recommended —
+  峰 = summit, 起 = rise) vs 山起 vs 云起. 「顶升」is out on two counts: a registered mark
+  being traded, and a heavy-machinery term (顶升法, 液压顶升). If one is ever chosen, the
+  rule above still holds — **意译, never 音译** — and it would want the same register search
+  this name just had, for the same reason.
