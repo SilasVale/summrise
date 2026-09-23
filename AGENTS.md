@@ -63,9 +63,8 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 | `npm test` in `gateway/` (Node 24) | `ℹ pass N` — on Node 20 it prints `# pass N` instead |
 | `npx vitest run` in `panel-react/` | `Tests  N passed` |
 
-Two rounds of this session were spent reading a silent grep as "the suite did not run" and then
-re-running it by another route: once on the burst-gate test (round 144) and once on the gateway
-(round 169). `exit 0` is the answer in every case; the line is a convenience.
+`exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
+"the suite did not run" and re-running it another way. The reporter table is what prevents that; the story is in the ledger.)
 
 ### Which gates have been PROVEN to bite
 
@@ -188,6 +187,8 @@ TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
 # 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
+#    DRY RUN FIRST if unsure: ./scripts/publish-release.sh 1.2.N --dry-run — every gate, no
+#    credentials, changes nothing, seconds.
 # 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):
 #    --npm needs $NPM_TOKEN or ~/.npm-token, and publishes to `latest` (see below for why not alpha)
 ./scripts/publish-release.sh 1.2.N --npm
@@ -250,7 +251,6 @@ the DEVICE fetch it (`system_file_download` from `https://agent.saisi.online/sum
 config and prints a JSON verdict. IT MUST NOT BE GITIGNORED: Workers Assets uploads the directory but HONOURS
 `.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
 static asset (its route reads R2) and why the probe is committed like the panel build and `bin/summrise.js` are.
-Measured 2026-09-23 on 1.2.455: both densities clean; the numbers are in the ledger.
 
 Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never

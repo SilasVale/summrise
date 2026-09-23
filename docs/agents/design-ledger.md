@@ -3961,3 +3961,52 @@ cancels the run you are waiting for: GitHub supersedes it, the tag has no green 
 `release.yml`'s own gate refuses. It happened on `94cb06fd` and again on `fe29a24d`, both times because
 the loop kept working while waiting. AGENTS.md now says it, and this round obeyed it: the C5 commit was
 held locally until 1.2.456's tag existed.
+
+---
+
+## 2026-09-23 (later still) — C2: the release sequence becomes data, and gets a dry run
+
+The architecture review's top recommendation, and the piece that answers the operator's actual
+question. Two changes, both load-bearing:
+
+**1. `SEQUENCE="pack stage prune deploy smoke npm audit"`.** A release's order lived in four places
+— the script's layout, its header comment, AGENTS.md, and cases in the suite that asserted it **by
+line number**. The header had already drifted from the code once (it listed the audit before npm —
+the order a FIRST publish never survives, because the audit cannot pass until the asset exists and
+its failure branch exits). Now a checker walks the source's EFFECT banners and fails when they run
+in a different order, and the case that proves the checker bites MOVES a banner line.
+
+**THAT CASE PASSED FOR THE WRONG REASON FIRST, and the reason is the lesson.** The mutation renamed
+a banner instead of moving it, so the check failed with "no banner for step 'deploy'" — the
+PRESENCE rule, not the ordering rule — and the case was green while proving something else. A
+mutation aimed at the wrong property is evidence about the mutation first; it now asserts that the
+refusal NAMES the order. The checker had its own version of the same lesson one step earlier: its
+first form matched SUBSTRINGS, and `deploy` matched the installer's banner ("installer
+(self-contained, staged, no deploy yet)"), so it reported a CORRECT script as non-monotonic. Both
+are the same rule this file has recorded before — read the artefact before believing the instrument
+— applied to a check I had just written.
+
+**2. `--dry-run` is the seam.** The 30 refusals ARE this module's real interface: a stale exe,
+uncommitted pack inputs, worktree permissions that differ from a fresh checkout, a foreign `tsc`
+major, pin drift, three credentials, a CDN carrying an unaudited version. Every one is a
+precondition the CALLER must already have satisfied, the whole gate block needs no credential, and
+it sat inline above the first effect — so no test could reach it, and `publish-release.bash` said so
+in its own header ("the FIRST executable coverage … nothing ever RAN it"). `--dry-run` runs the
+entire gate block — including the binary recompile-and-cmp freshness check, the electron copy sync
+and the cloudflared pin cross-check — and stops before the first effect.
+
+**MEASURED, on this machine.** It exits 0 with every gate reporting. Run against the real tree
+BEFORE the reconcile escape it exits 1 through the reconcile gate, naming the 1.2.453 debt — a
+precondition that previously cost a full release attempt to discover, now visible in two seconds
+and with no credentials. And it says what it does NOT cover — the Cloudflare token check, which
+lives inside its step — instead of implying it verified everything: a dry run that overclaimed is
+the exact failure mode the rest of that file exists to prevent.
+
+**ON CI THE DRY RUN MUST REFUSE** (no staged exe), so the suite's case asserts the invariant that
+holds everywhere rather than the verdict that holds here: it either passed or refused BY A GATE,
+and it left the worktree exactly as it found it. The suite is 15 checks (was 10).
+
+**WHAT IS STILL SHALLOW, said plainly.** The sequence is DATA now, but the script is still a linear
+582-line file: `--dry-run` is ONE adapter at the gate seam, and the effects themselves (pack →
+deploy → npm → audit) are still reachable only by running the world. That is the next candidate,
+and it is smaller than it was an hour ago.
