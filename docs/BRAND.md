@@ -209,7 +209,7 @@ data contradicted.
 One environment note so it is not mistaken for a broken release:
 `publish-release.sh --audit-only` downloads the asset from a **direct `github.com` URL**,
 and this network drops that host (`curl: (52) Empty reply from server`) — the same failure
-the git remote works around with the `v.saisi.online` proxy. The identical comparison run
+the git remote works around with its own push proxy. The identical comparison run
 against the **API asset URL** (`api.github.com/.../releases/assets/<id>`) passes, which is
 what the hashes above are from.
 
@@ -257,20 +257,58 @@ the old agent kept running — the steps below therefore only have to be *run*:
 | the identity and config staged, with the label updated | `C:\ProgramData\Summrise\migrated-from-vale\`: `config.yaml` (carries `device_token` and `console_url`; `server.name` rewritten `vale-agent` → `summrise-agent`), `tunnel.yml`, `summrise-agent.hostname` (= `d1.<download-host>`) |
 
 ```powershell
+# 0. PRE-FLIGHT -- refuse to touch the old agent unless the staged identity is proven
+#    (~/summrise-reinstall.ps1 runs all of this, with the guards; read it first)
 # 1. the new CLI (the running old agent is untouched)
 npm i -g --prefix (Split-Path (Get-Command npm).Source) <download-host>/summrise-agent/summrise-agent-latest.tgz
-# 2. new registry key, D:\Summrise, C:\ProgramData\Summrise   (setup does NOT write config.yaml)
-summrise setup
-# 3. put the identity back BEFORE the new agent's first boot, or it registers a second device
-$e = (Get-ItemProperty 'HKLM:\SOFTWARE\Summrise\Agent').InstallDir + '\etc'
+# 2. STAGE THE IDENTITY FIRST -- because `summrise setup` BOOTS THE AGENT (see below)
+$e = 'D:\Summrise\etc' ; New-Item -ItemType Directory -Force -Path $e | Out-Null
 Copy-Item 'C:\ProgramData\Summrise\migrated-from-vale\*' $e -Force
-# 4. remove the OLD agent -- the channel into this box drops here, which is expected
-Stop-Service ValeCommand -ErrorAction SilentlyContinue ; vale uninstall
-# 5. start, then confirm release 1.2.452 AND that the console still shows the SAME device
-summrise autostart ; summrise start ; summrise status
+# 3. stop the OLD agent (frees 127.0.0.1:18080). It stays INSTALLED -- that is the rollback
+Stop-ScheduledTask ValeAgent
+# 4. install: writes the registry key, D:\Summrise, and kicks the new agent once
+$env:SUMMRISE_AGENT_DIR = 'D:\Summrise'   # without this the CLI installs to C:\Program Files\Summrise
+summrise setup
+# 5. verify BEFORE removing anything: release 1.2.452, and the console still shows the SAME device
+summrise status
 # 6. only once it is healthy:
-Remove-Item D:\Vale,C:\ProgramData\Vale -Recurse -Force
+vale uninstall ; Remove-Item D:\Vale,C:\ProgramData\Vale -Recurse -Force
 ```
+
+**Why this order — three things the first version of these steps got wrong.** Each was
+found by reading the code the steps depend on, and each would have changed the device's
+identity at the worst possible moment (2026-09-23):
+
+1. **`summrise setup` starts the agent.** It ends with
+   `bootTaskPs(EXE_DST, CFG_FILE, true)` → `Start-ScheduledTask SummriseAgent`
+   (`summrise-agent-npm/src/summrise.ts:1715`). The new agent's **first boot therefore
+   happens inside setup**, so an identity restored *after* setup is restored after that
+   boot. On that boot there is no `etc\config.yaml`, the agent writes the embedded default
+   (`agent/src/bootstrap.rs:56`) — which carries **no `device_token`**, so it mints one —
+   and self-registers `{name, hostname, token}` with it (`main.rs:544`, `register.rs:13`).
+   The gateway keys a record by **name**, and the name is the first label of the hostname
+   (`register.rs:13`, `store/devices.ts:64`), which the rename did not change. So this is
+   not "a second device" (what this document used to say): it is the **token-rotation
+   path** for the existing record (`devices.ts:231`), which must prove ownership through
+   the stored tunnel and answers **409** if it cannot. Either way there is a window where
+   the token on record and the token in the agent's config disagree — and in that window
+   **the console cannot reach the device**.
+2. **The old agent is a scheduled task, not a service.** It is task `ValeAgent`; there is
+   no `ValeCommand` service on this box, so `Stop-Service ValeCommand
+   -ErrorAction SilentlyContinue` stopped nothing and said nothing. The old agent holds
+   `127.0.0.1:18080`, and the new agent binds that port with **5 attempts × 3 s and then
+   exits 1** (`main.rs:762`) — so the port is freed first and the new agent's first boot
+   is clean.
+3. **The install dir is not inherited from the old install.** `resolveDir()` reads
+   `$env:SUMMRISE_AGENT_DIR` → `HKLM\SOFTWARE\Summrise\Agent\InstallDir` → the default
+   `C:\Program Files\Summrise` (`summrise.ts:20`). The old key is `HKLM\SOFTWARE\Vale\Agent`,
+   which the new CLI does not read, so "D:\Summrise" is not automatic.
+
+The pre-flight proves the staged config **is** this device's identity rather than a
+lookalike: same `device_token` line as the agent running right now, and no structural
+difference except `name:`. Measured on the device 2026-09-23: the staged file differs from
+the running config by **exactly one line** (`name: vale-agent` → `name: summrise-agent`)
+and carries the identical `device_token`.
 
 The shipped install command lives in `agent/AGENTS.md` (Release) and names the real host;
 it is deliberately not duplicated here. `--prefix` matters: without it npm installs
