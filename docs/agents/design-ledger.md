@@ -4070,3 +4070,25 @@ attempt the network defeated BOTH routes, which is a fact about this box and not
 same degradation failed an `npm i -g` from the CDN mid-install. What stands regardless: 1.2.456 was
 verified three ways by hand (CDN manifest, local staged tarball, API asset — the same sha256), and
 1.2.457's release is published with its asset.
+
+**C4, THE NEXT ARCHITECTURE ITERATION: one fact, one owner — and the copy that had teeth.** The
+review listed five owners for "what artifact is this release"; the one that can actually hurt is the
+list of files a packed tarball MUST contain, which stood verbatim in `scripts/publish-release.sh`
+AND `.github/workflows/release.yml`. Two owners of one fact for as long as nobody edits it, and two
+DIFFERENT release gates the moment somebody does — which is the failure the list exists to prevent
+(round 278/282: a file missing from the tgz fails nothing, the device's update flow keeps the STALE
+file, and the release looks fine).
+
+It is now `agent/summrise-agent-npm/required-in-tgz.txt`, read by both builders.
+
+**AND IT DELIBERATELY IS NOT DERIVED from `package.json`'s `files[]`, which looked like the obvious
+owner.** That array names `bin/` as a DIRECTORY, and both gates check `bin/summrise.js` — so a gate
+derived from `files[]` would pass while the CLI itself was missing, which is precisely the defect
+class the list guards. The near-miss is worth the paragraph: "there is already an owner" is a claim
+to CHECK, not to act on, and the check here took one look at the array.
+
+Verified two-sidedly against a REAL pack (the 1.2.458 tarball): every required entry is present, and
+removing `bin/summrise.js` from the listing makes the gate say exactly that. Neither builder carries
+a restated copy any more, and two suite cases hold it — a source assertion of the honest kind, since
+a second copy IS the defect and a behavioural test cannot see a copy that happens to agree today.
+Suite 18 -> 20.
