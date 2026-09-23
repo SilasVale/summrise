@@ -237,6 +237,14 @@ summrise update
 summrise status
 ```
 
+**AND A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** Measured on d1
+while moving to 1.2.455: it printed `changed 1 package in 2s`, the installed package still said
+1.2.454, and `npm view summrise-agent version --registry=https://registry.npmjs.org/` said 1.2.455 —
+a stale `latest` resolved from npm's cache or the mirror this box defaults to. The URL above has no
+resolution step, so it is immune; an EXACT version (`summrise-agent@1.2.455`) re-resolves the version
+document and is what `setup` uses for this reason. When it matters, verify with `summrise status`
+(`this CLI:`) rather than with npm's exit code.
+
 **AND MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the
 HARNESS (a stubbed device, this checkout's bundle); nothing measured the live panel until
 `agent/scripts/live-panel-probe.mjs` was pointed at `127.0.0.1:18080` on d1 — and it found, on the first run,
@@ -245,6 +253,19 @@ sibling rings, in a rule the harness could not see because it only ever rendered
 1.2.438 and the same probe then reported `graphicFailing: []` on both densities. It needs a browser and a running
 panel, so it cannot be a CI job: run it on the device after a `summrise update` (emit with `--emit`, hand the script to the
 device's node or to `browser_run_script`).
+
+**HOW TO HAND IT OVER, since a 38 KB script must not be pasted into anything:** emit it into the CDN's public dir
+(`node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js`), deploy, and let
+the DEVICE fetch it — `system_file_download` from
+`https://agent.saisi.online/summrise-agent/live-panel-probe.js` — then `browser_run_script` with
+`require('D:/Summrise/live-panel-probe.js');`. It reads the panel token from the device's own config and prints a
+JSON verdict. MEASURED 2026-09-23 on 1.2.455: both densities, `textFailing: []`, `graphicFailing: []`,
+`collisions: []`, `unmeasurable: 0`, `{ok: true}`.
+
+**AND IT MUST NOT BE GITIGNORED.** Workers Assets uploads the directory but HONOURS `.gitignore`, so a file listed
+there is silently absent from the deploy — which is exactly what the playwright zip is, and why that zip was never a
+static asset: the route reads it from R2. The probe is committed like the panel's own build output and `bin/summrise.js`
+are, because a generated file that must ship has to be visible to git.
 
 Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
