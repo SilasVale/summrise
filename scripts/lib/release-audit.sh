@@ -127,11 +127,15 @@ audit_release_asset() {
   # 2. Fetch both artifacts. Retries matter: this box's route to GitHub's
   # release-asset host is intermittent (a 0-byte timeout has been observed),
   # and a single flaky attempt used to read as "audit failed".
-  # AND RETRIES ARE NOT ENOUGH — MEASURED 2026-09-23: two attempts died at the 300 s cap having
-  # moved 1.9 MB and 0.8 MB of 6.7 MB, while api.github.com served the SAME bytes immediately.
-  # So the direct URL stays FIRST (it is what a user's browser follows) and the API asset URL is
-  # the fallback — the path docs/BRAND.md already records as the working one on this box.
-  if ! curl -fsSL -m 300 --retry 5 --retry-delay 3 --retry-connrefused \
+  # AND A STALL NEEDS A SPEED BOUND, NOT MORE TIME — MEASURED TWICE ON 2026-09-23: attempts died at
+  # the 300 s cap having moved 1.9 MB, 0.8 MB, 15 KB, 32 KB, 0 and 0 bytes of 6.7 MB, while
+  # api.github.com served the same bytes immediately. With `-m 300 --retry 5` the fallback below
+  # could spend THIRTY MINUTES proving a route is stalled, which is 30 minutes to learn what the
+  # first 20 seconds already showed. `--speed-limit/--speed-time` aborts a transfer that is under
+  # 20 KB/s for 20 s — the stall this host produces is under 200 B/s — so a dead route costs
+  # seconds, retries are cheap again, and the API route is tried while the operator is still
+  # watching. The direct URL stays FIRST: it is what a user's browser follows.
+  if ! curl -fsSL -m 300 --speed-limit 20000 --speed-time 20 --retry 2 --retry-delay 2 --retry-connrefused \
       "https://github.com/${AUDIT_REPO}/releases/download/v${ver}/${tgz}" \
       -o "$work/gh.tgz"; then
     local aid
@@ -141,8 +145,9 @@ print(next((a["id"] for a in json.load(sys.stdin) if a["name"] == sys.argv[1]), 
       echo "::error::release audit: cannot download the GitHub asset (and could not read its id for the API fallback)" >&2
       return 1
     fi
-    echo "  the release-asset host stalled; retrying through the API asset URL (id ${aid})" >&2
-    curl -fsSL -m 300 -H "Authorization: Bearer ${token}" -H "Accept: application/octet-stream" \
+    echo "  the release-asset host stalled or failed; retrying through the API asset URL (id ${aid})" >&2
+    curl -fsSL -m 300 --speed-limit 20000 --speed-time 20 \
+      -H "Authorization: Bearer ${token}" -H "Accept: application/octet-stream" \
       "${base}/releases/assets/${aid}" -o "$work/gh.tgz" || {
       echo "::error::release audit: cannot download the GitHub asset, direct OR through the API" >&2
       return 1
