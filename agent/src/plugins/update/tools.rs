@@ -1,7 +1,8 @@
 //! Tool builders for the update plugin.
 
+use base64::Engine as _;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use std::path::PathBuf;
 
 use crate::plugins::tool_error;
@@ -60,7 +61,13 @@ fn check_download_url(download: &str, site: &str) -> Result<(), String> {
     if !(download.starts_with("https://") || (loopback && download.starts_with("http://"))) {
         return Err(format!("refusing non-https download URL: {download}"));
     }
-    if !loopback && !site_host.is_empty() && dl_host != site_host {
+    // TWO destinations are legitimate, and both are named rather than matched:
+    // the configured release site, and the npm registry (the second channel,
+    // whose URL this crate CONSTRUCTS — see `npm_tarball_url`). Equality, not a
+    // pattern: `registry.npmjs.org.evil.com` and `notregistry.npmjs.org` are
+    // different hosts and stay refused, which the adversarial test pins.
+    let npm_channel = dl_host == NPM_REGISTRY_HOST;
+    if !loopback && !site_host.is_empty() && dl_host != site_host && !npm_channel {
         return Err(format!(
             "download host {dl_host} != release site {site_host}"
         ));
@@ -73,6 +80,152 @@ fn check_download_url(download: &str, site: &str) -> Result<(), String> {
 /// execute at SYSTEM.
 fn valid_sha256(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// The SECOND release channel's host — and the only extra destination the npm
+/// branch may reach. A CONSTANT, never remote data: a URL or an integrity string
+/// that arrived over the network must never nominate where SYSTEM-executed bytes
+/// come from, which is why `npm_tarball_url` CONSTRUCTS the URL from this host
+/// plus a validated version.
+const NPM_REGISTRY_HOST: &str = "registry.npmjs.org";
+const NPM_PACKAGE: &str = "summrise-agent";
+
+/// The npm tarball for a version — CONSTRUCTED, never read out of a response.
+/// The host is a constant and `version` has passed `valid_version`, so a hostile
+/// manifest cannot redirect the download through this path.
+fn npm_tarball_url(version: &str) -> String {
+    format!("https://{NPM_REGISTRY_HOST}/{NPM_PACKAGE}/-/{NPM_PACKAGE}-{version}.tgz")
+}
+
+/// Is this a plain `x.y.z` release version? The update path compares triples, and
+/// a dist-tag that points at a prerelease is not something it can install — so
+/// "latest" that npm answers with `1.3.0-rc.1` is not a version here.
+fn valid_version(v: &str) -> bool {
+    let t = v.trim();
+    t.split('.').count() == 3
+        && t.split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Verify npm's Subresource-Integrity string against the downloaded bytes.
+///
+/// WHY THIS EXISTS: round-119 requires that an unverifiable download never
+/// executes at SYSTEM, and the CDN channel satisfies that with a sha256 in its
+/// manifest. **npm publishes no sha256** — its anchor is `integrity`, a
+/// `sha512-<base64>` string served by the same registry over the same TLS. This
+/// is that anchor, and it is REQUIRED: no parseable sha512 refuses the bytes,
+/// exactly as a missing sha256 does on the CDN path. sha512 is a strictly
+/// stronger digest than the sha256 the other channel uses, so the rule is not
+/// weakened by admitting it — but it IS a different algorithm, which is why the
+/// verification is a named function with its own tests rather than an `if`.
+fn verify_sri_sha512(integrity: &str, bytes: &[u8], version: &str) -> Result<(), String> {
+    let b64 = integrity
+        .split_whitespace()
+        .find_map(|p| p.strip_prefix("sha512-"))
+        .ok_or_else(|| {
+            format!(
+                "npm returned no sha512 integrity for {version} — refusing unverifiable install"
+            )
+        })?;
+    let want = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("npm integrity for {version} is not base64: {e}"))?;
+    let got = Sha512::digest(bytes);
+    if got.as_slice() != want.as_slice() {
+        return Err(format!(
+            "sha512 mismatch for {version} — refusing unverifiable install"
+        ));
+    }
+    Ok(())
+}
+
+/// What the downloaded bytes must hash to. TWO channels, TWO anchors: the site's
+/// manifest carries sha256 hex, npm carries a sha512 SRI string. Both are
+/// REQUIRED — round-119's rule is that an unverifiable download never executes at
+/// SYSTEM, not that one particular digest is used. Naming the pair as a type is
+/// what keeps the two comparisons from being spelled out at the call site, where
+/// a later edit could quietly drop one.
+#[derive(Clone)]
+enum HashAnchor {
+    Sha256Hex(String),
+    SriSha512(String),
+}
+
+impl HashAnchor {
+    fn verify(&self, bytes: &[u8], version: &str) -> Result<(), String> {
+        match self {
+            HashAnchor::Sha256Hex(want) => {
+                let got = crate::hex_encode(&Sha256::digest(bytes));
+                if &got != want {
+                    return Err(format!("sha256 mismatch: want {want}, got {got}"));
+                }
+                Ok(())
+            }
+            HashAnchor::SriSha512(sri) => verify_sri_sha512(sri, bytes, version),
+        }
+    }
+}
+
+/// Ask npm whether it has anything NEWER than `site_version`, and if so return
+/// `(version, sha512 SRI)` — the pair the download branch needs.
+///
+/// THREE RULES, each one a bug avoided:
+///   * the download URL is CONSTRUCTED by `npm_tarball_url` — nothing about the
+///     destination comes out of a response;
+///   * the anchor is npm's own `integrity` and it is REQUIRED, because npm
+///     publishes no sha256 and an unverifiable install is forbidden;
+///   * every failure here is TEXT the caller logs, and the caller then keeps the
+///     configured site's path unchanged — a second channel must never be able to
+///     BREAK an update that would otherwise have worked.
+async fn npm_release(site_version: &str) -> Result<Option<(String, String)>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("client build failed: {e}"))?;
+    let tags: Value = client
+        .get(format!(
+            "https://{NPM_REGISTRY_HOST}/-/package/{NPM_PACKAGE}/dist-tags"
+        ))
+        .send()
+        .await
+        .map_err(|e| format!("npm unreachable: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("bad npm dist-tags response: {e}"))?;
+    let latest = tags
+        .get("latest")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if !valid_version(&latest) {
+        return Err(format!("npm latest is not a release version: {latest:?}"));
+    }
+    if !newer(&latest, site_version) {
+        return Ok(None);
+    }
+    let doc: Value = client
+        .get(format!(
+            "https://{NPM_REGISTRY_HOST}/{NPM_PACKAGE}/{latest}"
+        ))
+        .send()
+        .await
+        .map_err(|e| format!("npm version document unreachable: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("bad npm version document: {e}"))?;
+    let integrity = doc
+        .get("dist")
+        .and_then(|d| d.get("integrity"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if !integrity
+        .split_whitespace()
+        .any(|p| p.starts_with("sha512-"))
+    {
+        return Err(format!("npm has no sha512 integrity for {latest}"));
+    }
+    Ok(Some((latest, integrity)))
 }
 
 /// Parse "x.y.z" into comparable parts (missing pieces become 0, so "0.9" == "0.9.0").
@@ -249,23 +402,47 @@ async fn channel_answer(site: &str) -> ChannelAnswer {
         Ok::<String, String>(get("version"))
     }
     .await;
-    match fetched {
-        Ok(remote) if !remote.is_empty() => cached_channel_answer(ChannelAnswer {
+    let answer = match fetched {
+        Ok(remote) if !remote.is_empty() => ChannelAnswer {
             at: now,
             remote,
             error: String::new(),
-        }),
-        Ok(_) => cached_channel_answer(ChannelAnswer {
+        },
+        Ok(_) => ChannelAnswer {
             at: now,
             remote: String::new(),
             error: "release server returned no version".to_string(),
-        }),
-        Err(e) => cached_channel_answer(ChannelAnswer {
+        },
+        Err(e) => ChannelAnswer {
             at: now,
             remote: String::new(),
             error: e,
-        }),
-    }
+        },
+    };
+    // The SECOND channel answers too (docs/design/0010): the newer of the two
+    // wins, and one side failing is not a failed reading while the other
+    // answered. When BOTH are silent, both reasons are reported together —
+    // "nobody answered" is the fact an operator needs, and the panel must never
+    // render silence as "you are up to date".
+    let answer = match npm_release(&answer.remote).await {
+        Ok(Some((v, _))) => ChannelAnswer {
+            at: now,
+            remote: v,
+            error: String::new(),
+        },
+        Ok(None) => answer,
+        Err(e) if answer.remote.is_empty() => ChannelAnswer {
+            at: now,
+            remote: String::new(),
+            error: if answer.error.is_empty() {
+                format!("npm: {e}")
+            } else {
+                format!("{}; npm: {e}", answer.error)
+            },
+        },
+        Err(_) => answer,
+    };
+    cached_channel_answer(answer)
 }
 
 /// THE DEVICE'S UPDATE STATE, as one object — what a human-facing surface needs to answer
@@ -784,7 +961,11 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 let j: Value = resp.json().await.map_err(|e| DeviceError::Internal {
                     message: format!("bad version response: {e}"),
                 })?;
-                let remote = j
+                // MUTABLE because the npm branch below may replace it: the version
+                // that gets INSTALLED and stamped into the release marker must be
+                // the one the bytes actually came from, or the marker claims a
+                // version the exe does not have (the stale-exe trap).
+                let mut remote = j
                     .get("version")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
@@ -889,7 +1070,37 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                 //    (concurrent updates still rejected).
                 let dir = install_dir();
                 let installer = dir.join("summrise-agent-update.tgz");
-                let dl_url = download.clone();
+                // ── the SECOND channel (docs/design/0010) ─────────────────────
+                // If npm carries a NEWER release than the configured site, take
+                // this update from npm: a constructed URL, and npm's own sha512
+                // anchor. Both channels carry the same audited bytes — the point
+                // is that one lagging channel cannot hold a device back. Every
+                // npm-side problem falls back to the site's path UNCHANGED, so
+                // the second channel cannot break what already worked.
+                let (dl_url, anchor) = match npm_release(&remote).await {
+                    Ok(Some((v, integrity))) => {
+                        tracing::info!(
+                            "[summrise-agent] agent_update: npm has {v} (site has {remote}) — updating from the registry"
+                        );
+                        let url = npm_tarball_url(&v);
+                        remote = v;
+                        (url, HashAnchor::SriSha512(integrity))
+                    }
+                    Ok(None) => (
+                        download.clone(),
+                        HashAnchor::Sha256Hex(expected_sha256.clone()),
+                    ),
+                    Err(e) => {
+                        tracing::warn!(
+                            "[summrise-agent] agent_update: npm channel unusable ({e}) — using the configured site"
+                        );
+                        (
+                            download.clone(),
+                            HashAnchor::Sha256Hex(expected_sha256.clone()),
+                        )
+                    }
+                };
+                let anchor_version = remote.clone();
                 let busy_bg = busy.clone();
                 let remote_resp = remote.clone();
                 tokio::spawn(async move {
@@ -937,16 +1148,17 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
                     // mismatch must LOG — the old silent return left a stale hash
                     // (index worker hand-maintained) failing every agent_update
                     // forever with zero diagnostics.
-                    {
-                        let actual = crate::hex_encode(&Sha256::digest(&bytes));
-                        if actual != expected_sha256 {
-                            tracing::error!(
-                            "[summrise-agent] agent_update sha256 mismatch: want {expected_sha256}, got {actual} — install skipped"
+                    // round-119 keeps its force and gains a second algorithm: an
+                    // unverifiable download never executes, and WHICH anchor
+                    // applies is decided by the channel that supplied the bytes
+                    // (sha256 hex from the site, sha512 SRI from npm).
+                    if let Err(e) = anchor.verify(&bytes, &anchor_version) {
+                        tracing::error!(
+                            "[summrise-agent] agent_update integrity check failed: {e} — install skipped"
                         );
-                            let _ = std::fs::remove_file(&busy_bg);
-                            let _ = std::fs::remove_file(&installer);
-                            return;
-                        }
+                        let _ = std::fs::remove_file(&busy_bg);
+                        let _ = std::fs::remove_file(&installer);
+                        return;
                     }
                     // A failed write (e.g. the installer is locked by AV scanning)
                     // must NOT leave the busy marker — drop it so the next
@@ -1372,6 +1584,46 @@ mod tests {
     ///     accepted. That is sound here: the host still has to serve a
     ///     certificate valid for the configured site, so a different port on
     ///     the AUTHENTICATED host is not an escalation.
+    ///   * TWO destinations are admitted now — the configured site and the npm
+    ///     registry — so the pins come in pairs, one per destination plus the
+    ///     lookalikes of each. The npm host is admitted by EQUALITY against a
+    ///     constant, which is why `registry.npmjs.org.evil.com` is refused here
+    ///     exactly like any other off-site shape.
+    #[test]
+    fn npm_channel_constructs_its_url_and_verifies_its_own_anchor() {
+        // The URL is CONSTRUCTED from a constant host plus a validated version:
+        // nothing about it comes out of a response.
+        assert_eq!(
+            npm_tarball_url("1.2.453"),
+            "https://registry.npmjs.org/summrise-agent/-/summrise-agent-1.2.453.tgz"
+        );
+        // Version validation is what keeps that construction honest — a
+        // dist-tag npm answers with a prerelease, or garbage, is not installable.
+        assert!(valid_version("1.2.453"));
+        assert!(!valid_version("1.2"));
+        assert!(!valid_version("1.2.453-rc.1"));
+        assert!(!valid_version("1.2.x"));
+        assert!(!valid_version(""));
+        assert!(!valid_version("1.2.453/../evil"));
+
+        // npm's anchor is sha512 SRI, because npm publishes no sha256. The digest
+        // is really computed here rather than pasted as a vector, so the test
+        // fails if the algorithm or the decoding changes.
+        let bytes = b"package bytes".as_slice();
+        let sri = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(Sha512::digest(bytes))
+        );
+        assert!(verify_sri_sha512(&sri, bytes, "1.2.453").is_ok());
+        // One flipped byte is a refusal — the same rule as the CDN's sha256.
+        assert!(verify_sri_sha512(&sri, b"package bytez", "1.2.453").is_err());
+        // No sha512 means NO VERIFICATION, and round-119 says that must refuse
+        // rather than install: npm's sha1 shasum is not an anchor this accepts.
+        assert!(verify_sri_sha512("sha1-AAAA", bytes, "1.2.453").is_err());
+        assert!(verify_sri_sha512("", bytes, "1.2.453").is_err());
+        assert!(verify_sri_sha512("sha512-!!!not-base64!!!", bytes, "1.2.453").is_err());
+    }
+
     #[test]
     fn check_download_url_refuses_every_offsite_shape() {
         // The production shape carries a PATH (the release lives under
@@ -1398,6 +1650,19 @@ mod tests {
         refused("https://agent.saisi.online.evil.example/x.tgz");
         refused("https://evil.example/agent.saisi.online/x.tgz");
         refused("https://evil.example/agent.saisi.online.tgz");
+        // The SECOND channel is admitted by NAME. Its lookalikes are the same
+        // trap as the site's, so they are pinned the same way.
+        assert!(
+            check_download_url(
+                "https://registry.npmjs.org/summrise-agent/-/summrise-agent-1.2.453.tgz",
+                site
+            )
+            .is_ok(),
+            "the npm channel is a legitimate second destination"
+        );
+        refused("https://registry.npmjs.org.evil.com/summrise-agent/-/x.tgz");
+        refused("https://notregistry.npmjs.org/summrise-agent/-/x.tgz");
+        refused("http://registry.npmjs.org/summrise-agent/-/x.tgz");
         // THE SUFFIX TRAP — a DIFFERENT host whose name ENDS WITH the site.
         // This is the shape a `starts_with`/`ends_with`/`contains` host check
         // would wave through, and the first version of this test MISSED it:
