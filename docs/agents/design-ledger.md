@@ -4215,3 +4215,26 @@ each lost.
 **AND CI CAUGHT WHAT NO LOCAL CHECK OF MINE HAD:** deleting the dead `NavItem` left
 `summrise-command-core/src/lib.rs` unformatted. `cargo fmt --check` runs in CI and I had never run
 it. The repo's own rule — run the command the other end runs — applied to the loop that wrote it.
+
+**SIX QUOTING FAILURES IN ONE EVENING, AND THEY WERE ALL THE SAME MISTAKE.** Merging the two
+description walkers into one took three attempts, and the two that failed are worth more than the fix:
+
+1. A regex-based mover missed one of the two blocks, because prettier had reshaped the one I had not
+   read verbatim — the same "read the artefact, not your memory of it" that this file records three
+   times elsewhere. Located by LINE SCAN instead.
+2. The replacement script itself died of escaping: a regex literal embedded in a JavaScript string
+   embedded in a shell command. `node --check` reported the syntax error, and the file was untouched,
+   so the suite passed and looked like success.
+3. And then the commit message — written with single quotes, containing "reader's", "device's" and
+   "doesn't" — ended its own string early and ran the rest of the sentence as shell commands.
+
+Every one of the six came from writing CODE INSIDE A STRING: a perl pattern guessing at formatting, a
+`python3 -c` with nested quotes, three node `-e` snippets, and a commit message with an apostrophe.
+The tools that take text verbatim — the file editor, and `git commit -F - <<'MSG'` — failed none of
+them, and have been used all evening without a single escaping problem. The rule this file keeps
+arriving at in other forms applies to the loop as much as to the code: USE THE INTERFACE THAT TAKES
+THE TEXT, NOT THE ONE THAT PARSES IT.
+
+The consolidation itself is one definition and two call sites now, which is what the containment gate
+needed: with two walkers, only one of them unescaped single-quoted literals, and the newer copy
+reported a false violation on a description that was already verbatim the device's.
