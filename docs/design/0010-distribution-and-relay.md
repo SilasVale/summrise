@@ -51,8 +51,25 @@ small, testable change instead of a leap.
 **D6 — The relay moves OUT of the CDN worker into its own worker.** The worker that serves the
 release tarball should not also be the storage backend for the file relay: today "retire the CDN
 worker" and "keep the relay" are the same question, and they should not be. The move keeps R2 and
-the DO, keeps the endpoint shapes (`/api/upload`, `/files/<token>`) so the gateway's proxy and
-every device-side tool are untouched, and is therefore a change with no semantic risk.
+the DO and keeps the endpoint **paths** (`/api/upload`, `/files/<token>`).
+
+**Correction, same day, from the platform's own docs — the first version of this paragraph said
+"every device-side tool is untouched, therefore no semantic risk", and that was wrong.** The relay
+cannot simply take those paths on the CDN worker's hostname, because the gateway reaches the
+upload endpoint with a **same-zone `fetch()`**, and Cloudflare is explicit that *"Routes cannot be
+the target of a same-zone `fetch()` call"* while *"Custom Domains can be invoked within the same
+zone via `fetch()`"* ([Routes and domains](https://developers.cloudflare.com/workers/configuration/routing/)).
+So the relay needs **its own custom domain**, which means:
+
+- the gateway's one knob (`indexWorkerBase(env)`) points at the new host;
+- the download URL the upload handler mints changes host, so the places that name the relay host
+  (the operator's cross-machine file rule, and any tool text) follow it — the device's SSRF guard
+  only refuses IP literals, so a hostname change is allowed but must be *made*;
+- the old bucket drains on its 24 h TTL rather than being migrated.
+
+The relay worker is named **`summrise-relay`** and its host **`relay.<zone>`**; attaching a custom
+domain is a dashboard click *or* the Workers custom-domains API with the same token that already
+deploys.
 
 **D7 — Components ship as OUR OWN pinned per-platform npm packages**, declared as
 `optionalDependencies` with `os`/`cpu` gating — not as a postinstall download and not as "copy
