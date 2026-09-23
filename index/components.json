@@ -3,7 +3,7 @@
   "_how_to_replace": [
     "cloudflared: a PINNED upstream asset, proxied by the worker's route. The pin lives in agent/src/tunnel.rs; move it there and here together (publish-release.sh refuses a publish when they disagree).",
     "electron: STAGED IN R2. Fetch the pinned upstream asset once, then `wrangler r2 object put summrise-temp-files/electron-win32-x64.zip --file=<zip> --remote`, sha256 it and pin it here.",
-    "playwright: STAGED IN R2, and NOTHING IN THIS REPO BUILDS IT -- which is why its route answered 502 for a day after the rename and nobody noticed. It is the contents of <install>\\components\\playwright on a device that has a working bundle: node.exe (the Windows node the CLI spawns), node_modules/{@playwright/mcp,playwright-core} (versions in <install>\\etc\\boxed-versions.json) and probe.js. Rebuild it by zipping that folder (the archive's ROOT must be the `playwright` folder, which Expand-Archive into components\\ expects), stage it in R2 the same way, and pin the sha256 here. A real producer script is still owed."
+    "playwright: STAGED IN R2, and produced by scripts/build-playwright-bundle.sh — which did not exist until 2026-09-23, and whose absence is why this route answered 502 for a day after the rename with nobody to notice. The script downloads node v20.18.0 win-x64, npm-installs @playwright/mcp + playwright-core at the versions below, and zips a `playwright/` ROOT (what Expand-Archive into components\\ expects), with self-checks that fail if node.exe or either package is missing. Run it, stage the output in R2, and move this pin in the same commit."
   ],
   "cloudflared": {
     "url": "https://agent.saisi.online/summrise-agent/cloudflared.exe",
