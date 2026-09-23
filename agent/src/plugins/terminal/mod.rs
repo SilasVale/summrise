@@ -69,6 +69,22 @@ pub struct RetainedSession {
 
 /// Live + retained output buffers, guarded by one mutex so the live→history
 /// move on close is atomic (no window where a session is in neither map).
+///
+/// THE MOVE HAPPENS ON TWO OF THE FOUR WAYS A SESSION CAN END, which is a leak, measured 2026-09-24
+/// while checking a claim from the session-runtime exploration. `retain_live` is called by
+/// `tool_close` and by the drainer's channel-close — the two DELIBERATE ends. The manager also
+/// evicts sessions in three more places (the idle sweeper, the 16-session cap, and a third
+/// `sessions.remove` on the swap path), and those remove from `TerminalInner.sessions` without
+/// telling this store, so their `SessionBuf` stays in `live` FOR EVER: `max_history_sessions` and
+/// `max_history_bytes` bound `history` and nothing bounds `live`, and the sweeper only looks at the
+/// manager's list, so the leaked buffer is never revisited. A device that evicts over a long run
+/// grows by one buffer per eviction.
+///
+/// WHY THE FIX IS NOT HERE OR THERE: the manager lives in `tools/terminal/` and this store in
+/// `plugins/terminal/`, and the dependency runs one way, so the eviction sites cannot reach this map.
+/// The seam that already carries the fact is the eviction SINK — the manager announces
+/// `{ev: "session-evicted", cause, sessions:[{id,…}]}` for every eviction, and whoever subscribes
+/// here is the one place that can perform the move for all four exits at once.
 #[derive(Default)]
 pub struct SessionStore {
     pub live: HashMap<String, SessionBuf>,
