@@ -366,3 +366,34 @@ cannot update itself, because the path it would ask for returns 404.
   being traded, and a heavy-machinery term (顶升法, 液压顶升). If one is ever chosen, the
   rule above still holds — **意译, never 音译** — and it would want the same register search
   this name just had, for the same reason.
+
+### Claiming the name — the steps, ready to run (not done yet)
+
+Checked 2026-09-23: **neither claim can be made from the build host, and both are the
+operator's accounts.** Written out here so the next session does not re-derive it.
+
+**npm — a name is reserved by PUBLISHING, not by registering intent.**
+
+```bash
+npm login                      # the account that should own it (needs a verified email)
+# from a directory whose package.json says "name": "summrise" — a placeholder is normal:
+# a one-line README pointing at the real package is enough to hold the name.
+npm publish --access public    # npm asks for a 2FA one-time code
+# then repeat for summrise-agent, summrise-cli, and create the @summrise org
+```
+
+There is **no npm credential on the host** (`~/.npmrc` carries no `_authToken`, `NPM_TOKEN`
+is unset, nothing in the credentials store), so this cannot be done by an agent session —
+`npm publish` is authenticated, and minting that login is the operator's. Everything else
+about the name is already done; this is the only part that is **first-come**.
+
+**Domains — Cloudflare Registrar, dashboard only, and the API proves it.**
+
+- `GET /accounts/<id>/registrar/domains` and `/registrar/domains/<name>` **exist** (the API
+  returns their documentation URLs), and both answer **403 `Authentication error`** to the
+  token on the build host: it carries no Registrar scope.
+- More decisively, the Registrar API is **list/get**: there is no method that *registers* a
+  domain. So buying is a dashboard action — **Domain Registration → search → buy** — for
+  `.io`, `.dev`, `.sh`, `.app`, `.net`. `.com` is not available (held since 2015).
+- Buy the domains **with the same Cloudflare account** that already holds `saisi.online`
+  (checked: that is the only zone on it), so nameservers and Access come along for free.
