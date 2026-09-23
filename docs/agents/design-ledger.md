@@ -3839,3 +3839,61 @@ The criterion was measurable and it was measured.
 WHAT IS NOT VERIFIED HERE: the sweep's `pages` pass was not run against this build. It does not fit the device runner's
 per-call cap (round 253) and this box has no browser (nine missing shared libraries). CI's design job runs it on the
 branch; every rendered number above comes from the device's own Playwright against a harness generated from these bytes.
+
+---
+
+## 2026-09-23 — the release pipeline audited its own author (1.2.453 → 1.2.455)
+
+Six hours of shipping two releases produced five defects, and **every one of them was a step that reported success
+without doing its job** — the class this repo already had a name for, found this time in the tooling rather than in the
+product. AGENTS.md keeps only the rules; these are the transcripts behind them.
+
+**1. `gh release create <tag> <tgz>` published a release and attached NOTHING.** Four seconds, no output, exit 0. Its
+replacement, `gh release upload` plus a `gh release view --json assets` check, did the same on a release the API shows
+has ZERO assets. The reason neither could see it: the release was a DRAFT, and **a tag MOVE demotes a release to a
+draft** — so `GET /releases/tags/<tag>`, exactly the read the release audit performs, answers 404 while `gh` (which
+does find drafts) is satisfied. "The step succeeded" and "the audit can see the asset" were two different questions.
+release.yml now does it through the API: find the release for the tag INCLUDING drafts, PATCH `draft=false`, delete any
+same-named asset, upload, then assert against `/releases/tags/<tag>` that the release is PUBLISHED and lists the name.
+
+**2. The audit read a CACHED endpoint.** `scripts/lib/release-audit.sh` asked `/releases/tags/v<ver>` whether the tgz
+was attached. An asset upload does not invalidate that endpoint: for minutes it answered `assets: []` while
+`/releases/<id>/assets` listed the 6,694,727-byte tgz — so the audit reported "no asset" for a release that had one, the
+reconcile debt stayed open, and the release suite failed two checks that belonged to a cache. It now takes the ID from
+the tags read (stable) and asks the ASSETS sub-resource. The fixture reproduces the lie on purpose, and a second case
+pins that a release whose assets endpoint really has no tgz still FAILS.
+
+**3. The audit's own worse finding, once it could read.** With the cache out of the way it said:
+`source-derived file drifted: ./bin/summrise.js … the two builders packaged DIFFERENT SOURCE — do not ship`. CORRECT,
+and my doing: v1.2.453's pack was published from one tree and its TAG was later moved onto a commit carrying the
+component-fetch CLI, so CI packaged a different artifact under the same version number. A tag must never move onto
+different content; if CI has to go green again for an already-published version, put an EMPTY commit on the release
+commit and tag that. 1.2.454 then passed the dual-builder audit byte-for-byte, exe included.
+
+**4. `--npm` never reached the registry on a first publish.** The npm block sat BELOW the audit, and the audit cannot
+pass on a first publish (the asset is built after the tag), so its failure branch exited first. Measured: the CDN
+deployed, `/api/version` smoked green, `--npm` was passed, and npm still answered `latest: 1.2.453`. A step that must
+happen, ordered after a step that is allowed to fail, is the whole bug; npm now publishes before the audit.
+
+**5. A test failing for a state it does not own.** `publish-release.bash` sat at 8/10 while the CDN carried an
+unreconciled version, because the reconcile gate fired first and the two cases read ITS refusal as their own failure.
+Both now pass `--acknowledge-unreconciled` — the documented escape — and reach the assertions they are about. Not a
+weakening: the assertions are unchanged, and the gate still fires for a real publish that has acknowledged nothing.
+
+**AND THE TWO BREAKAGES THE 1.2.454 CYCLE FOUND IN PRODUCTION**, both from the rename that created a new worker and a
+new bucket and carried over neither. `summrise-dist`'s `wrangler secret list` was `[]`, so `/api/upload` — which
+compares the bearer against `env.UPLOAD_KEY` — accepted only an empty bearer and rejected the gateway's real key: the
+file relay's upload leg, dead since the rename. And `summrise-playwright.zip` was in neither bucket, so that route had
+answered 502 for a day; nobody noticed because every device already had the component expanded locally and nothing
+fetched it through the route. Both fixed and verified the same day (a 32 MB upload whose sha256 matched on arrival, its
+one-time URL correctly 404ing on the second fetch; the bundle rebuilt from the device's copy and staged in R2, the route
+answering 200 with the right content-length). The class: **a resource recreated under a new name needs its secrets and
+its bucket's contents — that is the cutover, not follow-up work.**
+
+**AND WHAT THE RELAY CUTOVER COST IN TWO MISTAKES OF MINE, both caught by testing rather than reasoning.** A fresh
+`UPLOAD_KEY` written to the relay but not to the gateway produced a 401 — the ADR's "a fresh shared secret is required"
+means BOTH sides in one command. And the relay built its download URL from `request.url.origin`; called through a
+SERVICE BINDING, that is `https://summrise-relay.internal/...`, a host nothing can resolve — the end-to-end transfer
+caught it, and a unit test would not have. `PUBLIC_BASE` is a var on the relay now, with the route's own origin as the
+fallback. The route (`agent.saisi.online/files/*`) takes precedence over summrise-dist's dashboard-managed Custom
+Domain, which is what made a path-level handover possible at all.

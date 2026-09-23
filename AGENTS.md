@@ -15,14 +15,11 @@ The operator's own rules are `docs/CHARTER.md`; their inbox is `docs/agents/idea
 cargo xwin check --target x86_64-pc-windows-msvc --features terminal,keyring   # fast agent check
 ```
 
-**A NEWLY CREATED WORKER NEEDS ITS SECRETS AND ITS BUCKET'S CONTENTS — the cutover, not follow-up
-work.** The rename created `summrise-dist` and `summrise-temp-files` and carried over neither: the
-worker's `wrangler secret list` was `[]` (so `/api/upload`, which compares the bearer against
-`env.UPLOAD_KEY`, answered 401 to the gateway's real key — the file relay's upload leg, dead), and the
-playwright bundle never moved, so that route answered 502. Both were invisible for a day because every
-existing device already had the components and nothing fetched them through the routes. After creating
-or renaming a worker: `wrangler secret list --name <worker>` must not be `[]`, and every object the
-routes read must be listed in the new bucket.
+**A NEWLY CREATED WORKER NEEDS ITS SECRETS AND ITS BUCKET'S CONTENTS — the cutover, not
+follow-up work.** After creating or renaming a worker: `wrangler secret list --name <worker>`
+must not be `[]`, and every object its routes read must be in the bucket it binds. The rename
+that skipped both left the file relay's upload leg answering 401 and the playwright route 502,
+invisible for a day. The measurements are in the ledger.
 
 Panel-first: `panel.js` is embedded with `include_str!`, so a change under
 `agent/resources/panel-react/` needs `npm run build` there (or `build.sh agent`, which does it).
@@ -197,23 +194,16 @@ cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise
 # 3. ONE commit that includes agent/summrise-agent-npm/package.json and index/public/summrise-agent/version.json
 git push origin main          # CI green on the pushed commit
 # 4. tag through the API (git push of tags times out here) — this triggers release.yml.
-#    THE SHA MUST BE A COMMIT THAT IS PUSHED **AND** GREEN. Both halves were learned the hard way
-#    on 1.2.453: tagging a local-only commit returns "Object does not exist", and tagging a pushed
-#    commit whose CI was superseded by the next push fails release.yml's own "Gate on tag-commit CI
-#    status" — so push first, WAIT for that commit's CI to go green, and only then:
-#    AND A TAG MOVE DEMOTES THE RELEASE TO A DRAFT. GitHub turns a release back into a draft when its
-#    tag goes away, and a draft is INVISIBLE to GET /releases/tags/<tag> — the read the audit makes —
-#    while `gh` finds it happily. That is how 1.2.453 got two "successful" release steps and a release
-#    with zero assets. release.yml now PATCHes draft=false and verifies with the audit's own endpoint;
-#    if you move a tag for a version that already has a release, expect to re-run and re-audit it.
-#    AND DO NOT MOVE A TAG ACROSS A CONTENT CHANGE. The GitHub asset is built from the TAGGED COMMIT'S
-#    TREE, so moving the tag onto a commit that carries different files makes CI package a DIFFERENT
-#    artifact under the same version number — and the audit says so, correctly: on 1.2.453 it reported
-#    "source-derived file drifted: ./bin/summrise.js … the two builders packaged DIFFERENT SOURCE — do
-#    not ship", because the pack had been published from one tree and the tag later moved onto the
-#    commit carrying the component-fetch CLI. THAT IS A REAL VERSIONING VIOLATION, not a false alarm.
-#    If CI must go green again for an already-published version, put an EMPTY commit on the release
-#    commit (`git commit --allow-empty`) — the tree is unchanged, so the asset matches what shipped.
+#    THE SHA MUST BE A PUSHED, CI-GREEN COMMIT, AND THE TAG MUST NOT MOVE ONTO DIFFERENT
+#    CONTENT. All three were paid for on 1.2.453: tagging a local commit answers "Object
+#    does not exist"; tagging a commit whose CI was superseded fails release.yml's own
+#    "Gate on tag-commit CI status"; and a tag MOVE (a) demotes the release to a DRAFT,
+#    which is invisible to the GET /releases/tags/<tag> read the audit makes, and (b)
+#    makes CI package a DIFFERENT artifact under the SAME version number, which the
+#    dual-builder audit then refuses — correctly. So: push, WAIT for that commit's CI to
+#    go green, then tag it; and if CI must go green again for an already-published
+#    version, put an EMPTY commit on the release commit (`git commit --allow-empty`) —
+#    the tree is unchanged, so the asset matches what shipped. Transcripts: the ledger.
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
@@ -237,13 +227,10 @@ summrise update
 summrise status
 ```
 
-**AND A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** Measured on d1
-while moving to 1.2.455: it printed `changed 1 package in 2s`, the installed package still said
-1.2.454, and `npm view summrise-agent version --registry=https://registry.npmjs.org/` said 1.2.455 —
-a stale `latest` resolved from npm's cache or the mirror this box defaults to. The URL above has no
-resolution step, so it is immune; an EXACT version (`summrise-agent@1.2.455`) re-resolves the version
-document and is what `setup` uses for this reason. When it matters, verify with `summrise status`
-(`this CLI:`) rather than with npm's exit code.
+**AND A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** A stale `latest`
+resolved from npm's cache or this box's mirror printed `changed 1 package` and left the OLD version in
+place. The URL above has no resolution step, so it is immune; an EXACT version (`summrise-agent@1.2.455`)
+is what `setup` uses for the same reason. Verify with `summrise status` (`this CLI:`), never npm's exit code.
 
 **AND MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the
 HARNESS (a stubbed device, this checkout's bundle); nothing measured the live panel until
@@ -256,39 +243,26 @@ device's node or to `browser_run_script`).
 
 **HOW TO HAND IT OVER, since a 38 KB script must not be pasted into anything:** emit it into the CDN's public dir
 (`node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js`), deploy, and let
-the DEVICE fetch it — `system_file_download` from
-`https://agent.saisi.online/summrise-agent/live-panel-probe.js` — then `browser_run_script` with
-`require('D:/Summrise/live-panel-probe.js');`. It reads the panel token from the device's own config and prints a
-JSON verdict. MEASURED 2026-09-23 on 1.2.455: both densities, `textFailing: []`, `graphicFailing: []`,
-`collisions: []`, `unmeasurable: 0`, `{ok: true}`.
-
-**AND IT MUST NOT BE GITIGNORED.** Workers Assets uploads the directory but HONOURS `.gitignore`, so a file listed
-there is silently absent from the deploy — which is exactly what the playwright zip is, and why that zip was never a
-static asset: the route reads it from R2. The probe is committed like the panel's own build output and `bin/summrise.js`
-are, because a generated file that must ship has to be visible to git.
+the DEVICE fetch it (`system_file_download` from `https://agent.saisi.online/summrise-agent/live-panel-probe.js`), then
+`browser_run_script` with `require('D:/Summrise/live-panel-probe.js');`. It reads the panel token from the device's own
+config and prints a JSON verdict. IT MUST NOT BE GITIGNORED: Workers Assets uploads the directory but HONOURS
+`.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
+static asset (its route reads R2) and why the probe is committed like the panel build and `bin/summrise.js` are.
+Measured 2026-09-23 on 1.2.455: both densities clean; the numbers are in the ledger.
 
 Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
 kill/copy the exe inline over a PTY** — use the npm flow above.
 
-**THE npm PACKAGE CARRIES NO BOXED COMPONENTS — AND SINCE 1.2.454 `setup` FETCHES THEM.** The package
-is ~6.7 MB: the exe, the CLI, the desktop shell's *sources*. It does **not** contain
-`cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) or the **electron runtime** the desktop
-shell launches — and it should not: the release host already serves all three, cloudflared's and
-electron's as **PINNED** proxies of the upstream releases (`/summrise-agent/cloudflared.exe`,
-`.../electron-win32-x64.zip`), which is why a device behind the GFW needs no GitHub access and no
-`ELECTRON_MIRROR`. What was wrong was the FETCH: `setup` looked only INSIDE the package, printed
-`not in package (browser tools disabled)` for playwright, and for cloudflared said **nothing at all**.
-So a fresh install came up **local-only while looking perfectly healthy** — no tunnel (the console
-cannot reach it), no browser tools, no window. `resolveComponent()` now resolves each one (package
-copy first, else the host's route, `curl -fsSL` so an HTTP error is a FAILURE and not a 404 page on
-disk), and the failure branches WARN, because the failure they hide is unreachability. An *upgrade*
-was never affected (components live in `<install>\components` and survive), so this bites at install
-and migration time and nowhere else. What it cost to learn is in `docs/BRAND.md` → "The reinstall —
-EXECUTED 2026-09-23": the tunnel one is invisible-reachability (an hour dark, visible only from
-outside), and the electron one needed `ELECTRON_MIRROR` by hand, because the hand-install reached
-electron's npm postinstall, which fetches from GitHub releases — a host this network drops — and
-reported `added 13 packages` while installing no binary.
+**THE npm PACKAGE CARRIES NO BOXED COMPONENTS — `setup` FETCHES AND VERIFIES THEM.** The package is ~6.7 MB: the exe,
+the CLI, the desktop shell's *sources*. `cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) and the **electron
+runtime** the desktop shell launches are served by the release host and staged into `<install>\components` by
+`resolveComponent()`, which takes the package copy first and the host's route otherwise (`curl -fsSL`, so an HTTP error
+is a FAILURE and not a 404 page on disk). Both cloudflared and electron are STAGED IN R2 now, which is what lets
+`index/components.json` pin a sha256 for each and `version.json` publish it: setup REFUSES a mismatch, warns when a
+release carries no pin, and never touches GitHub — a device behind the GFW needs no mirror. An *upgrade* was never
+affected (components live in `<install>\components` and survive); this bites at install and migration time. The
+migration that came up local-only, and why it cost an hour, is in `docs/BRAND.md`.
 
 ## Agent layout
 
