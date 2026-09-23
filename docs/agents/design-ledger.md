@@ -4010,3 +4010,63 @@ and it left the worktree exactly as it found it. The suite is 15 checks (was 10)
 582-line file: `--dry-run` is ONE adapter at the gate seam, and the effects themselves (pack →
 deploy → npm → audit) are still reachable only by running the world. That is the next candidate,
 and it is smaller than it was an hour ago.
+
+---
+
+## 2026-09-23 (the desktop command, and C3) — a command that had never met Windows
+
+`summrise desktop` was designed, unit-tested (48/48), published in 1.2.456 and reported as done. It
+had never been executed on Windows. It failed there three times, in three different ways, and every
+one of them was invisible to the suite that passed:
+
+1. **`powershell -File '<path>'` is not a valid invocation.** The single quotes came from `psq()`,
+   which escapes for a PowerShell STRING; at the cmd layer they are literal characters, so
+   PowerShell received a path with quotes around it and answered "unsupported path format" for a
+   path that was perfectly valid. Double quotes are what `-File` wants. **The same mistake sat in
+   `setup` and had never been noticed**, because the task on this device had been registered by
+   hand — a command whose only producer is manual is a command nobody has run.
+2. **It must not re-register the task in order to start it.** `Register-ScheduledTask` needs the
+   interactive user's principal as `DOMAIN\user`, and a shell running as a service account has no
+   such mapping: from a PTY running as `systemprofile` the device answered "No mapping between
+   account names and security IDs was done … UserId" **while the task itself was Ready**. The task
+   already carries the right principal — `setup` creates it — so starting it is all that is needed,
+   and registering is reserved for the case where it is genuinely absent.
+3. **THE ONE THAT EXPLAINED THE OTHER TWO: the command must not be a `-Command` string at all.**
+   The CLI spawns with `shell: true`, so every command goes through `cmd.exe`, and **cmd splits a
+   command on `&`**. The PowerShell call operator in the middle of the logic cut the command in
+   half, so the `$t` assignment never ran, the guard fell through to registering, and that failed on
+   the principal. Two failures that looked unrelated, one metacharacter — the same class as the
+   `printf | grep -q` lesson and the `pgrep -f` lesson already in this file.
+
+The fix is structural: the logic is written to `<install>\scripts\desktop-start.ps1` and run with
+`powershell -File "<path>"` — nothing to mangle, one level of quoting, and **the operator can read
+what the command does**. The test pins the WIRING as well as the builder: `bin/summrise.js` must
+write the script to a file and must not spawn `desktopStartPs()` as a `-Command` string.
+Mutation-verified: renaming the file in the built CLI turns it into "the CLI must write the start
+script to a file" (1 failure), and the suite is 48/48 restored.
+
+**AND THE FIRST RUN THAT WORKED PRINTED A WARNING WORTH KEEPING:** `[DEP0190] … Passing args to a
+child process with shell option true can lead to security vulnerabilities, as the arguments are not
+escaped, only concatenated.` That is Node saying `spawnSync(cmd, [...args], {shell:true})`
+concatenates rather than escapes — the documented form is a single command string, and this command
+needs no argument list. The operator should not have to read a security warning to get a window.
+
+**C3, THE ARCHITECTURE ITERATION: the reconcile ledger is an INPUT, and the review was wrong about
+it in a way worth recording.** The review called it "machine-local state deciding a publish" and
+concluded the gate was dead code. Inspecting it corrected that twice: `RECONCILE_LEDGER` has been
+overridable since the gate was written (`${RECONCILE_LEDGER:-docs/agents/release-reconcile.txt}`),
+so the seam EXISTED — it was never FILLED. One adapter is a hypothetical seam; two is a real one.
+The gate had only ever been observed against the real, gitignored, machine-local file, which is
+precisely why a reader could mistake live code for dead. Three cases now drive the real script with
+a fixture ledger, and the middle one is the control that makes the others evidence: a pending
+version refuses AND names it; an EMPTY ledger does not refuse and the run reaches the NEXT gate; and
+`--acknowledge-unreconciled` carries it past. Suite 15 -> 18, no credentials, no network.
+
+**AND THE NETWORK, which is now a first-class actor in the release story.** The direct GitHub
+release-asset download died twice at the 300 s cap (1.9 MB and 0.8 MB of 6.7 MB) while the API asset
+URL served the same bytes immediately — so the audit now falls back to the API asset id it already
+reads. The fallback is verified to FIRE (the log names the id and makes the request), and on the next
+attempt the network defeated BOTH routes, which is a fact about this box and not about the audit. The
+same degradation failed an `npm i -g` from the CDN mid-install. What stands regardless: 1.2.456 was
+verified three ways by hand (CDN manifest, local staged tarball, API asset — the same sha256), and
+1.2.457's release is published with its asset.
