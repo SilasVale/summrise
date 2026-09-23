@@ -225,12 +225,34 @@ one-command install that yields a tunnel-less agent would be worse than a URL th
 channels ship the same incomplete pack today, so the text is not the bottleneck. Fix the delivery,
 then make the promise.
 
-**What step 2 now is**, in order: publish the pinned components as our own per-platform packages
-(`@summrise/cloudflared-win32-x64` first — `cloudflared` is Apache-2.0, so redistribution carries a
-licence and attribution obligation, and the binary is fetched from the official release and
-sha256-verified in the pipeline, never on a device); declare them as `optionalDependencies` with
-`os`/`cpu` gating; and teach `setup` to stage them out of `node_modules` into `<install>\components`,
-which is where the agent looks (`paths::cloudflared_bin()`). The electron runtime stays the odd one
-out: it is already a dependency, but its binary arrives through a **postinstall download** — the
-pattern that needed `ELECTRON_MIRROR` here — so a complete install on a locked-down network means
-either carrying its `dist` as a package too, or documenting the mirror variable as a prerequisite.
+**What step 2 turned out to be — re-scoped by reading the code, 2026-09-23.** The decision above said
+"publish the components as our own pinned per-platform npm packages". **The release host already does
+something better**, and the plan had not noticed:
+
+| component | where a device gets it today | the anchor |
+|---|---|---|
+| playwright bundle | `/summrise-agent/summrise-playwright.zip`, streamed out of R2 | authored here |
+| cloudflared (54 MB) | `/summrise-agent/cloudflared.exe` → a **PINNED, versioned** upstream GitHub asset, proxied | `agent/src/tunnel.rs`'s `CLOUDFLARED_SHA256`, checked on the path the agent uses |
+| electron runtime (234 MB) | `/summrise-agent/electron-win32-x64.zip` → a **PINNED** upstream asset (`v33.4.11`), proxied | the pin in the route |
+
+So a device behind the GFW needs no GitHub access, no `ELECTRON_MIRROR`, and there is no 54 MB package
+of ours to keep current or to carry a redistribution duty for (cloudflared is Apache-2.0). **What was
+actually missing was the FETCH**: `setup` looked only INSIDE the package, printed
+`not in package (browser tools disabled)` for playwright, and for cloudflared said **nothing at all** —
+and that silence is the 2026-09-23 migration measured in hours, because a device with no cloudflared
+has no tunnel and a device with no tunnel is invisible to the console while `summrise status` calls it
+healthy from inside. `resolveComponent()` now resolves each one — package copy first, otherwise the
+host's route, `curl -fsSL` so an HTTP error is a FAILURE and not a 404 page written to disk — and the
+failure branches WARN. This lands in **1.2.454**.
+
+**`npx electron` was considered and rejected**, and the reasons are the ones that will come up again:
+it is a postinstall download from GitHub releases (the host this network drops — the hand-install on
+2026-09-23 needed `ELECTRON_MIRROR` for exactly that), and the launcher calls
+`<shell>\node_modules\electron\dist\electron.exe` by path, so `npx` would mean rewriting the launcher
+to buy a worse source.
+
+**And the ORDER inside D6 is not the order the steps are listed in.** The relay is deployed and the
+gateway is pointed at it FIRST; the file-relay routes come out of `summrise-dist` LAST. Trimming
+`index/` before the relay answers would open a window with no file relay at all — and that relay is
+the only sanctioned way to move bytes between these machines, so the window would be a self-inflicted
+outage of the tool doing the work.
