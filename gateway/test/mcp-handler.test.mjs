@@ -260,6 +260,27 @@ test("mcp: GET → 200 text/event-stream keepalive stream; cancel() clears the t
 // it in NOT_EXPOSED with a reason.
 import { readFileSync } from "node:fs";
 
+// ONE WALKER, USED BY BOTH PROSE GATES. There were two copies of this reader, and only one of them
+// unescaped a single-quoted literal — the style prettier picks when a description contains a double
+// quote, which is how browser_run_script is written. The containment gate therefore failed on a text
+// that was already verbatim the device's: a second copy of a reader is a second reader's bugs, and
+// this is the same "one fact, two owners" the gates below exist to find.
+const consoleDescriptionOf = (ts, name) => {
+  const i = ts.indexOf(`name: "${name}"`);
+  if (i < 0) return null;
+  const j = ts.indexOf("description:", i);
+  if (j < 0) return null;
+  // prettier picks whichever quote needs fewer escapes, so BOTH styles must be handled
+  const q = ts.slice(j).match(/description:\s*(["'])/);
+  if (!q) return null;
+  const quote = q[1];
+  const open = ts.indexOf(quote, j);
+  let k = open + 1;
+  while (k < ts.length && !(ts[k] === quote && ts[k - 1] !== "\\")) k++;
+  const lit = ts.slice(open + 1, k);
+  return quote === "'" ? lit.replace(/\\'/g, "'") : lit;
+};
+
 /** Device tools deliberately NOT on the console MCP surface. Each needs a
  *  reason — an unexplained absence is exactly the bug this map exists to
  *  prevent, and the ghost test below keeps the map honest. */
@@ -1094,30 +1115,12 @@ test("the console's tool descriptions name every field the device's name", () =>
   const spec = JSON.parse(raw.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
   const ts = readFileSync(new URL("../src/mcp-tools.ts", import.meta.url), "utf8");
 
-  const consoleDescription = (name) => {
-    const i = ts.indexOf(`name: "${name}"`);
-    if (i < 0) return null;
-    const j = ts.indexOf("description:", i);
-    if (j < 0) return null;
-    // PRETTIER PICKS THE QUOTE STYLE THAT NEEDS FEWER ESCAPES, so a description containing a double
-    // quote (browser_run_script names "<SUMMRISE_RUN_ID>-*.png") is written with SINGLE quotes. The
-    // first version of this walker only knew about double quotes and returned a truncated string for
-    // it — a gate that mis-reads its input reports violations that are not there.
-    const q = ts.slice(j).match(/description:\s*(["'])/);
-    if (!q) return null;
-    const quote = q[1];
-    const open = ts.indexOf(quote, j);
-    let k = open + 1;
-    while (k < ts.length && !(ts[k] === quote && ts[k - 1] !== "\\")) k++;
-    const lit = ts.slice(open + 1, k);
-    return quote === "'" ? lit.replace(/\\'/g, "'") : lit;
-  };
   const fields = (s) => new Set([...String(s).matchAll(/`([a-z][a-z0-9_]{2,})`/g)].map((m) => m[1]));
 
   let exposed = 0;
   const dropped = [];
   for (const e of spec) {
-    const desc = consoleDescription(e.name);
+    const desc = consoleDescriptionOf(ts, e.name);
     if (desc === null) continue; // deliberately not console-exposed (the NOT_EXPOSED decision)
     exposed++;
     const lost = [...fields(e.description)].filter((f) => !fields(desc).has(f));
@@ -1166,31 +1169,13 @@ test("the console carries the device's description, or is a listed debt that is 
   const spec = JSON.parse(raw.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
   const ts = readFileSync(new URL("../src/mcp-tools.ts", import.meta.url), "utf8");
 
-  const consoleDescription = (name) => {
-    const i = ts.indexOf(`name: "${name}"`);
-    if (i < 0) return null;
-    const j = ts.indexOf("description:", i);
-    if (j < 0) return null;
-    const q = ts.slice(j).match(/description:\s*(["'])/);
-    if (!q) return null;
-    const quote = q[1];
-    const open = ts.indexOf(quote, j);
-    let k = open + 1;
-    while (k < ts.length && !(ts[k] === quote && ts[k - 1] !== "\\")) k++;
-    const lit = ts.slice(open + 1, k);
-    // A SINGLE-QUOTED LITERAL MUST BE UNESCAPED, which is what prettier uses when the text contains
-    // a double quote (browser_run_script names "<SUMMRISE_RUN_ID>-*.png"). This is a SECOND COPY of
-    // the walker the field-presence gate above defines correctly — one fact, two owners, the pattern
-    // this session keeps finding; consolidating them is on the next round's list.
-    return quote === "'" ? lit.replace(/\\'/g, "'") : lit;
-  };
   const norm = (s) => String(s).replace(/\s+/g, " ").trim();
 
   let exposed = 0;
   const stillOwed = new Set();
   const unexpected = [];
   for (const e of spec) {
-    const c = consoleDescription(e.name);
+    const c = consoleDescriptionOf(ts, e.name);
     if (c === null) continue; // deliberately not console-exposed
     exposed++;
     if (norm(c).includes(norm(e.description))) continue;
