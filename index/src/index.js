@@ -441,6 +441,28 @@ export default {
               download: `${base}/summrise-agent/${tb}`,
               sha256: sha,
             };
+            // THE BOXED COMPONENTS, PINNED (grilling Q4). `summrise setup` fetches
+            // cloudflared, the playwright bundle and the electron runtime from this
+            // host and verifies each against a sha256 in THIS manifest; without the
+            // pins it can only warn that it verified nothing. Version.json is DATA, so
+            // it gets the same discipline as every other field here: a flat basename
+            // (never a path), a 64-hex digest, and the URL REBUILT against this
+            // request's origin rather than echoed — a manifest must not be able to
+            // point a device at another host.
+            const compsIn = vj && vj.components;
+            if (compsIn && typeof compsIn === "object") {
+              const comps = {};
+              for (const [key, val] of Object.entries(compsIn)) {
+                if (!val || typeof val !== "object") continue;
+                const name = val.url ? String(val.url).split("/").pop() : "";
+                if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) continue;
+                if (typeof val.sha256 !== "string" || !SHA256_RE.test(val.sha256)) {
+                  continue;
+                }
+                comps[key] = { url: `${base}/summrise-agent/${name}`, sha256: val.sha256 };
+              }
+              if (Object.keys(comps).length) body.components = comps;
+            }
             if (inst && instSha) {
               body.installer = `${base}/summrise-agent/${inst}`;
               body.installer_sha256 = instSha;

@@ -24,6 +24,71 @@ function versionEnv(versionJson) {
 
 const GOOD_SHA = "b".repeat(64);
 
+// ── the components block (grilling Q4) ──────────────────────────────────────
+// `summrise setup` verifies each boxed component against a sha256 in THIS manifest;
+// without the pins it can only warn that it verified nothing. The pins are DATA
+// written by the release flow, so they get the same treatment as `tarball` and
+// `installer`: validated, and the URL REBUILT against this request's origin.
+
+test("components: pins pass through, and the URL is rebuilt against THIS origin", async () => {
+  const resp = await worker.fetch(
+    new Request("https://dl.local/api/version"),
+    versionEnv({
+      version: "1.2.3",
+      tarball: "summrise-agent-latest.tgz",
+      sha256: GOOD_SHA,
+      components: {
+        cloudflared: { url: "https://evil.example/depot/cloudflared.exe", sha256: GOOD_SHA },
+      },
+    }),
+  );
+  const j = await resp.json();
+  assert.equal(
+    j.components.cloudflared.url,
+    "https://dl.local/summrise-agent/cloudflared.exe",
+    "a manifest must not be able to point a device at another host",
+  );
+  assert.equal(j.components.cloudflared.sha256, GOOD_SHA);
+});
+
+test("components: a bad entry is DROPPED rather than served", async () => {
+  const resp = await worker.fetch(
+    new Request("https://dl.local/api/version"),
+    versionEnv({
+      version: "1.2.3",
+      tarball: "summrise-agent-latest.tgz",
+      sha256: GOOD_SHA,
+      components: {
+        good: { url: "https://dl.local/summrise-agent/electron-win32-x64.zip", sha256: GOOD_SHA },
+        // A path, not a flat basename: it must not survive.
+        path: { url: "https://dl.local/summrise-agent/../../secrets", sha256: GOOD_SHA },
+        // A digest-shaped lie is still not a digest.
+        sha: { url: "https://dl.local/summrise-agent/x.zip", sha256: "not-a-sha" },
+        // Not an object at all.
+        junk: "cloudflared.exe",
+      },
+    }),
+  );
+  const j = await resp.json();
+  // `path` SURVIVES — NORMALISED, not trusted. Only the flat basename is used and the
+  // URL is rebuilt against this origin, so "../../secrets" becomes
+  // <origin>/summrise-agent/secrets: our host, our route, and a 404 at fetch time.
+  // Canonicalising the manifest's own spelling is the treatment `tarball` already
+  // gets. What must NOT survive is a digest-shaped lie or a non-object at all.
+  assert.deepEqual(Object.keys(j.components).sort(), ["good", "path"]);
+  assert.equal(j.components.path.url, "https://dl.local/summrise-agent/secrets");
+  assert.equal(j.components.path.sha256, GOOD_SHA);
+});
+
+test("components: a manifest without them serves a manifest without them", async () => {
+  const resp = await worker.fetch(
+    new Request("https://dl.local/api/version"),
+    versionEnv({ version: "1.2.3", tarball: "summrise-agent-latest.tgz", sha256: GOOD_SHA }),
+  );
+  const j = await resp.json();
+  assert.equal("components" in j, false, "an older release must keep working unchanged");
+});
+
 test("tarball field is honored: latest alias served verbatim", async () => {
   const resp = await worker.fetch(
     new Request("https://dl.local/api/version"),
