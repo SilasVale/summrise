@@ -16,7 +16,9 @@ use super::ctx::{
 use crate::plugins::terminal::SessionBuf;
 use crate::plugins::{require_str, to_value_or_empty};
 use crate::tools::serial::SerialPool;
-use crate::tools::terminal::{parse_serial_target, parse_ssh_target, TerminalManager};
+use crate::tools::terminal::{
+    parse_serial_target, parse_ssh_target, take_evicted, TerminalManager,
+};
 use summrise_agent_core::{recover_guard, AgentEvent, DeviceError, ToolDef};
 
 // P2-5: drainer frames rerouted after a vanished history entry (warn path
@@ -57,7 +59,7 @@ pub(super) fn tool_open(ctx: &super::ctx::ToolCtx) -> ToolDef {
     let buffer_limit = ctx.buffer_limit.clone();
     ToolDef::new(
         "terminal_open",
-        "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). Returns session ID.",
+        "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). THE DEVICE HAS A SESSION CAP: opening one when it is reached EVICTS the idle-longest session, so a session you opened earlier can disappear — expect a later call on it to fail, and check terminal_list before assuming it is still there. Returns session ID.",
         json!({"type":"object","properties":{"kind":{"type":"string","enum":["pty","ssh","serial"]},"target":{"type":"string","description":"pty: optional (blank = default shell); ssh: user@host:port; serial: port_name (optional ?baud=N&parity=E&data=8&stop=1)"},"password":{"type":"string"},"key_path":{"type":"string","description":"(ssh) Path to a private key file. When set, public-key auth is used; password (if any) is the key passphrase."},"rows":{"type":"integer","description":"Initial terminal rows. Default 0 (backend default)."},"cols":{"type":"integer","description":"Initial terminal columns. Default 0 (backend default)."},"data_bits":{"type":"integer","description":"(serial) Data bits 5-8. Overrides the target string."},"parity":{"type":"string","description":"(serial) Parity: none|odd|even. Overrides the target string."},"stop_bits":{"type":"integer","description":"(serial) Stop bits 1 or 2. Overrides the target string."},"auto_reconnect":{"type":"boolean","description":"(serial) Auto-reconnect when the port disappears (unplug / device reboot): the session stays open and re-opens the SAME port with the SAME framing when it reappears (P4b). Default false."}},"required":["kind"]}),
         move |params: Value| {
             let terminal_mgr = terminal_mgr.clone();
@@ -337,6 +339,27 @@ pub(super) fn tool_open(ctx: &super::ctx::ToolCtx) -> ToolDef {
                 // panel-side migration.
                 let open_count = terminal_mgr.term_list().await.len();
                 tracing::debug!("[summrise-agent] terminal_open: {id} open_sessions={open_count}");
+                // ASK WHAT THIS OPEN COST. `term_open` evicts the idle-longest session when the
+                // device's cap is reached, and records it for the caller that caused it —
+                // `take_evicted`'s own doc says exactly that: "a caller that just opened a session
+                // needs to know what that cost, and only the caller knows when to ask." This caller
+                // never asked, so an eviction was announced to the panel over the SSE bus and to
+                // nobody else — including the log.
+                //
+                // THE RETURN STAYS A BARE STRING, per round-157 above (the panel requires
+                // typeof sid === "string"), so the MODEL is told the POSSIBILITY in this tool's
+                // description instead — the one place a non-breaking interface can say it — and this
+                // is where the specific fact stops being dropped on the floor.
+                for ev in take_evicted() {
+                    tracing::warn!(
+                        "[summrise-agent] terminal_open evicted {} ({}, idle {}ms) to make room for {}: {}",
+                        ev.label,
+                        ev.kind,
+                        ev.idle_ms,
+                        id,
+                        ev.reason
+                    );
+                }
                 // round-163: push the session-list change over the SSE bus —
                 // the panel dropped its 3s terminal_list poll for this event.
                 bus.emit_term_output(json!({"ev": "sessions-changed"}));

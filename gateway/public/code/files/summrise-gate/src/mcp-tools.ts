@@ -69,7 +69,7 @@ const TERMINAL_TOOLS: McpTool[] = [
   {
     name: "terminal_open",
     description:
-      "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). Returns session ID.",
+      "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). THE DEVICE HAS A SESSION CAP: opening one when it is reached EVICTS the idle-longest session, so a session you opened earlier can disappear — expect a later call on it to fail, and check terminal_list before assuming it is still there. Returns session ID.",
     inputSchema: {
       type: "object",
       properties: {
