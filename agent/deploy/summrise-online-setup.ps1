@@ -83,6 +83,21 @@ try {
     }
   }
 } catch { }
+# THE PORTABLE NODE THIS SCRIPT INSTALLED LAST TIME IS CHECKED BEFORE THE NETWORK (round 149).
+# The probe above only sees the CURRENT session's PATH, and $env:Path is not extended until the
+# Machine-PATH block below — so a RE-RUN in a fresh session (a repair, a second NSIS run) found no
+# node, then DELETED the working components\node and downloaded ~30 MB to put it back. The install
+# directory is the durable fact here; the session PATH is not.
+if (-not $nodeExe) {
+  $portable = Join-Path $NodeDir "node.exe"
+  if (Test-Path $portable) {
+    $pv = (& $portable --version) 2>$null
+    if ($pv -match "v(\d+)\." -and [int]$Matches[1] -ge $NodeFloorMajor) {
+      $nodeExe = $portable
+      Say "复用已有便携 Node $pv ($portable)"
+    } else { Say "已有便携 Node $pv 不可用或太旧（要 >= v$NodeFloorMajor），重装便携版" }
+  }
+}
 if (-not $nodeExe) {
   # 解析最新 LTS（nodejs.org 主，npmmirror 备；都挂则本机无网，直接结束）
   $lts = ""

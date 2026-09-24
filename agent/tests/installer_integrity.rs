@@ -231,3 +231,30 @@ fn the_uninstaller_precedes_the_step_that_can_fail() {
     let abort = nsi.find("Abort").expect("a failed step must still abort the install");
     assert!(run < abort, "the abort must follow the run it judges");
 }
+
+/// A RE-RUN MUST NOT DELETE AND RE-DOWNLOAD THE PORTABLE NODE (round 149).
+///
+/// The setup script probes `Get-Command node` — which sees only the CURRENT session's PATH —
+/// and extends that PATH much later, in the Machine-PATH block. So a repair run in a fresh
+/// session found no node, removed the working components\node and downloaded ~30 MB again.
+/// The install directory is checked before the network now, and order is the guarantee.
+#[test]
+fn the_portable_node_is_reused_before_it_is_downloaded() {
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let installed = ps1
+        .find("Join-Path $NodeDir \"node.exe\"")
+        .expect("the probe must ask the install directory for its own portable node");
+    let download = ps1
+        .find("node-$lts-win-x64.zip")
+        .expect("the download arm must still exist");
+    assert!(
+        installed < download,
+        "the installed portable node must be checked BEFORE the download (installed={installed}, download={download}) — otherwise every re-run pays ~30 MB and deletes a working install"
+    );
+    // Nor may it delete before it looks: the Remove-Item that precedes the extract must come
+    // after the reuse check, or the reuse is pointless.
+    let remove = ps1
+        .find("Remove-Item -Recurse -Force $NodeDir")
+        .expect("the extract still clears the old directory");
+    assert!(installed < remove, "the reuse check must precede the delete");
+}
