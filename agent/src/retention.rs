@@ -29,6 +29,23 @@
 //! decision is one call, and the four call sites cannot disagree because there
 //! is one place left for them to agree with.
 //!
+//! ONE FAMILY EXPRESSES THE BOUNDARY AS AN AGE, and it is [`crate::session_log`] by
+//! design rather than by oversight: its reader (`age_of`) hands back an AGE — now
+//! minus the file's `createdAt`, falling back to its mtime — not a stamp, so its
+//! comparison stays `age > max_age`, the exclusive boundary the other way round.
+//! It resolves the cutoff here and takes the DISTANCE to it
+//! ([`Cutoff::cutoff_secs`]) rather than re-deriving a window of its own, which is
+//! why `cutoff_secs` is visible to the crate; converting the file's stamp instead
+//! would move a clock read into this module, which owns no clock. So the claim is
+//! exact: no family re-derives the arithmetic, and the one that speaks in ages
+//! says so at its own call site.
+//!
+//! ONE FAMILY DOES NOT TAKE THE FLOOR. The memory store's retention is a SOFT
+//! delete — it writes a tombstone rather than removing a file — so retiring a
+//! record inside a day is a trade it is allowed to make, and
+//! [`Cutoff::capped_days_before`] is the constructor that says so. It keeps the
+//! CAP, because the wrap the cap prevents is not a policy question.
+//!
 //! NOT A CLIENT: `runstate::prune_history()` bounds `BOOT_HISTORY_MAX` boot
 //! records by COUNT, not by age. There is no window there to resolve, and
 //! counting it as a fifth consumer would be a category error — stated where a
@@ -68,17 +85,26 @@ pub(crate) const MAX_RETENTION_DAYS: u64 = 36_500;
 /// Milliseconds in a day. THE conversion, so no call site spells it out again.
 pub(crate) const DAY_MS: u64 = 86_400_000;
 
-/// Seconds in a day — the same conversion for the two families whose clock
-/// (and whose stored stamps) are in seconds.
+/// Seconds in a day — the same conversion, for the FIXTURES that express an age in
+/// seconds (the memory store's `updated_at`, the audit trail's `createdAt`).
+///
+/// PRODUCTION CODE NO LONGER NAMES IT, and that is the point rather than a gap:
+/// both seconds-domain families hand the boundary a millisecond stamp and read
+/// the boundary back in seconds ([`Cutoff::excludes_secs`],
+/// [`Cutoff::cutoff_secs`]), so the day conversion happens inside [`Cutoff`]. It
+/// stays declared HERE, once, instead of becoming a literal in the tests that
+/// need a day's worth of seconds — the drift this module was written to end.
+#[cfg(test)]
 pub(crate) const DAY_SECS: u64 = 86_400;
 
 /// ONE WINDOW, RESOLVED.
 ///
 /// Deliberately opaque: callers read the boundary through [`Cutoff::excludes`]
-/// (the ms-clock families), [`Cutoff::cutoff_ms`] and [`Cutoff::cutoff_secs`]
-/// (the s-clock families), so none of them can re-derive the arithmetic this
-/// module exists to own. Deriving it differently is exactly the drift the four
-/// former copies demonstrated.
+/// (the ms-clock families), [`Cutoff::excludes_secs`] (the memory store, whose
+/// stamps are in seconds), and [`Cutoff::cutoff_secs`] (the audit trail, which
+/// reconstructs an AGE from it — see the module doc), so none of them can
+/// re-derive the arithmetic this module exists to own. Deriving it differently is
+/// exactly the drift the four former copies demonstrated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Cutoff {
     /// The resolved boundary, in ms.
@@ -86,10 +112,24 @@ pub(crate) struct Cutoff {
 }
 
 impl Cutoff {
-    /// `days` floored at [`MIN_RETENTION_DAYS`] and capped at [`MAX_RETENTION_DAYS`], applied to
-    /// `now_ms`. Total: the multiply cannot wrap and the subtraction cannot go below zero.
+    /// The retention families' window: FLOORED at [`MIN_RETENTION_DAYS`], capped at
+    /// [`MAX_RETENTION_DAYS`], applied to `now_ms`. Total: the multiply cannot wrap and the
+    /// subtraction cannot go below zero.
     pub(crate) fn days_before(days: u64, now_ms: u64) -> Cutoff {
         let days = days.clamp(MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
+        Cutoff {
+            cutoff_ms: now_ms.saturating_sub(days.saturating_mul(DAY_MS)),
+        }
+    }
+
+    /// A window with the CAP and NO FLOOR — the memory store's soft delete, which is allowed to
+    /// retire a record inside a day because it leaves a tombstone rather than deleting a file.
+    ///
+    /// The CAP stays, because the wrap it guards is not a policy choice: `days` reaches the store
+    /// from config and from `PUT /api/settings` unbounded, and `2^57` days is exactly 0 mod 2^64
+    /// — the incident recorded at that call site.
+    pub(crate) fn capped_days_before(days: u64, now_ms: u64) -> Cutoff {
+        let days = days.min(MAX_RETENTION_DAYS);
         Cutoff {
             cutoff_ms: now_ms.saturating_sub(days.saturating_mul(DAY_MS)),
         }
@@ -100,6 +140,12 @@ impl Cutoff {
     /// nothing could check that they do.
     pub(crate) fn excludes(&self, stamp_ms: u64) -> bool {
         stamp_ms < self.cutoff_ms()
+    }
+
+    /// The same boundary for the families whose stamps are in SECONDS. One rule, two units — the
+    /// alternative is what this module replaced.
+    pub(crate) fn excludes_secs(&self, stamp_secs: u64) -> bool {
+        stamp_secs < self.cutoff_secs()
     }
 
     pub(crate) fn cutoff_ms(&self) -> u64 {
@@ -237,6 +283,65 @@ mod tests {
             DAY_MS,
             DAY_SECS * 1000,
             "the two conversions must describe the same day"
+        );
+        // THE SAME BOUNDARY, NOT A NEARBY ONE: `excludes_secs` is `excludes`
+        // asked in seconds, so the two must agree on every second either can
+        // name — including the exclusive edge the whole module turns on.
+        assert!(
+            !c.excludes_secs(c.cutoff_secs()),
+            "a stamp exactly ON the cutoff is KEPT in seconds too"
+        );
+        assert!(
+            c.excludes_secs(c.cutoff_secs() - 1),
+            "one second older than the cutoff is excluded"
+        );
+        assert!(
+            !c.excludes_secs(c.cutoff_secs() + 1),
+            "one second newer than the cutoff is kept"
+        );
+    }
+
+    /// THE NO-FLOOR CONSTRUCTOR, asserted here because the memory store's licence
+    /// to retire inside a day IS a rule of the window and this table is where the
+    /// window's rules live. Everything else about it is `days_before`'s rule.
+    #[test]
+    fn capped_days_before_takes_the_cap_and_no_floor() {
+        // NO FLOOR: zero days is honoured, not lifted to one day. The window is
+        // empty — every record not stamped this very second is retired — and the
+        // store's tombstones make that recoverable.
+        assert_eq!(
+            Cutoff::capped_days_before(0, NOW).cutoff_ms(),
+            NOW,
+            "a zero-day soft-delete window must NOT be lifted to the 1-day floor"
+        );
+        assert_ne!(
+            Cutoff::capped_days_before(0, NOW),
+            Cutoff::days_before(0, NOW),
+            "the two constructors differ in exactly the floor"
+        );
+        assert_eq!(
+            Cutoff::capped_days_before(MIN_RETENTION_DAYS, NOW),
+            Cutoff::days_before(MIN_RETENTION_DAYS, NOW),
+            "at and above the floor the two are the same window"
+        );
+
+        // THE CAP SURVIVES: the absurd value that wrapped to NOW resolves to the
+        // cap's boundary instead, exactly as the floored constructor does.
+        assert_eq!(
+            Cutoff::capped_days_before(10_000_000, NOW),
+            Cutoff::days_before(10_000_000, NOW),
+            "the cap is not a policy this constructor may drop"
+        );
+        assert_ne!(
+            Cutoff::capped_days_before(u64::MAX, NOW).cutoff_ms(),
+            NOW,
+            "the WRAP made the cutoff NOW — the incident the cap exists for"
+        );
+        // And saturation, not wrap, when the window outruns the epoch.
+        assert_eq!(
+            Cutoff::capped_days_before(30, 5).cutoff_ms(),
+            0,
+            "a window longer than the epoch saturates at 0, excluding nothing"
         );
     }
 }

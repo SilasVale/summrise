@@ -1322,10 +1322,16 @@ impl SessionLogger {
         let cutoff =
             crate::retention::Cutoff::days_before(max_age_days, now_secs.saturating_mul(1000));
         // `age_of` hands back an AGE, and this family's comparison is `age >
-        // max_age` — the same exclusive boundary as `Cutoff::excludes`, expressed
-        // the other way round. The window is therefore the distance from now to
-        // the shared cutoff: exactly `days * DAY_SECS` whenever the window fits
-        // in the age of the epoch, which is every value that can reach here.
+        // max_age` — the same exclusive boundary as `Cutoff::excludes_secs`,
+        // expressed the other way round, and deliberately NOT rewritten to call
+        // it: the reader has an age, not a stamp (see `retention.rs`'s header).
+        // The window is therefore the distance from now to the shared cutoff:
+        // exactly `days * DAY_SECS` while that window fits inside the age of the
+        // epoch. ABOVE THAT BOUND — a `max_age_days` past the epoch's own age in
+        // days (~20,700 today) — the cutoff SATURATES to 0, so `max_age` becomes
+        // all of `now_secs` rather than `days * DAY_SECS`: only a file stamped at
+        // the epoch itself is then old enough to prune. Conservative, never
+        // destructive, and bounded in practice because the sole caller passes 30.
         let max_age = Duration::from_secs(now_secs.saturating_sub(cutoff.cutoff_secs()));
         let mut removed = 0;
         let Ok(entries) = std::fs::read_dir(&self.dir) else {

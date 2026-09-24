@@ -500,6 +500,11 @@ fn parse_record(line: &str) -> Option<serde_json::Value> {
 
 /// Keep the newest [`BOOT_HISTORY_MAX`] records, dropping older ones — and any junk — atomically.
 ///
+/// The bound is COUNT-based, and deliberately NOT a client of `crate::retention`'s age window:
+/// history is a handful of boot records whose value does not decay (a boot from last year still
+/// explains the current process), so there is no age at which one stops being true — there is only
+/// a number past which the file is noise.
+///
 /// This is also the file's REPAIR pass: a rewrite keeps the records that parse and discards the
 /// rest, so a history that has accumulated torn fragments converges back to exactly the newest
 /// `MAX` records instead of slowly filling with lines no reader can use.

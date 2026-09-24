@@ -5303,6 +5303,61 @@ the real tree afterwards (702 tests / 0 failed with `terminal,keyring`, 644 / 0 
 still carried the old number — the inventory gained a date and a SHA on four cells for that reason). `runs.rs`
 got SMALLER (134 → 124): the window arithmetic left it.
 
+### The review, and the two comments the fix left lying (same round)
+
+Both axes ran against the committed diff. No live regression this time — the removal predicates were
+checked bit-identical against the previous commit (`mtime >= cutoff` ≡ `!excludes`, `ts < cutoff`,
+`updated_at < cutoff`) — but six claims did not survive, and three of them were mine in the section above.
+
+**THE PREMISE THE ROUND MEASURED FALSE WAS STILL ASSERTED IN `runs.rs`.** Its header said `trim` lives
+there "for the same reason the evidence prune lives in `evidence.rs` — … a new `retention.rs` would be a
+shared primitive with one consumer". This commit CREATED that module, edited `runs.rs`, and left the
+sentence standing: the file contradicting the change made to it, which is the failure this ledger records
+more than any other. Corrected, and the paragraph now names what stays in `runs.rs` (its clock, its
+per-record predicate, its IO) beside what moved.
+
+**AND TWO DOC POINTERS NAMED A CONSTANT THAT HAD MOVED.** `summrise-command-core/src/config.rs` cited
+`evidence::MIN_RETENTION_DAYS` twice; the constant is declared once now, in `retention`. Nothing checks a
+backticked path in a doc comment, which is exactly why the round's own claim to have "one home" was only
+half true until the pointers followed.
+
+**THE MEMORY STORE WAS THE FOURTH SPELLING, AND THE REASON WAS REAL.** It could not use
+`Cutoff::days_before` because that constructor applies the 1-day FLOOR and the memory store's soft delete
+deliberately does not take it (a tombstone is not a deletion). So it kept its own
+`.min(36_500).saturating_mul(86_400)` and its own `<`. The honest fix was not a comment but a SECOND
+constructor — `Cutoff::capped_days_before` (cap, no floor) — plus `Cutoff::excludes_secs` for the families
+whose stamps are in seconds, with the units verified before the switch (`updated_at` is `as_secs()`, and
+`now_secs * 1000 − days * DAY_MS` is exact because both are multiples of 1000). One family still expresses
+the boundary as an AGE rather than calling the predicate — `session_log`, whose reader hands back an age —
+and the module doc now says so instead of claiming a uniformity that was not quite there.
+
+**A COMMENT STATING A BOUND THAT IS FALSE.** `session_log` claimed the window is "exactly `days * DAY_SECS`
+whenever the window fits in the age of the epoch, which is every value that can reach here". Any value above
+about **20,700 days** saturates the cutoff to 0, so the window becomes all of `now_secs`. It is bounded in
+practice (the sole caller passes 30) and conservative (only an epoch-stamped file is old enough), but the
+sentence gave a safety reason that was not true — the same shape as round 24's `stage_of` doc, and found the
+same way.
+
+**AND "7 → 0" WAS ALMOST TRUE.** Three day spellings survived in a scoped file — `40 * 86400` twice and
+`400 * 86400` once, in the memory store's TEST fixtures. They now use `retention::DAY_SECS`, which made that
+constant fixture-only and therefore `#[cfg(test)]`. Re-measured afterwards: the four families contain
+**zero** `86_400` hits; the four remaining live in `retention.rs` itself (the two definitions and two prose
+lines).
+
+**ALSO FIXED:** `runstate::prune_history` now says it is COUNT-based and deliberately not a client (the
+section above claimed it "now says so" before it did); `TargetInput`'s `Default` derive is gone — nothing
+called it, and a default input would answer "0 is not a port" for a port that was never sent, the
+absence-vs-zero confusion that file's comments exist to keep apart.
+
+**AND ONE LATENT BEHAVIOUR CHANGE IS NOW WRITTEN DOWN rather than left implied:** the cap is newly applied
+to `evidence`/`runs`, so a configured window above 36,500 days resolves to the cap instead of to its own
+value. Both saturate to "remove nothing" until roughly 2069, so nothing observable moves today — but it is a
+change beyond the floor, and the round said "one deliberate change".
+
+**MUTATIONS for the two additions:** making `capped_days_before` apply the floor fails
+`capped_days_before_takes_the_cap_and_no_floor`; making `excludes_secs` inclusive fails
+`cutoff_secs_agrees_with_cutoff_ms`.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

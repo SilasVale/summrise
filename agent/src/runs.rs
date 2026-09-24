@@ -61,10 +61,13 @@
 //!
 //! `runs.jsonl` was append-only FOREVER: [`recent`] caps only what it READS, so
 //! the file itself grew one line per begin and one per end with nothing to stop
-//! it. [`trim`] is the bound, and it lives here for the same reason the
-//! evidence prune lives in `evidence.rs` — this module is already the log's one
-//! owner, and a new `retention.rs` would be a shared primitive with one
-//! consumer (the repo's PROMOTION rule).
+//! it. [`trim`] is the bound. THE WINDOW IS NOT THIS MODULE'S: the floor, the cap,
+//! the day conversion and the exclusive boundary live in
+//! `crate::retention::Cutoff`, shared with the evidence feed, the audit trail and
+//! the memory store — the "a new `retention.rs` would be a shared primitive with
+//! one consumer" premise this paragraph used to record was MEASURED FALSE (there
+//! were four). What stays HERE is what is this module's own: the clock (each
+//! record's `ts_ms`), the per-record predicate, and the IO.
 //!
 //! The bound is AGE rather than SIZE because a size trigger fires exactly when
 //! a long execution has produced the most records — i.e. it deletes the run

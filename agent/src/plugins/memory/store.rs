@@ -952,23 +952,31 @@ impl MemoryStore {
             // no upper bound: in DEBUG a large value panics on the multiply, and in RELEASE
             // it WRAPS — `days = 2^57` is exactly 0 mod 2^64, so the cutoff became NOW and
             // the whole store was retired. A century is far past any real retention and
-            // makes the arithmetic total. (The cap and the day conversion are the shared
-            // rule now — `retention::MAX_RETENTION_DAYS` and `retention::DAY_SECS`; this
-            // comment is the incident those constants exist for, so it stays here, where
-            // the damage was done.)
+            // makes the arithmetic total. (The cap, the day conversion and the boundary are
+            // the shared rule now — `Cutoff::capped_days_before`; this comment is the
+            // incident that constructor's cap exists for, so it stays here, where the
+            // damage was done.)
             //
-            // NOTE WHAT THIS FAMILY DOES *NOT* TAKE: the floor. `retention_days: None`
-            // means "never retire", and applying `MIN_RETENTION_DAYS` to a `Some(0)` would
+            // NOTE WHAT THIS FAMILY DOES *NOT* TAKE: the floor — which is why it calls
+            // `capped_days_before` and not `days_before`. `retention_days: None` means
+            // "never retire", and applying `MIN_RETENTION_DAYS` to a `Some(0)` would
             // silently overrule the operator who asked for exactly that — a different
-            // trade from the three families whose floor is an in-flight guarantee.
-            let secs = days
-                .min(crate::retention::MAX_RETENTION_DAYS)
-                .saturating_mul(crate::retention::DAY_SECS);
-            let cutoff = crate::unix_now().saturating_sub(secs);
+            // trade from the three families whose floor is an in-flight guarantee. This one
+            // leaves a TOMBSTONE, so retiring a record inside a day costs nothing that
+            // cannot be restored.
+            //
+            // `updated_at` is `crate::unix_now()` — SECONDS, like every stamp this store
+            // writes — so the boundary is asked in seconds, and the ms the constructor
+            // wants is this clock scaled up. Same instant, same comparison as the
+            // `updated_at < cutoff` it replaced.
+            let cutoff = crate::retention::Cutoff::capped_days_before(
+                days,
+                crate::unix_now().saturating_mul(1000),
+            );
             let ids: Vec<String> = guard
                 .by_id
                 .iter()
-                .filter(|(_, r)| !r.deleted && r.updated_at < cutoff)
+                .filter(|(_, r)| !r.deleted && cutoff.excludes_secs(r.updated_at))
                 .map(|(id, _)| id.clone())
                 .collect();
             for id in ids {
@@ -1893,7 +1901,7 @@ mod tests {
         // Round-357: the retention branch had ZERO tests — the policy was
         // documented but unreachable in production (config never wired).
         let (s, dir) = retention_store("retention_on_insert", 30);
-        let stale = s.insert_ok(old_rec("stale", 40 * 86400));
+        let stale = s.insert_ok(old_rec("stale", 40 * crate::retention::DAY_SECS));
         let fresh = s.insert_ok(rec("fresh", "live body"));
         assert!(
             s.get(&stale, false).is_none(),
@@ -1922,7 +1930,7 @@ mod tests {
         // Seed under default limits (no retention): the old record is live.
         let id = {
             let s = MemoryStore::new(dir.clone(), MemoryLimits::default());
-            let id = s.insert_ok(old_rec("stale", 40 * 86400));
+            let id = s.insert_ok(old_rec("stale", 40 * crate::retention::DAY_SECS));
             assert!(
                 s.get(&id, false).is_some(),
                 "no retention → old record live"
@@ -1949,7 +1957,7 @@ mod tests {
     fn retention_none_keeps_old_records() {
         // Opt-in documented: default config (retention None) never retires.
         let (s, dir) = tmp_store("retention_none");
-        let id = s.insert_ok(old_rec("ancient", 400 * 86400));
+        let id = s.insert_ok(old_rec("ancient", 400 * crate::retention::DAY_SECS));
         assert!(
             s.get(&id, false).is_some(),
             "without retention even year-old records stay live"

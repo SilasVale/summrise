@@ -292,7 +292,11 @@ fn refuse_expect_without_path(path: &str, expect: &str) -> Result<(), String> {
 /// `path` and `expect` are EMPTY when the door offered none: `validate_path`/`validate_expect`
 /// answer `None` for blank input, which is the shape both wire formats already use (an absent JSON
 /// field is read as `""`).
-#[derive(Debug, Clone, Default)]
+///
+/// NOT `Default`: a default here would be an input nobody sent — `port: 0` is not a port, and
+/// `parse` exists to reject it. The absence-vs-zero distinction this file keeps apart does not
+/// survive a constructor that manufactures the zero.
+#[derive(Debug, Clone)]
 pub struct TargetInput {
     pub host: String,
     /// The port AS THE WIRE GAVE IT: `u64`, because that is what JSON hands both doors. The range

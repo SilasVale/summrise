@@ -177,7 +177,8 @@ pub struct RetentionConfig {
 /// range — bounded and survivable, which is the entire point (the failure it
 /// replaces is unbounded growth over a year with no operator watching). An
 /// operator who wants less disk turns it down; the floor in
-/// `evidence::MIN_RETENTION_DAYS` is what stops them turning it to zero.
+/// `retention::MIN_RETENTION_DAYS` (agent crate) is what stops them turning it to
+/// zero.
 pub const DEFAULT_EVIDENCE_RETENTION_DAYS: u64 = 30;
 
 /// 90 days — deliberately 3× the evidence window.
@@ -193,8 +194,9 @@ impl RetentionConfig {
     /// Resolve to concrete windows in days. Zero is treated as absent rather
     /// than as "delete everything now" — the same guard, for the same reason,
     /// as [`MemoryConfig::effective`]. The modules that own the two records
-    /// apply a further hard floor (`evidence::MIN_RETENTION_DAYS`), so a
-    /// config that reaches them by another route cannot empty the feed either.
+    /// apply a further hard floor (`retention::MIN_RETENTION_DAYS`, agent
+    /// crate), so a config that reaches them by another route cannot empty the
+    /// feed either.
     pub fn effective(&self) -> (u64, u64) {
         (
             self.evidence_days
