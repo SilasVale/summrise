@@ -1,10 +1,17 @@
 /**
  * API client — thin wrapper around fetch with credentials: 'same-origin'
  * and automatic JSON parsing. 401 responses trigger a global auth reset
- * (via notifyUnauthorized) so the UI switches to the login page.
+ * (via notifyUnauthorized, which lives in lib/unauthorized.ts) so the UI
+ * switches to the login page.
+ *
+ * THIS FILE DOES NOT IMPORT A CONTEXT MODULE ANY MORE. It used to import
+ * `notifyUnauthorized` from ../contexts/AuthContext.tsx while that file imported
+ * `api` from here — a cycle, and underneath it a layering inversion: the data
+ * layer reaching into the React layer to find a callback. Both sides depend on
+ * the leaf module now, which is where the seam belongs.
  */
 
-import { notifyUnauthorized } from "../contexts/AuthContext.tsx";
+import { notifyUnauthorized } from "../lib/unauthorized.ts";
 
 export class ApiError extends Error {
   status: number;

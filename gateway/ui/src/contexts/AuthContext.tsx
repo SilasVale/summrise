@@ -1,5 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { api, type Me } from "../api/client.ts";
+// The 401 seam lives in a leaf module now: this file and the api client both depend DOWN onto it,
+// which is what removed the import cycle (client -> this context -> client) and the layering
+// inversion underneath it (a data module importing a React one). See lib/unauthorized.ts.
+import { setUnauthorizedHandler } from "../lib/unauthorized.ts";
 
 interface AuthState {
   user: Me | null;
@@ -12,12 +16,6 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | null>(null);
-
-/** Global 401 handler — set by AuthProvider, called by the api client. */
-let _onUnauthorized: (() => void) | null = null;
-export function notifyUnauthorized() {
-  _onUnauthorized?.();
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
@@ -34,8 +32,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Register the global 401 handler
   useEffect(() => {
-    _onUnauthorized = () => setUser(null);
-    return () => { _onUnauthorized = null; };
+    setUnauthorizedHandler(() => setUser(null));
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   useEffect(() => {
