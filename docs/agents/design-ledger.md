@@ -4814,3 +4814,70 @@ a run for five rounds. The shell mangled five one-liners (an apostrophe, a backs
 continuation) — write the script to a file and run that. A mutation is evidence only once it is proven to have
 LANDED: my guards caught four that had not, and each time the "passing" mutation was the thing that was wrong.
 And comments-are-not-code bit four times, twice inside the tests written to prevent exactly that.
+
+## 2026-09-26 (the gate suite audited, and an instrument that cannot fail)
+
+The fifteenth exploration did what none of the fourteen before it had: it audited THE INSTRUMENTS. Every
+prior pass had asked whether the product was right; this one asked whether the gates could tell. It found ten
+things, and the shape of them is the point — a suite built to catch vacuity had vacuity of its own, at every
+level, from the scan that could read zero files to the checker that accepted a refusal as proof of a bite.
+
+**THE SCAN THAT READ NOTHING AND SAID OK.** `script-syntax.bash` walks `git ls-files '*.sh' '*.bash'`. When git
+refuses the tree — a dubious-ownership / safe.directory refusal in a container does exactly that — the list is
+EMPTY, the loop runs zero times, FAILED stays 0, and the gate printed `ok: script-syntax 0 files parse` with
+EXIT 0. `set -euo pipefail` cannot catch it, because the failure happens inside a process substitution, which
+the shell does not check. It has a floor now, and the proof is the report's own: on a copy with `.git` removed
+it exits 1 with "read only 0 file(s), expected at least 20 — the scan is reading the wrong thing".
+
+**THE DERIVATION THAT COULD NOT SEE A GATE CI RUNS.** `all-gates.bash` promises its list "can never become a
+second list that drifts from the first", and its pattern required the script path to start immediately after
+the interpreter. Two gates escaped it from opposite sides: one invoked as
+`node ${{ github.workspace }}/scripts/test/console-assets-check.mjs` (the prefix contains a SPACE, so widening
+the character class did not help — the strip has to run first), and one living OUTSIDE `scripts/test/` entirely,
+where `build-pins.bash`'s wiring check — which iterates that directory — never asked about it either. Both are
+in the local run now, and the moved file needed exactly one line changed with it, its `ROOT`.
+
+**THE RATCHET THAT HAD GONE SLACK.** `spacing-scale-check.mjs` is a one-way ratchet: it fires when off-scale
+uses RISE above a baseline and when token uses FALL below it. The baselines were taken in rounds 220-222; the
+counts had since IMPROVED to 299 off-scale and 397 token, so the gate silently tolerated SIX new off-scale
+literals and twelve lost token uses. Tightened, and the mutation was run BOTH ways — one planted `13px` now
+fails with "rose from 299 to 300", and restoring the old 305 makes the same tree exit 0. That is the six units,
+reproduced.
+
+**EXIT 2 WAS DOING TWO JOBS.** The runner documents 2 as "this host cannot run me" and maps it to `n/a` WITHOUT
+counting a failure. Three gates spent it on "I ran and my patterns went stale, so I measured nothing" — and all
+three PRINT "FAIL" first, so the runner printed `n/a` over a line that said FAIL and could exit 0 with three
+gates having proved nothing. The missing verdict was the fourth one: it PASSED, it FAILED, it COULD NOT RUN
+HERE, and it RAN AND COULD NOT MEASURE. That is 3, and it increments `fail`.
+
+**AND THE CHECKER THAT PROVES THE OTHERS BITE.** `gate-mutations-check.mjs` tested `after === 0`, so ANY
+non-zero counted as proof — a refusal (2) or a stale-pattern verdict (3) would have been recorded as a bite
+without biting. Theoretical when the report found it, LIVE by the time it was fixed, because the round before
+had introduced 3. It also printed `${CASES.length} gate(s) broken on purpose` — 31 — for 19 distinct gates.
+Both fixed; the full run now reports "31 case(s) over 19 gate(s) … every one of them bit".
+
+**TWO GATES THAT NOBODY RAN, ONE FROM EACH SIDE.** `console-assets-check` (prefix) and
+`custom-prop-check` (wrong directory) were invoked by CI and invisible to the local runner. The second was
+moved into `scripts/test/` rather than widening two globs, because the directory IS the convention and two
+checks key on it.
+
+**AND THE PANEL SHEET HAD NOBODY COMPARING IT TO ITS SOURCE.** Five gates read the COMMITTED
+`agent/resources/panel/panel.css` — chrome-stillness, feedback, motion, state-colour, stylesheet-hygiene — and
+`agent/build.rs`'s guard is an MTIME comparison, which misses a restored file or a same-second content drift;
+CI's `panel` job runs `npm run build` and throws the result away. The console already had the right instrument:
+`console-assets-check.mjs` rebuilds and asserts the tree does not move, and its own header names the asymmetry
+("the PANEL has a guard for exactly this"). The panel has the same check now, copied deliberately, including
+its refusal to run on a dirty tree — which it demonstrated immediately, refusing because the new file was
+still untracked. Its failure message names the five readers and says the diff IS the fix.
+
+**AND EVERY JOB WAS UNBOUNDED.** Nothing in `ci.yml` set `timeout-minutes`, so all eleven jobs ran against
+GitHub's 360-minute default; a hung gate would spend six hours of runner and report a timeout instead of the
+gate's name. All eleven are bounded at 45 — about 3x the longest run measured here (27 minutes, `pack-chain`,
+which executes the gate scripts one at a time). A job that exceeds that is not slow, it is stuck.
+
+**AND THE DEPLOY THAT HAD NOT HAPPENED.** Round 169 measured the LIVE landing and found it still serving the
+bare `npm i -g` instruction round 128 had removed from the source, with no cache-control at all — three rounds
+of committed fixes sitting undeployed. `./scripts/build.sh index` shipped them, and the live page was verified
+afterwards rather than assumed: 0 occurrences of the bare name, the URL form prescribed, the warning present,
+`cache-control: public, no-cache`. A committed fix is not a delivered one, and the only evidence is the live
+response.
