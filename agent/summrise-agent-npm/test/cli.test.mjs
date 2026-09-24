@@ -9,7 +9,6 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs");
 const {
-
   psq,
   busyIsFresh,
   deskShortcutRepairPs,
@@ -36,7 +35,7 @@ const {
   componentUrl,
   componentKey,
   desktopTaskPs,
-  desktopStartPs
+  desktopStartPs,
 } = require("../bin/summrise.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -93,7 +92,10 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   // stops the watchdog stealing focus from whatever the operator is doing.
   assert.match(task, /New-ScheduledTaskTrigger -AtLogOn/);
   assert.match(task, /RepetitionInterval \(New-TimeSpan -Minutes 5\)/);
-  assert.match(task, /Get-Process electron -ErrorAction SilentlyContinue\) \{ exit \}/);
+  assert.match(
+    task,
+    /Get-Process electron -ErrorAction SilentlyContinue\) \{ exit \}/,
+  );
   assert.match(task, /desktop-pulse\.vbs/);
   assert.match(task, /Register-ScheduledTask SummriseDesktop/);
   assert.match(task, /Start-ScheduledTask -TaskName SummriseDesktop/);
@@ -116,17 +118,36 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   // (c) IT MUST NOT BE A `-Command` STRING AT ALL. The CLI spawns with `shell: true`, so the
   //     command goes through cmd.exe, and cmd splits on `&` — the PowerShell call operator cut
   //     the command in half and the `$t` assignment never ran. A file has nothing to mangle.
-  assert.ok(start.includes('-File "C:\\Summrise\\scripts\\register-desktop-task.ps1"'),
-    "the register script must be passed with double quotes");
-  assert.ok(!start.includes("-Command"), "the start script must not be a -Command string (cmd splits on &)");
-  assert.ok(start.includes("if (-not $t)"), "re-registration must be conditional on the task being absent");
-  assert.ok(start.includes("Start-ScheduledTask"), "and starting it is what actually happens");
+  assert.ok(
+    start.includes('-File "C:\\Summrise\\scripts\\register-desktop-task.ps1"'),
+    "the register script must be passed with double quotes",
+  );
+  assert.ok(
+    !start.includes("-Command"),
+    "the start script must not be a -Command string (cmd splits on &)",
+  );
+  assert.ok(
+    start.includes("if (-not $t)"),
+    "re-registration must be conditional on the task being absent",
+  );
+  assert.ok(
+    start.includes("Start-ScheduledTask"),
+    "and starting it is what actually happens",
+  );
   // AND THE CLI MUST ACTUALLY USE IT AS A FILE. This is the wiring half: the builder above can be
   // perfect while the caller still spawns `-Command`, which is exactly what shipped in 1.2.456.
-  const built = readFileSync(new URL("../bin/summrise.js", import.meta.url), "utf8");
-  assert.ok(built.includes("desktop-start.ps1"), "the CLI must write the start script to a file");
-  assert.ok(!/"-Command",\s*desktopStartPs/.test(built),
-    "the CLI must not spawn desktopStartPs() as a -Command string");
+  const built = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    built.includes("desktop-start.ps1"),
+    "the CLI must write the start script to a file",
+  );
+  assert.ok(
+    !/"-Command",\s*desktopStartPs/.test(built),
+    "the CLI must not spawn desktopStartPs() as a -Command string",
+  );
 });
 
 test("newestOf: the newer of two channels — and silence is never agreement", () => {
@@ -176,7 +197,11 @@ test("deskShortcutRepairPs: stale-shortcut repair is repair-only + sunrise-pinne
   );
   const body = lines.join("\n");
   assert.match(body, /Summrise\.lnk/, "touches the desktop Summrise link");
-  assert.match(body, /summrise-desktop\.exe/, "detects the retired Tauri target");
+  assert.match(
+    body,
+    /summrise-desktop\.exe/,
+    "detects the retired Tauri target",
+  );
   assert.match(body, /summrise-tray\.exe/, "detects the retired tray target");
   assert.match(body, /icon\.ico/, "pins IconLocation to the sunrise ico");
   assert.match(
@@ -275,7 +300,11 @@ test("firewallPs: idempotent Summrise-scoped rule for the port", () => {
   assert.match(body, /\$fwPort = 7740/, "bakes the configured port");
   assert.match(body, /New-NetFirewallRule/, "creates the allow rule");
   assert.match(body, /Remove-NetFirewallRule/, "prunes stale own rules");
-  assert.match(body, /'Summrise Agent'/, "DisplayName-scoped, never foreign rules");
+  assert.match(
+    body,
+    /'Summrise Agent'/,
+    "DisplayName-scoped, never foreign rules",
+  );
   assert.ok(
     ![...body].some((c) => c.charCodeAt(0) > 127),
     "ASCII-only (system-locale PS)",
@@ -350,9 +379,10 @@ test("writeReleaseMarker: missing dir stays silent (best-effort, never throws)",
 
 test("uninstallVersionPs: $ok-gated DisplayVersion parity, UninstallString only when absent", () => {
   const { uninstallVersionPs } = require("../bin/summrise.js");
-  const body = uninstallVersionPs("C:\\Program Files\\Summrise", "1.2.307").join(
-    "\n",
-  );
+  const body = uninstallVersionPs(
+    "C:\\Program Files\\Summrise",
+    "1.2.307",
+  ).join("\n");
   assert.match(
     body,
     /\$ok -and '1\.2\.307'/,
@@ -505,10 +535,16 @@ test("bootTaskPs: explicit config argument, hardened SYSTEM task, optional kick"
 
 test("migrateLayoutPs: mirrors paths.rs pairs, never clobbers, kills boxed node first, marker-gated", () => {
   const { migrateLayoutPs } = require("../bin/summrise.js");
-  const body = migrateLayoutPs("D:\\Summrise", "C:\\ProgramData\\Summrise").join("\n");
+  const body = migrateLayoutPs(
+    "D:\\Summrise",
+    "C:\\ProgramData\\Summrise",
+  ).join("\n");
   for (const pair of [
     ["D:\\Summrise\\config.yaml", "D:\\Summrise\\etc\\config.yaml"],
-    ["D:\\Summrise\\summrise-agent.hostname", "D:\\Summrise\\etc\\summrise-agent.hostname"],
+    [
+      "D:\\Summrise\\summrise-agent.hostname",
+      "D:\\Summrise\\etc\\summrise-agent.hostname",
+    ],
     ["D:\\Summrise\\.summrise-release", "D:\\Summrise\\etc\\.summrise-release"],
     ["D:\\Summrise\\tools\\node", "D:\\Summrise\\components\\node"],
     ["D:\\Summrise\\playwright", "D:\\Summrise\\components\\playwright"],
@@ -516,8 +552,14 @@ test("migrateLayoutPs: mirrors paths.rs pairs, never clobbers, kills boxed node 
       "D:\\Summrise\\summrise-desktop-electron",
       "D:\\Summrise\\components\\summrise-desktop-electron",
     ],
-    ["D:\\Summrise\\start-desktop.ps1", "D:\\Summrise\\scripts\\start-desktop.ps1"],
-    ["D:\\Summrise\\installer.log", "C:\\ProgramData\\Summrise\\logs\\installer.log"],
+    [
+      "D:\\Summrise\\start-desktop.ps1",
+      "D:\\Summrise\\scripts\\start-desktop.ps1",
+    ],
+    [
+      "D:\\Summrise\\installer.log",
+      "C:\\ProgramData\\Summrise\\logs\\installer.log",
+    ],
     ["D:\\Summrise\\pwout", "C:\\ProgramData\\Summrise\\pwout"],
   ]) {
     assert.ok(
@@ -538,7 +580,9 @@ test("migrateLayoutPs: mirrors paths.rs pairs, never clobbers, kills boxed node 
   // Marker aging (ADR 0008): whole block skips when done-marker present,
   // and the marker is written only when NO old->new pair is still pending.
   assert.ok(
-    body.includes("$summriseMg = (-not (Test-Path 'D:\\Summrise\\etc\\.layout-v2'))"),
+    body.includes(
+      "$summriseMg = (-not (Test-Path 'D:\\Summrise\\etc\\.layout-v2'))",
+    ),
     "marker short-circuits re-runs (single-line guard)",
   );
   // 24 move lines + the node-kill line + the marker write all carry the guard.
@@ -908,7 +952,11 @@ test("updateReceiptPs: the sink is byte-identical to the swap script's log sink"
   }
   // A quote in the data dir must be doubled, exactly as the swap does it —
   // otherwise the single-quoted PS literal breaks and the receipt never lands.
-  const quoted = updateReceiptPs(psq("D:\\it's\\Summrise"), "1.0.0", "1.0.1")[0];
+  const quoted = updateReceiptPs(
+    psq("D:\\it's\\Summrise"),
+    "1.0.0",
+    "1.0.1",
+  )[0];
   assert.match(
     quoted,
     /it''s/,
@@ -1109,7 +1157,10 @@ test("rollback: the pin is gated on the verdict, and the CLI never writes the re
   const path = require("node:path");
   const { fileURLToPath } = require("node:url");
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const src = fs.readFileSync(path.join(here, "..", "bin", "summrise.js"), "utf8");
+  const src = fs.readFileSync(
+    path.join(here, "..", "bin", "summrise.js"),
+    "utf8",
+  );
 
   // (a) The marker is written by the SWAP SCRIPT (gated on $ok), never by the
   //     CLI. A CLI write is the regression: it erases the swap's proof.
@@ -1206,7 +1257,10 @@ test("psArgv: every ps() script is passed as argv, and ps() never shells out", (
   const path = require("node:path");
   const { fileURLToPath } = require("node:url");
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const src = fs.readFileSync(path.join(here, "..", "bin", "summrise.js"), "utf8");
+  const src = fs.readFileSync(
+    path.join(here, "..", "bin", "summrise.js"),
+    "utf8",
+  );
 
   // Structural, because `ps()` needs a real Windows PowerShell to execute. The
   // regression is a one-line revert to the string form, so the scan is the
@@ -1437,12 +1491,18 @@ test("every CLI verb the root guide promises is one the CLI prints", () => {
   );
 
   // NO ARGUMENTS. That prints the verb list and changes nothing.
-  const out = execFileSync(process.execPath, [join(HERE, "..", "bin", "summrise.js")], {
-    encoding: "utf8",
-    timeout: 30_000,
-  });
+  const out = execFileSync(
+    process.execPath,
+    [join(HERE, "..", "bin", "summrise.js")],
+    {
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
 
-  const missing = promised.filter((v) => !new RegExp(`(^|[^a-z-])${v}([^a-z-]|$)`, "m").test(out));
+  const missing = promised.filter(
+    (v) => !new RegExp(`(^|[^a-z-])${v}([^a-z-]|$)`, "m").test(out),
+  );
   assert.deepEqual(
     missing,
     [],
@@ -1453,46 +1513,66 @@ test("every CLI verb the root guide promises is one the CLI prints", () => {
   );
 });
 
-
-
 test("targetLine: one drop is 'drop', several are 'drops'", () => {
   const now = 1_789_000_000_000;
-  const at = (drops) => targetLine({ id: "a:22", summary: { up_now: true, since_ms: now - 1000, drops } }, now);
+  const at = (drops) =>
+    targetLine(
+      { id: "a:22", summary: { up_now: true, since_ms: now - 1000, drops } },
+      now,
+    );
   assert.match(at(1), /1 drop(?!s)/);
   assert.match(at(2), /2 drops/);
   assert.doesNotMatch(at(0), /drop/);
 });
 
-
 // ── summrise report: the block an operator pastes ────────────────────────────────
-
-
 
 test("targetLine: a content check that failed says so, next to the code that looked fine", () => {
   const now = 1_789_000_000_000;
   const line = targetLine(
-    { id: "h:80/", summary: { up_now: false, since_ms: now - 1000, last_status: 200, last_expect_ok: false } },
+    {
+      id: "h:80/",
+      summary: {
+        up_now: false,
+        since_ms: now - 1000,
+        last_status: 200,
+        last_expect_ok: false,
+      },
+    },
     now,
   );
   assert.match(line, /HTTP 200/);
   assert.match(line, /no match/); // 200 AND wrong: the status alone would have called this healthy
   const ok = targetLine(
-    { id: "h:80/", summary: { up_now: true, since_ms: now - 1000, last_status: 200, last_expect_ok: true } },
+    {
+      id: "h:80/",
+      summary: {
+        up_now: true,
+        since_ms: now - 1000,
+        last_status: 200,
+        last_expect_ok: true,
+      },
+    },
     now,
   );
   assert.match(ok, /matches/);
   // No content check: neither word appears.
-  const plain = targetLine({ id: "h:80/", summary: { up_now: true, since_ms: now - 1000, last_status: 200, last_expect_ok: null } }, now);
+  const plain = targetLine(
+    {
+      id: "h:80/",
+      summary: {
+        up_now: true,
+        since_ms: now - 1000,
+        last_status: 200,
+        last_expect_ok: null,
+      },
+    },
+    now,
+  );
   assert.doesNotMatch(plain, /match/);
 });
 
-
-
-
 // ── what the console said when it happened (the join) ───────────────────────
-
-
-
 
 // ── machine-readable output ─────────────────────────────────────────────────
 test("monitorsJson: the device's numbers verbatim, with only what the CLI knows added", () => {
@@ -1506,7 +1586,18 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
         port: 22,
         path: null,
         expect: null,
-        summary: { probes: 12, up: 12, down: 0, up_pct: 100, up_now: true, since_ms: 111, drops: 0, latency: { min: 7, avg: 9, max: 16 }, last_status: null, last_expect_ok: null },
+        summary: {
+          probes: 12,
+          up: 12,
+          down: 0,
+          up_pct: 100,
+          up_now: true,
+          since_ms: 111,
+          drops: 0,
+          latency: { min: 7, avg: 9, max: 16 },
+          last_status: null,
+          last_expect_ok: null,
+        },
         transitions: [{ at_ms: 100, up: true, lasted_ms: 39_000 }],
         series: [{ ts_ms: 1, ok: true, ms: 9 }],
       },
@@ -1516,12 +1607,28 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
         port: 80,
         path: "/",
         expect: "OpenWrt",
-        summary: { probes: 4, up: 2, down: 2, up_pct: 50, up_now: false, since_ms: 222, drops: 1, latency: null, last_status: 200, last_expect_ok: false },
+        summary: {
+          probes: 4,
+          up: 2,
+          down: 2,
+          up_pct: 50,
+          up_now: false,
+          since_ms: 222,
+          drops: 1,
+          latency: null,
+          last_status: 200,
+          last_expect_ok: false,
+        },
         transitions: [],
       },
     ],
   };
-  const all = monitorsJson({ device: "d1", askedAtMs: 1_789_000_000_000, payload, only: null });
+  const all = monitorsJson({
+    device: "d1",
+    askedAtMs: 1_789_000_000_000,
+    payload,
+    only: null,
+  });
   assert.equal(all.device, "d1");
   assert.equal(all.asked_at_ms, 1_789_000_000_000);
   assert.equal(all.interval_secs, 15);
@@ -1546,26 +1653,34 @@ test("monitorsJson: the device's numbers verbatim, with only what the CLI knows 
   assert.equal(all.targets[1].last_expect_ok, false);
   assert.equal(all.targets[1].last_status, 200);
   // A filtered view (watch --once <target> --json) is the same shape, one entry.
-  const one = monitorsJson({ device: "d1", askedAtMs: 1, payload, only: "h:80/" });
+  const one = monitorsJson({
+    device: "d1",
+    askedAtMs: 1,
+    payload,
+    only: "h:80/",
+  });
   assert.equal(one.targets.length, 1);
   assert.equal(one.targets[0].id, "h:80/");
   // Nothing read yet is null, NOT false: a script must be able to tell "not known" from "down".
   const unknown = monitorsJson({
     device: "d1",
     askedAtMs: 1,
-    payload: { targets: [{ id: "x:1", host: "x", port: 1, summary: { up_now: null, probes: 0 } }] },
+    payload: {
+      targets: [
+        { id: "x:1", host: "x", port: 1, summary: { up_now: null, probes: 0 } },
+      ],
+    },
     only: null,
   });
   assert.equal(unknown.targets[0].up, null);
   assert.equal(unknown.targets[0].up_pct, null);
   assert.equal(unknown.targets[0].transitions.length, 0);
   // A payload with no targets at all is an empty list, not a crash.
-  assert.deepEqual(monitorsJson({ device: "d1", askedAtMs: 1, payload: null }).targets, []);
+  assert.deepEqual(
+    monitorsJson({ device: "d1", askedAtMs: 1, payload: null }).targets,
+    [],
+  );
 });
-
-
-
-
 
 test("asciiJson: text that goes through a command line must survive it", () => {
   // The bug this exists for: a note with an em dash was stored as mojibake, because `curl -d` takes
@@ -1576,46 +1691,66 @@ test("asciiJson: text that goes through a command line must survive it", () => {
   assert.doesNotMatch(body, /[\u0080-\uffff]/);
   // 2. The escape is the standard \uXXXX form, so the device's JSON parser restores the text.
   assert.match(body, /\\u2014/);
-  assert.deepEqual(JSON.parse(body), { id: "h:22", text: "I rebooted it — not a fault" });
+  assert.deepEqual(JSON.parse(body), {
+    id: "h:22",
+    text: "I rebooted it — not a fault",
+  });
   // 3. Structure and other types are untouched.
-  assert.equal(asciiJson({ a: 1, b: true, c: null }), '{"a":1,"b":true,"c":null}');
-  assert.deepEqual(JSON.parse(asciiJson({ t: "中文 / 日本語 / émoji 🚀" })), { t: "中文 / 日本語 / émoji 🚀" });
+  assert.equal(
+    asciiJson({ a: 1, b: true, c: null }),
+    '{"a":1,"b":true,"c":null}',
+  );
+  assert.deepEqual(JSON.parse(asciiJson({ t: "中文 / 日本語 / émoji 🚀" })), {
+    t: "中文 / 日本語 / émoji 🚀",
+  });
   // 4. An empty body stays empty (no stray braces).
   assert.equal(asciiJson({}), "{}");
   // 5. The same rule serves the OUTPUT side: a pipe is an encoding boundary too (PowerShell decodes
   //    a child's stdout with the console code page, which turned piped `--json` into mojibake on d1
   //    while the same text printed directly read fine).
-  const out = asciiJson({ device: "d1", targets: [{ note: { text: "我重启的 — ok 🚀" } }] }, 2);
+  const out = asciiJson(
+    { device: "d1", targets: [{ note: { text: "我重启的 — ok 🚀" } }] },
+    2,
+  );
   // eslint-disable-next-line no-control-regex
   assert.doesNotMatch(out, /[\u0080-\uffff]/);
   assert.equal(JSON.parse(out).targets[0].note.text, "我重启的 — ok 🚀");
-  assert.match(out, /\n  "device"/, "the indent is kept, so a human can still read it");
+  assert.match(
+    out,
+    /\n  "device"/,
+    "the indent is kept, so a human can still read it",
+  );
 });
-
 
 test("the --json path actually USES the escaping helper (a helper test is not a wiring test)", () => {
   // Both encoding bugs of this round had the same shape: the helper was right and the CALL SITE
   // was not. `asciiJson`'s own test passed while the two `--json` printers still called
   // `JSON.stringify` directly, so the pipe stayed broken. This reads the shipped file and asserts
   // the wiring, which is the only place the difference is visible.
-  const shipped = readFileSync(new URL("../bin/summrise.js", import.meta.url), "utf8");
+  const shipped = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
   const wired = shipped.split("asciiJson(monitorsJson(").length - 1;
-  assert.equal(wired, 1, "the remaining --json printer must go through asciiJson (watch was pruned)");
+  assert.equal(
+    wired,
+    1,
+    "the remaining --json printer must go through asciiJson (watch was pruned)",
+  );
   // …and the request body path, for the same reason.
   assert.match(shipped, /-d", asciiJson\(body\)/);
 });
 
-
 // ── waiting for a state ─────────────────────────────────────────────────────
-
-
-
 
 test("stop and restart mark the run as deliberate before killing it", () => {
   // The run journal cannot see WHO ended the process, so a supervisor must say so first — otherwise
   // `summrise restart` reads as "crashed" whenever the revival is slower than the heartbeat window.
   // This pins the WIRING (the helper is in the device route; a helper test cannot see a call site).
-  const shipped = readFileSync(new URL("../bin/summrise.js", import.meta.url), "utf8");
+  const shipped = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
   // ASSERT THE CALL SHAPES, not an occurrence count: counting broke the moment a third caller
   // appeared, and a count cannot tell a call site from a comment.
   assert.equal(
@@ -1626,27 +1761,56 @@ test("stop and restart mark the run as deliberate before killing it", () => {
   assert.match(shipped, /\/api\/run\/mark-exit/);
   // …and the UPDATE path marks its own swap with the reason that makes the next start say
   // "replaced" instead of "crashed" (its timing cannot be told from a crash: the gaps overlap).
-  assert.match(shipped, /markDeliberateStop\("update"\)/, "summrise update must mark its swap as deliberate");
-  assert.match(shipped, /reason/, "the marker carries the reason the verdict depends on");
+  assert.match(
+    shipped,
+    /markDeliberateStop\("update"\)/,
+    "summrise update must mark its swap as deliberate",
+  );
+  assert.match(
+    shipped,
+    /reason/,
+    "the marker carries the reason the verdict depends on",
+  );
 });
-
 
 // ── the console, read the same way by `report` and `wait` ───────────────────
 
-
-
-
-
-
 // ── following a LIVE console ────────────────────────────────────────────────
-
-
 
 test("the help cannot promise a verb that does not exist", () => {
   // The round-25 prune deleted `report` and `watch` while the hand-written usage line still
   // advertised them — a usage line is a contract. It is derived from `commands` now, and this pins
   // that: every name printed comes from the dispatcher's own table, and nothing else is printed.
-  const shipped = readFileSync(new URL("../bin/summrise.js", import.meta.url), "utf8");
-  assert.match(shipped, /summrise <" \+ Object\.keys\(commands\)\.join\("\|"\) \+ ">/);
+  const shipped = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    shipped,
+    /summrise <" \+ Object\.keys\(commands\)\.join\("\|"\) \+ ">/,
+  );
   assert.doesNotMatch(shipped, /summrise <setup\|status\|report/);
+});
+
+test("every schtasks action is CHECKED, so a service verb cannot fail silently", () => {
+  // The bodies of `start` and `restart` are inline and execute schtasks, so there is no seam to inject
+  // and no unit to call. What CAN be pinned is the shape `svc`'s own doc asks for: its comment says the
+  // return value exists because discarding it made "`start`/`restart` silent either way" — and two of the
+  // four call sites still discarded it, so an operator whose agent never came up got exit 0 and no
+  // sentence at all. That is the wiring half: the helper can be perfect while its callers drop the
+  // answer, which is exactly what shipped.
+  const built = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  const calls = built.split("\n").filter((l) => /\bsvc\("(Run|End)"\)/.test(l));
+  assert.ok(
+    calls.length >= 4,
+    `expected the four schtasks calls, found ${calls.length}`,
+  );
+  assert.deepStrictEqual(
+    calls.filter((l) => !/=\s*svc\(/.test(l)).map((l) => l.trim()),
+    [],
+    "an svc() call whose status is discarded is the defect its own doc names",
+  );
 });

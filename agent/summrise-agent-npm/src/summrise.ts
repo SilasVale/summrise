@@ -2359,7 +2359,17 @@ const commands = {
   },
 
   start() {
-    svc("Run");
+    // CHECK IT, LIKE `stop` DOES. The comment on `svc` above says the return value exists because
+    // discarding it made `start`/`restart` "silent either way" — and two of the four call sites still
+    // discarded it, including this one, which is step 2 of every documented journey. An operator whose
+    // agent never came up got exit 0 and no sentence at all.
+    const r = svc("Run");
+    if (r && r.status !== 0) {
+      console.error(
+        `summrise start: schtasks /Run failed (status ${r.status}) -- the agent is NOT running`,
+      );
+      process.exit(1);
+    }
   },
 
   stop() {
@@ -2379,9 +2389,22 @@ const commands = {
 
   restart() {
     markDeliberateStop();
-    svc("End");
+    // THE STOP IS REPORTED BUT NOT FATAL: a task that was not running has nothing to end, so a non-zero
+    // `/End` is the ordinary case for "restart a stopped agent", and the operator asked for the START.
+    const end = svc("End");
+    if (end && end.status !== 0) {
+      console.error(
+        `summrise restart: schtasks /End failed (status ${end.status}) -- the old process may still be running`,
+      );
+    }
     sh("timeout /t 2 >nul");
-    svc("Run");
+    const run = svc("Run");
+    if (run && run.status !== 0) {
+      console.error(
+        `summrise restart: schtasks /Run failed (status ${run.status}) -- the agent is NOT running`,
+      );
+      process.exit(1);
+    }
   },
 
   // Boot switch: `summrise autostart on|off|status` (default status). Flips the
