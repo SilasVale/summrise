@@ -1625,8 +1625,13 @@ function initTunnel(hostname, regKey) {
   const cfg = path.join(ETC_DIR, "tunnel.yml");
   if (!fs.existsSync(cf)) {
     console.error("tunnel: cloudflared.exe not staged at", cf);
+    // NOT "REINSTALL THE PACKAGE". The npm package carries NO boxed components BY DESIGN (that is what
+    // keeps it ~6.7 MB), so a reinstall cannot stage this and the advice sent the operator in a circle.
+    // `setup` is what stages it: resolveComponent fetches it from the RELEASE HOST and the agent's own
+    // sha256 pin checks it again on the path it uses. Its doc records what this costs when nobody does —
+    // "a device with no tunnel is INVISIBLE TO THE CONSOLE while looking perfectly healthy from inside."
     console.error(
-      "  reinstall the package (npm i -g summrise-agent) to stage it.",
+      "  run 'summrise setup' to stage it -- the component comes from the release host, not from the npm package.",
     );
     process.exit(1);
   }

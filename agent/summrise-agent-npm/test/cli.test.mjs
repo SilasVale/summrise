@@ -1902,3 +1902,25 @@ test("busyMarkerPs names the same file as updateBusyPath", () => {
   );
   assert.ok(js.endsWith(rel), `${ps} must name the same file as ${js}`);
 });
+
+test("a missing component cannot be staged by reinstalling, and the CLI does not say it can", () => {
+  // The npm package carries NO boxed components by design — that is what keeps it ~6.7 MB — so
+  // "reinstall the package to stage it" sent the operator in a circle. `setup` is what stages it, from
+  // the release host. The failure this guards is not cosmetic: resolveComponent's own doc records that a
+  // device with no cloudflared has no tunnel, and "a device with no tunnel is INVISIBLE TO THE CONSOLE
+  // while looking perfectly healthy from inside."
+  const built = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    built,
+    /reinstall the package \(npm i -g summrise-agent\) to stage/,
+    "the CLI must not advise a reinstall for a component the package does not carry",
+  );
+  assert.match(
+    built,
+    /run 'summrise setup' to stage it/,
+    "and it must name the command that does stage it",
+  );
+});
