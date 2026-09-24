@@ -6,7 +6,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { TerminalPane } from "../TerminalPane";
 import { callTool } from "../../lib/api";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callTool: vi.fn(async () => ({})),
 }));
 

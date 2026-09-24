@@ -6,7 +6,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ConnModal } from "../ConnModal";
 import { callApi } from "../../lib/api";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(),
   callTool: vi.fn(),
 }));

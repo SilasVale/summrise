@@ -12,7 +12,8 @@ import {
 } from "../useSessions";
 import { callTool } from "../../lib/api";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callTool: vi.fn(),
 }));
 

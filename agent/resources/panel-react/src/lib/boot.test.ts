@@ -6,7 +6,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const initTransport = vi.fn();
-vi.mock("./api", () => ({
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api")>()),
   initTransport: (...a: unknown[]) => initTransport(...a),
 }));
 

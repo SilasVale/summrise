@@ -4,7 +4,8 @@ import { TrajectoryView } from "../TrajectoryView";
 import { callApi } from "../../lib/api";
 import type { CommandEvent } from "../../hooks/useCommandEvents";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(),
 }));
 
@@ -249,8 +250,12 @@ describe("TrajectoryView — a trimmed trail is not presented as complete", () =
       { seq: 2, ts: 102, kind: "status", status: "backgrounded" },
     ]);
     const { container } = render(<TrajectoryView events={evs} />);
-    await waitFor(() => expect(container.querySelector(".traj-ev-dot")).toBeTruthy());
-    const dots = [...container.querySelectorAll(".traj-ev-dot")].map((d) => d.getAttribute("data-state"));
+    await waitFor(() =>
+      expect(container.querySelector(".traj-ev-dot")).toBeTruthy(),
+    );
+    const dots = [...container.querySelectorAll(".traj-ev-dot")].map((d) =>
+      d.getAttribute("data-state"),
+    );
     expect(dots).not.toContain("warn");
     expect(container.querySelector('[data-state="bg"]')).toBeTruthy();
   });

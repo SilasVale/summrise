@@ -8,7 +8,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { TerminalWorkspace } from "../TerminalWorkspace";
 import type { Session } from "../../hooks/useSessions";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(() => Promise.resolve({})),
   callTool: vi.fn(() => Promise.resolve({})),
 }));
@@ -20,7 +21,9 @@ const session = (over: Partial<Session & { active: boolean }> = {}) => ({
   closed: false,
   savedOnly: false,
   active: true,
-  idleMs: 0, commandRunning: false, firstSeenAt: Date.now(),
+  idleMs: 0,
+  commandRunning: false,
+  firstSeenAt: Date.now(),
   closedAt: null,
   heldByHuman: false,
   approvalRequired: false,
@@ -142,7 +145,9 @@ describe("TerminalWorkspace", () => {
     // THE SESSION TAB STRIP IS NOT HERE (that is the desktop header's job). Named rather than "any
     // tablist": since round 169 the workspace DOES carry one — the per-session VIEW switch, which
     // moved into the control bar so it stops competing with the tabs for width.
-    expect(screen.queryByRole("tablist", { name: /terminal sessions/i })).toBeNull();
+    expect(
+      screen.queryByRole("tablist", { name: /terminal sessions/i }),
+    ).toBeNull();
   });
 
   it("carries the view switch in its control bar, not in the tab strip", () => {
@@ -154,7 +159,13 @@ describe("TerminalWorkspace", () => {
     // contract the neighbouring test pins. Asserting onViewChange here was my mistake, not the code's.
     const onControlledViewChange = vi.fn();
     const { container } = render(
-      <TerminalWorkspace {...props({ density: "desktop", controlledView: "terminal", onControlledViewChange })} />,
+      <TerminalWorkspace
+        {...props({
+          density: "desktop",
+          controlledView: "terminal",
+          onControlledViewChange,
+        })}
+      />,
     );
     const bar = container.querySelector(".desktop-term-bar");
     expect(bar).toBeTruthy();

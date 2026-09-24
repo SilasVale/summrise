@@ -4,7 +4,8 @@ import { groupEvents, useCommandEvents } from "../useCommandEvents";
 import type { CommandEvent } from "../useCommandEvents";
 import { callApi } from "../../lib/api";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(),
 }));
 
@@ -20,8 +21,20 @@ function start(seq: number, command: string, ts = 100): CommandEvent {
 function output(seq: number, text: string, ts = 100): CommandEvent {
   return { seq, ts, kind: "output", text };
 }
-function end(seq: number, exitCode: number | null, reason: string, durationMs?: number, ts = 105): CommandEvent {
-  const ev: CommandEvent = { seq, ts, kind: "command/end", exit_code: exitCode, reason };
+function end(
+  seq: number,
+  exitCode: number | null,
+  reason: string,
+  durationMs?: number,
+  ts = 105,
+): CommandEvent {
+  const ev: CommandEvent = {
+    seq,
+    ts,
+    kind: "command/end",
+    exit_code: exitCode,
+    reason,
+  };
   if (durationMs !== undefined) ev.duration_ms = durationMs;
   return ev;
 }
@@ -88,10 +101,7 @@ describe("groupEvents", () => {
   });
 
   it("status closed ends the command without an exit code", () => {
-    const cards = groupEvents([
-      start(1, "ssh host"),
-      status(2, "closed", 108),
-    ]);
+    const cards = groupEvents([start(1, "ssh host"), status(2, "closed", 108)]);
     expect(cards[0].ended).toBe(true);
     expect(cards[0].exitCode).toBeNull();
     expect(cards[0].reason).toBe("closed");
@@ -152,11 +162,7 @@ describe("useCommandEvents", () => {
     mockCallApi.mockResolvedValue({
       ok: true,
       id: "s1",
-      events: [
-        start(1, "echo hi"),
-        output(2, "hi\n"),
-        end(3, 0, "marker", 5),
-      ],
+      events: [start(1, "echo hi"), output(2, "hi\n"), end(3, 0, "marker", 5)],
     });
     const { result } = renderHook(() => useCommandEvents("s1"));
     await waitFor(() => expect(result.current.cards).toHaveLength(1));
@@ -172,14 +178,24 @@ describe("useCommandEvents", () => {
   // flag), and the hook must carry that through rather than drawing an empty
   // trail for a session whose file is gone.
   it("an unreadable record reports 'unreadable', not an empty trail", async () => {
-    mockCallApi.mockResolvedValue({ ok: true, id: "gone", found: false, events: [] });
+    mockCallApi.mockResolvedValue({
+      ok: true,
+      id: "gone",
+      found: false,
+      events: [],
+    });
     const { result } = renderHook(() => useCommandEvents("gone"));
     await waitFor(() => expect(result.current.readState).toBe("unreadable"));
     expect(result.current.cards).toHaveLength(0);
   });
 
   it("found:true with no events is 'ok' — a quiet session is not a missing one", async () => {
-    mockCallApi.mockResolvedValue({ ok: true, id: "quiet", found: true, events: [] });
+    mockCallApi.mockResolvedValue({
+      ok: true,
+      id: "quiet",
+      found: true,
+      events: [],
+    });
     const { result } = renderHook(() => useCommandEvents("quiet"));
     await waitFor(() => expect(result.current.readState).toBe("ok"));
   });
@@ -198,14 +214,25 @@ describe("useCommandEvents", () => {
     // watermark reset, sB's first poll would be skipped as "nothing new".
     mockCallApi.mockImplementation((path: string) => {
       if (path === "/api/sessions/sA") {
-        return Promise.resolve({ ok: true, id: "sA", events: [start(9, "big seq"), end(10, 0, "marker", 5)] });
+        return Promise.resolve({
+          ok: true,
+          id: "sA",
+          events: [start(9, "big seq"), end(10, 0, "marker", 5)],
+        });
       }
       if (path === "/api/sessions/sB") {
-        return Promise.resolve({ ok: true, id: "sB", events: [start(1, "echo hi"), end(2, 0, "marker", 5)] });
+        return Promise.resolve({
+          ok: true,
+          id: "sB",
+          events: [start(1, "echo hi"), end(2, 0, "marker", 5)],
+        });
       }
       return Promise.reject(new Error(`unexpected ${path}`));
     });
-    const { result, rerender } = renderHook(({ sid }: { sid: string }) => useCommandEvents(sid, 30), { initialProps: { sid: "sA" } });
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) => useCommandEvents(sid, 30),
+      { initialProps: { sid: "sA" } },
+    );
     await waitFor(() => expect(result.current.cards[0]?.id).toBe("c-9"));
     rerender({ sid: "sB" });
     await waitFor(() => {
@@ -244,6 +271,9 @@ describe("useCommandEvents", () => {
 
     expect(result.current.cards).toHaveLength(1);
     expect(result.current.cards[0].command).toBe("echo hi");
-    expect(result.current.readState, "a failure after a good read keeps the last state").toBe("ok");
+    expect(
+      result.current.readState,
+      "a failure after a good read keeps the last state",
+    ).toBe("ok");
   });
 });

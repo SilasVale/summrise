@@ -7,7 +7,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryPage } from "../MemoryPage";
 import { callTool } from "../../lib/api";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callTool: vi.fn(),
 }));
 
@@ -166,7 +167,10 @@ describe("MemoryPage accessible names", () => {
       "Filter by namespace",
       "Filter by tag",
     ]) {
-      expect(screen.getByLabelText(label), `${label} must be findable by its name`).toBeTruthy();
+      expect(
+        screen.getByLabelText(label),
+        `${label} must be findable by its name`,
+      ).toBeTruthy();
     }
   });
 });
@@ -185,18 +189,28 @@ describe("the acknowledgement", () => {
     // A QUERY FIRST, because Search with an empty box DELEGATES to List (`await load()`), so the busy key would
     // honestly be "list" and this test would be asserting the wrong control. That delegation is a real behaviour
     // worth knowing; it is not what is under test here.
-    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "deploy" } });
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: "deploy" },
+    });
     const search = screen.getByText("Search");
     fireEvent.click(search);
 
     // NO AWAIT: the state the click produced is already on screen.
-    expect(search.getAttribute("aria-busy"), "the pressed control must say it heard").toBe("true");
+    expect(
+      search.getAttribute("aria-busy"),
+      "the pressed control must say it heard",
+    ).toBe("true");
     expect(search.getAttribute("data-busy")).toBe("1");
     const list = screen.getByText("List");
     const exp = screen.getByText("Export");
-    expect((list as HTMLButtonElement).disabled, "its siblings step back").toBe(true);
+    expect((list as HTMLButtonElement).disabled, "its siblings step back").toBe(
+      true,
+    );
     expect((exp as HTMLButtonElement).disabled).toBe(true);
-    expect(list.getAttribute("aria-busy"), "and none of them claims to be the busy one").toBeNull();
+    expect(
+      list.getAttribute("aria-busy"),
+      "and none of them claims to be the busy one",
+    ).toBeNull();
     expect(exp.getAttribute("aria-busy")).toBeNull();
   });
 });

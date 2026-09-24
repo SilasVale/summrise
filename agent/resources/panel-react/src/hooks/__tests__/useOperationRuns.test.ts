@@ -8,7 +8,8 @@ import { useOperationRuns } from "../useOperationRuns";
 import { callApi } from "../../lib/api";
 import type { OperationEvent } from "../../lib/runs";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(),
 }));
 
@@ -16,7 +17,10 @@ const mockCallApi = callApi as unknown as ReturnType<typeof vi.fn>;
 
 const T0 = 1_700_000_000_000;
 const ev = (ts_ms: number, command: string): OperationEvent => ({
-  source: "terminal", ts_ms, kind: "command/start", command,
+  source: "terminal",
+  ts_ms,
+  kind: "command/start",
+  command,
 });
 
 /** The `since_ms` a given call asked for. */
@@ -32,7 +36,11 @@ beforeEach(() => {
 
 describe("useOperationRuns", () => {
   it("polls /api/operation with a since cursor and a bounded limit", async () => {
-    mockCallApi.mockResolvedValue({ events: [ev(T0, "ls")], runs: [], cursor_ms: T0 });
+    mockCallApi.mockResolvedValue({
+      events: [ev(T0, "ls")],
+      runs: [],
+      cursor_ms: T0,
+    });
     const { result } = renderHook(() => useOperationRuns(60_000));
     await waitFor(() => expect(result.current.events).toHaveLength(1));
     expect(String(mockCallApi.mock.calls[0][0])).toMatch(
@@ -46,13 +54,29 @@ describe("useOperationRuns", () => {
     // every number on the strip by one per poll.
     const boundary = ev(T0 + 1_000, "second");
     mockCallApi
-      .mockResolvedValueOnce({ events: [ev(T0, "first"), boundary], runs: [], cursor_ms: T0 + 1_000 })
-      .mockResolvedValue({ events: [boundary, ev(T0 + 2_000, "third")], runs: [], cursor_ms: T0 + 2_000 });
+      .mockResolvedValueOnce({
+        events: [ev(T0, "first"), boundary],
+        runs: [],
+        cursor_ms: T0 + 1_000,
+      })
+      .mockResolvedValue({
+        events: [boundary, ev(T0 + 2_000, "third")],
+        runs: [],
+        cursor_ms: T0 + 2_000,
+      });
     const { result } = renderHook(() => useOperationRuns(25));
-    await waitFor(() => expect(result.current.events).toHaveLength(3), { timeout: 3000 });
-    expect(result.current.events.map((e) => e.command)).toEqual(["first", "second", "third"]);
+    await waitFor(() => expect(result.current.events).toHaveLength(3), {
+      timeout: 3000,
+    });
+    expect(result.current.events.map((e) => e.command)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
     // The second request picked up where the first reply ended.
-    await waitFor(() => expect(mockCallApi.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(mockCallApi.mock.calls.length).toBeGreaterThan(1),
+    );
     expect(sinceOf(mockCallApi.mock.calls[1])).toBe(T0 + 1_000);
   });
 
@@ -61,23 +85,37 @@ describe("useOperationRuns", () => {
     // boundary list each poll would leave every run looking open forever.
     mockCallApi
       .mockResolvedValueOnce({
-        events: [], runs: [{ kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" }], cursor_ms: T0,
+        events: [],
+        runs: [
+          { kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" },
+        ],
+        cursor_ms: T0,
       })
       .mockResolvedValue({
         events: [],
         runs: [
           { kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" },
-          { kind: "run/end", run_id: "r-a", ts_ms: T0 + 5_000, outcome: "done" },
+          {
+            kind: "run/end",
+            run_id: "r-a",
+            ts_ms: T0 + 5_000,
+            outcome: "done",
+          },
         ],
         cursor_ms: T0 + 5_000,
       });
     const { result } = renderHook(() => useOperationRuns(25));
     await waitFor(
-      () => expect(result.current.boundaries.some((b) => b.kind === "run/end")).toBe(true),
+      () =>
+        expect(
+          result.current.boundaries.some((b) => b.kind === "run/end"),
+        ).toBe(true),
       { timeout: 3000 },
     );
     // The re-sent begin is held once, not twice.
-    expect(result.current.boundaries.filter((b) => b.kind === "run/begin")).toHaveLength(1);
+    expect(
+      result.current.boundaries.filter((b) => b.kind === "run/begin"),
+    ).toHaveLength(1);
   });
 
   it("never rewinds its cursor, even if a reply reports an older one", async () => {
@@ -85,13 +123,20 @@ describe("useOperationRuns", () => {
       .mockResolvedValueOnce({ events: [], runs: [], cursor_ms: T0 + 5_000 })
       .mockResolvedValue({ events: [], runs: [], cursor_ms: 0 });
     renderHook(() => useOperationRuns(25));
-    await waitFor(() => expect(mockCallApi.mock.calls.length).toBeGreaterThan(1), { timeout: 3000 });
+    await waitFor(
+      () => expect(mockCallApi.mock.calls.length).toBeGreaterThan(1),
+      { timeout: 3000 },
+    );
     expect(sinceOf(mockCallApi.mock.calls[1])).toBe(T0 + 5_000);
   });
 
   it("keeps the last good snapshot when a poll fails (no blanking)", async () => {
     mockCallApi
-      .mockResolvedValueOnce({ events: [ev(T0, "survives")], runs: [], cursor_ms: T0 })
+      .mockResolvedValueOnce({
+        events: [ev(T0, "survives")],
+        runs: [],
+        cursor_ms: T0,
+      })
       .mockRejectedValue(new Error("HTTP 502"));
     const { result } = renderHook(() => useOperationRuns(25));
     await waitFor(() => expect(result.current.events).toHaveLength(1));
@@ -113,7 +158,10 @@ describe("useOperationRuns", () => {
     const { result } = renderHook(() => useOperationRuns(20));
     await waitFor(() => expect(result.current.events).toHaveLength(1));
     const first = result.current;
-    await waitFor(() => expect(mockCallApi.mock.calls.length).toBeGreaterThan(2), { timeout: 3000 });
+    await waitFor(
+      () => expect(mockCallApi.mock.calls.length).toBeGreaterThan(2),
+      { timeout: 3000 },
+    );
     expect(result.current).toBe(first);
   });
 

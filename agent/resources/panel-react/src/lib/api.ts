@@ -29,13 +29,15 @@ export function getToken() {
  * (measured in round 69, when three fixtures that omitted it turned out to be the unrealistic part, not
  * the hook that refused them).
  *
- * AND A TEST THAT MOCKS THIS MODULE WHOLESALE WILL SILENTLY BREAK ON THE NEXT EXPORT ADDED HERE. Eleven
- * test files still write `vi.mock("../../lib/api", () => ({ callApi: vi.fn() }))`, which replaces every
- * export; adding this predicate turned three passing tests red with an EMPTY VALUE rather than an error,
- * because the hook caught the resulting TypeError as a failed read — including two whose fixtures carry
- * `ok: true`. Mock it by SPREADING the original (`async (importOriginal) => ({ ...(await
- * importOriginal()), callApi: vi.fn() })`, which eight files already do) so a new export cannot go
- * missing. `tsc` does not check a factory against the module.
+ * AND A TEST THAT MOCKS THIS MODULE WHOLESALE WILL SILENTLY BREAK ON THE NEXT EXPORT ADDED HERE — which
+ * is exactly what adding this predicate did. Eleven test files wrote `vi.mock("../../lib/api", () => ({
+ * callApi: vi.fn() }))`, replacing EVERY export, so the hook saw `deviceRefused === undefined`, threw
+ * into its own catch, and three tests went red with an EMPTY VALUE rather than an error — including two
+ * whose fixtures carry `ok: true`. All eleven now SPREAD the original (`async (importOriginal) => ({
+ * ...(await importOriginal<typeof import("../../lib/api")>()), callApi: vi.fn() })`), which is the
+ * idiom eight files already used, so a new export cannot go missing. `tsc` cannot check a `vi.mock`
+ * factory against the module, so the durable half of this is a SOURCE CHECK that no test mocks this
+ * module wholesale — not written yet, and named here because that is where the next export lands.
  *
  * THIS IS NOT THE SAME QUESTION AS `res.ok` — that is the HTTP status, and `callApi` above already
  * handles it — nor as the `ok` of a NESTED object (a screenshot status inside a response), which asks

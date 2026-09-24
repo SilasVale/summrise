@@ -10,7 +10,8 @@ import { callApi } from "../../lib/api";
 import type { OperationEvent, RunBoundary } from "../../lib/runs";
 import type { CommandEvent } from "../../hooks/useCommandEvents";
 
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(),
   callTool: vi.fn(() => Promise.resolve({})),
 }));
