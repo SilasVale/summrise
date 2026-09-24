@@ -250,3 +250,32 @@ test("cloudflared_pin_matches_the_agent", async () => {
     `the proxied cloudflared must be the version the agent pins (worker ${worker}, agent ${agent}) — a drift means the installer stages bytes nothing verifies`,
   );
 });
+
+test("a malformed component pin is dropped AND said out loud", async () => {
+  // The drop is the SAFE half — an unverifiable digest must never ship as a pin. The silent half was
+  // the defect (round 134): the manifest simply omitted the component, the device fetched it from the
+  // bypass path, and setup printed "fetched WITHOUT a manifest pin" with nothing on this side to say why.
+  const good = "a".repeat(64);
+  const { env } = makeEnv({
+    version: "1.2.297",
+    sha256: good,
+    tarball: "summrise-agent-1.2.297.tgz",
+    components: {
+      cloudflared: { url: "https://dl.local/summrise-agent/cloudflared.exe", sha256: "abc" },
+      playwright: { url: "https://dl.local/summrise-agent/summrise-playwright.zip", sha256: good },
+    },
+  });
+  const realWarn = console.warn;
+  let said = "";
+  console.warn = (m) => { said += String(m) + "\n"; };
+  try {
+    const res = await worker.fetch(new Request("https://dl.local/api/version"), env);
+    const body = await res.json();
+    assert.equal(body.components?.cloudflared, undefined, "an unverifiable pin must not be shipped");
+    assert.ok(body.components?.playwright, "the well-formed sibling must still be pinned");
+    assert.match(said, /cloudflared/, "and the drop must be visible on the worker's side");
+    assert.match(said, /not a 64-hex digest/, "naming what was wrong, not merely that something was");
+  } finally {
+    console.warn = realWarn;
+  }
+});

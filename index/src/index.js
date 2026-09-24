@@ -138,6 +138,17 @@ export default {
                 const name = val.url ? String(val.url).split("/").pop() : "";
                 if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) continue;
                 if (typeof val.sha256 !== "string" || !SHA256_RE.test(val.sha256)) {
+                  // A MALFORMED PIN IS DROPPED, AND THAT IS THE SAFE CHOICE — never ship a component
+                  // with an unverifiable digest. But dropping it silently is not: the manifest then
+                  // simply omits the component, the device fetches it from the bypass path, and
+                  // `summrise setup` prints "fetched WITHOUT a manifest pin — not verified" with nothing
+                  // on THIS side to say why. A typo in components.json degraded every device's
+                  // verification and left its only trace downstream (round 134).
+                  console.warn(
+                    `[version] component "${key}" dropped: sha256 is not a 64-hex digest ` +
+                      `(${typeof val.sha256 === "string" ? val.sha256.slice(0, 12) : typeof val.sha256}) — ` +
+                      `the manifest will not pin it, so setup stages it unverified`,
+                  );
                   continue;
                 }
                 comps[key] = { url: `${base}/summrise-agent/${name}`, sha256: val.sha256 };
