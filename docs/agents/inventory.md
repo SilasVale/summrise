@@ -42,7 +42,7 @@ of the same date and was not re-derived either.
 
 MCP tools `[measured]` **by NAME PREFIX, which is not the same as by plugin** — `secret_`, `browser_`, `sftp_`,
 `page_` and `agent_` all exist and none of them is a plugin name: terminal **23** · system **9** · memory **6** ·
-monitor **4** · mcp **4** · secret **3** · run **2** · browser **2** · sftp **1** · page **1** · agent **1** = **58**.
+monitor **4** · mcp **4** · secret **3** · run **2** · browser **2** · sftp **1** · page **1** · agent **1** = **56**.
 Command: `grep -oE '"name": *"[a-z_]+"' agent/spec-tools.json | sed 's/.*"\(.*\)"/\1/' | sed 's/_.*//' | sort | uniq -c`
 
 ---

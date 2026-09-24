@@ -5271,3 +5271,22 @@ misread, which is exactly how a near-miss survives review.
 
 Spot-checked the rest of §14's derivations while there: `path.ts:stateFromEnd`, `liveness.ts:sessionFailed` and
 `monitorMark.ts:monitorMarkClass` all exist where named, and `vocabulary.rs` is in the core crate.
+
+### I INTRODUCED A DRIFT WHILE FIXING ONE, AND THE NEXT EXPLORATION CAUGHT IT (round 213)
+
+Round 207 corrected §1's tool count from 56 to 58 and README from 56 to 58, on the strength of
+`grep -c '"name"' agent/spec-tools.json` returning 58. The nineteenth exploration measured the same file properly
+and got **56**, confirmed by the agent's own prose at `src/mcp/server.rs:68` — "fifteen of the fifty-six tools".
+
+**`grep -c '"name"'` counts PARAMETER names as well as tool names.** The snapshot is an array of tool objects and
+every one of them declares a `name` in its input schema, so the count ran two high. Worse: I then wrote a breakdown
+whose PARTS summed to 56 and labelled the total 58 — the arithmetic was checked by nothing, including me.
+
+So the file's own warning about counts was demonstrated by the round that was fixing counts: a number was
+"corrected" from a right value to a wrong one, in two files, under a commit message complaining about drift. The
+fix took one round to land and was found by the next reader, which is the entire argument for measuring a claim
+before trusting it — including when the claim is mine.
+
+Both files say 56 again. The lesson is narrower than "verify": **a count of a structured file must come from the
+structure, not from a text search over it.** `JSON.parse` after stripping the comments gives 56; grep gave 58; the
+difference was two parameter names, and nothing in the pipeline could tell.
