@@ -79,7 +79,7 @@ One DO per device (`idFromName`), WebSocket Hibernation. Extension pings every 2
 
 ## Console — Devices UI (`gateway/public/app.js`)
 
-Device list (name / hostname / masked token) with an **online badge** (polled from `/api/plugins/status` every 30 s), **pair** button → modal with the one-time code, open panel via the proxy, copy per-device `summrise-command` MCP config, and a ready-made **gateway MCP snippet** (`summrise-gate` at `<origin>/mcp`, current user's token).
+Device list (name / hostname / masked token) with an **online badge** (polled from `/api/plugins/status` every 30 s), **pair** button → modal with the one-time code, open panel via the proxy, copy the per-device MCP config (the agent serves `/mcp`; the console's own devtools copy it once), and a ready-made **gateway MCP snippet** (`summrise-gate` at `<origin>/mcp`, current user's token).
 
 ## MCP tools (12, `src/mcp-tools.js`)
 

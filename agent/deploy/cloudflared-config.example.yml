@@ -6,10 +6,11 @@ tunnel: <TUNNEL_ID>                       # from `cloudflared tunnel list`
 credentials-file: C:\Users\<you>\.cloudflared\<TUNNEL_ID>.json
 
 ingress:
-  # Device 1 — points to summrise-command headless running on this Windows box.
+  # Device 1 — points to the Summrise agent running on this Windows box (its HTTP
+  # surface; the binary is `summrise-agent`, and no `summrise-command` is built).
   - hostname: d1.agent.saisi.online
     service: http://127.0.0.1:18080
-  # Add one entry per device (each machine has its own summrise-command instance):
+  # Add one entry per device (each machine runs its own summrise-agent):
   # - hostname: d2.agent.saisi.online
   #   service: http://127.0.0.1:18080
   # - hostname: d3.agent.saisi.online
