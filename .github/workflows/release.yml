@@ -290,8 +290,27 @@ jobs:
                  | jq -r .id)
           fi
           curl -sf -X PATCH -H "$auth" "${api}/releases/${id}" -d '{"draft":false}' >/dev/null
-          old=$(curl -sf -H "$auth" "${api}/releases/${id}/assets?per_page=100" \
-                 | jq -r --arg a "$ASSET" '.[] | select(.name==$a) | .id')
+          # A TAG MOVE MUST NOT SILENTLY REPLACE THE PUBLISHED ARTIFACT (round 200). This step used to
+          # delete whatever asset the tag already had and upload the newly built one — same version,
+          # different bytes, with only the printed instruction at :78/:82 standing in the way. The API
+          # exposes `digest` on assets, so the two legitimate cases separate cleanly: a FIRST publish has
+          # no asset, and the empty-commit re-release AGENTS.md prescribes rebuilds IDENTICAL bytes. Only
+          # a differing digest is refused, and where the API reports no digest the step behaves as before.
+          read -r old old_digest <<<"$(curl -sf -H "$auth" "${api}/releases/${id}/assets?per_page=100" \
+                 | jq -r --arg a "$ASSET" '.[] | select(.name==$a) | "\(.id) \(.digest // "")"')
+          if [ -n "$old_digest" ]; then
+            local_digest="sha256:$(sha256sum "agent/summrise-agent-npm/${ASSET}" | cut -d' ' -f1)"
+            if [ "$old_digest" != "$local_digest" ]; then
+              echo "::error::${ASSET} is already published for ${TAG} with a DIFFERENT digest — this is a"
+              echo "  TAG MOVE, and re-uploading changes the bytes behind a version people have installed."
+              echo "  published: ${old_digest}"
+              echo "  this build: ${local_digest}"
+              echo "  If the tree is unchanged the digests match and this step proceeds on its own. If you"
+              echo "  must rebuild, delete the release and the tag deliberately — see AGENTS.md, Release."
+              exit 1
+            fi
+            echo "  ${ASSET} already published with the SAME digest — re-uploading identical bytes"
+          fi
           [ -n "$old" ] && curl -sf -X DELETE -H "$auth" "${api}/releases/assets/${old}"
           curl -sf -X POST -H "$auth" -H "Content-Type: application/gzip" \
             --data-binary "@agent/summrise-agent-npm/${ASSET}" \

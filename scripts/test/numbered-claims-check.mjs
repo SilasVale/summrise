@@ -26,7 +26,12 @@ const ci = ["ci.yml", "release.yml"]
   // across the two workflows were invisible here — including the one this round was testing for, which is
   // how it was found: a mutation that should have failed the census passed it.
   .replace(/\$\{\{ github\.workspace \}\}\//g, "");
-const docs = ["AGENTS.md", "docs/agents/design-ledger.md", "docs/agents/inventory.md"]
+// THE TWO CURATED DOCUMENTS, WHICH IS WHAT THE SUMMARY HAS ALWAYS CLAIMED (round 200). This also read
+// `docs/agents/inventory.md` — a 70 KB checkpoint last maintained hundreds of rounds ago — so any gate name
+// mentioned once inside its narrative counted as documented. The eighteenth exploration measured the
+// consequence: `proxy-cors-parity-check` and `proxy-timeout-parity-check` were reachable ONLY through it.
+// They are named in the ledger now, and this asks the question its own message states: AGENTS.md or the ledger.
+const docs = ["AGENTS.md", "docs/agents/design-ledger.md"]
   .map((f) => readFileSync(`${ROOT}/${f}`, "utf8"))
   .join("\n");
 
@@ -54,7 +59,7 @@ const unnamed = [...wired].filter((g) => !docs.includes(g));
 if (unnamed.length) {
   console.error(
     `numbered-claims: ${unnamed.length} gate(s) run by CI and named NOWHERE an operator reads:\n  ` +
-      unnamed.map((g) => `${g} — invoked by the workflow, absent from AGENTS.md, the ledger and the inventory`).join("\n  ") +
+      unnamed.map((g) => `${g} — invoked by the workflow, absent from AGENTS.md and the ledger`).join("\n  ") +
       `\n\nA gate nobody documented is one nobody can run by hand, and this file's own rule is that a count drifts while a\n` +
       `name does not.`,
   );

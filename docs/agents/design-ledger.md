@@ -4933,6 +4933,12 @@ renaming a test file would have silenced any of them. It reads `ℹ pass N` (Nod
 `Tests  N passed` (vitest), and a suite whose output carries NO count is a failure rather than an excuse. Mutation:
 an empty package with `node --test` exits 1 with "the suite ran 0 test(s) and exited 0". The floors the gate scripts
 already carried (all-gates FLOOR 40, script-syntax FLOOR 20, console-smoke floor 4) now exist at the step too.
+**TWO GATES WERE NAMED ONLY IN THE INVENTORY UNTIL ROUND 200.** `proxy-cors-parity-check` (the gateway EXPORTS
+one CORS allowlist and four proxies restate it, so a disagreement is a browser error on one surface and not
+the other) and `proxy-timeout-parity-check` (the README states ONE 30s header budget while seven sites in three
+deployment units implement it). Both are wired in `ci.yml` and were reachable by the name census only through
+`docs/agents/inventory.md` — a checkpoint whose narrative is 70 KB and hundreds of rounds old, which is not
+"somewhere an operator reads". They are named here because this section is where the mutations live.
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
