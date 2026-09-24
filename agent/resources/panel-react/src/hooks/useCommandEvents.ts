@@ -332,15 +332,15 @@ function useSessionEventsWithState(
   return { events, readState, firstSeq };
 }
 
-/** The raw events alone — the shape the trajectory views and their tests have
- *  always taken. Kept as its own export so adding the read state could not
- *  change what an existing consumer sees. */
-export function useSessionEvents(sid: string | null, pollMs = 2000): CommandEvent[] {
-  return useSessionEventsWithState(sid, pollMs).events;
-}
+// REMOVED 2026-09-24 (the panel exploration): `useSessionEvents(sid, pollMs)`, a two-line forwarder
+// to `useSessionEventsWithState(...).events`. Its doc called it a compatibility shim — "kept as its own
+// export so adding the read state could not change what an existing consumer sees" — and that consumer
+// no longer exists: nothing in src/ or the tests called it, and its only mentions were PROSE in two
+// comments. `exports-check` counted those words as uses, which is why it survived six rounds of audits;
+// the check strips comments before counting now.
 
 /**
- * Command card stream for one session: READ the audit log (useSessionEvents) and
+ * Command card stream for one session: READ the audit log (the shared poll) and
  * group the raw events into cards. A FAILED read keeps the last good cards
  * instead of blanking the stream.
  *

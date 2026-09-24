@@ -196,7 +196,7 @@ function ownershipTimeline(
 }
 
 /** The holder in effect at `ts`; "ai" before any handoff. */
-export function ownerAt(timeline: Array<{ ts: number; holder: Owner }>, ts: number): Owner {
+function ownerAt(timeline: Array<{ ts: number; holder: Owner }>, ts: number): Owner {
   let holder: Owner = "ai";
   for (const t of timeline) {
     if (t.ts > ts) break;

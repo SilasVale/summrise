@@ -63,7 +63,7 @@ import { useAck } from "../lib/useAck";
 
 /** Compact duration for the summary line ("at least 1m 12s" when some steps
  *  have no measurable duration). */
-export function summaryDuration(s: PathSummary): string {
+function summaryDuration(s: PathSummary): string {
   if (s.steps === 0) return "—";
   const base = fmtDuration(s.commandMs) || "0s";
   return s.untimed > 0 ? `at least ${base}` : base;

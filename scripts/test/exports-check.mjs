@@ -62,7 +62,14 @@ let exportsSeen = 0;
 
 for (const [ui, dir] of UIS) {
   const files = sourceFiles(dir);
-  const texts = new Map(files.map((f) => [f, readFileSync(f, "utf8")]));
+  // COMMENTS ARE STRIPPED FIRST, the lesson `stub-surface-check` and `retired-colours-check` already
+  // record, and this gate needed it for a reason of its own: it counts a bare `\bname\b` ANYWHERE as a
+  // use, so PROSE kept dead exports alive. `useSessionEvents` survived six audits on two comments that
+  // merely mentioned it, and `evicted.ts`'s `humanIdle` was matched by an unrelated same-named local in
+  // another file. Stripping also stops a commented-out `export` being counted as a declaration, which
+  // the scan below would otherwise do. Found 2026-09-24 by the panel exploration.
+  const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const texts = new Map(files.map((f) => [f, stripComments(readFileSync(f, "utf8"))]));
   let seen = 0;
 
   for (const [file, text] of texts) {

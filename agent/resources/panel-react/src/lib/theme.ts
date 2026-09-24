@@ -1,7 +1,7 @@
 // Theme (light default, dark optional) — persisted in localStorage, applied
 // via body[data-theme] so the CSS custom properties flip in one place
 // (tokens.css carries both sets). Light is the DEFAULT: the user prefers it.
-export type Theme = "light" | "dark";
+type Theme = "light" | "dark";
 
 const KEY = "summrise-theme";
 const EVENT = "summrise-theme-change";

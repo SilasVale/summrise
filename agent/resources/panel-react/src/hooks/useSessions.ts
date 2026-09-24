@@ -3,8 +3,8 @@ import { callApi, callTool } from "../lib/api";
 
 // Session state (migrated from panel.js) — the xterm instance + render
 // cursor live OUTSIDE React state (imperative, heavy); React tracks only the
-// session list + metadata. The term object is attached to a ref map so the
-// render cycle never re-creates it.
+// session list + metadata. Those live in TerminalPane, as refs; this file used
+// to claim a `runtimes` ref map held them, which was never true and is gone.
 
 /** Map the agent's snake_case pending_approval onto the camelCase shape React
  *  uses. One helper because THREE call sites need it (first sight, revive,
@@ -160,16 +160,13 @@ export interface Session {
   plan: string[];
 }
 
-interface SessionRuntime {
-  term: any; // xterm Terminal
-  fit: any; // FitAddon
-  container: HTMLDivElement | null;
-  renderedBytes: number;
-  needSync: boolean;
-  sseDirty: boolean;
-}
-
-const runtimes = new Map<string, SessionRuntime>();
+// REMOVED 2026-09-24 (the panel exploration's F2): `interface SessionRuntime` and
+// `const runtimes = new Map<string, SessionRuntime>()`. The map was DECLARED, RETURNED from this hook
+// and never written or read by anything — `term`, `fit`, `container`, `renderedBytes`, `needSync` and
+// `sseDirty` had no producers at all — while the file header described it as the design ("The term
+// object is attached to a ref map so the render cycle never re-creates it"). The xterm instance and the
+// render cursor actually live in TerminalPane, where they are refs. It shipped in the bundle, and no
+// gate could see it: `exports-check` reads EXPORTS, and this was a module-level const.
 
 // P1-4: export downloads at most this many 1 MiB pages (see exportSession).
 const MAX_EXPORT_PAGES = 16;
@@ -831,7 +828,6 @@ export function useSessions(connected: boolean) {
     closeSession,
     activate,
     exportSession,
-    runtimes,
     setControl,
     setApproval,
     decideApproval,

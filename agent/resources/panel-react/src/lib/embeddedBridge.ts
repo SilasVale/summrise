@@ -46,7 +46,7 @@ interface EmbeddedBridge {
 }
 
 /** Browser-session windows, driven over CDP. */
-export interface SummriseBrowserBridge {
+interface SummriseBrowserBridge {
   open: (url: string) => Promise<unknown>;
   close: (id: string) => Promise<unknown>;
   list: () => Promise<unknown>;

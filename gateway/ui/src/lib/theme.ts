@@ -4,7 +4,7 @@
  * Applied before React mounts (see main.tsx) to avoid a light flash.
  */
 
-export type Theme = "light" | "dark";
+type Theme = "light" | "dark";
 
 const KEY = "summrisegate-theme";
 
