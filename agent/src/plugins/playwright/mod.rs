@@ -1,9 +1,19 @@
 //! Playwright Plugin — browser automation MCP service management.
 //!
-//! Unlike the other plugins, Playwright exposes NO MCP tools: the process is
-//! managed over the admin HTTP surface (/api/plugins/playwright/start|stop,
-//! round-admin-ui), while tool calls go through the mcp_client plugin
-//! (mcp_client_connect at 127.0.0.1:9229/mcp).
+//! THIS PLUGIN EXPOSES TWO MCP TOOLS, and this header said the opposite for long
+//! enough that a reader would have believed it: `tools()` below returns
+//! `browser_pw_info` and `browser_run_script` (round-151), and the gateway
+//! registers both (`mcp-tools.ts:493,505`). The comment three lines inside this
+//! same file says so — the header was the only place still denying it.
+//!
+//! What IS managed over the admin HTTP surface is the SERVICE
+//! (/api/plugins/playwright/start|stop, round-admin-ui), and the browser is
+//! otherwise reached through the mcp_client plugin (mcp_client_connect at
+//! 127.0.0.1:9229/mcp). That part of the original note was right.
+//!
+//! The `manager` field is WRITE-ONLY: constructed in `new()` and read nowhere in
+//! the crate (`tools::build()` takes no argument), so it is not the seam the old
+//! wording implied.
 
 pub mod manager;
 pub mod tools;
