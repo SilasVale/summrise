@@ -155,6 +155,7 @@ const I18N = {
     "key.deploymentServed":
       "你没有填这个通道的密钥，网关会使用部署在 Worker 上的密钥（费用记在部署方），所以在 {backend} 上仍然可用。填入你自己的密钥即可改为自付。",
     "key.sourceNone": "未配置",
+    "keys.loadFail": "密钥状态加载失败",
     "key.ds.backend": "DeepSeek",
     "key.ds.hint": "api.deepseek.com 申请",
     "key.og.backend": "OpenCode Go",
@@ -575,6 +576,7 @@ const I18N = {
     "key.cleared": "Cleared",
     "key.testOk": "✓ OK (HTTP {status})",
     "key.testFail": "✗ {detail}",
+    "keys.loadFail": "Failed to load key status",
     "client.title": "Client setup example (Claude Code)",
     "client.note":
       "The <code>[1m]</code> suffix is Claude Code's 1M-context marker; it strips it before sending, so prefix routing is unaffected. When testing with curl, don't send a literal <code>[1m]</code>.",

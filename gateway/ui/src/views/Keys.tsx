@@ -39,6 +39,11 @@ export default function Keys() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [keys, setKeys] = useState<Record<string, KeyInfo | undefined>>({});
+  // A FAILED READ IS NOT AN EMPTY ACCOUNT. `keys` starts empty and stays empty when `/api/me` fails,
+  // and an empty object renders every card as "not configured" — nine confident claims about nine
+  // credentials, on the page whose whole job is those credentials. This flag is what tells the two
+  // states apart; a successful read clears it, so it cannot latch.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [resultBox, setResultBox] = useState<{ name: string; ok: boolean; msg: string } | null>(
@@ -51,8 +56,10 @@ export default function Keys() {
     try {
       const me = await api.me();
       setKeys(me.keys || {});
+      setLoadFailed(false);
     } catch {
-      /* noop */
+      // Was `/* noop */`, which is exactly how a failure became a claim about nine credentials.
+      setLoadFailed(true);
     }
   }, []);
 
@@ -183,19 +190,30 @@ export default function Keys() {
         description={t("keys.lede")}
         // THE PAGE ANSWERS ITS OWN QUESTION, in the same slot and with the same idiom
         // the Models page uses for its count. You come here to fix keys, so the first
-        // thing it should say is how many are missing — the Overview tile ("0/8 keys
-        // ready") knew, and the page you click through to did not.
+        // thing it should say is how many are missing — the Overview tile knew, and the
+        // page you click through to did not. (That tile hard-coded EIGHT names and this
+        // page nine, so it said "0/8" about a page reading "0 / 9"; both now read one
+        // list, `lib/keyNames.ts`, and byok.test.mjs forbids either view from keeping
+        // its own copy again.)
         actions={
           // TWO NUMBERS, because since the env fallback they answer different questions:
           // "yours" is what this user pays for, "deployment" is what the worker serves on
           // their behalf. One number called the second group missing while it was working.
-          <Badge tone="muted">
-            {t("keys.summary", {
-              done: String(KEY_NAMES.filter((n) => keys[n]?.source === "user").length),
-              total: String(KEY_NAMES.length),
-              deployment: String(KEY_NAMES.filter((n) => keys[n]?.source === "deployment").length),
-            })}
-          </Badge>
+          //
+          // AND WHEN THE READ FAILED, NO NUMBERS AT ALL — they would be counts of an empty object,
+          // which is indistinguishable from an account with nothing configured. The state is known
+          // (`loadFailed`), so it is stated where the false count used to be.
+          loadFailed ? (
+            <Badge tone="muted">{t("keys.loadFail")}</Badge>
+          ) : (
+            <Badge tone="muted">
+              {t("keys.summary", {
+                done: String(KEY_NAMES.filter((n) => keys[n]?.source === "user").length),
+                total: String(KEY_NAMES.length),
+                deployment: String(KEY_NAMES.filter((n) => keys[n]?.source === "deployment").length),
+              })}
+            </Badge>
+          )
         }
       />
       <div className="cards">
