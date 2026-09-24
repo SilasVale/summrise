@@ -126,3 +126,13 @@ test("a caller that vanishes mid-request does not take the relay with it", async
     await agent.stop();
   });
 });
+
+test("the server's error listeners do not grow with requests", async () => {
+  // The registration used to live INSIDE the request handler, so the count rose by one per request. It is
+  // invisible until Node warns at eleven, and then the log line for one real error arrives N times.
+  await withRelay(async ({ relay, base }) => {
+    assert.equal(relay.server.listenerCount("error"), 1, "one listener before any traffic");
+    for (let i = 0; i < 25; i++) await fetch(`${base}/healthz`);
+    assert.equal(relay.server.listenerCount("error"), 1, "…and still one after 25 requests");
+  });
+});

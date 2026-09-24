@@ -108,7 +108,6 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
     }
 
     // ---- everything else is for the agent --------------------------------------------------------------------------
-    server.on("error", (e) => log(`server error, carrying on: ${e && e.message ? e.message : e}`));
 
     if (url.pathname === "/healthz") {
       return res.writeHead(200, { "Content-Type": "application/json" }).end(
@@ -198,6 +197,14 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
     req.on("end", () => cb(null, Buffer.concat(chunks)));
     req.on("error", cb);
   }
+
+  // REGISTERED ONCE, IN THE FACTORY — NOT IN THE REQUEST HANDLER. The line below lived inside the handler,
+  // so every request added another `error` listener to the SERVER, a long-lived object: Node warns at
+  // eleven (MaxListenersExceededWarning), the array grows without bound in a process meant to run for
+  // weeks, and one real server error would print its log line once per accumulated listener. The other
+  // two handlers in this file (`res.on`, `req.on`) are correct as written because they attach to objects
+  // that die with their request. Found by the eleventh architecture exploration (round 120).
+  server.on("error", (e) => log(`server error, carrying on: ${e && e.message ? e.message : e}`));
 
   return {
     server,
