@@ -34,27 +34,55 @@
 //     one still current may write.
 //
 // A caller states the route, the fold, the value to start from and the cadence. The four rules
-// above are stated once, here — AND INHERITED BY THE FIVE READERS MIGRATED SO FAR
-// (`useVitalsSeries`, `useBootHistory`, `useAgentVitals`, `useMonitors`, `UpdateCard`). THEY ARE
-// NOT YET INHERITED EVERYWHERE, and this comment used to claim they were: six loop sites still
-// hand-roll the same shape (`useSessionArchive`, `useOperationRuns`, `useSSE`, `DeviceLogsCard`,
-// `ConnectCard`, `EvidenceDrawer`) — which is why the two of those that already had the ordering
-// guard still declare it themselves. That is the next round's work, named here rather than
-// implied by a claim of ownership this module does not have yet.
+// above are stated once, here, and NINE readers inherit them: the five migrated first
+// (`useVitalsSeries`, `useBootHistory`, `useAgentVitals`, `useMonitors`, `UpdateCard`) and the four
+// migrated next (`useSessionArchive`, `useOperationRuns`, `DeviceLogsCard`, `ConnectCard`).
+//
+// AND THE PARAGRAPH THAT USED TO SIT HERE NAMED SIX REMAINING SITES, TWO OF WHICH WERE WRONG. It
+// said the six "still hand-roll the same shape"; measured, only FOUR of them ever did — the four
+// just named — and the other two are not this loop at all:
+//
+//   * `useSSE.ts` is NOT a loop of this shape. It is a STREAM consumer: an event/byte reader with
+//     its own reconnect, frame-decoding and gap-backfill rules, where a failure is not "keep the
+//     last value" but "the stream is broken, say so and resume from the last frame". It is not
+//     migrating, and calling it a copy of this loop made the stream look like a poll.
+//
+//   * `EvidenceDrawer.tsx` is NOT on this seam. It reads through `fetch` with an EXPLICIT `apiBase`
+//     and a `token` PROP — the desktop shell's transport, handed in by its host — while this module
+//     goes through `callApi`'s module-level transport. Migrating it would change WHICH TRANSPORT
+//     ANSWERS, which is a behaviour change, not a migration.
+//
+// THE SITES STILL TO MIGRATE ARE THE ONES THAT DO FIT THIS SEAM, and they are named here as
+// measured rather than left to be rediscovered: `useCommandEvents.ts` reads one route per session
+// (`/api/sessions/{sid}`) on mount and on events, keeps the last good events, owns a read state and
+// its own watermark/ordering guard — it fits, and it needs one thing this module does not express
+// yet: a RESET when the path's subject changes, so a session switch cannot draw the previous
+// session's events while the new read is in flight. `usePlugins.ts` reads a route with keep-last and
+// a per-route error string, but it reads TWO routes (a once-gated spec plus a status) and carries
+// actions, so it is not one read of one route. Neither is in this change's scope.
+//
+// AND THE REST OF THE PANEL'S READERS WERE MEASURED TOO, so "still to migrate" is a list rather
+// than an impression: `useSessions.ts` and `TerminalPane.tsx` read a TOOL through `callTool`, not a
+// route through `callApi`, so this seam does not describe them; `SettingsPage.tsx` and
+// `ConnModal.tsx` read once to SEED EDITABLE state (a form, a picker's saved list) and report a
+// failure in their own status line, so there is no single folded value to hand over.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
 import type { ReadState } from "../lib/readState";
 
 export interface DeviceReadOptions<T> {
-  /** The route to read.
+  /** The route to read. A function when the route carries a cursor that advances per read.
    *
-   *  A STRING, not `string | (() => string)`. The first version accepted a function so a
-   *  cursor-carrying reader could advance its query per read, and the two readers that need
-   *  that (`useOperationRuns`, `useSessionArchive`) did NOT migrate in the same round — so the
-   *  form's only consumer was a test. That is a hypothetical seam by this repo's own rule (one
-   *  adapter is hypothetical, two is real), and it is deleted rather than kept warm: the reader
-   *  that needs it can add it back in the change that also gives it a caller. */
-  path: string;
+   *  DELETED AND RESTORED, deliberately, and the record is here so it is not deleted a third
+   *  time. The first version accepted `string | (() => string)` for the cursor readers, but
+   *  neither of the two that need it (`useOperationRuns`, `useSessionArchive`) migrated in that
+   *  round, so the form's only consumer was a test — a hypothetical seam by this repo's own rule
+   *  (one adapter is hypothetical, two is real) — and it was removed. It returns in the change
+   *  that gives it a production caller: `useOperationRuns` asks for what it has not seen
+   *  (`since_ms` from its own cursor ref), and that cursor ADVANCES per read. A captured string
+   *  would pin the first cursor forever and re-request the same window, so the function is
+   *  resolved AT READ TIME, never at hook-call time. */
+  path: string | (() => string);
   /** Pure. Called ONLY with a body the device actually sent. Never with a refusal. */
   reduce: (previous: T, body: unknown) => T;
   /** The value before the first successful read. */
@@ -90,15 +118,19 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   // The route and the fold as they are NOW, not as they were when this hook first ran: a
   // caller may hand in an inline `reduce` (a new function every render). Without this, a fresh
   // `refresh` identity every render would re-arm the interval effect on every render — a
-  // self-inflicted poll storm.
+  // self-inflicted poll storm. The same ref is what makes a FUNCTION path work: it is called at
+  // read time (below), so a caller's cursor ref is read per read instead of pinned at mount.
   const pathRef = useRef(path);
   pathRef.current = path;
   const reduceRef = useRef(reduce);
   reduceRef.current = reduce;
   // ONLY THE NEWEST READ MAY WRITE. Two overlapping reads — a mount read plus a refresh, or
   // a focus-driven refresh landing on top of the interval's — must not let the slower one
-  // land last and rewind the value. Same stance as `useSessionArchive`, which is where this
-  // guard was written down (and one of only two readers in the panel that had it).
+  // land last and rewind the value. The rule was first written down in `useSessionArchive`
+  // (one of only two readers in the panel that had it); it lives here now and that reader
+  // keeps a pointer instead of a second copy (its local `inFlightRef` went with its loop).
+  // The other reader that had a version of it — `useCommandEvents`' post-await `sid` re-check —
+  // is a different question (a session SWITCH, not a stale reply) and still answers it itself.
   const seqRef = useRef(0);
   // UNMOUNTED IS NOT A PLACE TO WRITE. Declared before the read effect so the flag is set
   // for the mount read; cleared in the cleanup, which React runs last-in-first-out, i.e.
@@ -114,7 +146,11 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   const refresh = useCallback(async () => {
     const seq = ++seqRef.current;
     try {
-      const body = await callApi(pathRef.current);
+      // RESOLVED HERE, not when the hook was called. A cursor-carrying caller (see `path`'s
+      // doc) advances its ref between reads, and a route captured once would ask for the same
+      // window forever.
+      const route = pathRef.current;
+      const body = await callApi(typeof route === "function" ? route() : route);
       if (!aliveRef.current || seq !== seqRef.current) return;
       // A REFUSAL IS NOT A BODY. `deviceRefused` (`lib/api.ts`) is the panel's one
       // predicate for "the device said no", and `reduce` is never shown a refusal: a

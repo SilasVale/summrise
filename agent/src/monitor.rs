@@ -220,8 +220,6 @@ fn target_id(host: &str, port: u16, path: Option<&str>) -> String {
     }
 }
 
-/// Validate and normalise a target. `Err` carries the reason a user can act on — this is fed
-/// straight from a form in the panel.
 /// A path the probe can request, or `None` for the TCP probe. Refused WITH A REASON because this
 /// is fed straight from a form: a path with a space in it is a typo, not a URL.
 pub fn validate_path(path: &str) -> Result<Option<String>, String> {
@@ -258,6 +256,87 @@ pub fn validate_expect(expect: &str) -> Result<Option<String>, String> {
     Ok(Some(e.to_string()))
 }
 
+/// THE SENTENCE A DOOR SHOWS WHEN IT HAS NO USABLE PORT AT ALL — the field is absent, is not a
+/// number, or is zero.
+///
+/// ONE COPY, THREE DOORS. The HTTP form used to answer a bare "a port is required" while the MCP
+/// tool appended "(22 for SSH, 80 for a web UI, …)", so the SAME mistake read differently depending
+/// on which door the caller came through. `monitor.rs` owns the rules, so its wording — the one
+/// with the examples — is the one that survives. That is a USER-VISIBLE string change on the HTTP
+/// door: the panel renders this reason verbatim (its own test already quotes the fuller sentence).
+///
+/// WHY IT IS AN ERROR AND NOT A DEFAULT — the HTTP form's own comment, moved here with the rule it
+/// explains: the operator is naming a SERVICE, and guessing which one would probe the wrong thing
+/// and report it as fact.
+pub const PORT_REQUIRED_REASON: &str = "a port is required (22 for SSH, 80 for a web UI, …)";
+
+/// THE RULE: an expectation with no path has nothing to read — the TCP probe has no body. Refused
+/// rather than silently ignored, because a watch that promises something it does not do is worse
+/// than one that says no.
+///
+/// The sentence lives in ONE function because both [`TargetSpec::parse`] and [`add_target_full`]
+/// enforce it: the spec's fields are public, so the store cannot assume its caller came through the
+/// parser, and a person must not read two versions of the same refusal.
+fn refuse_expect_without_path(path: &str, expect: &str) -> Result<(), String> {
+    if !expect.is_empty() && path.is_empty() {
+        return Err("an expected text needs an HTTP path to read — add one (e.g. \"/\")".into());
+    }
+    Ok(())
+}
+
+/// ONE WATCH, PARSED AND VALIDATED — the add path's analogue of `probe_envelope`.
+///
+/// Named fields rather than positional strings: `add_target_full(data_dir, host, port, path, expect)`
+/// took three adjacent `&str`s, so a transposed path/expect compiled.
+///
+/// THE PRECEDENT IS IN THIS FILE. `probe_envelope` exists because the PROBE path had the same shape
+/// copied into two doors, and "a shape copied into two places is what made them disagree" (round
+/// 218). The add path had THREE doors — this module, the HTTP form, the MCP tool — each carrying
+/// its own copy of the rules and its own wording for them, and that was left alone until now. What
+/// is shared is the RULES; the ENVELOPES stay each door's own, because they are different
+/// transports (HTTP answers `{"ok":false,"error":reason,"code":"invalid_params"}`, MCP answers
+/// `DeviceError::InvalidParams { message: reason }`).
+///
+/// `path` and `expect` are EMPTY when the door offered none: `validate_path`/`validate_expect`
+/// answer `None` for blank input, which is the shape both wire formats already use (an absent JSON
+/// field is read as `""`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetSpec {
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+    pub expect: String,
+}
+
+impl TargetSpec {
+    /// Parse and validate untyped input from a door. The port arrives as `u64` because that is
+    /// what JSON gives both doors; the range check lives HERE, once.
+    /// `Err(reason)` is written for a person and is what both doors show.
+    pub fn parse(host: &str, port: u64, path: &str, expect: &str) -> Result<TargetSpec, String> {
+        // BEFORE THE CAST, NOT AFTER IT. `validate_target` speaks `u16`, so checking the range
+        // there is impossible: 65536 would truncate to 0 and be refused with "a port is required"
+        // about a number whose only problem is being too large. `port == 0` still belongs to
+        // `validate_target` (below), which is why the sentence above is a shared constant rather
+        // than a literal in two places.
+        if port > u64::from(u16::MAX) {
+            return Err(format!("{port} is not a port"));
+        }
+        let (host, port) = validate_target(host, port as u16)?;
+        let path = validate_path(path)?.unwrap_or_default();
+        let expect = validate_expect(expect)?.unwrap_or_default();
+        refuse_expect_without_path(&path, &expect)?;
+        Ok(TargetSpec {
+            host,
+            port,
+            path,
+            expect,
+        })
+    }
+}
+
+/// Validate and normalise a host and port. `Err` carries the reason a user can act on — this is fed
+/// straight from a form in the panel, and it is the reason BOTH doors now show (see
+/// [`TargetSpec::parse`], which composes this rather than restating it).
 pub fn validate_target(host: &str, port: u16) -> Result<(String, u16), String> {
     let host = host.trim().to_string();
     if host.is_empty() {
@@ -273,7 +352,7 @@ pub fn validate_target(host: &str, port: u16) -> Result<(String, u16), String> {
         return Err("a host cannot contain spaces or slashes".into());
     }
     if port == 0 {
-        return Err("a port is required (22 for SSH, 80 for a web UI, …)".into());
+        return Err(PORT_REQUIRED_REASON.into());
     }
     Ok((host, port))
 }
@@ -290,45 +369,41 @@ pub fn targets() -> Vec<Target> {
     state_with(|st| st.watches.iter().map(|w| w.target.clone()).collect())
 }
 
-/// Add a target. Idempotent by id: adding an existing host:port returns the existing target and
-/// changes nothing.
-pub fn add_target(data_dir: &Path, host: &str, port: u16) -> Result<Target, String> {
-    add_target_with_path(data_dir, host, port, "")
-}
-
-/// Add a target, optionally with an HTTP path (see [`Target::path`]). The no-path form is the
-/// original TCP probe, so every existing caller keeps its meaning.
-pub fn add_target_with_path(
-    data_dir: &Path,
-    host: &str,
-    port: u16,
-    path: &str,
-) -> Result<Target, String> {
-    add_target_full(data_dir, host, port, path, "")
-}
-
-/// Add a target with a path AND an expected substring (see [`Target::expect`]).
-pub fn add_target_full(
-    data_dir: &Path,
-    host: &str,
-    port: u16,
-    path: &str,
-    expect: &str,
-) -> Result<Target, String> {
-    let (host, port) = validate_target(host, port)?;
-    let path = validate_path(path)?;
-    let expect = validate_expect(expect)?;
-    // An expectation with no path has nothing to read: the TCP probe has no body. Refused rather
-    // than silently ignored — a watch that promises something it does not do is worse than one
-    // that says no.
-    if expect.is_some() && path.is_none() {
-        return Err("an expected text needs an HTTP path to read — add one (e.g. \"/\")".into());
+/// Add a target from a VALIDATED spec (see [`TargetSpec`]) and persist the list. Idempotent by id:
+/// adding an existing host:port returns the existing target and changes nothing.
+///
+/// THIS USED TO BE THREE FUNCTIONS. `add_target(data_dir, host, port)` and
+/// `add_target_with_path(data_dir, host, port, path)` were 3- and 5-line telescopes onto this one
+/// with NO production caller — every call site was a test — and they existed only because the
+/// signature took loose arguments. A caller that has to say what it means builds a [`TargetSpec`].
+pub fn add_target_full(data_dir: &Path, spec: &TargetSpec) -> Result<Target, String> {
+    // The spec normally comes from `TargetSpec::parse`, which already refused this — but the
+    // fields are public, so the store cannot assume its caller came through the parser. Same
+    // sentence, one function (see `refuse_expect_without_path`).
+    refuse_expect_without_path(&spec.path, &spec.expect)?;
+    // AND THE SAME FOR A ZERO PORT, which is not vanity: `port == 0` IS THIS FUNCTION'S at-capacity
+    // sentinel below. A hand-built spec carrying one would push a watch and then be answered with
+    // "this device watches at most N targets" — a real watch plus a false explanation. Validation
+    // moved out of the store with this round, so the one field the store itself depends on is
+    // checked here.
+    if spec.port == 0 {
+        return Err(PORT_REQUIRED_REASON.into());
     }
-    let id = target_id(&host, port, path.as_deref());
+    // Empty means "the door offered none", which is what `validate_path`/`validate_expect` answer
+    // with `None` — the two representations are converted here, once.
+    let path = match spec.path.as_str() {
+        "" => None,
+        p => Some(p.to_string()),
+    };
+    let expect = match spec.expect.as_str() {
+        "" => None,
+        e => Some(e.to_string()),
+    };
+    let id = target_id(&spec.host, spec.port, path.as_deref());
     let target = Target {
         id,
-        host,
-        port,
+        host: spec.host.clone(),
+        port: spec.port,
         path,
         expect,
     };
@@ -949,6 +1024,13 @@ mod tests {
         d
     }
 
+    /// The spec a door would have produced. The tests below used to call
+    /// `add_target_full(&d, host, port, path, expect)` — three adjacent `&str`s — which is exactly
+    /// the signature [`TargetSpec`] exists to replace: here a test NAMES what each string is.
+    fn spec(host: &str, port: u16, path: &str, expect: &str) -> TargetSpec {
+        TargetSpec::parse(host, u64::from(port), path, expect).expect("a valid spec")
+    }
+
     #[test]
     fn a_target_is_validated_with_a_reason_a_form_can_show() {
         assert!(validate_target("", 22).is_err());
@@ -960,6 +1042,98 @@ mod tests {
             validate_target(" 192.168.1.1 ", 22).expect("valid"),
             ("192.168.1.1".to_string(), 22)
         );
+        // The port sentence is a SHARED CONSTANT because three call sites answer with it (two doors
+        // for a field that is absent or not a number, this one for a port of zero).
+        assert_eq!(validate_target("h", 0).unwrap_err(), PORT_REQUIRED_REASON);
+    }
+
+    /// THE TRUTH TABLE BOTH DOORS DEPEND ON — one validator, no filesystem, no listener, no state.
+    ///
+    /// The rules used to be checked at three doors with three copies; the doors now only TRANSLATE
+    /// the answer, so this is where the rules are pinned. Where a refusal is composed from an
+    /// existing validator, the assertion is against THAT VALIDATOR'S OWN ERROR rather than a
+    /// re-typed string: restating the sentence here is how the copies drifted in the first place.
+    #[test]
+    fn a_target_spec_is_parsed_and_refused_in_one_place() {
+        // A good target: trimmed, and both optional fields empty (the validated "no path", "no
+        // expectation" — `validate_path`/`validate_expect` answer `None` for blank input).
+        assert_eq!(
+            TargetSpec::parse(" 192.168.1.1 ", 22, "", "").expect("valid"),
+            TargetSpec {
+                host: "192.168.1.1".into(),
+                port: 22,
+                path: String::new(),
+                expect: String::new(),
+            }
+        );
+        // …and the optional fields keep their NORMALISED form: `status` and `/status` are one
+        // intent and the id must be stable either way; the expectation is trimmed.
+        let full = TargetSpec::parse("h.local", 80, "status", " OpenWrt ").expect("valid");
+        assert_eq!(
+            full.path, "/status",
+            "a bare path is normalised, not guessed at"
+        );
+        assert_eq!(full.expect, "OpenWrt");
+
+        // THE HOST RULES, which `validate_target` owns, arrive through `parse` unchanged.
+        for host in ["", "   ", "a/b", "host with space", "back\\slash"] {
+            assert_eq!(
+                TargetSpec::parse(host, 22, "", "").unwrap_err(),
+                validate_target(host, 22).unwrap_err(),
+                "parse composes the validator instead of restating it: {host:?}"
+            );
+        }
+        let long_host = "a".repeat(254);
+        assert_eq!(
+            TargetSpec::parse(&long_host, 22, "", "").unwrap_err(),
+            validate_target(&long_host, 22).unwrap_err(),
+            "an over-long host is DNS's limit, not this function's opinion"
+        );
+
+        // PORTS. 65535 is the LAST port and must pass — the range check is a boundary, not a mood.
+        assert_eq!(
+            TargetSpec::parse("h", 65535, "", "")
+                .expect("the last port")
+                .port,
+            65535
+        );
+        assert_eq!(
+            TargetSpec::parse("h", 0, "", "").unwrap_err(),
+            PORT_REQUIRED_REASON
+        );
+        // The one that made the range check necessary: `u16` would have truncated 65536 to 0 and
+        // refused it with the WRONG sentence.
+        assert_eq!(
+            TargetSpec::parse("h", 65536, "", "").unwrap_err(),
+            "65536 is not a port"
+        );
+
+        // PATHS. A path that is not a path — a full URL, or a typo with a space in it.
+        let url = TargetSpec::parse("h", 80, "http://h/status", "").unwrap_err();
+        assert_eq!(url, validate_path("http://h/status").unwrap_err());
+        assert!(url.contains("path only"), "{url}");
+        assert_eq!(
+            TargetSpec::parse("h", 80, "/a b", "").unwrap_err(),
+            validate_path("/a b").unwrap_err()
+        );
+
+        // THE EXPECTATION CAP (200 characters) is `validate_expect`'s, and arrives through parse.
+        let long_expect = "x".repeat(201);
+        assert_eq!(
+            TargetSpec::parse("h", 80, "/", &long_expect).unwrap_err(),
+            validate_expect(&long_expect).unwrap_err()
+        );
+
+        // THE REFUSAL: an expectation with no path has nothing to read — the TCP probe has no body.
+        // A blank path is NO path, so whitespace does not smuggle one past the rule.
+        for path in ["", "   "] {
+            let err = TargetSpec::parse("h", 22, path, "OpenWrt").unwrap_err();
+            assert!(err.contains("path"), "{err}");
+        }
+        // …and a spec that got past the parser still cannot reach the store with the contradiction.
+        assert!(refuse_expect_without_path("", "OpenWrt").is_err());
+        assert!(refuse_expect_without_path("/", "OpenWrt").is_ok());
+        assert!(refuse_expect_without_path("", "").is_ok());
     }
 
     #[test]
@@ -1077,18 +1251,18 @@ mod tests {
         });
 
         let d = dir("http");
-        let ok = add_target_with_path(&d, "127.0.0.1", port, "/ok").expect("added");
+        let ok = add_target_full(&d, &spec("127.0.0.1", port, "/ok", "")).expect("added");
         assert_eq!(ok.path.as_deref(), Some("/ok"));
         assert_eq!(ok.id, format!("127.0.0.1:{port}/ok"));
-        let bad = add_target_with_path(&d, "127.0.0.1", port, "bad").expect("added");
+        let bad = add_target_full(&d, &spec("127.0.0.1", port, "bad", "")).expect("added");
         assert_eq!(
             bad.id,
             format!("127.0.0.1:{port}/bad"),
             "a bare path is normalised"
         );
-        let missing = add_target_with_path(&d, "127.0.0.1", port, "/missing").expect("added");
+        let missing = add_target_full(&d, &spec("127.0.0.1", port, "/missing", "")).expect("added");
         // A TCP target on the SAME port, for contrast: it cannot see the difference.
-        let tcp = add_target(&d, "127.0.0.1", port).expect("added");
+        let tcp = add_target_full(&d, &spec("127.0.0.1", port, "", "")).expect("added");
 
         let p = probe_once(&ok.id).await.expect("probed");
         assert!(p.ok, "{p:?}");
@@ -1151,7 +1325,7 @@ mod tests {
         });
 
         let d = dir("expect");
-        let hit = add_target_full(&d, "127.0.0.1", port, "/", "OpenWrt").expect("added");
+        let hit = add_target_full(&d, &spec("127.0.0.1", port, "/", "OpenWrt")).expect("added");
         assert_eq!(hit.expect.as_deref(), Some("OpenWrt"));
 
         // 1. The body carries the text: up, with the status AND the match recorded.
@@ -1162,7 +1336,7 @@ mod tests {
 
         // 2. The SAME URL, a different criterion — re-adding updates the attribute and keeps the
         //    watch (and its series). This is what an operator means by "require 'login' now".
-        let replaced = add_target_full(&d, "127.0.0.1", port, "/", "login").expect("added");
+        let replaced = add_target_full(&d, &spec("127.0.0.1", port, "/", "login")).expect("added");
         assert_eq!(
             replaced.id, hit.id,
             "the expectation is an attribute, not part of the identity"
@@ -1180,7 +1354,7 @@ mod tests {
 
         // 3. Dropping the expectation restores the old behaviour: the status decides, and
         //    "nothing to match" is NOT a failure.
-        let plain = add_target_full(&d, "127.0.0.1", port, "/", "").expect("added");
+        let plain = add_target_full(&d, &spec("127.0.0.1", port, "/", "")).expect("added");
         assert_eq!(plain.expect, None);
         let p = probe_once(&plain.id).await.expect("probed");
         assert!(p.ok, "{p:?}");
@@ -1189,11 +1363,34 @@ mod tests {
             "nothing to match is not a failure: {p:?}"
         );
 
-        // 4. An expectation without a path is REFUSED, with a reason a form can show.
-        let err = add_target_full(&d, "127.0.0.1", port, "", "OpenWrt").unwrap_err();
+        // 4. An expectation without a path is REFUSED, with a reason a form can show. `parse` is
+        //    where a DOOR is refused; the store refuses again because a `TargetSpec`'s fields are
+        //    public and a hand-built one can carry the same contradiction.
+        let unreadable = TargetSpec {
+            host: "127.0.0.1".into(),
+            port,
+            path: String::new(),
+            expect: "OpenWrt".into(),
+        };
+        let err = add_target_full(&d, &unreadable).unwrap_err();
         assert!(err.contains("path"), "{err}");
         assert!(validate_expect(&"x".repeat(201)).is_err());
         assert_eq!(validate_expect("  "), Ok(None));
+
+        // 5. NOR CAN A HAND-BUILT SPEC CARRY A ZERO PORT. That is not vanity: `port == 0` is the
+        //    store's at-capacity SENTINEL, so accepting one would push a real watch and then answer
+        //    "this device watches at most N targets" — the watch plus a false explanation.
+        let zero = TargetSpec {
+            host: "127.0.0.1".into(),
+            port: 0,
+            path: String::new(),
+            expect: String::new(),
+        };
+        assert_eq!(
+            add_target_full(&d, &zero).unwrap_err(),
+            PORT_REQUIRED_REASON
+        );
+        assert_eq!(targets().iter().filter(|t| t.port == 0).count(), 0);
 
         remove_target(&d, &hit.id);
     }
@@ -1394,7 +1591,7 @@ mod tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let d = dir("announce");
         // Port 1 is refused by construction: no race, no listener.
-        let down = add_target(&d, "127.0.0.1", 1).expect("added");
+        let down = add_target_full(&d, &spec("127.0.0.1", 1, "", "")).expect("added");
         // The flapping target is an HTTP page whose BODY changes on command, watched with an
         // expectation — the listener stays bound the whole time.
         let body = Arc::new(Mutex::new("up".to_string()));
@@ -1449,7 +1646,7 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 0, "no change, no event");
 
         // A target that CAN answer, probed twice: up, up — no event (it was never down).
-        let up = add_target_full(&d, "127.0.0.1", port, "/status", "up").expect("added");
+        let up = add_target_full(&d, &spec("127.0.0.1", port, "/status", "up")).expect("added");
         probe_once(&up.id).await.expect("probed");
         probe_once(&up.id).await.expect("probed");
         assert_eq!(count.load(Ordering::SeqCst), 0, "steady is silent");
@@ -1489,10 +1686,10 @@ mod tests {
     async fn adding_and_removing_persists_the_list_beside_the_other_runtime_state() {
         let _serial = serial().await;
         let d = dir("persist");
-        let t = add_target(&d, "192.0.2.10", 22).expect("added");
+        let t = add_target_full(&d, &spec("192.0.2.10", 22, "", "")).expect("added");
         assert_eq!(t.host, "192.0.2.10");
         // Idempotent: the same host:port is the same target.
-        let again = add_target(&d, "192.0.2.10", 22).expect("idempotent");
+        let again = add_target_full(&d, &spec("192.0.2.10", 22, "", "")).expect("idempotent");
         assert_eq!(again.id, t.id);
         assert_eq!(targets().iter().filter(|x| x.id == t.id).count(), 1);
         // Written where the next boot will look for it.
@@ -1519,8 +1716,8 @@ mod tests {
             .expect("bind");
         let port = listener.local_addr().expect("addr").port();
         let d = dir("probe");
-        let up = add_target(&d, "127.0.0.1", port).expect("added");
-        let down = add_target(&d, "127.0.0.1", 1).expect("added"); // port 1: reserved, refused
+        let up = add_target_full(&d, &spec("127.0.0.1", port, "", "")).expect("added");
+        let down = add_target_full(&d, &spec("127.0.0.1", 1, "", "")).expect("added"); // port 1: reserved, refused
 
         let p = probe_once(&up.id).await.expect("probed");
         assert!(p.ok, "a listening port must probe UP: {p:?}");

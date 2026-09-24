@@ -13,8 +13,8 @@
 //
 // It is a DIAGNOSTIC, not a control: nothing here updates anything. The update
 // still happens through the CLI or the console.
-import { useEffect, useState } from "react";
-import { callApi, deviceRefused } from "../lib/api";
+import { useState } from "react";
+import { useDeviceRead } from "../hooks/useDeviceRead";
 import { diagnoseUpdate, type UpdateDiagnosis } from "../lib/updateDiagnosis";
 
 interface LogFile {
@@ -25,6 +25,17 @@ interface LogFile {
   log: string;
 }
 
+/** What ONE body from `GET /api/logs` yields: the list and the directory it came
+ *  from. One read value, not two pieces of state set from inside the fold — `dir`
+ *  is part of the same answer, so it travels with it. */
+interface LogsRead {
+  /** `null` = no successful read yet (reading, or the read failed). */
+  logs: LogFile[] | null;
+  dir: string;
+}
+
+const NO_LOGS_YET: LogsRead = { logs: null, dir: "" };
+
 const VERDICT_TONE: Record<UpdateDiagnosis["verdict"], string> = {
   "cli-swap-launched": "ok",
   "rust-swap": "ok",
@@ -34,36 +45,38 @@ const VERDICT_TONE: Record<UpdateDiagnosis["verdict"], string> = {
 };
 
 export function DeviceLogsCard() {
-  const [logs, setLogs] = useState<LogFile[] | null>(null);
-  const [dir, setDir] = useState<string>("");
-  const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    callApi("/api/logs")
-      .then((r) => {
-        if (!alive) return;
-        // A DEVICE THAT ANSWERED "NO" DID NOT GIVE US LOGS. Checking only the
-        // rejection meant a `{ok:false}` body fell through to `setLogs([])`,
-        // which renders exactly like a healthy device that has written nothing —
-        // a claim about the device made from a response that refused to make it.
-        // The route's contract is `ok:true` plus a `logs` array; anything else is
-        // a failure to report, not an empty result to draw.
-        if (deviceRefused(r) || !Array.isArray(r.logs)) {
-          setFailed(true);
-          return;
-        }
-        setLogs(r.logs as LogFile[]);
-        setDir(typeof r?.dir === "string" ? r.dir : "");
-      })
-      // A FAILED read says so. Rendering "no logs" for an unreachable device
-      // would be a claim about the device, and it is not one we can make.
-      .catch(() => alive && setFailed(true));
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // THE ONE-SHOT READ IS `useDeviceRead`'s (see its header): the mount read, the refusal guard,
+  // the unmount guard. No `everyMs` — this is a diagnostic, read once.
+  const { data, read } = useDeviceRead<LogsRead>({
+    path: "/api/logs",
+    // A DEVICE THAT ANSWERED "NO" DID NOT GIVE US LOGS. The route's contract is
+    // `ok:true` plus a `logs` array; anything else is a failure to report, not an
+    // empty result to draw. Checking only the rejection meant a `{ok:false}` body
+    // fell through to an empty list, which renders exactly like a healthy device
+    // that has written nothing — a claim about the device made from a response
+    // that refused to make it. `useDeviceRead` never folds a refusal, so half of
+    // that rule is now structural; the other half is this THROW, which the module
+    // catches and reports as `"unreadable"` instead of folding `[]`.
+    reduce: (_previous, body) => {
+      const r = body as { logs?: unknown; dir?: unknown } | null;
+      if (!Array.isArray(r?.logs)) {
+        throw new Error("device logs: response carries no logs array");
+      }
+      return {
+        logs: r.logs as LogFile[],
+        dir: typeof r?.dir === "string" ? r.dir : "",
+      };
+    },
+    initial: NO_LOGS_YET,
+  });
+
+  const { logs, dir } = data;
+  // A FAILED read says so. Rendering "no logs" for an unreachable device would be
+  // a claim about the device, and it is not one we can make. Driven by the READ
+  // state, never by an empty array standing in for a failure.
+  const failed = read === "unreadable";
 
   const update = logs?.find((l) => l.name === "summrise-update.log");
   const d = diagnoseUpdate(update ? update.log : null);

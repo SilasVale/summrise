@@ -2,8 +2,10 @@
 //!
 //! Four tools over ONE instrument (`crate::monitor`): read the watches, take a probe now, and
 //! add or remove a watch. Nothing here re-derives a rule the panel also has — `summary`,
-//! `series` and `add_target` are the module's own, so an AI reading `monitor_list` and an
-//! operator reading the Reachability card see the same numbers (round 261's whole point).
+//! `series` and `TargetSpec` are the module's own, so an AI reading `monitor_list` and an
+//! operator reading the Reachability card see the same numbers (round 261's whole point). What the
+//! add door keeps is its own ENVELOPE (`DeviceError::InvalidParams`) and not a copy of the rules:
+//! they live in `crate::monitor::TargetSpec::parse`, which the HTTP form calls as well.
 //!
 //! WHAT THE AI IS TOLD, in the descriptions, is the part that makes these usable rather than
 //! merely present: the probe interval, that a series gap is a FAILED probe, that a refused
@@ -77,20 +79,25 @@ fn tool_add() -> ToolDef {
         move |params: Value| {
             async move {
                 let host = require_str(&params, "host")?;
-                let port = params
-                    .get("port")
-                    .and_then(|p| p.as_u64())
-                    .ok_or_else(|| DeviceError::InvalidParams {
-                        message: "a port is required (22 for SSH, 80 for a web UI, …)".into(),
-                    })?;
-                if port == 0 || port > 65535 {
-                    return Err(DeviceError::InvalidParams {
-                        message: format!("{port} is not a port"),
-                    });
-                }
+                // THIS DOOR'S WIRE FACTS: is the port field there at all, and is it a number. WHICH
+                // NUMBER NAMES A SERVICE is `TargetSpec::parse`'s rule — this closure used to carry
+                // its own copy of the range check and its own wording for it, which is how the same
+                // mistake came to answer differently here and through the HTTP form. Even the
+                // absent-field sentence is monitor.rs's, for the same reason.
+                let port = params.get("port").and_then(|p| p.as_u64()).ok_or_else(|| {
+                    DeviceError::InvalidParams {
+                        message: crate::monitor::PORT_REQUIRED_REASON.into(),
+                    }
+                })?;
                 let path = params.get("path").and_then(|p| p.as_str()).unwrap_or("");
                 let expect = params.get("expect").and_then(|p| p.as_str()).unwrap_or("");
-                match crate::monitor::add_target_full(&crate::paths::data_dir(), &host, port as u16, path, expect) {
+                // ONE VALIDATOR, THEN THE STORE. `parse` is the door's door (the rules, with a
+                // reason a person reads); `add_target_full` is the store's. The MCP ENVELOPE stays
+                // this door's own — the HTTP form answers `{"ok":false,…,"code":"invalid_params"}`
+                // and that difference is the transports', not the rules'.
+                let spec = crate::monitor::TargetSpec::parse(&host, port, path, expect)
+                    .map_err(|reason| DeviceError::InvalidParams { message: reason })?;
+                match crate::monitor::add_target_full(&crate::paths::data_dir(), &spec) {
                     Ok(t) => Ok(json!({
                         "ok": true,
                         "target": t,
@@ -159,4 +166,81 @@ fn tool_probe() -> ToolDef {
             }
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool<'a>(tools: &'a [ToolDef], name: &str) -> &'a ToolDef {
+        tools
+            .iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("missing tool: {name}"))
+    }
+
+    /// THE MCP DOOR'S OWN ENVELOPE — and the FIRST test this file has had. Its siblings carry 7 to
+    /// 28; this one carried none, which is how a second copy of the port rules (and of their
+    /// wording) survived here while `monitor.rs` had the original.
+    ///
+    /// WHAT IS PINNED IS THE TRANSLATION, NOT THE RULE. The rules are `monitor::TargetSpec::parse`'s
+    /// and are pinned there without a filesystem; what this file owes is that a refusal arrives as
+    /// `DeviceError::InvalidParams` carrying EXACTLY the validator's sentence — not a paraphrase
+    /// written here. So the expected text is asked of the validator, and the case that is spelled
+    /// out in full is the port one, which is the sentence the two doors used to disagree about.
+    ///
+    /// No data dir and no state: every case is refused before `add_target_full` is reached.
+    #[tokio::test]
+    async fn a_refused_add_answers_in_the_mcp_envelope_with_the_validators_own_reason() {
+        let tools = build();
+        let add = tool(&tools, "monitor_add");
+        let cases = [
+            // The number the two doors disagreed about: the HTTP form said "a port is required"
+            // with no examples, this door appended them. One sentence now, and this is it.
+            (
+                json!({"host": "192.0.2.1", "port": 0}),
+                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+            ),
+            // …including when the field is not there at all, or is not a number: both are wire
+            // facts THIS door establishes, and both answer with the same sentence.
+            (
+                json!({"host": "192.0.2.1"}),
+                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+            ),
+            (
+                json!({"host": "192.0.2.1", "port": "22"}),
+                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+            ),
+            // The range check that now lives in `TargetSpec::parse` (once, for both doors).
+            (
+                json!({"host": "192.0.2.1", "port": 65536}),
+                "65536 is not a port".to_string(),
+            ),
+            // A rule from `validate_target`, shown verbatim rather than restated here.
+            (
+                json!({"host": "a/b", "port": 22}),
+                crate::monitor::validate_target("a/b", 22).unwrap_err(),
+            ),
+            // The refusal `parse` owns: an expectation with no path has no body to read.
+            (
+                json!({"host": "192.0.2.1", "port": 22, "expect": "OpenWrt"}),
+                crate::monitor::TargetSpec::parse("192.0.2.1", 22, "", "OpenWrt").unwrap_err(),
+            ),
+        ];
+        for (params, reason) in cases {
+            let err = add
+                .handler
+                .call(params.clone())
+                .await
+                .expect_err("a bad add must be refused, not answered with ok:true");
+            assert_eq!(err.code(), "invalid_params", "{params}: {err}");
+            // `DeviceError`'s Display is "Invalid parameters: {message}" — the MESSAGE is what the
+            // person (and the MCP client) reads, so that is what must be the validator's.
+            assert!(
+                err.to_string().ends_with(&reason),
+                "{params}: the door paraphrased the validator: {}",
+                err
+            );
+        }
+    }
 }

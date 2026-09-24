@@ -251,4 +251,42 @@ describe("useDeviceRead", () => {
     expect(result.current.data).toBe("b");
   });
 
+  // (h) A FUNCTION PATH IS RESOLVED PER READ. This is the test the deleted form took with it: the
+  // first version accepted `string | (() => string)` and dropped it when neither cursor reader
+  // migrated, so its only consumer WAS a test. `useOperationRuns` is the production caller now, and
+  // the property to pin is the one that made a string insufficient: the route must be built at
+  // read time, because the cursor it carries advances between reads. A path resolved ONCE at
+  // hook-call time would ask for `since_ms=0` forever.
+  it("resolves a function path on every read, so a cursor advances", async () => {
+    mockCallApi.mockResolvedValue({ ok: true });
+    let cursor = 0;
+    const { result } = renderRead<number>({
+      path: () => `/api/operation?since_ms=${cursor}`,
+      reduce: (previous) => previous,
+      initial: 0,
+      everyMs: 5_000,
+    });
+    await flush();
+    expect(String(mockCallApi.mock.calls[0][0])).toBe(
+      "/api/operation?since_ms=0",
+    );
+
+    cursor = 42;
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(String(mockCallApi.mock.calls[1][0])).toBe(
+      "/api/operation?since_ms=42",
+    );
+
+    // AND ON THE TIMER PATH TOO, which is the read the strip actually makes: the interval calls
+    // the same `refresh`, so the cursor is re-read there rather than captured with the effect.
+    cursor = 99;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(String(mockCallApi.mock.calls[2][0])).toBe(
+      "/api/operation?since_ms=99",
+    );
+  });
 });

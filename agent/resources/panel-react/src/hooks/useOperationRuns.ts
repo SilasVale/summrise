@@ -28,8 +28,13 @@
 //     stance as useSessions and useCommandEvents);
 //   * an in-flight reply that lands after unmount is dropped rather than
 //     calling setState on a dead component.
-import { useEffect, useRef, useState } from "react";
-import { callApi } from "../lib/api";
+//
+// THE LAST TWO ARE `useDeviceRead`'S NOW (see its header: keep-last-on-failure and the unmount
+// guard), and so are the ordering guard this hook never had and the cadence floor it never had.
+// The cursor bullet is the part that stays here, because a cursor is the caller's own state — it
+// is what the `path` FUNCTION reads and what the `reduce` advances.
+import { useEffect, useRef } from "react";
+import { useDeviceRead } from "./useDeviceRead";
 import type { OperationEvent, RunBoundary } from "../lib/runs";
 
 interface OperationSnapshot {
@@ -126,62 +131,70 @@ function mergeBoundaries(prev: RunBoundary[], incoming: RunBoundary[]): RunBound
  * the last good one after a failed poll.
  */
 export function useOperationRuns(pollMs: number = OPERATION_POLL_MS): OperationSnapshot {
-  const [snapshot, setSnapshot] = useState<OperationSnapshot>(EMPTY);
   // The newest stamp the device has already given us. Held in a ref because it
-  // must survive re-renders without re-arming the effect.
+  // must survive re-renders without re-arming the effect — and read INSIDE the
+  // `path` FUNCTION, so each read asks from where the last reply ended.
   const cursorRef = useRef(0);
-  // A reply that resolves after unmount must not reach setState.
-  const aliveRef = useRef(true);
 
-  useEffect(() => {
-    aliveRef.current = true;
-    const tick = async () => {
-      try {
-        const res = await callApi(
-          `/api/operation?since_ms=${cursorRef.current}&limit=${PAGE_LIMIT}`,
-        );
-        if (!aliveRef.current) return;
-        // NO `deviceRefused` GUARD HERE, DELIBERATELY (round 232). A `{ok:false}` yields `[]`, and this
-        // hook MERGES (`mergeEvents(prev.events, [])` returns `prev`), so a refusal cannot blank the
-        // timeline — a mutation that removed the guard changed no test. The comment that used to sit here
-        // claimed a refusal on the first poll "drew an empty timeline"; the snapshot simply stays EMPTY,
-        // which is what it was before the poll answered. `useSessionArchive` needs its throw because it
-        // REPLACES its entries; this one accumulates, so the failure mode the throw guards against cannot
-        // arise. The mocks carry `ok: true` because the DEVICE sends it, not because this reads it.
-        const events: OperationEvent[] = Array.isArray(res?.events) ? res.events : [];
-        const boundaries: RunBoundary[] = Array.isArray(res?.runs) ? res.runs : [];
-        // `cursor_ms` falls back to the requested `since_ms` on the device, so
-        // it can never rewind; the guard makes that a property of the client
-        // too, since a rewind would re-request (and re-merge) old history.
-        const cursor = Number(res?.cursor_ms);
-        if (Number.isFinite(cursor) && cursor >= cursorRef.current) {
-          cursorRef.current = cursor;
-        }
-        setSnapshot((prev) => {
-          const merged = mergeEvents(prev.events, events);
-          const bounds = mergeBoundaries(prev.boundaries, boundaries);
-          if (merged === prev.events && bounds === prev.boundaries) return prev;
-          return { events: merged, boundaries: bounds };
-        });
-      } catch {
-        // Transient (tunnel blip, agent restarting) — keep the last good
-        // snapshot and try again on the next tick.
+  // THE POLL, THE UNMOUNT GUARD, THE ORDERING GUARD AND THE CADENCE FLOOR ARE
+  // `useDeviceRead`'s (see its header). Two things stay here, both of them the caller's own:
+  //
+  //   * THE ROUTE IS A FUNCTION, which is the whole reason `useDeviceRead` accepts one. The
+  //     cursor advances per read (`since_ms` is the reply's own `cursor_ms`), so a string
+  //     captured at mount would pin `since_ms=0` and re-request the first window forever. The
+  //     module resolves the function AT READ TIME, so this asks only for what it has not seen.
+  //
+  //   * THE MERGE IS THE `reduce`, AND IT UPDATES `cursorRef` — the one thing a cursor reader
+  //     does inside `reduce`. It is allowed because `reduce` is this hook's own closure over
+  //     this hook's own ref, and it is still ONE LOOP: the module reads, folds and writes, and
+  //     the ref is simply part of the fold's state (it is the cursor the next `path()` reads).
+  //     The fold returns `prev` ITSELF when nothing changed, and that object identity is the
+  //     render-skipping contract the strip depends on — the module writes whatever `reduce`
+  //     returns straight back into its state, so an unchanged merge re-renders nothing.
+  const { data, refresh } = useDeviceRead<OperationSnapshot>({
+    path: () => `/api/operation?since_ms=${cursorRef.current}&limit=${PAGE_LIMIT}`,
+    reduce: (prev, body) => {
+      const res = body as { events?: unknown; runs?: unknown; cursor_ms?: unknown } | null;
+      // NO `deviceRefused` GUARD HERE, DELIBERATELY (round 232). A `{ok:false}` yields `[]`, and this
+      // hook MERGES (`mergeEvents(prev.events, [])` returns `prev`), so a refusal cannot blank the
+      // timeline — a mutation that removed the guard changed no test. The comment that used to sit here
+      // claimed a refusal on the first poll "drew an empty timeline"; the snapshot simply stays EMPTY,
+      // which is what it was before the poll answered. `useSessionArchive` needs its throw because it
+      // REPLACES its entries; this one accumulates, so the failure mode the throw guards against cannot
+      // arise. The mocks carry `ok: true` because the DEVICE sends it, not because this reads it.
+      //
+      // AND WITH THE LOOP IN `useDeviceRead` THE GUARD IS NOW IMPOSSIBLE TO WRITE HERE AT ALL: the
+      // module folds a refusal into `"unreadable"` and never calls `reduce`, so the refusal cannot
+      // reach the merge — the same outcome, reached by construction rather than by argument.
+      const events: OperationEvent[] = Array.isArray(res?.events) ? res.events : [];
+      const boundaries: RunBoundary[] = Array.isArray(res?.runs) ? res.runs : [];
+      // `cursor_ms` falls back to the requested `since_ms` on the device, so
+      // it can never rewind; the guard makes that a property of the client
+      // too, since a rewind would re-request (and re-merge) old history.
+      const cursor = Number(res?.cursor_ms);
+      if (Number.isFinite(cursor) && cursor >= cursorRef.current) {
+        cursorRef.current = cursor;
       }
-    };
-    void tick();
-    const timer = window.setInterval(() => void tick(), pollMs);
-    // Coming back to the tab is worth an immediate look: the operator who
-    // returns after a while is exactly who wants to know what ran meanwhile.
+      const merged = mergeEvents(prev.events, events);
+      const bounds = mergeBoundaries(prev.boundaries, boundaries);
+      if (merged === prev.events && bounds === prev.boundaries) return prev;
+      return { events: merged, boundaries: bounds };
+    },
+    initial: EMPTY,
+    everyMs: pollMs,
+  });
+
+  // Coming back to the tab is worth an immediate look: the operator who
+  // returns after a while is exactly who wants to know what ran meanwhile.
+  // The timer is the module's; this focus refresh is the one the module's
+  // `everyMs` cannot express, so it stays here.
+  useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible") void tick();
+      if (document.visibilityState === "visible") void refresh();
     };
     document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      aliveRef.current = false;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [pollMs]);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refresh]);
 
-  return snapshot;
+  return data;
 }

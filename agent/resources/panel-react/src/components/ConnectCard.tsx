@@ -20,8 +20,9 @@
 // a URL (ADR 0004) and never logged.
 
 import { releaseVersionLabel } from "../lib/agentVersion";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { callApi, getHost, getToken } from "../lib/api";
+import { useDeviceRead } from "../hooks/useDeviceRead";
 import { copyText } from "../lib/clipboard";
 
 /** One client the user might be connecting. `json` builds the snippet; the
@@ -75,7 +76,6 @@ const CLIENTS: ClientSpec[] = [
 type Probe = { state: "idle" | "running" | "ok" | "fail"; detail?: string };
 
 export function ConnectCard() {
-  const [tools, setTools] = useState<string[] | null>(null);
   const [client, setClient] = useState<string>(CLIENTS[0].id);
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -94,24 +94,28 @@ export function ConnectCard() {
   const mcpUrl = `${location.protocol}//${getHost()}/mcp`;
   const token = getToken();
 
-  useEffect(() => {
-    let alive = true;
-    callApi("/api/spec")
-      .then((spec) => {
-        if (!alive) return;
-        const names: string[] = [];
-        for (const p of spec?.plugins ?? []) {
-          for (const t of p?.tools ?? []) if (t?.name) names.push(t.name);
-        }
-        setTools(names);
-      })
-      .catch(() => {
-        if (alive) setTools([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // THE ONE-SHOT READ IS `useDeviceRead`'s (see its header): the mount read, the refusal guard,
+  // the unmount guard. No `everyMs` — the registry is static per agent process.
+  //
+  // AND THE FAILURE IS NOW THE READ STATE, NOT AN EMPTY ARRAY. This used to `setTools([])` in the
+  // catch, so `tools.length === 0` meant both "read failed" and "the agent runs no tools" — two
+  // different claims drawn as one sentence. `read` tells them apart, and the render below asks it.
+  const { data: tools, read } = useDeviceRead<string[]>({
+    path: "/api/spec",
+    // A body this build cannot use yields NO names; the read still counts as answered, and the
+    // card shows the count it actually got rather than claiming the surface was unreadable.
+    reduce: (_previous, body) => {
+      const spec = body as {
+        plugins?: Array<{ tools?: Array<{ name?: unknown }> }>;
+      } | null;
+      const names: string[] = [];
+      for (const p of spec?.plugins ?? []) {
+        for (const t of p?.tools ?? []) if (t?.name) names.push(t.name as string);
+      }
+      return names;
+    },
+    initial: [],
+  });
 
   const snippet = useMemo(() => {
     const spec = CLIENTS.find((c) => c.id === client) ?? CLIENTS[0];
@@ -160,9 +164,12 @@ export function ConnectCard() {
           tools below.
         </p>
 
-        {tools === null ? (
+        {read === "reading" ? (
           <p className="connect-muted">Reading the tool surface…</p>
-        ) : tools.length === 0 ? (
+        ) : read === "unreadable" ? (
+          // The sentence is unchanged; what changed is what it is drawn FROM. It used to be
+          // `tools.length === 0` — the same empty array a failure wrote — so it must now be the
+          // READ's own verdict.
           <p className="connect-muted">
             Could not read the tool surface from this agent.
           </p>

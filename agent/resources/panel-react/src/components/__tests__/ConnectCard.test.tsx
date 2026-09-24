@@ -31,7 +31,13 @@ vi.mock("../../lib/api", async (importOriginal) => ({
 
 const mockCallApi = callApi as unknown as ReturnType<typeof vi.fn>;
 
+// `ok: true` IS PART OF THE DEVICE'S ANSWER, and this fixture used to omit it. The real route
+// (`agent/src/web/mod.rs: api_spec`) returns `{"ok": true, "plugins": …}`, and the card's read now
+// goes through `useDeviceRead`, which — like every other reader in this panel — refuses a body that
+// is not `ok:true` rather than folding it. The fixture was not the device's shape; the migration is
+// what said so.
 const SPEC = {
+  ok: true,
   plugins: [
     {
       name: "terminal",
@@ -215,5 +221,31 @@ describe("ConnectCard", () => {
     expect(document.querySelector(".connect-snippet")!.textContent).toContain(
       "/mcp",
     );
+  });
+
+  // THE SENTENCE IS THE READ'S, NOT AN EMPTY ARRAY'S. It used to be drawn from `tools.length === 0`
+  // — the same empty array the catch wrote — so a REFUSAL and an agent that genuinely runs no tools
+  // were one sentence. The read state tells them apart now, and these two tests are the difference.
+  it("a device that REFUSES the spec is reported as unreadable, not as zero tools", async () => {
+    mockCallApi.mockImplementation((path: string) =>
+      path === "/api/spec"
+        ? Promise.resolve({ ok: false, error: "spec unavailable" })
+        : Promise.resolve({}),
+    );
+    render(<ConnectCard />);
+    await screen.findByText(/Could not read the tool surface/);
+    expect(screen.queryByText(/tools available on this device/)).toBeNull();
+  });
+
+  it("a spec that WAS read and carries no tools says zero, not 'could not read'", async () => {
+    mockCallApi.mockImplementation((path: string) =>
+      path === "/api/spec"
+        ? Promise.resolve({ ok: true, plugins: [] })
+        : Promise.resolve({}),
+    );
+    render(<ConnectCard />);
+    await screen.findByText(/tools available on this device/);
+    expect(screen.getByText("0")).toBeTruthy();
+    expect(screen.queryByText(/Could not read the tool surface/)).toBeNull();
   });
 });

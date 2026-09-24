@@ -30,7 +30,7 @@ opening title, then read forward; nothing below reorders them.
 | silhouettes and the queue | the marks vocabulary, the state families, the surfaces queue emptying, the live panel re-measured | `HALF THE SILHOUETTES WERE UNVERIFIED` |
 | the gate discipline | auditing the gates themselves, which gates read comments, how this project serves a second configuration, whether failure messages tell a reader what to do | `AUDITING THE TEN GATES` |
 | the emit seam | six slices that turned five emitted payloads into modules and pinned each one with a gate | `"CAN YOU OPTIMIZE THE PANEL DISPLAY?"` |
-| the subsystem explorations | one dated `##` section per architecture pass: the release pipeline, the desktop command, the tool layer, the HTTP surface, the CLI, the proxies, the landing, the installer, the core crate | `2026-09-23 — the release pipeline audited its own author` |
+| the subsystem explorations | one dated `##` section per architecture pass: the release pipeline, the desktop command, the tool layer, the HTTP surface, the CLI, the proxies, the landing, the installer, the core crate, and (the newest) the agent's control flow and one watch | `2026-09-23 — the release pipeline audited its own author` |
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 
 ## Looking for one thing
@@ -5099,6 +5099,80 @@ that already had the ordering guard still declare it. That list is the next roun
 cursor readers that need the function form (`useOperationRuns`, `useSessionArchive`) did NOT migrate,
 so its only consumer was a test — one adapter is a hypothetical seam by this repo's own rule. It can
 come back in the change that gives it a caller.
+
+## 2026-09-25 — the twenty-fourth exploration: finishing the read migration, and one spec for a watch
+
+The sequel to the twenty-third, and its first lesson was about the twenty-third's own record: a header that
+NAMES the sites still to migrate is only worth anything if the names are right.
+
+**THE LIST WAS WRONG ABOUT TWO OF ITS SIX SITES.** Round 1's `useDeviceRead` header named six sites as still
+hand-rolling the read loop. Measured before migrating: four fit, two never did.
+
+  * `useSSE.ts` is a STREAM CONSUMER — it carries its own reconnect and gap-backfill rules. A polled read is
+    a different shape, and saying so is what stops the next round re-proposing it.
+  * `EvidenceDrawer.tsx` reads through `fetch` with an EXPLICIT `apiBase` and a `token` PROP (the desktop
+    shell's transport), while `useDeviceRead` goes through `callApi`'s module-level transport. Migrating it
+    would not move a loop, it would change WHICH TRANSPORT ANSWERS.
+
+Both reasons are now in the header, next to the sites that do fit and are still to come (`useCommandEvents`,
+which needs a reset when the path's subject changes; `usePlugins`, two routes plus actions) and the sites that
+are out for a third reason (`useSessions`/`TerminalPane` read through `callTool`; `SettingsPage`/`ConnModal`
+seed EDITABLE state, where keep-last is wrong).
+
+**FOUR MIGRATED, AND THE INTERESTING PART IS WHICH IDIOM EACH NEEDS.** The module supports two, and the
+choice is the real design decision:
+
+| site | idiom | why |
+|---|---|---|
+| `useSessionArchive` | `reduce` THROWS on a body it cannot use | `[]` from a malformed body would render as "this device recorded no sessions" — a claim about the device drawn from a reply that refused to make it |
+| `useOperationRuns` | `reduce` MERGES and returns `prev` by identity | the render-skipping contract; and round 232's decision that this hook deliberately has no refusal guard now holds BY CONSTRUCTION, because a refusal never reaches `reduce` at all |
+| `DeviceLogsCard` | `reduce` THROWS when `logs` is not an array | the route's contract is `ok:true` plus an array; the tolerant version was planted and the card's malformed-body test caught it |
+| `ConnectCard` | a failed read drives the sentence that is ALREADY there | and the migration exposed a FIXTURE DEFECT: `ConnectCard.test.tsx`'s spec omitted `ok: true`, while the real route (`web/mod.rs api_spec`) returns `{"ok": true, "plugins": …}` |
+
+**AND THE FUNCTION FORM CAME BACK, WHICH IS THE RULE WORKING RATHER THAN BEING WORKED AROUND.** Round 1
+deleted `path: string | (() => string)` on review, because the cursor readers had not migrated and its only
+consumer was a test — one adapter is a hypothetical seam. `useOperationRuns` needs it, so it returns in the
+change that gives it a caller, resolved AT READ TIME. A reader that needs it can add it back; that is the
+whole point of deleting it when nothing did.
+
+**MEASURED, SO THE NEXT ROUND DOES NOT RE-MEASURE IT:** `OPERATION_POLL_MS` is 5000 and the module's default
+floor is 5000, so the floor changes NO production cadence here. It did change a TEST: `useOperationRuns.test.ts`
+ran a 25 ms cadence, which is a cadence the panel no longer permits, and the test moved to fake timers.
+
+### ONE WATCH, VALIDATED AT THREE DOORS (same round)
+
+**THE RULES WERE IN THREE PLACES AND THE SENTENCES ALREADY DISAGREED.** `validate_target` in `monitor.rs`,
+`monitor_form` in `web/mod.rs` and `tool_add`'s closure in `plugins/monitor/tools.rs` each decided what a
+watch is. "a port is required (22 for SSH, 80 for a web UI, …)" was written TWICE; the HTTP door answered the
+same class with the bare "a port is required". The add path's own predecessor is in the same file:
+`monitor::probe_envelope` was extracted for exactly this two-door problem on the PROBE path — "a shape copied
+into two places is what made them disagree" — and the add path had been left alone.
+
+`TargetSpec { host, port, path, expect }` + `TargetSpec::parse(host, port: u64, path, expect)` now own the
+rules; `add_target_full(data_dir, spec: &TargetSpec)` takes named fields instead of three adjacent `&str`s
+(where a transposed `path`/`expect` used to compile); both doors keep their own ENVELOPE — that difference is
+a documented contract — and lost their copies of the rules. `add_target` and `add_target_with_path` were 3- and
+5-line telescopes with no production caller, and are deleted.
+
+**TWO TRAPS THE TRUTH TABLE WAS WRITTEN TO CATCH, both real:**
+
+  * **THE RANGE CHECK MUST RUN BEFORE THE `u16` CAST.** 65536 truncates to 0, so a cast-first version answers
+    "a port is required" about a number whose only problem is being too large. Mutation: delete the check and
+    the test reports exactly that swap (left `"a port is required…"`, right `"65536 is not a port"`).
+  * **`port == 0` IS THE STORE'S AT-CAPACITY SENTINEL.** A hand-built `TargetSpec` carrying one pushes a real
+    watch and is then answered "this device watches at most 8 targets" — a real watch plus a false
+    explanation. The public fields mean the store cannot assume its caller came through the parser, so the one
+    field the store itself depends on is checked there too. Mutation: remove it and the test shows precisely
+    that false sentence.
+
+**MUTATIONS, all five planted and all five bit** (the five above plus the two below): the port range check, the
+`expect`-without-`path` refusal, the store's zero-port guard, the per-read resolution of a function `path`, and
+`DeviceLogsCard`'s throwing `reduce` replaced by a tolerant one.
+
+**NUMBERS, for whoever re-measures:** the agent's lib tests 695 → 698 (terminal,keyring) and 637 → 641
+(default); the panel 841 → 855 tests in 110 files (was 109); `monitor.rs` gains the spec, its truth table and
+one door test, and `plugins/monitor/tools.rs` gets its FIRST test of any kind (it had zero across 162 lines
+while sibling plugin files carry 7-28).
 
 ## Which mutation must fail which gate
 

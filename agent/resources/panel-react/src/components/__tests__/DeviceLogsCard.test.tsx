@@ -60,6 +60,19 @@ describe("DeviceLogsCard — the device's logs, and the update verdict they answ
     // And it does NOT draw the healthy-empty state.
     expect(screen.queryByText(/not written yet/i)).toBeNull();
   });
+  it("a body with no logs ARRAY is a failure, not an empty list", async () => {
+    // THE ROUTE'S CONTRACT IS `ok:true` PLUS A `logs` ARRAY, and the read now says so by THROWING
+    // (the card's `reduce`), which `useDeviceRead` reports as `"unreadable"`. This is the half of
+    // the old `deviceRefused(r) || !Array.isArray(r.logs)` check that the module could not make
+    // structural: a refusal never reaches the fold, but `{ok:true}` with a malformed body still
+    // does — and folding it to `[]` would draw "a healthy device that wrote nothing".
+    mockCallApi.mockResolvedValue({ ok: true, dir: "C:\\logs" });
+    render(<DeviceLogsCard />);
+    expect(await screen.findByText(/did not answer/i)).toBeTruthy();
+    expect(screen.queryByText(/not written yet/i)).toBeNull();
+    expect(document.querySelector(".device-logs-list")).toBeNull();
+  });
+
   it("carries the verdict as DATA, so the tone is not the only signal", async () => {
     device([
       {
@@ -79,6 +92,16 @@ describe("DeviceLogsCard — the device's logs, and the update verdict they answ
     render(<DeviceLogsCard />);
     expect(
       await screen.findByText(/no update has been attempted here/i),
+    ).toBeTruthy();
+  });
+
+  it("shows the directory the SAME body reported", async () => {
+    // `dir` used to be separate state set from inside the same `.then`; it travels in the read
+    // value now, so a body that names a directory must still name it on screen.
+    device([{ name: "summrise-update.log", present: true, log: R }]);
+    render(<DeviceLogsCard />);
+    expect(
+      await screen.findByText(/Read from C:\\ProgramData\\Summrise\\logs/),
     ).toBeTruthy();
   });
 });

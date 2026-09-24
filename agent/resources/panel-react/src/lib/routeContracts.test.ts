@@ -109,7 +109,13 @@ describe("every device route the panel calls is either pinned or named as unpinn
     // still does (found by this test's own "no longer called" case when the migration landed).
     // A quoted `/api/` literal in a `path:` property is a route by definition; the wire's monitor
     // `path` field is a value READ off a body, never a literal in this tree.
-    for (const m of text.matchAll(/\bpath:\s*[`"'](\/api\/[^`"']*)/g)) {
+    //
+    // AND THE FUNCTION FORM IS A ROUTE TOO (same test, same failure, one round later): a
+    // cursor-carrying reader passes `path: () => ".../api/operation?since_ms=..."`, whose route is
+    // still /api/operation — the `?` is stripped below like every other query. Without the
+    // optional arrow the reader would look like it stopped calling the route, which is precisely
+    // the false "no longer called" this scan exists to raise.
+    for (const m of text.matchAll(/\bpath:\s*(?:\(\s*\)\s*=>\s*)?[`"'](\/api\/[^`"']*)/g)) {
       called.add(m[1].split("?")[0]);
     }
   }

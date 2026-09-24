@@ -2187,61 +2187,55 @@ async fn api_update(state: &AppState) -> serde_json::Value {
     crate::plugins::update::update_status(channel).await
 }
 
-/// The monitor form's body: `{"host": "...", "port": 22}`. A missing or non-numeric port is a
-/// form error, not a silent default — the operator is naming a SERVICE, and guessing which one
-/// would probe the wrong thing and report it as fact.
-fn monitor_form(body: &str) -> Result<(String, u16, String, String), serde_json::Value> {
+/// THE HTTP DOOR'S ERROR ENVELOPE, in one place for the add path: a body this surface could read
+/// but not act on is `200 + {"ok":false,"error":<reason>,"code":"invalid_params"}` — the reason
+/// rendered verbatim by the panel, the code the machine routes on (see the note on the dispatch
+/// table: this shape is a contract two clients already compensate for).
+///
+/// THE ENVELOPES DIFFER BY DESIGN, THE RULES DO NOT. The MCP door answers
+/// `DeviceError::InvalidParams { message: <the same reason> }`; that is the transports' difference,
+/// and what both now lack is their own copy of the RULES.
+fn invalid_params(reason: impl Into<String>) -> serde_json::Value {
+    serde_json::json!({"ok": false, "error": reason.into(), "code": "invalid_params"})
+}
+
+/// The monitor form's body — `{"host": "...", "port": 22}` plus optional `path`/`expect` — parsed
+/// into the ONE validator's input.
+///
+/// THIS FUNCTION IS AN ADAPTER AND NOTHING ELSE. It used to carry a second copy of the rules (its
+/// own port range check, its own message, and the monitor.rs sentence in a shortened form), so the
+/// same mistake answered differently here and through `monitor_add`. What stays here is what is
+/// genuinely this door's: the WIRE shape. A missing or non-numeric port is a wire fact — the field
+/// is not there — and even that sentence is `monitor::PORT_REQUIRED_REASON`, because `monitor.rs`
+/// owns the rules and their wording (including why a missing port is refused rather than defaulted)
+/// and a caller must read one answer, not two.
+///
+/// Kept as its own function rather than folded into `api_monitor_add`: the wire parse is a seam a
+/// test can hit without the route's state, and the route then reads as the three lines it is.
+fn monitor_form(body: &str) -> Result<crate::monitor::TargetSpec, serde_json::Value> {
     let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
-        .map_err(|e| serde_json::json!({"ok": false, "error": format!("invalid JSON body: {e}"), "code": "invalid_params"}))?;
-    let host = v
-        .get("host")
-        .and_then(|h| h.as_str())
-        .unwrap_or("")
-        .to_string();
+        .map_err(|e| invalid_params(format!("invalid JSON body: {e}")))?;
+    let host = v.get("host").and_then(|h| h.as_str()).unwrap_or("");
     let Some(port) = v.get("port").and_then(|p| p.as_u64()) else {
-        return Err(
-            serde_json::json!({"ok": false, "error": "a port is required", "code": "invalid_params"}),
-        );
+        return Err(invalid_params(crate::monitor::PORT_REQUIRED_REASON));
     };
-    if port == 0 || port > 65535 {
-        return Err(
-            serde_json::json!({"ok": false, "error": format!("{port} is not a port"), "code": "invalid_params"}),
-        );
-    }
     // An HTTP path turns the check into a real GET (see `monitor::probe_http`); absent means the
     // TCP probe this instrument started as.
-    let path = v
-        .get("path")
-        .and_then(|p| p.as_str())
-        .unwrap_or("")
-        .to_string();
+    let path = v.get("path").and_then(|p| p.as_str()).unwrap_or("");
     // The expected text (optional): a page that answers 200 without it counts as down.
-    let expect = v
-        .get("expect")
-        .and_then(|p| p.as_str())
-        .unwrap_or("")
-        .to_string();
-    Ok((host, port as u16, path, expect))
+    let expect = v.get("expect").and_then(|p| p.as_str()).unwrap_or("");
+    crate::monitor::TargetSpec::parse(host, port, path, expect).map_err(invalid_params)
 }
 
 fn api_monitor_add(body: &str) -> serde_json::Value {
-    match monitor_form(body) {
-        Err(e) => e,
-        Ok((host, port, path, expect)) => {
-            match crate::monitor::add_target_full(
-                &crate::paths::data_dir(),
-                &host,
-                port,
-                &path,
-                &expect,
-            ) {
-                Ok(t) => serde_json::json!({"ok": true, "target": t}),
-                // The reason goes to the operator verbatim: it is written for a form.
-                Err(reason) => {
-                    serde_json::json!({"ok": false, "error": reason, "code": "invalid_params"})
-                }
-            }
-        }
+    let spec = match monitor_form(body) {
+        Err(envelope) => return envelope,
+        Ok(spec) => spec,
+    };
+    match crate::monitor::add_target_full(&crate::paths::data_dir(), &spec) {
+        Ok(t) => serde_json::json!({"ok": true, "target": t}),
+        // The reason goes to the operator verbatim: it is written for a form.
+        Err(reason) => invalid_params(reason),
     }
 }
 
@@ -4153,6 +4147,80 @@ mod tests {
         assert_eq!(
             gone_again["removed"], false,
             "the second removal is a no-op: {gone_again}"
+        );
+    }
+
+    /// THE HTTP DOOR'S ENVELOPE, through the route the panel actually posts to: a body this
+    /// surface could read but not act on is `200 + {"ok":false,"error":<reason>,"code":"invalid_params"}`.
+    ///
+    /// What is pinned is the TRANSLATION. `monitor_form` had no direct test of its own — the route
+    /// test above only ever asked whether SOME error came back — and it used to hold a second copy
+    /// of the rules, so the expected strings here are the VALIDATOR'S OWN
+    /// (`monitor::TargetSpec::parse`, `monitor::validate_target`, `monitor::PORT_REQUIRED_REASON`):
+    /// a sentence re-typed in this file fails this test, which is the whole point of the refactor.
+    /// In particular the port message used to be shorter here than through `monitor_add`; the
+    /// fuller `monitor.rs` wording is the one both doors now show.
+    ///
+    /// Every case is refused before the store is reached, so this touches no target list and no
+    /// data dir (which is why it needs no serial guard against the monitor's own tests).
+    #[tokio::test]
+    async fn a_refused_monitor_add_answers_in_the_http_envelope_with_the_validators_own_reason() {
+        let expected = [
+            // The field is not there at all — a WIRE fact this door establishes, and even so the
+            // sentence is monitor.rs's.
+            (
+                r#"{"host":"192.0.2.77"}"#,
+                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+            ),
+            // A port of zero: the range check `TargetSpec::parse` owns.
+            (
+                r#"{"host":"192.0.2.77","port":0}"#,
+                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+            ),
+            // Above u16: refused BEFORE the cast, or it would truncate to 0 and answer about the
+            // wrong mistake.
+            (
+                r#"{"host":"192.0.2.77","port":65536}"#,
+                "65536 is not a port".to_string(),
+            ),
+            // The host rules, verbatim from the validator rather than restated here.
+            (
+                r#"{"host":"","port":22}"#,
+                crate::monitor::validate_target("", 22).unwrap_err(),
+            ),
+            (
+                r#"{"host":"a/b","port":22}"#,
+                crate::monitor::validate_target("a/b", 22).unwrap_err(),
+            ),
+            // The refusal `parse` owns: an expectation with no path has no body to read.
+            (
+                r#"{"host":"192.0.2.77","port":22,"expect":"OpenWrt"}"#,
+                crate::monitor::TargetSpec::parse("192.0.2.77", 22, "", "OpenWrt").unwrap_err(),
+            ),
+        ];
+        for (body, reason) in expected {
+            let v = json_body(
+                handle_request(req_with_body("POST", "/api/monitors/add", body), state()).await,
+            )
+            .await;
+            assert_eq!(v["ok"], false, "{body}: {v}");
+            assert_eq!(v["code"], "invalid_params", "{body}: {v}");
+            assert_eq!(v["error"].as_str(), Some(reason.as_str()), "{body}: {v}");
+        }
+
+        // A body that is not JSON at all is THIS door's wire shape, and it keeps its envelope (and
+        // its own sentence: no validator ever saw it).
+        let v = json_body(
+            handle_request(req_with_body("POST", "/api/monitors/add", "{oops"), state()).await,
+        )
+        .await;
+        assert_eq!(v["code"], "invalid_params", "{v}");
+        assert!(
+            v["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("invalid JSON body"),
+            "{v}"
         );
     }
 
