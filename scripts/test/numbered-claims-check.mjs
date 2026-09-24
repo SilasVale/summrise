@@ -13,7 +13,19 @@
 import { readFileSync } from "node:fs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
-const ci = readFileSync(`${ROOT}/.github/workflows/ci.yml`, "utf8");
+// BOTH WORKFLOWS, NOT ONE (round 199). This read ci.yml alone while its summary said "the workflow" —
+// singular, so it was honest about its scope and still incomplete: release.yml invokes a gate too, and it
+// sat outside the census entirely. Found in round 192 while wrapping that step for the test-count floor,
+// which is the shape of the miss — a rule written for six steps did not notice the seventh.
+const ci = ["ci.yml", "release.yml"]
+  .map((f) => readFileSync(`${ROOT}/.github/workflows/${f}`, "utf8"))
+  .join("\n")
+  // THE PATH PREFIX IS STRIPPED FIRST, and this census learned it the way all-gates.bash did in round 170:
+  // the workflows spell their invocations `node ${{ github.workspace }}/scripts/test/x.mjs`, so a pattern
+  // anchored on `node scripts/test/` sees only the handful written without the prefix. Nine invocations
+  // across the two workflows were invisible here — including the one this round was testing for, which is
+  // how it was found: a mutation that should have failed the census passed it.
+  .replace(/\$\{\{ github\.workspace \}\}\//g, "");
 const docs = ["AGENTS.md", "docs/agents/design-ledger.md", "docs/agents/inventory.md"]
   .map((f) => readFileSync(`${ROOT}/${f}`, "utf8"))
   .join("\n");
@@ -48,4 +60,4 @@ if (unnamed.length) {
   );
   process.exit(1);
 }
-console.log(`numbered-claims: all ${wired.size} gate(s) the workflow invokes are named in AGENTS.md or the ledger`);
+console.log(`numbered-claims: all ${wired.size} gate(s) the workflows invoke are named in AGENTS.md or the ledger`);
