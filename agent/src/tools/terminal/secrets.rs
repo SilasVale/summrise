@@ -8,6 +8,7 @@
 //! already holds the API token in config.yaml, and this keeps SSH passwords
 //! out of the panel's localStorage.
 
+use std::io::Write;
 use std::path::PathBuf;
 
 use summrise_agent_core::{recover_guard, DeviceError};
@@ -135,47 +136,51 @@ pub(crate) mod file_impl {
     /// map and last-writer-wins silently dropped an entry).
     static STORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// The store writer, with the FAIL-CLOSED posture (coverage audit row 7):
+    /// if the ACL hardener errors, the plaintext store must NOT be renamed into
+    /// place (every local account could read SSH passwords through the inherited
+    /// ACLs).
+    ///
+    /// The injectable-hardener seam this used to expose (`write_all_with(map,
+    /// harden)`, so the refuse path was unit-testable "without making icacls fail
+    /// on demand") is GONE: the hardener belongs to the one writer
+    /// (`crate::atomic::replace`), and the instrument moved with it —
+    /// `atomic::with_failing_hardening` arms the same failure for the test below.
     fn write_all(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), DeviceError> {
-        write_all_with(map, &crate::paths::harden_file)
-    }
-
-    /// Seam (coverage audit row 7): the FAIL-CLOSED contract — if the ACL
-    /// hardener errors, the plaintext store must NOT be renamed into place
-    /// (every local account could read SSH passwords through the inherited
-    /// ACLs). Extracted so the refuse-path is unit-testable without making
-    /// icacls fail on demand.
-    pub(crate) fn write_all_with(
-        map: &serde_json::Map<String, serde_json::Value>,
-        harden: &dyn Fn(&std::path::Path) -> Result<(), std::io::Error>,
-    ) -> Result<(), DeviceError> {
         let p = store_path();
         // round-101: temp + atomic rename — a crash/power loss mid-write
         // previously left a partial file that read_all() parsed to an EMPTY
         // map (the whole password store silently emptied; the repo's own
         // standard, fixed for summrise-known-hosts.json/config.yaml in round-57).
-        let tmp = p.with_extension("json.tmp");
         let json = serde_json::to_vec(map).unwrap_or_else(|_| b"{}".to_vec());
-        #[cfg(windows)]
-        let payload = dpapi::seal(&json).unwrap_or(json); // DPAPI outage must not brick storage (ACL line still holds)
-        #[cfg(not(windows))]
-        let payload = json;
-        std::fs::write(&tmp, payload).map_err(|e| DeviceError::Keychain {
-            reason: format!("write {tmp:?}: {e}"),
-        })?;
         // Credential audit round MED-2: hardening is FAIL-CLOSED for the
         // password store — if the ACL cannot be restricted, the plaintext
         // file would sit under inherited Users:RX ACLs (every local account
-        // could read SSH passwords), so refuse the write instead.
-        if let Err(e) = harden(&tmp) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(DeviceError::Keychain {
-                reason: format!("refusing to persist secrets unprotected ({e})"),
-            });
-        }
-        #[allow(unused_must_use)]
-        { /* unix permissions handled inside harden_file */ }
-        std::fs::rename(&tmp, &p).map_err(|e| DeviceError::Keychain {
-            reason: format!("rename to {p:?}: {e}"),
+        // could read SSH passwords), so refuse the write instead. Stated as the
+        // posture; `atomic::replace` applies it to the TEMP (never to the real
+        // name, which must not exist unprotected even for an instant) and
+        // removes the temp on every failure — so a refused write leaves the
+        // PREVIOUS secret exactly where it was.
+        crate::atomic::replace(&p, crate::atomic::Hardening::FailClosed, |f| {
+            #[cfg(windows)]
+            let payload = dpapi::seal(&json).unwrap_or(json); // DPAPI outage must not brick storage (ACL line still holds)
+            #[cfg(not(windows))]
+            let payload = json;
+            f.write_all(&payload)
+        })
+        .map_err(|e| {
+            // The unix-permissions half of the old `#[allow(unused_must_use)]`
+            // block lives inside the hardener too (`paths::harden_file` is a
+            // 0o600 chmod on unix, icacls on Windows), which is why nothing here
+            // mentions it any more.
+            let reason = if crate::atomic::hardening_failed(&e) {
+                format!("refusing to persist secrets unprotected ({e})")
+            } else {
+                // The write/rename sentences are the ones this site always
+                // reported, built by the writer that knows the temp path.
+                e.to_string()
+            };
+            DeviceError::Keychain { reason }
         })
     }
 
@@ -357,7 +362,7 @@ mod file_store_tests {
     //! Credential audit follow-up: file_impl had ZERO coverage (the
     //! keyring-branch compile-miss proved why this matters). TEST_DIR
     //! isolates each test thread's store file.
-    use super::file_impl::{self, write_all_with, TEST_DIR};
+    use super::file_impl::{self, TEST_DIR};
 
     fn isolated(name: &str) -> std::path::PathBuf {
         let dir =
@@ -430,16 +435,23 @@ mod file_store_tests {
     fn fail_closed_refuses_write_when_harden_errors() {
         // row 7: harden failure => Err, no tmp left behind, ORIGINAL file
         // untouched (a half-trustworthy store beats a world-readable one).
+        //
+        // HOW THE HARDENER IS MADE TO FAIL: `atomic::replace` owns it now, so the
+        // failure is injected at the ONE writer's test seam
+        // (`atomic::with_failing_hardening`) instead of through the injectable
+        // `write_all_with(map, harden)` this test used to pass. Two things are
+        // therefore better than before: the claim is made against the
+        // PRODUCTION path (`file_impl::set`, not a seam only the test could
+        // reach), and the refusal is a FACT the caller can read
+        // (`atomic::hardening_failed`) rather than a sentence it matches on.
         let dir = isolated("failclosed");
         let store = dir.join("summrise-secrets.json");
         std::fs::write(&store, b"{\"keep\":\"me\"}").unwrap();
-        let mut map = serde_json::Map::new();
-        map.insert("ssh:x".into(), serde_json::json!("secret"));
-        let err = write_all_with(&map, &|_| Err(std::io::Error::other("no icacls here")))
+        let err = crate::atomic::with_failing_hardening(|| file_impl::set("x", "secret"))
             .expect_err("must refuse");
         assert!(
             err.to_string().contains("refusing to persist secrets"),
-            "{err}"
+            "the caller-visible sentence is unchanged: {err}"
         );
         assert!(
             !dir.join("summrise-secrets.json.tmp").exists(),
@@ -450,9 +462,31 @@ mod file_store_tests {
             b"{\"keep\":\"me\"}",
             "original intact"
         );
-        // and the happy path still lands through the same seam
-        write_all_with(&map, &|_| Ok(())).unwrap();
-        assert!(std::fs::read_to_string(&store).unwrap().contains("ssh:x"));
+        // and the happy path still lands through the same writer
+        file_impl::set("x", "secret").unwrap();
+        assert_eq!(file_impl::get("x").unwrap().as_deref(), Some("secret"));
+    }
+
+    /// The OTHER half of the store's safety contract, which the refuse test
+    /// cannot see: a refused write must not damage the secret that was already
+    /// there — the operator must still be able to READ it, not merely find the
+    /// old bytes on disk.
+    #[test]
+    fn a_refused_write_keeps_the_previous_secret_readable() {
+        let dir = isolated("failclosed-keep");
+        file_impl::set("u@h:22", "old-pw").unwrap();
+        let err = crate::atomic::with_failing_hardening(|| file_impl::set("u@h:22", "new-pw"))
+            .expect_err("must refuse");
+        assert!(
+            err.to_string().contains("refusing to persist secrets"),
+            "{err}"
+        );
+        assert_eq!(
+            file_impl::get("u@h:22").unwrap().as_deref(),
+            Some("old-pw"),
+            "the previous secret must survive a refused rotation"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

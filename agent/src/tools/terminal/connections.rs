@@ -8,6 +8,7 @@
 //! updates the entry (refreshes label/params) instead of accumulating.
 //! No passwords here — SSH passwords live in the keychain (secrets.rs).
 
+use std::io::Write;
 use std::path::PathBuf;
 
 use summrise_agent_core::{recover_guard, DeviceError};
@@ -42,21 +43,26 @@ fn write_all(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), Dev
     // round-109: temp + atomic rename — a crash/power loss mid-write left a
     // partial file (read_all then parsed to an empty map, losing every saved
     // connection), the same class fixed for secrets.rs/config.yaml.
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(
-        &tmp,
-        serde_json::to_string(map).unwrap_or_else(|_| "{}".into()),
-    )
+    //
+    // Credential audit round MED-2: the shared hardener, stated as the posture
+    // `BestEffort` — this is a metadata-only store (host/port/label), so a
+    // failure cannot leak more than the operator already knows, and an
+    // unavailable ACL must not cost them their saved list. The debug line for
+    // that case now comes from `atomic`'s BestEffort arm (one wording for every
+    // site that chose it) instead of a `connections:`-prefixed line here.
+    //
+    // Both error sentences are unchanged, and they are built by the one writer
+    // now (`write <temp>: …` / `rename to <path>: …`) because the temp path only
+    // exists there. Callers read this text.
+    crate::atomic::replace(&p, crate::atomic::Hardening::BestEffort, |f| {
+        f.write_all(
+            serde_json::to_string(map)
+                .unwrap_or_else(|_| "{}".into())
+                .as_bytes(),
+        )
+    })
     .map_err(|e| DeviceError::Internal {
-        message: format!("write {tmp:?}: {e}"),
-    })?;
-    // Credential audit round MED-2: shared hardener (metadata-only store, so
-    // best-effort — a failure cannot leak more than host/port inventory).
-    if crate::paths::harden_file(&tmp).is_err() {
-        tracing::debug!("[summrise-agent] connections: ACL hardening unavailable");
-    }
-    std::fs::rename(&tmp, &p).map_err(|e| DeviceError::Internal {
-        message: format!("rename to {p:?}: {e}"),
+        message: e.to_string(),
     })
 }
 
@@ -235,6 +241,48 @@ mod conn_tests {
         assert_eq!(ids, vec!["pty:pwsh", "ssh:a@h:22", "ssh:z@h:22"]);
         assert_eq!(got[1]["kind"], "ssh");
         assert_eq!(got[1]["target"], "a@h:22");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The migrated site's posture, measured: `BestEffort`. An unavailable ACL
+    /// must not cost the operator a saved connection (the store is a
+    /// host/port/label inventory, so a failure leaks nothing new), and the save
+    /// must leave no temp beside the store.
+    #[test]
+    fn remember_succeeds_when_the_acl_is_unavailable_and_leaves_no_temp() {
+        let dir = isolated("acl-unavailable");
+        crate::atomic::with_failing_hardening(|| {
+            remember("ssh", "u@h:22", "seeded", &serde_json::Map::new())
+        })
+        .expect("an unavailable ACL must not drop a saved connection");
+        assert_eq!(list().len(), 1, "the entry is readable back");
+        assert!(
+            !dir.join("summrise-connections.json.tmp").exists(),
+            "a completed save leaves no temp"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The round's litter bug, at this site: the temp writes fine and the RENAME
+    /// is what fails. The old hand-rolled copy returned the rename error and left
+    /// `summrise-connections.json.tmp` behind — bytes an operator cannot tell
+    /// from a write still in progress. The message is the one this site has
+    /// always reported.
+    #[test]
+    fn a_failed_rename_is_reported_and_leaves_no_temp() {
+        let dir = isolated("rename-fail");
+        // A DIRECTORY at the store path: the rename cannot land on it.
+        std::fs::create_dir_all(dir.join("summrise-connections.json")).unwrap();
+        let err = remember("ssh", "u@h:22", "seeded", &serde_json::Map::new())
+            .expect_err("a rename that cannot land must report failure");
+        assert!(
+            err.to_string().contains("rename to"),
+            "the caller-visible sentence is unchanged: {err}"
+        );
+        assert!(
+            !dir.join("summrise-connections.json.tmp").exists(),
+            "a failed rename must not leave the temp behind"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

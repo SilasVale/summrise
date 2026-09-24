@@ -162,26 +162,22 @@ fn trim_file(path: &std::path::Path) {
     // round-116: atomic trim — File::create truncates the file to zero and
     // rewrites in place; a crash (Windows service kill, power loss) between
     // truncate and rewrite destroyed the WHOLE session audit tail (and the
-    // recovery marker). Write the trimmed tail to a temp file in the same
-    // dir, flush+sync, then rename over the original (atomic on Windows).
-    let tmp = path.with_extension("jsonl.tmp");
-    let res = (|| -> std::io::Result<()> {
-        let mut out = std::fs::File::create(&tmp)?;
-        {
-            let mut w = BufWriter::new(&mut out);
-            w.write_all(header.as_bytes())?;
-            for l in &tail {
-                w.write_all(l.as_bytes())?;
-            }
-            w.flush()?;
+    // recovery marker). The mechanics (temp name, flush+sync, rename, cleanup on
+    // any failure) are `crate::atomic::replace`'s now; the POSTURE is stated
+    // here as `None` — this file has never done permission work, and an audit
+    // trail must not be able to fail its trim over an ACL.
+    //
+    // A failed trim still leaves the ORIGINAL file exactly as it was (the old
+    // code swallowed the error after removing the temp; deleting the result is
+    // the same best-effort contract).
+    let _ = crate::atomic::replace(path, crate::atomic::Hardening::None, |out| {
+        let mut w = BufWriter::new(&mut *out);
+        w.write_all(header.as_bytes())?;
+        for l in &tail {
+            w.write_all(l.as_bytes())?;
         }
-        out.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if res.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
+        w.flush()
+    });
 }
 
 /// One audit event for a session. `seq` is per-session monotonic; `ts` is
@@ -1867,6 +1863,48 @@ mod tests {
             recovered.contains(&"s1".to_string()),
             "trim must not eat the interrupted marker: {recovered:?}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The migrated site's posture, measured: `None` (no permission work, and
+    /// therefore nothing about the trim that an unavailable ACL can fail), AND
+    /// the one thing the temp name is load-bearing for at this site —
+    /// `prune_stale` sweeps `<sid>.jsonl.tmp` litter from a CRASHED rotation, so
+    /// the name the writer produces and the name the sweeper matches are pinned
+    /// together here rather than assumed to agree.
+    #[test]
+    fn trim_temp_matches_the_name_prune_stale_sweeps() {
+        let dir = temp_dir("trim-temp");
+        std::fs::create_dir_all(&dir).unwrap();
+        let logger = SessionLogger::new(dir.clone());
+        logger.log_command_start("s1", "echo hi");
+        // Armed to fail: `None` must not even attempt hardening, so the trim is
+        // unaffected by an ACL that cannot be applied.
+        crate::atomic::with_failing_hardening(|| logger.close_session("s1"));
+        assert!(dir.join("s1.jsonl").exists(), "the trim must land the file");
+        assert!(
+            !dir.join("s1.jsonl.tmp").exists(),
+            "a completed trim leaves no temp (the mechanics clean up on failure too)"
+        );
+
+        // A rotation that CRASHED leaves that temp behind; it is 40 days old by
+        // its own version header (`age_of` prefers `createdAt`), so the sweep
+        // must take it — this is the cleanup the temp naming rule feeds.
+        let old = crate::unix_now().saturating_sub(40 * crate::retention::DAY_SECS);
+        std::fs::write(
+            dir.join("crashed.jsonl.tmp"),
+            format!(
+                "{{\"type\":\"session\",\"version\":1,\"id\":\"crashed\",\"createdAt\":{old}}}\n"
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            logger.prune_stale(30),
+            1,
+            "the crashed rotation's `<sid>.jsonl.tmp` is what the sweep sees"
+        );
+        assert!(!dir.join("crashed.jsonl.tmp").exists());
+        assert!(dir.join("s1.jsonl").exists(), "the fresh trail survives");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

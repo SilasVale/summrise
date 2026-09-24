@@ -13,6 +13,11 @@ use summrise_agent_core::Config;
 /// Layout v2: creates missing parents first (config now lives in etc\, which
 /// a hand-made invocation may not have created — a missing dir must not be
 /// a fatal boot).
+///
+/// THE TEMP NAME CHANGED THIS ROUND (`.config.yaml.tmp` -> `config.yaml.tmp`):
+/// it is the appended sibling name `crate::atomic::replace` owns, and the
+/// leading dot is gone on purpose — litter an operator cannot SEE is litter
+/// nobody cleans up.
 pub fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     // Layout-v2 parent guard: "."/"" need nothing; anything else is created.
@@ -21,25 +26,21 @@ pub fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     if !dir.as_os_str().is_empty() && dir != Path::new(".") {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = dir.join(format!(
-        ".{}.tmp",
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("config")
-    ));
-    {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(contents)?;
-        f.sync_all()?;
-    }
     // Core audit #9 (HIGH): config.yaml carries the device_token (= a bearer
     // key to the whole RCE surface) yet was the ONE secret-adjacent file
     // never ACL-hardened — any local account read it through the inherited
     // Users:RX on the data dir. Harden every atomic write (best-effort: a
     // volume without ACL support must not fail the boot path).
-    let _ = crate::paths::harden_file(&tmp);
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    //
+    // THE POSTURE IS `BestEffort`, AND THE SENTENCE ABOVE IS WHY. This round's
+    // brief assigned this site `None`, which would have silently DROPPED the
+    // Core-audit-#9 hardening — the one thing the comment records as
+    // load-bearing. `BestEffort` is the only posture that keeps the site
+    // bit-identical: same hardener, same ignore-the-failure rule, plus one debug
+    // line when the ACL is unavailable (where the old `let _ =` said nothing).
+    crate::atomic::replace(path, crate::atomic::Hardening::BestEffort, |f| {
+        f.write_all(contents)
+    })
 }
 
 /// Load the config at `path`, creating a default file first if it doesn't
@@ -305,9 +306,29 @@ mod bootstrap_tests {
         atomic_write(&path, b"hello").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"hello");
         assert!(
-            !d.join(".config.yaml.tmp").exists(),
+            !d.join("config.yaml.tmp").exists(),
             "temp must be renamed away"
         );
+        assert!(
+            !d.join(".config.yaml.tmp").exists(),
+            "and the old HIDDEN spelling is gone: the temp is the appended \
+             sibling name now, because litter nobody can see is litter nobody \
+             cleans up"
+        );
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// The site's posture, measured: `BestEffort`. `atomic_write` must not be
+    /// ABLE to fail over an ACL — a volume without ACL support must not cost the
+    /// device its boot path — and it must still harden when it can.
+    #[test]
+    fn atomic_write_survives_an_unavailable_acl() {
+        let d = dir("atomic-acl");
+        let path = d.join("config.yaml");
+        crate::atomic::with_failing_hardening(|| atomic_write(&path, b"token: secret"))
+            .expect("an unavailable ACL must not fail a config write");
+        assert_eq!(std::fs::read(&path).unwrap(), b"token: secret");
+        assert!(!d.join("config.yaml.tmp").exists());
         std::fs::remove_dir_all(&d).ok();
     }
 

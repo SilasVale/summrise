@@ -5527,6 +5527,80 @@ the fold's constant and "the page's copy of it" (the page has no copy now; it pr
 "nothing the operator reads changes" in the same paragraph that records the words coming back. A comment that denies
 its own paragraph is how a reader stops trusting either.
 
+## 2026-09-25 — the twenty-eighth exploration: the owner existed, and five callers could not use it
+
+A fresh area this round — the plugin and tool layer (30 files, ~18,000 lines) — and the finding is sharper than
+"a rule written seven times". `jsonl::rewrite_atomically` IS the owner of "replace a file atomically", and four
+callers use it. Its interface takes a `&str` body and offers no posture, so a line-iterator writer, a sealed blob
+and a caller that needs a hardening choice all COPY the mechanics instead. The previous extraction had created an
+owner and made it fit the caller that happened to be first; an interface that fits one caller's body type produces
+copies, not callers.
+
+**MEASURED, PER COPY — three postures, two temp conventions, two durability levels:**
+
+| site | temp | `sync_all` | hardening |
+|---|---|---|---|
+| `jsonl` (the owner) | `x.jsonl.tmp` | yes | — |
+| `session_log::trim_file` | `x.jsonl.tmp` | yes | — |
+| `bootstrap::atomic_write` | `.{name}.tmp` (HIDDEN) | yes | `harden_file`, best-effort |
+| `connections::write` | `x.json.tmp` | **no** | best-effort, failure only logged |
+| `secrets::write` | `x.json.tmp` | **no** | fail-closed (a DPAPI-sealed blob) |
+| `ssh::save_known_hosts` | `x.json.tmp` | **no** | `#[cfg(unix)]` chmod ONLY |
+
+FOUR of them left the temp behind when the RENAME (not the write) failed, and the only tests that pin "no residue"
+and "a failed write leaves the original" belonged to the one spelling that was easy to call.
+
+`atomic.rs` now owns the mechanics — `replace(path, Hardening, write)` — with the sequence fixed and stated:
+create the temp, write, flush, `sync_all`, harden the TEMP **before** the rename, rename, and remove the temp on
+ANY failure. The temp is the target's name with `.tmp` APPENDED, never a hidden dotfile: litter from a crashed
+write should be something an operator can see, and a filter selecting `*.jsonl` must not hide it. `rewrite_atomically`
+stays as a thin `Hardening::None` call, so its SIX callers (not four — `monitor` calls it twice, which the first
+count missed) did not move.
+
+**AND TWO CORRECTIONS TO THE BRIEF THAT MATTERED.** The brief told the implementer to give `bootstrap` the `None`
+posture. It is not hardening-free: `bootstrap.rs:40` already called `paths::harden_file` on the temp (a Core-audit
+HIGH — `config.yaml` carries the device token), so `None` would have silently dropped a security hardening. The
+implementation used `BestEffort` and says why. The brief also said two copies left litter on a failed rename; the
+count is four. Both corrections are recorded in the code, and both came from the implementer reading the subject
+instead of the instruction — which is the second time this loop has paid for that (round 26's re-added timer).
+
+### THE MUTATION THAT DID NOT BITE, AND THE BUG UNDER IT (same round)
+
+Pinning the rollback, the mutation was obvious: delete the loop that puts the records back. **Every test in the
+file stayed green.** The repo's rule is that this is evidence about the mutation first, so the mutation was
+followed to the end rather than adjusted — and the answer was a real defect:
+
+```rust
+for id in &removed {            // the records are REMOVED from by_id here …
+    if let Some(rec) = guard.by_id.remove(id) { … }
+}
+let removed_records = removed   // … and the "snapshot" is taken HERE, after …
+    .iter().filter_map(|id| guard.by_id.get(id).cloned()).collect();   // so it is ALWAYS EMPTY
+```
+
+The rollback restored nothing, so the loop really was dead code — and a failed compaction silently dropped live
+tombstones from memory while the file kept them, which is the exact divergence the comment above it says must not
+happen ("they RESURRECT at next load"). The snapshot now runs BEFORE the removal loop. Two mutations pin it:
+deleting the rollback loop fails the new test, and putting the snapshot back after the removal fails it with the
+same message.
+
+**AND THE TEST THAT FOUND IT TOOK THREE TRIES, each one a lesson.** The first asserted a TAG SEARCH still found
+the rolled-back records — impossible, because they are tombstones and `search` skips them; following that failure
+showed the store kept a `tag_index` that NOTHING consulted (`search` and `list` both filter on the record's own
+`tags`), so the assertion could not exist and the index was dead state maintained at four sites. It is deleted —
+the deletion test's cleanest pass. The second try asserted the reload still saw the tombstones on disk, which is
+the opposite of what the store promises: `MemoryStore::new` COMPACTS AT OPEN ("stage-n: physically drop tombstones
+from the previous process"). The third put the rewrite-blocking directory BEFORE the deletes, because `delete`
+triggers an eager reclaim and a blocker planted afterwards arrives to find the compaction already done.
+
+**NUMBERS:** agent lib tests 716 → **717** (terminal,keyring) and 655 → **656** (default); `atomic.rs` is new,
+~430 lines with its truth table; the temp-name sweep found one real consequence to fix (`monitor`'s file is
+`monitors.json`, so its temp moves `monitors.jsonl.tmp` → `monitors.json.tmp`, and no consumer of either name
+exists) and one to leave alone (`session_log::prune_stale` still matches `<sid>.jsonl.tmp`, because
+`with_extension("jsonl.tmp")` on `x.jsonl` already produced the appended form). Nine files now call the one
+writer; the only `tmp`/`.part` strings left outside it are test ASSERTIONS of the no-residue property — plus the
+transfer landing, which is the next round's candidate and was deliberately not touched.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

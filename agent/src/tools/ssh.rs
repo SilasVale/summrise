@@ -1,5 +1,6 @@
 //! SSH session via russh — used by the terminal SshBackend (`terminal` feature).
 
+use std::io::Write;
 use std::sync::Arc;
 
 use russh::client::{self, connect, Handle};
@@ -27,7 +28,21 @@ fn fingerprint_of(key: &russh::keys::ssh_key::PublicKey) -> String {
     key.fingerprint(HashAlg::Sha256).to_string()
 }
 
+// Test-only store directory (mirrors the secrets.rs/connections.rs harness): a
+// TOFU save test must never write into the real DataDir, and this file had no
+// seam at all until its write path moved into `atomic` (round: the atomic-write
+// consolidation) and needed a posture test. cfg(test) keeps it out of every
+// shipped build.
+#[cfg(test)]
+thread_local! {
+    static TEST_DIR: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
 fn known_hosts_path() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Some(d) = TEST_DIR.with(|d| d.borrow().clone()) {
+        return d.join("summrise-known-hosts.json");
+    }
     crate::paths::data_dir().join("summrise-known-hosts.json")
 }
 
@@ -63,20 +78,25 @@ fn load_known_hosts_or_empty() -> Result<serde_json::Map<String, serde_json::Val
 /// Atomic write (round-57): temp + rename in the same directory — the old
 /// std::fs::write (truncate + write) left a half-written file on power loss,
 /// which load then silently swallowed as an empty trust table.
+///
+/// POSTURE `BestEffort`, stated here because this file's history is the reason
+/// the postures exist: the temp used to get a `#[cfg(unix)]` 0o600 chmod whose
+/// failure PROPAGATED, and nothing at all on Windows. Both halves moved into the
+/// shared hardener (`paths::harden_file`, which is exactly that chmod on unix and
+/// an icacls break-inheritance on Windows — so Windows gains best-effort
+/// hardening it never had), and an unavailable ACL must not cost SSH its trust
+/// table: a failed save is a re-TOFU of that host next time, not a lost device.
+/// The caller discards the result anyway (`let _ = save_known_hosts(...)`), so
+/// the old fail-closed propagation was never observable.
 fn save_known_hosts(map: &serde_json::Map<String, serde_json::Value>) -> std::io::Result<()> {
     let p = known_hosts_path();
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(
-        &tmp,
-        serde_json::to_string(map).unwrap_or_else(|_| "{}".into()),
-    )?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
-    }
-    std::fs::rename(&tmp, &p)?;
-    Ok(())
+    crate::atomic::replace(&p, crate::atomic::Hardening::BestEffort, |f| {
+        f.write_all(
+            serde_json::to_string(map)
+                .unwrap_or_else(|_| "{}".into())
+                .as_bytes(),
+        )
+    })
 }
 
 impl client::Handler for SshHandler {
@@ -432,5 +452,53 @@ impl SshSession {
         });
 
         Ok((output_rx, write_tx, resize_tx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn isolated(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("summrise-ssh-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
+        dir
+    }
+
+    fn unisolate(dir: &std::path::Path) {
+        TEST_DIR.with(|d| *d.borrow_mut() = None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The migrated site's posture, measured: `BestEffort`. An unavailable ACL
+    /// must NOT cost SSH its trust table (a failed save re-TOFUs the host next
+    /// connection, which is the round-57 trade), the save must still be
+    /// READABLE through the production reader, and it must leave no temp — the
+    /// name `prune`-style sweeps would have to know is `<name>.tmp`, appended.
+    #[test]
+    fn tofu_save_lands_when_the_acl_is_unavailable_and_leaves_no_temp() {
+        let dir = isolated("tofu-acl");
+        let mut map = serde_json::Map::new();
+        map.insert(
+            "u@h:22".into(),
+            serde_json::Value::String("SHA256:abc".into()),
+        );
+        crate::atomic::with_failing_hardening(|| save_known_hosts(&map))
+            .expect("an unavailable ACL must not fail a best-effort trust-table save");
+
+        let landed = load_known_hosts().expect("the trust table must still READ");
+        assert_eq!(
+            landed.get("u@h:22").and_then(|v| v.as_str()),
+            Some("SHA256:abc"),
+            "the saved fingerprint is what the next connection verifies against"
+        );
+        assert!(
+            !dir.join("summrise-known-hosts.json.tmp").exists(),
+            "a completed save leaves no temp beside the trust table"
+        );
+        unisolate(&dir);
     }
 }

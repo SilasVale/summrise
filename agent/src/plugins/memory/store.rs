@@ -14,7 +14,7 @@
 //! policy); record count is small (user-curated knowledge), so a Mutex is
 //! simpler and sufficient — no async locks needed.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, RwLock};
 
@@ -186,8 +186,6 @@ struct Inner {
     by_id: HashMap<String, MemoryRecord>,
     /// Ordered ids by updated_at desc (rebuilt lazily on query).
     order: Vec<String>,
-    /// tag → ids (case-insensitive keys).
-    tag_index: HashMap<String, HashSet<String>>,
     /// Total content bytes (for max_bytes eviction).
     total_bytes: usize,
     dirty: bool,
@@ -226,7 +224,6 @@ impl MemoryStore {
                 load_failed: false,
                 by_id: HashMap::new(),
                 order: Vec::new(),
-                tag_index: HashMap::new(),
                 total_bytes: 0,
                 dirty: false,
             }),
@@ -304,18 +301,6 @@ impl MemoryStore {
             // Dedup by id is last-wins; tag index is rebuilt after the sweep
             // so a superseded line's tags cannot orphan-register the winner.
             guard.by_id.insert(rec.id.clone(), rec.clone());
-        }
-        let live: Vec<(String, Vec<String>)> = guard
-            .by_id
-            .values()
-            .filter(|r| !r.deleted)
-            .map(|r| (r.id.clone(), r.tags.clone()))
-            .collect();
-        for (id, tags) in live {
-            for tag in tags {
-                let key = tag.to_lowercase();
-                guard.tag_index.entry(key).or_default().insert(id.clone());
-            }
         }
         // total_bytes counts LIVE records only — the old per-line sum counted
         // every update revision (store.rs history), inflating the byte cap
@@ -437,60 +422,60 @@ impl MemoryStore {
             .filter(|(_, r)| r.deleted)
             .map(|(id, _)| id.clone())
             .collect();
-        for id in &removed {
-            if let Some(rec) = guard.by_id.remove(id) {
-                Self::ledger_adjust(&mut guard, Some(&rec), None);
-                for tag in &rec.tags {
-                    let key = tag.to_lowercase();
-                    if let Some(set) = guard.tag_index.get_mut(&key) {
-                        set.remove(id);
-                        if set.is_empty() {
-                            guard.tag_index.remove(&key);
-                        }
-                    }
-                }
-            }
-        }
         if removed.is_empty() {
             return 0;
         }
-        // Snapshot the doomed tombstones so a FAILED disk rewrite can be
-        // rolled back into the index — otherwise memory (clean) and disk
-        // (still holding them) diverge and they RESURRECT at next load.
+        // SNAPSHOT THE DOOMED TOMBSTONES **BEFORE** REMOVING THEM — the order is the whole point, and it
+        // was backwards. A FAILED disk rewrite must be rolled back into the index below, "otherwise
+        // memory (clean) and disk (still holding them) diverge and they RESURRECT at next load"; the
+        // snapshot used to be taken AFTER the removal loop, so it looked the ids up in a map they had
+        // just been removed from and was ALWAYS EMPTY. The rollback therefore restored nothing — which
+        // is why deleting its loop left every test in this file green, and why a failed compaction
+        // silently dropped live tombstones from memory while the file kept them. Found by following
+        // exactly that mutation instead of trusting the green.
         let removed_records: Vec<MemoryRecord> = removed
             .iter()
             .filter_map(|id| guard.by_id.get(id).cloned())
             .collect();
-        // Rewrite the JSONL with only the survivors (temp + rename).
-        let path = self.file_path();
-        let tmp = path.with_extension("jsonl.tmp");
-        let write_ok = {
-            use std::io::Write;
-            match std::fs::File::create(&tmp) {
-                Ok(mut out) => {
-                    let _ = writeln!(
-                        out,
-                        "{}",
-                        serde_json::json!({ "type": HEADER_TYPE, "version": HEADER_VERSION })
-                    );
-                    let mut survivors: Vec<&MemoryRecord> = guard.by_id.values().collect();
-                    survivors.sort_by_key(|r| r.created_at);
-                    for rec in survivors {
-                        if let Ok(line) = serde_json::to_string(rec) {
-                            let _ = writeln!(out, "{line}");
-                        }
-                    }
-                    // Durability: the rename must not outrun the data. A
-                    // power cut after rename, without this sync, can leave
-                    // the replaced file EMPTY — total knowledge loss (the
-                    // process-kill story is temp+rename safe; power is not).
-                    out.flush().is_ok() && out.sync_all().is_ok()
-                }
-                Err(_) => false,
+        for id in &removed {
+            if let Some(rec) = guard.by_id.remove(id) {
+                Self::ledger_adjust(&mut guard, Some(&rec), None);
             }
-        };
-        if !write_ok || std::fs::rename(&tmp, &path).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        }
+        // Rewrite the JSONL with only the survivors — THROUGH THE ONE DURABLE REPLACE. This was the last
+        // hand-rolled temp+rename in the tree, and its own durability note is the reason that module
+        // exists: "a power cut after rename, without this sync, can leave the replaced file EMPTY — total
+        // knowledge loss (the process-kill story is temp+rename safe; power is not)". The sync, the
+        // harden-before-rename order and the clean-up-on-any-failure are `crate::atomic::replace`'s now,
+        // stated once for every writer. `Hardening::None`: this file is not secret-adjacent.
+        let path = self.file_path();
+        let write_ok = crate::atomic::replace(&path, crate::atomic::Hardening::None, |out| {
+            use std::io::Write;
+            writeln!(
+                out,
+                "{}",
+                serde_json::json!({ "type": HEADER_TYPE, "version": HEADER_VERSION })
+            )?;
+            let mut survivors: Vec<&MemoryRecord> = guard.by_id.values().collect();
+            survivors.sort_by_key(|r| r.created_at);
+            for rec in survivors {
+                if let Ok(line) = serde_json::to_string(rec) {
+                    writeln!(out, "{line}")?;
+                }
+            }
+            Ok(())
+        })
+        .is_ok();
+        if !write_ok {
+            // THE IN-MEMORY ROLLBACK STAYS HERE, and only here: it is this store's own invariant, not the
+            // writer's. Without it memory (clean) and disk (still holding the tombstones) diverge and they
+            // RESURRECT at the next load.
+            //
+            // AND NOTHING ELSE IS DERIVED FROM A TOMBSTONE: `by_id` is the whole of the in-memory state
+            // a failed rewrite has to restore. (Pinning this rollback is what showed that: the tag index
+            // this block used to keep in step was consulted NOWHERE — `search` and `list` both filter on
+            // the record's own `tags` field — so it was dead state maintained at four sites, and it is
+            // deleted rather than restored. See the store's `Inner`.)
             for rec in removed_records {
                 guard.by_id.insert(rec.id.clone(), rec);
             }
@@ -547,13 +532,6 @@ impl MemoryStore {
                 Self::ledger_adjust(&mut guard, Some(&prev), Some(&rec));
             } else {
                 Self::ledger_adjust(&mut guard, None, Some(&rec));
-            }
-            for tag in &rec.tags {
-                guard
-                    .tag_index
-                    .entry(tag.to_lowercase())
-                    .or_default()
-                    .insert(id.clone());
             }
             guard.dirty = true;
         }
@@ -619,17 +597,6 @@ impl MemoryStore {
             let prev = guard.by_id.insert(id.to_string(), rec.clone());
             // The ledger moves with the record, through its one owner.
             Self::ledger_adjust(&mut guard, prev.as_ref(), Some(&rec));
-            // Rebuild the tag index for this record.
-            for set in guard.tag_index.values_mut() {
-                set.remove(id);
-            }
-            for t in &rec.tags {
-                guard
-                    .tag_index
-                    .entry(t.to_lowercase())
-                    .or_default()
-                    .insert(id.to_string());
-            }
             guard.dirty = true;
         }
         // Append the updated line. The index is already updated either way, but a failed
@@ -1760,6 +1727,56 @@ mod tests {
             s2.get(&ids[1], true).is_none(),
             "disk rewrite dropped tombstones"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A FAILED REWRITE PUTS THE TOMBSTONES BACK.
+    ///
+    /// `compact`'s comment states the invariant — a failed disk rewrite must be rolled back, "otherwise
+    /// memory (clean) and disk (still holding them) diverge and they RESURRECT at next load" — and
+    /// NOTHING observed it: deleting the rollback loop left this file's suite green. Following that
+    /// mutation to the end found why: the snapshot the loop restores from was taken AFTER the removal
+    /// loop, so it was always empty and the rollback restored nothing. Both halves are fixed, and this
+    /// test fails if either the snapshot order or the rollback goes away.
+    ///
+    /// THE DISK HALF IS DELIBERATELY NOT ASSERTED HERE. `MemoryStore::new` COMPACTS AT OPEN ("stage-n:
+    /// physically drop tombstones from the previous process"), so a reload of a file that still holds
+    /// tombstones drops them by design — an assertion that a reload still sees them would be asserting
+    /// the opposite of what the store promises. What matters is that MEMORY keeps them when the rewrite
+    /// failed, which is what the load-time compaction's own rollback depends on.
+    #[test]
+    fn a_failed_rewrite_rolls_back_the_dropped_tombstones() {
+        let (s, dir) = tmp_store("compact_rollback");
+        for t in ["alpha", "beta", "gamma", "delta"] {
+            s.insert_ok(rec(t, "shared body text"));
+        }
+        // BLOCK THE REWRITE BEFORE THE DELETES, and the order matters twice over: `delete` triggers the
+        // eager reclaim once tombstones are a majority, so a blocker planted afterwards arrives to find
+        // the compaction already done and reported as a success. A DIRECTORY at the temp path makes
+        // `File::create` fail — the idiom `jsonl.rs`'s own failure test uses, and it exercises the real
+        // path rather than a test-only hook.
+        std::fs::create_dir_all(dir.join("memory.jsonl.tmp")).expect("blocker dir");
+        for t in ["alpha", "beta", "gamma", "delta"] {
+            assert!(matches!(
+                s.delete(&format!("m-{t}")),
+                UpdateOutcome::Durable
+            ));
+        }
+        // The explicit call is the deterministic one — the eager reclaim is an optimisation, not a
+        // contract. With the rewrite blocked it must report that it removed nothing.
+        let removed = s.compact();
+        assert_eq!(
+            removed, 0,
+            "the rewrite could not land, so compact must report that it removed nothing"
+        );
+        // THE INVARIANT: every tombstone is still in the index, because the file still holds them.
+        for t in ["alpha", "beta", "gamma", "delta"] {
+            assert!(
+                s.get(&format!("m-{t}"), true).is_some(),
+                "{t} must be back in the index after a failed rewrite — a rollback that drops it \
+                 leaves memory and disk disagreeing, and it resurrects at the next load"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

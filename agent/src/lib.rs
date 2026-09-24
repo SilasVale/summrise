@@ -198,6 +198,11 @@ pub mod tunnel_ctl {
         }
     }
 }
+/// ONE WAY TO REPLACE A FILE ATOMICALLY — the temp naming rule, the
+/// flush/sync/rename order, the hardening posture and the cleanup on any
+/// failure, shared by every durable rewrite in this crate. Internal-only: it is
+/// device file hygiene, not a wire surface.
+pub(crate) mod atomic;
 /// Internal-only (no embedding consumer): the AI-evidence feed contract is
 /// crate-private — its playwright + mcp-client producers and the web reader
 /// all live in this crate.

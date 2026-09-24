@@ -116,22 +116,17 @@ pub(crate) fn prepare_append(
 /// MUST serialize its writers against this call — `evidence.rs` and `runs.rs`
 /// both hold their own write mutex across both the append and this rewrite.
 ///
-/// The temp file is left behind on failure (a caller that wants to clean up
-/// may) and shares the target's directory, which is what keeps the rename on
-/// one filesystem.
+/// THE MECHANICS ARE NOT HERE ANY MORE. The temp name (`<name>.tmp`, appended),
+/// the flush/`sync_all` order, the hardening step and the removal of the temp on
+/// ANY failure — including the failed rename this function used to leave litter
+/// on — belong to [`crate::atomic::replace`], which is what this calls. The
+/// posture is `None`: an audit/log rewrite has never done permission work, while
+/// the five sites that used to spell these mechanics for themselves each had
+/// their own answer to whether to do it.
 pub(crate) fn rewrite_atomically(path: &Path, body: &str) -> std::io::Result<()> {
-    let tmp = path.with_extension("jsonl.tmp");
-    let res = (|| -> std::io::Result<()> {
-        let mut out = std::fs::File::create(&tmp)?;
-        out.write_all(body.as_bytes())?;
-        out.flush()?;
-        out.sync_all()?;
-        std::fs::rename(&tmp, path)
-    })();
-    if res.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    res
+    crate::atomic::replace(path, crate::atomic::Hardening::None, |out| {
+        out.write_all(body.as_bytes())
+    })
 }
 
 #[cfg(test)]
