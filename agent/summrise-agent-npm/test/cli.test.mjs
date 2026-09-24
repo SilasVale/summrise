@@ -1947,3 +1947,29 @@ test("setup must not overwrite a remapped DataDir with the literal default", () 
     "and must never re-derive it from ProgramData, which discards a remap",
   );
 });
+
+test("no component ARTEFACT is boxed in the package, which is why the loader's first arm is a seam", () => {
+  // resolveComponent tries a package copy first. MEASURED: no component is in files[] or in
+  // required-in-tgz.txt, so today the release host is the only source and that arm is a seam for a future
+  // release that boxes one.
+  //
+  // IT MATCHES ARTEFACTS, NOT SUBSTRINGS, and my first version of this test is why: it refused any entry
+  // matching /electron/i, and files[] legitimately contains summrise-desktop-electron/src/main.js — the
+  // desktop shell's SOURCES, which the package is supposed to carry. That is the same trap the repo
+  // records for ".btn-ghost contains .btn": a substring is not the thing.
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  const files = (pkg.files || []).join(" ");
+  for (const artefact of [
+    "cloudflared.exe",
+    "summrise-playwright.zip",
+    "electron-dist",
+    "node_modules",
+  ]) {
+    assert.ok(
+      !files.includes(artefact),
+      `${artefact} must not be in package files[] — the package carries no boxed components by design`,
+    );
+  }
+});

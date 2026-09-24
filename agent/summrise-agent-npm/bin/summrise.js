@@ -955,6 +955,13 @@ function sha256File(p) {
  *
  * `null` when neither source works: every component here is optional to the
  * AGENT, and a failed fetch must not fail the install.
+ *
+ * THE FIRST ARM IS A SEAM, NOT A LIVE PATH — measured, because a reader deserves to know which: no
+ * component is in `package.json`'s `files[]` or in `required-in-tgz.txt`, and `tar tzf` on the published
+ * tarball confirms none of the three is there. So today the release host is the ONLY source, and the
+ * `existsSync` above exists so that a future release which DOES box one gets it from the package without
+ * touching this function. The test beside it pins the fact, so boxing one is a deliberate act that also
+ * updates this sentence.
  */
 function resolveComponent(name, pkgPath) {
     if (fs.existsSync(pkgPath))

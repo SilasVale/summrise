@@ -259,7 +259,7 @@ kill/copy the exe inline over a PTY** — use the npm flow above.
 **THE npm PACKAGE CARRIES NO BOXED COMPONENTS — `setup` FETCHES AND VERIFIES THEM.** The package is ~6.7 MB: the exe,
 the CLI, the desktop shell's *sources*. `cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) and the **electron
 runtime** the desktop shell launches are served by the release host and staged into `<install>\components` by
-`resolveComponent()`, which takes the package copy first and the host's route otherwise (`curl -fsSL`, so an HTTP error
+`resolveComponent()`, which takes the package copy IF a release boxes one and the host's route TODAY (no component is in `files[]`; the test beside it pins that) (`curl -fsSL`, so an HTTP error
 is a FAILURE and not a 404 page on disk). Both cloudflared and electron are STAGED IN R2 now, which is what lets
 `index/components.json` pin a sha256 for each and `version.json` publish it: setup REFUSES a mismatch, warns when a
 release carries no pin, and never touches GitHub — a device behind the GFW needs no mirror. An *upgrade* was never
