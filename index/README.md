@@ -48,7 +48,11 @@ npm i -g --prefix (Split-Path (Get-Command summrise).Source) https://agent.saisi
 summrise update
 ```
 
-## Legacy redirects
+## The installer asset
 
-- `/summrise-agent/SummriseAgent-Setup.exe` → the console URL (CONSOLE_URL var; this
-  site's root when unset) — NSIS retired.
+- `/summrise-agent/SummriseAgent-Setup.exe` is SERVED when a release publishes one — it is an
+  ASSET, not a redirect, and the worker's route reads it from the bucket (`src/index.js`).
+  **THE NSIS INSTALLER IS NOT RETIRED**: `scripts/publish-release.sh` builds it on every release
+  (the pack step) and the manifest's `installer` field decides whether the landing offers it — an
+  absent field is a PUBLICATION STATE, not a retirement. `scripts/build.sh` carries the full
+  history of a comment that said otherwise for long enough that a reader would have believed it.

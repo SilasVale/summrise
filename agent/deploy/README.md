@@ -1,8 +1,11 @@
 # Summrise Agent deploy
 
 Windows deployment notes for the summrise-agent device agent. The install and
-update channel is **npm-only** (the NSIS installer and setup.ps1 are retired
-in `deploy/retired/`).
+update channel is **npm-only** — but that is the AGENT's channel, not the whole story: the
+NSIS installer is **NOT retired**. `scripts/publish-release.sh` builds it every release, it ships the
+desktop task and the one-click install, and it is served as an asset when a release publishes one. Only
+`setup.ps1` is retired, in `deploy/retired/`. `scripts/build.sh`'s comment carries the history of a
+comment that called the installer retired for long enough that a reader would have believed it.
 
 ## Install / update
 
@@ -27,7 +30,7 @@ summrise update                  # one-command update
   to `summrise-agent-<device>` (idempotent, runs on agent start)
 - `cloudflared-config.example.yml` — example tunnel ingress config
 - `claude-mcp.example.json` — example Claude Code MCP registration
-- `retired/` — NSIS installer + setup.ps1 (superseded by npm)
+- `retired/` — `setup.ps1` (superseded by npm). The NSIS installer is NOT here: see the note at the top.
 
 ## Architecture
 
