@@ -712,6 +712,21 @@ async function autoLaunchTaskSet(enabled) {
             // interactive user is not resolvable from the service session. A bare
             // STRING invocation happens to work (shell default), but spawn arrays
             // need an explicit account: use Administrator (the d1 console user).
+            //
+            // THIS PATH CANNOT REPRODUCE WHAT `summrise` REGISTERS, and the difference matters. The CLI
+            // gives SummriseDesktop TWO triggers — AtLogOn plus a guarded 5-minute pulse (bin/summrise.js:
+            // `New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval 5min`, run
+            // through desktop-pulse.vbs → ensure-desktop.ps1, which exits when electron is already up).
+            // `schtasks /create` has no way to express a repetition interval at all, so what this writes is
+            // a LOGON-ONLY task: toggling auto-launch OFF deletes the hardened task, and toggling it ON
+            // again replaces it with one that cannot recover a wedged shell. `summrise update` heals it and
+            // says so in its log — "desk: SummriseDesktop hardened (guarded 5-min pulse)" — which is how
+            // this collision was found in the first place.
+            //
+            // Doing it properly means New-ScheduledTaskTrigger through PowerShell (the CLI's shape,
+            // duplicated in JS) or delegating to the CLI; neither is a one-liner, and the update-time repair
+            // bounds the damage to "until the next update". Recorded where the downgrade happens, so the
+            // next reader sees the trap instead of rediscovering it from a shell that stopped recovering.
             const r = await runSchtasks([
                 "/create", "/tn", AUTOSTART_TASK,
                 // schtasks re-parses the /tr VALUE as a command line — it needs its
