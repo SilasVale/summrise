@@ -19,12 +19,15 @@ cd "$(dirname "$0")/../.." || exit 1
 WORKFLOW=".github/workflows/ci.yml"
 [ -f "$WORKFLOW" ] || { echo "  no $WORKFLOW — run from the repo" >&2; exit 1; }
 
-mapfile -t gates < <(grep -ohE '(node|bash|python3) +scripts/test/[A-Za-z0-9._-]+' "$WORKFLOW" | sort -u)
-# ITSELF, SKIPPED — and the skip is load-bearing rather than tidy: this file is invoked from ci.yml
-# (build-pins.bash enforces that EVERY scripts/test file is), so the extraction above finds it, and
-# running it would run this script again, forever. It is the one command here that is a superset of
-# the others rather than a peer.
-gates=("${gates[@]/#bash scripts\/test\/all-gates.bash/}")
+mapfile -t gates < <(
+  grep -ohE '(node|bash|python3) +scripts/test/[A-Za-z0-9._-]+' "$WORKFLOW" |
+    sort -u |
+    # ITSELF, EXCLUDED — load-bearing rather than tidy: this file is invoked from ci.yml (build-pins
+    # enforces that EVERY scripts/test file is), so the extraction finds it, and running it would run
+    # this script again, forever. It is the one command here that is a superset of the others rather
+    # than a peer. Filtered out rather than blanked in the array, so the counts below stay exact.
+    grep -v '^bash scripts/test/all-gates\.bash$'
+)
 if [ "${#gates[@]}" -lt 20 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
