@@ -4927,6 +4927,12 @@ job runs `npm run build` — `tsc -b && vite build && prune-stale-assets`, a PRO
 single-file check. The errors were real and CI was right; the local command was simply a different question.
 That is why AGENTS.md carries the table it does, and why the table now lists five directories instead of four.
 
+**AND SIX TEST STEPS NOW ASSERT THEY RAN SOMETHING (round 192).** `scripts/test/npm-test-floored.mjs` wraps `npm test`
+for the six CI steps whose package uses `node --test`: measured, that runner prints `tests 0 / pass 0` and EXITS 0, so
+renaming a test file would have silenced any of them. It reads `ℹ pass N` (Node 24), `# pass N` (Node 20) and
+`Tests  N passed` (vitest), and a suite whose output carries NO count is a failure rather than an excuse. Mutation:
+an empty package with `node --test` exits 1 with "the suite ran 0 test(s) and exited 0". The floors the gate scripts
+already carried (all-gates FLOOR 40, script-syntax FLOOR 20, console-smoke floor 4) now exist at the step too.
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

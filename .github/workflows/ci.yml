@@ -46,7 +46,7 @@ jobs:
         run: npm run typecheck
         working-directory: gateway
       - name: Tests
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: gateway
       - name: Lint
         run: npm run lint
@@ -70,7 +70,7 @@ jobs:
         run: npm ci && npm run build
         working-directory: gateway/ui
       - name: Unit tests
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: gateway/ui
       # ONE COMMAND FOR ALL OF THEM, AND THE SET IS DISCOVERED. This step used to run
       # `render-smoke.mjs` alone, written inline; overview-render-smoke.mjs recorded the consequence
@@ -110,7 +110,7 @@ jobs:
         run: npm run build
         working-directory: agent/resources/panel-react
       - name: Test
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/resources/panel-react
       # THE PANEL SHEET'S FRESHNESS (round 177, relocated round 190). Five gates read the COMMITTED
       # agent/resources/panel/panel.css and nothing compared it to its source. THIS JOB is the one that
@@ -763,7 +763,7 @@ jobs:
       # fail with EUSAGE. `npm test` (node --test over node builtins) runs
       # against the committed bin/summrise.js with nothing installed.
       - name: npm CLI tests
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/summrise-agent-npm
 
       # (d) THE DESKTOP SHELL'S SUITE, WHICH NOTHING RAN.
@@ -780,7 +780,7 @@ jobs:
       # Same shape and same zero-dependency story as (c): node --test over node
       # builtins against the committed .js, so no install step.
       - name: desktop shell tests
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/summrise-desktop-electron
 
   # index worker unit tests — pure node:test, zero deps, no lockfile, so
@@ -795,7 +795,7 @@ jobs:
         with:
           node-version: 22
       - name: Tests
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: index
 
   # satellite proxy behavior suites (CORS/gates/BYOK/protocol conversion)

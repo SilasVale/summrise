@@ -175,7 +175,7 @@ jobs:
         run: npm ci --include=optional && npm run build
         working-directory: agent/resources/panel-react
       - name: Test panel SPA
-        run: npm test
+        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/resources/panel-react
       - name: Cross-compile the agent exe
         working-directory: agent
