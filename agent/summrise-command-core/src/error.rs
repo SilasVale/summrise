@@ -68,8 +68,22 @@ pub enum DeviceError {
 }
 
 impl DeviceError {
-    /// Stable machine-readable code (round-59): the transport carries the
-    /// variant name so clients route on the code, not on message text.
+    /// Stable machine-readable code (round-59), so clients route on the code rather than on
+    /// message text.
+    ///
+    /// WHICH TRANSPORT CARRIES IT, NAMED, because this comment used to say "the transport
+    /// carries the variant name" and only one of the two does (round 165):
+    ///
+    ///   * `/api/tools/<name>` — YES. `web::api_tool` answers `{"ok":false,"error":…,"code":…}`.
+    ///     This is the one the console's gateway uses, so a console client CAN route on it.
+    ///   * `/mcp` — NO. `mcp::server` answers with `ContentBlock::text(e.to_string())`, so an
+    ///     MCP client sees the Display text and has no code at all. It must parse the message,
+    ///     which is the thing this code exists to make unnecessary.
+    ///
+    /// That gap is a limitation, not an oversight to paper over: carrying a code on the MCP side
+    /// means a structured payload or an error-code convention in the text, and `isError` alone
+    /// does not distinguish "session busy" from "keychain failed". The claim is corrected here so
+    /// the next reader does not build on it; the decision is recorded rather than taken.
     pub fn code(&self) -> &'static str {
         match self {
             DeviceError::SshConnectFailed { .. } => "ssh_connect_failed",
