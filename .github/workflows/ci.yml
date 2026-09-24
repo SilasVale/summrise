@@ -714,6 +714,12 @@ jobs:
       # written three times — and this is the rule that keeps it removed: outside that section, no device field is read.
       - name: one place reads the device's session row
         run: node scripts/test/session-row-check.mjs
+      - name: the session row s CARRY list and DETECT list agree
+        # They are two lists on purpose — `pendingApproval` is derived at map time, so comparing the
+        # mapped objects would report a change on every poll. The bug this guards was the two
+        # disagreeing: `wireFieldsChanged` omitted `idleMs` and `commandRunning` while `wireFields`
+        # carried them, so a row kept its discovery values for life. Nothing compared them until now.
+        run: node scripts/test/session-carry-detect-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
