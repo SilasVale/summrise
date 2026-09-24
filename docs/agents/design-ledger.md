@@ -4494,3 +4494,74 @@ persistent banner: one fact, two mechanisms, added by the pass whose whole subje
 The release itself then went through cleanly — 1.2.462 audited byte-for-byte against the GitHub asset and
 installed on the device — and three earlier audit answers were the first-publish state, as they have been
 since 1.2.454.
+
+## 2026-09-24 (the operator's CLI, two new gates, and a compiler that moved)
+
+The tenth exploration opened the operator's own front door — `summrise setup/update/status/rollback`, the
+one surface every install passes through — and found the shape this stretch keeps meeting, now in its
+purest form: **A SENTENCE THAT SOUNDS LIKE IT SHOULD WORK.**
+
+**`summrise --version` FAILED THE CHECK THE INSTALLER TELLS OPERATORS TO RUN.** Step 4 of
+`deploy/README-installer.md` BEGINS with it. It is not a verb, so it fell through to the usage branch,
+printed the verb list and exited 1 — a fresh install that had worked reported a FAILURE in the one place
+the operator is told to look. Fixed, and the test EXECUTES the CLI: the suite's own comment said every
+documented verb mutates the machine, which is why only a bare invocation ran; `--version` mutates
+nothing. That is the first real execution test in that file.
+
+**A FAILED UPDATE NAMED THE VERSION THAT FAILED.** `releaseMarkerVerdict` is printed by TWO callers —
+`rollback`, staging a release to PIN it, and `update`, staging one to INSTALL it — and it said
+"rollback: … re-run `summrise rollback <want>`" for both. `want` is the version that just failed to
+install, so the advice asked the device to pin a release it was not running. The verb decides the
+sentence now, and the update path offers the version the device is ACTUALLY on.
+
+**THE NO-OP GUARD EVAPORATED WHEN THE NETWORK DID.** The parity guard exists because of round 201's
+measured defect (a CLI stamped the install with the version it already had, the swap installed the same
+build, and `status` kept pointing at the command that could not help). It compares the CLI against the
+RELEASE CHANNEL, so when the CDN is unreadable `latest` is empty and the whole check is skipped — a
+network blip re-opens the defect. The same refusal now comes from two facts already on the machine.
+
+**`setup` OVERWROTE A REMAPPED DataDir WITH THE LITERAL DEFAULT.** `resolveDataDir()` is registry-first
+and `DATA_DIR` is its answer, but the registry write used `path.join(process.env.ProgramData, "Summrise")`
+— while the tree was created at `DATA_DIR`. A remapped device got its new tree at one path and a registry
+naming another, which is the path the AGENT reads: the data splits and nothing reports it. The comment two
+lines above even said "DataDir defaults to %ProgramData%\Summrise" — a default applies when nothing is
+set, not OVER A REMAP.
+
+**THE BUSY-MARKER PATH HAD ONE OWNER IN PROSE AND FOUR IN CODE**, and the agent had already fixed the
+same defect on its own side, with a comment that says why: "a drift between the two is invisible until an
+update actually runs — and then the swap releases a file the agent never created, the marker survives,
+and every later update is refused for up to an hour." The CLI's generated PowerShell carried three
+hand-written copies; `busyMarkerPs()` derives the fourth from the one owner, and a contract test holds the
+JS form and the PS form to the same file.
+
+**AND TWO FINDINGS TURNED OUT TO BE NEGATIVES WORTH THE WRITING DOWN.** The exploration reported that the
+two swap builders both write `update start` so "the receipt cannot say which ran" — the receipt is exactly
+what separates them, and `diagnoseUpdate` already relies on it (`cli-swap-launched` vs `rust-swap`), which
+is now said in the code. And the busy-marker path WAS consistent; what was false was the claim, not the
+behaviour. **What is real behind the second one is behavioural, and is named rather than patched: the
+agent's swap script re-stages the boxed components while the CLI's runs the migration gate — neither does
+both, and both report success.**
+
+**THEN TWO CI REDS, EACH DIAGNOSED RATHER THAN RETRIED.** The first was mine from four rounds earlier: the
+jsdom console smokes were wired into `pack-chain`, a job whose steps are checkout and setup-node, so all
+four failed to LOAD. Reproducing CI's condition (hiding `node_modules` → exactly 0/4) found it; the log
+could not have, because the wrapper printed only lines matching `✗|FAIL|not ok` and a smoke that dies
+before its first check has none — it now prints the line that NAMES the error. The second was not mine:
+the freshness gate compiles `src/summrise.ts` with the binary left behind by the electron step ABOVE it,
+and that step installed `typescript@5` — a MOVING major — while the committed bin came from 5.9.3. Two
+tsc versions emit different JavaScript from identical TypeScript, so the gate failed a commit that was
+CORRECT, in both workflows. Three places name that compiler; `build-pins.bash` — whose header already
+existed for exactly this shape, "the build inputs that are HAND-COPIED, each with a single source of truth
+and NOTHING comparing them" — holds them to one version, and its mutation is in the mutation list.
+
+**THE STRETCH'S OWN GATES CAUGHT THE STRETCH'S OWN COMMITS.** The new mock gate found `lib/api.ts` itself
+on its first run (the predicate's doc QUOTES the idiom it warns about — the trap `exports-check` and
+`retired-colours-check` each recorded on their own first run); `ledger-budget-check` refused an AGENTS.md
+edit of mine that was 72 bytes over its ceiling; and `gate-mutations-check` runs the two gates this
+stretch added alongside the twenty-seven that were already there.
+
+**AND THE DURABLE FINDING, after five separate instances:** the code and its instruments drift
+independently, and only BREAKING one of them shows it. A security test whose comment had stopped being
+true, a doc promising `None` where the code always returned `Some`, a wholesale mock that turned a
+`TypeError` into passing silence, an SSE assertion on a header no consumer reads, a help test pinning
+whitespace — each was green, and each was wrong about what it measured.
