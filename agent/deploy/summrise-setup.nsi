@@ -130,13 +130,14 @@ Section "Install" SEC01
   ; $DataDir\logs\installer.log, and $DataDir is %ProgramData%\Summrise. The path below is built
   ; from $3, which line 127 already reads for -ResultFile. Start-Transcript's failure is swallowed,
   ; so the wrong path also meant the operator could be sent to nothing at all.
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\summrise-online-setup.ps1" -InstallDir "$INSTDIR" -SummriseVersion "${SUMMRISE_VERSION}" -CdnBase "${SUMMRISE_CDN}" -ResultFile "$3\Summrise\logs\install-result.txt" -LocalTgz "$INSTDIR\scripts\summrise-agent-${SUMMRISE_VERSION}.tgz"'
-  Pop $0
-  ${If} $0 != 0
-    MessageBox MB_ICONSTOP "安装失败（步骤退出码 $0）。$\r$\n看 $3\Summrise\logs\installer.log 找原因，修好后重跑安装包即可（幂等）。"
-    Abort
-  ${EndIf}
-
+  ; THE UNINSTALLER IS WRITTEN BEFORE THE STEP THAT CAN FAIL (round 147). It used to be
+  ; written after the `${If} $0 != 0` / Abort below, so a FAILED install left everything the
+  ; setup script had already done — Machine PATH among it — with NO uninstaller and no
+  ; Add/Remove entry: a half-installed product with no supported way to remove it. The
+  ; dialog's advice (re-run; it is idempotent) is true, but it is not the only thing an
+  ; operator may want to do. The uninstall section tolerates a partial install, because
+  ; every Delete/RMDir it performs is already tolerant of absence.
+  ; ORDER IS THE GUARANTEE: installer_integrity.rs fails if this is ever moved back.
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "DisplayName" "Summrise Agent ${SUMMRISE_VERSION}"
   WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "UninstallString" "$INSTDIR\uninstall.exe"
@@ -145,6 +146,14 @@ Section "Install" SEC01
   WriteRegStr HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "Publisher" "Summrise"
   WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "NoModify" 1
   WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "NoRepair" 1
+
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\summrise-online-setup.ps1" -InstallDir "$INSTDIR" -SummriseVersion "${SUMMRISE_VERSION}" -CdnBase "${SUMMRISE_CDN}" -ResultFile "$3\Summrise\logs\install-result.txt" -LocalTgz "$INSTDIR\scripts\summrise-agent-${SUMMRISE_VERSION}.tgz"'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP "安装失败（步骤退出码 $0）。$\r$\n看 $3\Summrise\logs\installer.log 找原因，修好后重跑安装包即可（幂等）。"
+    Abort
+  ${EndIf}
+
 SectionEnd
 
 Section "Uninstall"

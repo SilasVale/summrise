@@ -199,3 +199,35 @@ fn the_task_has_one_definition() {
         "both ends must refuse a second instance"
     );
 }
+
+/// A FAILED INSTALL MUST STILL BE REMOVABLE (round 147).
+///
+/// The NSIS script runs the setup script and, on a non-zero exit, shows a dialog and
+/// Aborts. `WriteUninstaller` and the Add/Remove registration used to come AFTER that
+/// Abort, so a failure left whatever the setup script had already done — Machine PATH
+/// included — with no uninstaller and no entry in Add/Remove Programs. Order is the
+/// guarantee here, exactly as it is for the dot-source check above.
+#[test]
+fn the_uninstaller_precedes_the_step_that_can_fail() {
+    // COMMENTS ARE STRIPPED FIRST. This is the FOURTH time this stretch that a scan read its own
+    // explanation as the defect: the comment above the reorder NAMES the `${If} $0 != 0` branch and the
+    // Abort, so `find("Abort")` matched the prose rather than the instruction and the order assertion
+    // failed on a file that was already correct. The sibling test above strips for the same reason.
+    let nsi: String = read("deploy/summrise-setup.nsi")
+        .lines()
+        .filter(|l| !l.trim_start().starts_with(';'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let run = nsi.find("nsExec::ExecToLog").expect("the setup script must still run");
+    let uninstaller = nsi.find("WriteUninstaller").expect("an uninstaller must be written");
+    let entry = nsi
+        .find("Uninstall\\SummriseAgent")
+        .expect("and the Add/Remove entry registered");
+    assert!(
+        uninstaller < run && entry < run,
+        "the uninstaller and its Add/Remove entry must be written BEFORE the setup run, or a failed install cannot be removed (uninstaller={uninstaller}, entry={entry}, run={run})"
+    );
+    // The Abort must still be there: this changes what a failure LEAVES, not whether it stops.
+    let abort = nsi.find("Abort").expect("a failed step must still abort the install");
+    assert!(run < abort, "the abort must follow the run it judges");
+}
