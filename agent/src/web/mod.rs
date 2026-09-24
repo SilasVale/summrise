@@ -2406,6 +2406,35 @@ mod tests {
             .unwrap()
     }
 
+    /// A BODY OVER THE CAP IS 413, AND IT SAYS SO IN A `code` RATHER THAN IN PROSE. Round-60's fix drew
+    /// the line between a genuine size violation and a transport error — "both were lumped into 413 +
+    /// 'exceeds limit', lying about a disconnect" — and NOTHING tested either branch, so the distinction
+    /// that fix exists to make was unpinned and its `code` had no consumer anywhere in the repo. This is
+    /// the size half; the transport half needs a body whose stream errors, which is a different harness.
+    #[tokio::test]
+    async fn an_oversized_body_is_413_with_the_payload_too_large_code() {
+        let body = "x".repeat(2 * 1024 * 1024);
+        let r = handle_request(
+            req_with_body("POST", "/api/tools/terminal_list", &body),
+            state(),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        let j: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("the refusal must be JSON");
+        assert_eq!(j["ok"], serde_json::json!(false));
+        assert_eq!(
+            j["code"],
+            serde_json::json!("payload_too_large"),
+            "the code is the machine-readable half, and the reason round-60 split the two branches"
+        );
+        assert!(
+            j["error"].as_str().unwrap_or("").contains("1 MB"),
+            "the operator-facing half must name the limit: {j}"
+        );
+    }
+
     fn req_with_host(path: &str, host: &str) -> Request<Body> {
         // round-102: token injection requires the gateway-proxy marker (or
         // loopback) — the inject cases set it, the must-NOT-inject cases
