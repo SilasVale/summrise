@@ -17,7 +17,9 @@ const session = (over: Record<string, unknown> = {}) => ({
   closed: false,
   savedOnly: false,
   active: true,
-  idleMs: 0, commandRunning: false, firstSeenAt: 0,
+  idleMs: 0,
+  commandRunning: false,
+  firstSeenAt: 0,
   closedAt: null,
   heldByHuman: false,
   approvalRequired: false,
@@ -57,6 +59,40 @@ describe("TerminalPane", () => {
     );
   });
 
+  // THE ADOPT CHAIN STOPS WHEN THE PANE DOES (2026-09-24, the panel exploration). The cleanup disposes
+  // the terminal, nulls the refs and cancels the pump, but it left this chain running: a read already
+  // in flight resolves anyway, its bytes are written into a disposed xterm (the pump swallows them)
+  // and — because the server still says more exists — the chain recurses for up to 64 more 1 MiB pages
+  // with nobody left to read them. Every page below says "more exists"; the pane unmounts after the
+  // first response; no further read may start.
+  it("stops paging history once the pane unmounts", async () => {
+    let reads = 0;
+    vi.mocked(callTool).mockImplementation(
+      async (name: string, params: unknown) => {
+        if (name !== "terminal_read") return {};
+        reads += 1;
+        // A page that takes a macrotask, so the chain is still RUNNING when we unmount.
+        await new Promise((r) => setTimeout(r, 5));
+        const start = Number((params as { offset?: number })?.offset) || 0;
+        // AND IT BEGINS WHERE WE ASKED. A stub that always answers `start: 0` makes the next read look
+        // like it advanced nothing, so the chain stops on its own — which is how the first version of
+        // this test passed with the guard removed. Each page here advances 100 bytes from the requested
+        // offset and reports an `end` far ahead: a real server's answer, and a chain with every reason
+        // to continue.
+        return { start, text: "x".repeat(100), raw: "", end: 10_000_000 };
+      },
+    );
+    const { unmount } = render(
+      <TerminalPane session={session()} registerWrite={registerWrite} />,
+    );
+    await waitFor(() => expect(reads).toBeGreaterThanOrEqual(2));
+    unmount();
+    const atUnmount = reads;
+    // Ten pages of room: without the liveness guard the chain fetches another ten here.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reads).toBe(atUnmount);
+  });
+
   it("write callback reaches the terminal", async () => {
     const { container } = render(
       <TerminalPane session={session()} registerWrite={registerWrite} />,
@@ -89,7 +125,10 @@ describe("TerminalPane", () => {
     expect(screen.queryByPlaceholderText("Search…")).toBeNull();
     // BOTH the label and the tooltip: a title-only name is the last resort in the accessible-name
     // computation and is not exposed on touch at all (measured by the name sweep, round 49).
-    expect(screen.getByLabelText("Search scrollback (Ctrl+F)"), "the button must carry a name").toBeTruthy();
+    expect(
+      screen.getByLabelText("Search scrollback (Ctrl+F)"),
+      "the button must carry a name",
+    ).toBeTruthy();
     fireEvent.click(screen.getByTitle("Search scrollback (Ctrl+F)"));
     const input = await screen.findByPlaceholderText("Search…");
     fireEvent.keyDown(input, { key: "Escape" });

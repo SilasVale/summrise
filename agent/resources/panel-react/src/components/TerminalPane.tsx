@@ -6,7 +6,11 @@ import { callTool } from "../lib/api";
 import { getTheme, onThemeChange } from "../lib/theme";
 import { Icon } from "../ui/Icon";
 import type { Session } from "../hooks/useSessions";
-import { adoptNeedsAnotherPage, splitWriteSlices, WRITE_SLICE_CHARS } from "../lib/terminalAdopt";
+import {
+  adoptNeedsAnotherPage,
+  splitWriteSlices,
+  WRITE_SLICE_CHARS,
+} from "../lib/terminalAdopt";
 
 // TerminalPane owns one xterm instance per session (imperative — xterm is
 // DOM-heavy and must NOT re-render on React state changes). It registers a
@@ -44,11 +48,22 @@ function termTheme(theme: "light" | "dark") {
       cursor: "#ffa94d",
       cursorAccent: "#131418",
       selectionBackground: "rgba(255, 169, 77, 0.28)",
-      black: "#2a2c33", red: "#ff6b6b", green: "#69db7c", yellow: "#ffd43b",
-      blue: "#74c0fc", magenta: "#da77f2", cyan: "#66d9e8", white: "#e8e9ec",
-      brightBlack: "#7c7e8a", brightRed: "#ff8787", brightGreen: "#8ce99a",
-      brightYellow: "#ffe066", brightBlue: "#91caff", brightMagenta: "#eebefa",
-      brightCyan: "#99e9f2", brightWhite: "#ffffff",
+      black: "#2a2c33",
+      red: "#ff6b6b",
+      green: "#69db7c",
+      yellow: "#ffd43b",
+      blue: "#74c0fc",
+      magenta: "#da77f2",
+      cyan: "#66d9e8",
+      white: "#e8e9ec",
+      brightBlack: "#7c7e8a",
+      brightRed: "#ff8787",
+      brightGreen: "#8ce99a",
+      brightYellow: "#ffe066",
+      brightBlue: "#91caff",
+      brightMagenta: "#eebefa",
+      brightCyan: "#99e9f2",
+      brightWhite: "#ffffff",
     };
   }
   return {
@@ -57,11 +72,22 @@ function termTheme(theme: "light" | "dark") {
     cursor: "#d9480f",
     cursorAccent: "#ffffff",
     selectionBackground: "rgba(217, 72, 15, 0.2)",
-    black: "#1d1d1f", red: "#b91c1c", green: "#166534", yellow: "#854d0e",
-    blue: "#1d4ed8", magenta: "#7c3aed", cyan: "#0f766e", white: "#44403c",
-    brightBlack: "#4b5563", brightRed: "#dc2626", brightGreen: "#15803d",
-    brightYellow: "#a16207", brightBlue: "#2563eb", brightMagenta: "#9333ea",
-    brightCyan: "#0f766e", brightWhite: "#6e6e73",
+    black: "#1d1d1f",
+    red: "#b91c1c",
+    green: "#166534",
+    yellow: "#854d0e",
+    blue: "#1d4ed8",
+    magenta: "#7c3aed",
+    cyan: "#0f766e",
+    white: "#44403c",
+    brightBlack: "#4b5563",
+    brightRed: "#dc2626",
+    brightGreen: "#15803d",
+    brightYellow: "#a16207",
+    brightBlue: "#2563eb",
+    brightMagenta: "#9333ea",
+    brightCyan: "#0f766e",
+    brightWhite: "#6e6e73",
   };
 }
 
@@ -69,13 +95,23 @@ function loadFontSize(): number {
   try {
     const n = Number(localStorage.getItem(FONT_LS));
     if (Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX) return n;
-  } catch { /* private mode */ }
+  } catch {
+    /* private mode */
+  }
   return FONT_DEFAULT;
 }
 
-export function TerminalPane({ session, registerWrite }: {
+export function TerminalPane({
+  session,
+  registerWrite,
+}: {
   session: Session;
-  registerWrite: (sid: string, fn: (bytes: Uint8Array, start?: number) => void, getRendered: () => number, setRendered?: (n: number) => void) => (() => void) & { unregister?: (sid: string) => void };
+  registerWrite: (
+    sid: string,
+    fn: (bytes: Uint8Array, start?: number) => void,
+    getRendered: () => number,
+    setRendered?: (n: number) => void,
+  ) => (() => void) & { unregister?: (sid: string) => void };
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -99,13 +135,14 @@ export function TerminalPane({ session, registerWrite }: {
       // change — without it, a session adopted while display:none (inactive)
       // stayed at the 80x24 grid with blank space (the 'half screen' bug).
       reflowOnResize: true,
-      fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace',
+      fontFamily:
+        'ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace',
       // round-83: full 16-color palette (vanilla TERM_THEME) — xterm draws
       // bold text with index<8 at index+8 and falls back to the dark Tango
       // brights when unset, which are nearly invisible on white (1.2-1.6:1).
       theme: termTheme(getTheme()),
     } as any);
-// review #3 (HIGH): termRef was NEVER assigned (only nulled on cleanup) —
+    // review #3 (HIGH): termRef was NEVER assigned (only nulled on cleanup) —
     // refit, the terminal_resize push (remote wrapping stuck at 120x30 —
     // the round-96 bug returning), focus-on-activate and the FONT buttons
     // were ALL silently dead.
@@ -126,7 +163,13 @@ export function TerminalPane({ session, registerWrite }: {
     // rAF ×2: wait for the browser to paint the container at its final
     // size before fitting — an immediate fit() reads pre-layout dimensions
     // and produces a partial grid (the "not filling the screen" bug).
-    requestAnimationFrame(() => requestAnimationFrame(() => { try { fit.fit(); } catch {} }));
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        try {
+          fit.fit();
+        } catch {}
+      }),
+    );
 
     // Keystrokes up: POST terminal_write. review #5: serialized through a
     // promise chain — concurrent write POSTs race over the multiplexed
@@ -134,9 +177,15 @@ export function TerminalPane({ session, registerWrite }: {
     let writeChain: Promise<unknown> = Promise.resolve();
     const sub = term.onData((data) => {
       writeChain = writeChain
-        .then(() => callTool("terminal_write", { session_id: session.sid, data }))
+        .then(() =>
+          callTool("terminal_write", { session_id: session.sid, data }),
+        )
         .catch(() => {
-          window.dispatchEvent(new CustomEvent("summrise-write-failed", { detail: { sid: session.sid } }));
+          window.dispatchEvent(
+            new CustomEvent("summrise-write-failed", {
+              detail: { sid: session.sid },
+            }),
+          );
         });
     });
 
@@ -147,7 +196,13 @@ export function TerminalPane({ session, registerWrite }: {
 
     // Ctrl+F opens the scrollback search (Shift+F / browser find untouched).
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === "keydown" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+      if (
+        e.type === "keydown" &&
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "f"
+      ) {
         setSearchOpen(true);
         e.preventDefault();
         return false;
@@ -162,7 +217,12 @@ export function TerminalPane({ session, registerWrite }: {
     });
     const onContext = (e: Event) => {
       e.preventDefault();
-      navigator.clipboard.readText().then((t) => { if (t) term.paste(t); }).catch(() => {});
+      navigator.clipboard
+        .readText()
+        .then((t) => {
+          if (t) term.paste(t);
+        })
+        .catch(() => {});
     };
     containerRef.current.addEventListener("contextmenu", onContext);
 
@@ -187,13 +247,18 @@ export function TerminalPane({ session, registerWrite }: {
           writeQueue.shift();
         } else break;
       }
-      try { term.write(out); } catch { /* disposed mid-flush */ }
+      try {
+        term.write(out);
+      } catch {
+        /* disposed mid-flush */
+      }
       if (writeQueue.length > 0) schedulePump();
     };
     const schedulePump = () => {
       if (writeScheduled) return;
       writeScheduled = true;
-      if (typeof requestAnimationFrame !== "undefined") writeRaf = requestAnimationFrame(pumpWrites);
+      if (typeof requestAnimationFrame !== "undefined")
+        writeRaf = requestAnimationFrame(pumpWrites);
       else writeRaf = setTimeout(pumpWrites, 0) as unknown as number;
     };
     const queueWrite = (text: string) => {
@@ -203,9 +268,12 @@ export function TerminalPane({ session, registerWrite }: {
     };
     const cancelPump = () => {
       try {
-        if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(writeRaf);
+        if (typeof cancelAnimationFrame !== "undefined")
+          cancelAnimationFrame(writeRaf);
         else clearTimeout(writeRaf);
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       writeQueue.length = 0;
       writeScheduled = false;
     };
@@ -219,20 +287,27 @@ export function TerminalPane({ session, registerWrite }: {
     // shell integration: OSC 633 sequences are invisible on the terminal,
     // consumed server-side by the agent). Raw bytes go straight to xterm.
     const decoder = new TextDecoder();
-    const unregister = registerWrite(session.sid, (bytes, start) => {
-      // The SSE hook passed the frame; TerminalPane only needs the bytes
-      // (the hook already validated session_id). Dedup is done by the hook
-      // caller in useSSE — here we just enqueue + advance.
-      queueWrite(decoder.decode(bytes, { stream: true }));
-      // review #1: when the caller knows the ABSOLUTE offset of these
-      // bytes (every SSE frame + every clamped read does), position there —
-      // the += form permanently desyncs across server-side clamps.
-      if (typeof start === "number") {
-        renderedRef.current = start + bytes.length;
-      } else {
-        renderedRef.current += bytes.length;
-      }
-    }, () => renderedRef.current, (v) => { renderedRef.current = v; });
+    const unregister = registerWrite(
+      session.sid,
+      (bytes, start) => {
+        // The SSE hook passed the frame; TerminalPane only needs the bytes
+        // (the hook already validated session_id). Dedup is done by the hook
+        // caller in useSSE — here we just enqueue + advance.
+        queueWrite(decoder.decode(bytes, { stream: true }));
+        // review #1: when the caller knows the ABSOLUTE offset of these
+        // bytes (every SSE frame + every clamped read does), position there —
+        // the += form permanently desyncs across server-side clamps.
+        if (typeof start === "number") {
+          renderedRef.current = start + bytes.length;
+        } else {
+          renderedRef.current += bytes.length;
+        }
+      },
+      () => renderedRef.current,
+      (v) => {
+        renderedRef.current = v;
+      },
+    );
 
     // Pull retained history so a resurrected session shows its tail.
     // round-96: the adopt read used offset:0 and rewrote EVERYTHING, while
@@ -252,11 +327,26 @@ export function TerminalPane({ session, registerWrite }: {
     // DURING the chain from being duplicated, exactly as the single-read
     // version did.
     const MAX_ADOPT_PAGES = 64; // hard bound — a wedged server cannot loop us
+    // AND IT STOPS WHEN THE PANE DOES (2026-09-24, the panel exploration). The cleanup below disposes
+    // the terminal, nulls the refs and cancels the pump, but it used to leave THIS chain running: a
+    // read already in flight resolves anyway, the response is written into a disposed xterm (the pump
+    // swallows it) and — because the server still says more exists — the chain recurses for up to 64
+    // more 1 MiB pages with nobody left to read them. `alive` is cleared in the cleanup, so the chain
+    // ends at the next tick instead of reading on into nothing.
+    let alive = true;
     const adoptPage = (attempt: number): void => {
-      if (attempt > MAX_ADOPT_PAGES) return;
-      callTool("terminal_read", { session_id: session.sid, offset: renderedRef.current, clean: false })
+      if (!alive || attempt > MAX_ADOPT_PAGES) return;
+      callTool("terminal_read", {
+        session_id: session.sid,
+        offset: renderedRef.current,
+        clean: false,
+      })
         .then((r: any) => {
-          if (r?.evicted) { renderedRef.current = 0; return; }
+          if (!alive) return;
+          if (r?.evicted) {
+            renderedRef.current = 0;
+            return;
+          }
           if (!r || (!r.text && !r.raw)) return; // end of buffer
           const skip = Math.max(0, renderedRef.current - Number(r.start));
           let advanced = false;
@@ -265,15 +355,25 @@ export function TerminalPane({ session, registerWrite }: {
             const bytes = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
             if (skip < bytes.length) {
-              queueWrite(decoder.decode(bytes.subarray(skip), { stream: true }));
-              renderedRef.current = Math.max(renderedRef.current, Number(r.start) + bytes.length);
+              queueWrite(
+                decoder.decode(bytes.subarray(skip), { stream: true }),
+              );
+              renderedRef.current = Math.max(
+                renderedRef.current,
+                Number(r.start) + bytes.length,
+              );
               advanced = true;
             }
           } else if (skip >= 0 && r.text) {
             const bytes = new TextEncoder().encode(r.text);
             if (skip < bytes.length) {
-              queueWrite(decoder.decode(bytes.subarray(skip), { stream: true }));
-              renderedRef.current = Math.max(renderedRef.current, Number(r.start) + bytes.length);
+              queueWrite(
+                decoder.decode(bytes.subarray(skip), { stream: true }),
+              );
+              renderedRef.current = Math.max(
+                renderedRef.current,
+                Number(r.start) + bytes.length,
+              );
               advanced = true;
             }
           }
@@ -292,6 +392,7 @@ export function TerminalPane({ session, registerWrite }: {
     adoptPage(0);
 
     return () => {
+      alive = false; // stop the adopt chain before disposing what it writes into
       offTheme();
       sub.dispose();
       cancelPump();
@@ -314,7 +415,11 @@ export function TerminalPane({ session, registerWrite }: {
         if (term?.element && term.element.offsetParent === null) return;
         fitRef.current?.fit();
         if (term && session.sid) {
-          callTool("terminal_resize", { session_id: session.sid, cols: term.cols, rows: term.rows }).catch(() => {});
+          callTool("terminal_resize", {
+            session_id: session.sid,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
         }
       } catch {}
     };
@@ -334,7 +439,10 @@ export function TerminalPane({ session, registerWrite }: {
         let rafId = 0;
         const ro = new ResizeObserver(() => {
           if (rafId) cancelAnimationFrame(rafId);
-          rafId = requestAnimationFrame(() => { rafId = 0; refit(); });
+          rafId = requestAnimationFrame(() => {
+            rafId = 0;
+            refit();
+          });
         });
         ro.observe(containerRef.current);
         cleanupRef.push(() => ro.disconnect());
@@ -342,9 +450,19 @@ export function TerminalPane({ session, registerWrite }: {
       // stage-n: focus synchronously (double-rAF for paint-then-focus) instead
       // of a 60ms setTimeout that let fast typers lose chars on tab switch.
       const focusTimer = requestAnimationFrame(() => {
-        requestAnimationFrame(() => { try { termRef.current?.focus?.(); } catch {} });
+        requestAnimationFrame(() => {
+          try {
+            termRef.current?.focus?.();
+          } catch {}
+        });
       });
-      return () => { timers.forEach(clearTimeout); cancelAnimationFrame(focusTimer); window.removeEventListener("resize", refit); document.removeEventListener("visibilitychange", refit); cleanupRef.forEach(fn => fn()); };
+      return () => {
+        timers.forEach(clearTimeout);
+        cancelAnimationFrame(focusTimer);
+        window.removeEventListener("resize", refit);
+        document.removeEventListener("visibilitychange", refit);
+        cleanupRef.forEach((fn) => fn());
+      };
     }
   }, [session.active]);
 
@@ -353,7 +471,11 @@ export function TerminalPane({ session, registerWrite }: {
   const applyFont = (n: number) => {
     const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, n));
     setFontSize(clamped);
-    try { localStorage.setItem(FONT_LS, String(clamped)); } catch { /* private mode */ }
+    try {
+      localStorage.setItem(FONT_LS, String(clamped));
+    } catch {
+      /* private mode */
+    }
     const term: any = termRef.current;
     if (!term) return;
     term.options.fontSize = clamped;
@@ -363,20 +485,40 @@ export function TerminalPane({ session, registerWrite }: {
       requestAnimationFrame(() => {
         try {
           fitRef.current?.fit();
-          callTool("terminal_resize", { session_id: session.sid, cols: term.cols, rows: term.rows }).catch(() => {});
-        } catch { /* hidden pane */ }
+          callTool("terminal_resize", {
+            session_id: session.sid,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
+        } catch {
+          /* hidden pane */
+        }
       });
     });
   };
 
   // findNext/findPrevious REQUIRE the search term in this addon version —
   // the input's onChange keeps `searchTerm` authoritative for ↑/↓ repeats.
-  const searchNext = () => { if (searchTerm) try { searchRef.current?.findNext(searchTerm); } catch {} };
-  const searchPrev = () => { if (searchTerm) try { searchRef.current?.findPrevious(searchTerm); } catch {} };
+  const searchNext = () => {
+    if (searchTerm)
+      try {
+        searchRef.current?.findNext(searchTerm);
+      } catch {}
+  };
+  const searchPrev = () => {
+    if (searchTerm)
+      try {
+        searchRef.current?.findPrevious(searchTerm);
+      } catch {}
+  };
   const searchClose = () => {
-    try { searchRef.current?.clearDecorations(); } catch {}
+    try {
+      searchRef.current?.clearDecorations();
+    } catch {}
     setSearchOpen(false);
-    try { termRef.current?.focus?.(); } catch {}
+    try {
+      termRef.current?.focus?.();
+    } catch {}
   };
 
   return (
@@ -394,14 +536,31 @@ export function TerminalPane({ session, registerWrite }: {
             autoFocus
             placeholder="Search…"
             onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); e.shiftKey ? searchPrev() : searchNext(); }
-              if (e.key === "Escape") { e.preventDefault(); searchClose(); }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.shiftKey ? searchPrev() : searchNext();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                searchClose();
+              }
             }}
-            onChange={(e) => { setSearchTerm(e.target.value); try { searchRef.current?.findNext(e.target.value); } catch {} }}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              try {
+                searchRef.current?.findNext(e.target.value);
+              } catch {}
+            }}
           />
-          <button title="Previous match (Shift+Enter)" onClick={searchPrev}>↑</button>
-          <button title="Next match (Enter)" onClick={searchNext}>↓</button>
-          <button title="Close (Esc)" onClick={searchClose}>✕</button>
+          <button title="Previous match (Shift+Enter)" onClick={searchPrev}>
+            ↑
+          </button>
+          <button title="Next match (Enter)" onClick={searchNext}>
+            ↓
+          </button>
+          <button title="Close (Esc)" onClick={searchClose}>
+            ✕
+          </button>
         </div>
       )}
       {session.active && (
@@ -416,9 +575,18 @@ export function TerminalPane({ session, registerWrite }: {
           >
             <Icon name="search" size={12} />
           </button>
-          <button title="Smaller font" onClick={() => applyFont(fontSize - 1)}>A−</button>
-          <button title="Reset font size" onClick={() => applyFont(FONT_DEFAULT)}>A</button>
-          <button title="Larger font" onClick={() => applyFont(fontSize + 1)}>A+</button>
+          <button title="Smaller font" onClick={() => applyFont(fontSize - 1)}>
+            A−
+          </button>
+          <button
+            title="Reset font size"
+            onClick={() => applyFont(FONT_DEFAULT)}
+          >
+            A
+          </button>
+          <button title="Larger font" onClick={() => applyFont(fontSize + 1)}>
+            A+
+          </button>
         </div>
       )}
     </div>
