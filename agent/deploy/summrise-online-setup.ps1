@@ -258,7 +258,14 @@ $electronOk = Test-Path $electronExe
 if (-not $electronOk) {
   New-Item -ItemType Directory -Force -Path $distDir | Out-Null
   $zip = Join-Path $env:TEMP "summrise-electron-win32-x64.zip"
-  Say "下载 Electron $ElectronVersion（约 115MB，走我们的 CDN）..."
+  # NO VERSION IS NAMED FOR THE CDN ARM, because the CDN zip IS NOT PINNED TO ONE (round 151):
+  # components.json carries a url and a sha256 for electron and no version, so this message used
+  # to state a version that only the NPM FALLBACK below installs. $ElectronVersion is that
+  # fallback pin and nothing else: if the CDN zip ever moves to a newer Electron, the verified arm
+  # installs the new one while the npm arm still installs 33.4.11, and nothing compares them.
+  # Publishing the version in the manifest would let both arms agree; that is a worker change
+  # (index/src/index.js rebuilds `components` as {url, sha256}), so it is named here, not faked.
+  Say "下载 Electron（约 115MB，走我们的 CDN）..."
   $got = $false
   try {
     $ProgressPreference = "SilentlyContinue"
