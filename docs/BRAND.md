@@ -455,9 +455,10 @@ install cheerfully reported `added 13 packages in 6s` and produced **no binary a
 mirror is what made it real (`electron 44.4.4`). Two more things about starting it: the window
 must be launched **in the operator's interactive session** (this box: session 1, `administrator`
 over RDP) because a window started from an agent session lands in session 0 where a human can
-never see it; and `summrise setup` **does not register the logon task on npm installs** (only
-the NSIS installer does), so the app does not come back by itself after a logon unless one is
-added.
+never see it; and `summrise setup` **registers the logon task on EVERY install path** — `BOOT_TASKS` is
+`["SummriseAgent", "SummriseDesktop"]` and the CLI runs `Register-ScheduledTask SummriseDesktop` with
+an onlogon trigger — so the app DOES come back by itself after a logon. (This said the opposite until
+round 143, which would have had an operator add a task that already exists.)
 
 **Phase 2, run only after the console proved the migration end to end:** the old `Vale*` tasks
 were unregistered, `D:\Vale` and `C:\ProgramData\Vale` removed, the one-shot cutover task

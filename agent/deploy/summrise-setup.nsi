@@ -125,10 +125,15 @@ Section "Install" SEC01
   File "summrise-agent-${SUMMRISE_VERSION}.tgz"
   SetOutPath "$INSTDIR"
   ReadEnvStr $3 "ProgramData"
+  ; THE FAILURE DIALOG NAMES THE LOG THE TRANSCRIPT ACTUALLY GOES TO (round 143). It said
+  ; $INSTDIR\installer.log, which never exists: summrise-online-setup.ps1 writes its transcript to
+  ; $DataDir\logs\installer.log, and $DataDir is %ProgramData%\Summrise. The path below is built
+  ; from $3, which line 127 already reads for -ResultFile. Start-Transcript's failure is swallowed,
+  ; so the wrong path also meant the operator could be sent to nothing at all.
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\summrise-online-setup.ps1" -InstallDir "$INSTDIR" -SummriseVersion "${SUMMRISE_VERSION}" -CdnBase "${SUMMRISE_CDN}" -ResultFile "$3\Summrise\logs\install-result.txt" -LocalTgz "$INSTDIR\scripts\summrise-agent-${SUMMRISE_VERSION}.tgz"'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "安装失败（步骤退出码 $0）。$\r$\n看 $INSTDIR\installer.log 找原因，修好后重跑安装包即可（幂等）。"
+    MessageBox MB_ICONSTOP "安装失败（步骤退出码 $0）。$\r$\n看 $3\Summrise\logs\installer.log 找原因，修好后重跑安装包即可（幂等）。"
     Abort
   ${EndIf}
 
