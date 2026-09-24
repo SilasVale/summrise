@@ -21,29 +21,19 @@
 
 pub mod tools;
 
-use summrise_agent_core::{Plugin, ToolDef};
+use summrise_agent_core::simple_plugin;
 
 /// Plugin struct — stateless; tools capture no shared state.
 pub struct RunsPlugin;
 
-impl Plugin for RunsPlugin {
-    fn name(&self) -> &'static str {
-        "runs"
-    }
-    fn display_name(&self) -> &'static str {
-        "Runs"
-    }
-    fn description(&self) -> &'static str {
-        "Run identity — declare the boundaries of one AI execution so its work can be grouped and told apart from another's"
-    }
-    fn tools(&self) -> Vec<ToolDef> {
-        tools::build()
-    }
-}
+simple_plugin!(RunsPlugin, "runs", "Runs", "Run identity — declare the boundaries of one AI execution so its work can be grouped and told apart from another's", tools::build);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The trait is what gives ToolsPlugin `.tools()` / `.name()`; the macro implements it via $crate, so
+    // the FILE does not need it in scope and clippy would call it unused there.
+    use summrise_agent_core::Plugin;
 
     /// The tool surface is exactly these two, and the plugin is registered
     /// under the name the panel and the gateway contract will look for. A

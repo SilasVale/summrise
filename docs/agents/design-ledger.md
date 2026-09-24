@@ -5356,3 +5356,31 @@ it composes, and both doors call it. The tool's block became one line; the route
 yields `expect: null` — because the field's own doc says `None` and `false` are different facts ("no answer" versus
 "the answer did not say it") and must not collapse. That distinction is the reason `expect` travels with the probe
 at all, so it is the thing worth pinning rather than the four key names alone.
+
+### THE TRAIT CARRIED NO BEHAVIOUR AND NINE PLUGINS RESTATED IT (round 219)
+
+The nineteenth exploration's first finding, and the code agrees: the whole `Plugin` trait is three `&'static str`s
+plus a `Vec` defaulting to `vec![]` — no init, no shutdown, no health, no state handle. All nine plugins hand-wrote
+the same four-method impl, and `runs/mod.rs:29-42` differed from `monitor/mod.rs:31-43` in exactly four literals.
+
+The trait's own doc says where the substance is: "Tools are the single source of truth — MCP, Web API, and Tauri
+commands all dispatch through the PluginRegistry." The tools ARE the point; the three strings are metadata that
+feeds one JSON field.
+
+**`simple_plugin!` now generates the impl**, so each plugin declares its four facts once:
+
+    pub struct RunsPlugin;
+    simple_plugin!(RunsPlugin, "runs", "Runs", "Run identity — …", tools::build);
+
+`runs` and `monitor` are converted; the other seven are the same mechanical change and are next.
+
+**AND THE CONVERSION BROKE FOUR THINGS, EACH CAUGHT BY A DIFFERENT INSTRUMENT** — which is the argument for having
+them. `cargo check` found the macro needed importing and that I had removed an import the tests still needed.
+The **duplicate-attribute warning** found that round 218's insertion had split an existing `#[test]` from its
+function (I had inserted the new test between an attribute and the name it applied to), and my first repair deleted
+the ORIGINAL's attribute instead of the stray one — visible only as "function is never used". And `clippy
+--all-targets -D warnings` — the exact command CI runs — found that `Plugin` belongs in the TEST module, not at
+file scope, because the macro implements the trait through `$crate` and the file itself never names it.
+
+Four fixes, three instruments, none of them the compiler alone. The insertion bug is the second time this stretch
+has recorded that a script editing a file must know what the lines around its anchor MEAN, not just where they are.

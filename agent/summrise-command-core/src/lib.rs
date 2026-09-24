@@ -24,6 +24,39 @@ pub fn recover_guard<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T>
 ///
 /// Tools are the single source of truth — MCP, Web API, and Tauri commands
 /// all dispatch through the PluginRegistry.
+/// DECLARE A PLUGIN WHOSE ONLY VARIATION IS ITS METADATA (round 219).
+///
+/// Nine plugins hand-wrote the same four-method impl, and `runs/mod.rs` differed from `monitor/mod.rs` in
+/// exactly four literals. The trait carries no behaviour to override, so there is nothing for a plugin to
+/// decide here — only to restate. Each plugin now declares its facts once:
+///
+/// ```ignore
+/// pub struct RunsPlugin;
+/// simple_plugin!(RunsPlugin, "runs", "Runs", "Run identity — …", tools::build);
+/// ```
+///
+/// `$tools` is a path so a plugin that needs to close over state can still point at its own builder; the
+/// three strings are what `api_spec` reads.
+#[macro_export]
+macro_rules! simple_plugin {
+    ($ty:ident, $name:literal, $display:literal, $desc:literal, $tools:path) => {
+        impl $crate::Plugin for $ty {
+            fn name(&self) -> &'static str {
+                $name
+            }
+            fn display_name(&self) -> &'static str {
+                $display
+            }
+            fn description(&self) -> &'static str {
+                $desc
+            }
+            fn tools(&self) -> Vec<$crate::ToolDef> {
+                $tools()
+            }
+        }
+    };
+}
+
 pub trait Plugin: Send + Sync {
     /// Unique identifier, e.g. "ssh", "serial", "browser"
     fn name(&self) -> &'static str;

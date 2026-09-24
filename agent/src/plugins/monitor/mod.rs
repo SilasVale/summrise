@@ -23,22 +23,15 @@
 
 pub mod tools;
 
-use summrise_agent_core::{Plugin, ToolDef};
+use summrise_agent_core::simple_plugin;
 
 /// Plugin struct — stateless; the tools close over nothing.
 pub struct MonitorPlugin;
 
-impl Plugin for MonitorPlugin {
-    fn name(&self) -> &'static str {
-        "monitor"
-    }
-    fn display_name(&self) -> &'static str {
-        "Reachability"
-    }
-    fn description(&self) -> &'static str {
-        "Watch host:port targets over TCP — what is up, what is down, and since when"
-    }
-    fn tools(&self) -> Vec<ToolDef> {
-        tools::build()
-    }
-}
+simple_plugin!(
+    MonitorPlugin,
+    "monitor",
+    "Reachability",
+    "Watch host:port targets over TCP — what is up, what is down, and since when",
+    tools::build
+);

@@ -813,43 +813,8 @@ mod tests {
     /// for a live UI and means a RENAMED field renders an empty card with nothing to see. The panel's own payload
     /// test recorded the consequence before this fixture existed: a hand-written transition shape looked plausible,
     /// was wrong, and the card drew no transitions at all.
-    #[test]
-    /// ONE ENVELOPE, ONE SHAPE, PINNED (round 218).
-    ///
-    /// Two doors return this — the MCP tool `monitor_probe` and the route `/api/monitors/probe` — and they
-    /// were hand-copied six-line blocks until round 217 made them agree. `probe_envelope` is the one source
-    /// now; this pins what it promises, because the panel reads it and `monitor-row.json`'s own `_why`
-    /// records the cost of a wrong guess: "the shape is the contract, nothing validates it, and a wrong
-    /// guess looks like data."
-    #[test]
-    fn the_probe_envelope_names_every_key_both_doors_promise() {
-        let p = Probe {
-            ts_ms: 1,
-            ok: true,
-            ms: Some(2),
-            status: Some(200),
-            expect_ok: None,
-        };
-        let v = probe_envelope("127.0.0.1:1", p);
-        let mut keys: Vec<&str> = v
-            .as_object()
-            .expect("the envelope is an object")
-            .keys()
-            .map(|k| k.as_str())
-            .collect();
-        keys.sort_unstable();
-        assert_eq!(
-            keys,
-            vec!["expect", "ok", "probe", "summary"],
-            "the probe envelope changed shape — the panel reads this and a wrong guess looks like data"
-        );
-        // NO TARGET IS WATCHED under this id, so the criterion is ABSENT — and absent is not `false`.
-        assert!(
-            v["expect"].is_null(),
-            "an unwatched target has no expectation; null says that, and `false` would say it was not found"
-        );
-    }
 
+    #[test]
     fn monitor_row_fixture_matches_the_payload() {
         let fixture: Value =
             serde_json::from_str(include_str!("../tests/fixtures/monitor-row.json"))
@@ -920,6 +885,42 @@ mod tests {
                 "an empty series omits `{k}`, and the panel reads that key unconditionally"
             );
         }
+    }
+
+    /// ONE ENVELOPE, ONE SHAPE, PINNED (round 218).
+    ///
+    /// Two doors return this — the MCP tool `monitor_probe` and the route `/api/monitors/probe` — and they
+    /// were hand-copied six-line blocks until round 217 made them agree. `probe_envelope` is the one source
+    /// now; this pins what it promises, because the panel reads it and `monitor-row.json`'s own `_why`
+    /// records the cost of a wrong guess: "the shape is the contract, nothing validates it, and a wrong
+    /// guess looks like data."
+    #[test]
+    fn the_probe_envelope_names_every_key_both_doors_promise() {
+        let p = Probe {
+            ts_ms: 1,
+            ok: true,
+            ms: Some(2),
+            status: Some(200),
+            expect_ok: None,
+        };
+        let v = probe_envelope("127.0.0.1:1", p);
+        let mut keys: Vec<&str> = v
+            .as_object()
+            .expect("the envelope is an object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["expect", "ok", "probe", "summary"],
+            "the probe envelope changed shape — the panel reads this and a wrong guess looks like data"
+        );
+        // NO TARGET IS WATCHED under this id, so the criterion is ABSENT — and absent is not `false`.
+        assert!(
+            v["expect"].is_null(),
+            "an unwatched target has no expectation; null says that, and `false` would say it was not found"
+        );
     }
 
     /// SERIALISES THE TESTS THAT TOUCH THE TARGET LIST. It is a process-global by design (the prober
