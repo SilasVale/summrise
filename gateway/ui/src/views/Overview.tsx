@@ -65,16 +65,6 @@ export default function Overview() {
 
   const loadDashboard = useCallback(async () => {
     api
-      .getDevices()
-      .then((d) => {
-        setDevices(d.devices || []);
-        setDevicesError(null);
-      })
-      .catch((err) => {
-        setDevices(null);
-        setDevicesError(err instanceof ApiError ? err.message : String(err));
-      });
-    api
       .getHealth()
       .then((h) => setChannels(h.channels || []))
       .catch(() => {});
@@ -82,6 +72,22 @@ export default function Overview() {
     // outside it, so a non-admin's landing page called an admin endpoint on load and
     // every 60 s — and a 401 from it signed them out (see the worker's mcp.ts).
     if (user?.role === "admin") {
+      // THE DEVICE LIST IS THE STRAGGLER the paragraph above was written about and did not reach:
+      // `GET /api/devices` calls `requireAdmin` in the worker, and this call used to sit OUTSIDE the
+      // guard, so a non-admin's Overview hit an admin endpoint on load and every 60 seconds and
+      // rendered the 403 as a red banner. It lives here now, which leaves `devices` and
+      // `devicesError` at their initial `null` for a non-admin — the "not read" state this page
+      // already distinguishes from "you have none" on purpose.
+      api
+        .getDevices()
+        .then((d) => {
+          setDevices(d.devices || []);
+          setDevicesError(null);
+        })
+        .catch((err) => {
+          setDevices(null);
+          setDevicesError(err instanceof ApiError ? err.message : String(err));
+        });
       api
         .getUsers()
         .then((u) => setUsers(u.users?.length ?? null))
