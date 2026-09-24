@@ -452,7 +452,25 @@ pub(crate) fn unknown_key_warnings(config_path: &Path) -> Vec<String> {
     const SECTIONS: &[(&str, &[&str])] = &[
         (
             "server",
-            &["host", "port", "name", "device_token", "proxy_secret"],
+            &[
+                "host",
+                "port",
+                "name",
+                "device_token",
+                // A LEGACY ALIAS THAT SERDE HONOURS (`config.rs`: `alias = "auth_token"`, renamed
+                // in 0.8.5). An old config.yaml keeps working, so warning that such a line will
+                // "never take effect" was telling an operator to delete a key being read.
+                "auth_token",
+                // READ BY THE RELAY CLIENT (`mcp/server.rs`): `relay_url` decides whether the
+                // agent dials out at all, and `relay_token` is the shared secret it carries —
+                // that file even warns when the url is set and the token is empty. BOTH WERE
+                // MISSING HERE, so a relay device warned on EVERY BOOT about a key it uses
+                // (round 162). This list is hand-written, and the test below claimed to cover
+                // every section the agent writes while never writing these three.
+                "relay_url",
+                "relay_token",
+                "proxy_secret",
+            ],
         ),
         ("serial", &["default_baud_rate", "default_timeout_ms"]),
         ("terminal", &["buffer_mb"]),
@@ -828,6 +846,10 @@ mod tests {
         let p = scratch(concat!(
             "server:\n  host: 127.0.0.1\n  port: 18080\n  name: summrise-agent\n",
             "  device_token: t\n  proxy_secret: s\n",
+            // The three this test did not write, which is how the gap survived it (round 162):
+            // `relay_url`/`relay_token` are read by the relay client, and `auth_token` is the
+            // legacy alias serde still honours. A relay device warned on every boot without them.
+            "  relay_url: https://relay.example\n  relay_token: rt\n  auth_token: legacy\n",
             "serial:\n  default_baud_rate: 115200\n  default_timeout_ms: 1000\n",
             "terminal:\n  buffer_mb: 8\n",
             "browser:\n  page_load_timeout_secs: 30\n  headless_executable: null\n  headless_cdp_port: null\n",
