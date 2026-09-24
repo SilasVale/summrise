@@ -45,8 +45,15 @@ export function App() {
   const [connected, setConnected] = useState(boot.connected);
   // round-88: a stored token that expires/rotates 401'd into a noop — the
   // panel stayed 'connected' with everything dead and the conn form
-  // unreachable. The 401 callback sets this flag; a render effect drops the
+  // unreachable. The 401 callback sets this flag; the block below drops the
   // session back to the conn form.
+  //
+  // IT IS A RENDER-PHASE BLOCK, NOT AN EFFECT, however the old wording read ("a render effect"): React
+  // permits setState during a render of the same component, and the ref is cleared in the same pass as
+  // the two state updates, so a discarded render cannot swallow the 401. Do not "fix" it into an
+  // effect — an effect runs after paint, so the panel would show a dead 'connected' shell for a frame,
+  // which is the state round-88 removed. `boot.test.ts` pins the other half (computeBoot handing the
+  // callback to the transport); this half has no test.
   if (authFailed.current) {
     authFailed.current = false;
     setConnected(false);

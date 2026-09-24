@@ -11,11 +11,20 @@ vi.mock("./api", () => ({
 }));
 
 const setLocation = (pathname: string, search = "", host = "d1.test") => {
-  vi.stubGlobal("location", { pathname, search, host, origin: `https://${host}` });
+  vi.stubGlobal("location", {
+    pathname,
+    search,
+    host,
+    origin: `https://${host}`,
+  });
 };
 
 describe("computeBoot", () => {
-  let computeBoot: (f: () => void) => { host: string; tok: string; connected: boolean };
+  let computeBoot: (f: () => void) => {
+    host: string;
+    tok: string;
+    connected: boolean;
+  };
   beforeEach(async () => {
     initTransport.mockClear();
     localStorage.clear();
@@ -32,7 +41,11 @@ describe("computeBoot", () => {
     const boot = computeBoot(() => {});
     expect(boot.tok).toBe("inj");
     expect(boot.connected).toBe(true);
-    expect(initTransport).toHaveBeenCalledWith("d1.test", "inj", expect.anything());
+    expect(initTransport).toHaveBeenCalledWith(
+      "d1.test",
+      "inj",
+      expect.anything(),
+    );
   });
 
   it("?token= beats stored when nothing is injected", () => {
@@ -76,5 +89,28 @@ describe("computeBoot", () => {
     } finally {
       Storage.prototype.setItem = real;
     }
+  });
+
+  // THE LINK ROUND-88'S RECOVERY DEPENDS ON, and the one thing every test above left as `() => {}`.
+  // `computeBoot` does not SEE a 401 — the transport does — so what it must do is hand the callback
+  // along, at BOTH call sites. Drop this and a rotated token 401s into a noop: the panel stays
+  // "connected" with everything dead and the conn form unreachable, which is the bug round-88 fixed.
+  // (The recovery itself — the flag flipping `connected` to false — lives in App.tsx as a render block
+  // and is still not covered by a test; this pins the half that can be.)
+  it("hands the 401 callback to the transport on the same-origin path", () => {
+    setLocation("/desktop/");
+    (window as any).__PANEL_TOKEN__ = "inj";
+    const onAuthFail = vi.fn();
+    computeBoot(onAuthFail);
+    expect(initTransport).toHaveBeenCalledWith("d1.test", "inj", onAuthFail);
+  });
+
+  it("hands it over on the stored-token path too", () => {
+    setLocation("/somewhere/else/");
+    localStorage.setItem("summriseHost", "h.test");
+    localStorage.setItem("summriseToken", "stored");
+    const onAuthFail = vi.fn();
+    computeBoot(onAuthFail);
+    expect(initTransport).toHaveBeenCalledWith("h.test", "stored", onAuthFail);
   });
 });
