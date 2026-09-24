@@ -779,6 +779,14 @@ $usettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Sec
 Register-ScheduledTask SummriseAgent -Action $uaction -Trigger @($uboot,$uwatch) -Principal $uprincipal -Settings $usettings -Force -ErrorAction Stop | Out-Null;
 }} catch {{ "[$(Get-Date -Format o)] task repoint FAILED — aborting, old version keeps running" | Out-File '{logs}\summrise-update.log' -Append; Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}"; exit 1 }};
 "[$(Get-Date -Format o)] task repointed at etc\config.yaml" | Out-File '{logs}\summrise-update.log' -Append;
+// FAIL-CLOSED, LIKE THE CLI (round 160). The repoint above aims the boot task at the v2 config, and the
+// lines below stop that task and kill the agent. If migration has NOT happened — a device too old to
+// carry the boot backstop that normally does it — the new exe would boot with no config and nothing
+// left running to fall back to. summrise-agent-npm gates exactly here: "the new agent reads ONLY the
+// v2 homes. A missing config/hostname here means migration failed — do NOT swap (the old exe keeps
+// running the old layout until the next update)." The same reasoning applies verbatim on this side;
+// the only difference is that the CLI runs the migration itself and this path relies on the backstop.
+if ((-not (Test-Path '{etc}\config.yaml')) -or (-not (Test-Path '{etc}\summrise-agent.hostname'))) {{ "[$(Get-Date -Format o)] v2 config or hostname missing -- NOT swapping; the old version keeps running" | Out-File '{logs}\summrise-update.log' -Append; exit 1 }};
 try {{ Stop-ScheduledTask SummriseAgent -ErrorAction Stop }} catch {{}};
 Get-Process summrise-agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue;
 Get-Process node -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -like '*summrise-agent*' }} | Stop-Process -Force -ErrorAction SilentlyContinue;
@@ -1771,5 +1779,32 @@ mod tests {
         let v = update_status(Some("   ".to_string())).await;
         assert!(v["channel"].is_null(), "{v}");
         assert_eq!(v["update_available"], false, "{v}");
+    }
+
+    /// A SWAP THAT CANNOT BOOT MUST NOT BE LAUNCHED (round 160).
+    ///
+    /// The generated script repoints the boot task at the v2 config, then stops the task and
+    /// kills the agent. If migration has not happened, the new exe has no config and nothing is
+    /// left running — so the check must sit BETWEEN the repoint and the stop. The CLI gates in
+    /// exactly this place; this path relied on the boot backstop and never checked.
+    #[test]
+    fn the_v2_gate_precedes_the_stop_and_kill() {
+        let src = include_str!("tools.rs");
+        let gate = src
+            .find("v2 config or hostname missing")
+            .expect("the swap script must refuse to run when the v2 homes are absent");
+        let stop = src
+            .find("Stop-ScheduledTask SummriseAgent -ErrorAction Stop")
+            .expect("the stop line must still be there");
+        let kill = src
+            .find("Get-Process summrise-agent -ErrorAction SilentlyContinue | Stop-Process")
+            .expect("the process kill must still be there");
+        assert!(
+            gate < stop && gate < kill,
+            "the v2 gate ({gate}) must precede BOTH the task stop ({stop}) and the kill ({kill}) — \
+             otherwise a device with no v2 config is left booting nothing"
+        );
+        // And it must name the same two files the CLI's gate names, because it is the same rule.
+        assert!(src.contains("etc}\\config.yaml") && src.contains("etc}\\summrise-agent.hostname"));
     }
 }
