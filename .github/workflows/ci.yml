@@ -378,6 +378,12 @@ jobs:
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
       - name: the console's state dots differ in shape, and are legible
         run: node scripts/test/console-marks-check.mjs
+
+      # A TEST THAT MOCKS lib/api WHOLESALE REPLACES EVERY EXPORT: the next one added there is `undefined`
+      # at the call site, and a hook that catches its own read failures turns that TypeError into "a failed
+      # read must not update" — indistinguishable from correct behaviour, and invisible to tsc.
+      - name: no test replaces lib/api wholesale, or the next export added there vanishes
+        run: node scripts/test/panel-mock-spread-check.mjs
       # STATE COLOUR IS FOR STATE. Measured first — 163 uses of an ok/warn/fail/running/danger token across the
       # panel and console sheets, essentially all of them on the state layer, a destructive action, a category
       # lane or a token definition — and a clean result nothing enforced is one commit from not being true.

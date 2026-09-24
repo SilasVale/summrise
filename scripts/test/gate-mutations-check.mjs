@@ -292,6 +292,13 @@ const CASES = [
   },
 
 
+  {
+    gate: "scripts/test/panel-mock-spread-check.mjs",
+    file: "agent/resources/panel-react/src/components/__tests__/RunStrip.test.tsx",
+    why: "the factory goes back to replacing the whole module — the state that made three passing tests report an EMPTY VALUE instead of an error, because the hook caught the resulting TypeError as its own failed read",
+    from: "vi.mock(\"../../lib/api\", async (importOriginal) => ({\n  ...(await importOriginal<typeof import(\"../../lib/api\")>()),\n  ",
+    to: "vi.mock(\"../../lib/api\", () => ({",
+  },
 ];
 
 const run = (cmd, args) => {
