@@ -849,8 +849,9 @@ mod tests {
         let got = recent_actions(&dir, 10);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0]["n"], 2);
-        // No temp residue from the atomic rewrite.
-        assert!(!actions_path(&dir).with_extension("jsonl.tmp").exists());
+        // No temp residue from the atomic rewrite — the path comes from the
+        // module that writes it, not from a re-spelling of the naming rule.
+        assert!(!crate::atomic::temp_path(&actions_path(&dir)).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -454,7 +454,7 @@ mod file_store_tests {
             "the caller-visible sentence is unchanged: {err}"
         );
         assert!(
-            !dir.join("summrise-secrets.json.tmp").exists(),
+            !crate::atomic::temp_path(&store).exists(),
             "tmp must be cleaned"
         );
         assert_eq!(

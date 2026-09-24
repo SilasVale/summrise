@@ -496,7 +496,7 @@ mod tests {
             "the saved fingerprint is what the next connection verifies against"
         );
         assert!(
-            !dir.join("summrise-known-hosts.json.tmp").exists(),
+            !crate::atomic::temp_path(&known_hosts_path()).exists(),
             "a completed save leaves no temp beside the trust table"
         );
         unisolate(&dir);

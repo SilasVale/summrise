@@ -306,7 +306,7 @@ mod bootstrap_tests {
         atomic_write(&path, b"hello").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"hello");
         assert!(
-            !d.join("config.yaml.tmp").exists(),
+            !crate::atomic::temp_path(&path).exists(),
             "temp must be renamed away"
         );
         assert!(

@@ -257,7 +257,7 @@ mod conn_tests {
         .expect("an unavailable ACL must not drop a saved connection");
         assert_eq!(list().len(), 1, "the entry is readable back");
         assert!(
-            !dir.join("summrise-connections.json.tmp").exists(),
+            !crate::atomic::temp_path(&store_path()).exists(),
             "a completed save leaves no temp"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -280,7 +280,7 @@ mod conn_tests {
             "the caller-visible sentence is unchanged: {err}"
         );
         assert!(
-            !dir.join("summrise-connections.json.tmp").exists(),
+            !crate::atomic::temp_path(&store_path()).exists(),
             "a failed rename must not leave the temp behind"
         );
         let _ = std::fs::remove_dir_all(&dir);

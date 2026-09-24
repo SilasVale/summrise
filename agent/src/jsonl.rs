@@ -118,11 +118,16 @@ pub(crate) fn prepare_append(
 ///
 /// THE MECHANICS ARE NOT HERE ANY MORE. The temp name (`<name>.tmp`, appended),
 /// the flush/`sync_all` order, the hardening step and the removal of the temp on
-/// ANY failure — including the failed rename this function used to leave litter
-/// on — belong to [`crate::atomic::replace`], which is what this calls. The
-/// posture is `None`: an audit/log rewrite has never done permission work, while
-/// the five sites that used to spell these mechanics for themselves each had
-/// their own answer to whether to do it.
+/// ANY failure belong to [`crate::atomic::replace`], which is what this calls.
+/// (This paragraph first said "including the failed rename this function used to
+/// leave litter on" — that was FALSE, written in the same commit that deleted the
+/// body: the body it replaced removed the temp on ANY failure, the rename
+/// included, exactly as `session_log` and `memory` did. The guarantee moved with
+/// the code and is now the shared module's, pinned in `atomic.rs`.) The posture is
+/// `None`: an audit/log rewrite has never done permission work, while the six
+/// other spellings each had their own answer to whether to do it (`bootstrap`,
+/// `connections`, `secrets` and `ssh` hardened the temp four different ways;
+/// `session_log` and `memory` did not).
 pub(crate) fn rewrite_atomically(path: &Path, body: &str) -> std::io::Result<()> {
     crate::atomic::replace(path, crate::atomic::Hardening::None, |out| {
         out.write_all(body.as_bytes())
@@ -241,8 +246,10 @@ mod tests {
              bytes here would silently corrupt an append-only log"
         );
         // No temp residue: a leftover .tmp beside the log is exactly the
-        // litter a crash during the session trail's own trim used to leave.
-        assert!(!p.with_extension("jsonl.tmp").exists());
+        // litter a crash during the session trail's own trim used to leave. Asked
+        // of `atomic::temp_path` rather than re-spelled, so the assertion cannot
+        // drift from the naming rule and pass vacuously.
+        assert!(!crate::atomic::temp_path(&p).exists());
     }
 
     /// The temp file is a SIBLING, and it is cleaned up on failure.
@@ -253,8 +260,9 @@ mod tests {
     fn rewrite_atomically_fails_cleanly_on_an_unwritable_target() {
         let p = tmp("rewrite-fail");
         std::fs::write(&p, "keep\n").expect("seed");
-        // A DIRECTORY at the temp path makes File::create fail.
-        std::fs::create_dir_all(p.with_extension("jsonl.tmp")).expect("blocker dir");
+        // A DIRECTORY at the temp path makes File::create fail. The path comes
+        // from the module that writes it, so the blocker cannot miss.
+        std::fs::create_dir_all(crate::atomic::temp_path(&p)).expect("blocker dir");
         assert!(
             rewrite_atomically(&p, "new\n").is_err(),
             "an unusable temp path must report failure, not silently succeed"
@@ -264,7 +272,7 @@ mod tests {
             "keep\n",
             "a FAILED rewrite must leave the original untouched"
         );
-        let _ = std::fs::remove_dir_all(p.with_extension("jsonl.tmp"));
+        let _ = std::fs::remove_dir_all(crate::atomic::temp_path(&p));
     }
 
     #[test]

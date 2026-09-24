@@ -14,8 +14,12 @@
 //!     the rename could leave the REPLACED file empty;
 //!   * FOUR of the seven left the temp behind when the RENAME (not the write)
 //!     failed — `bootstrap`, `connections`, `secrets` and `ssh` each returned the
-//!     rename error with `<name>.tmp` still on disk, and the other three cleaned
-//!     up only on the write failure they had thought of. The bytes are on disk by
+//!     rename error with `<name>.tmp` still on disk. The other three (`jsonl`,
+//!     `session_log`, `memory`) removed it on ANY failure, the rename included.
+//!     (This line first said those three cleaned up "only on the write failure
+//!     they had thought of"; re-reading the deleted bodies showed all three
+//!     wrapped write AND rename in one `is_err()` cleanup, so that clause was
+//!     false — the count of four was the part that held.) The bytes are on disk by
 //!     then, so a leftover `<name>.tmp` beside a store is indistinguishable from
 //!     a write still in flight;
 //!   * the hardening step was spelled four ways (a bare `let _ =`, a logged
@@ -35,10 +39,19 @@
 //! caller stated is applied to the TEMP before the rename, exactly once,
 //! wherever the bytes came from.
 //!
-//! STILL SPELLING ITS OWN: `plugins/memory/store.rs`'s tombstone compaction
-//! (`MemoryStore::compact`) — same mechanics, its own temp+sync+rename. It is
-//! the one member left to move, and it is named here so the next round does not
-//! have to re-measure to find it.
+//! STILL SPELLING ITS OWN: the TRANSFER LANDING in `plugins/system/tools.rs:405`
+//! and `:445` — a download STREAM written to a `.part` sibling under a size cap,
+//! then renamed into place. It shares the temp+rename SHAPE and is not a
+//! whole-file replace, which is why it is a DIFFERENT rule and deferred rather
+//! than overlooked: the bytes arrive as an async (`tokio::fs`) stream that must
+//! refuse a too-large transfer chunk by chunk and abort mid-flight, where this
+//! module's writer is blocking and runs the caller's closure to completion; and
+//! the landing flushes without ever `sync_all`ing, which is the durability
+//! question that has to be answered for a firmware image before it can inherit
+//! the sequence above. (This paragraph named `plugins/memory/store.rs`'s
+//! tombstone compaction as "the one member left to move" — that commit MOVED it:
+//! `MemoryStore::compact` calls [`replace`] now.) The remaining site is named here
+//! so the next round does not have to re-measure to find it.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -93,7 +106,7 @@ pub(crate) fn replace(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     let tmp = temp_path(path);
-    match attempt(path, &tmp, hardening, write) {
+    match write_temp_and_rename(path, &tmp, hardening, write) {
         Ok(()) => Ok(()),
         Err(e) => {
             // ANY failure removes the temp (step 6 above). The bytes are already
@@ -131,7 +144,11 @@ impl std::fmt::Display for HardeningFailure {
 
 impl std::error::Error for HardeningFailure {}
 
-fn attempt(
+/// The CREATE/WRITE/SYNC/HARDEN/RENAME sequence [`replace`] wraps in its
+/// clean-up: every step up to and including the rename, with no rollback of its
+/// own. A caller must not reach past [`replace`] to it — the temp is removed on
+/// failure there, and that clean-up is half of what this module guarantees.
+fn write_temp_and_rename(
     path: &Path,
     tmp: &Path,
     hardening: Hardening,
@@ -205,7 +222,14 @@ fn harden_outcome(tmp: &Path) -> std::io::Result<()> {
 /// straight past. The suffix is therefore derived from the whole file name, and
 /// that is what makes the name predictable to the sweepers that clean up after a
 /// crash (`session_log::prune_stale` filters `<sid>.jsonl.tmp`).
-fn temp_path(path: &Path) -> PathBuf {
+///
+/// `pub(crate)` FOR THE TESTS THAT ASSERT "NO RESIDUE": they must ask this
+/// function for the name, never rebuild it. A re-spelled name would still pass
+/// after a naming change — the assertion would be inspecting a path nothing
+/// writes, which is a mechanism that cannot fail. The rule itself stays pinned by
+/// `the_temp_is_a_visible_sibling_named_by_appending_tmp` below, which spells the
+/// literal name on purpose.
+pub(crate) fn temp_path(path: &Path) -> PathBuf {
     let mut name = path
         .file_name()
         .map(|n| n.to_os_string())
@@ -265,10 +289,12 @@ mod tests {
         d
     }
 
+    /// The temp path the PRODUCTION rule produces — asked of the module rather
+    /// than re-spelled here, so a "no residue" assertion cannot end up looking at
+    /// a path nothing writes (a mechanism that cannot fail). The literal name is
+    /// pinned once, in `the_temp_is_a_visible_sibling_named_by_appending_tmp`.
     fn tmp_of(target: &Path) -> PathBuf {
-        let mut n = target.file_name().unwrap().to_os_string();
-        n.push(".tmp");
-        target.with_file_name(n)
+        temp_path(target)
     }
 
     #[test]

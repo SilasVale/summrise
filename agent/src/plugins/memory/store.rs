@@ -298,8 +298,10 @@ impl MemoryStore {
             let Ok(rec) = serde_json::from_str::<MemoryRecord>(line) else {
                 continue;
             };
-            // Dedup by id is last-wins; tag index is rebuilt after the sweep
-            // so a superseded line's tags cannot orphan-register the winner.
+            // Dedup by id is LAST-WINS: the last line for an id is what `by_id`
+            // keeps. Nothing is derived from a superseded line — there is no tag
+            // index to keep in step (it was deleted; `search` and `list` filter on
+            // the record's own `tags`), so `by_id` is all the loop builds.
             guard.by_id.insert(rec.id.clone(), rec.clone());
         }
         // total_bytes counts LIVE records only — the old per-line sum counted
@@ -415,7 +417,9 @@ impl MemoryStore {
             return 0;
         }
         let before = guard.by_id.len();
-        // Drop deleted records from the index + tag index.
+        // Drop the deleted records from `by_id` — that map is the whole of the
+        // in-memory index (the tag index is gone; see `Inner`), and it is the only
+        // state the rollback below has to restore.
         let removed: Vec<String> = guard
             .by_id
             .iter()
@@ -567,8 +571,11 @@ impl MemoryStore {
         deleted: Option<bool>,
     ) -> UpdateOutcome {
         let now = crate::unix_now();
-        // Clone the current record out, mutate the clone, then write back —
-        // avoids holding a mutable borrow across tag-index mutation.
+        // Clone the current record out, mutate the clone, then write it back: the
+        // record is owned outside the map while it is edited, so no map borrow is
+        // held across the mutation. (This line explained the clone as avoiding a
+        // borrow across TAG-INDEX mutation; that index was dead state and is
+        // deleted — see `Inner` — so the owned clone is the whole reason.)
         let mut rec = {
             let guard = recover_guard(&self.inner);
             match guard.by_id.get(id) {
@@ -1754,8 +1761,10 @@ mod tests {
         // eager reclaim once tombstones are a majority, so a blocker planted afterwards arrives to find
         // the compaction already done and reported as a success. A DIRECTORY at the temp path makes
         // `File::create` fail — the idiom `jsonl.rs`'s own failure test uses, and it exercises the real
-        // path rather than a test-only hook.
-        std::fs::create_dir_all(dir.join("memory.jsonl.tmp")).expect("blocker dir");
+        // path rather than a test-only hook. The path is ASKED OF THE WRITER (`atomic::temp_path` of this
+        // store's own file), never re-spelled, so a naming-rule change cannot leave the blocker beside a
+        // file nothing writes.
+        std::fs::create_dir_all(crate::atomic::temp_path(&s.file_path())).expect("blocker dir");
         for t in ["alpha", "beta", "gamma", "delta"] {
             assert!(matches!(
                 s.delete(&format!("m-{t}")),

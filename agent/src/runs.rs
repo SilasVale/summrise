@@ -1015,7 +1015,9 @@ mod tests {
         assert_eq!(recent(&d, 10).len(), 1);
         assert!(!known(&d, "run-old"));
         assert!(known(&d, "run-fresh"));
-        assert!(!runs_path(&d).with_extension("jsonl.tmp").exists());
+        // Asked of the module that writes the temp, so a naming-rule change
+        // cannot make this assertion inspect a path nothing writes.
+        assert!(!crate::atomic::temp_path(&runs_path(&d)).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

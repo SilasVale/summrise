@@ -5601,6 +5601,59 @@ exists) and one to leave alone (`session_log::prune_stale` still matches `<sid>.
 writer; the only `tmp`/`.part` strings left outside it are test ASSERTIONS of the no-residue property — plus the
 transfer landing, which is the next round's candidate and was deliberately not touched.
 
+### The review, and numbers I wrote instead of measuring (same round)
+
+Both axes ran against the commit and both found real things — including four wrong NUMBERS in the section above,
+which is the class this ledger exists to make expensive.
+
+**THE MODULE'S OWN HEADER CONTRADICTED THE COMMIT THAT WROTE IT.** `atomic.rs` listed what was "STILL SPELLING ITS
+OWN" and named `MemoryStore::compact` as "the one member left to move" — the member this same commit moved. And the
+list omitted the real remainder: the TRANSFER landing in `plugins/system/tools.rs` (an async stream into a `.part`
+sibling under a size cap, flushing without `sync_all`). The paragraph now names the transfer, says it is a different
+rule rather than an oversight, and records what it used to claim.
+
+**AND TWO COMMENTS CLAIMED A LITTER BEHAVIOUR THE DELETED CODE DISPROVES.** `jsonl.rs` said the temp "is left behind
+on failure"; the body this commit deleted removed it on ANY failure. `atomic.rs` said "the other three cleaned up
+only on the write failure they had thought of"; measured against `279c9929^`, `jsonl`, `session_log` and `memory` all
+cleaned a failed RENAME — the number FOUR (bootstrap, connections, secrets, ssh) was right and the sentence around it
+was not. Both are corrected with the false claim recorded, because a reader who finds the old text in a diff should
+be able to see it was noticed.
+
+**THE DELETED INDEX LEFT THREE COMMENTS DESCRIBING IT.** `store.rs` still said "tag index is rebuilt after the
+sweep" (that rebuild WAS the deleted code), "Drop deleted records from the index + tag index", and "across tag-index
+mutation". All three now describe `by_id` alone; the note recording WHY the index was deleted is kept.
+
+**AND A TEST HELPER RE-SPELLED THE RULE IT WAS TESTING.** `atomic.rs`'s `tmp_of()` rebuilt the temp path instead of
+asking the module, so a change to the naming rule would have left every "no residue" assertion passing VACUOUSLY —
+the exact failure the file's own header warns about ("a mechanism that cannot fail is worse than none"). `temp_path`
+is `pub(crate)` now and every assertion in the tree calls it, including the same re-spelling in `evidence`, `runs`,
+`jsonl`, `ssh`, `connections`, `secrets`, `bootstrap` and `store`. The one literal-name test stays, so pinning the
+rule is not circular.
+
+**FOUR NUMBERS I TYPED RATHER THAN MEASURED**, all corrected in this section or the inventory: "nine files call the
+one writer" (measured: SEVEN — `jsonl`, `session_log`, `bootstrap`, `connections`, `secrets`, `ssh`, `store`, plus
+`jsonl`'s six indirect callers through `rewrite_atomically`); "six callers, not four — monitor calls it twice"
+(the sixth is `runstate`'s SECOND call site, not `monitor`'s); "the only `.tmp` strings left are test assertions"
+(`session_log::prune_stale` is production — it is the SWEEPER, and the sweep found no other consumer); and the
+inventory's `agent/src` cell, which carried a HEAD number beside the PREVIOUS round's SHA (51,915 at `279c9929`,
+51,258 at `c321690f`). The inventory's `tools` and `plugins` rows were also stale and said "unchanged" — tools is up
+150 lines to this refactor.
+
+**AND THE BEHAVIOUR CHANGES WERE THREE, NOT TWO.** The section above claims "behaviour is bit-identical except the
+temp name and `sync_all`". The review found: `bootstrap`'s operator-visible ERROR TEXT changed (the bare OS error
+became `write "<tmp>": …` / `rename to "<path>": …`, and it reaches the tunnel's failure line, the Gateway card and
+the config-persist context); `ssh`'s hardening moved BOTH ways (Windows gains the icacls it never had, and on unix a
+chmod failure no longer refuses the save, where `set_permissions(0o600)?` used to propagate); and `store.rs`'s
+`writeln!` failures now ABORT the rewrite instead of being discarded — which is better (the old path renamed a
+truncated file and reported removals) but is a change, and it is the reason `compact` returns 0 there. Named here
+because the round said two.
+
+**AND ONE FLAKE, UNRESOLVED AND RECORDED:** a single test run during the fixes failed one lib test (716 passed / 1
+failed) whose name was not captured; it did not reproduce in six subsequent runs, nor in three targeted runs of the
+`atomic` and `memory` suites afterwards. The known cause of that shape in this repo is two test binaries sharing the
+`/tmp` data-dir fixtures at once — which is exactly what happened here (the fix agent and the parent were running
+`cargo test` concurrently). Left named rather than dismissed, because "it went green again" is not a diagnosis.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
