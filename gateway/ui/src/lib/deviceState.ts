@@ -24,7 +24,7 @@
 // be "checked 40 minutes ago" and that freshness was a second question. It is not: the worker probes each device's
 // own /api/status through its tunnel behind a 30-second in-isolate cache (DEVICE_PROBE_TTL_MS in
 // `summrise-gate/src/plugins/mcp.ts`, mirrored for the console's code viewer at
-// `gateway/public/code/files/summrise-gate/src/plugins/mcp.ts`), the console polls every 30s, and `checked_at` is THAT
+// `gateway/public/code/files/summrise-gate/src/plugins/mcp.ts`), the console polls every 60s (`CONSOLE_POLL_MS` in this file), and `checked_at` is THAT
 // probe's timestamp — not the newer `agent_update` check's, which is a different field on the same row. So the
 // worst-case age of an `agent_up` reading is about a minute, a stale row cannot masquerade as a fresh one, and no
 // fourth "stale" state is needed. A test in `test/device-state.test.mjs` reads the mirror and fails if the TTL this
@@ -147,6 +147,9 @@ export type { DeviceTally };
  * view or a manual refresh and never the console's own request. What was NOT fine is a stated reason that is false
  * in another repository, and the same number written twice here — which is what this constant removes on this side.
  *
- * The console polls every 60s. The worker's sentence is filed in `docs/agents/ideas.md` for whoever edits it.
+ * The console polls every 60s. The worker's sentence was FILED in `docs/agents/ideas.md` and FIXED in round
+ * 156: it now states the measured margin (a 30s cache behind a 60s poll never serves the console's own
+ * request), which is the fact a reader needs before changing the number. Whether this constant should live
+ * somewhere both crates read is a placement decision, still open, still the operator's.
  */
 export const CONSOLE_POLL_MS = 60_000;
