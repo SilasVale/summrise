@@ -145,3 +145,28 @@ console.log(`landing contrast: ok — ${PAIRS.length} pairs in BOTH themes (${ch
   }
   console.log(`landing layout: ok — ${widths} fixed width(s), none above ${NARROWEST}px, ${breakpoints} breakpoint(s)`);
 }
+
+// ── the update command must be installable ─────────────────────────────────────────────────────────
+// AGENTS.md: "A BARE \`npm i -g summrise-agent\` CAN INSTALL NOTHING WHILE REPORTING SUCCESS" — a stale
+// cached \`latest\` prints "changed 1 package" and leaves the old CLI in place. The landing's step 3 told
+// every visitor to run exactly that (round 128, from the twelfth exploration) while step 2 and both
+// READMEs used the URL form — and the paragraph even ended "not with npm's exit code", so the class was
+// known and the safe form was one line away.
+{
+  const src = readFileSync(PAGE, "utf8");
+  // A bare package name is one with no URL and no --prefix in front of it.
+  const bare = [...src.matchAll(/npm i -g (?:--prefix [^<]*)? ?summrise-agent\b/g)];
+  if (bare.length) {
+    console.error("landing install: FAILED");
+    for (const b of bare) console.error("  a bare package name has a resolution step: " + b[0]);
+    process.exit(1);
+  }
+  // A FLOOR, like this file's other scans: reading no command at all is not a clean scan. A rename in
+  // page.js must fail loudly rather than turn this into a check of nothing.
+  const seen = (src.match(/npm i -g/g) || []).length;
+  if (seen < 2) {
+    console.error(`landing install: FAILED — read ${seen} "npm i -g" occurrence(s); the scan is reading the wrong thing`);
+    process.exit(1);
+  }
+  console.log(`landing install: ok — ${seen} install command(s), none naming the bare package`);
+}

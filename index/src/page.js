@@ -383,7 +383,7 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
         </div>
         <div class="step">
           <div class="step-num">3</div>
-          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) summrise-agent</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code.</div>
+          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) ${safeInstaller}</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code. <b>Install from the URL, never the bare package name</b>: the package name alone has a resolution step, and a stale cached <code>latest</code> leaves the OLD CLI in place while printing <code>changed 1 package</code> — the same failure this step is about, one layer down.</div>
         </div>
       </div>
     </div>
