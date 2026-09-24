@@ -87,7 +87,14 @@ type Route = { base: string; path: string };
 function bad(message: string, status = 400): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    // SAME POLICY AS ITS TWO SIBLINGS, and the reason is written here for the same purpose: errors
+    // (404/401/413...) must not be edge-cached either — a cached transient failure would outlive its
+    // cause. This was the ONE error responder of the three that set no cache policy at all, against
+    // git.ts and gform.ts, and nothing compared the three (round 117, from the eleventh exploration).
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store, max-age=0, must-revalidate",
+    },
   });
 }
 

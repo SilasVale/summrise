@@ -183,3 +183,16 @@ test("redirect storm → 502 after the cap; upstream throw → 502 unavailable",
     console.error = orig;
   }
 });
+
+test("an error response is not edge-cacheable, like its two siblings", async () => {
+  // The exploration that found this said it plainly: `no-store` appears in NO test outside
+  // git-gate's. So the policy could be deleted from any of the three error responders and every
+  // suite would stay green — which is how github.ts came to be the one that set no policy at all.
+  const res = await handler(new Request("http://relay.test/api/github/"), {});
+  assert.ok(res.status >= 400, `expected an error, got ${res.status}`);
+  assert.match(
+    res.headers.get("cache-control") || "",
+    /no-store/,
+    "a cached transient failure would outlive its cause",
+  );
+});
