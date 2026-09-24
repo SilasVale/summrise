@@ -5,8 +5,9 @@
 // controls) and the strip's chip ("192.168.1.1:22 down 4m"), which must be visible from any
 // page. One poller per shell feeds both, and the actions live here too so a card and any future
 // caller send exactly the same requests.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
+import { useDeviceRead } from "./useDeviceRead";
 
 interface MonitorProbe {
   tsMs: number;
@@ -157,31 +158,25 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
   remove: (id: string) => Promise<void>;
   probe: (id: string) => Promise<void>;
 } {
-  const [monitors, setMonitors] = useState<Monitors>(EMPTY_MONITORS);
-  const [failed, setFailed] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const refresh = useCallback(async () => {
-    try {
-      const j = await callApi("/api/monitors");
-      if (!alive.current) return;
-      if (deviceRefused(j)) {
-        setFailed(true);
-        return;
-      }
-      setMonitors(parseMonitors(j));
-      setFailed(false);
-    } catch {
-      // Keep the last good list: a missed poll is not a device that stopped watching.
-      if (alive.current) setFailed(true);
-    }
-  }, []);
+  // THE POLL AND THE RE-READ AFTER AN ACTION ARE `useDeviceRead`'s (see its header): the
+  // refusal guard, the cadence floor, the unmount guard and the ordering guard. `refresh`
+  // is the same never-rejecting promise this hook has always handed to `add`/`remove`/
+  // `probe`, so every action re-reads the list through one loop — and keep-last means a
+  // missed poll is not a device that stopped watching.
+  const {
+    data: monitors,
+    read,
+    refresh,
+  } = useDeviceRead<Monitors>({
+    path: "/api/monitors",
+    // A body this build cannot use is an EMPTY monitor list — never a throw (parseMonitors).
+    reduce: (_previous, body) => parseMonitors(body),
+    initial: EMPTY_MONITORS,
+    everyMs: intervalMs,
+  });
+  // `failed` says the device did not answer; it never says the list is empty. The card's
+  // chip and the card itself both draw that distinction.
+  const failed = read === "unreadable";
 
   const add = useCallback(
     async (host: string, port: number, path = "", expect = "") => {
@@ -237,15 +232,6 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
     },
     [refresh],
   );
-
-  useEffect(() => {
-    void refresh();
-    const t = window.setInterval(
-      () => void refresh(),
-      Math.max(5_000, intervalMs),
-    );
-    return () => window.clearInterval(t);
-  }, [refresh, intervalMs]);
 
   return { ...monitors, failed, refresh, add, remove, probe };
 }

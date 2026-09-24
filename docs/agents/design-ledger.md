@@ -4940,6 +4940,106 @@ the other) and `proxy-timeout-parity-check` (the README states ONE 30s header bu
 deployment units implement it). Both are wired in `ci.yml` and were reachable by the name census only through
 `docs/agents/inventory.md` — a checkpoint whose narrative is 70 KB and hundreds of rounds old, which is not
 "somewhere an operator reads". They are named here because this section is where the mutations live.
+## 2026-09-24 — the twenty-third exploration: the agent's control flow, one table and one pump and one read
+
+The first pass driven by the `improve-codebase-architecture` skill rather than by a defect, and the first that
+asked a different question of the agent: not "is this right" but "WHO OWNS THIS FACT". Three answers came back,
+and two of them were gates that could not fail — both because the fact they checked had no owner to be checked
+against.
+
+**A ROUTE LIST DECLARED THREE TIMES, AND A TEST THAT READ ITS OWN SOURCE.** Which requests the device answers
+lived in `route_pre_dispatch` (13 path literals), a nested `async fn dispatch` (23 match arms) and a hand-written
+list inside `every_dispatch_route_is_auth_gated`. Because `dispatch` was nested, no test could call it, so that
+test enumerated routes by reading `mod.rs` as TEXT and bounding the region with `body.find("\n    async fn ")` —
+INDENTATION, not a contract. Measured: the region ran **lines 1063 → 2374**, of which `dispatch` is ~125; the
+other ~1186 lines were unrelated production and test code. The pair check it served ("a new route added without
+auth fails HERE") was therefore reading a body that included `api_*` handlers, the `lock_data_dir` test helper and
+1,000 lines of tests.
+
+**AND THE SIBLING TEST ASSERTED ITS OWN STRING.** `streaming_routes_share_one_slot_acquisition_point` required
+`SRC.contains("sse_route_response(headers, state, sse_stream)")`. Commit `528e7548` threaded a new first argument
+(`peer`) through both real calls, so by this round the literal occurred **exactly once in the file — at the
+assertion itself**:
+
+    1  sse_route_response(headers, state, sse_stream)          → the assertion
+    1  sse_route_response(peer, headers, state, sse_stream)    → the real call
+
+`SRC.contains(...)` was satisfied by the very text asking the question. The test could not fail, and the routing
+it claimed to pin was covered by nothing. Its own comment three lines below records the author rejecting a
+DIFFERENT unfalsifiable assertion ("keeping a check that cannot fail would be worse than none") — the rule was
+known and this instance was not seen, which is the whole reason the round went looking for owners instead of
+defects.
+
+**WHAT WAS DONE.** Routes became data: one ordered table of 42 rows (24 `DispatchGated`, 6 `PreDispatchAuthed`,
+2 `Mcp`, 10 `Public`) behind `routes()`, one first-match lookup (`route_of`), and a `dispatch` that matches an
+exhaustive `RouteId` enum with no wildcard arm. Both source scans were DELETED: the auth test now walks the table
+and sends a real request per row (401 anonymous and 401 with a wrong token for the three gated stages; NOT 401
+for `Public`), and a new test walks every row through the real `route_pre_dispatch` to pin its `Stage`.
+
+**THE MUTATION THAT MUST FAIL IT, and the strongest one is not a test at all:**
+
+| mutation | result |
+|---|---|
+| ADD a table row whose `RouteId` has no handler arm | **`error[E0004]: non-exhaustive patterns: Some(RouteId::NobodyHandlesThis) not covered`** — the drift is now a COMPILE error |
+| DELETE a dispatch row | the table's floor test fails (`the_route_table_has_a_floor_and_a_method_vocabulary`) — a deleted row leaves its variant in the enum, so this is the test, not the compiler |
+| Relabel one row `Public` | `every_dispatch_route_is_auth_gated` fails: "GET /api/update is a `Public` row and answered 401 without a credential" |
+
+**THE PUMP WAS WRITTEN TWICE, AND ITS ONE DIFFERENCE WAS A LITERAL.** `sse_term_stream` built its own mpsc and
+its own `select!` because the only thing it needed to differ — a 60 s heartbeat against 30 s — was a number
+inside the loop. The R128 fix (a viewer slot must ride the STREAMING TASK) had been applied in both places, and
+both copies carried the same comment saying so. The deletion test settled the design: deleting `sse_response`
+would not have deleted the pump. The stream is now a value (`SseStream { rx, tick, initial, encode, lagged,
+guard }`), both routes are ~10-line adapters, and the cadence sits where the difference is.
+
+**AND THE ARM THAT WAS UNTESTABLE BECAME TESTABLE BY MOVING ONE NUMBER.** The module header recorded the
+heartbeat arm as *"intentionally untested — it would take 30s"*. That was true of the CONSTANT, not of the arm:
+as a parameter it is driven at 10 ms, and `heartbeat_frames_are_emitted_on_the_configured_tick` now reads the
+first frame off the live body. A parameter is not always cosmetic — it is sometimes the difference between a
+covered branch and a documented gap.
+
+**THE PANEL HAD THIRTEEN COPIES OF ONE READ, DRIFTED IN FOUR WAYS.** Measured: the refusal block byte-identical
+in four files (and co-conditioned in a fifth); cadence floors of `10_000` in `useVitalsSeries`, `5_000` in
+`useMonitors` and NONE in three others; the unmount guard in three idioms (local `let alive` ×5, `useRef` + a
+mount effect ×2, `aliveRef` ×1); and the out-of-order guard — "only the newest read may write" — in **2 of 13**,
+so the other eleven could let a slow reply rewind a newer value. `lib/` also imported the three-word read state
+FROM a hook, so the seam ran backwards. One module now owns all four (`useDeviceRead` + `lib/readState.ts`),
+five callers were migrated, and each of the four drifts was planted back to prove the new suite notices:
+
+| planted drift | result |
+|---|---|
+| a refusal reaches `reduce` | the refusal test fails |
+| the cadence floor removed | the cadence test fails |
+| the sequence guard removed | the ordering test fails |
+| the unmount guard removed | the unmount test fails |
+
+**AND ONE MUTATION DID NOT BITE, WHICH IS THE ENTRY WORTH KEEPING.** I also routed `/api/events` through a
+one-line pass-through wrapper that calls the shared helper, expecting the replacement assertion (a count of
+`sse_route_response(` == 2) to fail. **It passed.** The count is the same, and — after following it one step
+further — that is the CORRECT answer: the wrapper still acquires the slot through the one helper, so the property
+the test guards (one acquisition point, one home for the guard's lifetime) still holds. A name count sees
+indirection and cannot see whether the acquisition moved; the sibling assertion (`acquire_sse_guard()` == 1)
+sees the acquisition and cannot see indirection. The first mutation that reached the assertion was not a defect,
+and the two assertions are each asked only for their own half — both halves were then verified: a branch taking
+its OWN slot gives "found 2", and a route answering without the helper gives "1 time(s)".
+
+**AND A SECOND, SMALLER VERSION OF THE SAME LESSON INSIDE THE NEW TESTS.** The route-lookup test was written from
+what the table OUGHT to say — `route_of("GET", "/api/sessions/term-0/control")` pinned to `None`, "the session
+actions are POST-only" — and the whole suite went red on it: the arm it replaced
+(`p.starts_with("/api/sessions/") && p.len() > …`) matched that path too, and rejecting an id like
+`term-0/control` is `api_session_events`' job, not the table's. A test written from the intended contract rather
+than the measured one is the same failure as a vacuous assertion, one step earlier.
+
+**WHAT IT COST.** One round, two delegated implementations, three verification passes. The Rust surface took a
+red suite once (the wrong expectation above) and clippy once (a `mut` the pump extraction made unnecessary). The
+panel took a rebuild because `build.rs`'s panel-staleness gate compares mtimes and my mutation-restore re-touched
+a source file — the gate doing its job, and the reason the committed bundle is rebuilt by `npm run build` rather
+than by hand.
+
+**THE NUMBERS, for the next reader about to re-measure:** `agent/src/web/mod.rs` 7,375 → 8,021 lines (the table,
+its four `Pattern` shapes and six routing tests); `agent/src/web/sse.rs` 474 → 544; the panel 832 → 842 tests
+(109 files, +7 in the new `useDeviceRead` suite); the agent's lib tests 681 → 694. The route TABLE is the number
+that matters and the only one worth re-measuring from the source: 42 rows, counted inside `routes()`.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

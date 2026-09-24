@@ -18,8 +18,9 @@
 //   * "the release server did not answer" — unknown, and never drawn as "up to date";
 //   * "pinned by summrise rollback" — an update may exist that this device will REFUSE;
 //   * "already in flight" — the busy marker, so a second click cannot race the first.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
+import { useDeviceRead } from "../hooks/useDeviceRead";
 
 export interface UpdateStatus {
   current: string;
@@ -138,38 +139,23 @@ export function useUpdateStatus(intervalMs = 60_000): UpdateStatus & {
   failed: boolean;
   refresh: () => Promise<void>;
 } {
-  const [status, setStatus] = useState<UpdateStatus>(EMPTY_UPDATE);
-  const [failed, setFailed] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const refresh = useCallback(async () => {
-    try {
-      const j = await callApi("/api/update");
-      if (!alive.current) return;
-      if (deviceRefused(j)) {
-        setFailed(true);
-        return;
-      }
-      setStatus(parseUpdateStatus(j));
-      setFailed(false);
-    } catch {
-      if (alive.current) setFailed(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const t = window.setInterval(() => void refresh(), intervalMs);
-    return () => window.clearInterval(t);
-  }, [refresh, intervalMs]);
-
-  return { ...status, failed, refresh };
+  // THE POLL AND THE RE-READ AFTER AN ACTION ARE `useDeviceRead`'s (see its header): the
+  // refusal guard, the cadence floor this hook never had, the unmount guard and the
+  // ordering guard. `refresh` is the same never-rejecting promise the card already awaits
+  // after `agent_update`; a failed read keeps the last state on screen, and the rendered
+  // "did not answer" sentence is drawn from `failed` — never from a blanked value.
+  const {
+    data: status,
+    read,
+    refresh,
+  } = useDeviceRead<UpdateStatus>({
+    path: "/api/update",
+    // A body this build cannot use is the empty state — never a throw (parseUpdateStatus).
+    reduce: (_previous, body) => parseUpdateStatus(body),
+    initial: EMPTY_UPDATE,
+    everyMs: intervalMs,
+  });
+  return { ...status, failed: read === "unreadable", refresh };
 }
 
 type Phase = "idle" | "confirm" | "applying" | "applied" | "error";

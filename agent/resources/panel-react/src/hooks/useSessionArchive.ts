@@ -25,14 +25,13 @@
 import { useEffect, useRef, useState } from "react";
 import { callApi } from "../lib/api";
 import { archiveEntries, type ArchiveEntry } from "../lib/archive";
+import type { ReadState } from "../lib/readState";
 
-/** Mirrors SessionReadState in useCommandEvents — the same three words for the
- *  same three facts, so a reader of either surface meets one vocabulary. */
-type ArchiveListState = "reading" | "ok" | "unreadable";
-
-export function useSessionArchive(): { entries: ArchiveEntry[]; state: ArchiveListState } {
+export function useSessionArchive(): { entries: ArchiveEntry[]; state: ReadState } {
   const [entries, setEntries] = useState<ArchiveEntry[]>([]);
-  const [state, setState] = useState<ArchiveListState>("reading");
+  // The three words are `lib/readState.ts`'s (`ReadState`) — this hook used to declare a
+  // private `ArchiveListState` twin whose own comment said it mirrored the hook next door.
+  const [state, setState] = useState<ReadState>("reading");
   // Only the newest read may write: two overlapping refreshes (mount + a
   // sessions-changed push) must not let the slower one land last and rewind the
   // list. Same stance as useCommandEvents' post-await sid re-check.

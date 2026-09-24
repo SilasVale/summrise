@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { callApi } from "../lib/api";
 import { stripAnsi } from "../lib/ansi";
+import type { ReadState } from "../lib/readState";
 
 // Command event stream for one session (round-admin-ui Task 4): polls
 // GET /api/sessions/{sid} — the audit JSONL (command/start → output →
@@ -147,7 +148,9 @@ export function groupEvents(events: CommandEvent[]): CommandCard[] {
 }
 
 /**
- * How the last completed read of a session's audit log went.
+ * How the last completed read of a session's audit log went — one of the three `ReadState`s.
+ * The VOCABULARY lives in `lib/readState.ts` (one type for the three facts, shared with the
+ * session archive and the views that draw an empty trail); what it means HERE is:
  *
  *   "reading"     — no completed read yet for this sid (initial, or just switched)
  *   "ok"          — the last read SUCCEEDED. Note this says nothing about how
@@ -166,7 +169,6 @@ export function groupEvents(events: CommandEvent[]): CommandCard[] {
  * owns the wording; the field is REQUIRED on the slice `App` hands to them so a
  * mount cannot forget it again.
  */
-export type SessionReadState = "reading" | "ok" | "unreadable";
 
 /**
  * READ the audit log of one session and return the RAW events (in seq order)
@@ -183,9 +185,9 @@ export type SessionReadState = "reading" | "ok" | "unreadable";
 function useSessionEventsWithState(
   sid: string | null,
   pollMs = 2000,
-): { events: CommandEvent[]; readState: SessionReadState; firstSeq: number } {
+): { events: CommandEvent[]; readState: ReadState; firstSeq: number } {
   const [events, setEvents] = useState<CommandEvent[]>([]);
-  const [readState, setReadState] = useState<SessionReadState>("reading");
+  const [readState, setReadState] = useState<ReadState>("reading");
   // WHERE THE RECORD BEGINS, as the device reports it. The trail is trimmed to
   // ~2000 lines when a session closes, so a long session's head is discarded by
   // design — `firstSeq > 1` is the only signal, and a viewer that ignores it
@@ -355,7 +357,7 @@ function useSessionEventsWithState(
 export function useCommandEvents(sid: string | null, pollMs = 2000) {
   // round-128: the raw events are exposed so the trajectory view reuses THIS
   // read instead of mounting a second one (double fetch every 2s). `readState`
-  // is the third thing the same read knows (see SessionReadState) — the archive
+  // is the third thing the same read knows (see `ReadState`) — the archive
   // viewer needs it to tell an empty trail from an unreadable one.
   const { events, readState, firstSeq } = useSessionEventsWithState(sid, pollMs);
   const cards = useMemo(() => groupEvents(events), [events]);

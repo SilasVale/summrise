@@ -1,5 +1,6 @@
 import type { PathState } from "../lib/path";
 import { trailReadNotice } from "../lib/trailRead";
+import type { ReadState } from "../lib/readState";
 import { useEffect, useRef, useState } from "react";
 import { useNow } from "../hooks/useNow";
 import type { CommandEvent } from "../hooks/useCommandEvents";
@@ -148,7 +149,7 @@ export function TrajectoryView({
    *  hand — for them the empty line is TRUE. What must never happen is a mount
    *  that HAS a failed read and does not say so, and `CommandEvents.readState` is
    *  required precisely so the wiring in `App` cannot be the one that forgets. */
-  readState?: import("../hooks/useCommandEvents").SessionReadState;
+  readState?: ReadState;
 }) {
   // round-128: events come from the App-level shared poll (one fetch per 2s,
   // not a second independent one).

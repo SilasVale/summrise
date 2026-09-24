@@ -5,8 +5,7 @@
 // polling much slower would leave a chip announcing a load the device has already shed.
 // The device states its cadence in the reply and this hook uses it, rather than hardcoding
 // a number that a future sampler change would silently invalidate.
-import { useEffect, useState } from "react";
-import { callApi, deviceRefused } from "../lib/api";
+import { useDeviceRead } from "./useDeviceRead";
 
 interface VitalsSample {
   tsMs: number;
@@ -68,32 +67,21 @@ export function parseVitalsSeries(j: unknown): VitalsSeries {
 export function useVitalsSeries(
   intervalMs = 30_000,
 ): VitalsSeries & { failed: boolean } {
-  const [series, setSeries] = useState<VitalsSeries>(EMPTY_SERIES);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const j = await callApi("/api/vitals/history");
-        if (!alive) return;
-        if (deviceRefused(j)) {
-          setFailed(true);
-          return;
-        }
-        setSeries(parseVitalsSeries(j));
-        setFailed(false);
-      } catch {
-        // Keep the last good series: a missed poll is not a device that went quiet, and
-        // blanking the chart would be this panel asserting it.
-        if (alive) setFailed(true);
-      }
-    };
-    void tick();
-    const t = window.setInterval(tick, Math.max(10_000, intervalMs));
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [intervalMs]);
-  return { ...series, failed };
+  // THE READ LOOP IS `useDeviceRead`'s (see its header): it owns the refusal guard, the
+  // rule that a failed read keeps the last good series instead of blanking the chart, the
+  // unmount guard and the ordering guard. What is this reader's own is the number below.
+  const { data, read } = useDeviceRead<VitalsSeries>({
+    path: "/api/vitals/history",
+    // A body this build cannot use is an EMPTY series — never a throw (parseVitalsSeries).
+    reduce: (_previous, body) => parseVitalsSeries(body),
+    initial: EMPTY_SERIES,
+    everyMs: intervalMs,
+    // 10 s, not the module default: the device samples every 30 s, so a cadence below 10 s
+    // can only return the same array again — but the floor is what stops a malformed reply
+    // (or a caller) from turning the panel into a poller.
+    floorMs: 10_000,
+  });
+  // `failed` says the DEVICE did not answer — never "the series is empty", which is a
+  // successful read of a quiet device and a different fact.
+  return { ...data, failed: read === "unreadable" };
 }

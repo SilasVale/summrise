@@ -124,20 +124,56 @@ impl futures::stream::Stream for MpscStream {
     }
 }
 
-/// Build a text/event-stream response from a broadcast receiver. The
-/// `encode` closure turns a received item into a `data:` frame; `lagged`
-/// provides the fallback frame when the receiver falls behind (loss-tolerant
-/// stream — the client catches up by polling from its last seq).
-pub(crate) async fn sse_response<T>(
-    mut rx: tokio::sync::broadcast::Receiver<T>,
-    encode: impl Fn(&T) -> String + Send + 'static,
-    lagged: impl Fn(u64) -> String + Send + 'static,
-    initial: Option<String>,
-    guard: SseConnectionGuard,
-) -> Response
+/// ONE STREAM, DESCRIBED — the whole interface of the SSE pump.
+///
+/// WHY THIS IS A VALUE AND NOT SIX ARGUMENTS. The pump used to be *called* by
+/// one stream and *copied* by the other: `sse_term_stream` built its own mpsc and
+/// its own `select!` loop, because the one thing it needed to differ — a 60 s
+/// heartbeat where the events stream uses 30 s — was a literal inside the loop
+/// rather than something a caller could pass. The cost was paid twice over: the
+/// R128 fix (a viewer slot must ride the STREAMING TASK, not the Body) had to be
+/// applied in two places and both copies carry the same comment saying so, and
+/// the heartbeat arm was untestable because reaching it took 30 s of wall clock.
+/// With the cadence in the description, both streams are ~10-line adapters at
+/// this seam and the arm can be driven at 10 ms.
+///
+/// The DELETION TEST is what settled it: deleting the old `sse_response` would
+/// NOT have deleted the pump, because half its consumers had their own copy.
+/// That is a module bypassed by its own callers, whatever its parameter list
+/// suggests.
+pub(crate) struct SseStream<T> {
+    /// The broadcast subscription feeding this stream.
+    pub rx: tokio::sync::broadcast::Receiver<T>,
+    /// Heartbeat cadence. A comment frame every tick keeps the socket alive AND
+    /// is how a dead client is noticed (the send into a full mpsc fails). The two
+    /// streams want different values, and each states its reason at its own call
+    /// site rather than in a copy of this loop.
+    pub tick: std::time::Duration,
+    /// A frame to emit before anything else — the epoch marker, where the stream
+    /// has one. `None` means the first frame is whatever the device pushes.
+    pub initial: Option<String>,
+    /// A received item → one SSE frame.
+    pub encode: Box<dyn Fn(&T) -> String + Send + 'static>,
+    /// The fallback frame when the receiver fell behind (loss-tolerant stream —
+    /// the client catches up from its own last seq).
+    pub lagged: Box<dyn Fn(u64) -> String + Send + 'static>,
+    /// The viewer slot, held for as long as this stream lives (SOLID R128).
+    pub guard: SseConnectionGuard,
+}
+
+/// Build a text/event-stream response from the description above.
+pub(crate) async fn sse_response<T>(plan: SseStream<T>) -> Response
 where
     T: Clone + Send + 'static,
 {
+    let SseStream {
+        mut rx,
+        tick: tick_every,
+        initial,
+        encode,
+        lagged,
+        guard,
+    } = plan;
     let (tx, mpsc_rx) = mpsc::channel::<Result<Bytes, Infallible>>(128);
 
     tokio::spawn(async move {
@@ -153,14 +189,15 @@ where
         }
         // Heartbeat + dead-client detection, both in ONE select.
         //
-        // The 30s tick: an idle stream emitted zero bytes while declaring
+        // The tick: an idle stream emitted zero bytes while declaring
         // keep-alive, so a silently-dropped connection was never detected and
         // a reconnect missed every event during the outage. A comment frame
         // keeps the socket alive AND lets the client's read loop notice a dead
         // connection. The mpsc is bounded (128); a client that stopped reading
         // fills it and an unbounded send would block FOREVER, so each send is
         // bounded at 5s by send_bounded — a full channel means the client is
-        // gone.
+        // gone. The CADENCE is the caller's (`SseStream::tick`): 30 s here, 60 s
+        // on the terminal stream, each for a reason stated at its call site.
         //
         // `tx.closed()` is the PROMPT release path (SOLID R128). Without it
         // the task stays parked on the BROADCAST receiver and only notices a
@@ -171,7 +208,7 @@ where
         // still exhausted seconds after every response was dropped. A flood of
         // short-lived viewers could therefore starve the pool even though no
         // one was watching. `closed()` fires the moment the Body drops.
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut tick = tokio::time::interval(tick_every);
         loop {
             tokio::select! {
                 // Body dropped (client gone / response discarded) — release now.
@@ -237,14 +274,23 @@ pub(crate) async fn sse_stream(state: Arc<AppState>, guard: SseConnectionGuard) 
     // distinguish a fresh boot from a quiet stream.
     let epoch = state.event_bus.epoch();
     let initial = Some(format!("data: {{\"v\":1,\"epoch\":{epoch}}}\n\n"));
-    sse_response(rx, encode, lagged, initial, guard).await
+    sse_response(SseStream {
+        rx,
+        // 30 s. Long enough that an idle panel costs one frame a tick, short
+        // enough that a dropped connection is noticed while the operator is
+        // still looking at the page.
+        tick: std::time::Duration::from_secs(30),
+        initial,
+        encode: Box::new(encode),
+        lagged: Box::new(lagged),
+        guard,
+    })
+    .await
 }
 
 /// SSE stream of raw terminal output (TermOutput JSON frames).
 pub(crate) async fn sse_term_stream(state: Arc<AppState>, guard: SseConnectionGuard) -> Response {
-    use tokio::sync::broadcast::error::RecvError;
-    use tokio::sync::mpsc;
-    let mut rx = state.event_bus.subscribe_term_output();
+    let rx = state.event_bus.subscribe_term_output();
     // {"v":1,"session_id":"term-0","data":[104,101,...]} — the v field is a
     // protocol version anchor (round-54), same semantics as /api/events.
     let encode = |output: &serde_json::Value| {
@@ -266,48 +312,27 @@ pub(crate) async fn sse_term_stream(state: Arc<AppState>, guard: SseConnectionGu
     // are pinned together by `useSSE`'s tests, which feed this exact frame.
     let lagged = |_n: u64| "data: {\"v\":1,\"lagged\":true}\n\n".to_string();
 
-    let (tx, mpsc_rx) = mpsc::channel::<Result<Bytes, Infallible>>(128);
-    tokio::spawn(async move {
-        // The viewer slot rides the STREAMING TASK (SOLID R128).
-        let _guard = guard;
-        // Dead-client detection only — NO session keepalive here. The panel's
-        // 30s terminal_select heartbeat (panel.js) already touches every live
+    // THIS USED TO BE A SECOND COPY OF THE PUMP — its own mpsc, its own
+    // `select!`, and the same R128 comment as the events stream — differing only
+    // in the cadence below. It is an adapter now (see `SseStream`).
+    sse_response(SseStream {
+        rx,
+        // 60 s, NOT the events stream's 30 s. The tick here is dead-client
+        // detection only — NO session keepalive. The panel's 30s
+        // terminal_select heartbeat (panel.js) already touches every live
         // session it watches; touching ALL sessions from the SSE tick
         // disabled the idle sweeper for the whole device while ANY tab was
         // open (round-49: an orphaned MCP ssh to prod was never reaped while
         // a panel tab sat open) and stamped every last_output equal, breaking
-        // the eviction tiebreak. The 60s ping below only keeps the
-        // connection alive (a closed tab → send fails → loop breaks).
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
-        loop {
-            tokio::select! {
-                // Prompt viewer-slot release (SOLID R128) — the 60s tick below
-                // would otherwise be the only thing that notices a dropped
-                // body, holding the slot and the broadcast subscription for up
-                // to a minute after the client left. See the events stream's
-                // note for the measurement that caught this.
-                _ = tx.closed() => break,
-                _ = tick.tick() => {
-                    // Heartbeat byte — dead-client detection depends on a
-                    // send failing (the 5s bounded send into the full mpsc).
-                    if send_bounded(&tx, Bytes::from(": ping\n\n")).await { break; }
-                }
-                msg = rx.recv() => {
-                    match msg {
-                        Ok(item) => {
-                            if send_bounded(&tx, Bytes::from(encode(&item))).await { break; }
-                        }
-                        Err(RecvError::Lagged(n)) => {
-                            if send_bounded(&tx, Bytes::from(lagged(n))).await { break; }
-                        }
-                        Err(RecvError::Closed) => break,
-                    }
-                }
-            }
-        }
-    });
-
-    sse_response_from_rx(mpsc_rx)
+        // the eviction tiebreak. This ping only keeps the connection alive (a
+        // closed tab → send fails → the pump breaks).
+        tick: std::time::Duration::from_secs(60),
+        initial: None,
+        encode: Box::new(encode),
+        lagged: Box::new(lagged),
+        guard,
+    })
+    .await
 }
 
 // ── Status ────────────────────────────────────────────────────
@@ -369,12 +394,30 @@ mod sse_tests {
         SseConnectionGuard::acquire().expect("the 64-slot pool has room for a test stream")
     }
 
+    /// The description every test here starts from: the shared `frames()`
+    /// closures, no initial frame, and a tick so long that no test reaches it
+    /// unless it asks to. `heartbeat_frames_are_emitted_on_the_configured_tick`
+    /// is the one that does, and it passes its own.
+    fn test_plan(
+        rx: tokio::sync::broadcast::Receiver<String>,
+        initial: Option<String>,
+    ) -> SseStream<String> {
+        let (encode, lagged) = frames();
+        SseStream {
+            rx,
+            tick: std::time::Duration::from_secs(3_600),
+            initial,
+            encode: Box::new(encode),
+            lagged: Box::new(lagged),
+            guard: test_guard(),
+        }
+    }
+
     #[tokio::test]
     async fn response_carries_sse_headers() {
         let _sse = SSE_TEST_LOCK.lock().await;
         let (_tx, rx) = tokio::sync::broadcast::channel::<String>(16);
-        let (encode, lagged) = frames();
-        let resp = sse_response(rx, encode, lagged, None, test_guard()).await;
+        let resp = sse_response(test_plan(rx, None)).await;
         let h = resp.headers();
         assert_eq!(h.get("content-type").unwrap(), "text/event-stream");
         assert_eq!(h.get("cache-control").unwrap(), "no-cache");
@@ -382,19 +425,48 @@ mod sse_tests {
         drop(_tx);
     }
 
+    /// THE HEARTBEAT ARM, WHICH NO TEST COULD REACH BEFORE.
+    ///
+    /// This module's header recorded it as untestable — "the 30s heartbeat arm
+    /// is intentionally untested — it would take 30s" — and that was true of the
+    /// CONSTANT, not of the arm: the cadence is a field of `SseStream` now, so
+    /// 10 ms reaches it. The arm matters twice over: it is the dead-client
+    /// detector (a client that stopped reading fills the bounded mpsc and
+    /// `send_bounded` fails), and it was the ONE line that differed between the
+    /// two copies of the pump, which is why the copies existed.
+    #[tokio::test]
+    async fn heartbeat_frames_are_emitted_on_the_configured_tick() {
+        let _sse = SSE_TEST_LOCK.lock().await;
+        let (_tx, rx) = tokio::sync::broadcast::channel::<String>(16);
+        let mut plan = test_plan(rx, None);
+        plan.tick = std::time::Duration::from_millis(10);
+        let resp = sse_response(plan).await;
+        // Read frames off the LIVE body. `body_bytes` waits for the stream to
+        // END, and this one does not end while the sender is alive — so the
+        // helper would hang rather than observe anything.
+        let mut frames = resp.into_body().into_data_stream();
+        let first = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            futures::StreamExt::next(&mut frames),
+        )
+        .await
+        .expect("a ping must arrive well within 5s of a 10ms tick")
+        .expect("the body must still be open")
+        .expect("the frame must not be an error");
+        assert_eq!(
+            &first[..],
+            b": ping\n\n",
+            "the heartbeat frame must be the comment frame the client's read \
+             loop treats as liveness"
+        );
+        drop(_tx);
+    }
+
     #[tokio::test]
     async fn initial_frame_comes_first_then_close_ends_stream() {
         let _sse = SSE_TEST_LOCK.lock().await;
         let (tx, rx) = tokio::sync::broadcast::channel::<String>(16);
-        let (encode, lagged) = frames();
-        let resp = sse_response(
-            rx,
-            encode,
-            lagged,
-            Some("data: epoch=7\n\n".into()),
-            test_guard(),
-        )
-        .await;
+        let resp = sse_response(test_plan(rx, Some("data: epoch=7\n\n".into()))).await;
         drop(tx); // no live items: Closed must end the body right after initial
         assert_eq!(body_bytes(resp).await, "data: epoch=7\n\n");
     }
@@ -405,8 +477,7 @@ mod sse_tests {
         let (tx, rx) = tokio::sync::broadcast::channel::<String>(16);
         tx.send("a".to_string()).unwrap();
         tx.send("b".to_string()).unwrap();
-        let (encode, lagged) = frames();
-        let resp = sse_response(rx, encode, lagged, None, test_guard()).await;
+        let resp = sse_response(test_plan(rx, None)).await;
         drop(tx);
         assert_eq!(body_bytes(resp).await, "data: a\n\ndata: b\n\n");
     }
@@ -420,8 +491,7 @@ mod sse_tests {
         for i in 0..5 {
             tx.send(format!("m{i}")).unwrap();
         }
-        let (encode, lagged) = frames();
-        let resp = sse_response(rx, encode, lagged, None, test_guard()).await;
+        let resp = sse_response(test_plan(rx, None)).await;
         drop(tx);
         // Lag notice first, then the surviving tail (m3, m4) the channel
         // kept — the loss-tolerant contract: notice + newest, never a gap

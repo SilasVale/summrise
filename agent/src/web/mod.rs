@@ -771,6 +771,428 @@ where
     stream(state.clone(), guard).await
 }
 
+/// EVERY ROUTE THIS AGENT ANSWERS, AND WHERE IT IS ANSWERED.
+///
+/// WHY THIS TABLE EXISTS. The surface declared its routes in THREE places: the path literals inside
+/// `route_pre_dispatch`, the match arms inside `dispatch`, and a hand-written list in the test
+/// `every_dispatch_route_is_auth_gated` that had to be kept in step with both by hand. The list had
+/// ALREADY drifted — eight routes lived in `dispatch` and in no list, `/api/run/mark-exit` among
+/// them — and the source scan written to catch the next drift started at `dispatch` and then ran on
+/// for another twelve hundred lines, because it ended at the next `    async fn` rather than at the
+/// end of the function. One fact in three copies is two too many: this is the copy the dispatcher
+/// reads through `route_of`, the copy the tests walk, and the copy a reader checks a new route
+/// against. It cannot drift from the dispatcher without failing to COMPILE (the match in `dispatch`
+/// is exhaustive over `RouteId`), and it cannot drift from the tests without one of them going red.
+///
+/// ORDER IS PART OF THE CONTRACT, because `route_of` is first-match-wins exactly as the match arms
+/// were, and the rows below are in the order those arms were evaluated in. The order is load-bearing
+/// where a broader pattern sits under a narrower one: `GET /panel/` is `PanelHome` because the exact
+/// row precedes `Prefix "/panel/"` (the same for `/desktop/`), `GET /api/sessions` is the collection
+/// while `Under "/api/sessions/"` needs one more character, and the three session actions precede
+/// `Prefix "/api/tools/"`'s neighbours in `dispatch`'s arm order. Move a row and `route_of` answers
+/// differently with nothing else changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum RouteId {
+    // ── behind the unconditional auth gate, answered by `dispatch` ──
+    Spec,
+    Status,
+    Sessions,
+    SessionEvents,
+    Logs,
+    Boots,
+    VitalsHistory,
+    Update,
+    Monitors,
+    RunMarkExit,
+    MonitorAdd,
+    MonitorRemove,
+    MonitorProbe,
+    SessionControl,
+    SessionApproval,
+    SessionGrants,
+    EventsPoll,
+    SettingsGet,
+    SettingsPut,
+    GatewayConnect,
+    PluginsStatus,
+    PlaywrightStart,
+    PlaywrightStop,
+    ToolCall,
+    // ── answered in `route_pre_dispatch`, which runs its own `check_auth` ──
+    EventsStream,
+    TermStream,
+    PwShots,
+    PwShot,
+    Actions,
+    Operation,
+    // ── answered by the MCP `TokenGate` ──
+    Mcp,
+    // ── public: answered in `route_pre_dispatch` before the gate ──
+    PanelHome,
+    PanelFile,
+    PanelPreflight,
+    StatusPage,
+    Discovery,
+}
+
+/// How a route's path is recognised. Four shapes are enough for every row below, and each one is
+/// exactly the guard its match arm used before the table existed.
+pub(crate) enum Pattern {
+    /// `path` equals this exactly.
+    Exact(&'static str),
+    /// `path` starts with this AND carries at least one more character.
+    Under(&'static str),
+    /// `path` starts with this, the bare prefix included.
+    Prefix(&'static str),
+    /// `path` is `<at><something><ends>` (the session actions). The middle may be empty —
+    /// `session_id_from_path` is what rejects an unusable id, as it does today.
+    Between {
+        at: &'static str,
+        ends: &'static str,
+    },
+}
+
+impl Pattern {
+    /// Does `path` match? The METHOD is not consulted here — `route_of` compares it.
+    pub(crate) fn matches(&self, path: &str) -> bool {
+        match self {
+            Pattern::Exact(p) => path == *p,
+            // ONE CHARACTER MORE, not one more segment: this is the
+            // `p.len() > "/api/sessions/".len()` guard it replaces, so `/api/sessions/` itself is
+            // NOT this route (the exact row above it is the collection).
+            Pattern::Under(p) => path.len() > p.len() && path.starts_with(p),
+            // The bare prefix included — `POST /api/tools/` IS a tool call, as it has always been.
+            Pattern::Prefix(p) => path.starts_with(p),
+            // BOTH ENDS, and nothing said about the middle: `starts_with` + `ends_with` is exactly
+            // the guard the match arms used, including the case where the two spans OVERLAP
+            // (`/api/sessions/control` leaves an empty id, which `session_id_from_path` answers for).
+            Pattern::Between { at, ends } => path.starts_with(at) && path.ends_with(ends),
+        }
+    }
+}
+
+/// WHERE a route is answered, which is what the tests below ask about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage {
+    /// Before the auth gate, no credential needed.
+    Public,
+    /// Answered in `route_pre_dispatch`, which runs `check_auth` itself.
+    PreDispatchAuthed,
+    /// Behind the unconditional auth gate that precedes `dispatch`.
+    DispatchGated,
+    /// `/mcp`, gated by the MCP `TokenGate` rather than by either of the above.
+    Mcp,
+}
+
+/// One row. `method` is one of "GET" | "POST" | "PUT" | "OPTIONS" — the strings
+/// `handle_request_inner` hands `dispatch`.
+pub(crate) struct Route {
+    pub method: &'static str,
+    pub pattern: Pattern,
+    pub id: RouteId,
+    pub stage: Stage,
+}
+
+/// Every request this agent answers, in the order the match arms are evaluated
+/// today. THE ORDER IS PART OF THE CONTRACT — first match wins.
+pub(crate) fn routes() -> &'static [Route] {
+    /// THE TABLE. Kept inside `routes()` so the function is the only way to read it.
+    const ROUTES: &[Route] = &[
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/spec"),
+            id: RouteId::Spec,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/status"),
+            id: RouteId::Status,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/sessions"),
+            id: RouteId::Sessions,
+            stage: Stage::DispatchGated,
+        },
+        // The `Under` row sits DIRECTLY under the exact collection row, deliberately: `/api/sessions`
+        // is the list, `/api/sessions/<one more character>` is one session's events.
+        Route {
+            method: "GET",
+            pattern: Pattern::Under("/api/sessions/"),
+            id: RouteId::SessionEvents,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/logs"),
+            id: RouteId::Logs,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/boots"),
+            id: RouteId::Boots,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/vitals/history"),
+            id: RouteId::VitalsHistory,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/update"),
+            id: RouteId::Update,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/monitors"),
+            id: RouteId::Monitors,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/run/mark-exit"),
+            id: RouteId::RunMarkExit,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/monitors/add"),
+            id: RouteId::MonitorAdd,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/monitors/remove"),
+            id: RouteId::MonitorRemove,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/monitors/probe"),
+            id: RouteId::MonitorProbe,
+            stage: Stage::DispatchGated,
+        },
+        // The three session ACTIONS, in the order their arms were written, and each one before any
+        // broader POST arm — the same reason the guards carried.
+        Route {
+            method: "POST",
+            pattern: Pattern::Between {
+                at: "/api/sessions/",
+                ends: "/control",
+            },
+            id: RouteId::SessionControl,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Between {
+                at: "/api/sessions/",
+                ends: "/approval",
+            },
+            id: RouteId::SessionApproval,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Between {
+                at: "/api/sessions/",
+                ends: "/grants",
+            },
+            id: RouteId::SessionGrants,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/events/poll"),
+            id: RouteId::EventsPoll,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/settings"),
+            id: RouteId::SettingsGet,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "PUT",
+            pattern: Pattern::Exact("/api/settings"),
+            id: RouteId::SettingsPut,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/gateway/connect"),
+            id: RouteId::GatewayConnect,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/plugins/status"),
+            id: RouteId::PluginsStatus,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/plugins/playwright/start"),
+            id: RouteId::PlaywrightStart,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/plugins/playwright/stop"),
+            id: RouteId::PlaywrightStop,
+            stage: Stage::DispatchGated,
+        },
+        // LAST of the `/api` rows, and a `Prefix`: `/api/tools/` with a name after it is a tool call,
+        // and so is the bare `/api/tools/` (the tool name is then empty and the registry says so).
+        Route {
+            method: "POST",
+            pattern: Pattern::Prefix("/api/tools/"),
+            id: RouteId::ToolCall,
+            stage: Stage::DispatchGated,
+        },
+        // ── answered in `route_pre_dispatch`, each running `check_auth` itself ──
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/events"),
+            id: RouteId::EventsStream,
+            stage: Stage::PreDispatchAuthed,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/events/term"),
+            id: RouteId::TermStream,
+            stage: Stage::PreDispatchAuthed,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/browser/pwshots"),
+            id: RouteId::PwShots,
+            stage: Stage::PreDispatchAuthed,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/browser/pwshot"),
+            id: RouteId::PwShot,
+            stage: Stage::PreDispatchAuthed,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/browser/actions"),
+            id: RouteId::Actions,
+            stage: Stage::PreDispatchAuthed,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/operation"),
+            id: RouteId::Operation,
+            stage: Stage::PreDispatchAuthed,
+        },
+        // ── the MCP endpoint: axum's nested `TokenGate` claims it ──
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/mcp"),
+            id: RouteId::Mcp,
+            stage: Stage::Mcp,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/mcp"),
+            id: RouteId::Mcp,
+            stage: Stage::Mcp,
+        },
+        // ── public ──
+        //
+        // THE ORDERING HAZARD LIVES HERE: these four exact rows MUST stay above the two `Prefix
+        // "/panel/"` / `Prefix "/desktop/"` rows, or `route_of("GET", "/panel/")` answers `PanelFile`
+        // instead of the panel HTML — a static asset lookup for the SPA's front door.
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/panel"),
+            id: RouteId::PanelHome,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/panel/"),
+            id: RouteId::PanelHome,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/desktop"),
+            id: RouteId::PanelHome,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/desktop/"),
+            id: RouteId::PanelHome,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Prefix("/panel/"),
+            id: RouteId::PanelFile,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Prefix("/desktop/"),
+            id: RouteId::PanelFile,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "OPTIONS",
+            pattern: Pattern::Prefix("/panel/"),
+            id: RouteId::PanelPreflight,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "OPTIONS",
+            pattern: Pattern::Prefix("/desktop/"),
+            id: RouteId::PanelPreflight,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/"),
+            id: RouteId::StatusPage,
+            stage: Stage::Public,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/.well-known/oauth-protected-resource"),
+            id: RouteId::Discovery,
+            stage: Stage::Public,
+        },
+    ];
+    ROUTES
+}
+
+/// The table's only lookup. `None` is the "not found" answer.
+pub(crate) fn route_of(method: &str, path: &str) -> Option<RouteId> {
+    routes()
+        .iter()
+        .find(|r| r.method == method && r.pattern.matches(path))
+        .map(|r| r.id)
+}
+
+/// The matched row's [`Stage`], derived FROM [`route_of`] rather than re-implementing the first-match
+/// rule, so the two answers cannot disagree. It is not a second lookup: it asks `route_of` which row
+/// matched and then reads that row's column. `dispatch`'s debug assertion and the table-walking tests
+/// are its callers.
+fn stage_of(method: &str, path: &str) -> Option<Stage> {
+    let id = route_of(method, path)?;
+    routes().iter().find(|r| r.id == id).map(|r| r.stage)
+}
+
 async fn route_pre_dispatch(
     method: &Method,
     path: &str,
@@ -1057,135 +1479,6 @@ async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Respo
     };
     let body_str = String::from_utf8_lossy(&body_bytes).to_string();
 
-    /** Route dispatch: map (method, path) -> handler result or error.
-     *  Extracted from handle_request (round-91 SRP) so the main fn stays
-     *  auth + body parsing + routing skeleton. */
-    async fn dispatch(
-        state: &AppState,
-        method: &str,
-        path: &str,
-        body_str: &str,
-        query_str: Option<&str>,
-    ) -> Result<serde_json::Value, Box<Response>> {
-        let result = match (method, path) {
-            ("GET", "/api/spec") => api_spec(state),
-            ("GET", "/api/status") => api_status(state).await,
-            ("GET", "/api/sessions") => api_sessions_list(),
-            ("GET", p) if p.starts_with("/api/sessions/") && p.len() > "/api/sessions/".len() => {
-                match api_session_events(p) {
-                    Ok(v) => v,
-                    Err(resp) => return Err(Box::new(*resp)),
-                }
-            }
-            ("GET", "/api/logs") => api_logs(),
-            // The device's own restart history — how often this agent has started, and how
-            // each run before those starts ended. Separate from `/api/status` on purpose: the
-            // status poll runs every 15 s and must stay small, while this list is read when a
-            // human asks (the Settings card) or once a minute (the strip's count).
-            ("GET", "/api/boots") => api_boots(),
-            // The device's vitals HISTORY — the trend behind the two numbers on the strip.
-            // Separate from `/api/status` for the same reason `/api/boots` is: the status
-            // poll runs every 15 s and must stay small, while a series is read when a human
-            // asks for it.
-            ("GET", "/api/vitals/history") => api_vitals_history(),
-            // The device's UPDATE STATE — current, what the channel has, whether a rollback
-            // pin holds it, whether one is already in flight. Read-only: applying an update
-            // goes through the existing tool route (`POST /api/tools/agent_update`), so this
-            // adds a view and NOT a second way to install anything.
-            ("GET", "/api/update") => api_update(state).await,
-            // REACHABILITY — the watched targets, each with its probe series and summary.
-            ("GET", "/api/monitors") => crate::monitor::snapshot(),
-            // A supervisor that is about to kill this process says so FIRST — and says WHY, because
-            // "stopped on purpose" and "replaced by an update" are different verdicts for the next
-            // start, and the clock cannot tell them apart (the two durations overlap; see
-            // runstate::classify). `reason` defaults to "stop".
-            ("POST", "/api/run/mark-exit") => {
-                let reason = serde_json::from_str::<serde_json::Value>(if body_str.is_empty() {
-                    "{}"
-                } else {
-                    body_str
-                })
-                .ok()
-                .and_then(|v| v.get("reason").and_then(|r| r.as_str()).map(str::to_string))
-                .unwrap_or_else(|| "stop".to_string());
-                serde_json::json!({
-                    "ok": true,
-                    "reason": reason,
-                    "marked": crate::runstate::mark_deliberate_stop(&crate::paths::data_dir(), &reason),
-                })
-            }
-            ("POST", "/api/monitors/add") => api_monitor_add(body_str),
-            ("POST", "/api/monitors/remove") => api_monitor_remove(body_str),
-            // One probe, now — the panel's "check now" (a target that was just added, or an
-            // operator who does not want to wait 15 s for the first reading).
-            ("POST", "/api/monitors/probe") => api_monitor_probe(body_str).await,
-            // Control handoff (design §D5). MUST be matched before any broader
-            // /api/sessions POST arm; the `.ends_with` also keeps it from
-            // swallowing a future sibling action on the same collection.
-            ("POST", p) if p.starts_with("/api/sessions/") && p.ends_with("/control") => {
-                let sid = session_id_from_path(p)?;
-                api_session_control(state, &sid, body_str).await?
-            }
-            // The gate's decision. Matched before any broader arm, same as the
-            // control route above.
-            ("POST", p) if p.starts_with("/api/sessions/") && p.ends_with("/approval") => {
-                let sid = session_id_from_path(p)?;
-                api_session_approval(state, &sid, body_str).await?
-            }
-            ("POST", p) if p.starts_with("/api/sessions/") && p.ends_with("/grants") => {
-                let sid = session_id_from_path(p)?;
-                api_session_grants(state, &sid, body_str).await?
-            }
-            ("GET", "/api/events/poll") => {
-                let after: u64 = query_param(query_str, "after")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(0);
-                api_events_poll(state, after)
-            }
-            ("GET", "/api/settings") => api_settings_get(state).await,
-            ("PUT", "/api/settings") => match api_settings_put(state, body_str) {
-                Ok(v) => v,
-                Err(resp) => return Err(Box::new(*resp)),
-            },
-            ("POST", "/api/gateway/connect") => match api_gateway_connect(state, body_str).await {
-                Ok(v) => v,
-                Err(resp) => return Err(Box::new(*resp)),
-            },
-            ("GET", "/api/plugins/status") => api_plugins_status(state).await,
-            ("POST", "/api/plugins/playwright/start") => match api_playwright_start(state).await {
-                Ok(v) => v,
-                Err(resp) => return Err(Box::new(*resp)),
-            },
-            ("POST", "/api/plugins/playwright/stop") => match api_playwright_stop(state).await {
-                Ok(v) => v,
-                Err(resp) => return Err(Box::new(*resp)),
-            },
-            ("POST", p) if p.starts_with("/api/tools/") => {
-                let tool_name = p.strip_prefix("/api/tools/").unwrap_or("");
-                api_call_tool(state, tool_name, body_str).await
-            }
-            // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
-            // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
-            // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
-            // malformed body on the monitor and tool routes is `200 + {ok:false,code}`, an unknown route
-            // is `200 + {ok:false,error}` right here, and `/api/run/mark-exit` swallows its parse error
-            // entirely.
-            //
-            // IT CANNOT SIMPLY BE MADE CONSISTENT, and the evidence is a second client:
-            // `gateway/src/mcp.ts` records the shape in a comment ("tool errors as HTTP 200 +
-            // {ok:false,error}") and compensates for it with `!ok || data.ok === false`, and the
-            // console's `callTool` re-checks `ok === false` for the same reason. Answering a failed tool
-            // with a non-2xx would break both, so the shape stays.
-            //
-            // WHAT IS WORTH FIXING IS ON THE CLIENT SIDE: the panel hand-rolls that check in TWELVE places
-            // across three dialects (`ok !== true`, `ok === false`, `if (j?.ok)`), when the gateway shows
-            // the pattern — ONE predicate, inside the client, applied by every caller. That is a
-            // deliberate change to the panel's data layer, not a line here.
-            _ => serde_json::json!({"ok": false, "error": "not found"}),
-        };
-        Ok(result)
-    }
-
     match dispatch(
         &state,
         method.as_str(),
@@ -1198,6 +1491,196 @@ async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Respo
         Ok(result) => axum::Json(result).into_response(),
         Err(resp) => *resp,
     }
+}
+
+/// WHY THIS FUNCTION'S SHAPE IS THE MECHANISM (the route-table round).
+///
+/// It matches on `route_of(method, path)` — the table's only lookup — and the match is EXHAUSTIVE
+/// over `RouteId` with NO WILDCARD ARM. That is the point rather than a style choice: a row added to
+/// `routes()` without a handler here does not COMPILE, so the two cannot drift. `None` is the one
+/// "not found" answer.
+///
+/// IT IS AT MODULE SCOPE NOW, and that move is the other half. As a NESTED function it could not be
+/// called from a test, so `every_dispatch_route_is_auth_gated` enumerated the routes by reading this
+/// file's own source instead — a list kept in step by hand, which had already drifted. This is still
+/// called only by `handle_request_inner`, still after the same unconditional auth gate.
+///
+/// The arms keep their bodies and their comments verbatim. What changed is the selector: the guards
+/// that used to decide (`p.starts_with("/api/sessions/") && p.ends_with("/control")`) are now the
+/// table's `Pattern`, which is also what the tests walk.
+/** Route dispatch: map (method, path) -> handler result or error.
+ *  Extracted from handle_request (round-91 SRP) so the main fn stays
+ *  auth + body parsing + routing skeleton. */
+async fn dispatch(
+    state: &AppState,
+    method: &str,
+    path: &str,
+    body_str: &str,
+    query_str: Option<&str>,
+) -> Result<serde_json::Value, Box<Response>> {
+    // THE `stage` COLUMN IS ENFORCED IN THE REQUEST PATH TOO, not only by the table-walking tests: a
+    // row the table marks `Public` or `PreDispatchAuthed` that REACHES the dispatcher means
+    // `route_pre_dispatch` stopped answering something the table says it owns — the two halves of the
+    // surface disagreeing, which is the drift this refactor exists to make impossible. Debug builds
+    // only, so the release path pays nothing. `Mcp` is exempt because axum's nested `TokenGate` claims
+    // `/mcp` (not this walk, and not that one), and `None` is exempt because an unknown path is
+    // legitimately this function's business: it is what answers "not found".
+    //
+    // The OTHER direction — a `DispatchGated` row answered before the gate, i.e. an auth bypass — is
+    // not visible from here (the request never arrives), and is what `every_dispatch_route_is_auth_gated`
+    // refuses by sending a tokenless request to every row of the table.
+    debug_assert!(
+        !matches!(
+            stage_of(method, path),
+            Some(Stage::Public) | Some(Stage::PreDispatchAuthed)
+        ),
+        "dispatch was reached by {method} {path}, a row `routes()` marks as answered BEFORE it — \
+         route_pre_dispatch and the table disagree"
+    );
+    let result = match route_of(method, path) {
+        Some(RouteId::Spec) => api_spec(state),
+        Some(RouteId::Status) => api_status(state).await,
+        Some(RouteId::Sessions) => api_sessions_list(),
+        Some(RouteId::SessionEvents) => match api_session_events(path) {
+            Ok(v) => v,
+            Err(resp) => return Err(Box::new(*resp)),
+        },
+        Some(RouteId::Logs) => api_logs(),
+        // The device's own restart history — how often this agent has started, and how
+        // each run before those starts ended. Separate from `/api/status` on purpose: the
+        // status poll runs every 15 s and must stay small, while this list is read when a
+        // human asks (the Settings card) or once a minute (the strip's count).
+        Some(RouteId::Boots) => api_boots(),
+        // The device's vitals HISTORY — the trend behind the two numbers on the strip.
+        // Separate from `/api/status` for the same reason `/api/boots` is: the status
+        // poll runs every 15 s and must stay small, while a series is read when a human
+        // asks for it.
+        Some(RouteId::VitalsHistory) => api_vitals_history(),
+        // The device's UPDATE STATE — current, what the channel has, whether a rollback
+        // pin holds it, whether one is already in flight. Read-only: applying an update
+        // goes through the existing tool route (`POST /api/tools/agent_update`), so this
+        // adds a view and NOT a second way to install anything.
+        Some(RouteId::Update) => api_update(state).await,
+        // REACHABILITY — the watched targets, each with its probe series and summary.
+        Some(RouteId::Monitors) => crate::monitor::snapshot(),
+        // A supervisor that is about to kill this process says so FIRST — and says WHY, because
+        // "stopped on purpose" and "replaced by an update" are different verdicts for the next
+        // start, and the clock cannot tell them apart (the two durations overlap; see
+        // runstate::classify). `reason` defaults to "stop".
+        Some(RouteId::RunMarkExit) => {
+            let reason = serde_json::from_str::<serde_json::Value>(if body_str.is_empty() {
+                "{}"
+            } else {
+                body_str
+            })
+            .ok()
+            .and_then(|v| v.get("reason").and_then(|r| r.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "stop".to_string());
+            serde_json::json!({
+                "ok": true,
+                "reason": reason,
+                "marked": crate::runstate::mark_deliberate_stop(&crate::paths::data_dir(), &reason),
+            })
+        }
+        Some(RouteId::MonitorAdd) => api_monitor_add(body_str),
+        Some(RouteId::MonitorRemove) => api_monitor_remove(body_str),
+        // One probe, now — the panel's "check now" (a target that was just added, or an
+        // operator who does not want to wait 15 s for the first reading).
+        Some(RouteId::MonitorProbe) => api_monitor_probe(body_str).await,
+        // Control handoff (design §D5). MUST be matched before any broader
+        // /api/sessions POST arm; the `.ends_with` also keeps it from
+        // swallowing a future sibling action on the same collection.
+        Some(RouteId::SessionControl) => {
+            let sid = session_id_from_path(path)?;
+            api_session_control(state, &sid, body_str).await?
+        }
+        // The gate's decision. Matched before any broader arm, same as the
+        // control route above.
+        Some(RouteId::SessionApproval) => {
+            let sid = session_id_from_path(path)?;
+            api_session_approval(state, &sid, body_str).await?
+        }
+        Some(RouteId::SessionGrants) => {
+            let sid = session_id_from_path(path)?;
+            api_session_grants(state, &sid, body_str).await?
+        }
+        Some(RouteId::EventsPoll) => {
+            let after: u64 = query_param(query_str, "after")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            api_events_poll(state, after)
+        }
+        Some(RouteId::SettingsGet) => api_settings_get(state).await,
+        Some(RouteId::SettingsPut) => match api_settings_put(state, body_str) {
+            Ok(v) => v,
+            Err(resp) => return Err(Box::new(*resp)),
+        },
+        Some(RouteId::GatewayConnect) => match api_gateway_connect(state, body_str).await {
+            Ok(v) => v,
+            Err(resp) => return Err(Box::new(*resp)),
+        },
+        Some(RouteId::PluginsStatus) => api_plugins_status(state).await,
+        Some(RouteId::PlaywrightStart) => match api_playwright_start(state).await {
+            Ok(v) => v,
+            Err(resp) => return Err(Box::new(*resp)),
+        },
+        Some(RouteId::PlaywrightStop) => match api_playwright_stop(state).await {
+            Ok(v) => v,
+            Err(resp) => return Err(Box::new(*resp)),
+        },
+        Some(RouteId::ToolCall) => {
+            let tool_name = path.strip_prefix("/api/tools/").unwrap_or("");
+            api_call_tool(state, tool_name, body_str).await
+        }
+        // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
+        // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
+        // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
+        // malformed body on the monitor and tool routes is `200 + {ok:false,code}`, an unknown route
+        // is `200 + {ok:false,error}` right here, and `/api/run/mark-exit` swallows its parse error
+        // entirely.
+        //
+        // IT CANNOT SIMPLY BE MADE CONSISTENT, and the evidence is a second client:
+        // `gateway/src/mcp.ts` records the shape in a comment ("tool errors as HTTP 200 +
+        // {ok:false,error}") and compensates for it with `!ok || data.ok === false`, and the
+        // console's `callTool` re-checks `ok === false` for the same reason. Answering a failed tool
+        // with a non-2xx would break both, so the shape stays.
+        //
+        // WHAT IS WORTH FIXING IS ON THE CLIENT SIDE: the panel hand-rolls that check in TWELVE places
+        // across three dialects (`ok !== true`, `ok === false`, `if (j?.ok)`), when the gateway shows
+        // the pattern — ONE predicate, inside the client, applied by every caller. That is a
+        // deliberate change to the panel's data layer, not a line here.
+        // THE ROWS THIS FUNCTION IS NOT THE OWNER OF, NAMED ONE BY ONE RATHER THAN WILDCARDED.
+        //
+        // These stages say "answered somewhere else", and in every case that is where they are in
+        // production: the `Public` and `PreDispatchAuthed` rows are answered in `route_pre_dispatch`,
+        // which runs BEFORE the unconditional auth gate below it (a stream, a static file or the
+        // token handout cannot wait for a body read), and `Mcp` is claimed by axum's nested
+        // `TokenGate` before this service is ever reached. Reaching here with one of them means the
+        // pre-dispatch walk and the table disagree — `pre_dispatch_stage_agrees_with_the_table` is
+        // the test that refuses that, and it walks every row.
+        //
+        // NAMED RATHER THAN WILDCARDED, deliberately: a new row in `routes()` must be given a home
+        // in this match, and the compiler is what says so. That is the whole point of the table.
+        //
+        // The answer stays "not found" because that is what these paths got before the table existed
+        // — they fell into the final arm below — and this refactor changes no response.
+        Some(
+            RouteId::EventsStream
+            | RouteId::TermStream
+            | RouteId::PwShots
+            | RouteId::PwShot
+            | RouteId::Actions
+            | RouteId::Operation
+            | RouteId::Mcp
+            | RouteId::PanelHome
+            | RouteId::PanelFile
+            | RouteId::PanelPreflight
+            | RouteId::StatusPage
+            | RouteId::Discovery,
+        ) => serde_json::json!({"ok": false, "error": "not found"}),
+        None => serde_json::json!({"ok": false, "error": "not found"}),
+    };
+    Ok(result)
 }
 
 // ── Generic tool dispatch ────────────────────────────────────
@@ -4254,6 +4737,206 @@ mod tests {
         }
     }
 
+    /// A path a caller could actually send for `row` — the test-side reading of a [`Pattern`].
+    ///
+    /// `Under` and `Prefix` rows need a segment under them, because the bare prefix is a DIFFERENT
+    /// route or a degenerate one: `/api/sessions/` itself is not `SessionEvents` (the exact
+    /// `/api/sessions` row is the collection), and a tool call with an empty tool name says nothing
+    /// about the named shape. `Between` rows need an id between their two ends.
+    fn probe_path(row: &Route) -> String {
+        match row.pattern {
+            Pattern::Exact(p) => p.to_string(),
+            Pattern::Under(p) => format!("{p}some-session-id"),
+            Pattern::Prefix(p) => format!("{p}some-segment"),
+            Pattern::Between { at, ends } => format!("{at}some-session-id{ends}"),
+        }
+    }
+
+    /// THE PRE-DISPATCH AGREEMENT TEST (route-table round): every row of `routes()` is walked through
+    /// the REAL `route_pre_dispatch`, and the two must agree about the row's [`Stage`].
+    ///
+    /// `route_pre_dispatch` keeps its own mechanics — a table cannot express streaming, static files,
+    /// content types or body parsing — so its decisions are the one place the table could silently
+    /// stop describing the wire. This is that seam's pin, and it covers BOTH directions:
+    ///
+    ///   * a `Public` or `PreDispatchAuthed` row that stops being answered before the gate would
+    ///     401 the panel SPA or the discovery document (and would be answered by `dispatch`, whose
+    ///     debug assertion says so out loud);
+    ///   * a `DispatchGated` or `Mcp` row that STARTS being answered before the gate is an auth
+    ///     bypass — the request never reaches the unconditional gate at all. That is the dangerous
+    ///     direction, and it is what this test refuses; `every_dispatch_route_is_auth_gated` is the
+    ///     behavioural half, sending a tokenless request to every row.
+    ///
+    /// IT IS A TEST RATHER THAN A `debug_assert!` INSIDE THE WALK, deliberately: the walk has nine
+    /// exit points, so an inline assertion would have to be repeated at each one — and a forgotten
+    /// one is a silently loosened check, which is the failure mode this whole round is about. A test
+    /// covers every row uniformly, in both profiles, without adding a panic to the request path.
+    #[tokio::test]
+    async fn pre_dispatch_stage_agrees_with_the_table() {
+        let st = state();
+        for row in routes() {
+            let (m, path) = (row.method, probe_path(row));
+            let headers = req_anon(m, &path).headers().clone();
+            let answered = route_pre_dispatch(
+                &Method::from_bytes(m.as_bytes()).expect("valid method"),
+                &path,
+                None,
+                &headers,
+                &st,
+                None,
+                false,
+            )
+            .await
+            .is_some();
+            let table_says_before_the_gate =
+                matches!(row.stage, Stage::Public | Stage::PreDispatchAuthed);
+            assert_eq!(
+                answered,
+                table_says_before_the_gate,
+                "{m} {path} is stage {:?} in `routes()`, but route_pre_dispatch {} it — the table \
+                 and the walk disagree (answered={answered})",
+                row.stage,
+                if answered {
+                    "answered"
+                } else {
+                    "did not answer"
+                }
+            );
+        }
+    }
+
+    /// `route_of` — the table's only lookup — on each of the four `Pattern` shapes, on the methods,
+    /// and on the ordering hazard the table's doc comment names.
+    ///
+    /// The table is the one place the surface's routes are declared; these are its own unit tests, so
+    /// a row that stopped matching (a typo, a reordered prefix, a pattern narrowed by accident) fails
+    /// here rather than in a device's 404.
+    #[test]
+    fn route_of_matches_each_pattern_shape() {
+        // ── Exact: the whole path, and nothing else ──
+        assert_eq!(route_of("GET", "/api/spec"), Some(RouteId::Spec));
+        assert_eq!(
+            route_of("GET", "/api/spec/"),
+            None,
+            "an Exact row does not match a trailing slash"
+        );
+
+        // ── Under: the prefix AND at least one more character ──
+        assert_eq!(
+            route_of("GET", "/api/sessions"),
+            Some(RouteId::Sessions),
+            "the collection is the exact row"
+        );
+        assert_eq!(
+            route_of("GET", "/api/sessions/"),
+            None,
+            "the bare prefix is NOT `SessionEvents` — `Under` needs one more character, and no \
+             other row matches `/api/sessions/`"
+        );
+        assert_eq!(
+            route_of("GET", "/api/sessions/term-0"),
+            Some(RouteId::SessionEvents)
+        );
+
+        // ── Prefix: the bare prefix included ──
+        assert_eq!(
+            route_of("POST", "/api/tools/terminal_list"),
+            Some(RouteId::ToolCall)
+        );
+        assert_eq!(
+            route_of("POST", "/api/tools/"),
+            Some(RouteId::ToolCall),
+            "`Prefix` includes its bare prefix: the tool name is then empty and the registry says so"
+        );
+        assert_eq!(
+            route_of("GET", "/api/tools/terminal_list"),
+            None,
+            "the method is part of the key: `/api/tools/*` is POST-only"
+        );
+
+        // ── Between: `<at><something><ends>` ──
+        assert_eq!(
+            route_of("POST", "/api/sessions/term-0/control"),
+            Some(RouteId::SessionControl)
+        );
+        assert_eq!(
+            route_of("POST", "/api/sessions/term-0/approval"),
+            Some(RouteId::SessionApproval)
+        );
+        assert_eq!(
+            route_of("POST", "/api/sessions/term-0/grants"),
+            Some(RouteId::SessionGrants)
+        );
+        assert_eq!(
+            route_of("GET", "/api/sessions/term-0/control"),
+            Some(RouteId::SessionEvents),
+            "THE GET ARM IS AN `Under` ON THE COLLECTION, and that is not a new fact: the arm this \
+             table replaced was `p.starts_with(\"/api/sessions/\") && p.len() > \"/api/sessions/\".len()`, \
+             which matched this path too. Rejecting an id like `term-0/control` is \
+             `api_session_events`' job — it parses the remainder — not the table's, so pinning \
+             `None` here would have asserted a contract the device never had. (The first version of \
+             this test did pin `None`, and the whole suite went red on it: a test written from what \
+             the table OUGHT to say rather than from what the old match arm did.)"
+        );
+        assert_eq!(
+            route_of("POST", "/api/sessions/term-0/terminal"),
+            None,
+            "no action of that name exists — the POST side is three `Between` rows and nothing else"
+        );
+
+        // ── the ordering hazard: the EXACT `/panel/` row precedes `Prefix "/panel/"` ──
+        assert_eq!(
+            route_of("GET", "/panel/"),
+            Some(RouteId::PanelHome),
+            "ORDER IS THE CONTRACT: with `Prefix \"/panel/\"` present, `/panel/` must still resolve \
+             to the panel HTML — move the prefix row up and this answers `PanelFile`"
+        );
+        assert_eq!(route_of("GET", "/panel"), Some(RouteId::PanelHome));
+        assert_eq!(route_of("GET", "/panel/panel.js"), Some(RouteId::PanelFile));
+        assert_eq!(
+            route_of("OPTIONS", "/panel/panel.js"),
+            Some(RouteId::PanelPreflight)
+        );
+
+        // ── an unknown path is not found ──
+        assert_eq!(route_of("GET", "/api/nope"), None);
+        assert_eq!(route_of("POST", "/"), None);
+        assert_eq!(route_of("DELETE", "/api/sessions"), None);
+    }
+
+    /// The table's floor, and its method vocabulary.
+    ///
+    /// A table that was emptied — or emptied of its DISPATCH rows by an edit that looked local —
+    /// would make `every_dispatch_route_is_auth_gated` pass by walking nothing, which is exactly the
+    /// "a gate that cannot fail" defect this round exists to remove. The count is a floor, not an
+    /// equality: adding routes must not require editing this number, but losing the dispatcher's rows
+    /// must fail loudly.
+    #[test]
+    fn the_route_table_has_a_floor_and_a_method_vocabulary() {
+        let dispatch_rows = routes()
+            .iter()
+            .filter(|r| matches!(r.stage, Stage::DispatchGated))
+            .count();
+        assert!(
+            dispatch_rows >= 24,
+            "`routes()` has {dispatch_rows} DispatchGated rows; it had 24 when the table was \
+             introduced, and a table that lost them would make the auth walk vacuous"
+        );
+
+        // A method that is not one of these can never match a request, and `handle_request_inner`
+        // only ever produces these four — so a typo here is a route that silently 404s. It would NOT
+        // be caught by the auth walk: a `DispatchGated` row with an unmatchable method is probed,
+        // falls through to the gate, and 401s exactly as the test expects.
+        for row in routes() {
+            assert!(
+                matches!(row.method, "GET" | "POST" | "PUT" | "OPTIONS"),
+                "{:?} has method {:?}, which this surface never dispatches",
+                row.id,
+                row.method
+            );
+        }
+    }
+
     /// THE APPROVAL POSTURE IS EVIDENCE — the gap that only a REAL RUN exposed.
     ///
     /// Every unit test passed while arming the gate left no trace at all: the
@@ -6080,102 +6763,60 @@ mod tests {
     /// auth fails HERE instead of shipping. Both failure modes are checked —
     /// a missing header and a wrong token — because they take different paths
     /// through `check_auth`.
+    ///
+    /// THE LIST IS `routes()` NOW, WHICH IS WHAT THIS BUYS OVER THE HAND-WRITTEN LIST IT REPLACES.
+    /// The old list had to be kept in step with the dispatcher BY HAND, and it had already drifted:
+    /// eight routes lived in `dispatch` and in no list — `/api/update` and `/api/run/mark-exit` among
+    /// them, found 2026-09-24 by the agent-web exploration — while this test reported the surface
+    /// covered. The two source scans written to catch the next drift were worse than they looked: one
+    /// ended at the next `    async fn` instead of at the end of `dispatch`, so it ran on for another
+    /// twelve hundred lines, and the sibling in `streaming_routes_share_one_slot_acquisition_point`
+    /// asserted a literal that occurred exactly once in the file — inside the assertion itself.
+    ///
+    /// With the table as the subject there is no second copy left to drift: every row IS this test's
+    /// input, the walk cannot be partial, and a route that ships unproven is now IMPOSSIBLE rather
+    /// than detected afterwards. The `stage` column is what the walk reads, so a new route's auth
+    /// posture is decided when the route is added, in the one place a reader is already looking.
+    ///
+    /// `/mcp` is still driven through `handle_request` even though axum's `nest_service` normally
+    /// keeps it away from this service: the `Mcp` rows are in the table, and asserting them here is
+    /// defence-in-depth against a routing change.
     #[tokio::test]
     async fn every_dispatch_route_is_auth_gated() {
-        // Mirrors web::dispatch's arms verbatim plus the pre-dispatch
-        // streaming routes, /mcp included: axum's nest_service normally keeps
-        // /mcp away from handle_request, so asserting it here is
-        // defence-in-depth against a routing change.
-        let routes: &[(&str, &str)] = &[
-            ("GET", "/api/spec"),
-            ("GET", "/api/status"),
-            ("GET", "/api/sessions"),
-            ("GET", "/api/sessions/some-session-id"),
-            ("POST", "/api/sessions/some-session-id/control"),
-            ("POST", "/api/sessions/some-session-id/approval"),
-            ("POST", "/api/sessions/some-session-id/grants"),
-            ("GET", "/api/logs"),
-            ("GET", "/api/events/poll"),
-            ("GET", "/api/settings"),
-            ("PUT", "/api/settings"),
-            ("POST", "/api/gateway/connect"),
-            ("GET", "/api/plugins/status"),
-            ("POST", "/api/plugins/playwright/start"),
-            ("POST", "/api/plugins/playwright/stop"),
-            ("POST", "/api/tools/terminal_list"),
-            ("GET", "/api/events"),
-            ("GET", "/api/events/term"),
-            ("GET", "/api/browser/pwshots"),
-            ("GET", "/api/browser/actions"),
-            // Carries commands, goals and plans from EVERY session, so it is
-            // strictly more sensitive than the actions feed beside it.
-            ("GET", "/api/operation"),
-            ("GET", "/api/browser/pwshot"),
-            ("GET", "/mcp"),
-            ("POST", "/mcp"),
-            // ADDED 2026-09-24, AND THEY WERE THE POINT OF THE COMMENT ABOVE. The eight below were in
-            // `dispatch` and NOT here, so "a new route added without auth fails HERE instead of
-            // shipping" was false for them — including the two most dangerous on the surface:
-            // `/api/update` reads the update state and `/api/run/mark-exit` marks how this process is
-            // about to die. Found by the agent-web exploration, which is also why the pairing check at
-            // the end of this test now exists.
-            ("GET", "/api/boots"),
-            ("GET", "/api/vitals/history"),
-            ("GET", "/api/update"),
-            ("GET", "/api/monitors"),
-            ("POST", "/api/monitors/add"),
-            ("POST", "/api/monitors/remove"),
-            ("POST", "/api/monitors/probe"),
-            ("POST", "/api/run/mark-exit"),
-        ];
-        for (m, p) in routes {
-            let r = handle_request(req_anon(m, p), state()).await;
-            assert_eq!(
-                r.status(),
-                StatusCode::UNAUTHORIZED,
-                "{m} {p} served WITHOUT an Authorization header"
-            );
-            let r = handle_request(req_with_token(m, p, "not-the-device-token"), state()).await;
-            assert_eq!(
-                r.status(),
-                StatusCode::UNAUTHORIZED,
-                "{m} {p} served with a WRONG token"
-            );
-        }
-
-        // THE LIST ABOVE IS HAND-WRITTEN AND HAD DRIFTED, so this closes the pair rather than trusting
-        // it: every `/api/…` literal inside `dispatch` must appear in that list, and the next route
-        // added there fails HERE — which is what the comment on this test has always claimed. The
-        // reverse is not required: this list also carries the pre-dispatch streaming routes and /mcp.
-        let src = std::fs::read_to_string(file!()).expect("this test reads its own file");
-        let from = src
-            .find("async fn dispatch")
-            .expect("dispatch moved — re-pair this check");
-        let body = &src[from..];
-        let until = body.find("\n    async fn ").unwrap_or(body.len());
-        let listed: std::collections::HashSet<&str> = routes.iter().map(|(_, p)| *p).collect();
-        for lit in body[..until].split('"').skip(1).step_by(2) {
-            // THREE NORMALISATIONS, each learned from this assertion failing on it:
-            //   a {PARAM} template is a prefix — `"/api/sessions/{sid}"` is the match arm while the list
-            //   names `/api/sessions/some-session-id`, the shape a caller actually sends;
-            //   a trailing `/` is a match prefix, not part of the path a caller uses;
-            //   and a prefix is covered by an EXAMPLE UNDER IT (`/api/tools` by
-            //   `/api/tools/terminal_list`) — which is how this list has always worked: it names the
-            //   callable shapes, not the match arms. What is NOT acceptable is a route with no example
-            //   anywhere, which is what this assertion exists to catch.
-            let path = lit.split('{').next().unwrap_or(lit).trim_end_matches('/');
-            if path.starts_with("/api/") {
-                let covered = listed.contains(path)
-                    || listed.iter().any(|p| {
-                        p.len() > path.len()
-                            && p.starts_with(path)
-                            && p.as_bytes()[path.len()] == b'/'
-                    });
-                assert!(
-                    covered,
-                    "dispatch answers {path} and every_dispatch_route_is_auth_gated does not test it — \
-                     add it to the list above, or the route ships unproven"
-                );
+        for row in routes() {
+            let (m, path) = (row.method, probe_path(row));
+            let p = path.as_str();
+            match row.stage {
+                // Each of the three owners is a REFUSAL for an anonymous caller and for a caller
+                // holding the WRONG token — whichever of the three answers, and whichever way it
+                // answers (a fast refusal from `route_pre_dispatch`, or the unconditional gate
+                // further down).
+                Stage::DispatchGated | Stage::PreDispatchAuthed | Stage::Mcp => {
+                    let r = handle_request(req_anon(m, p), state()).await;
+                    assert_eq!(
+                        r.status(),
+                        StatusCode::UNAUTHORIZED,
+                        "{m} {p} served WITHOUT an Authorization header"
+                    );
+                    let r =
+                        handle_request(req_with_token(m, p, "not-the-device-token"), state()).await;
+                    assert_eq!(
+                        r.status(),
+                        StatusCode::UNAUTHORIZED,
+                        "{m} {p} served with a WRONG token"
+                    );
+                }
+                // …and a `Public` row is the mirror image: an anonymous request must NOT be 401, or
+                // an auth tightening would lock the panel, the status page or the discovery document
+                // out of a device whose owner has the token in hand.
+                Stage::Public => {
+                    let r = handle_request(req_anon(m, p), state()).await;
+                    assert_ne!(
+                        r.status(),
+                        StatusCode::UNAUTHORIZED,
+                        "{m} {p} is a `Public` row and answered 401 without a credential"
+                    );
+                }
             }
         }
     }
@@ -7243,22 +7884,38 @@ mod tests {
             "the ONE acquisition is not inside sse_route_response"
         );
         // ...and both streaming routes go through it.
-        for (path, routed) in [
-            (
-                "/api/events",
-                "sse_route_response(headers, state, sse_stream)",
-            ),
-            (
-                "/api/events/term",
-                "sse_route_response(headers, state, sse_term_stream)",
-            ),
-        ] {
-            assert!(
-                SRC.contains(routed),
-                "{path} must be answered through the shared helper \
-                 (`{routed}`); answering it inline re-opens the two-place fix"
-            );
-        }
+        //
+        // COUNTED BY FUNCTION NAME, BECAUSE THE ASSERTION THIS REPLACES COULD NOT FAIL. It asserted
+        // that the file CONTAINS `sse_route_response(headers, state, sse_stream)` — and once commit
+        // 528e7548 threaded a new first argument (`peer`) through both real calls, that literal
+        // occurred exactly ONCE in the whole file: three lines below, inside the assertion itself.
+        // `SRC.contains(...)` was satisfied by the very text asking the question, so the two routes
+        // this test claims to guard were covered by nothing. A count of the NAME cannot be satisfied
+        // that way: there is no call expression in the assertion for it to match.
+        //
+        // THE MUTATION THAT MUST FAIL: answering a streaming route inline — calling `sse_stream` (or
+        // `sse_term_stream`) directly, or copying `sse_route_response`'s body into the branch — removes
+        // one of the two calls and drops this count to 1. VERIFIED by replacing `/api/events`' call with
+        // a plain `built_response`: exit 101, "production code calls `sse_route_response(` 1 time(s)".
+        // The sibling assertion above bit too, on the mutation it exists for — a branch that takes its
+        // OWN slot with `acquire_sse_guard()` gives "found 2" (verified the same way).
+        //
+        // WHAT A COUNT CANNOT SEE, measured rather than assumed. I also routed `/api/events` through a
+        // one-line pass-through wrapper that calls the helper, and this test PASSED. That is the right
+        // answer, and the reason is worth keeping: the wrapper still acquires the slot through the one
+        // helper, so the property this test guards — ONE acquisition point, so the guard's lifetime has
+        // one home — still holds. A NAME COUNT sees indirection and cannot see whether the acquisition
+        // moved; the assertion above sees the acquisition and cannot see indirection. Together they
+        // cover what a text scan can honestly cover, and neither is asked to do the other's job.
+        let calls = code.matches("sse_route_response(").count();
+        assert_eq!(
+            calls, 2,
+            "the two streaming routes (/api/events and /api/events/term) must be answered through \
+             the shared helper; production code calls `sse_route_response(` {calls} time(s). \
+             Answering one of them inline re-opens the two-place fix. (This counts the function \
+             NAME on purpose: an assertion built from a full call expression with arguments is the \
+             shape that went vacuous here, because the test's own text satisfied it.)"
+        );
         // AUTH IS NOT RE-CHECKED HERE, deliberately. The obvious assertion —
         // "the helper body mentions check_auth" — does NOT discriminate: a
         // mutant that replaces the call with `let _ = check_auth(...)` still

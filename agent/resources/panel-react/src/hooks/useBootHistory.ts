@@ -11,8 +11,7 @@
 // small; the history changes at most once per boot. A minute is fast enough that a device
 // which restarts while the operator watches shows up, and cheap enough that a device that
 // never restarts costs one small request a minute.
-import { useEffect, useState } from "react";
-import { callApi, deviceRefused } from "../lib/api";
+import { useDeviceRead } from "./useDeviceRead";
 import type { BootKind } from "./useAgentVitals";
 
 export interface BootRecord {
@@ -102,32 +101,15 @@ export function parseBootHistory(j: unknown): BootHistory {
 export function useBootHistory(
   intervalMs = 60_000,
 ): BootHistory & { failed: boolean } {
-  const [history, setHistory] = useState<BootHistory>(EMPTY_BOOT_HISTORY);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const j = await callApi("/api/boots");
-        if (!alive) return;
-        if (deviceRefused(j)) {
-          setFailed(true);
-          return;
-        }
-        setHistory(parseBootHistory(j));
-        setFailed(false);
-      } catch {
-        // Keep the last good history: a missed poll is not a device that stopped
-        // restarting, and blanking the list would be this panel asserting it.
-        if (alive) setFailed(true);
-      }
-    };
-    void tick();
-    const t = window.setInterval(tick, intervalMs);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [intervalMs]);
-  return { ...history, failed };
+  // THE READ LOOP IS `useDeviceRead`'s (see its header): the refusal guard, the cadence
+  // floor this reader never had, the unmount guard and the ordering guard. Keep-last is
+  // what a missed poll gets — a missed poll is not a device that stopped restarting.
+  const { data, read } = useDeviceRead<BootHistory>({
+    path: "/api/boots",
+    // A body this build cannot use is an empty history — never a throw (parseBootHistory).
+    reduce: (_previous, body) => parseBootHistory(body),
+    initial: EMPTY_BOOT_HISTORY,
+    everyMs: intervalMs,
+  });
+  return { ...data, failed: read === "unreadable" };
 }

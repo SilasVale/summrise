@@ -15,7 +15,8 @@ import { ApprovalGate } from "./ApprovalGate";
 import { GoalBar } from "./GoalBar";
 import { DetailsPanel } from "./DetailsPanel";
 import { CommandStream } from "./CommandCard";
-import type { CommandEvent, SessionReadState } from "../hooks/useCommandEvents";
+import type { CommandEvent } from "../hooks/useCommandEvents";
+import type { ReadState } from "../lib/readState";
 
 /** The command-events slice TerminalWorkspace consumes from App. */
 export interface CommandEvents {
@@ -42,7 +43,7 @@ export interface CommandEvents {
    *  command" during every session switch, from a read that had not finished, and
    *  a REQUIRED field is what makes that impossible to forget at a mount rather
    *  than merely discouraged. */
-  readState: SessionReadState;
+  readState: ReadState;
 }
 
 interface WorkspaceSession extends Session {

@@ -10,8 +10,7 @@
 // previous reading to subtract from, so it is legitimately absent and appears from
 // the second poll onward. Nothing here invents a zero for it — an instrument that
 // reports 0% when it means "unknown" is worse than one that reports nothing.
-import { useEffect, useState } from "react";
-import { callApi, deviceRefused } from "../lib/api";
+import { useDeviceRead } from "./useDeviceRead";
 import { releaseVersion } from "../lib/agentVersion";
 
 export interface AgentVitals {
@@ -103,72 +102,66 @@ export function fmtUptime(secs: number): string {
   return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
 }
 
+/** Fold ONE `/api/status` sample into the vitals already in hand, field by field.
+ *
+ *  A FAILED READ NEVER REACHES THIS FOLD: `useDeviceRead` owns that rule (see its header).
+ *  It matters here because this hook was the one that got it wrong — its guard was `!j`,
+ *  which an EMPTY OBJECT passes because `{}` is truthy, so a refusal carrying fields would
+ *  have been read as a sample. `{}` is a refusal to the shared `deviceRefused` predicate,
+ *  and `useDeviceRead` refuses to fold it. Keep-last is the right answer for a failed poll
+ *  — "vitals are a nicety" — and keeping last means not READING it. */
+function reduceVitals(previous: AgentVitals, body: unknown): AgentVitals {
+  // Only a body the device actually sent arrives here, so it is an object with `ok: true`.
+  const j = body as Record<string, unknown>;
+  // A partial sample UPDATES ONLY WHAT IT CARRIES. cpu_pct is missing on the
+  // first poll by design, and blanking the memory reading because of it would
+  // make the instrument flicker between "known" and "unknown" every start.
+  const next: AgentVitals = { ...previous };
+  const v = releaseVersion(j);
+  if (v) next.release = v;
+  if (typeof j.uptime_secs === "number") {
+    next.uptime = fmtUptime(j.uptime_secs);
+    next.uptimeSecs = j.uptime_secs;
+  }
+  // CLEARED RATHER THAN KEPT, like the field below it: a relay that stops being reported must not leave the strip
+  // claiming a connection. `configured: false` is a real answer and is kept as one — it renders as nothing.
+  const relay = j.relay;
+  next.relay = null;
+  if (relay && typeof relay === "object") {
+    const r = relay as Record<string, unknown>;
+    next.relay = {
+      configured: r.configured === true,
+      connected: r.connected === true,
+      failures: Number(r.consecutive_failures || 0),
+      lastError: typeof r.last_error === "string" ? r.last_error : null,
+    };
+  }
+  // Kept while present, like cpu and mem below: an agent that does not report a bind has not moved its bind.
+  if (typeof j.host === "string") next.host = j.host;
+  if (typeof j.config_path === "string")
+    next.configPath = j.config_path;
+  if (typeof j.port === "number") next.port = j.port;
+  if (typeof j.cpu_pct === "number") next.cpu = j.cpu_pct;
+  if (typeof j.mem_pct === "number") next.mem = j.mem_pct;
+  // THE ONE FIELD THAT IS CLEARED RATHER THAN KEPT. Every other reading here
+  // keeps its last value when a sample omits it, because "the agent did not tell
+  // me this time" is not news. A boot verdict is different: the device either has
+  // one on record or does not, so a response that carries none means there is
+  // none — keeping a stale "the last run crashed" would be the panel asserting a
+  // fault that no longer exists. A FAILED poll never reaches this line (the read
+  // loop keeps everything), which is the distinction that matters.
+  next.lastBoot = parseLastBoot(j);
+  return next;
+}
+
 export function useAgentVitals(intervalMs = 15000): AgentVitals {
-  const [vitals, setVitals] = useState<AgentVitals>(EMPTY_VITALS);
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const j = await callApi("/api/status");
-        // A FAILED READ MUST NOT UPDATE, which is the rule every sibling poller already follows
-        // (and so do `useMonitors`, `useVitalsSeries`, `useBootHistory` and `UpdateCard` — all of them now
-        // through `deviceRefused`, which is where the rule lives and the only place it is spelled)
-        // and this one did not: its guard was `!j`, which an EMPTY OBJECT passes because `{}` is
-        // truthy. So a refusal carrying fields would have been read as a sample. Keep-last is the right
-        // answer for a failed poll — "vitals are a nicety" — but keeping last means not reading it.
-        if (!alive || deviceRefused(j)) return;
-        // A partial sample UPDATES ONLY WHAT IT CARRIES. cpu_pct is missing on the
-        // first poll by design, and blanking the memory reading because of it would
-        // make the instrument flicker between "known" and "unknown" every start.
-        setVitals((prev) => {
-          const next: AgentVitals = { ...prev };
-          const v = releaseVersion(j);
-          if (v) next.release = v;
-          if (typeof j.uptime_secs === "number") {
-            next.uptime = fmtUptime(j.uptime_secs);
-            next.uptimeSecs = j.uptime_secs;
-          }
-          // CLEARED RATHER THAN KEPT, like the field below it: a relay that stops being reported must not leave the strip
-          // claiming a connection. `configured: false` is a real answer and is kept as one — it renders as nothing.
-          next.relay =
-            j.relay && typeof j.relay === "object"
-              ? {
-                  configured: j.relay.configured === true,
-                  connected: j.relay.connected === true,
-                  failures: Number(j.relay.consecutive_failures || 0),
-                  lastError:
-                    typeof j.relay.last_error === "string"
-                      ? j.relay.last_error
-                      : null,
-                }
-              : null;
-          // Kept while present, like cpu and mem below: an agent that does not report a bind has not moved its bind.
-          if (typeof j.host === "string") next.host = j.host;
-          if (typeof j.config_path === "string")
-            next.configPath = j.config_path;
-          if (typeof j.port === "number") next.port = j.port;
-          if (typeof j.cpu_pct === "number") next.cpu = j.cpu_pct;
-          if (typeof j.mem_pct === "number") next.mem = j.mem_pct;
-          // THE ONE FIELD THAT IS CLEARED RATHER THAN KEPT. Every other reading here
-          // keeps its last value when a sample omits it, because "the agent did not tell
-          // me this time" is not news. A boot verdict is different: the device either has
-          // one on record or does not, so a response that carries none means there is
-          // none — keeping a stale "the last run crashed" would be the panel asserting a
-          // fault that no longer exists. A FAILED poll never reaches this line (the catch
-          // above keeps everything), which is the distinction that matters.
-          next.lastBoot = parseLastBoot(j);
-          return next;
-        });
-      } catch {
-        /* keep the last values — vitals are a nicety, never a hard dependency */
-      }
-    };
-    void tick();
-    const t = window.setInterval(tick, intervalMs);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [intervalMs]);
-  return vitals;
+  // The read loop is `useDeviceRead`'s. `useAgentVitals` returns NO `failed` flag: it never
+  // had one, and the strip's sources are a nicety — a failed read simply leaves the last
+  // values alone (see `reduceVitals` above for why that is not a silent lie).
+  return useDeviceRead<AgentVitals>({
+    path: "/api/status",
+    reduce: reduceVitals,
+    initial: EMPTY_VITALS,
+    everyMs: intervalMs,
+  }).data;
 }

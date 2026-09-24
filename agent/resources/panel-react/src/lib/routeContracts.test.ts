@@ -81,6 +81,16 @@ describe("every device route the panel calls is either pinned or named as unpinn
       // Normalise the parameterised forms to the shape used in the two lists above.
       called.add(m[1].split("?")[0]);
     }
+    // AND THE READ LOOP'S OWN SEAM. A reader that migrated onto `useDeviceRead` hands its route
+    // over as `path: "/api/x"` instead of calling `callApi` itself, so the pattern above stopped
+    // seeing exactly those five routes — and this list, which exists to notice a route that has no
+    // shape contract, would have answered "the panel no longer calls /api/boots" about a hook that
+    // still does (found by this test's own "no longer called" case when the migration landed).
+    // A quoted `/api/` literal in a `path:` property is a route by definition; the wire's monitor
+    // `path` field is a value READ off a body, never a literal in this tree.
+    for (const m of text.matchAll(/\bpath:\s*[`"'](\/api\/[^`"']*)/g)) {
+      called.add(m[1].split("?")[0]);
+    }
   }
 
   it("found the panel's routes, or it proves nothing", () => {

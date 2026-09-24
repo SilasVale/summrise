@@ -1,4 +1,4 @@
-import type { SessionReadState } from "../hooks/useCommandEvents";
+import type { ReadState } from "./readState";
 
 /**
  * WHAT AN EMPTY TRAIL IS ALLOWED TO SAY — ONE WORDING, THREE VIEWS.
@@ -26,7 +26,7 @@ import type { SessionReadState } from "../hooks/useCommandEvents";
  *
  * Returns `null` when the caller's own empty state is TRUE and may be shown.
  */
-export function trailReadNotice(read: SessionReadState): { text: string; failed: boolean } | null {
+export function trailReadNotice(read: ReadState): { text: string; failed: boolean } | null {
   if (read === "ok") return null;
   if (read === "unreadable") {
     return {

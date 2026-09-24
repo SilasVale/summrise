@@ -41,6 +41,7 @@
 // "this session has run nothing" and "this device has run three things" are both
 // true, and the second one is what the operator came back for.
 import { trailReadNotice } from "../lib/trailRead";
+import type { ReadState } from "../lib/readState";
 import { useMemo, useState } from "react";
 import {
   derivePath,
@@ -83,7 +84,7 @@ export function PathView({
    *  to `"ok"` for direct mounts (tests, and callers holding real events), where
    *  the empty line is TRUE; the wiring in `App` cannot forget it, because
    *  `CommandEvents.readState` is required. */
-  readState?: import("../hooks/useCommandEvents").SessionReadState;
+  readState?: ReadState;
   /** Select a step — the caller scrolls/highlights it in the timeline. */
   onJumpToStep?: (step: PathStep) => void;
   /** Context stamped into a saved recipe, so a reader knows what the commands
