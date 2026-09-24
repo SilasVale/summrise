@@ -343,7 +343,13 @@ domain is not a secret — it ships inside every exe and tarball — so the valu
 advertising the deployment's naming, not secrecy. A RENAME remains the operator's call: it touches the live update
 channel, the tunnel ingress and the fleet.
 
-## 10. Open: the console's `prov-dot` (2 states declared, 0 rendered in 136 surfaces)
+## 10. CLOSED: the console’s `prov-dot` (it was: 2 states declared, 0 rendered in 136 surfaces)
+
+> **CLOSED — verified by reading the source, not by a comment (round 206).** `gateway/ui/src/views/Models.tsx:637`
+> renders `` `prov-dot${ready ? " ok" : " missing"}` `` — BOTH declared states — and `globals.css:2436/2443/2447`
+> styles all three. Both wire-field gates pass (`wire-field-check`, `console-wire-field-check`), and the ledger’s
+> own entries describe the defect in the PAST tense. The title said "Open" long after the fix; the body below is the
+> measurement that found it, kept because it is the reason the two gates exist.
 
 The mark-coverage queue reached the console in round 50 and its second item is `prov-dot`: **declared 2 states (`ok`,
 `missing`), rendered ZERO** — not a missing state but a family with no surface at all, which is worse.
