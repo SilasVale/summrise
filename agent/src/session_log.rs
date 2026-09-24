@@ -576,6 +576,22 @@ static SEQ: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
 /// by whichever logger performs the session's FIRST write, and that is not
 /// necessarily the one that opened it. Keyed by dir+sid so tests and separate
 /// data dirs cannot collide.
+///
+/// TWO GLOBALS NOW SAY WHAT ONE OWNER WOULD. Measured 2026-09-24 while checking the session-runtime
+/// exploration's locality inventory: `SessionLogger::new` has THREE production call sites — the
+/// terminal plugin's (`plugins/terminal/mod.rs`, held for the session), the manager's
+/// (`tools/terminal/mod.rs`), and `web/mod.rs`'s `sessions_logger()`, which builds one PER WEB CALL —
+/// and all three append to the same per-session file. `SEQ`'s own doc above already draws the
+/// conclusion ("there should have been one"); this map is the second payment on it, because identity
+/// has the same problem sequence numbers do.
+///
+/// THE FIX IS NAMED AND NOT YET TAKEN: one logger, constructed where the session is and handed to
+/// the layers that write to it. It is deferred rather than disputed because the plumbing crosses the
+/// dependency direction this codebase guards — the web layer reaches the plugin through `AppState`,
+/// and the manager (in `tools/`) cannot see the plugin at all — so it is a threading change across
+/// ~10 sites, not a rename. The behavioural consequence today is small (each write opens and closes
+/// the file, so the three handles do not corrupt each other); the cost is that a reader must find
+/// two globals to learn what one session's log is.
 static IDENTITY: std::sync::LazyLock<Mutex<HashMap<String, (String, String)>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
