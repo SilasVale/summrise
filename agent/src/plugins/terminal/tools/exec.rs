@@ -1102,6 +1102,12 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
                             let jm_arc = jobs.clone();
                             let mut jm = jm_arc.lock().unwrap_or_else(|p| p.into_inner());
                             if jm.len() > 64 {
+                                // ONLY FINISHED JOBS ARE PRUNED, which makes this cap deliberately
+                                // soft, and the softness is the right one: evicting a RUNNING job's
+                                // record would leave a live process that `terminal_jobs` no longer
+                                // knows about, and an untracked live process is worse than a large
+                                // map. What bounds the running set is the work itself — every entry
+                                // here is a process the device actually started.
                                 let mut finished: Vec<String> = jm.iter()
                                     .filter(|(_, j)| j.done).map(|(k, _)| k.clone()).collect();
                                 finished.sort();
