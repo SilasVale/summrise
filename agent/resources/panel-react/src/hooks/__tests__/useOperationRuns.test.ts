@@ -37,7 +37,7 @@ beforeEach(() => {
 describe("useOperationRuns", () => {
   it("polls /api/operation with a since cursor and a bounded limit", async () => {
     mockCallApi.mockResolvedValue({
-        ok: true,
+      ok: true,
       events: [ev(T0, "ls")],
       runs: [],
       cursor_ms: T0,
@@ -56,13 +56,13 @@ describe("useOperationRuns", () => {
     const boundary = ev(T0 + 1_000, "second");
     mockCallApi
       .mockResolvedValueOnce({
-        ok: true,
+      ok: true,
         events: [ev(T0, "first"), boundary],
         runs: [],
         cursor_ms: T0 + 1_000,
       })
       .mockResolvedValue({
-        ok: true,
+      ok: true,
         events: [boundary, ev(T0 + 2_000, "third")],
         runs: [],
         cursor_ms: T0 + 2_000,
@@ -88,7 +88,7 @@ describe("useOperationRuns", () => {
     // boundary list each poll would leave every run looking open forever.
     mockCallApi
       .mockResolvedValueOnce({
-        ok: true,
+      ok: true,
         events: [],
         runs: [
           { kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" },
@@ -96,7 +96,7 @@ describe("useOperationRuns", () => {
         cursor_ms: T0,
       })
       .mockResolvedValue({
-        ok: true,
+      ok: true,
         events: [],
         runs: [
           { kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" },
@@ -138,7 +138,7 @@ describe("useOperationRuns", () => {
   it("keeps the last good snapshot when a poll fails (no blanking)", async () => {
     mockCallApi
       .mockResolvedValueOnce({
-        ok: true,
+      ok: true,
         events: [ev(T0, "survives")],
         runs: [],
         cursor_ms: T0,
