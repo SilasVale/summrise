@@ -736,33 +736,25 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         // version (and a retry could never restore the overwritten live
         // file). The $ok-gated swap script moves them into place only when
         // the main-exe copy succeeded.
-        let pkg_pw = extract.join("package").join("summrise-playwright.zip");
-        if pkg_pw.exists() {
-            if let Err(e) = std::fs::copy(
-                &pkg_pw,
-                dir.join("components").join("summrise-playwright.new.zip"),
-            ) {
-                tracing::error!("[summrise-agent] agent_update: playwright stage failed: {e}");
-                cleanup_staged(&dir);
-                return false;
-            }
-        }
-        let pkg_cf = extract.join("package").join("cloudflared.exe");
-        if pkg_cf.exists() {
-            if let Err(e) = std::fs::create_dir_all(dir.join("components")) {
-                tracing::error!("[summrise-agent] agent_update: components dir create failed: {e}");
-                cleanup_staged(&dir);
-                return false;
-            }
-            if let Err(e) =
-                std::fs::copy(&pkg_cf, dir.join("components").join("cloudflared.new.exe"))
-            {
-                tracing::error!("[summrise-agent] agent_update: cloudflared stage failed: {e}");
-                cleanup_staged(&dir);
-                return false;
-            }
-        }
-
+        // NO COMPONENT STAGING HERE, AND THERE CANNOT BE (round 159). This block copied
+        // `package/summrise-playwright.zip` and `package/cloudflared.exe` out of the extracted
+        // tgz behind `.exists()` guards — and that tgz has NINE entries (the exe, the desktop
+        // shell's sources, bin/summrise.js, package.json, README, two icons) and contains
+        // NEITHER file. `index/components.json` says it outright: "The npm package carries none
+        // of them." So both guards were false on every real update, and the generated swap
+        // script's `summrise-playwright.new.zip` / `cloudflared.new.exe` branches moved files
+        // nothing had created. The comment that used to sit here described moving a mixed set of
+        // new and stale components into place — a guarantee the code could not deliver, which is
+        // why it read as working.
+        //
+        // Components reach a device through `summrise setup`, which fetches them from the release
+        // host and VERIFIES each against the manifest's sha256 pin (round 143 gave the installer
+        // that same discipline). If a future release puts them in the tgz, they must arrive WITH
+        // that verification — otherwise this becomes the unverified-install path instead of a
+        // dead one.
+        //
+        // `staged_leftovers()` still sweeps both ghost names on purpose: a device that ran an
+        // older build, or one this ever changes for, may have them on disk.
         let q = dir.to_string_lossy().replace('\'', "''");
         let ver = release_version.replace('\'', "''");
         // Layout v2 homes (baked — the swap script is static text).
@@ -802,8 +794,6 @@ if (Test-Path '{q}\summrise-agent.exe') {{ try {{ Copy-Item -Force '{q}\summrise
 foreach($i in 1..12){{ try {{ Copy-Item -Force -ErrorAction Stop '{q}\summrise-agent.new.exe' '{q}\summrise-agent.exe'; $ok=$true; break }} catch {{ Start-Sleep -Milliseconds 800 }} }};
 "[$(Get-Date -Format o)] copy ok=$ok" | Out-File '{logs}\summrise-update.log' -Append;
 if ($ok) {{ Remove-Item -Force -ErrorAction SilentlyContinue '{q}\summrise-agent.new.exe' }};
-if ($ok) {{ if (Test-Path '{comp}\summrise-playwright.new.zip') {{ Copy-Item -Force '{comp}\summrise-playwright.new.zip' '{comp}\summrise-playwright.zip'; Remove-Item -Force '{comp}\summrise-playwright.new.zip' }} }};
-if ($ok) {{ if (Test-Path '{comp}\cloudflared.new.exe') {{ Copy-Item -Force '{comp}\cloudflared.new.exe' '{comp}\cloudflared.exe'; Remove-Item -Force '{comp}\cloudflared.new.exe' }} }};
 if ($ok) {{ Set-Content -Path '{etc}\.summrise-release' -Value '{ver}' -NoNewline -ErrorAction SilentlyContinue }};
 if ($ok -and '{ver}') {{ try {{
 $rk = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent';
