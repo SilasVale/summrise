@@ -379,11 +379,47 @@ impl TerminalPlugin {
                 interrupted
             );
         }
+        // THE SUBSCRIBER THAT PERFORMS THE MOVE, and it lives here because the store does. Three of
+        // the four ways a session can end (the idle sweeper, the 16-session cap, and the swap path)
+        // remove it from the manager WITHOUT moving its buffer to `history`, and the manager cannot
+        // reach this map — the dependency runs one way. So this subscribes to the eviction
+        // announcement instead, which already carries id/kind/label for every session it took. That
+        // is what makes `terminal_read` on an evicted session read from BOUNDED history rather than
+        // from a `live` entry nothing caps, reaps or ever revisits.
+        let output_buf: OutputBuf = Arc::new(std::sync::Mutex::new(SessionStore::new()));
+        // Feature-gated: `add_event_sink` lives inside `desktop_impl` and is re-exported only under
+        // the feature. Without it there are no desktop sessions to evict — the stub answers every
+        // call with `disabled_err()` — so the store needs no subscriber.
+        #[cfg(feature = "terminal")]
+        {
+            let buf = Arc::clone(&output_buf);
+            crate::tools::terminal::add_event_sink(Arc::new(move |payload: serde_json::Value| {
+                if payload.get("ev").and_then(|v| v.as_str()) != Some("session-evicted") {
+                    return;
+                }
+                let Some(sessions) = payload.get("sessions").and_then(|v| v.as_array()) else {
+                    return;
+                };
+                let Ok(mut store) = buf.lock() else { return };
+                for s in sessions {
+                    let (Some(id), kind, label) = (
+                        s.get("id").and_then(|v| v.as_str()),
+                        s.get("kind").and_then(|v| v.as_str()).unwrap_or("terminal"),
+                        s.get("label").and_then(|v| v.as_str()).unwrap_or(""),
+                    ) else {
+                        continue;
+                    };
+                    // No exit code: the session was taken away, so nothing can prove how it ended —
+                    // the same rule the job registry follows on the same event.
+                    store.retain_live(id, kind, label, None);
+                }
+            }));
+        }
         Self {
             terminal_mgr,
             serial_pool,
             bus,
-            output_buf: Arc::new(std::sync::Mutex::new(SessionStore::new())),
+            output_buf,
             diag: Arc::new(std::sync::Mutex::new(DiagBuf::default())),
             logger,
             buffer_limit,

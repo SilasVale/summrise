@@ -686,13 +686,30 @@ mod desktop_impl {
 
     /// The event sink: the same pattern `monitor` uses, so this module never learns what SSE is.
     type EvictSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
-    static EVICT_SINK: std::sync::Mutex<Option<EvictSink>> = std::sync::Mutex::new(None);
+    /// A LIST, since 2026-09-24. It held one sink ("called once from `main`, like the monitor's"),
+    /// which was enough while the only consumer was the SSE forwarder — but it made the eviction
+    /// fact unreachable for the one module that has to ACT on it. `plugins/terminal/` owns the
+    /// output buffers, and its sessions leak when a session is evicted rather than closed (the
+    /// SessionStore doc records the three paths); it cannot be told from the eviction site, because
+    /// the dependency runs one way. So it subscribes here instead, and this list is what lets it do
+    /// that without taking the SSE forwarder's place.
+    static EVICT_SINK: std::sync::Mutex<Vec<EvictSink>> = std::sync::Mutex::new(Vec::new());
     /// The last eviction, for the caller that caused it (an open that hit the cap).
     static LAST_EVICTED: std::sync::Mutex<Vec<EvictedSession>> = std::sync::Mutex::new(Vec::new());
 
-    /// Install the announcement sink (called once from `main`, like the monitor's).
+    /// Install the announcement sink, REPLACING any others (called once from `main`, like the
+    /// monitor's; the tests use it too, which is why it clears rather than appends).
     pub fn set_event_sink(sink: EvictSink) {
-        *EVICT_SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink);
+        *EVICT_SINK.lock().unwrap_or_else(|p| p.into_inner()) = vec![sink];
+    }
+
+    /// Add a sink WITHOUT displacing the others — for a subscriber that has to act on the eviction
+    /// rather than forward it (`plugins/terminal/` retains the buffer of what was evicted).
+    pub fn add_event_sink(sink: EvictSink) {
+        EVICT_SINK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(sink);
     }
 
     /// Announce what was taken away. Logs as well as emits: a reaper whose work is invisible in the
@@ -713,8 +730,12 @@ mod desktop_impl {
             "limit": cap_or_ttl,
             "sessions": evicted,
         });
-        if let Some(f) = EVICT_SINK.lock().unwrap_or_else(|p| p.into_inner()).clone() {
-            f(payload);
+        // EVERY sink, not one: the SSE forwarder and `plugins/terminal/`'s retainer both care, and
+        // the clone keeps this lock out of the callbacks (a sink that locks the sink registry while
+        // running is how a reaper deadlocks itself).
+        let sinks = EVICT_SINK.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        for f in sinks {
+            f(payload.clone());
         }
         let mut last = LAST_EVICTED.lock().unwrap_or_else(|p| p.into_inner());
         last.extend_from_slice(evicted);
@@ -1983,7 +2004,9 @@ pub use desktop_impl::TerminalManager;
 // manager's state is) and is re-exported here so `main` can install the sink and start the sweeper
 // without knowing the module's internal shape — the same reason `TerminalManager` is re-exported.
 #[cfg(feature = "terminal")]
-pub use desktop_impl::{set_event_sink, spawn_idle_sweeper, take_evicted, EvictedSession};
+pub use desktop_impl::{
+    add_event_sink, set_event_sink, spawn_idle_sweeper, take_evicted, EvictedSession,
+};
 #[cfg(not(feature = "terminal"))]
 pub use stub::TerminalManager;
 

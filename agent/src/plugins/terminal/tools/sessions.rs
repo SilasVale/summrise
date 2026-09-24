@@ -16,9 +16,7 @@ use super::ctx::{
 use crate::plugins::terminal::SessionBuf;
 use crate::plugins::{require_str, to_value_or_empty};
 use crate::tools::serial::SerialPool;
-use crate::tools::terminal::{
-    parse_serial_target, parse_ssh_target, take_evicted, TerminalManager,
-};
+use crate::tools::terminal::{parse_serial_target, parse_ssh_target, TerminalManager};
 use summrise_agent_core::{recover_guard, AgentEvent, DeviceError, ToolDef};
 
 // P2-5: drainer frames rerouted after a vanished history entry (warn path
@@ -350,7 +348,13 @@ pub(super) fn tool_open(ctx: &super::ctx::ToolCtx) -> ToolDef {
                 // typeof sid === "string"), so the MODEL is told the POSSIBILITY in this tool's
                 // description instead — the one place a non-breaking interface can say it — and this
                 // is where the specific fact stops being dropped on the floor.
-                for ev in take_evicted() {
+                // THE CALL IS FEATURE-GATED, like every other use of the desktop manager in this
+                // file: `take_evicted` lives inside `desktop_impl` and is re-exported only under the
+                // feature, so importing it at the top broke the NO-FEATURE build CI runs — the
+                // configuration I had not built locally when I added this. AGENTS.md's table lists
+                // both commands for exactly this reason.
+                #[cfg(feature = "terminal")]
+                for ev in crate::tools::terminal::take_evicted() {
                     tracing::warn!(
                         "[summrise-agent] terminal_open evicted {} ({}, idle {}ms) to make room for {}: {}",
                         ev.label,
