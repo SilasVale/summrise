@@ -33,6 +33,14 @@
 //     value. Here it is unconditional: every read takes a sequence number and only the
 //     one still current may write.
 //
+// AND THE FAILURE'S OWN WORDS RIDE OUT BESIDE THE STATE. The module catches THREE different failures —
+// a refusal, a transport throw, a fold that threw — and reports the one word `"unreadable"`, which used
+// to be ALL it reported: the sentence it had in hand at the moment it caught the failure was dropped. A
+// caller cannot re-derive that sentence: a refusal's `error` is the DEVICE's own words (written for a
+// person — see `lib/api.ts`) and the other two never leave this module at all. So they leave as `reason`
+// (see `DeviceRead`), the one member here that ADDS an answer rather than changing one; the four rules
+// above are untouched by it.
+//
 // A caller states the route, the fold, the value to start from, the cadence — and, since the change
 // that migrated `useCommandEvents`, whether the read is LIVE at all (`enabled`) and what a CHANGE OF
 // SUBJECT is (`resetKey`). The four rules above are stated once, here, and the readers that inherit
@@ -155,6 +163,19 @@ export interface DeviceReadOptions<T> {
 export interface DeviceRead<T> {
   data: T;
   read: ReadState;
+  /** WHY the last settle failed — `""` whenever `read` is not `"unreadable"`.
+   *
+   *  The three failures above are distinguished AT THE POINT THEY ARE CAUGHT, and this is the words that
+   *  would otherwise be thrown away: the DEVICE's own `error` when it refused (that text is written for
+   *  a person), else the transport's message, else the fold's own message when the fold is what refused.
+   *  The value is kept on failure (see `reduce`'s doc); this is the sentence that explains it.
+   *
+   *  AND A SUCCESS CLEARS IT — the invariant that makes this member safe to read UNCONDITIONALLY, which
+   *  is how a caller uses it: `reason` can be printed beside a good value without asking `read` first,
+   *  because the module never leaves a sentence about a failure that is over. `""` is not a failure's
+   *  words but the ABSENCE of one, so a caller with nothing to show falls back to its own sentence.
+   *  A `resetKey` change clears it too: the new subject has no failure yet. */
+  reason: string;
   /** Read now. Resolves when the read settles; NEVER rejects. WHEN THE READ IS DISABLED
    *  (`enabled: false`) this DOES NOTHING AND RESOLVES — a caller reads this member rather than the
    *  option's own doc, which is where the rule was first written and, until a review said so, the
@@ -165,6 +186,24 @@ export interface DeviceRead<T> {
 /** The floor a cadence gets when the caller states none. Deliberately NOT exported: it
  *  is this module's answer to "how fast may a device read run", not a knob. */
 const DEFAULT_FLOOR_MS = 5_000;
+
+/** THE DEVICE'S OWN WORDS FOR A REFUSAL — handed on unchanged, because `lib/api.ts` writes `error` for
+ *  a person. A refusal that carries no such string gets `""` rather than a sentence invented here: this
+ *  module does not know what the caller wanted to say about it, and a fabricated reason beside a real
+ *  failure is worse than none (see `DeviceRead.reason`). */
+function refusalReason(body: unknown): string {
+  const error = (body as { error?: unknown } | null | undefined)?.error;
+  return typeof error === "string" && error ? error : "";
+}
+
+/** THE WORDS A THROW CARRIES. `callApi` throws `Error`s (`HTTP 502`, `unauthorized`, a timeout) and a
+ *  caller's fold arrives by the same path, so an `Error`'s message is the diagnosis in both cases.
+ *  Anything that is not an `Error` is stringified — and a `null`/`undefined` rejection has NO words,
+ *  while `String(null)` would print the literal word "null" as though the failure had sent it. */
+function thrownReason(e: unknown): string {
+  if (e === null || e === undefined) return "";
+  return (e instanceof Error ? e.message : String(e)) || "";
+}
 
 export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   const {
@@ -178,6 +217,11 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   } = opts;
   const [data, setData] = useState<T>(initial);
   const [read, setRead] = useState<ReadState>("reading");
+  // THE WORDS THAT EXPLAIN A FAILED SETTLE. State, not a ref, because the CALLER renders them: a SECOND
+  // failure while the read is already `"unreadable"` sets the same read state, so a sentence kept
+  // outside state could change without causing the frame that shows it — the page would keep the first
+  // failure's words under the second failure's read.
+  const [reason, setReason] = useState("");
   // The value IN HAND, mirrored for the fold. `refresh` is stable (see below), so it
   // cannot read `data` from its own closure — and the fold runs OUTSIDE React's updater,
   // which keeps a throwing `reduce` a FAILED READ (handled by the catch below) rather
@@ -211,10 +255,12 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   enabledRef.current = enabled;
   // A DIFFERENT SUBJECT IS A DIFFERENT VALUE, AND THE SWITCH IS SETTLED DURING RENDER. An effect
   // would run after the frame that still holds the previous subject — one frame of the OLD session's
-  // trail drawn as the new session's own — so the value, the read state and the in-flight read are
-  // all reset here, where React is already computing the frame that will be committed. The value is
-  // put back to the very `initial` the caller passed in, object identity included: that identity is
-  // what lets a caller's `reduce` recognise the first fold of a new subject (see `useCommandEvents`).
+  // trail drawn as the new session's own — so the value, the read state, the reason and the in-flight
+  // read are all reset here, where React is already computing the frame that will be committed. The
+  // value is put back to the very `initial` the caller passed in, object identity included: that
+  // identity is what lets a caller's `reduce` recognise the first fold of a new subject (see
+  // `useCommandEvents`). The reason goes with it for the same reason the value does — the new subject
+  // has no failure yet, and the old subject's sentence is not about it.
   // The key is remembered rather than diffed against a render-count, so React's double render in
   // development sees the change once, and it is compared by identity like any other dependency.
   const keyRef = useRef(resetKey);
@@ -227,6 +273,7 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
     seqRef.current++;
     setData(initial);
     setRead("reading");
+    setReason("");
   }
   // UNMOUNTED IS NOT A PLACE TO WRITE. Declared before the read effect so the flag is set
   // for the mount read; cleared in the cleanup, which React runs last-in-first-out, i.e.
@@ -257,8 +304,11 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
       // A REFUSAL IS NOT A BODY. `deviceRefused` (`lib/api.ts`) is the panel's one
       // predicate for "the device said no", and `reduce` is never shown a refusal: a
       // refused read must not render as a device that is empty, and the two facts are
-      // only distinguishable if the fold never sees the failure at all.
+      // only distinguishable if the fold never sees the failure at all. The device's own
+      // `error` is carried out as `reason` — this is the one failure whose words the
+      // CALLER could never recover, because the body stops here.
       if (deviceRefused(body)) {
+        setReason(refusalReason(body));
         setRead("unreadable");
         return;
       }
@@ -266,13 +316,21 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
       const next = fold(dataRef.current, body);
       dataRef.current = next;
       setData(next);
+      // A SUCCESS CLEARS THE REASON IN THE SAME SETTLE THAT SETS THE VALUE, which is what lets a caller
+      // read this member unconditionally: there is no frame in which a good value sits beside the
+      // previous failure's sentence (see `DeviceRead.reason`).
+      setReason("");
       setRead("ok");
-    } catch {
+    } catch (e) {
       // KEEP THE LAST GOOD VALUE. A missed poll is not a device that went quiet — blanking
       // the surface would be this panel asserting it — so a failed read (a refusal or a
       // throw) leaves the value alone and says only that the read is `"unreadable"`, which
-      // the caller draws in its own words.
+      // the caller draws in its own words. THE THROW'S OWN WORDS GO OUT AS `reason`, and a
+      // fold's throw is caught here with everything else: its message is already the
+      // caller's diagnosis of the body it refused, so the module carries it rather than
+      // making the caller re-print it one layer up.
       if (!aliveRef.current || seq !== seqRef.current) return;
+      setReason(thrownReason(e));
       setRead("unreadable");
     }
   }, []);
@@ -302,5 +360,5 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
     return () => window.clearInterval(t);
   }, [refresh, everyMs, floorMs, enabled, resetKey]);
 
-  return { data, read, refresh };
+  return { data, read, reason, refresh };
 }

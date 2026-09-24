@@ -5453,6 +5453,48 @@ during render, so a key that differs on every render re-renders forever. It cann
 before the state is set, so the re-render the reset causes stops), and that is now written down. Two test
 names that still said "polls"/"polling" were renamed; neither had checked a cadence.
 
+## 2026-09-25 — the twenty-seventh exploration: the module was throwing away what the device said
+
+Round 26's review found the loss and named the fix: two readers stopped showing the DEVICE'S OWN WORDS when a read
+failed, because the module reports three words and discards the reason at the exact point where it is known. This
+round puts the reason on the interface — and the caller that lost the words regains them and loses a workaround,
+which is what says the seam was in the wrong place.
+
+**THREE FAILURES, ONE WORD, AND THE WORDS THROWN AWAY.** `useDeviceRead` catches:
+
+  * a REFUSAL — `deviceRefused(body)` is true and the body is the device's `{ok:false, error:"…"}`, whose text
+    `lib/api.ts` says is written for a person;
+  * a TRANSPORT error — `callApi` threw: `HTTP 502`, `unauthorized`, a timeout;
+  * a FOLD that refused the body — the caller's own `reduce` threw, and its message is already a diagnosis.
+
+All three became `setRead("unreadable")` and nothing else. `DeviceRead<T>` now carries **`reason: string`**: the
+device's `error` when it refused, else the transport's message, else the fold's message — and `""` whenever the read
+is not `"unreadable"`, which is the invariant that makes the member safe to read unconditionally (a success clears it
+in the SAME settle that sets the value, so no frame shows a good value beside the previous failure's sentence). It is
+a `reason` beside `read` rather than a union type, and the trade is stated: a union is the honest shape for a
+detached pair, but it would make eleven callers destructure for a member two of them use.
+
+**AND THE CALLER'S WORKAROUND DELETED ITSELF.** `usePlugins` had kept a `specNoteRef` whose only job was to carry its
+fold's throw message one layer up so the error sentence could re-print what the fold already knew. With the module
+keeping that message, the ref, its write inside the fold and its pre-attempt clear are gone. AND THE TWO BRANCHES
+ROUND 26 KILLED ARE BACK: `status: <the device's words>` and `inventory: <message>` are reachable again, which is what
+the review asked for when it recorded the loss as a trade-off with a named fix.
+
+**MUTATIONS, reproduced here rather than taken on report:** dropping the success-clear fails 2 tests (one of them the
+invariant's own case); restoring round 26's `status poll failed` for every failure fails the 2 restored status tests.
+
+**ONE DEVIATION, STATED:** during an in-flight SPEC RETRY the page keeps the previous failure's words until the settle,
+where the deleted ref cleared them first and the sentence was generic for that window. It falls out of the module
+having no per-attempt clear — and of the reason being a property of the last SETTLE, not of the attempt in flight —
+which is the contract, so it is named rather than smoothed over. A caller that wants the generic sentence during a
+retry can clear its own display; none does.
+
+**AND A NUMBER I TYPED INSTEAD OF MEASURING.** The inventory's panel cell was updated to "42,481 lines" from the
+previous reading rather than from the command's output; the command says **42,638**. Caught by running the counting
+command a second time before the commit, and recorded IN the cell, because a number is the one thing a reader cannot
+check by re-reading — which is why the cell carries the command beside it and why the sub-counts are still marked
+un-remeasured rather than guessed.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

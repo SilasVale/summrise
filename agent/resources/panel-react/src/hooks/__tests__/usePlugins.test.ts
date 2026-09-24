@@ -5,10 +5,12 @@
 // WHY THESE, AFTER THE READS MOVED ONTO `useDeviceRead`. Both routes are the module's now (the mount
 // read, the refusal guard, keep-last-on-failure), so what this file pins is every rule the hook kept
 // at its own end: the `active` gate (the read must not dial a device this panel is not connected to),
-// the `specLoaded` gate (the registry is asked for until it loads, then never again), the sentence
-// for a body the fold refuses — byte for byte — and the removal of the hook's own `deviceRefused`
-// check, whose refusal is now reported in the message-less sentence the module's one failure path
-// produces.
+// the `specLoaded` gate (the registry is asked for until it loads, then never again), and the two
+// sentences — byte for byte, INCLUDING the words the failure carried, which the module hands back as
+// `reason`. Round 4 could not: every failed read was one word, so a refused status read had to print the
+// message-less sentence, and the hook kept a ref whose only job was to re-print the fold's own message
+// one layer up. The ref is gone and those words are the module's; the refusal assertions below are the
+// ones this hook produced before round 4 (`status: <the device's own words>`).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { callApi } from "../../lib/api";
@@ -135,6 +137,24 @@ describe("usePlugins — a failed inventory read", () => {
     expect(result.current.playwright?.running).toBe(true);
   });
 
+  it("shows the DEVICE's own words for a refused inventory read, in the same sentence shape", async () => {
+    // The same arm on the spec side: a refusal's `error` is the device's own text, and it stops at the
+    // module — the fold never sees it, so this sentence can only come from `reason`. The `inventory: `
+    // prefix is the shape the hand-written throw produced for the fold's own message.
+    mockCallApi.mockImplementation(async (path: string) =>
+      String(path).includes("/api/spec")
+        ? { ok: false, error: "the registry is still starting" }
+        : status(true),
+    );
+
+    const { result } = renderHook(() => usePlugins(true));
+    await flush();
+    expect(result.current.specLoaded).toBe(false);
+    expect(result.current.loadError).toBe(
+      "inventory: the registry is still starting",
+    );
+  });
+
   it("retries the inventory while it has never loaded, and stops once it has", async () => {
     let specCalls = 0;
     mockCallApi.mockImplementation(async (path: string) => {
@@ -175,11 +195,11 @@ describe("usePlugins — a failed inventory read", () => {
     expect(specCalls, "a loaded inventory is never re-read").toBe(2);
   });
 
-  it("reports a REFUSED status read in the message-less sentence, keeping the last good one", async () => {
-    // The hook used to ask `deviceRefused(res)` and throw `status: <the device's own words>`. The
-    // module asks that question now (`lib/api.ts` owns the predicate), so a refusal is reported as
-    // `"unreadable"` with the sentence a failure WITHOUT a message always got — and it never reaches
-    // the fold, which is why the last good status stays on the card.
+  it("shows the DEVICE's own words for a refused status read, keeping the last good one", async () => {
+    // The hook used to ask `deviceRefused(res)` and throw `status: <the device's own words>`. The module
+    // asks that question now (`lib/api.ts` owns the predicate) and hands the device's `error` back as
+    // `reason`, so the sentence is the one this hook produced before round 4 — and the refusal never
+    // reaches the fold, which is why the last good status stays on the card.
     let statusCalls = 0;
     mockCallApi.mockImplementation(async (path: string) => {
       if (String(path).includes("/api/spec")) return spec();
@@ -198,10 +218,60 @@ describe("usePlugins — a failed inventory read", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(result.current.loadError).toBe("status poll failed");
+    expect(result.current.loadError).toBe("status: playwright is not installed");
     expect(
       result.current.playwright?.running,
       "a refusal is not a body — the last good status stays",
     ).toBe(true);
+  });
+
+  it("shows a transport failure's message for the status read", async () => {
+    // The other source of words: `callApi` throws (`HTTP 502`, `unauthorized`, a timeout — see
+    // `lib/api.ts`) and the module carries the Error's message out. Round 4 flattened this to the
+    // message-less sentence with the rest; the operator gets the transport's own diagnosis again.
+    let statusCalls = 0;
+    mockCallApi.mockImplementation(async (path: string) => {
+      if (String(path).includes("/api/spec")) return spec();
+      statusCalls += 1;
+      if (statusCalls === 1) return status(true);
+      throw new Error("HTTP 502");
+    });
+
+    const { result } = renderHook(() => usePlugins(true));
+    await flush();
+    expect(result.current.loadError).toBe("");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("summrise-playwright-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loadError).toBe("status: HTTP 502");
+    expect(result.current.playwright?.running, "keep-last still holds").toBe(
+      true,
+    );
+  });
+
+  it("still says `status poll failed` when the failure carried no words", async () => {
+    // The fallback is not gone, it is the OTHER arm: a refusal with no `error` (or a body that is not an
+    // object at all) has no sentence to show, and the module reports `reason: ""` rather than inventing
+    // one. `status poll failed` is what a message-less failure has always said, and it is unreachable for
+    // a failure that DOES carry words — which is the half round 4's review found missing.
+    let statusCalls = 0;
+    mockCallApi.mockImplementation(async (path: string) => {
+      if (String(path).includes("/api/spec")) return spec();
+      statusCalls += 1;
+      return statusCalls === 1 ? status(true) : { ok: false };
+    });
+
+    const { result } = renderHook(() => usePlugins(true));
+    await flush();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("summrise-playwright-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loadError).toBe("status poll failed");
   });
 });

@@ -86,6 +86,9 @@ describe("useDeviceRead", () => {
     await flush();
     expect(result.current.data).toBe("first");
     expect(result.current.read).toBe("ok");
+    // A SUCCESS HAS NO REASON — the invariant that lets a caller print `reason` unconditionally:
+    // a good value is never shown beside a sentence about a failure that is over.
+    expect(result.current.reason).toBe("");
     expect(reduce).toHaveBeenCalledTimes(1);
 
     // THE DEVICE SAYS NO. `reduce` must not be handed the refusal: a device that refused
@@ -98,6 +101,7 @@ describe("useDeviceRead", () => {
     expect(reduce).toHaveBeenCalledTimes(1);
     expect(result.current.data).toBe("first");
     expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("nope");
 
     // AND A CALL THAT THREW IS THE SAME FACT. `await refresh()` also pins the interface's
     // promise that `refresh` NEVER rejects: a caller awaiting it cannot be thrown at.
@@ -108,6 +112,7 @@ describe("useDeviceRead", () => {
     expect(reduce).toHaveBeenCalledTimes(1);
     expect(result.current.data).toBe("first");
     expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("HTTP 502");
 
     // A later success is still a success — the failed reads did not poison the loop.
     mockCallApi.mockResolvedValueOnce({ ok: true, v: "second" });
@@ -116,6 +121,10 @@ describe("useDeviceRead", () => {
     });
     expect(result.current.data).toBe("second");
     expect(result.current.read).toBe("ok");
+    expect(
+      result.current.reason,
+      "and the success cleared the failed reads' words on the way in",
+    ).toBe("");
   });
 
   // (c) the third state, which is what stops an in-flight read rendering as "empty".
@@ -397,5 +406,171 @@ describe("useDeviceRead", () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(mockCallApi).toHaveBeenCalledTimes(2);
+  });
+});
+
+// `reason` — THE WORDS THE MODULE CAUGHT AND USED TO THROW AWAY. Three different failures landed in
+// `setRead("unreadable")` and the sentence each one carried was dropped, which cost a caller: `usePlugins`
+// rendered the DEVICE's own words for a failed status read and, after the migration, could only print
+// "status poll failed" — so it kept a ref whose only job was to re-print the fold's message one layer up.
+// These cases are that sentence, one per source, plus the two ways it is cleared.
+describe("useDeviceRead — the reason a settle failed", () => {
+  it("reports the DEVICE's own error for a refusal, which is the text written for a person", async () => {
+    const reduce = fold();
+    mockCallApi.mockResolvedValueOnce({ ok: true, v: "kept" });
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce,
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.read).toBe("ok");
+    expect(result.current.reason, "no failure, no words").toBe("");
+
+    // The device's words are handed on UNCHANGED — not summarised, not prefixed: this is the half a
+    // caller could never recover, because a refusal stops at the module and never reaches its fold.
+    mockCallApi.mockResolvedValueOnce({
+      ok: false,
+      error: "playwright is not installed",
+      code: "E_PLUGIN",
+    });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("playwright is not installed");
+    expect(
+      result.current.data,
+      "keep-last-on-failure is untouched by the reason riding along",
+    ).toBe("kept");
+    expect(reduce).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports NOTHING for a refusal that carries no error, rather than inventing a sentence", async () => {
+    // THE MODULE DOES NOT KNOW WHAT THE CALLER WANTS TO SAY, so a refusal with no `error` — and a body
+    // that is not even an object (the proxy's error page `callApi` hands back as raw text) — gets `""`,
+    // which is the caller's cue to use its own sentence. An invented reason beside a real failure is
+    // worse than none: it would be the module's words dressed as the device's.
+    mockCallApi.mockResolvedValueOnce({ ok: false, code: "E_REFUSED" });
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("");
+
+    mockCallApi.mockResolvedValueOnce("not json");
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("");
+  });
+
+  it("reports a thrown Error's message, which is the transport's own words", async () => {
+    // `callApi` throws `Error("HTTP 502")`, `Error("unauthorized")`, a timeout — the message IS the
+    // diagnosis, and it used to stop at the module's catch.
+    mockCallApi.mockRejectedValueOnce(new Error("HTTP 502"));
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("HTTP 502");
+  });
+
+  it("stringifies a thrown non-Error, and reports nothing when the throw carried no words", async () => {
+    mockCallApi.mockRejectedValueOnce("the socket went away");
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.reason).toBe("the socket went away");
+
+    // A REJECTION WITH NO VALUE HAS NO MESSAGE, and this is deliberately not `String(e)`: that would
+    // print the literal words "undefined"/"null" as though the failure had sent them.
+    mockCallApi.mockRejectedValueOnce(undefined);
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("");
+  });
+
+  it("carries the FOLD's own message out, so the caller need not re-print it one layer up", async () => {
+    // The third source, and the one `usePlugins` kept a ref for: a body the device SENT that the caller's
+    // own fold cannot use. The message is already the caller's diagnosis — the module only has to keep it.
+    const reduce = vi.fn((): string => {
+      throw new Error("the spec route answered without a plugins list");
+    });
+    mockCallApi.mockResolvedValueOnce({ ok: true });
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce,
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe(
+      "the spec route answered without a plugins list",
+    );
+    expect(result.current.data, "a fold that refused writes no value").toBe(
+      "start",
+    );
+  });
+
+  it("clears the reason on the next success, so a good value never sits beside a stale sentence", async () => {
+    // THE INVARIANT THAT MAKES `reason` SAFE TO READ UNCONDITIONALLY, and the reason a caller may print
+    // it without asking `read` first: whenever the read is `"ok"`, the reason is `""`.
+    mockCallApi.mockResolvedValueOnce({ ok: false, error: "nope" });
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.reason).toBe("nope");
+
+    mockCallApi.mockResolvedValueOnce({ ok: true, v: "good" });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("ok");
+    expect(result.current.reason).toBe("");
+    expect(result.current.data).toBe("good");
+  });
+
+  it("clears the reason when the SUBJECT changes, because the new subject has no failure yet", async () => {
+    mockCallApi
+      // Subject `a` fails, so the sentence is ON SCREEN when the switch happens.
+      .mockResolvedValueOnce({ ok: false, error: "session a blew up" })
+      // The new subject's own read never settles: the frame of the switch is what this case is about.
+      .mockReturnValueOnce(new Promise(() => {}));
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) =>
+        useDeviceRead<string>({
+          path: () => `/api/${sid}`,
+          reduce: fold(),
+          initial: "none",
+          resetKey: sid,
+        }),
+      { initialProps: { sid: "a" } },
+    );
+    await flush();
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("session a blew up");
+
+    rerender({ sid: "b" });
+    expect(result.current.read).toBe("reading");
+    expect(
+      result.current.reason,
+      "the old subject's sentence is not about the new subject",
+    ).toBe("");
   });
 });

@@ -107,16 +107,20 @@ export function usePlugins(active: boolean) {
   // guards are the module's (unmount and ordering) and the panel draws the connection form while it
   // is disconnected, so a reply still in flight can only land in a state nobody is looking at.
   //
-  // AND THE ONE FAILURE THIS LAYER STILL HAS WORDS FOR IS KEPT HERE. `useDeviceRead` reports every
-  // failed read as one of three words and never hands the exception back (see its `reduce` doc), so
-  // the sentence for a body the FOLD refused is written by the fold that raised it — the only
-  // failure at this end that carries a message — and cleared before each attempt, so a later
-  // transport failure cannot inherit the previous body's words.
-  const specNoteRef = useRef("");
+  // AND THE WORDS FOR A FAILED READ COME BACK FROM THE MODULE. `useDeviceRead` reports every failed read
+  // as one of three words — and, beside it, `reason`: the sentence it caught (see its `DeviceRead` doc),
+  // which is the DEVICE's own `error` for a refusal, the transport's message for a throw, and the FOLD's
+  // own message when the fold is what refused. This hook therefore keeps NO note of its own: the sentence
+  // for a body the fold refused is still written by the fold (the `throw` below, whose constant keeps the
+  // message and the page's copy of it from drifting), and it reaches the page through `reason`. The
+  // clearing the deleted note did by hand is the module's too — `reason` is `""` after a success and is
+  // overwritten by the next failure — so a later transport failure cannot inherit the previous body's
+  // words.
 
   const {
     data: spec,
     read: specRead,
+    reason: specReason,
     refresh: refreshSpec,
   } = useDeviceRead<SpecPlugin[]>({
     path: "/api/spec",
@@ -131,14 +135,15 @@ export function usePlugins(active: boolean) {
       // reported and there is a single place that decides what a failed read
       // says.
       //
-      // THE THROW IS THE HOOK'S, THE FAILURE PATH IS THE MODULE'S: `useDeviceRead` catches it and
-      // reports the read as `"unreadable"`, keeping the last good registry — the same outcome this
-      // hook's own `throw` produced, with the module owning the question. A refusal never reaches
-      // this fold at all (the module folds it to `"unreadable"` first), which is the other half of
-      // the same rule: neither a refusal nor a body it cannot use is ever read as "no plugins".
+      // THE THROW IS THE HOOK'S, THE FAILURE PATH IS THE MODULE'S: `useDeviceRead` catches it, reports the
+      // read as `"unreadable"` and carries this message out as `reason` — which is what the page prints,
+      // with the last good registry kept. The same outcome this hook's own `throw` produced, with the
+      // module owning the question (and the sentence no longer having to be re-printed one layer up). A
+      // refusal never reaches this fold at all (the module folds it to `"unreadable"` first), which is the
+      // other half of the same rule: neither a refusal nor a body it cannot use is ever read as "no
+      // plugins".
       const plugins = (body as { plugins?: unknown } | null)?.plugins;
       if (!Array.isArray(plugins)) {
-        specNoteRef.current = SPEC_BODY_UNUSABLE;
         throw new Error(SPEC_BODY_UNUSABLE);
       }
       return (plugins as SpecPlugin[]).filter(
@@ -151,6 +156,7 @@ export function usePlugins(active: boolean) {
   const {
     data: playwright,
     read: statusRead,
+    reason: statusReason,
     refresh: refreshStatus,
   } = useDeviceRead<PlaywrightStatus | null>({
     path: "/api/plugins/status",
@@ -173,31 +179,35 @@ export function usePlugins(active: boolean) {
   // there): the registry has loaded exactly when the read last ended `"ok"`.
   const specLoaded = specRead === "ok";
 
-  // THE PAGE'S TWO SENTENCES, FROM THE TWO READ STATES. The texts are the ones the two `catch`
-  // blocks used to set, so nothing the operator reads changes. The spec one keeps its `inventory: `
-  // prefix for the failure this layer diagnoses itself (the fold's — see `specNoteRef`); a refusal
-  // or a transport failure carries no message this end can see any more, and gets the sentence a
-  // message-less failure always got.
+  // THE PAGE'S TWO SENTENCES, FROM THE TWO READ STATES AND THE MODULE'S `reason`. The texts are the ones
+  // the two `catch` blocks used to set, so nothing the operator reads changes — and the words the failure
+  // carried now come back with it instead of being reduced to the read state. The spec one keeps its
+  // `inventory: ` prefix, which is the shape the hand-written throw produced for the fold's own message
+  // (this layer still diagnoses that one body) and is now also how a refusal's `error` reaches the page.
   //
   // AND SAID OUT LOUD, NOT AS A PERMANENT "Loading…". The id this page gates on (`specLoaded`) stays
   // false through a failure, so the surface must not imply progress that stopped; the sentence below
   // is what the page prints instead.
   const specError =
     specRead === "unreadable"
-      ? specNoteRef.current
-        ? `inventory: ${specNoteRef.current}`
+      ? specReason
+        ? `inventory: ${specReason}`
         : "inventory could not be read"
       : "";
 
-  // A REFUSAL IS NOT THIS HOOK'S TO SPELL ANY MORE. This read used to ask `deviceRefused(res)` and
-  // throw `new Error(res?.error || "status failed")`, so a refusal was reported as `status: <the
-  // device's own words>`. `useDeviceRead` asks that question now — `lib/api.ts` owns the predicate
-  // and the module never folds a refusal — so a refused status read is reported the module's way:
-  // `"unreadable"`, with the last good status kept, and the sentence a failure WITHOUT a message
-  // always got. The device's own error string is not lost anywhere it mattered: a start/stop ACTION
-  // still lands it verbatim in `log` (see `runAction`).
+  // A REFUSAL IS NOT THIS HOOK'S TO SPELL ANY MORE — AND ITS WORDS ARE NOT LOST WITH THE JOB. This read
+  // used to ask `deviceRefused(res)` and throw `new Error(res?.error || "status failed")`, so a refusal
+  // was reported as `status: <the device's own words>`. `useDeviceRead` asks that question now
+  // (`lib/api.ts` owns the predicate and the module never folds a refusal) and hands the device's `error`
+  // back as `reason`, so a refused status read is again reported in the device's own words — with the
+  // last good status kept, and with the message-less sentence a failure that carried no words always got.
+  // The device's own error string still lands verbatim in `log` for a start/stop ACTION (see `runAction`).
   const statusError =
-    statusRead === "unreadable" ? "status poll failed" : "";
+    statusRead === "unreadable"
+      ? statusReason
+        ? `status: ${statusReason}`
+        : "status poll failed"
+      : "";
 
   // One status+spec refresh: the registry is static per agent process, so the
   // spec fetch runs once and `specLoaded` gates it.
@@ -220,8 +230,10 @@ export function usePlugins(active: boolean) {
     // reports `"unreadable"`, which is not `"ok"`, so the next refocus or event asks again. That is
     // what the paragraph above requires, and why a failure is reported rather than silently retried.
     if (specRead !== "ok") {
-      // This attempt's words, not the previous attempt's (see `specNoteRef`).
-      specNoteRef.current = "";
+      // NO NOTE TO CLEAR BEFORE THE ATTEMPT ANY MORE: the module's `reason` is reported with the settle
+      // it was caught in (and is `""` after a success), so a refused retry carries the refusal's own
+      // words rather than inheriting the previous body's — the clearing the deleted note did by hand,
+      // done by the module.
       await refreshSpec();
     }
     await refreshStatus();
