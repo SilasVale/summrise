@@ -1699,7 +1699,13 @@ const commands = {
         // `regOk` is collected here and summarised at the end of setup: best-effort, but the
         // operator should be told once, with the consequence, rather than not at all.
         regOk.push(regWrite("InstallDir", DIR));
-        regOk.push(regWrite("DataDir", path.join(process.env.ProgramData || "C:\\ProgramData", "Summrise")));
+        // ...AND ECHO THE RESOLVED ONE, NOT THE DEFAULT. `resolveDataDir()` is registry-first and
+        // `DATA_DIR` is its answer, so a device whose data dir was remapped has that path here. This used to
+        // WRITE THE LITERAL DEFAULT back to the registry — while the tree below was created at `DATA_DIR` —
+        // so the new tree landed at the remapped path and the registry then named the default, which is the
+        // path the AGENT reads. The comment two lines up says "DataDir defaults to %ProgramData%\Summrise",
+        // i.e. exactly what the code did not do: a default applies when nothing is set, not over a remap.
+        regOk.push(regWrite("DataDir", DATA_DIR));
         // Pre-create the data dir tree (sessions/memory/logs — C1 separation).
         const DATA = DATA_DIR;
         for (const sub of ["sessions", "memory", "logs"]) {

@@ -1924,3 +1924,26 @@ test("a missing component cannot be staged by reinstalling, and the CLI does not
     "and it must name the command that does stage it",
   );
 });
+
+test("setup must not overwrite a remapped DataDir with the literal default", () => {
+  // resolveDataDir() is registry-first and DATA_DIR is its answer, so a device whose data dir was
+  // remapped carries that path. setup used to write the LITERAL DEFAULT back to the registry while
+  // creating the tree at DATA_DIR: the tree landed at the remapped path and the registry then named the
+  // default, which is the path the AGENT reads. The data splits, and the comment above the write says
+  // "DataDir defaults to %ProgramData%\Summrise" — a default applies when nothing is set, not over a
+  // remap, which is precisely what the code did instead.
+  const built = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    built,
+    /regWrite\("DataDir",\s*DATA_DIR\)/,
+    "the registry must echo the resolved data dir",
+  );
+  assert.doesNotMatch(
+    built,
+    /regWrite\(\s*"DataDir",\s*path\.join\(process\.env\.ProgramData/,
+    "and must never re-derive it from ProgramData, which discards a remap",
+  );
+});
