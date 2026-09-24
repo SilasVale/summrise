@@ -12,7 +12,17 @@
 # from the first.
 #
 # A gate that exits 2 is declaring "this host cannot run me" (the design sweep needs a browser and says
-# so); that is reported as `notrun`, never as a pass and never as a failure.
+# so); that is reported as `n/a`, never as a pass and never as a failure.
+#
+# WHAT THIS DOES NOT COVER, learned the hard way on 2026-09-24: this is HALF of "what CI runs". It runs
+# the GATE COMMANDS, not the per-directory SUITES in AGENTS.md's table — `gateway`'s
+# typecheck/lint/format/test, `gateway/ui`'s build+test, `agent/resources/panel-react`'s, the three
+# cargo configurations, and `cd agent/summrise-desktop-electron && npm test`. The stale Source Viewer
+# mirror that this omission hid is checked by `gateway`'s suite (`code-viewer-mirror.test.mjs`), which
+# is not among the commands below, so run BOTH halves before believing a tree is green:
+#
+#     bash scripts/test/all-gates.bash && (cd gateway && npm run typecheck && npm run lint \
+#       && npm run format:check && npm test)
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
