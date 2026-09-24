@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { groupEvents, useCommandEvents } from "../useCommandEvents";
 import type { CommandEvent } from "../useCommandEvents";
 import { callApi } from "../../lib/api";
@@ -275,5 +275,99 @@ describe("useCommandEvents", () => {
       result.current.readState,
       "a failure after a good read keeps the last state",
     ).toBe("ok");
+  });
+
+  // THE OTHER HALF OF THE SAME RULE, AND THE ONE THE MIGRATION HAD TO RECONSTRUCT.
+  //
+  // `useDeviceRead` reports `"unreadable"` for ANY failed settle, so its word cannot tell "a failure
+  // with nothing in hand" from "a failure after a good read" — the two facts this reader's views are
+  // built on. What the module can say is which TRANSITION it made, and this reader mirrors that: a
+  // failure while nothing has settled for this subject is "unreadable", and the trail must not be
+  // drawn as an empty one.
+  it("a read that has NEVER succeeded is 'unreadable', not an empty trail", async () => {
+    mockCallApi.mockRejectedValueOnce(new Error("HTTP 502"));
+    const { result } = renderHook(() => useCommandEvents("s1"));
+    await waitFor(() => expect(result.current.readState).toBe("unreadable"));
+    expect(result.current.cards).toHaveLength(0);
+
+    // AND IT RECOVERS: the next successful read is "ok" — a quiet session, not a missing one. (The
+    // rejection above was consumed by the mount read; this one is the reader's own refresh path, the
+    // same `visibilitychange` production uses.)
+    mockCallApi.mockResolvedValue({ ok: true, id: "s1", found: true, events: [] });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(result.current.readState).toBe("ok"));
+  });
+
+  // THE FACT round-138 FIXED, RE-PINNED ON THE NEW SEAM. A slow read for the OLD session used to
+  // resolve after the switch and land the old session's events under the new tab — and, because the
+  // reply carried a HIGHER seq (sA's log is longer), poison the new subject's watermark so every
+  // later poll of it looked like "nothing new". The check is no longer a re-check this hook makes
+  // after its `await`: it is the module's ordering guard plus the `resetKey` reset that abandons an
+  // in-flight read on a switch. This asserts the OUTCOME, which is what the bug was.
+  it("drops a reply that belongs to the session the operator switched away from", async () => {
+    let resolveOld!: (body: unknown) => void;
+    const oldRead = new Promise((r) => {
+      resolveOld = r;
+    });
+    mockCallApi.mockImplementation((path: string) => {
+      if (path === "/api/sessions/sA") return oldRead;
+      if (path === "/api/sessions/sB") {
+        return Promise.resolve({
+          ok: true,
+          id: "sB",
+          events: [start(1, "new session"), end(2, 0, "marker", 5)],
+        });
+      }
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) => useCommandEvents(sid),
+      { initialProps: { sid: "sA" } },
+    );
+
+    // sA's read is still in flight when the operator switches to sB.
+    rerender({ sid: "sB" });
+    await waitFor(() => expect(result.current.cards[0]?.command).toBe("new session"));
+
+    // THE OLD SESSION ANSWERS NOW. Its events belong to a subject nobody is looking at any more.
+    await act(async () => {
+      resolveOld({
+        ok: true,
+        id: "sA",
+        events: [start(90, "old session"), end(91, 0, "marker", 5)],
+      });
+      await oldRead;
+    });
+    expect(result.current.cards.map((c) => c.command)).toEqual(["new session"]);
+  });
+
+  // AND THE FLAG THAT CARRIES THAT RULE IS PER SUBJECT. sA reads fine; the operator switches to sB,
+  // whose first read fails. If "a read of this session has succeeded" survived the switch, sB would
+  // be reported "ok" with no events — an empty trail drawn for a session whose file could not be
+  // read at all, which is the defect `lib/trailRead.ts` exists to prevent, on the switch where it is
+  // most likely. This is the rule the module's own `"reading"` transition carries (it is the state a
+  // `resetKey` change puts the read back to).
+  it("does not inherit the previous session's read state across a switch", async () => {
+    mockCallApi.mockImplementation((path: string) => {
+      if (path === "/api/sessions/sA") {
+        return Promise.resolve({
+          ok: true,
+          id: "sA",
+          found: true,
+          events: [start(1, "ls"), end(2, 0, "marker", 5)],
+        });
+      }
+      if (path === "/api/sessions/sB") return Promise.reject(new Error("HTTP 502"));
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) => useCommandEvents(sid),
+      { initialProps: { sid: "sA" } },
+    );
+    await waitFor(() => expect(result.current.readState).toBe("ok"));
+
+    rerender({ sid: "sB" });
+    await waitFor(() => expect(result.current.readState).toBe("unreadable"));
+    expect(result.current.cards).toHaveLength(0);
   });
 });

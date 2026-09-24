@@ -33,10 +33,20 @@
 //     value. Here it is unconditional: every read takes a sequence number and only the
 //     one still current may write.
 //
-// A caller states the route, the fold, the value to start from and the cadence. The four rules
-// above are stated once, here, and NINE readers inherit them: the five migrated first
-// (`useVitalsSeries`, `useBootHistory`, `useAgentVitals`, `useMonitors`, `UpdateCard`) and the four
-// migrated next (`useSessionArchive`, `useOperationRuns`, `DeviceLogsCard`, `ConnectCard`).
+// A caller states the route, the fold, the value to start from, the cadence — and, since the change
+// that migrated `useCommandEvents`, whether the read is LIVE at all (`enabled`) and what a CHANGE OF
+// SUBJECT is (`resetKey`). The four rules above are stated once, here, and the readers that inherit
+// them are these — NAMED RATHER THAN COUNTED, deliberately: this sentence said NINE, then TEN, and the
+// NUMBER is the part that drifts when a round adds one (the lesson AGENTS.md records for its own gate
+// count). The exclusions, which are not readers of this loop, are the two paragraphs below.
+//
+//   * migrated first: `useVitalsSeries`, `useBootHistory`, `useAgentVitals`, `useMonitors`,
+//     `UpdateCard`;
+//   * migrated next: `useSessionArchive`, `useOperationRuns`, `DeviceLogsCard`, `ConnectCard`;
+//   * migrated with the two options named above, which exist because they needed them:
+//     `useCommandEvents` (one session's audit trail) and `usePlugins` (TWO reads — a once-gated spec
+//     plus a status — migrated separately in the same round, and the reason `enabled` is a caller's
+//     word for "there is nothing to read yet" rather than a route nobody may build).
 //
 // AND THE PARAGRAPH THAT USED TO SIT HERE NAMED SIX REMAINING SITES, TWO OF WHICH WERE WRONG. It
 // said the six "still hand-roll the same shape"; measured, only FOUR of them ever did — the four
@@ -52,14 +62,18 @@
 //     goes through `callApi`'s module-level transport. Migrating it would change WHICH TRANSPORT
 //     ANSWERS, which is a behaviour change, not a migration.
 //
-// THE SITES STILL TO MIGRATE ARE THE ONES THAT DO FIT THIS SEAM, and they are named here as
-// measured rather than left to be rediscovered: `useCommandEvents.ts` reads one route per session
-// (`/api/sessions/{sid}`) on mount and on events, keeps the last good events, owns a read state and
-// its own watermark/ordering guard — it fits, and it needs one thing this module does not express
-// yet: a RESET when the path's subject changes, so a session switch cannot draw the previous
-// session's events while the new read is in flight. `usePlugins.ts` reads a route with keep-last and
-// a per-route error string, but it reads TWO routes (a once-gated spec plus a status) and carries
-// actions, so it is not one read of one route. Neither is in this change's scope.
+// THE SITES THAT FIT THIS SEAM — the list this header exists to keep honest — ARE ACCOUNTED FOR, and
+// each is named with what it needed, because "still to migrate" is a claim that has to be RE-MEASURED
+// rather than inherited:
+//
+//   * `useCommandEvents.ts` — one route per session (`/api/sessions/{sid}`), read at mount and on
+//     events, keeping the last good events and owning a read state, a per-session watermark and its
+//     own ordering guard — IS MIGRATED. It is the caller `resetKey` was added FOR: a subject that can
+//     CHANGE, whose previous value must not survive the switch by even one frame.
+//
+//   * `usePlugins.ts` — TWO routes (a once-gated spec plus a status), and it carries actions, so it
+//     is two reads on this seam rather than one read of one route — is migrating separately in the
+//     same round, and it is where `enabled` is shared. Its record is its own header, not this one.
 //
 // AND THE REST OF THE PANEL'S READERS WERE MEASURED TOO, so "still to migrate" is a list rather
 // than an impression: `useSessions.ts` and `TerminalPane.tsx` read a TOOL through `callTool`, not a
@@ -102,6 +116,34 @@ export interface DeviceReadOptions<T> {
   everyMs?: number;
   /** The smallest cadence this read may run at. Default 5_000. */
   floorMs?: number;
+  /** Is this read LIVE? `false` = no read at mount, no timer, and `refresh()` does nothing. A
+   *  caller that has no subject yet (no session selected) says so with this rather than by
+   *  building a route it must not fetch.
+   *
+   *  ADDED WITH ITS CALLER, the same rule the function form of `path` above records: it is here
+   *  because `useCommandEvents` is handed `sid: string | null` and has to answer "there is nothing
+   *  to read yet" without asking the device about a session id it does not have. The no-op
+   *  `refresh` is the half that is easy to get wrong — a caller's event listener (`visibilitychange`,
+   *  a push from the agent) fires while the read is off, and a refresh that still went through would
+   *  fetch the very route the caller said not to build. It also takes NO sequence number on the way
+   *  out: `seqRef` is the ordering guard's whole state, so a no-op that bumped it would abandon a
+   *  read the caller had legitimately started (see `refresh` below). */
+  enabled?: boolean; // default true
+  /** A value whose CHANGE means the thing being read is a DIFFERENT thing. On a change the value
+   *  goes back to `initial`, the read state back to `"reading"`, and any in-flight read is
+   *  abandoned (its reply must not land under the new subject). It is applied DURING RENDER, not
+   *  in an effect: an effect would leave one frame of the previous subject on screen, which for a
+   *  session switch reads as the new session's own trail. `resetKey` is the session id in the
+   *  caller that needs this.
+   *
+   *  ADDED WITH ITS CALLER TOO (`useCommandEvents`), not in anticipation of one. Two things it does
+   *  NOT do, both worth stating because a caller will assume them: it does not compare by VALUE
+   *  (it is an ordinary dependency, so a caller passes a stable value — a session id — and never a
+   *  fresh object per render), and it does not by itself re-read. The re-read comes from the read
+   *  effect, which depends on this key as well: a new subject is read at once, exactly as it is at
+   *  mount, rather than at the next tick — a caller that switched subjects would otherwise show an
+   *  empty surface for up to a full cadence. */
+  resetKey?: unknown;
 }
 
 export interface DeviceRead<T> {
@@ -116,7 +158,15 @@ export interface DeviceRead<T> {
 const DEFAULT_FLOOR_MS = 5_000;
 
 export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
-  const { path, reduce, initial, everyMs, floorMs = DEFAULT_FLOOR_MS } = opts;
+  const {
+    path,
+    reduce,
+    initial,
+    everyMs,
+    floorMs = DEFAULT_FLOOR_MS,
+    enabled = true,
+    resetKey,
+  } = opts;
   const [data, setData] = useState<T>(initial);
   const [read, setRead] = useState<ReadState>("reading");
   // The value IN HAND, mirrored for the fold. `refresh` is stable (see below), so it
@@ -140,9 +190,35 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   // land last and rewind the value. The rule was first written down in `useSessionArchive`
   // (one of only two readers in the panel that had it); it lives here now and that reader
   // keeps a pointer instead of a second copy (its local `inFlightRef` went with its loop).
-  // The other reader that had a version of it — `useCommandEvents`' post-await `sid` re-check —
-  // is a different question (a session SWITCH, not a stale reply) and still answers it itself.
+  // The other reader that had a version of it — `useCommandEvents`' post-await `sid` re-check (round
+  // 138) — asked a different question (a session SWITCH, not a stale reply), and that question is
+  // this module's now too: the guard below drops the reply, and `resetKey` abandons in flight the
+  // moment the subject changes.
   const seqRef = useRef(0);
+  // IS THIS READ LIVE? Mirrored like `path`, so the stable `refresh` reads it as it is NOW: a
+  // caller turns the read off and back on (no session selected, then one selected), and a closure
+  // that captured the first value could never be told.
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  // A DIFFERENT SUBJECT IS A DIFFERENT VALUE, AND THE SWITCH IS SETTLED DURING RENDER. An effect
+  // would run after the frame that still holds the previous subject — one frame of the OLD session's
+  // trail drawn as the new session's own — so the value, the read state and the in-flight read are
+  // all reset here, where React is already computing the frame that will be committed. The value is
+  // put back to the very `initial` the caller passed in, object identity included: that identity is
+  // what lets a caller's `reduce` recognise the first fold of a new subject (see `useCommandEvents`).
+  // The key is remembered rather than diffed against a render-count, so React's double render in
+  // development sees the change once, and it is compared by identity like any other dependency.
+  const keyRef = useRef(resetKey);
+  if (keyRef.current !== resetKey) {
+    keyRef.current = resetKey;
+    dataRef.current = initial;
+    // AND THE OLD SUBJECT'S REPLY IS ABANDONED, not merely out of date: a read still in flight was
+    // built from the route of the subject that is gone, and letting it land would write the previous
+    // subject's value under the new one. The sequence number is what every write already checks.
+    seqRef.current++;
+    setData(initial);
+    setRead("reading");
+  }
   // UNMOUNTED IS NOT A PLACE TO WRITE. Declared before the read effect so the flag is set
   // for the mount read; cleared in the cleanup, which React runs last-in-first-out, i.e.
   // after the read effect's own cleanup.
@@ -155,6 +231,12 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   }, []);
 
   const refresh = useCallback(async () => {
+    // A DISABLED READ READS NOTHING — AND IT MUST NOT BORROW THE GUARD'S SEQUENCE NUMBER TO SAY SO.
+    // `seqRef` is the ordering guard's entire state, so a no-op that still did `++seqRef` would
+    // abandon a read the caller had legitimately started (`enabled` can be turned off while one is
+    // in flight) and then return as if nothing had happened. The check is first for that reason, not
+    // for tidiness.
+    if (!enabledRef.current) return;
     const seq = ++seqRef.current;
     try {
       // RESOLVED HERE, not when the hook was called. A cursor-carrying caller (see `path`'s
@@ -187,6 +269,17 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   }, []);
 
   useEffect(() => {
+    // `resetKey` IS A DEPENDENCY, AND THAT IS THE SECOND HALF OF ITS CONTRACT. The reset above is
+    // synchronous — the value cannot survive a switch by even one frame — but the new subject still
+    // has to be READ, and waiting for the next tick would leave the surface empty for up to a full
+    // cadence after every switch. Re-running this effect reads at once, exactly as it does at mount,
+    // and re-arms the timer for the new subject.
+    //
+    // A DISABLED READ DOES NOT RUN AT ALL: no read at mount, no timer. Turning it back on re-arms
+    // this effect, which IS the read the caller asked for by turning it on — a caller that
+    // deactivated the read while it had no subject (and left `refresh` alone, because its listener
+    // is harmless) gets the mount read the moment it has one.
+    if (!enabled) return;
     // A read at mount, always: a surface with no data and no timer still has to ask. And
     // `refresh` reads immediately wherever it is called from, timer or no timer.
     void refresh();
@@ -198,7 +291,7 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
     // handed one by a malformed reply — cannot turn the panel into a poller.
     const t = window.setInterval(() => void refresh(), Math.max(floorMs, everyMs));
     return () => window.clearInterval(t);
-  }, [refresh, everyMs, floorMs]);
+  }, [refresh, everyMs, floorMs, enabled, resetKey]);
 
   return { data, read, refresh };
 }

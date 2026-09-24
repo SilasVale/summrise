@@ -289,4 +289,113 @@ describe("useDeviceRead", () => {
       "/api/operation?since_ms=99",
     );
   });
+
+  // (i) A CHANGED SUBJECT IS A DIFFERENT VALUE, AND THE SWITCH IS SETTLED IN THE FRAME IT HAPPENS.
+  // Two facts share the one mechanism: the value must not describe the OLD subject for even one
+  // frame (a session switch that draws the previous session's trail as the new one's — the defect
+  // `trailRead.ts` records as reachable on EVERY switch), and a reply that belongs to the old
+  // subject must never land under the new one. Added with `useCommandEvents`, the caller that needs
+  // it; the option is `resetKey`.
+  it("resets to `initial`/`reading` on a resetKey change, and the old subject's reply never lands", async () => {
+    const reduce = fold();
+    const staleRead = deferred();
+    const newSubject = deferred();
+    mockCallApi
+      // The mount read of subject `a` settles at once, so the value ON SCREEN is `a`'s — which is
+      // what makes the switch below observable at all.
+      .mockResolvedValueOnce({ ok: true, v: "old" })
+      .mockReturnValueOnce(staleRead.promise)
+      .mockReturnValueOnce(newSubject.promise);
+    const { result, rerender } = renderHook(
+      ({ subject }: { subject: string }) =>
+        useDeviceRead<string>({
+          // A FUNCTION path, because this is how the caller that needs `resetKey` builds its route:
+          // `/api/sessions/${sid}`, resolved at read time.
+          path: () => `/api/${subject}`,
+          reduce,
+          initial: "none",
+          resetKey: subject,
+        }),
+      { initialProps: { subject: "a" } },
+    );
+    await flush();
+    expect(result.current.data).toBe("old");
+    expect(result.current.read).toBe("ok");
+
+    // A SECOND READ OF SUBJECT `a` IS IN FLIGHT WHEN THE SUBJECT CHANGES — the shape a session
+    // switch has (a poll that has not answered yet).
+    let stale!: Promise<void>;
+    await act(async () => {
+      stale = result.current.refresh();
+    });
+    expect(String(mockCallApi.mock.calls[1][0])).toBe("/api/a");
+
+    rerender({ subject: "b" });
+    expect(
+      result.current.data,
+      "back to `initial` in the frame of the switch, not one frame later",
+    ).toBe("none");
+    expect(result.current.read).toBe("reading");
+    // AND THE NEW SUBJECT IS READ AT ONCE, not at the next tick: a caller that switched would
+    // otherwise show an empty surface for up to a full cadence.
+    expect(String(mockCallApi.mock.calls[2][0])).toBe("/api/b");
+
+    // THE OLD SUBJECT ANSWERS LAST. It is stale — not merely late — and stale must not write: this
+    // value belongs to a subject nobody is looking at any more.
+    await settle(staleRead, { ok: true, v: "stale" });
+    await act(async () => {
+      await stale;
+    });
+    expect(result.current.data).toBe("none");
+    expect(reduce, "a reply for the abandoned subject is not a read").toHaveBeenCalledTimes(1);
+
+    // The new subject's own reply is the one that writes.
+    await settle(newSubject, { ok: true, v: "new" });
+    expect(result.current.data).toBe("new");
+    expect(result.current.read).toBe("ok");
+    expect(reduce).toHaveBeenCalledTimes(2);
+  });
+
+  // (j) A READ WITH NO SUBJECT YET IS NOT A SLOW READ. `enabled:false` is how a caller says "there is
+  // nothing to read", so it must do NOTHING — and `refresh()` must be a no-op that still resolves,
+  // because a caller's listener calls it without checking first. Added with the same caller.
+  it("reads nothing while disabled — no mount read, no timer, a no-op refresh — and reads once enabled", async () => {
+    mockCallApi.mockResolvedValue({ ok: true, v: "on" });
+    const { result, rerender } = renderHook(
+      ({ live }: { live: boolean }) =>
+        useDeviceRead<string>({
+          path: "/api/x",
+          reduce: (_previous, body) => String((body as { v?: unknown }).v ?? ""),
+          initial: "start",
+          everyMs: 5_000,
+          enabled: live,
+        }),
+      { initialProps: { live: false } },
+    );
+    await flush();
+    expect(mockCallApi, "a disabled read does not read at mount").not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mockCallApi, "and starts no timer either").not.toHaveBeenCalled();
+
+    // `refresh()` IS NOT A BACK DOOR: it resolves, and it reads nothing.
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(mockCallApi).not.toHaveBeenCalled();
+    expect(result.current.data).toBe("start");
+    expect(result.current.read).toBe("reading");
+
+    // TURNING IT ON IS THE READ THE CALLER ASKED FOR — at once, and then on the cadence.
+    rerender({ live: true });
+    await flush();
+    expect(mockCallApi).toHaveBeenCalledTimes(1);
+    expect(result.current.data).toBe("on");
+    expect(result.current.read).toBe("ok");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(mockCallApi).toHaveBeenCalledTimes(2);
+  });
 });

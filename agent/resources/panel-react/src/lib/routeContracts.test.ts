@@ -94,13 +94,31 @@ function stripComments(text: string): string {
     .join("\n");
 }
 
+/**
+ * THE HOLE, NOT THE EXPRESSION INSIDE IT.
+ *
+ * A parameterised route is `/api/sessions/${…}` — the HOLE is part of the route's identity, the
+ * expression that fills it is not. This scan compares route text, so before this normaliser a
+ * legitimate refactor INSIDE a template literal made a route the panel demonstrably still calls read
+ * as two different failures at once: the pinned key looked "no longer called" (its text no longer
+ * matched) and the new spelling looked "neither covered nor explained". It happened twice in one
+ * round — `encodeURIComponent(sid as string)` after a nullable subject, and a route built through
+ * `path: () => …` before the reader had a way to say "not live" — and both times the panel was
+ * right and the scan was wrong. Same rule the sibling scan in `agent/src/web/mod.rs` states for
+ * comments: measure the property, not the spelling.
+ *
+ * Applied to BOTH sides — the routes found in the tree AND the keys in the two lists — so a key
+ * written as `${encodeURIComponent(sid)}` and a call written as `${sid}` are the same route.
+ */
+const routeHole = (route: string) => route.replace(/\$\{[^}]*\}/g, "${}");
+
 describe("every device route the panel calls is either pinned or named as unpinned", () => {
   const called = new Set<string>();
   for (const f of panelSources()) {
     const text = stripComments(readFileSync(f, "utf8"));
     for (const m of text.matchAll(/(?:callApi|callTool)\(\s*[`"'](\/api\/[^`"']*)/g)) {
       // Normalise the parameterised forms to the shape used in the two lists above.
-      called.add(m[1].split("?")[0]);
+      called.add(routeHole(m[1].split("?")[0]));
     }
     // AND THE READ LOOP'S OWN SEAM. A reader that migrated onto `useDeviceRead` hands its route
     // over as `path: "/api/x"` instead of calling `callApi` itself, so the pattern above stopped
@@ -116,7 +134,7 @@ describe("every device route the panel calls is either pinned or named as unpinn
     // optional arrow the reader would look like it stopped calling the route, which is precisely
     // the false "no longer called" this scan exists to raise.
     for (const m of text.matchAll(/\bpath:\s*(?:\(\s*\)\s*=>\s*)?[`"'](\/api\/[^`"']*)/g)) {
-      called.add(m[1].split("?")[0]);
+      called.add(routeHole(m[1].split("?")[0]));
     }
   }
 
@@ -125,7 +143,9 @@ describe("every device route the panel calls is either pinned or named as unpinn
   });
 
   it("has no route that is neither covered nor explained", () => {
-    const unaccounted = [...called].filter((r) => !(r in COVERED) && !(r in UNPINNED)).sort();
+    const covered = new Set(Object.keys(COVERED).map(routeHole));
+    const unpinned = new Set(Object.keys(UNPINNED).map(routeHole));
+    const unaccounted = [...called].filter((r) => !covered.has(r) && !unpinned.has(r)).sort();
     expect(
       unaccounted,
       "a route the panel reads has no shape contract and no reason — add it to COVERED (with the " +
@@ -137,7 +157,9 @@ describe("every device route the panel calls is either pinned or named as unpinn
   it("does not list routes the panel no longer calls", () => {
     // A stale entry is how a coverage list stops describing reality — the same failure the proven-gate
     // ledger and the sweep headers are written to avoid.
-    const stale = [...Object.keys(COVERED), ...Object.keys(UNPINNED)].filter((r) => !called.has(r)).sort();
+    const stale = [...Object.keys(COVERED), ...Object.keys(UNPINNED)]
+      .filter((r) => !called.has(routeHole(r)))
+      .sort();
     expect(stale, "listed here but no longer called — drop it, or the list is fiction").toEqual([]);
   });
 

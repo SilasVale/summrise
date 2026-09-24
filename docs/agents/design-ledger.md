@@ -5358,6 +5358,68 @@ change beyond the floor, and the round said "one deliberate change".
 `capped_days_before_takes_the_cap_and_no_floor`; making `excludes_secs` inclusive fails
 `cutoff_secs_agrees_with_cutoff_ms`.
 
+## 2026-09-25 — the twenty-sixth exploration: the last two readers, and a timer I told someone to re-add
+
+Rounds 24-25 migrated nine device readers onto `useDeviceRead` and left two named, with the reasons they had
+not moved. This round finished them — and the module grew exactly two options to take one of them, each with
+the caller that needs it. The other needed nothing: that is the test of whether a seam is real.
+
+**THE TRAJECTORY READER NEEDED TWO THINGS THE MODULE DID NOT HAVE.** `useCommandEvents` had five rules of its
+own; four are the reader's (a seq watermark with an identity return, a round-boundary-aware tail cap,
+`found:false` as an ANSWER rather than a failure, `first_seq`) and moved into its `reduce`. Two were dimensions
+the module lacked:
+
+  * **a subject that can be absent.** With no session selected the hook reads nothing. The module always read
+    at mount, so it had no way to say "not live" — `enabled?: boolean` is that, and it means no mount read, no
+    timer, and a `refresh()` that does nothing.
+  * **a switch that clears SYNCHRONOUSLY.** Changing session must drop the previous stream's rows and watermark
+    during RENDER. In an effect, one frame of the old session renders — and a stale frame here is not cosmetic:
+    it reads as the NEW session's trail and poisons the seq watermark. `resetKey?: unknown` is that, and its
+    doc says why it is applied during render rather than in an effect.
+
+The header's own list is now measured rather than counted: eleven readers migrated, one fit-site left before
+this round (now migrated too), and the two exclusions — `useSSE` (a stream consumer with its own reconnect) and
+`EvidenceDrawer` (a different transport: `fetch` with an explicit `apiBase` and a `token` prop) — kept with
+their reasons, which is what stops them being proposed again.
+
+**AND A TIMER I TOLD THE IMPLEMENTER TO RE-ADD.** My instruction said to pass `everyMs: pollMs` with a 2 s
+floor, on the reasoning that a live view wants a cadence. The reader's own doc said the opposite in as many
+words: *"Not 'poll': there is no timer — the 5 s cadence was removed in round 163, and `pollMs` survives only
+as an effect dependency, so a caller-supplied value has no effect on anything."* The implementer followed the
+instruction, wrote a confident comment justifying the reversal, and the result was a 2 s timer per open session
+page that round 163 had deliberately deleted. Caught by reading the ORIGINAL file before accepting the
+migration — and the fix is the shape worth keeping: the parameter stays exactly as inert as it was, still in
+the effect's dependencies (a parameter documented as "an effect dependency" should be one), and the comment now
+records that a cadence here is a DIFFERENT change from this migration.
+
+THE LESSON IS ABOUT DELEGATION, not about timers: an instruction from the parent arrives with the parent's
+authority and is followed even when the file's own comments disagree with it. Reading the pre-image is what
+caught it, and that is why every round's verification starts there.
+
+**THE OTHER READER NEEDED NOTHING NEW.** `usePlugins` has two event-driven reads and two errors; both went
+onto the module unchanged. Its unusable-body rule ("an unusable body is a FAILURE, not a silent no-op" — the
+fix for a permanent "Loading inventory…") became a `reduce` that THROWS, the idiom `DeviceLogsCard` and
+`useSessionArchive` already use, so the module reports `"unreadable"` and the hook stops owning the question.
+`deviceRefused` left the file entirely. The `enabled` option, added for the OTHER reader in the same round, is
+what this hook uses for its `active` gate — one option, two callers, neither of them hypothetical.
+
+**AND THE ROUND FOUND A GATE DEFECT BY WALKING INTO IT TWICE.** `routeContracts.test.ts` scans panel sources
+for `path: "…"` literals and compares them to a coverage list. It captured the text INSIDE a `${…}` hole, so a
+legitimate refactor of the expression — `encodeURIComponent(sid as string)` after a nullable subject, or a
+route built through `path: () => …` before `enabled` existed — made a route the panel demonstrably still calls
+report BOTH failures at once: its pinned key looked "no longer called" and the new spelling looked "neither
+covered nor explained". Both agents hit it in one round and both correctly refused to paper over it.
+
+The fix is the rule the sibling scan in `agent/src/web/mod.rs` states for comments, applied to routes: measure
+the property, not the spelling. `${…}` normalises to `${}` on BOTH sides. **Mutations, both run:** renaming a
+route the panel really stops calling still fails with *"listed here but no longer called — drop it, or the list
+is fiction: ['/api/boots']"*, and refactoring the expression inside the hole now passes where it used to fail.
+
+**NUMBERS:** the panel 855 → **864 tests** in 110 files (the module's two options, the trajectory's three new
+cases, the plugins hook's four); `agent/src` 51,127 → **51,258 lines** (unchanged in substance — the round's
+edits are panel-side, and this is the same drift the inventory now dates). The inventory's panel cell gained
+`hooks: 20` (was 19 — the read migration added a hook and the old count never included it).
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

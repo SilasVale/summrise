@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { callApi, deviceRefused } from "../lib/api";
+import { callApi } from "../lib/api";
+import { useDeviceRead } from "./useDeviceRead";
 
 // Plugin inventory + playwright-mcp control (round-admin-ui Task 6).
 //
 // Data sources, per the design spec
 // (docs/superpowers/specs/2026-08-15-agent-admin-ui-design.md):
-//   GET /api/plugins/status              — playwright running state, polled
-//                                          while the plugins view is active
+//   GET /api/plugins/status              — playwright running state, read on
+//                                          mount and on every refresh (the
+//                                          5 s poll was removed in round 163)
 //   GET /api/spec                        — the plugin registry (names and
 //                                          descriptions come from the agent,
 //                                          not a hardcoded list)
@@ -70,96 +72,172 @@ interface SpecPlugin {
 
 const MAX_LOG = 50;
 
+/** The spec fold's own words for the one failure IT diagnoses. A constant, so the message it throws
+ *  and the sentence the page reports cannot drift apart. */
+const SPEC_BODY_UNUSABLE = "the spec route answered without a plugins list";
+
 export function usePlugins(active: boolean) {
-  const [spec, setSpec] = useState<SpecPlugin[]>([]);
-  const [specLoaded, setSpecLoaded] = useState(false);
-  const [playwright, setPlaywright] = useState<PlaywrightStatus | null>(null);
+  const [busy, setBusy] = useState<"start" | "stop" | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [log, setLog] = useState<LogLine[]>([]);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+
   // TWO READS, TWO ERRORS. These were one `loadError`, and the status fetch's
   // success cleared whatever the SPEC fetch had just set — so the failure this
   // hook most needed to report was wiped microseconds later by an unrelated
   // success, and the page went on saying "Loading inventory…". My own first fix
   // introduced that shape and the test caught it; a single cell cannot carry two
-  // independent facts.
-  const [specError, setSpecError] = useState("");
-  const [statusError, setStatusError] = useState("");
-  const [busy, setBusy] = useState<"start" | "stop" | null>(null);
-  const [actionError, setActionError] = useState("");
-  const [log, setLog] = useState<LogLine[]>([]);
-  const activeRef = useRef(active);
-  activeRef.current = active;
-  const busyRef = useRef(busy);
-  busyRef.current = busy;
+  // independent facts. Each read owns its own state now (`specRead`/`statusRead`
+  // below), so the two facts are independent BY CONSTRUCTION rather than by two
+  // `useState` cells that had to be kept apart, and the two sentences further
+  // down keep them independent at this end as well.
+  //
+  // THE TWO READS ARE `useDeviceRead`'S (see its header): the mount read, the refusal guard, the
+  // unmount guard, the ordering guard and keep-last-on-failure. Neither passes `everyMs` — round
+  // 163 removed the poll — so both routes are read on mount and on `refresh()`, which is what this
+  // hook did by hand. What stays here is the shape this hook has always had: the registry read ONCE
+  // (the `specLoaded` gate in `refresh`), the status read on every refresh, and the two sentences.
+  //
+  // AND `enabled: active` IS THE HOOK'S OTHER GATE. `App` calls this hook with `connected`, and it
+  // stays mounted through a disconnect — so `active` is what used to stop the read before `callApi`
+  // was reached, both before the call and again after each await. The module owns it now:
+  // `enabled: false` means no read at mount, no timer, and a `refresh` that does nothing, and
+  // turning it back on IS the read a reconnect needs. The post-await re-checks go with it: the write
+  // guards are the module's (unmount and ordering) and the panel draws the connection form while it
+  // is disconnected, so a reply still in flight can only land in a state nobody is looking at.
+  //
+  // AND THE ONE FAILURE THIS LAYER STILL HAS WORDS FOR IS KEPT HERE. `useDeviceRead` reports every
+  // failed read as one of three words and never hands the exception back (see its `reduce` doc), so
+  // the sentence for a body the FOLD refused is written by the fold that raised it — the only
+  // failure at this end that carries a message — and cleared before each attempt, so a later
+  // transport failure cannot inherit the previous body's words.
+  const specNoteRef = useRef("");
+
+  const {
+    data: spec,
+    read: specRead,
+    refresh: refreshSpec,
+  } = useDeviceRead<SpecPlugin[]>({
+    path: "/api/spec",
+    enabled: active,
+    reduce: (_previous, body) => {
+      // AN UNUSABLE BODY IS A FAILURE, NOT A SILENT NO-OP. This used to be
+      // `if (Array.isArray(...)) { ... }` with NO else: a 200 whose body the
+      // panel cannot use (a proxy's error page, an empty reply) fell straight
+      // through, set nothing, and left `specLoaded` false — the same permanent
+      // "Loading inventory…" the catch was fixed for, reached without a
+      // throw. Routing it through the ONE failure path means both kinds are
+      // reported and there is a single place that decides what a failed read
+      // says.
+      //
+      // THE THROW IS THE HOOK'S, THE FAILURE PATH IS THE MODULE'S: `useDeviceRead` catches it and
+      // reports the read as `"unreadable"`, keeping the last good registry — the same outcome this
+      // hook's own `throw` produced, with the module owning the question. A refusal never reaches
+      // this fold at all (the module folds it to `"unreadable"` first), which is the other half of
+      // the same rule: neither a refusal nor a body it cannot use is ever read as "no plugins".
+      const plugins = (body as { plugins?: unknown } | null)?.plugins;
+      if (!Array.isArray(plugins)) {
+        specNoteRef.current = SPEC_BODY_UNUSABLE;
+        throw new Error(SPEC_BODY_UNUSABLE);
+      }
+      return (plugins as SpecPlugin[]).filter(
+        (p) => p && typeof p.name === "string",
+      );
+    },
+    initial: [],
+  });
+
+  const {
+    data: playwright,
+    read: statusRead,
+    refresh: refreshStatus,
+  } = useDeviceRead<PlaywrightStatus | null>({
+    path: "/api/plugins/status",
+    enabled: active,
+    // A BODY WITHOUT A `playwright` OBJECT IS A SUCCESS WITH NOTHING TO SHOW — the card's "first
+    // status poll still pending" is `null`, and a real status replaces it. A failed READ keeps the
+    // last good one either way, exactly as the hand-written `setPlaywright` did (it was never
+    // called from the catch).
+    reduce: (_previous, body) => {
+      const res = body as { playwright?: PlaywrightStatus } | null;
+      return res?.playwright && typeof res.playwright === "object"
+        ? res.playwright
+        : null;
+    },
+    initial: null,
+  });
+
+  // `specLoaded` IS THE SPEC READ'S STATE — the same fact the old boolean carried, derived instead
+  // of set, so the public shape below does not change. It is what `refresh` asks (see the gate
+  // there): the registry has loaded exactly when the read last ended `"ok"`.
+  const specLoaded = specRead === "ok";
+
+  // THE PAGE'S TWO SENTENCES, FROM THE TWO READ STATES. The texts are the ones the two `catch`
+  // blocks used to set, so nothing the operator reads changes. The spec one keeps its `inventory: `
+  // prefix for the failure this layer diagnoses itself (the fold's — see `specNoteRef`); a refusal
+  // or a transport failure carries no message this end can see any more, and gets the sentence a
+  // message-less failure always got.
+  //
+  // AND SAID OUT LOUD, NOT AS A PERMANENT "Loading…". The id this page gates on (`specLoaded`) stays
+  // false through a failure, so the surface must not imply progress that stopped; the sentence below
+  // is what the page prints instead.
+  const specError =
+    specRead === "unreadable"
+      ? specNoteRef.current
+        ? `inventory: ${specNoteRef.current}`
+        : "inventory could not be read"
+      : "";
+
+  // A REFUSAL IS NOT THIS HOOK'S TO SPELL ANY MORE. This read used to ask `deviceRefused(res)` and
+  // throw `new Error(res?.error || "status failed")`, so a refusal was reported as `status: <the
+  // device's own words>`. `useDeviceRead` asks that question now — `lib/api.ts` owns the predicate
+  // and the module never folds a refusal — so a refused status read is reported the module's way:
+  // `"unreadable"`, with the last good status kept, and the sentence a failure WITHOUT a message
+  // always got. The device's own error string is not lost anywhere it mattered: a start/stop ACTION
+  // still lands it verbatim in `log` (see `runAction`).
+  const statusError =
+    statusRead === "unreadable" ? "status poll failed" : "";
 
   // One status+spec refresh: the registry is static per agent process, so the
   // spec fetch runs once and `specLoaded` gates it.
   //
   // A FAILED SPEC FETCH IS NOT "TRANSIENT — RETRY NEXT TICK", which is what this
-  // said and what the catch below did. THERE IS NO TICK: the 5 s poll was removed
+  // said and what its `catch` used to do. THERE IS NO TICK: the 5 s poll was removed
   // in round 163 (see the effect below) and `specLoaded` is the only thing that
   // re-arms the fetch, so a failure left it FALSE FOREVER — the inventory
   // rendered "Loading inventory…" permanently, with no error, and the only
   // recoveries were a tab refocus or a `playwright-changed` event. The status
-  // fetch in the SAME hook does the right thing (its catch sets `loadError`);
+  // fetch in the SAME hook does the right thing (its failure is reported);
   // this is the twin rule applied to one branch and not the other, inside one
   // function. It now reports the failure so the page can say what happened.
   const refresh = useCallback(async () => {
-    if (!activeRef.current) return;
-    if (!specLoaded) {
-      try {
-        const specRes = await callApi("/api/spec");
-        // AN UNUSABLE BODY IS A FAILURE, NOT A SILENT NO-OP. This used to be
-        // `if (Array.isArray(...)) { ... }` with NO else: a 200 whose body the
-        // panel cannot use (a proxy's error page, an empty reply) fell straight
-        // through, set nothing, and left `specLoaded` false — the same permanent
-        // "Loading inventory…" the catch below was fixed for, reached without a
-        // throw. Routing it through the ONE failure path means both kinds are
-        // reported and there is a single place that decides what a failed read
-        // says.
-        if (!Array.isArray(specRes?.plugins)) {
-          throw new Error("the spec route answered without a plugins list");
-        }
-        setSpec(
-          (specRes.plugins as SpecPlugin[]).filter(
-            (p) => p && typeof p.name === "string",
-          ),
-        );
-        setSpecLoaded(true);
-      } catch (e: any) {
-        if (!activeRef.current) return;
-        // Said out loud, and NOT as a permanent "Loading…". The id is left
-        // unset so the next refocus/event retries, but the surface must not
-        // imply progress that stopped.
-        setSpecError(
-          e?.message
-            ? `inventory: ${e.message}`
-            : "inventory could not be read",
-        );
-      }
+    // NO `active` CHECK HERE: the read that must not dial is the read the module was TOLD is off
+    // (`enabled: active` above), which no-ops this call and takes no sequence number doing it. A
+    // second gate in this closure could only disagree with the one the module mirrors per render.
+    // THE `specLoaded` GATE, ASKED AT THE CALL SITE. The read's state is the id now, so "has it
+    // loaded" is `read === "ok"` — and this is also what keeps a FAILED spec read retried: it
+    // reports `"unreadable"`, which is not `"ok"`, so the next refocus or event asks again. That is
+    // what the paragraph above requires, and why a failure is reported rather than silently retried.
+    if (specRead !== "ok") {
+      // This attempt's words, not the previous attempt's (see `specNoteRef`).
+      specNoteRef.current = "";
+      await refreshSpec();
     }
-    try {
-      const res = await callApi("/api/plugins/status");
-      if (!activeRef.current) return;
-      if (deviceRefused(res)) throw new Error(res?.error || "status failed");
-      setPlaywright(
-        res?.playwright && typeof res.playwright === "object"
-          ? res.playwright
-          : null,
-      );
-      setStatusError("");
-    } catch (e: any) {
-      if (!activeRef.current) return;
-      setStatusError(
-        e?.message ? `status: ${e.message}` : "status poll failed",
-      );
-    }
-  }, [specLoaded]);
+    await refreshStatus();
+  }, [specRead, refreshSpec, refreshStatus]);
 
   // round-163: the 5s status POLL is gone. The playwright status refreshes
   // on mount, after every start/stop action (already), on the agent-pushed
   // `playwright-changed` SSE event, and on tab refocus.
+  //
+  // AND THE MOUNT READ IS THE MODULE'S OWN. `useDeviceRead` reads once when it is rendered, and that
+  // read IS the `refresh()` this effect used to make at mount; asking here as well would dial both
+  // routes twice per page load. The same is true of a RECONNECT: `enabled` is one of the module's
+  // read-effect dependencies, so turning it back on re-arms that effect and reads both routes at
+  // once — which is why this effect has nothing left to do but wire the events.
   useEffect(() => {
     if (!active) return;
-    refresh();
     const onChange = () => {
       refresh();
     };
