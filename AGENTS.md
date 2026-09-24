@@ -171,6 +171,18 @@ git push origin main          # CI green on the pushed commit
 #    GitHub cancels the run, and the tag then has no green CI to point at — twice on
 #    2026-09-23 (94cb06fd and fe29a24d), both times because the next piece of work was
 #    pushed by hand before the tag existed. Release, then resume.
+#
+#    AND `ci.yml` TRIGGERS ON `main` ONLY, WHICH MAKES THE EMPTY COMMIT A TWO-STEP. `release.yml`'s
+#    gate is FAIL-CLOSED on silence ("zero check-runs + zero statuses means CI has not reported yet
+#    (or never will) — WAIT, never pass"), so a commit that no workflow has ever seen can never be
+#    tagged, however green the tree is. Measured on 1.2.463: the empty commit went onto a BRANCH,
+#    the branch was pushed, and nothing ran. The step that was missing:
+#
+#      gh api repos/$REPO/actions/workflows/ci.yml/dispatches -f ref=<branch>      # HTTP 204
+#
+#    `ci.yml` carries `workflow_dispatch:` for exactly this. After it, the run attaches its
+#    check-runs to that SHA and the tag proceeds. The empty commit still has to be PUSHED first —
+#    a dispatch names a ref the runner must be able to fetch.
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
