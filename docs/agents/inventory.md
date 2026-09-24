@@ -40,8 +40,10 @@ than a finding — the same mistake that made two of the headline numbers wrong 
 left as written until something measures them properly. The sub-split below (components / hooks / lib) is as
 of the same date and was not re-derived either.
 
-MCP tools by plugin `[measured]`: terminal **27** · system **9** · memory **6** · mcp-client **4** · monitor **4** ·
-playwright **2** · runs **2** · update **1** · design **1**.
+MCP tools `[measured]` **by NAME PREFIX, which is not the same as by plugin** — `secret_`, `browser_`, `sftp_`,
+`page_` and `agent_` all exist and none of them is a plugin name: terminal **23** · system **9** · memory **6** ·
+monitor **4** · mcp **4** · secret **3** · run **2** · browser **2** · sftp **1** · page **1** · agent **1** = **58**.
+Command: `grep -oE '"name": *"[a-z_]+"' agent/spec-tools.json | sed 's/.*"\(.*\)"/\1/' | sed 's/_.*//' | sort | uniq -c`
 
 ---
 
@@ -140,9 +142,12 @@ groupers. The only genuine duplication in that area is a **fetch** (§5.2).
 | 4.3 | ~~`scripts/live-panel-probe.mjs` (91 lines)~~ **WITHDRAWN (round 201): this entry was wrong three ways, and executing the delete list would have DESTROYED a live instrument.** | the path does not exist — the file is `agent/scripts/live-panel-probe.mjs`, **135** lines (not 91), and it has **11** referrers: `scripts/hooks/pre-commit`, `AGENTS.md`, `index/README.md`, `docs/BRAND.md`, the ledger, `gateway/scripts/sync-code-viewer.sh`, a mirror at `gateway/public/code/files/instruments/`, and **§12 of this file** (`:614`), which cites it as the instrument verified against the panel the device actually runs | **DO NOT DELETE.** The `[measured]` tag was the problem: the measurement named a path that does not exist, so "zero referrers" was true of nothing. A `[measured]` that names the wrong path is worse than no measurement |
 | 4.4 | `README.md`'s three dead links + CHARTER's two | verified with `test -e`: `README.md:47` → `docs/adr/0006`; `:51` → `docs/adr/` and `research/superpowers`; `:70` → `docs/superpowers/specs/2026-08-28-…md`; `docs/CHARTER.md:5` → `docs/agents/iteration-loop.md`; `:53` → "the journal" | **CHARTER is the operator's file** (`ideas.md` row 11 files it) — the loop may only propose |
 | 4.5 | the two READMEs' tool count | they advertise "49 MCP tools" and terminal 26; **measured 56 and 27**, and `monitor` (4) + `runs` (2) are missing from the lists entirely | a published number may be contractual for the npm listing (§6.6) |
+| | **FIXED — verified 2026-09-24, and it had drifted AGAIN**: README now says 58 where it said 49; the spec had grown to 58 while it still read 56. | ||
 | 4.6 | `scripts/lib/release-lib.sh:148`'s comment | calls `docs/agents/release-reconcile.txt` "TRACKED in git"; it is not tracked and does not exist. The tolerance is coded, so it is a false comment, not a failure | — |
+| | **FIXED — verified 2026-09-24**: the file now says `git ls-files docs/agents/` has never listed it. | ||
 | 4.7 | **three gateway routes with no in-repo client**: `POST`/`DELETE /api/me/token/relay`, `POST /api/me/token/relay/reveal` (`auth.ts:802-804`), `POST /api/register` (`devices.ts:772`), and `ANY /api/devices/{name}/proxy/*` (`devices.ts:778`, kept since the extension was deleted — `device-proxy.ts:209` says "an admin visiting it directly") | `[measured]`: no console type declares `relayTokenSet` (`client.ts:119-124`); `/api/register` has only comments and tests; nothing builds a proxy URL | these are credential-lifecycle and installer-compat routes — §6.11 |
 | 4.8 | `build.sh:328-329`'s "round-320: `build-installer.sh` retired … it always failed" | the file exists, and `publish-release.sh:344` + `publish-cdn-from-ci.sh:101` **call it**, and the landing's Setup.exe button depends on its output (`index.js:616-636`) | the comment is false; either the script or the comment goes — §6.12 |
+| | **FIXED — verified 2026-09-24**: the comment now reads \"build-installer.sh is ALIVE\". | ||
 | 4.9 | `AGENTS.md:62`'s gate count | says `panel-design-sweep.bash` has "51 checks"/"52 since round 100"; **measured 79 ok, 0 failed**. The axis list beside it is accurate | — |
 
 ---
