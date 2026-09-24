@@ -5539,3 +5539,23 @@ purity the layout already has.
 failed `code-viewer-mirror.test.mjs`, because `gateway/public/code/` holds a TRACKED mirror of the source and
 nothing had re-synced it. `gateway/scripts/sync-code-viewer.sh` is the other half of that contract; the failure
 named the file (`differing: ['mcp.ts']`), which is what made it a one-command fix.
+
+### A DISCLAIMER THAT NAMED A GATE WHICH WAS NOT LOOKING (round 228)
+
+The twentieth exploration found the pair. `session-row-check.mjs` reads `useSessions.ts` and its own comment lists
+what it does NOT check: "the panel's other hooks (their fields are the wire-field gate's business) ... or whether
+`wireFields` is used everywhere it should be". `wire-field-check.mjs` holds a `PARSERS` list, and `useSessions.ts`
+is on it — **`lib/evicted.ts` was not**. That file reads `r.idle_ms` with its own coercion, and the gate whose
+business it was said so in the disclaimer of a DIFFERENT gate.
+
+It is on the list now, and the count went from 5 parsers to 6: "30 field(s) read by 6 panel parser(s) — every one
+spoken by the harness or a fixture AND by a producer".
+
+**AND MY FIRST MUTATION DID NOT BITE, WHICH WAS THE USEFUL PART.** I renamed `r.idle_ms` to `r.idleMs` and the gate
+passed — correctly, because the gate looks for SNAKE_CASE reads, so a camelCase rename does not introduce a bad read,
+it REMOVES a wire read. The mutation that bites is the other direction: injecting a read of a field no producer
+speaks gives "evicted.ts: reads \"invented_field_ms\", which neither the device harness nor any ...", exit 1.
+
+That is the lesson this ledger has recorded more than any other, and it arrived again: **a mutation that does not
+bite is evidence about the mutation first.** The gate guards an UNKNOWN read, not a renamed one, and knowing which
+is what makes the next person able to test it.

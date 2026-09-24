@@ -27,6 +27,11 @@ const PARSERS = [
   "agent/resources/panel-react/src/hooks/useCommandEvents.ts",
   "agent/resources/panel-react/src/hooks/usePlugins.ts",
   "agent/resources/panel-react/src/hooks/useSessions.ts",
+  // THE ONE THE SESSION-ROW GATE HANDS OVER (round 228). That gate reads useSessions.ts and its own
+  // comment says the panel s other modules are "the wire-field gate s business" — while this list did not
+  // include evicted.ts, which reads r.idle_ms with its own coercion. A disclaimer that names a gate is only
+  // honest if that gate is actually looking.
+  "agent/resources/panel-react/src/lib/evicted.ts",
   "agent/resources/panel-react/src/hooks/useMonitors.ts",
 ];
 
