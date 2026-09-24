@@ -9,7 +9,7 @@ READ THIS WHEN: you are about to re-measure something (the numbers here may alre
 a rule in `AGENTS.md`, or you are wondering whether a failure you just saw has happened before. It has.
 
 The gate table — which mutation fails which gate — stayed in `AGENTS.md`, because it is the thing consulted most
-often. Everything below is in round order, oldest first.
+often. Everything below is in the order the rounds were WRITTEN, which is roughly chronological and NOT sorted by round number — the ordinals run 45 55 66 65 64 40 70 … because sections were added as they were learned. To find a round, grep for it; do not compute an offset. (This said "in round order, oldest first" until round 183, and the file has never been in that order.)
 
 ---
 
