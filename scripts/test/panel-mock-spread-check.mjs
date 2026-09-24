@@ -14,6 +14,11 @@
 // exist in the panel and every one targets it (nineteen as "../../lib/api", one as "./api" from
 // `boot.test.ts`). That is what makes a check scoped to one module the whole surface rather than a
 // sample of it, and it is why widening this gate is not a TODO: there is nothing else to widen to.
+//
+// AND NOT IN THE OTHER UI EITHER: `gateway/ui` — the console, which the sibling gates cover alongside the
+// panel — has ZERO `vi.mock` calls. It tests through render smokes and node tests, so the trap this gate
+// exists for cannot occur there; the question "should this cover the console?" is answered rather than
+// left open.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
