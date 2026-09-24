@@ -543,6 +543,15 @@ async fn handle_browser_evidence(path: &str, query: Option<&str>) -> Option<Resp
             Body::from(serde_json::json!({"shots": shots}).to_string()),
         ));
     }
+    // ANYTHING ELSE IS NOT OURS, and this is the branch the doc above has always claimed exists. It did
+    // not: the two `if`s above FALL THROUGH to the screenshot reader, so a path that reached this
+    // function without being one of its three routes was read as a pwshot name and answered
+    // `400 "bad name"` — a wrong answer that looks like a right one — instead of returning `None` so the
+    // caller could 404 it. Found 2026-09-24 by the agent-web exploration, which is also why the caller's
+    // `if let Some(...)` read as permanently true.
+    if path != "/api/browser/pwshot" {
+        return None;
+    }
     // /api/browser/pwshot?name=xxx — serve one screenshot (basename only)
     let name = query_param(query, "name").unwrap_or("");
     if !crate::evidence::shot_name_is_safe(name) {
@@ -3946,6 +3955,40 @@ mod tests {
         assert_eq!(
             json_body(resp).await,
             serde_json::json!({"ok": false, "error": "unauthorized"})
+        );
+    }
+
+    /// A PATH THAT IS NOT AN EVIDENCE ROUTE IS `None`, NOT A SCREENSHOT — the promise the handler's own
+    /// doc has always made and its code did not keep: its two `if`s FALL THROUGH to the pwshot reader, so
+    /// anything else reaching it was read as a screenshot name and answered `400 "bad name"`, which is a
+    /// wrong answer dressed as a right one. That is also why the caller's `if let Some(...)` looked
+    /// permanently true. This pins the INNER half; `pre_dispatch_owns_exactly_the_public_surface` below
+    /// pins the outer one, and the defect lived in the seam between them.
+    #[tokio::test]
+    async fn a_path_that_is_not_an_evidence_route_returns_none() {
+        assert!(
+            handle_browser_evidence("/api/not-ours", None)
+                .await
+                .is_none(),
+            "an unknown path must fall through to the dispatcher, which 404s it"
+        );
+        assert!(
+            handle_browser_evidence("/api/browser", None)
+                .await
+                .is_none(),
+            "a PREFIX of a real route is not the route"
+        );
+        // …and the three it does own are answered, whatever their bodies then say.
+        assert!(handle_browser_evidence("/api/browser/actions", None)
+            .await
+            .is_some());
+        assert!(handle_browser_evidence("/api/browser/pwshots", None)
+            .await
+            .is_some());
+        assert!(
+            handle_browser_evidence("/api/browser/pwshot", Some("name=x.png"))
+                .await
+                .is_some()
         );
     }
 
