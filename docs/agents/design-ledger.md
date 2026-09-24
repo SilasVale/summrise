@@ -4988,3 +4988,41 @@ pass; `panel-design-sweep.bash` plants both judge directions. **AND THE ACKNOWLE
 | `scripts/test/exports-check.mjs` | export a name and use it only inside its own file (`export const URGENT_MS` in ApprovalGate), or export one used nowhere at all | exit 1 either way: "is exported but used only inside its own file — drop the `export`", or "is exported and used NOWHERE — delete it". It covers BOTH UIs, counts a test-only use as a SEAM rather than dead weight (34 in the panel, and a check that called those dead would be turned off within a round), and cannot see dynamic access (`mod[name]`) — nothing does that today. Its first fix run applied one remedy to both buckets and un-exported a type used nowhere, which only HID it; `noUnusedLocals` is already on in both tsconfigs, so the compiler is the second line of defence for what an un-export leaves behind |
 | `scripts/test/retired-colours-check.mjs` | put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page) | exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate |
 | `scripts/test/sweep-judges.bash` | plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry) | exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck` |
+
+### THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST (rounds 186-187)
+
+The sixteenth exploration — the first pass over the DOCUMENTATION SYSTEM rather than the product — measured the
+instruction file's problem precisely: AGENTS.md sat **48 bytes** under its own 48,000-byte ceiling while **68% of it
+was one table**. Thirty-seven rows of "this gate, this mutation, this result", the longest cell 5,329 characters.
+And the file's own paragraph already stated the rule this broke: *the gate evidence belongs in the ledger, because
+THIS is the file that gets truncated when it grows — the rule below, applied to itself.* The file knew. It had not
+done it.
+
+**IT WAS NOT A BYTE PROBLEM, IT WAS A HIERARCHY PROBLEM.** The cap was doing its job — it refused two of my edits in
+round 175 and forced a decision about what a reader needs — but a cap cannot see a table whose shape is the problem.
+Progressive disclosure says a document is steps and reference, and reference that only some branches reach belongs
+behind a pointer. Thirteen of the table's rows are read when someone changes THAT gate; a reader loading the file to
+learn how to build does not need them at all, every turn, forever.
+
+So the RULES stayed and the EVIDENCE moved: 31,074 bytes out, a four-line pointer in its place, the ledger gaining
+a section and the index gaining a row for it. AGENTS.md went 47,952 -> 17,270 bytes. Thirty kilobytes of headroom
+where there were 48 bytes.
+
+**AND THE MOVE BROKE THE FILE FIRST, IN A WAY EVERY GATE CALLED CLEAN.** The extraction stopped at the first line
+that does not start with `|` — and **some cells contain embedded newlines**, so it moved 16 rows and left 27
+orphaned in AGENTS.md under no header at all: table fragments sitting loose between two sections, the sweep-judges
+row and five others floating in prose with nothing to say what they were. **Every gate passed.** None of them checks
+that a markdown table is well-formed, and a truncated table still parses as prose. The only thing that caught it was
+reading the file the edit produced instead of the script's summary — which is the rule this ledger has recorded
+eleven times now, and the reason it is recorded rather than assumed.
+
+The boundary is unambiguous and is now stated in the moving script: the table runs to the LAST `|`-starting line
+before the next `## ` heading. And the verification asserts the OUTCOME structurally — how many rows are in the new
+section, how many `|` rows remain outside the surviving tables — rather than trusting the tool that did the work.
+That check then produced its own false positive (it knew about one table and reported the reporter table as
+orphans), which reading the artefact settled in ten seconds.
+
+**WHAT IT COST AND WHAT IT BOUGHT.** Two rounds, one bad edit, one revert from a backup taken before the script ran.
+What it bought: an instruction file a reader can read whole, a budget that no longer binds, and the evidence in the
+one place designed to hold it. The cap was never the problem; the file's shape was, and the cap is what made someone
+look.
