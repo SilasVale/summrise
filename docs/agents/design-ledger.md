@@ -5232,3 +5232,27 @@ never exercised — in the file whose entire purpose is to assert that a suite r
 ANSI is stripped before every match now, and the wrapper has been run against all three: vitest 832, node --test
 45 and 921, plus the empty-package mutation at exit 1. The lesson is not "strip ANSI" — it is that a claim about
 three formats needs three runs, and a table that documents a reporter is not a test of one.
+
+### RE-MEASURING A NUMBERS TABLE, AND GETTING MY OWN INSTRUMENT WRONG TWICE (round 204)
+
+The eighteenth exploration found every headline count in `inventory.md` §1 drifted. Re-measuring them produced a
+lesson about MEASUREMENT rather than about arithmetic.
+
+**FIRST MISTAKE: I did not use the cells' own commands.** Two numbers came out lower than the claims, which is
+impossible for a count that only grows — a signal I nearly ignored. The cell for the CLI says
+`agent/summrise-agent-npm/src/summrise.ts`; I measured `bin/summrise.js`. The panel cell says
+`find …/src -type f`; I filtered to `*.ts`/`*.tsx`. With the cells' commands, both match the exploration exactly:
+CLI 3,651, panel 40,674. A numbers table whose cells carry their commands is only useful if you RUN them.
+
+**SECOND MISTAKE: three of my probes were broken and I nearly wrote their results down.** The CLI subcommand count
+came back 5 against a claim of 12, and the gateway route registrations 0 against 61. Both are my grep failing on
+syntax I did not read, not a finding. They are left as written, and the cells now say so, because "correcting" a
+number from an instrument I already know is unreliable is how the table got wrong in the first place.
+
+**WHAT LANDED:** ten counts updated (49,132 · 17,777/30 · 7,677/12 · 8,580/4 · 58 · 3,651 · 40,674 · 13,968/42 ·
+8,313/25 · 2,756), the vintage re-stamped to 2026-09-24 at `c12e556c`, and a line naming what was NOT re-measured.
+`plugins: 9 registered unconditionally` survived verification unchanged.
+
+And one incidental discovery worth the line: **`agent/spec-tools.json` is not JSON.** `require()` refuses it —
+"Unexpected token '/', // Device" — because it carries comments, so the cell's own evidence command cannot be run
+the obvious way. Counting `"name"` occurrences gives 58, which matches.
