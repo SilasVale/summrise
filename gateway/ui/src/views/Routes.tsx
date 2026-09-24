@@ -13,6 +13,7 @@ export default function RoutesView() {
   const { toast } = useToast();
   const [current, setCurrent] = useState<string | null>(null);
   const [apiHost, setApiHost] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [usproxyOn, setUsproxyOn] = useState(false);
   const [usproxyLoading, setUsproxyLoading] = useState(false);
@@ -29,7 +30,20 @@ export default function RoutesView() {
       else if (route?.model) setCurrent(route.model);
       if (publicInfo?.apiHost) setApiHost(publicInfo.apiHost);
       if (proxy?.enabled !== undefined) setUsproxyOn(proxy.enabled);
+      // THE CATCH BELOW CANNOT FIRE, and that is why nothing was ever said: each read carries its own
+      // `.catch(() => null)` (deliberately — one failing read must not blank the others), so
+      // `Promise.all` cannot reject. Three nulls therefore means NOTHING WAS READ, which used to
+      // render as the DEFAULT host — a plausible, copy-ready client config claiming to be this
+      // gateway's, inside the JSON block below. A failure indistinguishable from success is stated
+      // instead: the toast keeps its string, and the flag keeps it on screen.
+      if (!route && !publicInfo && !proxy) {
+        setLoadFailed(true);
+        toast(t("route.loadFail"), true);
+      } else setLoadFailed(false);
     } catch {
+      // Unreachable today; kept because a future edit that drops one of the per-read catches must
+      // still land somewhere that tells the operator.
+      setLoadFailed(true);
       toast(t("route.loadFail"), true);
     }
     setLoading(false);
@@ -91,6 +105,15 @@ export default function RoutesView() {
   return (
     <div>
       <PageHeader title={t("nav.routes")} description={<span dangerouslySetInnerHTML={{ __html: t("routes.lede") }} />} />
+
+      {/* A PERSISTENT MARKER, not only the toast: the toast scrolls away, and what it warns about —
+          the copy-ready config below — stays on screen. The markup is the loading card's, so this
+          adds no visual vocabulary for the design gates to judge. */}
+      {loadFailed && (
+        <Card>
+          <p className="muted">{t("route.loadFail")}</p>
+        </Card>
+      )}
 
       {/* US Proxy toggle */}
       {user?.role === "admin" && (
