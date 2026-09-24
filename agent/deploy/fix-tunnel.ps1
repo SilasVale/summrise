@@ -8,15 +8,6 @@
 # Idempotent: a config already on the new tunnel/hostname is untouched.
 $ErrorActionPreference = "Stop"
 
-function Get-TunnelId($cloudflared, $Name) {
-    $oldEAPt = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    $list = & $cloudflared tunnel list --name $Name 2>&1 | Out-String
-    $ErrorActionPreference = $oldEAPt
-    if ($list -match '([0-9a-fA-F]{8}-[0-9a-fA-F-]{27})') { return $Matches[1] }
-    return $null
-}
-
 # Find the new agent tunnel (summrise-agent-dN) by DNS probe of the device hostname.
 $hostFile = "C:\summrise-agent\summrise-agent.hostname"
 if (-not (Test-Path $hostFile)) { $hostFile = "D:\summrise-command\summrise-agent.hostname" }
@@ -49,8 +40,9 @@ if (-not (Test-Path $cloudflared)) {
     exit 1
 }
 # Find the agent tunnel by NAME, not by the first UUID in `tunnel list` — the
-# legacy summrise-command-dN tunnels still exist and Get-TunnelId's regex could
-# match one of them, writing the OLD tunnel into the config.
+# legacy summrise-command-dN tunnels still exist, and taking the FIRST UUID in
+# `tunnel list` could pick one of them, writing the OLD tunnel into the config. (That is
+# what the deleted Get-TunnelId did; this script matches by NAME instead.)
 # EAP=Continue guard (round-66): cloudflared's stderr WRN/INF (e.g. a version
 # notice) is a terminating NativeCommandError under EAP=Stop — the script
 # aborted before any tunnel repair. Real failures still surface via exit codes.
