@@ -87,6 +87,20 @@ pub struct SeqEvent {
 
 /// Unified event distribution. Replaces the previous three-channel approach
 /// (broadcast + event_log + Tauri emit) and the NAV_EVENTS static.
+///
+/// MEASURED 2026-09-24: THIS IS A HYPOTHETICAL SEAM TODAY. One adapter means a hypothetical seam and
+/// two mean a real one; `grep -rn 'impl EventBus for' agent/` finds exactly one (`AppEventBus`,
+/// further down this file), and no test substitutes for it either — the terminal tests build an
+/// `AppEventBus` and drop it (`let _bus`). The doc above also names the reason it was introduced,
+/// "Tauri emit", and THAT CHANNEL IS GONE: the desktop shell is Electron now and reaches events
+/// through the SSE route, the same one the panel uses. So nothing varies across this interface.
+///
+/// KEPT DELIBERATELY, and this is the part worth not re-deriving: deleting it would move nothing and
+/// concentrate nothing — it is a rename of one type across 14 files, and the deletion test does not
+/// count that as complexity reappearing. What WOULD make the seam real, and the reason to leave it
+/// standing: a second distribution channel (a native shell bus, an out-of-process consumer, a
+/// recorder that must not be the SSE), or any test that needs to substitute distribution without a
+/// tokio broadcast channel behind it.
 pub trait EventBus: Send + Sync {
     /// Emit an event to all subscribers (broadcast, ring buffer, hook).
     /// Returns the assigned sequence number.
