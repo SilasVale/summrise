@@ -110,3 +110,51 @@ fn every_dot_sourced_deploy_script_is_packaged() {
         "expected exactly one dot-sourced deploy script; found {checked} — update this pin"
     );
 }
+
+/// THE THREE PRE-STAGED COMPONENTS ARE VERIFIED TOO (round 143).
+///
+/// The installer downloads cloudflared (54 MB), the playwright bundle (31 MB) and the
+/// electron runtime (115 MB) into the npm package directory, and `summrise setup` then
+/// takes them BY PRESENCE — so these pins are the only check those bytes get on this
+/// path. The acceptance used to be `Length -gt 1MB`. A component that fails is
+/// DELETED, so setup fetches it through its own verified route instead.
+#[test]
+fn every_prestaged_component_is_verified() {
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    // COMMENTS ARE STRIPPED FIRST, because this test records the old acceptance by name
+    // in the comment above the fix and a naive scan reads its own explanation as the
+    // defect. That is the same lesson retired-colours-check records from its first run,
+    // and the first version of THIS assertion failed on exactly that line.
+    let code: String = ps1
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !code.contains("Length -gt 1MB"),
+        "a file size is not a verdict — that check accepted any 115 MB of anything"
+    );
+    // Each component asks the manifest for its pin, by the name the manifest uses.
+    let ask = ps1.matches("Get-ComponentSha256").count();
+    assert!(ask >= 3, "all three pre-staged components must ask for their pin, found {ask}");
+    assert!(ps1.contains("-Name \"cloudflared\""), "cloudflared asks for its pin");
+    assert!(ps1.contains("-Name \"playwright\""), "playwright asks for its pin");
+    assert!(ps1.contains("-Name \"electron\""), "electron asks for its pin");
+    // AND THE VERIFICATION MUST NOT SIT INSIDE THE DOWNLOAD GUARD: a file already on
+    // disk — including one staged by the installer from before this check existed —
+    // would never be looked at, which is the population this change is for.
+    let download = ps1
+        .find("summrise-playwright.zip\" -OutFile")
+        .expect("the playwright download must still be there");
+    let verdict = ps1.find("-Name \"playwright\"").expect("the playwright pin check");
+    assert!(
+        download < verdict,
+        "the pin check must FOLLOW the download and still run when it is skipped"
+    );
+    // The library must define what the installer calls, not merely be called.
+    let lib = read("deploy/lib/SummriseIntegrity.ps1");
+    assert!(
+        lib.contains("function Get-ComponentSha256"),
+        "the installer must ship the function it calls"
+    );
+}

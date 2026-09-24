@@ -46,3 +46,25 @@ function Test-FileSha256 {
   if (-not $got) { return $false }
   return ($got -eq $Expected.ToLower())
 }
+
+function Get-ComponentSha256 {
+  # The digest the manifest advertises for a NAMED component, or "" when it does
+  # not advertise one — and "" must never be read as "nothing to check", the same
+  # contract Get-ManifestSha256 carries one function up.
+  #
+  # WHY THIS EXISTS (round 143). The installer PRE-STAGES cloudflared and the
+  # playwright bundle into the npm package dir, and `summrise setup` then takes
+  # them by PRESENCE (resolveComponent), so the pins those components carry in the
+  # manifest were never consulted on this path at all. The ps1 accepted them on
+  # `Length -gt 1MB`. The tgz above was already verified; these two — 54 MB and
+  # 31 MB of executable payload — were not.
+  param([string]$ManifestJson, [string]$Name)
+  if (-not $ManifestJson -or -not $Name) { return "" }
+  try { $m = $ManifestJson | ConvertFrom-Json } catch { return "" }
+  if (-not $m -or -not $m.components) { return "" }
+  $c = $m.components.$Name
+  if (-not $c) { return "" }
+  $sha = "$($c.sha256)"
+  if ($sha -notmatch '^[0-9a-fA-F]{64}$') { return "" }
+  return $sha.ToLower()
+}

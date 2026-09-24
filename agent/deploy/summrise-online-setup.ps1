@@ -123,7 +123,8 @@ $tgz = "$CdnBase/summrise-agent/summrise-agent-$SummriseVersion.tgz"
 $tgzSource = "cdn"
 if ($LocalTgz -and (Test-Path $LocalTgz)) {
   $tgz = $LocalTgz
-  $tgzSource = "bundled"
+  $manifestJson = ""
+$tgzSource = "bundled"
   Say "使用自带安装包 $SummriseVersion（免下载）..."
 } else {
   if ($LocalTgz) { Say "自带包缺失（$LocalTgz），回退 CDN 下载..." }
@@ -137,10 +138,12 @@ if ($LocalTgz -and (Test-Path $LocalTgz)) {
     Write-Host "[summrise-setup] 下载失败（$tgz），退出。"; exit 6
   }
   $manifestUrl = "$CdnBase/api/version"
+  # Kept for the component blocks below, which run on BOTH branches and need the same pins.
   $expected = ""
   try {
     $manifest = (Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing -TimeoutSec 60).Content
     $expected = Get-ManifestSha256 -ManifestJson $manifest -Version $SummriseVersion
+    $manifestJson = $manifest
   } catch { Say "读取版本清单失败（$manifestUrl）：$($_.Exception.Message)" }
   if (-not (Test-FileSha256 -Path $dl -Expected $expected)) {
     Write-Host "[summrise-setup] 校验失败：下载的 tgz 与版本清单的 sha256 不符（或清单缺少该版本的摘要），拒绝安装。"
@@ -156,13 +159,36 @@ if ($LASTEXITCODE -ne 0) { Write-Host "[summrise-setup] npm 安装失败，退�
 $summriseCmd = Join-Path $NpmGlobal "summrise.cmd"
 if (-not (Test-Path $summriseCmd)) { Write-Host "[summrise-setup] summrise.cmd 没生成，退出。"; exit 6 }
 
+# THE MANIFEST IS READ HERE ON PURPOSE, not only on the CDN branch above (round 143).
+# These two components are staged by PRESENCE into the npm package dir, and
+# `summrise setup` takes them by presence in turn (resolveComponent), so THIS is the
+# only place their pins can be consulted at all. The tgz was already verified;
+# these — 54 MB and 31 MB of executable payload — were accepted on `Length -gt 1MB`.
+# A component that fails verification is DELETED, not skipped in place: setup then
+# fetches it through its own verified path, which is the better failure.
+if (-not $manifestJson) {
+  try { $manifestJson = (Invoke-WebRequest -Uri "$CdnBase/api/version" -UseBasicParsing -TimeoutSec 60).Content } catch { $manifestJson = "" }
+}
+
 # --- 3. cloudflared：能带上就带上（setup 会 stage 进 tools/）；失败不致命 ---
 try {
   $pkgDir = Join-Path $NpmGlobal "node_modules\summrise-agent"
   $cfDest = Join-Path $pkgDir "cloudflared.exe"
   if (-not (Test-Path $cfDest)) {
-    if (Download-File "$CdnBase/summrise-agent/cloudflared.exe" $cfDest "cloudflared") { Say "cloudflared 已随包" }
-    else { Say "cloudflared 跳过（以后用 tunnel 时 agent 会自己拉）" }
+    Download-File "$CdnBase/summrise-agent/cloudflared.exe" $cfDest "cloudflared" | Out-Null
+  }
+  if (Test-Path $cfDest) {
+    # Verified whether or not we just downloaded it: a file already here came from a
+    # previous run and setup takes it by presence (see the playwright note below).
+    $wantCf = Get-ComponentSha256 -ManifestJson $manifestJson -Name "cloudflared"
+    if (Test-FileSha256 -Path $cfDest -Expected $wantCf) {
+      Say "cloudflared 已随包（sha256 校验通过）"
+    } else {
+      Remove-Item -Force $cfDest -ErrorAction SilentlyContinue
+      Say "cloudflared 校验失败（清单缺少该组件的摘要，或字节不符）→ 已丢弃，安装后由 summrise setup 走校验过的路径取"
+    }
+  } else {
+    Say "cloudflared 跳过（以后用 tunnel 时 agent 会自己拉）"
   }
 } catch { Say "cloudflared 跳过：$($_.Exception.Message)" }
 
@@ -179,8 +205,19 @@ try {
       $ProgressPreference = "SilentlyContinue"
       Invoke-WebRequest -Uri "$CdnBase/summrise-agent/summrise-playwright.zip" -OutFile $pwDest -UseBasicParsing -TimeoutSec 600
     } catch { Say "playwright 下载失败：$($_.Exception.Message)" }
-    if ((Test-Path $pwDest) -and ((Get-Item $pwDest).Length -gt 1MB)) { Say "playwright 已随包（浏览器工具将启用）" }
-    else { Remove-Item -Force $pwDest -ErrorAction SilentlyContinue; Say "playwright 跳过（浏览器工具不可用，可稍后补）" }
+  }
+  # VERIFIED WHETHER OR NOT WE JUST DOWNLOADED IT, and that is the point rather than a
+  # detail: a file already at this path was staged by a PREVIOUS run, possibly by the
+  # installer from before this check existed, and `summrise setup` takes it by presence.
+  # SIZE IS NOT A VERDICT: the acceptance used to be "> 1MB", which accepts any 31 MB.
+  $wantPw = Get-ComponentSha256 -ManifestJson $manifestJson -Name "playwright"
+  if ((Test-Path $pwDest) -and (Test-FileSha256 -Path $pwDest -Expected $wantPw)) {
+    Say "playwright 已随包（sha256 校验通过；浏览器工具将启用）"
+  } elseif (Test-Path $pwDest) {
+    Remove-Item -Force $pwDest -ErrorAction SilentlyContinue
+    Say "playwright 校验失败（清单缺少该组件的摘要，或字节不符）→ 已丢弃，浏览器工具改由 summrise setup 走校验过的路径取"
+  } else {
+    Say "playwright 跳过（浏览器工具不可用，可稍后补）"
   }
 } catch { Say "playwright 跳过：$($_.Exception.Message)" }
 
@@ -211,7 +248,16 @@ if (-not $electronOk) {
   try {
     $ProgressPreference = "SilentlyContinue"
     Invoke-WebRequest -Uri "$CdnBase/summrise-agent/electron-win32-x64.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 900
-    if ((Test-Path $zip) -and ((Get-Item $zip).Length -gt 1MB)) { $got = $true }
+    # VERIFIED, NOT MEASURED (round 143). The acceptance here was "> 1MB", and what follows
+    # EXPANDS this zip and copies its contents into dist\\ — 115 MB of executable payload
+    # installed on the strength of a file size. The manifest pins this component; ask it.
+    $wantEl = Get-ComponentSha256 -ManifestJson $manifestJson -Name "electron"
+    if ((Test-Path $zip) -and (Test-FileSha256 -Path $zip -Expected $wantEl)) {
+      $got = $true
+    } elseif (Test-Path $zip) {
+      Say "Electron 校验失败（清单缺少该组件的摘要，或字节不符）→ 已丢弃，桌面外壳这一点不启用"
+      Remove-Item -Force $zip -ErrorAction SilentlyContinue
+    }
   } catch { Say "Electron CDN 下载失败：$($_.Exception.Message)" }
   if ($got) {
     try {
