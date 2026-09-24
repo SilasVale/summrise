@@ -3239,12 +3239,13 @@ mod tests {
         // console client — it cannot discover it, and a schema-validating client
         // would refuse to send it. `terminal_execute`'s `intent`/`considered`
         // shipped exactly that way and were found by reading, not by a gate.
-        // Names only, no types: enough to catch a MISSING parameter (the
-        // failure that matters — an unadvertised one cannot be sent), while a
-        // type difference between the two sides is a separate question this
-        // snapshot is not trying to answer.
-        //
-        // DESCRIPTIONS JOINED IT AFTER ONE DRIFTED, and that drift is the reason
+        // NAMES, `required`, AND TYPES. Names catch a MISSING parameter (an unadvertised one
+        // cannot be sent); `required` catches an array that FORBIDS a call the device allows —
+        // `terminal_execute`'s `session_id` did exactly that, found by reading, not by a gate;
+        // and the declared TYPE catches a schema the gateway would refuse before forwarding.
+        // Each was added after the defect it would have caught, which is the only honest reason
+        // a field belongs in a contract file.
+        //        // DESCRIPTIONS JOINED IT AFTER ONE DRIFTED, and that drift is the reason
         // this file now carries prose: the gateway advertises its OWN copy of
         // every device-direct tool's description, and `monitor_list`'s copy had
         // lost `last_expect_ok` while `drops`' explanation moved onto
@@ -3262,6 +3263,21 @@ mod tests {
                     .map(|o| o.keys().cloned().collect())
                     .unwrap_or_default();
                 params.sort();
+                // AND NOW THE TYPES (round 221). The comment above used to say the snapshot
+                // carried no types, calling a type difference "a separate question this snapshot
+                // is not trying to answer". It is the same class of question `required` was added
+                // for — the gateway validates before forwarding, so a schema saying integer where
+                // the device wants string refuses a call the device would have served. The question
+                // is still separate; it is no longer unanswerable.
+                let mut param_types: serde_json::Map<String, serde_json::Value> =
+                    serde_json::Map::new();
+                if let Some(props) = t["schema"]["properties"].as_object() {
+                    for (k, v) in props {
+                        if let Some(ty) = v.get("type") {
+                            param_types.insert(k.clone(), ty.clone());
+                        }
+                    }
+                }
                 // `required` AS WELL AS the parameter names. Names alone let a
                 // whole class of contract lie through: the gateway advertised
                 // `terminal_execute` as requiring `session_id` where the device
@@ -3284,13 +3300,14 @@ mod tests {
                     "description": t["description"].as_str().unwrap_or(""),
                     "params": params,
                     "required": required,
+                    "param_types": param_types,
                 }));
             }
         }
         entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
         let rendered = format!(
             "// Device MCP tool inventory (name + owning plugin + description + parameter\n\
-             // names + required),\n\
+             // names + required + declared types),\n\
              // generated from\n\
              // the live PluginRegistry by web::tests::spec_snapshot_pins_every_device_tool_for_the_gateway_contract.\n\
              // The gateway MCP registry contract test reads this file.\n\

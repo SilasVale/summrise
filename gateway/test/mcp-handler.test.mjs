@@ -425,7 +425,26 @@ test("contract: the gateway advertises every parameter the device accepts", asyn
     const tool = byName.get(t.name);
     const advertised = new Set(Object.keys(tool.inputSchema.properties || {}));
     for (const name of Object.keys(RENAMES[t.name] || {})) advertised.add(RENAMES[t.name][name]);
-    for (const p of t.params || []) {
+    // AND THE DECLARED TYPES (round 221). The device snapshot carries `param_types`; this side holds its own
+  // inputSchema. A difference here is a schema that refuses a call the device would serve — the same class
+  // of defect as the `required` array that forbade terminal_execute's `session_id` call.
+  for (const [name, ty] of Object.entries(t.param_types || {})) {
+      // THE RENAME APPLIES TO TYPES TOO. The device calls terminal_execute s first parameter `command`;
+      // this side calls it `input` and rewrites it before forwarding (mcp.ts). The name loop above already
+      // maps the rename; my first version of this check did not, and it failed on exactly that pair — the
+      // check doing its job before it ever reached a type difference.
+      const renames = RENAMES[t.name] || {};
+      const onThisSide = Object.keys(renames).find((k) => renames[k] === name) || name;
+      const prop = (tool.inputSchema?.properties || {})[onThisSide];
+    assert.ok(prop, `${t.name}: the device declares ${name} but this side does not`);
+    assert.equal(
+      prop.type,
+      ty,
+      `${t.name}.${name}: this side says ${prop.type}, the device says ${ty} — a schema-validating client would be refused a call the device serves`,
+    );
+  }
+
+  for (const p of t.params || []) {
       if (GATEWAY_ONLY.has(p)) continue;
       if (!advertised.has(p)) problems.push(`${t.name}.${p}`);
     }
