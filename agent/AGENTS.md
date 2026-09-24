@@ -31,7 +31,7 @@ Green tests are the bar for a release.
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
 # 2. publish (pack + manifest + prune + deploy + smoke; it does NOT commit):
-./scripts/publish-release.sh 1.2.N
+./scripts/publish-release.sh 1.2.N --npm
 # 3. ONE commit that includes summrise-agent-npm/package.json and index/public/summrise-agent/version.json
 git push origin main          # CI green on the pushed commit
 # 4. tag through the API (git push of tags times out here) — this triggers release.yml:

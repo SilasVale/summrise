@@ -61,4 +61,4 @@ if (failures.length) {
   for (const f of failures) console.error(`ledger-budget-check: ${f}`);
   process.exit(1);
 }
-console.log(`ledger-budget-check: ok — the instruction file fits (${bytes} of ${HARNESS_BUDGET} bytes) and the long form is in ${ARCHIVE}`);
+console.log(`ledger-budget-check: ok — the instruction file fits (${bytes} of ${CEILING} bytes — the ENFORCED ceiling; the harness truncates at ${HARNESS_BUDGET}) and the long form is in ${ARCHIVE}`);
