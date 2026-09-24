@@ -5116,3 +5116,30 @@ first time the instrument was a search I ran myself.
 comment is false" and that "either the script or the comment goes". It was written when that was true and the
 comment has since been CORRECTED — so the stale entry is in the document whose entire job is to be a current
 checkpoint. That is the eighteenth exploration's subject, and it is the first finding it gets handed.
+
+### AN INSTRUMENT THAT PRINTS A FINGERPRINT OF SOMETHING ELSE (round 198)
+
+The seventeenth exploration's §2 said `toolchain-fingerprint` "prints hashes and compares nothing". Verified: the
+job is dispatch-only by design, its step is literally named "Print the fingerprints the release box compares
+against", and the comparison happens on that box, by a human. That part is deliberate.
+
+**WHAT IS NOT DELIBERATE IS THAT THREE OF ITS LINES COULD DESCRIBE THE WRONG THING.**
+
+  ls "$HOME/llvm18/bin/clang-18" "$HOME/llvm18/bin/lld" 2>/dev/null || true
+  sha256sum A B 2>/dev/null || sha256sum C D
+  cargo install cargo-xwin --locked --version 0.23.0 --quiet 2>/dev/null || true
+  cargo xwin --version | head -1
+
+The first `|| true` made absence print exactly like presence. The second was the worse one: when the first pair of
+files was missing, the fallback hashed two OTHER files under the same "clang / lld extracted from it" label — so a
+human comparing CI's fingerprint against the release box could match a hash that described a different binary, and
+conclude the toolchains agreed. The third let a failed install fall through to whatever the runner already had, so
+the version printed afterwards described a toolchain this job never fetched. A fingerprint about the wrong tool is
+worse than no fingerprint, because it is evidence.
+
+Every line names its file now, an absence prints as `ABSENT:`, and a failed install fails the step.
+
+**AND THE CHECK FOR IT CAUGHT ITS OWN EXPLANATION**, which is round 195's lesson arriving one round later: the
+grep for remaining `|| true` matched the comment I had just written quoting the old form. The repo's rule — a gate
+that deletes its reasons is worse than no gate — is why the quotation stays and why the scan for it has to know
+what a comment is.

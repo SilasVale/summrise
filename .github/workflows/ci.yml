@@ -941,9 +941,17 @@ jobs:
           echo "== clang / lld extracted from it =="
           mkdir -p "$HOME/llvm18"
           tar xf "$TB" -C "$HOME/llvm18" --strip-components=1
-          ls "$HOME/llvm18/bin/clang-18" "$HOME/llvm18/bin/lld" 2>/dev/null || true
-          sha256sum "$HOME/llvm18/bin/clang-18" "$HOME/llvm18/bin/lld" 2>/dev/null || \
-            sha256sum "$HOME/llvm18/bin/clang" "$HOME/llvm18/bin/lld-link"
+          # EVERY LINE NAMES WHAT IT HASHED (round 198). This was `sha256sum A B || sha256sum C D`:
+          # when the first pair was absent the fallback printed two OTHER files under the same label,
+          # so a human comparing against the release box could match a hash that described a different
+          # binary. `|| true` above it hid the absence entirely, and absence and presence printed the same.
+          for f in "$HOME/llvm18/bin/clang-18" "$HOME/llvm18/bin/clang" \
+                   "$HOME/llvm18/bin/lld" "$HOME/llvm18/bin/lld-link"; do
+            if [ -f "$f" ]; then sha256sum "$f"; else echo "ABSENT: $f"; fi
+          done
           echo "== cargo-xwin =="
-          cargo install cargo-xwin --locked --version 0.23.0 --quiet 2>/dev/null || true
+          # AND THE VERSION MUST BE THE ONE THIS STEP INSTALLED (round 198). `|| true` let a failed
+          # install fall through to whatever the runner already had, so the printed version described a
+          # binary this job never fetched — a fingerprint about the wrong tool. A failed install must fail.
+          cargo install cargo-xwin --locked --version 0.23.0 --quiet
           cargo xwin --version 2>&1 | head -1
