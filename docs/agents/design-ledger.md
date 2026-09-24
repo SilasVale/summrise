@@ -5499,3 +5499,43 @@ second parameter, or renames this one differently, the test keeps asserting yest
 source-text check would be the usual answer here and it would be the wrong one — the two are one `if` and one object
 literal in different languages. The honest fix is to export the map FROM `mcp.ts` so the test imports the same
 binding the code uses, which is a change to the source rather than to its copy.
+
+### THE TWENTIETH EXPLORATION: THE TWO UIs, STRUCTURALLY (round 226-227)
+
+Nineteen reviews had measured how the front ends PAINT. This one asked how they are STRUCTURED, and it reversed one
+of my own suspicions on the way.
+
+**MY SUSPICION WAS WRONG, AND THE REPORT SAYS SO.** I briefed it to look for a `lib/` that is "mostly browser-bound
+and therefore untestable". Measured: 63 files, 32 modules, **25 of 32 pure**, and the split is deliberate —
+`lib/attention.ts` is pure derivation while `hooks/useAttention.ts` holds the `document.title` and `Notification`
+effects. The one wrinkle is that `vitest.config.ts:10` sets `environment: "jsdom"` globally, so nothing ENFORCES the
+purity the layout already has.
+
+**THE FINDINGS THAT MATTER, each with its evidence:**
+
+- **`useSessions.ts` is 837 lines and accumulated, not inherent** — 284 of them comments, 16 `round-NN` markers, and
+  it does DOM work (`document.createElement("a")` at :646) inside a session-state hook. It also carries the corpse
+  of its own earlier design at :163-169, a `runtimes` Map that "was DECLARED, RETURNED from this hook and never
+  written or read".
+- **One session row's field names are declared in FIVE places inside one file** — `liveFields`, `wireFields`,
+  `wireFieldsChanged` (a second hand-written list of the same nine names), the `map*` helpers, and the `Session`
+  interface — and `lib/evicted.ts:42` reads `idle_ms` a sixth time, in another module, with its own coercion. The
+  existing gate (`session-row-check.mjs`) disclaims exactly this hole at its own :20.
+- **`ok:false` is handled in four dialects.** Five hooks call `deviceRefused`; three do not and default to `[]`, so a
+  refusal renders as an empty timeline. And even among the five the OUTCOME differs: silent keep-last
+  (`useAgentVitals`), a `failed` flag (`useMonitors`), or a thrown error (`usePlugins`). `api.ts:44-45` calls this
+  deliberate-but-unfinished.
+- **The console has NO request timeout at all** — no `AbortSignal` anywhere in `gateway/ui/src` — so a hung tunnel
+  leaves its busy flag true forever. And its two views of one endpoint disagree about a bodyless response:
+  `DevicesPanel.tsx:87` keeps the last good map, `Overview.tsx:103` writes `{}` and blanks the fleet.
+- **Two copies of "which version field wins"**, `lib/agentVersion.ts:22-27` and `gateway/src/plugins/mcp.ts:105-107`,
+  with the SAME defect fixed independently on each side and nothing comparing them. The panel's own comment names
+  the cost: "Two copies of a rule is what let them disagree."
+- **The console's `npm test` has zero render or behaviour tests** — all twelve files read source text or shell out.
+- **`PanelApp.tsx` is 295 lines of real logic with no test** — six polled hooks, `localStorage`, `new Notification`,
+  and a `as any` that casts the session type away.
+
+**AND EDITING THE SOURCE BROKE A GATE I HAD NOT LOOKED FOR**: exporting the rename map from `gateway/src/mcp.ts`
+failed `code-viewer-mirror.test.mjs`, because `gateway/public/code/` holds a TRACKED mirror of the source and
+nothing had re-synced it. `gateway/scripts/sync-code-viewer.sh` is the other half of that contract; the failure
+named the file (`differing: ['mcp.ts']`), which is what made it a one-command fix.

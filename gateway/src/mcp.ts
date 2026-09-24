@@ -225,6 +225,17 @@ export function isDeviceDirectTool(name: string): boolean {
   );
 }
 
+/**
+ * PARAMETER RENAMES APPLIED BEFORE FORWARDING (round 227).
+ *
+ * The device names `terminal_execute` first parameter `command`; the console s MCP surface calls it `input`
+ * and rewrites it here. EXPORTED so `test/mcp-handler.test.mjs` imports this binding rather than restating
+ * it: that file held an identical copy in three places, nothing compared any of them to this code, and a
+ * rename on one side would have left the other asserting yesterday s contract while passing.
+ */
+export const PARAM_RENAMES: Record<string, Record<string, string>> = {
+  terminal_execute: { input: "command" },
+};
 async function callTerminalToolOnce(name: string, env: any, device: any, args: any): Promise<any> {
   // The device API path is the mechanical "/api/tools/<name>" for every
   // device-direct tool; the whitelist above is the one source of truth for
@@ -234,9 +245,15 @@ async function callTerminalToolOnce(name: string, env: any, device: any, args: a
   const toolPath = `/api/tools/${name}`;
   const body: any = { ...args };
   delete body.device;
+  // PARAMETER RENAMES, FROM ONE EXPORTED MAP (round 227). This was an `if` that the contract test
+  // restated byte-identically in three places — and a fourth once one caller needed it — with nothing
+  // comparing any copy to this code. The map is exported so the test imports the binding used here; a
+  // rename now changes the map and every reader follows.
+  for (const [from, to] of Object.entries(PARAM_RENAMES[name] ?? {})) {
+    body[to] = body[from];
+    delete body[from];
+  }
   if (name === "terminal_execute") {
-    body.command = body.input;
-    delete body.input;
     // Default must match the agent (200) — a gateway-side 400 invented a
     // different quiet window than the device actually uses (round-54).
     body.quiet_ms = body.quiet_ms ?? 200;

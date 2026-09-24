@@ -10,7 +10,7 @@
 // stubbing fetch exercises the full handleMcp → callTool → deviceFetch pipeline unchanged).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleMcp } from "../src/mcp.ts";
+import { handleMcp, PARAM_RENAMES } from "../src/mcp.ts";
 import { __clearCaches } from "../src/store.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
@@ -265,7 +265,8 @@ import { readFileSync } from "node:fs";
 //   gateway/src/mcp.ts:238   body.command = body.input; delete body.input;
 // If that changes this must change with it; a copy per test is how the two drift apart unnoticed.
 // MODULE SCOPE, because three tests read it.
-const RENAMES = { terminal_execute: { input: "command" } };
+// The ONE binding, imported from the code that applies it (round 226-227).
+const RENAMES = PARAM_RENAMES;
 
 // ONE WALKER, USED BY BOTH PROSE GATES. There were two copies of this reader, and only one of them
 // unescaped a single-quoted literal — the style prettier picks when a description contains a double
