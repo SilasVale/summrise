@@ -37,10 +37,9 @@ cd gateway && npm test                           # gateway (own prettier gate)
 
 Green tests are the bar for a release.
 
-**AND RUN THE COMMAND THE OTHER END RUNS.** Round 144 is what it costs to skip this: six type errors passed a local
-`tsc --noEmit` in `gateway/ui` and failed CI, because the `ui` job runs `npm run build`, which is
-`tsc -b && vite build && prune-stale-assets` — a project-graph build, not a single-file check. The exact commands, by working
-directory, as of the run that verified them:
+**AND RUN THE COMMAND THE OTHER END RUNS.** A local check that is not CI's check is not the same check —
+`gateway/ui` passed a local `tsc --noEmit` carrying six type errors, because the `ui` job runs `npm run build`
+instead. The story is in the ledger; the commands, by working directory:
 
 | where | CI runs | and NOT |
 |---|---|---|
@@ -48,6 +47,7 @@ directory, as of the run that verified them:
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` | **not** `tsc --noEmit`, which is the check that missed them |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` | — |
 | `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p summrise-agent --all-targets -- -D warnings` · `cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings` · `cargo clippy -p summrise-agent-core --all-targets -- -D warnings` · `cargo test -p summrise-agent` · `cargo test -p summrise-agent --features terminal,keyring` · `cargo test -p summrise-agent-core` | — |
+| `agent/summrise-desktop-electron/` | `npm test` | — |
 
 All four were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
 and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what

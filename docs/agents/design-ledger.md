@@ -4881,3 +4881,15 @@ of committed fixes sitting undeployed. `./scripts/build.sh index` shipped them, 
 afterwards rather than assumed: 0 occurrences of the bare name, the URL form prescribed, the warning present,
 `cache-control: public, no-cache`. A committed fix is not a delivered one, and the only evidence is the live
 response.
+
+### Round 144's story, moved out of AGENTS.md (round 182)
+
+AGENTS.md is capped at 48,000 bytes and sat ten bytes under it, so the row the table was missing — the
+desktop shell's suite, which `all-gates.bash`'s own header names among the commands that runner does NOT
+cover — could not be added without freeing space. The rule stays there (run the command the other end runs);
+the story lives here, because a sentence that does not change what you would DO belongs in the long form.
+
+WHAT IT COST. Six type errors passed a local `tsc --noEmit` in `gateway/ui` and failed CI, because the `ui`
+job runs `npm run build` — `tsc -b && vite build && prune-stale-assets`, a PROJECT-GRAPH build rather than a
+single-file check. The errors were real and CI was right; the local command was simply a different question.
+That is why AGENTS.md carries the table it does, and why the table now lists five directories instead of four.
