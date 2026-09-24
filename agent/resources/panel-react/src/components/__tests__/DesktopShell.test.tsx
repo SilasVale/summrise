@@ -26,7 +26,9 @@ function sessions(): Session[] {
       closed: false,
       savedOnly: false,
       active: true,
-      idleMs: 0, commandRunning: false, firstSeenAt: Date.now(),
+      idleMs: 0,
+      commandRunning: false,
+      firstSeenAt: Date.now(),
       closedAt: null,
       heldByHuman: false,
       approvalRequired: false,
@@ -194,6 +196,7 @@ describe("DesktopShell", () => {
 
   it("status strip shows vitals from /api/status polling (stage-n vitals)", async () => {
     (callApi as any).mockResolvedValueOnce({
+      ok: true,
       version: "1.0.145",
       uptime_secs: 95,
       live_sessions: 1,
@@ -215,6 +218,7 @@ describe("DesktopShell", () => {
 
   it("status strip prefers the npm release field over the Cargo protocol version", async () => {
     (callApi as any).mockResolvedValueOnce({
+      ok: true,
       version: "1.0.145",
       release: "1.2.304",
     });
@@ -230,7 +234,7 @@ describe("DesktopShell", () => {
   });
 
   it("status strip omits vitals when the fields are absent (graceful degradation)", async () => {
-    (callApi as any).mockResolvedValueOnce({ version: "1.0.145" });
+    (callApi as any).mockResolvedValueOnce({ ok: true, version: "1.0.145" });
     render(<DesktopShell {...baseProps} />);
     await waitFor(() =>
       expect(
@@ -252,9 +256,14 @@ describe("DesktopShell", () => {
     const two = sessions();
     const dup = { ...two[0], sid: "s2", active: false };
     render(<DesktopShell {...baseProps} sessions={[two[0], dup]} />);
-    const names = [...document.querySelectorAll(".dtab-name")].map((e) => e.textContent);
+    const names = [...document.querySelectorAll(".dtab-name")].map(
+      (e) => e.textContent,
+    );
     expect(names.length).toBeGreaterThan(1);
-    expect(new Set(names).size, `labels must be distinguishable, got ${JSON.stringify(names)}`).toBe(names.length);
+    expect(
+      new Set(names).size,
+      `labels must be distinguishable, got ${JSON.stringify(names)}`,
+    ).toBe(names.length);
 
     // AND THE NAME A SCREEN READER READS IS THE SAME STRING THE EYE SEES (round 29 of the standing goal). Round 170
     // fixed the visible text and left `aria-label` on the RAW label (only set while waiting, and then with
@@ -262,7 +271,9 @@ describe("DesktopShell", () => {
     // identical. The panel's own strip has carried the correct rule since round 167 (TabBar.tsx:99-106).
     // SCOPED TO THIS STRIP: `role="tab"` is also the view switch's, whose accessible name is its visible text and
     // needs no aria-label — the first version of this assertion counted those and failed on a correct page.
-    const labels = [...document.querySelectorAll('.dtab[role="tab"]')].map((e) => e.getAttribute("aria-label"));
+    const labels = [...document.querySelectorAll('.dtab[role="tab"]')].map(
+      (e) => e.getAttribute("aria-label"),
+    );
     expect(labels.length).toBeGreaterThan(1);
     expect(
       new Set(labels).size,
@@ -276,13 +287,17 @@ describe("DesktopShell", () => {
     // TypeScript does not error on truthiness and no test mounted this strip — this is that test. In jsdom
     // nothing is laid out, so scrollWidth === clientWidth and the honest answer is "no overflow".
     render(<DesktopShell {...baseProps} />);
-    expect(document.querySelector(".desktop-tabs")?.getAttribute("data-more")).toBeNull();
+    expect(
+      document.querySelector(".desktop-tabs")?.getAttribute("data-more"),
+    ).toBeNull();
   });
 
   it("desktop strip: does NOT carry the view switch (it is a session control)", () => {
     // Round 169's decision, guarded in the OTHER strip as well — the panel's TabBar test covers its own.
     const { container } = render(<DesktopShell {...baseProps} />);
-    expect(container.querySelector(".desktop-tabs .desktop-view-switch")).toBeNull();
+    expect(
+      container.querySelector(".desktop-tabs .desktop-view-switch"),
+    ).toBeNull();
   });
 
   it("StripMore: says how many, and says nothing at zero", () => {
@@ -292,6 +307,8 @@ describe("DesktopShell", () => {
     rerender(<StripMore n={0} />);
     expect(container.textContent).toBe("");
     rerender(<StripMore n={1} />);
-    expect(container.querySelector(".tab-more")?.getAttribute("title")).toMatch(/1 more session —/);
+    expect(container.querySelector(".tab-more")?.getAttribute("title")).toMatch(
+      /1 more session —/,
+    );
   });
 });
