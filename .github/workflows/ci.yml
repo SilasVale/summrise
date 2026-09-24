@@ -299,6 +299,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # THE CONSOLE'S DEPENDENCIES, BECAUSE A GATE HERE NEEDS THEM. `console-smoke-check.mjs` runs the
+      # jsdom render smokes, and this job invokes it twice: as its own step, and from
+      # `gate-mutations-check`, whose rule is that a gate must be GREEN before its mutation is applied.
+      # Without them every smoke fails to LOAD ("Cannot find module 'jsdom'"), 0/4, and the mutation
+      # reports "1 gate(s) unproven" — the whole job red, for four rounds, while it was green locally
+      # where the ui job's node_modules is always present. Found 2026-09-24 by reproducing CI's
+      # condition (hiding that directory) rather than by reading the log, which showed only the summary.
+      - name: console dependencies (the render smokes' jsdom)
+        run: npm ci
+        working-directory: gateway/ui
       # (a) round-298 marker in the COMMITTED bin/summrise.js — the same grep
       # release.yml runs post-compile. Here it guards the committed file
       # itself: a src/summrise.ts change without recompiling fails the PR, not

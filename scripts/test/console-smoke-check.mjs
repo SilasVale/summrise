@@ -47,8 +47,21 @@ for (const s of smokes) {
     failed += 1;
     console.log(`  FAIL  ${s}`);
     const out = String(e.stdout || "");
-    for (const line of out.split("\n").filter((l) => /✗|FAIL|not ok/.test(l)).slice(0, 4)) {
-      console.log(`          ${line.trim()}`);
+    const hits = out
+      .split("\n")
+      .filter((l) => /✗|FAIL|not ok/.test(l))
+      .slice(0, 4);
+    if (hits.length) {
+      for (const line of hits) console.log(`          ${line.trim()}`);
+    } else {
+      // A SMOKE THAT DIES BEFORE ITS FIRST CHECK HAS NO FAILING LINE, and filtering for one is exactly
+      // how this gate reported "FAIL overview-render-smoke.mjs" with no reason in CI for four rounds —
+      // the cause was a missing `jsdom` (this job had no console dependencies) and the evidence was a
+      // stack trace on a stream nobody printed. Show the line that NAMES the error, then the tail.
+      const all = `${String(e.stdout || "")}${String(e.stderr || "")}`;
+      const named = all.split("\n").find((l) => /Error|error:/.test(l));
+      if (named) console.log(`          ${named.trim()}`);
+      for (const line of all.trim().split("\n").slice(-3)) console.log(`          ${line.trim()}`);
     }
   }
 }
