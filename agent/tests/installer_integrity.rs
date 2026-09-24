@@ -136,17 +136,31 @@ fn every_prestaged_component_is_verified() {
     );
     // Each component asks the manifest for its pin, by the name the manifest uses.
     let ask = ps1.matches("Get-ComponentSha256").count();
-    assert!(ask >= 3, "all three pre-staged components must ask for their pin, found {ask}");
-    assert!(ps1.contains("-Name \"cloudflared\""), "cloudflared asks for its pin");
-    assert!(ps1.contains("-Name \"playwright\""), "playwright asks for its pin");
-    assert!(ps1.contains("-Name \"electron\""), "electron asks for its pin");
+    assert!(
+        ask >= 3,
+        "all three pre-staged components must ask for their pin, found {ask}"
+    );
+    assert!(
+        ps1.contains("-Name \"cloudflared\""),
+        "cloudflared asks for its pin"
+    );
+    assert!(
+        ps1.contains("-Name \"playwright\""),
+        "playwright asks for its pin"
+    );
+    assert!(
+        ps1.contains("-Name \"electron\""),
+        "electron asks for its pin"
+    );
     // AND THE VERIFICATION MUST NOT SIT INSIDE THE DOWNLOAD GUARD: a file already on
     // disk — including one staged by the installer from before this check existed —
     // would never be looked at, which is the population this change is for.
     let download = ps1
         .find("summrise-playwright.zip\" -OutFile")
         .expect("the playwright download must still be there");
-    let verdict = ps1.find("-Name \"playwright\"").expect("the playwright pin check");
+    let verdict = ps1
+        .find("-Name \"playwright\"")
+        .expect("the playwright pin check");
     assert!(
         download < verdict,
         "the pin check must FOLLOW the download and still run when it is skipped"
@@ -187,8 +201,14 @@ fn the_task_has_one_definition() {
         .lines()
         .find(|l| l.contains("Register-ScheduledTask SummriseDesktop"))
         .expect("the installer must still register the task");
-    assert!(reg.contains("-Principal $pr"), "the installer must pass the principal: {reg}");
-    assert!(reg.contains("-Settings $st"), "the installer must pass the settings: {reg}");
+    assert!(
+        reg.contains("-Principal $pr"),
+        "the installer must pass the principal: {reg}"
+    );
+    assert!(
+        reg.contains("-Settings $st"),
+        "the installer must pass the settings: {reg}"
+    );
     // The two definitions must agree on the values, not merely on the argument names.
     assert!(
         ps1.contains("-RunLevel Highest") && cli.contains("-RunLevel Highest"),
@@ -218,8 +238,12 @@ fn the_uninstaller_precedes_the_step_that_can_fail() {
         .filter(|l| !l.trim_start().starts_with(';'))
         .collect::<Vec<_>>()
         .join("\n");
-    let run = nsi.find("nsExec::ExecToLog").expect("the setup script must still run");
-    let uninstaller = nsi.find("WriteUninstaller").expect("an uninstaller must be written");
+    let run = nsi
+        .find("nsExec::ExecToLog")
+        .expect("the setup script must still run");
+    let uninstaller = nsi
+        .find("WriteUninstaller")
+        .expect("an uninstaller must be written");
     let entry = nsi
         .find("Uninstall\\SummriseAgent")
         .expect("and the Add/Remove entry registered");
@@ -228,7 +252,9 @@ fn the_uninstaller_precedes_the_step_that_can_fail() {
         "the uninstaller and its Add/Remove entry must be written BEFORE the setup run, or a failed install cannot be removed (uninstaller={uninstaller}, entry={entry}, run={run})"
     );
     // The Abort must still be there: this changes what a failure LEAVES, not whether it stops.
-    let abort = nsi.find("Abort").expect("a failed step must still abort the install");
+    let abort = nsi
+        .find("Abort")
+        .expect("a failed step must still abort the install");
     assert!(run < abort, "the abort must follow the run it judges");
 }
 
@@ -256,5 +282,8 @@ fn the_portable_node_is_reused_before_it_is_downloaded() {
     let remove = ps1
         .find("Remove-Item -Recurse -Force $NodeDir")
         .expect("the extract still clears the old directory");
-    assert!(installed < remove, "the reuse check must precede the delete");
+    assert!(
+        installed < remove,
+        "the reuse check must precede the delete"
+    );
 }
