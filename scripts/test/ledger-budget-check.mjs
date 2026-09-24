@@ -48,6 +48,23 @@ if (!existsSync(join(ROOT, ARCHIVE))) {
   failures.push(`${ARCHIVE} does not exist — the narratives were DELETED rather than moved, and the evidence is gone`);
 } else {
   const archive = readFileSync(join(ROOT, ARCHIVE), "utf8");
+// THE INDEX NAMES SECTION TITLES, AND A RENAMED SECTION SILENTLY BREAKS IT (round 186).
+// There is no index gate anywhere else, and this is the file whose whole problem was findability.
+// A title is an exact string, so this is checkable — unlike the `ci.yml:N` citations, which are not,
+// because a line number moves when anything above it is inserted and a title does not.
+const idxEnd = archive.indexOf("\n### ");
+const index = idxEnd > 0 ? archive.slice(0, idxEnd) : "";
+const headings = [...archive.matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
+const named = [...index.matchAll(/`([^`]+)`/g)]
+  .map((m) => m[1])
+  .filter((s) => /^[A-Z0-9"]/.test(s) && s.length > 18);
+const brokenIndex = named.filter((n) => !headings.some((h) => h.startsWith(n)));
+if (brokenIndex.length) {
+  failures.push(
+    `the ledger index names ${brokenIndex.length} section(s) that do not exist — a renamed section broke ` +
+      `the pointer to it: ${brokenIndex.join(", ")}`,
+  );
+}
   const archiveBytes = Buffer.byteLength(archive, "utf8");
   if (archiveBytes < ARCHIVE_FLOOR) {
     failures.push(`${ARCHIVE} is only ${archiveBytes} bytes — an archive under the floor means the prune deleted instead of moving`);

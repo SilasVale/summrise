@@ -11,6 +11,39 @@ a rule in `AGENTS.md`, or you are wondering whether a failure you just saw has h
 The gate table — which mutation fails which gate — stayed in `AGENTS.md`, because it is the thing consulted most
 often. Everything below is in the order the rounds were WRITTEN, which is roughly chronological and NOT sorted by round number — the ordinals run 45 55 66 65 64 40 70 … because sections were added as they were learned. To find a round, grep for it; do not compute an offset. (This said "in round order, oldest first" until round 183, and the file has never been in that order.)
 
+**AND A ROUND NUMBER IS NOT A KEY.** The ledger carries **three numbering epochs**: an early run that climbed to
+103, a second that restarted at 15, and the newest sections numbered 265-272. So `round 73` names two unrelated
+sections, and a reader who greps it gets both with nothing to tell them apart. **Grep a title or a quoted phrase.**
+Every section title is unique; no round number is.
+
+## What is in here
+
+THE FILE IS LAYERED BY ERA, and the eras are runs of sections in the order they were written. Find yours by its
+opening title, then read forward; nothing below reorders them.
+
+| era | what it holds | opens with the section titled |
+|---|---|---|
+| the first sweeps | the panel and the four surfaces, measured as rendered — contrast, geometry, reflow, focus, the loud axis, type floor | `FOUR LIVE DEFECTS THE PANEL'S OWN SHAPE CHECK COULD NOT SEE` |
+| the sweeps find their feet | the design job sweeping the wrong artifact, a stale entry, the first idle measurements, all four surfaces green | `THE INSTRUCTION FILE WAS BEING TRUNCATED` |
+| the instruments | gates and probes turning out to be wrong before their subject — the SVG root's fill, the press pass measuring hovers, the waiver that was for the ratio, an instrument taken back | `AN SVG ROOT'S FILL IS NOT ALWAYS A COLOUR` |
+| epoch two | wire contracts and clauses: the runs and monitors payloads, what a list cannot answer, exemptions that answer for themselves | `THE MYSTERY WAS IN THE OUTPUT I HAD ALREADY COLLECTED` |
+| silhouettes and the queue | the marks vocabulary, the state families, the surfaces queue emptying, the live panel re-measured | `HALF THE SILHOUETTES WERE UNVERIFIED` |
+| the gate discipline | auditing the gates themselves, which gates read comments, how this project serves a second configuration, whether failure messages tell a reader what to do | `AUDITING THE TEN GATES` |
+| the emit seam | six slices that turned five emitted payloads into modules and pinned each one with a gate | `"CAN YOU OPTIMIZE THE PANEL DISPLAY?"` |
+| the subsystem explorations | one dated `##` section per architecture pass: the release pipeline, the desktop command, the tool layer, the HTTP surface, the CLI, the proxies, the landing, the installer, the core crate | `2026-09-23 — the release pipeline audited its own author` |
+
+## Looking for one thing
+
+The three triggers in `AGENTS.md` — *about to re-measure something*, *the story behind a rule*, *has this failed
+before* — map onto this file like so:
+
+- **A number you are about to re-measure** (a contrast ratio, a silhouette count, a press latency, an off-scale spacing
+  count): it may already exist, with the measurement that produced it. The sections state their own date and round.
+- **The story behind a rule in `AGENTS.md`**: `AGENTS.md` names the section where it kept one — search that name.
+- **A failure you just saw**: the recurring shapes all have a section, and the shape is usually in the title — *an
+  instrument wrong before its subject*, *a number in prose*, *a check that misread the artefact*, *a rule and a
+  comment*.
+
 ---
 
 ### FOUR LIVE DEFECTS THE PANEL'S OWN SHAPE CHECK COULD NOT SEE (round 45)
