@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-pins.bash — the three build inputs that are HAND-COPIED, each with a
+# build-pins.bash — the four build inputs that are HAND-COPIED, each with a
 # single source of truth and NOTHING comparing them (round 128).
 #
 #   1. rust-toolchain.toml's `channel` vs every `toolchain:` literal in the two
@@ -15,6 +15,13 @@
 #      for what the tgz carries) vs the three hand-maintained content gates.
 #      One omission is DOCUMENTED IN THE WORKFLOW ITSELF: the xwin-less CI job
 #      cannot contain summrise-agent.exe, and says so in its step name.
+  #   4. the TYPESCRIPT version, three hand-copied literals and TWO versions (round 106).
+  #      The freshness gate compares a tsc's OUTPUT against a committed file byte for byte, and the
+  #      binary it uses is installed by the electron step above it. That install said `typescript@5`
+  #      — a MOVING major — while the package's build script said the same, and the committed bin came
+  #      from 5.9.3. Two tsc versions emit different JavaScript from identical TypeScript, so the gate
+  #      failed a commit that was CORRECT, in BOTH workflows. A byte-for-byte comparison needs ONE
+  #      compiler, and this is what holds the three places that name it together.
 #
 # Run: bash scripts/test/build-pins.bash
 set -euo pipefail
@@ -101,6 +108,22 @@ if grep -q '::warning::pwsh is not installed' .github/workflows/ci.yml; then
   echo "FAIL: the pwsh step warns and continues again — that green means the installer's logic was never tested"
   exit 1
 fi
+
+# ── 5. the TypeScript pin, three hand-copied literals ─────────────────────────
+TS_PIN="$(node -p 'require("./agent/summrise-agent-npm/package.json").scripts.build' | grep -oP 'typescript@\K[0-9][0-9.]*' | head -1)"
+[ -n "$TS_PIN" ] || { echo "FAIL: the package's build script names no typescript version"; exit 1; }
+case "$TS_PIN" in
+  *.*.*) PASS=$((PASS + 1)) ;;
+  *) echo "FAIL: the build script pins '\''$TS_PIN'\'' — a moving major cannot hold a byte-for-byte comparison"; exit 1 ;;
+esac
+for wf in .github/workflows/ci.yml .github/workflows/release.yml; do
+  # Every literal that compiles this package's TypeScript must name that same version. A bare major
+  # (`typescript@5`) is what round 106 removed, and it is what this catches if it comes back.
+  while IFS= read -r lit; do
+    [ -n "$lit" ] || continue
+    check "typescript literal in $wf matches the build script ($TS_PIN)" "$lit" "$TS_PIN"
+  done < <(grep -oP 'typescript@\K[0-9][0-9.]*' "$wf" | sort -u)
+done
 
 echo "build-pins: $PASS checks passed"
 

@@ -299,6 +299,14 @@ const CASES = [
     from: "vi.mock(\"../../lib/api\", async (importOriginal) => ({\n  ...(await importOriginal<typeof import(\"../../lib/api\")>()),\n  ",
     to: "vi.mock(\"../../lib/api\", () => ({",
   },
+  {
+    gate: "scripts/test/build-pins.bash",
+    file: ".github/workflows/ci.yml",
+    why: "the compiler goes back to a MOVING major — round 106's measured state, where the freshness gate compares tsc OUTPUT byte for byte and two versions fail a correct commit in both workflows",
+    from: "npm install --no-save --ignore-scripts --force typescript@5.9.3 @types/node@22",
+    to: "npm install --no-save --ignore-scripts --force typescript@5 @types/node@22",
+  },
+
 ];
 
 const run = (cmd, args) => {
