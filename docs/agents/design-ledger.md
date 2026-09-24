@@ -4614,3 +4614,70 @@ that was piped through `sed 's/^/  /'` carry two extra spaces the file does not 
 nothing and one that broke the syntax. For an edit whose anchor is whitespace-sensitive, the tool that
 shows exact text beats a script that decorates it — and a mutation is only evidence once it is proven to
 have LANDED, which is why the last two rounds ran theirs before writing the commit message.
+
+## 2026-09-25 (the landing and the CDN, and the difference between a rule and a comment)
+
+The twelfth exploration went at `index/` — the landing page and the release channel every device's updater
+depends on — and its first line corrected the premise I had been working from: `ai.saisi.online` is the
+GATEWAY console, while `index` serves `agent.saisi.online`. One round earlier I had called the landing the
+console's host in a commit message. The report was right and the brief was wrong.
+
+**THE RELAY LIED ABOUT THE BODY IT SENT, AND MEASURING A LIBRARY IS WHAT FOUND IT.** `collectResponseHeaders`
+copied every upstream header verbatim while `entry.mjs` relayed an independently-read body. Measured against
+Node 24's undici: an upstream answering 10,000 bytes gzipped to 45 reports BOTH `content-encoding: gzip` and
+`content-length: 45` in `response.headers` while `response.body` yields all 10,000 DECODED bytes — so the
+relay answered 45 declared, 10,000 sent, and `gzip` claimed over bytes that are no longer compressed. A
+client trusting either header truncates or fails to decode. Reachable, not theoretical: `forwardHeaders`
+passes the CALLER's `accept-encoding` upstream, so a browser asking for gzip is exactly the case. Both
+headers are dropped now, and only those two. The test drives a REAL gzip upstream, because the finding is
+about what fetch does to a real one.
+
+**A RULE WITH NO INSTRUMENT IS A COMMENT.** `index/public/_headers` states, for the whole
+`/summrise-agent/*` prefix, "Device artifacts change under stable URLs — never let the edge serve a stale
+body (a device would silently receive an old build)" — and NOTHING read the file. The cloudflared route
+answered `public, max-age=3600` inside that very prefix, so the edge could hand out the previous binary for
+an hour while `version.json`'s pin had already moved: fail-closed, because `summise setup` refuses the
+mismatch, but the install then cannot proceed at all. What made it findable was a SIBLING: the electron test
+is named "… and no-cache (not max-age)". The rule existed, was asserted one route over, and was not applied
+beside it. Both are now asserted, and the file itself has a test that cross-checks the CODE against it — which
+is the half that would have caught the defect the day it was written.
+
+**TWO THINGS NOBODY HAD EVER EXERCISED.** The `CONSOLE_URL` fallback to the request's own origin — the
+mechanism behind the header's promise "no production domain is hardcoded here" — was skipped by BOTH
+fixtures, which set the var; substituting a production URL now fails with the promise restated as an
+assertion. And the prune that keeps five releases per minor matched `summrise-agent-*` ONLY, so the six
+installers published while the product was called `vale` were never candidates: measured against the live
+CDN, all still answered HTTP 200, including a `-latest` alias pointing at 1.2.451. It sweeps a DECLARED list
+of superseded names rather than a loose glob, because a `*-agent-*.tgz` sweep would delete a future
+product's assets the day it shares the directory.
+
+**THE LANDING TOLD EVERY VISITOR TO RUN A COMMAND THAT CAN INSTALL NOTHING.** Step 3 prescribed a bare
+`npm i -g … summrise-agent`, which AGENTS.md records as able to print `changed 1 package` and leave the OLD
+CLI in place — while step 2, on the same page, and both READMEs used the URL form. The paragraph even ended
+"not with npm's exit code", so the class was known and the safe form was one line away. And the landing had
+NO cache policy at all, unique among that worker's routes: heuristically cacheable, which would have kept
+serving the old instruction after the fix. Both are fixed, and the page now revalidates with a body-derived
+ETag so a match answers 304 rather than 30 KB.
+
+**THREE DOCS SAID THE INSTALLER WAS RETIRED.** Two READMEs said it; `scripts/build.sh` had already worked out
+that it is not, in a comment that says so in as many words — "THE NSIS INSTALLER IS **NOT** RETIRED, and this
+comment said it was for long enough that a reader would have believed it". The correction existed in ONE
+place and the READMEs never got it. `index/README.md` was wrong TWICE about the same route: it called the
+Setup.exe route a redirect to the console (it is served as an asset), and it called the installer retired. It
+is built every release, it ships the
+desktop task and the one-click install, and an absent `installer` field in the manifest is a PUBLICATION
+STATE, not a retirement.
+
+**AND A SYMBOL I ALMOST DELETED.** Running the deletion test on a 155-line block of upload helpers the D6
+cutover left behind, `SHA256_RE` sat inside it and has THREE LIVE USES below. My scan reported "6 hits outside
+the file" and I read them as other files' copies — they are the relay's own, and the symbol is used HERE.
+Removing it would have thrown ReferenceError on every `/api/version` request carrying a pin, and `npm test`
+would NOT have caught it: 43 tests passed before and after, because none of them carry a pin. A SCAN OF USES
+IS NOT A SCAN OF DEFINITIONS.
+
+**AND THE MUTATION RULE, WHICH THIS STRETCH KEPT RE-LEARNING.** A mutation is evidence only once it is
+proven to have LANDED on the thing under test. Four variants cost rounds here: an anchor copied from `sed`
+output decorated with two extra spaces; a plant that succeeded but landed AFTER an early return, so the test
+never reached it; a plant that broke the syntax instead of the behaviour; and a replace that hit the FIRST of
+three identical lines at two different indentations instead of the one at the route under test. Each time the
+mutation "passed", and each time the mutation was the thing that was wrong.
