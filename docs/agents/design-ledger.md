@@ -5162,3 +5162,25 @@ It reads both now, 52 gates, and all are named. The first mutation tried did NOT
 in round 187 and took the names with it). The mutation was wrong, not the gate; a name that genuinely is not
 documented does fail it. That is the lesson this ledger has recorded more often than any other, and it keeps
 arriving.
+
+### A "[measured]" THAT NAMED A PATH NOBODY HAS (round 201)
+
+The eighteenth exploration's §3 was blunt: "§4.3 is wrong three ways ... Executing the delete list destroys it."
+Verified before touching anything — and it is right:
+
+  the entry says:   `scripts/live-panel-probe.mjs` (91 lines) · "zero referrers in the whole repository [measured]"
+  the path:         does not exist
+  the file:         `agent/scripts/live-panel-probe.mjs`, 135 lines
+  the referrers:    ELEVEN — scripts/hooks/pre-commit, AGENTS.md, index/README.md, docs/BRAND.md, the ledger,
+                    gateway/scripts/sync-code-viewer.sh, a mirror under gateway/public/code/, and §12 of the
+                    SAME FILE, which cites it as the instrument verified against the panel the device runs
+
+**A `[measured]` tag is a claim about method, and this one measured a path that was never there.** "Zero
+referrers" was true of nothing: `grep -rl` over a filename that does not exist finds nothing, and nothing was
+reported as a finding. That is the same failure this ledger has recorded for the `ci.yml:N` citation and the
+stale comment — an instrument aimed at the wrong subject — with the extra weight that this one carried the word
+`[measured]` and sat in a section titled DELETE.
+
+The row is marked WITHDRAWN rather than removed: a checkpoint that silently drops a mistake teaches the next
+reader nothing, and the reason it was wrong is the part worth keeping. The other DELETE rows survive the same
+check — the exploration verified 4.1, 4.2 and 4.7 as still correct and 4.5, 4.6, 4.8 as fixed since.
