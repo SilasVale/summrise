@@ -279,6 +279,13 @@ cannot be a CI job), with its finding written beside it as the reason it earns t
 
 ## 9. The production-host cleanup: what is left, measured, ready to execute
 
+> **READ §13 BEFORE ACTING ON THIS SECTION (round 202).** §13, "The deployment-host migration: how it ended,
+> in one place", is the record of this cleanup, and it reports the fixture move below as ALREADY DONE for
+> eleven of the files, with four remaining. The order this section proposes — configuration first, then the
+> fixtures — is the order §13 measured as the one that was actually taken, so step 2 is history rather than a
+> plan, and the counts here (492) are from before it. The measurement below is still the evidence for §13's
+> remaining four; the plan is not. Read §13 first.
+
 `scripts/test/production-host-check.mjs` now enforces where the deployment's domain may appear: **38 declared
 locations**, each with a reason, and any other tracked file that mentions one fails by name. It caught its own author
 first — the comment in `ci.yml` that described the rule spelled the domain the rule is about.
@@ -631,6 +638,10 @@ pre-commit hook's symlink in the global hooks directory; and whether to rename t
 `ideas.md` row 23).
 
 ## 13. The deployment-host migration: how it ended, in one place
+
+> **THIS SECTION SUPERSEDES §9** (round 202). §9's plan reads as ready to execute and its counts predate the
+> eleven files that moved; this is what happened. §9 is kept because its measurement is the evidence for the
+> four that remain — read it as evidence, not as instructions.
 
 Eleven gateway test files now run on a TEST DOMAIN and name no deployment host; four remain, each with an accurate reason.
 Read this instead of the eleven rounds that produced it.

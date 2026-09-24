@@ -5184,3 +5184,27 @@ stale comment — an instrument aimed at the wrong subject — with the extra we
 The row is marked WITHDRAWN rather than removed: a checkpoint that silently drops a mistake teaches the next
 reader nothing, and the reason it was wrong is the part worth keeping. The other DELETE rows survive the same
 check — the exploration verified 4.1, 4.2 and 4.7 as still correct and 4.5, 4.6, 4.8 as fixed since.
+
+### TWO SECTIONS OF ONE CHECKPOINT THAT CONTRADICTED EACH OTHER IN SILENCE (round 202)
+
+The eighteenth exploration's §7 named the confusable pair, and verification made it sharper than the report put it:
+
+  §9   "The production-host cleanup: what is left, measured, READY TO EXECUTE"
+       proposes: 1. the gateway's production defaults become CONFIGURATION
+                 2. THEN the fixtures move, and the gateway/test/ allowance comes off the list
+  §13  "The deployment-host migration: how it ended, in one place"
+       "Read this instead of the eleven rounds that produced it."
+       "Eleven gateway test files now run on a TEST DOMAIN; four remain"
+
+**Step 2 has already been executed for eleven of the files**, and §13 says so 350 lines below the section that
+proposes it. Neither mentioned the other — zero cross-references in either direction — and the preamble at :8
+tells a reader to start from §4/§5/§6, which point forward to nothing. A reader following §9 redoes finished work,
+and the counts they would compare against (492) predate the move.
+
+Both now carry the pointer, in opposite directions, and §9's banner says which of its halves is still live: the
+MEASUREMENT is the evidence for §13's remaining four, the PLAN is history. That distinction is the whole reason
+the section was worth keeping rather than deleting — a checkpoint that drops its own measurement loses the thing
+the next round needs.
+
+Same family as everything else this stretch has recorded: a document whose two halves disagreed, where the fix is
+not to pick a winner but to make the disagreement visible at the point of use.
