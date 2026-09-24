@@ -98,12 +98,32 @@ interface ProviderDraft {
   }[];
 }
 
+/** How long a console request may hang before it is treated as unanswered. 30 s mirrors the PANEL s
+ *  `lib/api.ts`, which has carried this bound since round 107. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      // A HUNG REQUEST MUST NOT SPIN FOREVER (round 230). This file had no `AbortSignal` anywhere, so a
+      // stalled tunnel left every caller awaiting a promise that could not settle — and the views that
+      // gate a spinner on the promise (DevicesPanel s busy flags) stayed busy for as long as the tab was
+      // open. The PANEL has had this bound since round 107; the console never got it.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      ...options,
+    });
+  } catch (e) {
+    // A TIMEOUT IS AN ANSWER, AND IT IS NOT A SUCCESS (round 230). `AbortSignal.timeout` rejects with a
+    // DOMException; every caller here catches `ApiError`, so translating it is what makes the failure
+    // visible rather than an unhandled rejection. The panel does the same, with its own wording.
+    if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new ApiError(504, `The request to ${path} did not answer within 30 seconds.`, null);
+    }
+    throw e;
+  }
   let data: unknown = null;
   try {
     data = await res.json();

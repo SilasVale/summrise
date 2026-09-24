@@ -100,7 +100,11 @@ export default function Overview() {
         .catch(() => setProviders(null));
       try {
         const s = await api.getPluginStatus(true);
-        setStatus(s.devices || {});
+        // A BODYLESS REPLY MUST NOT BLANK THE FLEET (round 230). This wrote `s.devices || {}`, so a
+        // response without `devices` replaced every tile with nothing — while the comment one line
+        // below says "tiles keep their last value". `DevicesPanel` does what that comment says
+        // (`if (data.devices) …`); these are the same endpoint read by two views, and they disagreed.
+        if (s.devices) setStatus(s.devices);
       } catch {
         /* probe is best-effort — tiles keep their last value */
       }
