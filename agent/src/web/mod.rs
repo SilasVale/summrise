@@ -1164,6 +1164,23 @@ async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Respo
                 let tool_name = p.strip_prefix("/api/tools/").unwrap_or("");
                 api_call_tool(state, tool_name, body_str).await
             }
+            // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
+            // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
+            // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
+            // malformed body on the monitor and tool routes is `200 + {ok:false,code}`, an unknown route
+            // is `200 + {ok:false,error}` right here, and `/api/run/mark-exit` swallows its parse error
+            // entirely.
+            //
+            // IT CANNOT SIMPLY BE MADE CONSISTENT, and the evidence is a second client:
+            // `gateway/src/mcp.ts` records the shape in a comment ("tool errors as HTTP 200 +
+            // {ok:false,error}") and compensates for it with `!ok || data.ok === false`, and the
+            // console's `callTool` re-checks `ok === false` for the same reason. Answering a failed tool
+            // with a non-2xx would break both, so the shape stays.
+            //
+            // WHAT IS WORTH FIXING IS ON THE CLIENT SIDE: the panel hand-rolls that check in TWELVE places
+            // across three dialects (`ok !== true`, `ok === false`, `if (j?.ok)`), when the gateway shows
+            // the pattern — ONE predicate, inside the client, applied by every caller. That is a
+            // deliberate change to the panel's data layer, not a line here.
             _ => serde_json::json!({"ok": false, "error": "not found"}),
         };
         Ok(result)
