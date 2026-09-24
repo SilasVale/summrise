@@ -310,17 +310,22 @@ pub struct TargetSpec {
 
 impl TargetSpec {
     /// Parse and validate untyped input from a door. The port arrives as `u64` because that is
-    /// what JSON gives both doors; the range check lives HERE, once.
+    /// what JSON gives both doors; the range checks live HERE, once.
     /// `Err(reason)` is written for a person and is what both doors show.
+    ///
+    /// A PORT THAT WAS GIVEN AND A PORT THAT WAS NOT ARE TWO DIFFERENT MISTAKES, and this answers
+    /// them differently ON PURPOSE. `port == 0` is a number the caller SENT; absence never reaches
+    /// here (each door reads its own wire shape, and a missing field is the door's to report — see
+    /// `PORT_REQUIRED_REASON`). The first version of this function let `validate_target` answer for
+    /// both, so an explicit `"port": 0` was refused with "a port is required (22 for SSH, …)" — the
+    /// wrong sentence for a port that WAS given, i.e. exactly the class of mistake this round
+    /// exists to remove. Caught by review, not by the truth table, which had no `"port": 0` case;
+    /// it has one now.
     pub fn parse(host: &str, port: u64, path: &str, expect: &str) -> Result<TargetSpec, String> {
         // BEFORE THE CAST, NOT AFTER IT. `validate_target` speaks `u16`, so checking the range
-        // there is impossible: 65536 would truncate to 0 and be refused with "a port is required"
-        // about a number whose only problem is being too large. `port == 0` still belongs to
-        // `validate_target` (below), which is why the sentence above is a shared constant rather
-        // than a literal in two places.
-        if port > u64::from(u16::MAX) {
-            return Err(format!("{port} is not a port"));
-        }
+        // there is impossible: 65536 would truncate to 0 and be refused as if it were a MISSING
+        // port. Both checks therefore run on the `u64` the door handed over.
+        refuse_invalid_port(port)?;
         let (host, port) = validate_target(host, port as u16)?;
         let path = validate_path(path)?.unwrap_or_default();
         let expect = validate_expect(expect)?.unwrap_or_default();
@@ -332,6 +337,19 @@ impl TargetSpec {
             expect,
         })
     }
+}
+
+/// The sentence for a port that was GIVEN and cannot be used — one function, so `TargetSpec::parse`
+/// and the store cannot answer the same mistake differently. Absence never reaches here: a door
+/// reads its own wire shape, and a MISSING `port` is the door's to report (`PORT_REQUIRED_REASON`).
+fn refuse_invalid_port(port: u64) -> Result<(), String> {
+    if port == 0 {
+        return Err("0 is not a port".into());
+    }
+    if port > u64::from(u16::MAX) {
+        return Err(format!("{port} is not a port"));
+    }
+    Ok(())
 }
 
 /// Validate and normalise a host and port. `Err` carries the reason a user can act on — this is fed
@@ -377,28 +395,22 @@ pub fn targets() -> Vec<Target> {
 /// with NO production caller — every call site was a test — and they existed only because the
 /// signature took loose arguments. A caller that has to say what it means builds a [`TargetSpec`].
 pub fn add_target_full(data_dir: &Path, spec: &TargetSpec) -> Result<Target, String> {
-    // The spec normally comes from `TargetSpec::parse`, which already refused this — but the
-    // fields are public, so the store cannot assume its caller came through the parser. Same
-    // sentence, one function (see `refuse_expect_without_path`).
+    // THE FIELDS ARE PUBLIC, so the store cannot assume its caller came through the parser — and
+    // this is where the review found a gap: the first version validated only the two fields the
+    // store itself depends on, so a hand-built spec carrying `path: "  "` was persisted verbatim
+    // where the old store normalised it to `None` and refused. All four fields are validated here,
+    // the same way, through the same functions.
+    let path = validate_path(&spec.path)?;
+    let expect = validate_expect(&spec.expect)?;
     refuse_expect_without_path(&spec.path, &spec.expect)?;
     // AND THE SAME FOR A ZERO PORT, which is not vanity: `port == 0` IS THIS FUNCTION'S at-capacity
     // sentinel below. A hand-built spec carrying one would push a watch and then be answered with
-    // "this device watches at most N targets" — a real watch plus a false explanation. Validation
-    // moved out of the store with this round, so the one field the store itself depends on is
-    // checked here.
-    if spec.port == 0 {
-        return Err(PORT_REQUIRED_REASON.into());
-    }
+    // "this device watches at most N targets" — a real watch plus a false explanation. The sentence
+    // comes from the same function `parse` uses, so the two cannot answer one mistake differently.
+    refuse_invalid_port(u64::from(spec.port))?;
     // Empty means "the door offered none", which is what `validate_path`/`validate_expect` answer
-    // with `None` — the two representations are converted here, once.
-    let path = match spec.path.as_str() {
-        "" => None,
-        p => Some(p.to_string()),
-    };
-    let expect = match spec.expect.as_str() {
-        "" => None,
-        e => Some(e.to_string()),
-    };
+    // with `None` — the two representations are converted by the validators themselves, once, and
+    // their normalised results are what gets persisted.
     let id = target_id(&spec.host, spec.port, path.as_deref());
     let target = Target {
         id,
@@ -1097,9 +1109,11 @@ mod tests {
                 .port,
             65535
         );
+        // A GIVEN zero, which is not a missing port: "a port is required" is the sentence for
+        // ABSENCE, and the first version answered it here too (found by review).
         assert_eq!(
             TargetSpec::parse("h", 0, "", "").unwrap_err(),
-            PORT_REQUIRED_REASON
+            "0 is not a port"
         );
         // The one that made the range check necessary: `u16` would have truncated 65536 to 0 and
         // refused it with the WRONG sentence.
@@ -1386,10 +1400,7 @@ mod tests {
             path: String::new(),
             expect: String::new(),
         };
-        assert_eq!(
-            add_target_full(&d, &zero).unwrap_err(),
-            PORT_REQUIRED_REASON
-        );
+        assert_eq!(add_target_full(&d, &zero).unwrap_err(), "0 is not a port");
         assert_eq!(targets().iter().filter(|t| t.port == 0).count(), 0);
 
         remove_target(&d, &hit.id);

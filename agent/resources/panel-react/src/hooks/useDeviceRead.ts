@@ -83,7 +83,18 @@ export interface DeviceReadOptions<T> {
    *  would pin the first cursor forever and re-request the same window, so the function is
    *  resolved AT READ TIME, never at hook-call time. */
   path: string | (() => string);
-  /** Pure. Called ONLY with a body the device actually sent. Never with a refusal. */
+  /** Called ONLY with a body the device actually sent — never with a refusal — and NEVER "pure" in
+   *  the strict sense, which this contract used to claim and the review caught: a cursor-carrying
+   *  reader (`useOperationRuns`) advances a caller-held ref from the reply it is folding, and the
+   *  module never granted that. Exactly two things are guaranteed about a `reduce`:
+   *
+   *    * it sees a body the device SENT (a refusal and a throw are the module's, not the fold's);
+   *    * if it THROWS, the read is reported as `"unreadable"`, the last good value is kept, and the
+   *      exception never reaches React's render — which is what lets a strict caller say "a body I
+   *      cannot use is a FAILED read" (`useSessionArchive`, `DeviceLogsCard`) rather than folding it
+   *      into a default that would render as a device which is empty.
+   *
+   *  Anything else it does to the caller's own state is the caller's business. */
   reduce: (previous: T, body: unknown) => T;
   /** The value before the first successful read. */
   initial: T;

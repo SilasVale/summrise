@@ -513,6 +513,16 @@ async fn handle_browser_evidence(path: &str, query: Option<&str>) -> Option<Resp
             "application/json",
             Body::from(
                 serde_json::json!({
+                    // THE ENVELOPE EVERY OTHER ROUTE THE PANEL READS ALREADY CARRIES, and this one
+                    // did not — measured 2026-09-25, after the panel moved its readers onto
+                    // `deviceRefused`, which requires `ok === true`. The panel's predicate saw a
+                    // route that answered perfectly and classified every poll as a REFUSAL: the
+                    // operation timeline rendered empty, silently, on every real device, and no test
+                    // could see it because every mock carried the field the device did not. The
+                    // route was merely TOLERATED before (the reader defaulted a missing `events` to
+                    // an empty page), which is why nothing failed until the reader got strict.
+                    // `every_read_only_route_answers_the_envelope_the_panel_requires` is the gate.
+                    "ok": true,
                     "events": events,
                     // The run boundaries the events sit inside. Deliberately a
                     // SEPARATE array rather than a join: the runs log is
@@ -4172,10 +4182,12 @@ mod tests {
                 r#"{"host":"192.0.2.77"}"#,
                 crate::monitor::PORT_REQUIRED_REASON.to_string(),
             ),
-            // A port of zero: the range check `TargetSpec::parse` owns.
+            // A port of zero: GIVEN, and not a port — a different mistake from the missing one
+            // above, and the review found the two answering the same sentence. Restated by calling
+            // the parser rather than by quoting it, so the door's answer and the rule cannot drift.
             (
                 r#"{"host":"192.0.2.77","port":0}"#,
-                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+                crate::monitor::TargetSpec::parse("192.0.2.77", 0, "", "").unwrap_err(),
             ),
             // Above u16: refused BEFORE the cast, or it would truncate to 0 and answer about the
             // wrong mistake.
@@ -5325,6 +5337,14 @@ mod tests {
     /// error, and a `cursor_ms` that is not a number leaves the panel's cursor where it was, so every
     /// poll re-requests the same window for ever. Neither failure looks like a failure.
     ///
+    /// AND `ok` IS THE FOURTH KEY, ADDED HERE AFTER THIS TEST'S FIRST VERSION MISSED IT. The three
+    /// keys above are the READER's, checked defensively; `ok: true` is the PREDICATE's, and
+    /// `deviceRefused` (`panel-react/src/lib/api.ts`) refuses a body WITHOUT it. The first version of
+    /// this test was named "the envelope the panel reads" and checked the three keys the panel
+    /// tolerates while missing the one it requires — so the route answered no `ok`, every poll was
+    /// classified as a refusal, and the timeline rendered empty on every real device with this test
+    /// green. A test named for an envelope must check the field the other end's gate keys on.
+    ///
     /// GATED ON THE FEATURE, which is what round 105's attempt got wrong: the route answers Internal
     /// without the terminal backend, so a test that asserts a 200 here must not run without it. Unlike
     /// its neighbour below it needs no PTY, so it does not carry the `not(windows)` half.
@@ -5334,6 +5354,11 @@ mod tests {
         let resp = handle_request(req("GET", "/api/operation"), state()).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let v = json_body(resp).await;
+        assert_eq!(
+            v["ok"], true,
+            "the panel's `deviceRefused` requires `ok === true`; without it every poll is a refusal \
+             and the timeline is empty in silence: {v}"
+        );
         let keys: std::collections::BTreeSet<&str> = v
             .as_object()
             .expect("object")
@@ -8066,6 +8091,79 @@ mod tests {
         // mutant (verified), and `route_pre_dispatch`'s own auth coverage
         // (R102's route walk) covers the rest.
     }
+    /// THE ENVELOPE THE PANEL'S PREDICATE REQUIRES, ON EVERY READ-ONLY ROUTE.
+    ///
+    /// `deviceRefused` (`panel-react/src/lib/api.ts`) treats a body WITHOUT `ok === true` as a
+    /// REFUSAL. A route that answers perfectly and omits it therefore renders as a device that said
+    /// no — and in the direction that is hardest to see: the panel's readers KEEP THE LAST GOOD
+    /// VALUE, so the surface goes QUIET rather than red. That is exactly what `/api/operation` did
+    /// (fixed above, 2026-09-25): the timeline was empty on every real device, in silence, while
+    /// this crate's own envelope test checked the three keys the reader TOLERATES and missed the one
+    /// its predicate REQUIRES.
+    ///
+    /// IT WALKS THE TABLE, and only its READ-ONLY rows. The POST rows have SIDE EFFECTS — adding a
+    /// watch, marking how this process is about to die — and a walk that executed them would be a
+    /// test that changes the device it is measuring. Every GET row is a read by construction, which
+    /// is what makes this walk safe to run against the real routes rather than against a list of
+    /// them.
+    ///
+    /// GATED ON THE TERMINAL FEATURE, like its neighbour: `/api/operation` and `/api/sessions` answer
+    /// Internal without the backend, and a walk that silently skipped them would be the vacuity this
+    /// test exists to prevent. The floor below is what makes an empty walk fail rather than pass.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn every_read_only_route_answers_the_envelope_the_panel_requires() {
+        // Streams, not reads.
+        const STREAMS: &[RouteId] = &[RouteId::EventsStream, RouteId::TermStream];
+        // Read by the desktop drawer over its own transport (see the doc comment).
+        const OTHER_TRANSPORT: &[RouteId] = &[RouteId::PwShots, RouteId::PwShot, RouteId::Actions];
+        let mut walked = 0usize;
+        let mut exempted = 0usize;
+        for row in routes() {
+            if row.method != "GET"
+                || !matches!(row.stage, Stage::DispatchGated | Stage::PreDispatchAuthed)
+            {
+                continue;
+            }
+            if STREAMS.contains(&row.id) || OTHER_TRANSPORT.contains(&row.id) {
+                exempted += 1;
+                continue;
+            }
+            let p = probe_path(row);
+            let resp = handle_request(req("GET", &p), state()).await;
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "{:?} ({p}) is a read-only row and did not answer 200 — if it now needs the \
+                 terminal backend, this walk is skipping it in silence rather than saying so",
+                row.id
+            );
+            let v = json_body(resp).await;
+            assert_eq!(
+                v["ok"],
+                true,
+                "{:?} ({p}) answered without `ok: true`. The panel's `deviceRefused` reads that as a \
+                 REFUSAL, so its readers keep the last good value and the surface goes quiet with no \
+                 error anywhere. KEYS ANSWERED: {:?}",
+                row.id,
+                v.as_object()
+                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            );
+            walked += 1;
+        }
+        assert_eq!(
+            exempted,
+            STREAMS.len() + OTHER_TRANSPORT.len(),
+            "an exemption matched no row — the table moved and this list is stale, which is how a \
+             skipped route hides"
+        );
+        assert!(
+            walked >= 10,
+            "walked only {walked} read-only route(s) — a walk that reads nothing proves nothing"
+        );
+    }
+
     /// The blank-token fail-open, in BOTH gates.
     ///
     /// `timing_safe_eq(b"", b"")` is TRUE, and both gates failed closed only on

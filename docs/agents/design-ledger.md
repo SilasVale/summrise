@@ -5174,6 +5174,60 @@ a documented contract — and lost their copies of the rules. `add_target` and `
 one door test, and `plugins/monitor/tools.rs` gets its FIRST test of any kind (it had zero across 162 lines
 while sibling plugin files carry 7-28).
 
+### The review found a LIVE REGRESSION this round introduced (same round)
+
+The round ran its own two-axis review against the committed diff, and both axes independently found
+the same thing — the worst kind of finding, because it was mine and the gates could not see it.
+
+**MIGRATING A READER ONTO A STRICT PREDICATE BROKE A ROUTE THAT WAS MERELY TOLERATED BEFORE.**
+`deviceRefused` requires `ok === true`. `GET /api/operation` answers
+`{events, runs, since_ms, cursor_ms}` and has never carried it. So every poll was classified as a
+REFUSAL, `reduce` was never called, and the operation timeline rendered **empty, silently, on every
+real device** — the exact failure `lib/readState.ts` exists to prevent. It was invisible to every
+gate: the hook's mocks all carry `ok: true`, the harness stub merges `ok` in STRUCTURALLY
+(`panel-stub.cjs`), and this crate's own test for that route was named
+`the_operation_route_carries_the_envelope_the_panel_reads` while checking the three keys the reader
+TOLERATES and not the one its predicate REQUIRES. Round 232's comment in that hook — "the mocks carry
+`ok: true` because the DEVICE sends it, not because this reads it" — was simply false for this route.
+
+Fixed on the DEVICE side (`"ok": true` added), because it is the route that is the anomaly: every
+other route the panel reads through that predicate already carries it, and `/api/update` only looked
+suspicious because it delegates to `update_status()`, which does.
+
+**AND THE GATE THAT SHOULD HAVE CAUGHT IT NEEDED TWO TRIES.** `every_read_only_route_answers_the_envelope_the_panel_requires`
+walks the route table and asserts `ok: true` on every read-only row. Its FIRST version walked
+`DispatchGated` only — so `/api/operation`, which is answered in `route_pre_dispatch`, was SKIPPED,
+and removing the `ok` again left the walk green. Found by running that mutation rather than by
+reading the test. It walks both gated stages now, with the two SSE streams and the four
+browser-evidence routes exempted BY NAME and with reasons (a stream is not an envelope; the desktop
+drawer reads those over its own transport, where the predicate is the HTTP status), the exemption
+list asserted to be fully matched, and a floor on the walk. Mutations: removing `ok` from the route
+fails the walk; a stale exemption fails it too.
+
+**TWO SENTENCES FOR ONE MISTAKE, AGAIN — THIS TIME INSIDE THE ROUND'S OWN FIX.** A port that was
+GIVEN as zero was routed through `validate_target`, whose refusal ("a port is required (22 for SSH,
+80 for a web UI, …)") is written for an ABSENT field. So `"port": 0` was answered with the sentence
+for a missing port — precisely the class of mistake the round existed to remove, introduced while
+removing it. `refuse_invalid_port` now owns that sentence for both `parse` and the store, and the
+truth table has the case it was missing. THE TEST THAT PINNED THE WRONG SENTENCE is the part worth
+remembering: it was written THIS ROUND, it passed, and it asserted the wrong answer confidently.
+
+**AND THE STORE VALIDATED TWO OF FOUR FIELDS.** "The fields are public, so the store cannot assume
+its caller came through the parser" was written on the port guard and was not true of `path` and
+`expect`: a hand-built spec carrying `path: "  "` was persisted verbatim where the old store
+normalised it to `None` and refused. All four fields go through their validators now.
+
+**Corrections to claims, since this is what the next round reads:** (1) `ConnectCard`'s row said a
+failed read drives the existing sentence — TRUE, and the migration also fixed the SUCCESS path, which
+now says "0 tools available on this device" where an empty array used to be read as a failure; (2)
+the MCP door's header claimed it kept "not a copy of the rules", and it keeps its SCHEMA checks too —
+a missing host is answered in the door's own vocabulary ("missing required field: host") while an
+empty one gets the validator's sentence. That is two LAYERS, not two copies, and the paragraph now
+says so; (3) `reduce`'s contract said "Pure", which the module never granted — a cursor reader
+advances a caller-held ref inside it, and the contract now states the two guarantees that are real
+(the fold sees only bodies the device sent; a throw is reported as `unreadable`) rather than one it
+is not.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

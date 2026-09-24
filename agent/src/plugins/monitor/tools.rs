@@ -3,9 +3,20 @@
 //! Four tools over ONE instrument (`crate::monitor`): read the watches, take a probe now, and
 //! add or remove a watch. Nothing here re-derives a rule the panel also has — `summary`,
 //! `series` and `TargetSpec` are the module's own, so an AI reading `monitor_list` and an
-//! operator reading the Reachability card see the same numbers (round 261's whole point). What the
-//! add door keeps is its own ENVELOPE (`DeviceError::InvalidParams`) and not a copy of the rules:
-//! they live in `crate::monitor::TargetSpec::parse`, which the HTTP form calls as well.
+//! operator reading the Reachability card see the same numbers (round 261's whole point).
+//!
+//! WHAT THE ADD DOOR KEEPS, AND WHAT IT DOES NOT — stated precisely, because the first version of
+//! this paragraph claimed more than the code did and the review said so. It keeps its ENVELOPE
+//! (`DeviceError::InvalidParams`) and its WIRE-SHAPE checks: a missing or non-numeric field is a
+//! fact about the JSON this door received, and `require_str` answers for it in this door's own
+//! vocabulary ("missing required field: host") — the tool schema declares both fields required, so
+//! that violation is the schema's to report. It does NOT keep the DOMAIN rules: what a host may
+//! contain, what port range is usable, whether an expectation needs a path — those live in
+//! `crate::monitor::TargetSpec::parse`, which the HTTP form calls as well, and which is why the
+//! sentence a person reads for a bad HOST, a bad PORT, or an expectation with no path is the same
+//! through either door. A missing host therefore answers differently than an empty one BY LAYER,
+//! not by accident: the first is a schema violation the door names, the second is a rule the
+//! validator owns.
 //!
 //! WHAT THE AI IS TOLD, in the descriptions, is the part that makes these usable rather than
 //! merely present: the probe interval, that a series gap is a FAILED probe, that a refused
@@ -195,11 +206,13 @@ mod tests {
         let tools = build();
         let add = tool(&tools, "monitor_add");
         let cases = [
-            // The number the two doors disagreed about: the HTTP form said "a port is required"
-            // with no examples, this door appended them. One sentence now, and this is it.
+            // A GIVEN port of zero is a DIFFERENT mistake from a MISSING one, and the review found
+            // the first version answering both with the same sentence: an explicit 0 was routed
+            // through `validate_target`, whose refusal is written for an absent field. Restated by
+            // CALLING the parser rather than by quoting it, so the two cannot drift.
             (
                 json!({"host": "192.0.2.1", "port": 0}),
-                crate::monitor::PORT_REQUIRED_REASON.to_string(),
+                crate::monitor::TargetSpec::parse("192.0.2.1", 0, "", "").unwrap_err(),
             ),
             // …including when the field is not there at all, or is not a number: both are wire
             // facts THIS door establishes, and both answer with the same sentence.
