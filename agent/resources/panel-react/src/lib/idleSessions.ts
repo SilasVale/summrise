@@ -15,6 +15,11 @@
 // they exited), and counting them would make the offer's number wrong.
 
 import type { Session } from "../hooks/useSessions";
+// The private copy that lived here emitted `1h04m` (the panel writes `1h 04m`) and `0m` for a
+// 45-second silence — a false statement reached by branch order rather than by a decision. One owner
+// now, and the seconds branch comes with it. Re-exported so a test can assert the identity.
+import { humanIdle } from "./duration";
+export { humanIdle };
 
 /** Silence past which a session is worth offering to close. See the note above for why an hour. */
 export const IDLE_OFFER_MS = 60 * 60 * 1000;
@@ -28,8 +33,14 @@ export const IDLE_OFFER_MS = 60 * 60 * 1000;
  * `command_running` flag, which the rest of the panel now reads, says exactly when that is the case. An offer to
  * close is an action, not a mark: a wrong mark is read, a wrong action is taken.
  */
-export function idleSessions(sessions: Session[], thresholdMs: number = IDLE_OFFER_MS): Session[] {
-  return sessions.filter((s) => !s.closed && !s.savedOnly && !s.commandRunning && s.idleMs > thresholdMs);
+export function idleSessions(
+  sessions: Session[],
+  thresholdMs: number = IDLE_OFFER_MS,
+): Session[] {
+  return sessions.filter(
+    (s) =>
+      !s.closed && !s.savedOnly && !s.commandRunning && s.idleMs > thresholdMs,
+  );
 }
 
 /** ONE LINE for the offer: how many, and the longest silence among them. */
@@ -37,14 +48,10 @@ export function idleOfferText(candidates: Session[]): string {
   if (candidates.length === 0) return "";
   const longest = Math.max(...candidates.map((s) => s.idleMs));
   const names = candidates.map((s) => s.label || s.sid);
-  const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3} more` : "");
+  const shown =
+    names.slice(0, 3).join(", ") +
+    (names.length > 3 ? ` +${names.length - 3} more` : "");
   return `${candidates.length} session${candidates.length === 1 ? "" : "s"} idle for up to ${humanIdle(
     longest,
   )} — ${shown}`;
-}
-
-function humanIdle(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }

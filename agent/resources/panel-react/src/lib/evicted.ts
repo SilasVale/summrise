@@ -47,18 +47,17 @@ export function parseEvicted(detail: unknown): EvictionNotice | null {
   return { cause, limit: typeof d.limit === "number" ? d.limit : 0, sessions };
 }
 
-/** How long a silence lasts, in the words the rest of the panel uses. */
-export function humanIdle(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
-}
+/** How long a silence lasts — ONE OWNER now (`lib/duration.ts`). This file kept a private copy that
+ *  emitted `1h04m` where the panel writes `1h 04m`, while the doc below claimed the opposite. The
+ *  import is what `evictedText` calls; the re-export keeps this module's public surface. */
+import { humanIdle } from "./duration";
+export { humanIdle };
 
 /** ONE LINE: what was closed, by which rule, after how long. */
 export function evictedText(n: EvictionNotice): string {
   const names = n.sessions.map((s) => s.label || s.id).join(", ");
-  const count = n.sessions.length === 1 ? "session" : `${n.sessions.length} sessions`;
+  const count =
+    n.sessions.length === 1 ? "session" : `${n.sessions.length} sessions`;
   if (n.cause === "cap") {
     return `Closed ${names} — the ${n.limit}-session cap was reached${names.length ? "" : ""}.`;
   }

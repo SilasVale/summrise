@@ -15,7 +15,8 @@ const s = (over: Partial<Session>): Session =>
     closed: false,
     savedOnly: false,
     active: false,
-    idleMs: 0, commandRunning: false,
+    idleMs: 0,
+    commandRunning: false,
     firstSeenAt: 0,
     closedAt: null,
     heldByHuman: false,
@@ -33,7 +34,9 @@ describe("idle sessions", () => {
     const borderline = s({ sid: "b", idleMs: IDLE_OFFER_MS });
     const idle = s({ sid: "c", idleMs: IDLE_OFFER_MS + 1 });
     const ancient = s({ sid: "d", idleMs: 11 * 3600_000 });
-    const got = idleSessions([fresh, borderline, idle, ancient]).map((x) => x.sid);
+    const got = idleSessions([fresh, borderline, idle, ancient]).map(
+      (x) => x.sid,
+    );
     // `>` not `>=`: a session silent for EXACTLY the threshold is not yet offered — the bar exists
     // to catch forgotten sessions, and an offer that fires on the boundary is one that fires early.
     expect(got).toEqual(["c", "d"]);
@@ -43,9 +46,15 @@ describe("idle sessions", () => {
     // THE CASE THAT MAKES THIS AN ACTION RATHER THAN A MARK. A flash, a long probe or a serial command can run for
     // an hour without printing anything, and `idleMs` is output recency — so without this the panel would offer to
     // CLOSE a session in the middle of its work. A wrong mark is read; a wrong action is taken.
-    const working = s({ sid: "flashing", idleMs: 2 * 3600_000, commandRunning: true });
+    const working = s({
+      sid: "flashing",
+      idleMs: 2 * 3600_000,
+      commandRunning: true,
+    });
     const silent = s({ sid: "forgotten", idleMs: 2 * 3600_000 });
-    expect(idleSessions([working, silent]).map((x) => x.sid)).toEqual(["forgotten"]);
+    expect(idleSessions([working, silent]).map((x) => x.sid)).toEqual([
+      "forgotten",
+    ]);
     // and the offer's own line never counts it either
     expect(idleOfferText(idleSessions([working]))).toBe("");
   });
@@ -63,12 +72,20 @@ describe("idle sessions", () => {
       s({ sid: "b", label: "serial:COM4", idleMs: 11 * 3600_000 }),
     ]);
     expect(text).toContain("2 sessions");
-    expect(text).toContain("11h00m");
+    // The panel's spelling, from the one owner now (`lib/duration.ts`): this pinned `11h00m`, which
+    // only this file and evicted.ts produced.
+    expect(text).toContain("11h 00m");
     expect(text).toContain("d1");
     expect(text).toContain("serial:COM4");
     // One is singular, and a long list is summarized rather than printed in full.
-    expect(idleOfferText([s({ sid: "a", idleMs: 2 * 3600_000 })])).toContain("1 session idle");
-    const many = idleOfferText(["a", "b", "c", "d", "e"].map((id) => s({ sid: id, label: id, idleMs: 2 * 3600_000 })));
+    expect(idleOfferText([s({ sid: "a", idleMs: 2 * 3600_000 })])).toContain(
+      "1 session idle",
+    );
+    const many = idleOfferText(
+      ["a", "b", "c", "d", "e"].map((id) =>
+        s({ sid: id, label: id, idleMs: 2 * 3600_000 }),
+      ),
+    );
     expect(many).toContain("+2 more");
     // Nothing to offer is an empty string, not a sentence about nothing.
     expect(idleOfferText([])).toBe("");
