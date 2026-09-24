@@ -41,6 +41,20 @@ export function collectResponseHeaders(response) {
     const sc = response.headers.getSetCookie();
     if (sc.length) out["set-cookie"] = sc;
   }
+  // THESE TWO ARE DROPPED ON PURPOSE, AND IT IS A CORRECTNESS FIX RATHER THAN TIDINESS (round 126).
+  //
+  // `fetch` TRANSPARENTLY DECOMPRESSES the body and leaves both headers exactly as the upstream sent them.
+  // MEASURED against Node 24's undici: an upstream answering 10,000 bytes gzipped to 45 sends
+  // `content-encoding: gzip` and `content-length: 45`, `response.headers` still reports BOTH, and
+  // `response.body` yields all 10,000 decoded bytes. Forwarding them makes the reply a lie — 45 declared,
+  // 10,000 sent, and `gzip` claimed over bytes that are no longer compressed — so a client trusting either
+  // header truncates the body or fails to decode it.
+  //
+  // It is reachable, not theoretical: `forwardHeaders` passes the CALLER's `accept-encoding` upstream, so a
+  // browser asking for gzip is exactly the case that produces this. Node sets its own framing on the reply
+  // (chunked), which is the honest answer when the length is no longer the upstream's.
+  delete out["content-length"];
+  delete out["content-encoding"];
   return out;
 }
 
