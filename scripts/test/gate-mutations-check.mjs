@@ -376,8 +376,17 @@ for (const c of CASES) {
     for (const a of c.also ?? []) writeFileSync(`${ROOT}/${a.file}`, originals.get(a.file).replace(a.from, a.to));
     if (c.emit) emit(c.emit);
     const after = run(runner, [c.gate]);
-    if (after === 0) {
-      console.error(`FAIL ${c.gate} did NOT bite: ${c.why} (it passed with the break in place)`);
+    if (after !== 1) {
+      // A BITE IS RED, AND RED IS 1 (round 173). This tested `after === 0`, i.e. ANY non-zero counted as
+      // proof — so a gate that refused to run (2, "this host cannot run me") or that ran and could not
+      // measure (3, its patterns gone stale) was recorded as "bites" without having bitten. Those are the
+      // verdicts the suite added precisely because they are not passes; they are not bites either.
+      console.error(
+        after === 0
+          ? `FAIL ${c.gate} did NOT bite: ${c.why} (it passed with the break in place)`
+          : `FAIL ${c.gate} exited ${after}, not 1, with the break in place — a refusal or a ` +
+            `could-not-measure verdict is not proof that it bit: ${c.why}`,
+      );
       findings++;
     } else {
       console.log(`ok   ${c.gate} bites — ${c.why}`);
@@ -397,4 +406,10 @@ if (findings) {
   console.error(`\ngate-mutations: ${findings} gate(s) unproven — a gate that cannot fail is worse than no gate`);
   process.exit(1);
 }
-console.log(`\ngate-mutations: ${CASES.length} gate(s) broken on purpose and every one of them bit`);
+// CASES ARE NOT GATES (round 173): several gates carry more than one mutation, so this line reported 31
+// "gate(s) broken on purpose" for 19 distinct gates — a count that overstated the coverage in the one
+// place a reader looks to learn how much of the suite is proven.
+const distinctGates = new Set(CASES.map((c) => c.gate)).size;
+console.log(
+  `\ngate-mutations: ${CASES.length} case(s) over ${distinctGates} gate(s), broken on purpose and every one of them bit`,
+);
