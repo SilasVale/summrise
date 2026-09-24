@@ -31,7 +31,14 @@ import { join } from "node:path";
 const SCALE = new Set([0, 2, 4, 8, 12, 16, 24]);
 const SPACING = /(?:^|[\s;{])(gap|row-gap|column-gap|padding|padding-(?:top|right|bottom|left)|margin|margin-(?:top|right|bottom|left))\s*:\s*([^;}]+)/g;
 
-// THE BASELINES, measured in rounds 220-222, one per UI. Each may only move in the good direction.
+// THE BASELINES, one per UI, and each may only move in the good direction.
+//
+// RE-READ THEM WHENEVER THE COUNTS IMPROVE (round 171). The fifteenth exploration measured this: the
+// baselines were taken in rounds 220-222, the counts had since FALLEN to 299 off-scale and RISEN to 397
+// token uses, and a one-way ratchet compares against the OLD number — so it silently tolerated SIX new
+// off-scale literals before it would fire. A ratchet that is not tightened is slack, and slack is the
+// vacuity this suite exists to catch in others. The values below are today's readings, taken from this
+// gate's own summary line; when a round legitimately improves them, move them in the same commit.
 // THREE UIs UNTIL ROUND 243, when the extension was removed (it shipped nowhere and its feature was off by
 // default); its baseline went with it rather than being kept at zero for a directory that no longer exists.
 const UIS = [
@@ -39,8 +46,8 @@ const UIS = [
     name: "panel",
     sheets: () => readdirSync("agent/resources/panel-react/src/styles").filter((f) => f.endsWith(".css")).sort()
       .map((f) => join("agent/resources/panel-react/src/styles", f)),
-    tokenUses: 385,
-    offScaleUses: 305,
+    tokenUses: 397,
+    offScaleUses: 299,
     // ZERO, and this number was INVISIBLE for 230 rounds. The check counted token uses and OFF-scale
     // literals, so a value already ON the scale -- `padding: 8px` where `var(--sp-2)` exists -- fell into
     // neither and could accumulate forever. It did: 234 of them, in the panel alone. Round 223 converted the
@@ -53,12 +60,12 @@ const UIS = [
       .map((f) => join("gateway/ui/src/styles", f)),
     // 86 token uses as of round 223: the console adopted the panel's scale, and every one of those 86 was
     // already a literal with that exact value, so NO PIXEL MOVED. The ratchet is tightened to hold it.
-    tokenUses: 86,
+    tokenUses: 87,
     onScaleLiterals: 0,
     // 136, NOT the 194 an ad-hoc scan reported: that scan swept gateway/public/style.css as well, which round
     // 209 established is DEAD (nothing links it). A baseline has to come from the instrument that will enforce
     // it — taken from the ad-hoc number, this ratchet allowed 58 new literals and a planted 13px passed it.
-    offScaleUses: 136,
+    offScaleUses: 132,
   },
 ];
 
