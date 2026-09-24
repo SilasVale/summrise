@@ -5412,3 +5412,25 @@ than rediscovering it.
 
 **THE LEDGER'S OWN RULE APPLIED TO A REFACTOR**: a change that does not alter what the system DOES has to be
 justified by what it makes possible, not by how it reads.
+
+### A REPORT FINDING REVERSED BY FOLLOWING THE DATA (round 222)
+
+The nineteenth exploration's §1 said `display_name`/`description` "are read at exactly ONE site in the crate —
+`web/mod.rs:2326-2327` (`api_spec`)" and that "18 hand-written strings exist for one JSON field", implying waste.
+
+Both halves of the measurement are right: those two methods HAVE exactly one caller in the crate, and MCP
+`tools/list` genuinely ignores them. What the finding did not follow is where the JSON goes. `api_spec` serves
+`/api/spec`, the panel fetches it, and the panel RENDERS the value:
+
+  agent/resources/panel-react/src/hooks/usePlugins.ts:240   displayName: p.displayName,
+  agent/resources/panel-react/src/components/ContextRail.tsx:109   {r.displayName}
+  agent/resources/panel-react/src/components/PluginsPage.tsx:31,100  search + label
+
+So the 18 strings are the plugin list's LABELS, drawn in the side rail and matched by the plugins page's search.
+Not dead weight — the opposite of what the finding implied, and the fourth report detail this stretch reversed by
+checking rather than acting.
+
+**THE METHOD THAT CAUGHT IT IS THE ONE WORTH KEEPING**: a finding that stops at "nothing reads this" has usually
+stopped one hop too early. The right question is never "who reads the field" but "who reads what the field feeds",
+and in a system with an HTTP surface between two languages that is exactly the hop a grep across one crate cannot
+make.
