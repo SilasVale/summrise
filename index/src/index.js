@@ -370,8 +370,24 @@ export default {
       /* no installer advertised — the npm channel below is the honest path */
     }
 
-    return new Response(PAGE(consoleUrl, installerUrl, setupUrl), {
-      headers: { "content-type": "text/html; charset=utf-8" },
+    // THE LANDING HAD NO CACHE POLICY, and it was the only response in this file without one (round 133).
+    // Six routes set `no-store`, `max-age` or `no-cache`; `/` set only `content-type`. A response carrying no
+    // `cache-control` is HEURISTICALLY cacheable, so a browser or an intermediary may reuse it without
+    // revalidating — and this page is where the install and update instructions live, which changed in round
+    // 128. A stale copy would keep telling visitors the thing that was fixed. Same rule as its siblings: a
+    // mutable URL revalidates, and a matching validator gets a 304 instead of 30 KB of HTML.
+    const body = PAGE(consoleUrl, installerUrl, setupUrl);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const etag = `"${Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 32)}"`;
+    const validators = { etag, "cache-control": "public, no-cache" };
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: validators });
+    }
+    return new Response(body, {
+      headers: { "content-type": "text/html; charset=utf-8", ...validators },
     });
   },
 };

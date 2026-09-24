@@ -155,6 +155,23 @@ test("unknown paths 404 (never the landing page as 200 HTML) and / renders it", 
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-type") || "", /text\/html/);
   assert.match(await page.text(), /<!doctype html>/);
+
+  // AND THE LANDING CARRIES A CACHE POLICY (round 133). It was the ONLY response in that worker without
+  // one — six siblings set `no-store`, `max-age` or `no-cache` — and a response with no `cache-control` is
+  // heuristically cacheable, so a browser could keep showing the old install instructions long after a
+  // deploy replaced them. This test asserted status and content-type only, which is why it survived.
+  assert.equal(
+    page.headers.get("cache-control"),
+    "public, no-cache",
+    "the landing must revalidate: it carries the install instructions",
+  );
+  const etag = page.headers.get("etag");
+  assert.ok(etag, "and carry a validator, so revalidation can answer 304 rather than 30 KB");
+  const revalidated = await worker.fetch(
+    new Request("https://dl.local/", { headers: { "if-none-match": etag } }),
+    env,
+  );
+  assert.equal(revalidated.status, 304, "a matching validator must not re-send the page");
 });
 
 test("cloudflared.exe proxies GitHub: pass-through on success, 502 on failure", async () => {
