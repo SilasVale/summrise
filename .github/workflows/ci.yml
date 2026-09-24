@@ -538,6 +538,15 @@ jobs:
       # script that parses and still FAILS a planted defect on every axis — no browser needed.
       - name: the design sweep tool emits and judges correctly
         run: bash scripts/test/panel-design-sweep.bash
+      # ONE COMMAND FOR ALL OF THEM, LOCALLY. AGENTS.md's table lists the per-directory test commands
+      # and not these gates, so "run the command the other end runs" was unsatisfiable by reading it —
+      # and round 41 paid: contract-vocabulary-check failed here over a test fixture while every
+      # command in the table was green. all-gates.bash DERIVES its list from this file, so a gate added
+      # below is covered by it the moment it is added. It runs the gates a second time in this job, on
+      # purpose: the individual steps stay because build-pins.bash requires every scripts/test file to
+      # be named here, and the grader for the local capability has to be the same list CI runs.
+      - name: every gate, in one command, as a developer would run them
+        run: bash scripts/test/all-gates.bash
       # THE WIRE VOCABULARY, BOTH ENDS (round 44 of the standing goal). The strings the device writes and the
       # interfaces switch on were spelled twice each, kept in step by tests that read one side. The source is
       # agent/src/vocabulary.rs; this proves the artifacts and the readers still match it. It cannot run cargo, so it
