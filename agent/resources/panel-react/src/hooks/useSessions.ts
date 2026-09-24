@@ -26,13 +26,17 @@ function mapGoal(s: any): string | null {
 function mapPlan(s: any): string[] {
   const p = s?.plan;
   if (!Array.isArray(p)) return [];
-  return p.filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+  return p.filter(
+    (x: unknown): x is string => typeof x === "string" && x.length > 0,
+  );
 }
 
 function mapGrants(s: any): string[] {
   const g = s?.approval_grants;
   if (!Array.isArray(g)) return [];
-  return g.filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+  return g.filter(
+    (x: unknown): x is string => typeof x === "string" && x.length > 0,
+  );
 }
 
 /** A question the device is holding open for a person to answer.
@@ -55,9 +59,10 @@ export interface PendingApproval {
 export function mapPending(s: any): PendingApproval | null {
   const p = s?.pending_approval;
   if (!p || typeof p.id !== "string") return null;
-  const budget = typeof p.expires_in_ms === "number" && Number.isFinite(p.expires_in_ms)
-    ? Math.max(0, p.expires_in_ms)
-    : 0;
+  const budget =
+    typeof p.expires_in_ms === "number" && Number.isFinite(p.expires_in_ms)
+      ? Math.max(0, p.expires_in_ms)
+      : 0;
   return {
     id: p.id,
     command: typeof p.command === "string" ? p.command : "",
@@ -156,8 +161,8 @@ export interface Session {
 }
 
 interface SessionRuntime {
-  term: any;            // xterm Terminal
-  fit: any;             // FitAddon
+  term: any; // xterm Terminal
+  fit: any; // FitAddon
   container: HTMLDivElement | null;
   renderedBytes: number;
   needSync: boolean;
@@ -182,7 +187,25 @@ const SESSIONS_SWEEP_MS = 30_000;
  *  REFRESH an existing one — reviving a tombstone whose sid reappeared, and syncing a hold that changed without an event —
  *  need exactly this part and must not restate it. They did: the same seven fields were written a second and a third
  *  time, so a field added to the wire would have reached a new row and neither of the refreshed ones. */
+// THE TWO FIELDS THAT SAY WHETHER A COMMAND IS RUNNING, mapped in ONE place because both the
+// discovery path (`mapRow`) and every refresh path (`wireFields`) must agree on them.
+//
+// THEY WERE MISSING FROM `wireFields` UNTIL 2026-09-24, and nothing failed: the list's own promise —
+// "a field added to the wire would have reached a new row and neither of the refreshed ones" — reads
+// as satisfied, because a field the list omits reaches a NEW row and neither refreshed one. So
+// `idleMs` and `commandRunning` were written once at discovery and then frozen, while three consumers
+// treat them as live: `sessionActive` (a panel-opened session is stamped `idleMs: 0` and reads
+// "working" for ever), `anyCommandRunning` (the rail mark shows the device as NOT working during a
+// silent long command — the exact blindness round 28 fixed) and `idleSessions`' offer-to-close, whose
+// `!commandRunning` guard could never fire. The panel exploration found it; `session-row-check.mjs`
+// disclaims precisely this property ("or whether `wireFields` is used everywhere it should be").
+const liveFields = (s: any) => ({
+  idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0,
+  commandRunning: !!s.command_running,
+});
+
 const wireFields = (s: any) => ({
+  ...liveFields(s),
   heldByHuman: !!s.held_by_human,
   approvalRequired: !!s.approval_required,
   pendingApproval: mapPending(s),
@@ -192,6 +215,34 @@ const wireFields = (s: any) => ({
   lastExitCode: typeof s.last_exit_code === "number" ? s.last_exit_code : null,
 });
 
+/** Does a refreshed row carry anything the stored one does not already have?
+ *
+ *  THIS LIST HAS TO STAY EXPLICIT, and the reason is a fact about one of its members:
+ *  `wireFields`'s `pendingApproval` is DERIVED at map time — `mapPending` turns the device's shrinking
+ *  budget into an absolute deadline — so comparing the mapped objects would report a change on every
+ *  poll and pull that deadline earlier each time. The "obvious" generalisation (compare mapped objects,
+ *  so a field can never be forgotten) was tried on 2026-09-24 and broke exactly that test. Hence the
+ *  narrow `pendingApproval?.id` below: identity may change, the derived deadline may not.
+ *
+ *  AND THE LIST IS WHERE THE BUG WAS. It omitted `idleMs` and `commandRunning` while `wireFields` did
+ *  too, so a refresh neither carried them nor noticed them — a row kept its discovery values for life,
+ *  and three consumers read them as live (`sessionActive`, the rail's `anyCommandRunning`,
+ *  `idleSessions`' offer-to-close). CARRY AND DETECT ARE TWO LISTS; fixing the bug needed both. */
+const wireFieldsChanged = (
+  existing: any,
+  fresh: ReturnType<typeof wireFields>,
+): boolean =>
+  existing.heldByHuman !== fresh.heldByHuman ||
+  existing.approvalRequired !== fresh.approvalRequired ||
+  (existing.lastExitCode ?? null) !== fresh.lastExitCode ||
+  existing.pendingApproval?.id !== fresh.pendingApproval?.id ||
+  existing.approvalGrants.join("\u0000") !==
+    fresh.approvalGrants.join("\u0000") ||
+  existing.goal !== fresh.goal ||
+  existing.plan.join("\u0000") !== fresh.plan.join("\u0000") ||
+  existing.idleMs !== fresh.idleMs ||
+  existing.commandRunning !== fresh.commandRunning;
+
 const mapRow = (s: any) => ({
   sid: s.id,
   label: s.label || s.id,
@@ -199,8 +250,9 @@ const mapRow = (s: any) => ({
   closed: false,
   savedOnly: false,
   active: false,
-  idleMs: typeof s.idle_ms === "number" ? s.idle_ms : 0,
-  commandRunning: !!s.command_running,
+  // `idleMs` and `commandRunning` arrive through `wireFields` below — the same mapper the refresh
+  // paths use, which is the point: they used to be written here only, and frozen at their first
+  // value for the life of the row.
   firstSeenAt: Date.now(),
   closedAt: null,
   ...wireFields(s),
@@ -266,18 +318,14 @@ export function useSessions(connected: boolean) {
               // the agent's close emit, and NOTHING ever revived it — the tab
               // sat dead forever (activate() refuses closed entries). A live
               // reappearance means the session is real: un-tombstone it.
-              const revived = { ...existing, closed: false, closedAt: null, ...wireFields(s) };
+              const revived = {
+                ...existing,
+                closed: false,
+                closedAt: null,
+                ...wireFields(s),
+              };
               next[next.indexOf(existing)] = revived;
-            } else if (
-              ((fresh) =>
-                existing.heldByHuman !== fresh.heldByHuman ||
-                existing.approvalRequired !== fresh.approvalRequired ||
-                (existing.lastExitCode ?? null) !== fresh.lastExitCode ||
-                existing.pendingApproval?.id !== fresh.pendingApproval?.id ||
-                existing.approvalGrants.join("\u0000") !== fresh.approvalGrants.join("\u0000") ||
-                existing.goal !== fresh.goal ||
-                existing.plan.join("\u0000") !== fresh.plan.join("\u0000"))(wireFields(s))
-            ) {
+            } else if (wireFieldsChanged(existing, wireFields(s))) {
               // The hold is server-owned and can change WITHOUT a sessions-changed
               // event (this panel's own control button, or another client).
               // Syncing it here is what keeps the indicator honest. Placed AFTER
@@ -298,7 +346,12 @@ export function useSessions(connected: boolean) {
           const next2 = next.map((x) => {
             if (!seen.has(x.sid) && !x.savedOnly) {
               if (x.active) deadActive = true;
-              return { ...x, closed: true, closedAt: x.closedAt || Date.now(), active: false };
+              return {
+                ...x,
+                closed: true,
+                closedAt: x.closedAt || Date.now(),
+                active: false,
+              };
             }
             return x;
           });
@@ -307,7 +360,9 @@ export function useSessions(connected: boolean) {
             const nextLive = out.find((s) => !s.closed);
             if (nextLive) {
               setActiveSid(nextLive.sid);
-              out = out.map((x) => (x.sid === nextLive.sid ? { ...x, active: true } : x));
+              out = out.map((x) =>
+                x.sid === nextLive.sid ? { ...x, active: true } : x,
+              );
             } else setActiveSid(null);
           }
           // round-117: cap the tombstone count — every session the device
@@ -317,7 +372,9 @@ export function useSessions(connected: boolean) {
           // still readable server-side via the sessions dir).
           const closed = out.filter((s) => s.closed);
           if (closed.length > 32) {
-            const drop = new Set(closed.slice(0, closed.length - 32).map((s) => s.sid));
+            const drop = new Set(
+              closed.slice(0, closed.length - 32).map((s) => s.sid),
+            );
             return out.filter((s) => !drop.has(s.sid));
           }
           return out;
@@ -326,7 +383,9 @@ export function useSessions(connected: boolean) {
       }
     };
     tick();
-    const onChange = () => { tick(); };
+    const onChange = () => {
+      tick();
+    };
     window.addEventListener("summrise-sessions-changed", onChange);
     document.addEventListener("visibilitychange", onChange);
     // round-245 (HIGH-1): a slow background sweep (SESSIONS_SWEEP_MS) that ONLY ADDS live
@@ -342,28 +401,37 @@ export function useSessions(connected: boolean) {
           // Only add never-seen live sessions + auto-activate the newest when
           // nothing is active — never tombstone here (that is the event
           // path's job, where the agent's close emit proves death).
-          const missing = (list as any[]).filter((s) => !prev.some((x) => x.sid === s.id));
+          const missing = (list as any[]).filter(
+            (s) => !prev.some((x) => x.sid === s.id),
+          );
           const next = [...prev];
           for (const s of missing) {
             next.push(mapRow(s));
           }
-          if (!prev.some((x) => x.active) && next.some((x) => !x.closed && x.active === false)) {
+          if (
+            !prev.some((x) => x.active) &&
+            next.some((x) => !x.closed && x.active === false)
+          ) {
             const liveTail = next.filter((x) => !x.closed);
             const target = liveTail[liveTail.length - 1];
             if (target) {
               setActiveSid(target.sid);
-              return next.map((x) => (x.sid === target.sid ? { ...x, active: true } : x));
+              return next.map((x) =>
+                x.sid === target.sid ? { ...x, active: true } : x,
+              );
             }
           }
           return next;
         });
-      } catch { /* transient — next sweep */ }
+      } catch {
+        /* transient — next sweep */
+      }
     }, SESSIONS_SWEEP_MS);
-  return () => {
-    window.removeEventListener("summrise-sessions-changed", onChange);
-    document.removeEventListener("visibilitychange", onChange);
-    window.clearInterval(sweep);
-  };
+    return () => {
+      window.removeEventListener("summrise-sessions-changed", onChange);
+      document.removeEventListener("visibilitychange", onChange);
+      window.clearInterval(sweep);
+    };
   }, [connected]);
 
   // FAST POLL while the gate is armed — SEPARATE from the effect above, because
@@ -402,69 +470,123 @@ export function useSessions(connected: boolean) {
   // into a session whose agent had gone away saw their keystrokes vanish with no explanation. The
   // status line already carries failures ("open failed: …"), and this is one of them.
   useEffect(() => {
-    const onWriteFailed = () => setStatusState("error: keystrokes could not be sent — this session may be gone");
+    const onWriteFailed = () =>
+      setStatusState(
+        "error: keystrokes could not be sent — this session may be gone",
+      );
     window.addEventListener("summrise-write-failed", onWriteFailed);
-    return () => window.removeEventListener("summrise-write-failed", onWriteFailed);
+    return () =>
+      window.removeEventListener("summrise-write-failed", onWriteFailed);
   }, []);
 
-  const openSession = useCallback(async (kind: string, target: string, extra: Record<string, unknown> = {}) => {
-    try {
-      const sid = await callTool("terminal_open", { kind, target, rows: 30, cols: 120, ...extra });
-      if (typeof sid !== "string" || !sid) throw new Error("terminal_open returned no sid");
-      setSessions((prev) => {
-        // round-131: rebuild the entry UNCONDITIONALLY — the old
-        // `prev.some(...) return prev` guard let a 3s poll tick (which
-        // registered the session with active:false between the server's
-        // open and this setSessions) skip the activation, leaving the pane
-        // display:none (round-86 bug class). Filtering any existing entry
-        // also clears a stale tombstone from a reordered poll response.
-        const label = kind === "ssh" ? target.split("@").pop() || target : kind === "serial" ? target.split("?")[0] : target || "shell";
-        // round-86: the new session is the ACTIVE one — the old active:false
-        // + setActiveSid(sid) never set the session's own flag, so the pane
-        // stayed display:none (blank terminal area).
-        return [...prev.filter((s) => s.sid !== sid).map((s) => ({ ...s, active: false })), { sid, label, kind, closed: false, savedOnly: false, active: true, idleMs: 0, commandRunning: false, lastExitCode: null, firstSeenAt: Date.now(), closedAt: null, heldByHuman: false, approvalRequired: false, pendingApproval: null, approvalGrants: [], goal: null, plan: [] }];
-      });
-      setActiveSid(sid);
-      return sid;
-    } catch (e: any) {
-      setStatusState(`open failed: ${e.message}`);
-      throw e;
-    }
-  }, []);
+  const openSession = useCallback(
+    async (
+      kind: string,
+      target: string,
+      extra: Record<string, unknown> = {},
+    ) => {
+      try {
+        const sid = await callTool("terminal_open", {
+          kind,
+          target,
+          rows: 30,
+          cols: 120,
+          ...extra,
+        });
+        if (typeof sid !== "string" || !sid)
+          throw new Error("terminal_open returned no sid");
+        setSessions((prev) => {
+          // round-131: rebuild the entry UNCONDITIONALLY — the old
+          // `prev.some(...) return prev` guard let a 3s poll tick (which
+          // registered the session with active:false between the server's
+          // open and this setSessions) skip the activation, leaving the pane
+          // display:none (round-86 bug class). Filtering any existing entry
+          // also clears a stale tombstone from a reordered poll response.
+          const label =
+            kind === "ssh"
+              ? target.split("@").pop() || target
+              : kind === "serial"
+                ? target.split("?")[0]
+                : target || "shell";
+          // round-86: the new session is the ACTIVE one — the old active:false
+          // + setActiveSid(sid) never set the session's own flag, so the pane
+          // stayed display:none (blank terminal area).
+          return [
+            ...prev
+              .filter((s) => s.sid !== sid)
+              .map((s) => ({ ...s, active: false })),
+            {
+              sid,
+              label,
+              kind,
+              closed: false,
+              savedOnly: false,
+              active: true,
+              idleMs: 0,
+              commandRunning: false,
+              lastExitCode: null,
+              firstSeenAt: Date.now(),
+              closedAt: null,
+              heldByHuman: false,
+              approvalRequired: false,
+              pendingApproval: null,
+              approvalGrants: [],
+              goal: null,
+              plan: [],
+            },
+          ];
+        });
+        setActiveSid(sid);
+        return sid;
+      } catch (e: any) {
+        setStatusState(`open failed: ${e.message}`);
+        throw e;
+      }
+    },
+    [],
+  );
 
-  const closeSession = useCallback(async (sid: string) => {
-    // round-83: a transient close failure must NOT mark the session closed —
-    // the old catch(() => {}) swallowed the error and the tab wedged
-    // (closed class, onClick disabled, SSE still streaming). On failure keep
-    // it open and surface the error.
-    try {
-      await callTool("terminal_close", { session_id: sid });
-      setSessions((prev) => {
-        const next = prev.map((s) => (s.sid === sid ? { ...s, closed: true, closedAt: Date.now() } : s));
-        // round-86: closing the ACTIVE session must switch to the next live
-        // one — the old code left activeSid on the dead tab (stale output,
-        // unclickable, typing went nowhere).
-        // round-94: read the LIVE activeSid — the user may have activated
-        // another tab while terminal_close was in flight; only switch if the
-        // closed session is still the active one.
-        if (activeRef.current === sid) {
-          const nextLive = next.find((s) => !s.closed && s.sid !== sid);
-          if (nextLive) {
-            setActiveSid(nextLive.sid);
-            return next.map((s) => ({ ...s, active: s.sid === nextLive.sid }));
+  const closeSession = useCallback(
+    async (sid: string) => {
+      // round-83: a transient close failure must NOT mark the session closed —
+      // the old catch(() => {}) swallowed the error and the tab wedged
+      // (closed class, onClick disabled, SSE still streaming). On failure keep
+      // it open and surface the error.
+      try {
+        await callTool("terminal_close", { session_id: sid });
+        setSessions((prev) => {
+          const next = prev.map((s) =>
+            s.sid === sid ? { ...s, closed: true, closedAt: Date.now() } : s,
+          );
+          // round-86: closing the ACTIVE session must switch to the next live
+          // one — the old code left activeSid on the dead tab (stale output,
+          // unclickable, typing went nowhere).
+          // round-94: read the LIVE activeSid — the user may have activated
+          // another tab while terminal_close was in flight; only switch if the
+          // closed session is still the active one.
+          if (activeRef.current === sid) {
+            const nextLive = next.find((s) => !s.closed && s.sid !== sid);
+            if (nextLive) {
+              setActiveSid(nextLive.sid);
+              return next.map((s) => ({
+                ...s,
+                active: s.sid === nextLive.sid,
+              }));
+            }
+            // round-88: no live session left — the closed one must NOT stay
+            // active (it kept its pane visible with a blinking cursor while
+            // no tab was highlighted).
+            setActiveSid(null);
+            return next.map((s) => ({ ...s, active: false }));
           }
-          // round-88: no live session left — the closed one must NOT stay
-          // active (it kept its pane visible with a blinking cursor while
-          // no tab was highlighted).
-          setActiveSid(null);
-          return next.map((s) => ({ ...s, active: false }));
-        }
-        return next;
-      });
-    } catch (e: any) {
-      setStatusState(`close failed — session still open: ${e.message}`);
-    }
-  }, [activeSid]);
+          return next;
+        });
+      } catch (e: any) {
+        setStatusState(`close failed — session still open: ${e.message}`);
+      }
+    },
+    [activeSid],
+  );
 
   const activate = useCallback((sid: string) => {
     // round-117: a CLOSED (tombstone) session must not become active —
@@ -480,48 +602,67 @@ export function useSessions(connected: boolean) {
     });
   }, []);
 
-  const exportSession = useCallback((sid: string) => {
-    // review #7: ONE read returns at most 1 MiB (the spill cap tail-clamps)
-    // — long sessions exported as a truncated slice with no marker. Page
-    // the retained history with the returned END cursor.
-    // P1-4 (export backpressure): bound the download (a 64 MiB Blob build
-    // froze the tab on huge AI sessions) and SAY SO — a truncation marker
-    // goes into the file tail plus a status-line prompt.
-    (async () => {
-      try {
-        const parts: string[] = [];
-        let offset = 0;
-        let truncated = false;
-        for (let i = 0; i < MAX_EXPORT_PAGES; i++) {
-          const r: any = await callTool("terminal_read", { session_id: sid, offset, clean: true });
-          const text = (r && r.text) || "";
-          if (!text) break;
-          parts.push(text);
-          const end = Number(r.end ?? 0);
-          if (!Number.isFinite(end) || end <= offset) break;
-          offset = end;
-          if (i === MAX_EXPORT_PAGES - 1) {
-            // Loop exhausted with the cursor still advancing — probe once to
-            // tell "stopped exactly at the end" from "more history pending".
-            try {
-              const probe: any = await callTool("terminal_read", { session_id: sid, offset, clean: true });
-              if (probe && probe.text) truncated = true;
-            } catch { /* probe failed — treat the export as complete */ }
+  const exportSession = useCallback(
+    (sid: string) => {
+      // review #7: ONE read returns at most 1 MiB (the spill cap tail-clamps)
+      // — long sessions exported as a truncated slice with no marker. Page
+      // the retained history with the returned END cursor.
+      // P1-4 (export backpressure): bound the download (a 64 MiB Blob build
+      // froze the tab on huge AI sessions) and SAY SO — a truncation marker
+      // goes into the file tail plus a status-line prompt.
+      (async () => {
+        try {
+          const parts: string[] = [];
+          let offset = 0;
+          let truncated = false;
+          for (let i = 0; i < MAX_EXPORT_PAGES; i++) {
+            const r: any = await callTool("terminal_read", {
+              session_id: sid,
+              offset,
+              clean: true,
+            });
+            const text = (r && r.text) || "";
+            if (!text) break;
+            parts.push(text);
+            const end = Number(r.end ?? 0);
+            if (!Number.isFinite(end) || end <= offset) break;
+            offset = end;
+            if (i === MAX_EXPORT_PAGES - 1) {
+              // Loop exhausted with the cursor still advancing — probe once to
+              // tell "stopped exactly at the end" from "more history pending".
+              try {
+                const probe: any = await callTool("terminal_read", {
+                  session_id: sid,
+                  offset,
+                  clean: true,
+                });
+                if (probe && probe.text) truncated = true;
+              } catch {
+                /* probe failed — treat the export as complete */
+              }
+            }
           }
+          if (truncated)
+            parts.push(
+              `\n…[export truncated at ${MAX_EXPORT_PAGES} MiB — read the full log via terminal_read offset ${offset}]…\n`,
+            );
+          const blob = new Blob([parts.join("")], { type: "text/plain" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${sid}.log`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          if (truncated)
+            setStatusState(
+              `export truncated at ${MAX_EXPORT_PAGES} MiB — the file tail says where to continue reading`,
+            );
+        } catch {
+          setStatusState("export failed");
         }
-        if (truncated) parts.push(`\n…[export truncated at ${MAX_EXPORT_PAGES} MiB — read the full log via terminal_read offset ${offset}]…\n`);
-        const blob = new Blob([parts.join("")], { type: "text/plain" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${sid}.log`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-        if (truncated) setStatusState(`export truncated at ${MAX_EXPORT_PAGES} MiB — the file tail says where to continue reading`);
-      } catch {
-        setStatusState("export failed");
-      }
-    })();
-  }, [setStatusState]);
+      })();
+    },
+    [setStatusState],
+  );
 
   /** Hand the session's keyboard to a person, or back to the AI.
    *
@@ -532,15 +673,20 @@ export function useSessions(connected: boolean) {
    *  agent is still driving, which is worse than showing nothing. */
   const setControl = useCallback(async (sid: string, human: boolean) => {
     try {
-      const r = await callApi(`/api/sessions/${encodeURIComponent(sid)}/control`, {
-        method: "POST",
-        body: JSON.stringify({ holder: human ? "human" : "ai" }),
-      });
+      const r = await callApi(
+        `/api/sessions/${encodeURIComponent(sid)}/control`,
+        {
+          method: "POST",
+          body: JSON.stringify({ holder: human ? "human" : "ai" }),
+        },
+      );
       const held = !!r?.held_by_human;
       setSessions((prev) =>
         prev.map((s) => (s.sid === sid ? { ...s, heldByHuman: held } : s)),
       );
-      setStatusState(held ? "you have the keyboard" : "AI may drive this session");
+      setStatusState(
+        held ? "you have the keyboard" : "AI may drive this session",
+      );
       return held;
     } catch (e: any) {
       setStatusState(`control failed: ${e?.message ?? e}`);
@@ -556,15 +702,20 @@ export function useSessions(connected: boolean) {
    *  matters here. */
   const setApproval = useCallback(async (sid: string, required: boolean) => {
     try {
-      const r = await callApi(`/api/sessions/${encodeURIComponent(sid)}/control`, {
-        method: "POST",
-        body: JSON.stringify({ approval_required: required }),
-      });
+      const r = await callApi(
+        `/api/sessions/${encodeURIComponent(sid)}/control`,
+        {
+          method: "POST",
+          body: JSON.stringify({ approval_required: required }),
+        },
+      );
       const on = !!r?.approval_required;
       setSessions((prev) =>
         prev.map((s) => (s.sid === sid ? { ...s, approvalRequired: on } : s)),
       );
-      setStatusState(on ? "approval required for this session" : "approval gate off");
+      setStatusState(
+        on ? "approval required for this session" : "approval gate off",
+      );
       return on;
     } catch (e: any) {
       setStatusState(`approval mode failed: ${e?.message ?? e}`);
@@ -577,38 +728,43 @@ export function useSessions(connected: boolean) {
    *  `decided: false` means there was nothing left to decide — the agent gave up
    *  or another client answered first. That is NOT success, so the status says
    *  so rather than leaving the operator believing their click landed. */
-  const decideApproval = useCallback(async (
-    sid: string,
-    id: string,
-    approve: boolean,
-    grant = false,
-  ) => {
-    try {
-      const r = await callApi(`/api/sessions/${encodeURIComponent(sid)}/approval`, {
-        method: "POST",
-        body: JSON.stringify({ id, approve, grant }),
-      });
-      if (!r?.decided) {
-        setStatusState("that request was already resolved");
-        return false;
-      }
-      // Grants come back on the decision's own response, so the list updates
-      // immediately rather than one poll later.
-      if (Array.isArray(r?.approval_grants)) {
-        const g: string[] = r.approval_grants;
-        setSessions((prev) =>
-          prev.map((s) => (s.sid === sid ? { ...s, approvalGrants: g } : s)),
+  const decideApproval = useCallback(
+    async (sid: string, id: string, approve: boolean, grant = false) => {
+      try {
+        const r = await callApi(
+          `/api/sessions/${encodeURIComponent(sid)}/approval`,
+          {
+            method: "POST",
+            body: JSON.stringify({ id, approve, grant }),
+          },
         );
+        if (!r?.decided) {
+          setStatusState("that request was already resolved");
+          return false;
+        }
+        // Grants come back on the decision's own response, so the list updates
+        // immediately rather than one poll later.
+        if (Array.isArray(r?.approval_grants)) {
+          const g: string[] = r.approval_grants;
+          setSessions((prev) =>
+            prev.map((s) => (s.sid === sid ? { ...s, approvalGrants: g } : s)),
+          );
+        }
+        setStatusState(
+          approve
+            ? grant
+              ? "approved, and remembered"
+              : "approved"
+            : "refused",
+        );
+        return true;
+      } catch (e: any) {
+        setStatusState(`decision failed: ${e?.message ?? e}`);
+        throw e;
       }
-      setStatusState(
-        approve ? (grant ? "approved, and remembered" : "approved") : "refused",
-      );
-      return true;
-    } catch (e: any) {
-      setStatusState(`decision failed: ${e?.message ?? e}`);
-      throw e;
-    }
-  }, []);
+    },
+    [],
+  );
 
   /** State the session's goal, or clear it with an empty string.
    *
@@ -617,12 +773,18 @@ export function useSessions(connected: boolean) {
    *  typed. */
   const setGoal = useCallback(async (sid: string, goal: string) => {
     try {
-      const r = await callApi(`/api/sessions/${encodeURIComponent(sid)}/control`, {
-        method: "POST",
-        body: JSON.stringify({ goal }),
-      });
-      const stored = typeof r?.goal === "string" && r.goal.trim() ? r.goal : null;
-      setSessions((prev) => prev.map((s) => (s.sid === sid ? { ...s, goal: stored } : s)));
+      const r = await callApi(
+        `/api/sessions/${encodeURIComponent(sid)}/control`,
+        {
+          method: "POST",
+          body: JSON.stringify({ goal }),
+        },
+      );
+      const stored =
+        typeof r?.goal === "string" && r.goal.trim() ? r.goal : null;
+      setSessions((prev) =>
+        prev.map((s) => (s.sid === sid ? { ...s, goal: stored } : s)),
+      );
       setStatusState(stored ? "goal set" : "goal cleared");
       return stored;
     } catch (e: any) {
@@ -635,16 +797,23 @@ export function useSessions(connected: boolean) {
    *  revoke that did not land cannot leave the panel showing it as gone. */
   const revokeGrants = useCallback(async (sid: string, grant?: string) => {
     try {
-      const r = await callApi(`/api/sessions/${encodeURIComponent(sid)}/grants`, {
-        method: "POST",
-        body: JSON.stringify(grant === undefined ? { all: true } : { grant }),
-      });
-      const g: string[] = Array.isArray(r?.approval_grants) ? r.approval_grants : [];
+      const r = await callApi(
+        `/api/sessions/${encodeURIComponent(sid)}/grants`,
+        {
+          method: "POST",
+          body: JSON.stringify(grant === undefined ? { all: true } : { grant }),
+        },
+      );
+      const g: string[] = Array.isArray(r?.approval_grants)
+        ? r.approval_grants
+        : [];
       setSessions((prev) =>
         prev.map((s) => (s.sid === sid ? { ...s, approvalGrants: g } : s)),
       );
       setStatusState(
-        grant === undefined ? "all allowances revoked" : `no longer allowing ${grant}`,
+        grant === undefined
+          ? "all allowances revoked"
+          : `no longer allowing ${grant}`,
       );
       return g;
     } catch (e: any) {
@@ -653,5 +822,20 @@ export function useSessions(connected: boolean) {
     }
   }, []);
 
-  return { sessions, activeSid, status, setStatus, openSession, closeSession, activate, exportSession, runtimes, setControl, setApproval, decideApproval, revokeGrants, setGoal };
+  return {
+    sessions,
+    activeSid,
+    status,
+    setStatus,
+    openSession,
+    closeSession,
+    activate,
+    exportSession,
+    runtimes,
+    setControl,
+    setApproval,
+    decideApproval,
+    revokeGrants,
+    setGoal,
+  };
 }

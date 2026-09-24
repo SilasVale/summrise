@@ -4,7 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { render, renderHook, act, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { useSessions, mapPending, pendingApprovalCount, type Session } from "../useSessions";
+import {
+  useSessions,
+  mapPending,
+  pendingApprovalCount,
+  type Session,
+} from "../useSessions";
 import { callTool } from "../../lib/api";
 
 vi.mock("../../lib/api", () => ({
@@ -29,13 +34,18 @@ const liveSids = new Set<string>();
 function mockOpen(sid: string) {
   liveSids.add(sid);
   mockCallTool.mockImplementation((name: string) => {
-    if (name === "terminal_list") return Promise.resolve([...liveSids].map((id) => ({ id, label: id, kind: "pty" })));
+    if (name === "terminal_list")
+      return Promise.resolve(
+        [...liveSids].map((id) => ({ id, label: id, kind: "pty" })),
+      );
     if (name === "terminal_open") return Promise.resolve(sid);
     if (name === "terminal_close") return Promise.resolve({ ok: true });
     return Promise.reject(new Error(`unexpected tool: ${name}`));
   });
 }
-beforeEach(() => { liveSids.clear(); });
+beforeEach(() => {
+  liveSids.clear();
+});
 
 describe("useSessions", () => {
   it("openSession activates the new session (R86: blank terminal fix)", async () => {
@@ -54,24 +64,40 @@ describe("useSessions", () => {
   it("openSession deactivates previous sessions (R86)", async () => {
     mockOpen("term-1");
     const { result } = renderHook(() => useSessions(true));
-    await act(async () => { await result.current.openSession("pty", ""); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
     mockOpen("term-2");
-    await act(async () => { await result.current.openSession("pty", ""); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
     await waitFor(() => {
-      expect(result.current.sessions.find((s) => s.sid === "term-1")?.active).toBe(false);
-      expect(result.current.sessions.find((s) => s.sid === "term-2")?.active).toBe(true);
+      expect(
+        result.current.sessions.find((s) => s.sid === "term-1")?.active,
+      ).toBe(false);
+      expect(
+        result.current.sessions.find((s) => s.sid === "term-2")?.active,
+      ).toBe(true);
     });
   });
 
   it("closeSession switches to the next live session (R86)", async () => {
     mockOpen("term-1");
     const { result } = renderHook(() => useSessions(true));
-    await act(async () => { await result.current.openSession("pty", ""); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
     mockOpen("term-2");
-    await act(async () => { await result.current.openSession("pty", ""); });
-    await act(async () => { await result.current.closeSession("term-2"); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
+    await act(async () => {
+      await result.current.closeSession("term-2");
+    });
     await waitFor(() => {
-      expect(result.current.sessions.find((s) => s.sid === "term-1")?.active).toBe(true);
+      expect(
+        result.current.sessions.find((s) => s.sid === "term-1")?.active,
+      ).toBe(true);
       expect(result.current.activeSid).toBe("term-1");
     });
   });
@@ -79,21 +105,31 @@ describe("useSessions", () => {
   it("closeSession failure keeps the session open (R83)", async () => {
     mockOpen("term-1");
     const { result } = renderHook(() => useSessions(true));
-    await act(async () => { await result.current.openSession("pty", ""); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
     mockCallTool.mockImplementation((name: string) => {
       if (name === "terminal_list") return Promise.resolve([]);
       if (name === "terminal_close") return Promise.reject(new Error("busy"));
       return Promise.reject(new Error(`unexpected tool: ${name}`));
     });
-    await act(async () => { await result.current.closeSession("term-1"); });
-    await waitFor(() => { expect(result.current.sessions[0]?.closed).toBe(false); });
+    await act(async () => {
+      await result.current.closeSession("term-1");
+    });
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.closed).toBe(false);
+    });
   });
 
   it("closing the LAST live session clears active (R88)", async () => {
     mockOpen("term-1");
     const { result } = renderHook(() => useSessions(true));
-    await act(async () => { await result.current.openSession("pty", ""); });
-    await act(async () => { await result.current.closeSession("term-1"); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
+    await act(async () => {
+      await result.current.closeSession("term-1");
+    });
     await waitFor(() => {
       expect(result.current.activeSid).toBe(null);
       expect(result.current.sessions[0]?.active).toBe(false);
@@ -103,8 +139,12 @@ describe("useSessions", () => {
   it("sessions-changed event marks server-dead sessions closed and releases focus (R88)", async () => {
     mockOpen("term-1");
     const { result } = renderHook(() => useSessions(true));
-    await act(async () => { await result.current.openSession("pty", ""); });
-    await waitFor(() => { expect(result.current.sessions[0]?.active).toBe(true); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.active).toBe(true);
+    });
     // The server-side session dies (PTY exit) — the agent pushes the
     // sessions-changed SSE event (round-163 replaced the 3s poll with it),
     // terminal_list now returns [] (term-1 gone).
@@ -121,22 +161,34 @@ describe("useSessions", () => {
   it("revives a tombstoned session whose sid reappears live (round-245 HIGH-1)", async () => {
     mockOpen("term-1");
     const { result } = renderHook(() => useSessions(true));
-    await act(async () => { await result.current.openSession("pty", ""); });
-    await waitFor(() => { expect(result.current.sessions[0]?.active).toBe(true); });
+    await act(async () => {
+      await result.current.openSession("pty", "");
+    });
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.active).toBe(true);
+    });
     // Server-side death → tombstoned.
     liveSids.delete("term-1");
-    await act(async () => { window.dispatchEvent(new CustomEvent("summrise-sessions-changed")); });
-    await waitFor(() => { expect(result.current.sessions[0]?.closed).toBe(true); });
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
+    });
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.closed).toBe(true);
+    });
     // The SAME sid comes back live (agent restarted a re-used session, or a
     // race tombstoned it while it was still open) — the next list must
     // REVIVE it, not keep a dead tab.
     liveSids.add("term-1");
-    await act(async () => { window.dispatchEvent(new CustomEvent("summrise-sessions-changed")); });
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
+    });
     await waitFor(() => {
       const s = result.current.sessions.find((x) => x.sid === "term-1");
       expect(s?.closed).toBe(false);
     });
-    expect(result.current.sessions.filter((x) => x.sid === "term-1")).toHaveLength(1);
+    expect(
+      result.current.sessions.filter((x) => x.sid === "term-1"),
+    ).toHaveLength(1);
   });
 
   it("retries terminal_list once after a transient failure on sessions-changed (round-245 HIGH-1)", async () => {
@@ -148,7 +200,9 @@ describe("useSessions", () => {
         return Promise.reject(new Error(`unexpected tool: ${name}`));
       });
       const { result } = renderHook(() => useSessions(true));
-      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
       // From now on: the first terminal_list fails (transient), the retry
       // (1.2s later) succeeds and discovers the AI-opened session.
       let listCalls = 0;
@@ -156,7 +210,9 @@ describe("useSessions", () => {
         if (name === "terminal_list") {
           listCalls += 1;
           if (listCalls === 1) return Promise.reject(new Error("tunnel blip"));
-          return Promise.resolve([...liveSids].map((id) => ({ id, label: id, kind: "pty" })));
+          return Promise.resolve(
+            [...liveSids].map((id) => ({ id, label: id, kind: "pty" })),
+          );
         }
         return Promise.reject(new Error(`unexpected tool: ${name}`));
       });
@@ -164,7 +220,9 @@ describe("useSessions", () => {
         window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
         await vi.advanceTimersByTimeAsync(2000);
       });
-      expect(result.current.sessions.some((s) => s.sid === "term-ai" && !s.closed)).toBe(true);
+      expect(
+        result.current.sessions.some((s) => s.sid === "term-ai" && !s.closed),
+      ).toBe(true);
       expect(listCalls).toBeGreaterThanOrEqual(2);
     } finally {
       vi.useRealTimers();
@@ -177,7 +235,9 @@ describe("useSessions", () => {
       liveSids.add("term-ai-1");
       mockCallTool.mockImplementation((name: string) => {
         if (name === "terminal_list") {
-          return Promise.resolve([...liveSids].map((id) => ({ id, label: id, kind: "pty" })));
+          return Promise.resolve(
+            [...liveSids].map((id) => ({ id, label: id, kind: "pty" })),
+          );
         }
         return Promise.reject(new Error(`unexpected tool: ${name}`));
       });
@@ -187,7 +247,9 @@ describe("useSessions", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(31_000);
       });
-      expect(result.current.sessions.some((s) => s.sid === "term-ai-2" && !s.closed)).toBe(true);
+      expect(
+        result.current.sessions.some((s) => s.sid === "term-ai-2" && !s.closed),
+      ).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -214,7 +276,11 @@ describe("pending approval — the shrinking budget becomes one absolute deadlin
     try {
       vi.setSystemTime(new Date("2026-03-01T10:00:00Z"));
       const p = mapPending({
-        pending_approval: { id: "g1", command: "reload", expires_in_ms: 900_000 },
+        pending_approval: {
+          id: "g1",
+          command: "reload",
+          expires_in_ms: 900_000,
+        },
       });
       expect(p).not.toBeNull();
       expect(p!.expiresAtMs).toBe(Date.now() + 900_000);
@@ -231,12 +297,20 @@ describe("pending approval — the shrinking budget becomes one absolute deadlin
     try {
       vi.setSystemTime(new Date("2026-03-01T10:00:00Z"));
       const first = mapPending({
-        pending_approval: { id: "g1", command: "reload", expires_in_ms: 900_000 },
+        pending_approval: {
+          id: "g1",
+          command: "reload",
+          expires_in_ms: 900_000,
+        },
       })!;
       // 60 s of wall clock later the SAME question reports 60 s less budget.
       vi.setSystemTime(new Date("2026-03-01T10:01:00Z"));
       const second = mapPending({
-        pending_approval: { id: "g1", command: "reload", expires_in_ms: 840_000 },
+        pending_approval: {
+          id: "g1",
+          command: "reload",
+          expires_in_ms: 840_000,
+        },
       })!;
 
       expect(second.expiresAtMs).toBe(first.expiresAtMs);
@@ -262,14 +336,20 @@ describe("pending approval — the shrinking budget becomes one absolute deadlin
               label: "shell",
               kind: "pty",
               approval_required: true,
-              pending_approval: { id: "g1", command: "reload", expires_in_ms: budget },
+              pending_approval: {
+                id: "g1",
+                command: "reload",
+                expires_in_ms: budget,
+              },
             },
           ]);
         }
         return Promise.reject(new Error(`unexpected tool: ${name}`));
       });
       const { result } = renderHook(() => useSessions(true));
-      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
       const first = result.current.sessions[0]?.pendingApproval;
       expect(first?.expiresAtMs).toBe(t0 + 900_000);
 
@@ -300,7 +380,9 @@ describe("pendingApprovalCount — the badge input", () => {
     closed: false,
     savedOnly: false,
     active: true,
-    idleMs: 0, commandRunning: false, firstSeenAt: 0,
+    idleMs: 0,
+    commandRunning: false,
+    firstSeenAt: 0,
     closedAt: null,
     heldByHuman: false,
     approvalRequired: false,
@@ -314,9 +396,15 @@ describe("pendingApprovalCount — the badge input", () => {
   it("counts QUESTIONS, never the armed posture", () => {
     // Keying a badge off `approvalRequired` would make every armed session
     // shout forever — an indicator that is always on is one nobody reads.
-    expect(pendingApprovalCount([withPending({ approvalRequired: true, pendingApproval: null })])).toBe(0);
+    expect(
+      pendingApprovalCount([
+        withPending({ approvalRequired: true, pendingApproval: null }),
+      ]),
+    ).toBe(0);
     expect(pendingApprovalCount([withPending()])).toBe(1);
-    expect(pendingApprovalCount([withPending(), withPending({ sid: "s2" })])).toBe(2);
+    expect(
+      pendingApprovalCount([withPending(), withPending({ sid: "s2" })]),
+    ).toBe(2);
   });
 
   it("does not count a closed tombstone's question", () => {
@@ -359,7 +447,9 @@ describe("the 30s sweep is quiet", () => {
         { id: "term-2", label: "two", kind: "pty" },
       ];
       mockCallTool.mockImplementation((name: string) =>
-        name === "terminal_list" ? Promise.resolve(list) : Promise.resolve({ ok: true }),
+        name === "terminal_list"
+          ? Promise.resolve(list)
+          : Promise.resolve({ ok: true }),
       );
       let container: HTMLElement | null = null;
       // createElement, not JSX: this file is .ts and the parser rejects JSX in it. Renaming the file
@@ -386,12 +476,20 @@ describe("the 30s sweep is quiet", () => {
       const mo = new MutationObserver((recs) => {
         mutations += recs.length;
       });
-      mo.observe(container!, { childList: true, subtree: true, characterData: true, attributes: true });
+      mo.observe(container!, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(95_000);
       });
       mo.disconnect();
-      expect(mutations, `the poll touched the DOM ${mutations} times with identical data`).toBe(0);
+      expect(
+        mutations,
+        `the poll touched the DOM ${mutations} times with identical data`,
+      ).toBe(0);
     } finally {
       vi.useRealTimers();
     }
@@ -410,12 +508,17 @@ describe("the device's session row", () => {
   it("lands every field the panel renders", async () => {
     const fixture = JSON.parse(
       readFileSync(
-        path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../tests/fixtures/session-row.json"),
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          "../../../../../tests/fixtures/session-row.json",
+        ),
         "utf8",
       ),
     ) as { full: Record<string, unknown>; minimal: Record<string, unknown> };
     mockCallTool.mockImplementation((name: string) =>
-      name === "terminal_list" ? Promise.resolve([fixture.full, fixture.minimal]) : Promise.resolve({ ok: true }),
+      name === "terminal_list"
+        ? Promise.resolve([fixture.full, fixture.minimal])
+        : Promise.resolve({ ok: true }),
     );
     const before = Date.now();
     const { result } = renderHook(() => useSessions(true));
@@ -438,13 +541,23 @@ describe("the device's session row", () => {
     expect(full.approvalRequired).toBe(true);
     expect(full.approvalGrants).toEqual(["display", "show"]);
     expect(full.goal).toBe("provision the ONU 0/1 on VLAN 100");
-    expect(full.plan).toEqual(["read the current config", "apply the VLAN", "verify"]);
+    expect(full.plan).toEqual([
+      "read the current config",
+      "apply the VLAN",
+      "verify",
+    ]);
     // The countdown is converted ONCE into an absolute deadline: keeping the device's shrinking
     // budget while also accumulating time would count down twice as fast.
     expect(full.pendingApproval?.id).toBe("ap-9f2c");
-    expect(full.pendingApproval?.command).toBe("vlan 100 / port vlan 100 0/1 1");
-    expect(full.pendingApproval!.expiresAtMs - before).toBeGreaterThanOrEqual(46_000);
-    expect(full.pendingApproval!.expiresAtMs - before).toBeLessThanOrEqual(47_500);
+    expect(full.pendingApproval?.command).toBe(
+      "vlan 100 / port vlan 100 0/1 1",
+    );
+    expect(full.pendingApproval!.expiresAtMs - before).toBeGreaterThanOrEqual(
+      46_000,
+    );
+    expect(full.pendingApproval!.expiresAtMs - before).toBeLessThanOrEqual(
+      47_500,
+    );
 
     // The minimal row keeps its defaults — no invented question, no invented goal.
     const minimal = sessions.find((s) => s.sid === "term-abc123-8")!;
@@ -459,6 +572,48 @@ describe("the device's session row", () => {
     expect(minimal.idleMs).toBe(0);
     expect(minimal.commandRunning).toBe(false);
   });
+
+  // A PANEL FACT HAS TO BE ABLE TO CHANGE, and nothing measured that until 2026-09-24. The test above
+  // feeds ONE terminal_list and pins the values, so `idleMs`/`commandRunning` looked correct while
+  // being written once at discovery and never refreshed — they were absent from `wireFields`, the only
+  // object the refresh paths spread. Three consumers read them as live: `sessionActive` (a
+  // panel-opened session is stamped idleMs 0 and reads "working" for ever), the rail's
+  // `anyCommandRunning` (a silent long command showed the device as NOT working — the blindness round
+  // 28 fixed), and `idleSessions`' offer-to-close, whose `!commandRunning` guard could never fire.
+  // This is the shape that catches it: ONE row, read twice, with the facts changing in between. A
+  // frozen implementation passes the first pair of assertions and fails the second.
+  it("a REFRESHED row carries new idle/busy facts, not the ones it was discovered with", async () => {
+    let busy = false;
+    mockCallTool.mockImplementation((name: string) => {
+      if (name !== "terminal_list")
+        return Promise.reject(new Error(`unexpected tool: ${name}`));
+      return Promise.resolve([
+        {
+          id: "term-live-1",
+          label: "shell",
+          kind: "pty",
+          idle_ms: busy ? 250 : 3_600_000,
+          command_running: busy,
+        },
+      ]);
+    });
+    const { result } = renderHook(() => useSessions(true));
+    await waitFor(() => {
+      expect(result.current.sessions).toHaveLength(1);
+    });
+    expect(result.current.sessions[0].commandRunning).toBe(false);
+    expect(result.current.sessions[0].idleMs).toBe(3_600_000);
+
+    // The device now reports a command in flight, with a fresh idle stamp.
+    busy = true;
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("summrise-sessions-changed"));
+    });
+    await waitFor(() => {
+      expect(result.current.sessions[0].commandRunning).toBe(true);
+    });
+    expect(result.current.sessions[0].idleMs).toBe(250);
+  });
 });
 
 // ── a keystroke that did not land ────────────────────────────────────────────────────────────────
@@ -471,13 +626,19 @@ describe("the device's session row", () => {
 describe("a terminal write that failed", () => {
   it("says so on the status line, instead of letting the keystroke vanish", async () => {
     mockCallTool.mockImplementation((name: string) =>
-      name === "terminal_list" ? Promise.resolve([]) : Promise.reject(new Error("nope")),
+      name === "terminal_list"
+        ? Promise.resolve([])
+        : Promise.reject(new Error("nope")),
     );
     const { result } = renderHook(() => useSessions(true));
     await waitFor(() => expect(mockCallTool).toHaveBeenCalled());
 
     act(() => {
-      window.dispatchEvent(new CustomEvent("summrise-write-failed", { detail: { sid: "term-gone-1" } }));
+      window.dispatchEvent(
+        new CustomEvent("summrise-write-failed", {
+          detail: { sid: "term-gone-1" },
+        }),
+      );
     });
 
     await waitFor(() => {
@@ -488,7 +649,9 @@ describe("a terminal write that failed", () => {
 
   it("stops listening when the hook unmounts", async () => {
     mockCallTool.mockImplementation((name: string) =>
-      name === "terminal_list" ? Promise.resolve([]) : Promise.reject(new Error("nope")),
+      name === "terminal_list"
+        ? Promise.resolve([])
+        : Promise.reject(new Error("nope")),
     );
     const { result, unmount } = renderHook(() => useSessions(true));
     await waitFor(() => expect(mockCallTool).toHaveBeenCalled());
@@ -496,7 +659,11 @@ describe("a terminal write that failed", () => {
     // A listener left attached would call setState on an unmounted hook; React logs that as a warning,
     // and the assertion here is simply that the dispatch does not throw or hang.
     act(() => {
-      window.dispatchEvent(new CustomEvent("summrise-write-failed", { detail: { sid: "term-gone-2" } }));
+      window.dispatchEvent(
+        new CustomEvent("summrise-write-failed", {
+          detail: { sid: "term-gone-2" },
+        }),
+      );
     });
     expect(result.current.status ?? "").toBeDefined();
   });
