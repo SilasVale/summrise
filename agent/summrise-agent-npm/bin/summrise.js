@@ -353,8 +353,8 @@ function desktopStartPs(installQ) {
         "if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }",
         "# DO NOT RE-REGISTER THE TASK TO START IT. Register-ScheduledTask needs the interactive",
         "# user's principal as DOMAIN\\user, and a shell running as a service account has no such",
-        "# mapping -- the device answered \"No mapping between account names and security IDs was",
-        "# done ... UserId\" from a PTY running as systemprofile, while the task itself was Ready.",
+        '# mapping -- the device answered "No mapping between account names and security IDs was',
+        '# done ... UserId" from a PTY running as systemprofile, while the task itself was Ready.',
         "# The task already carries the right principal -- `summrise setup` creates it -- so starting",
         "# it is all that is needed.",
         "$t = Get-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue",
@@ -421,7 +421,12 @@ function parseTargetArg(arg) {
     const port = Number(m[2]);
     if (!Number.isInteger(port) || port < 1 || port > 65535)
         return null;
-    return { host: m[1], port, path: m[3] || "", id: `${m[1]}:${port}${m[3] || ""}` };
+    return {
+        host: m[1],
+        port,
+        path: m[3] || "",
+        id: `${m[1]}:${port}${m[3] || ""}`,
+    };
 }
 /**
  * JSON that survives the command line.
@@ -443,16 +448,31 @@ function deviceApi(method, pathname, body) {
     const dir = ETC_DIR;
     const token = deviceToken(dir);
     if (!token)
-        return { ok: false, error: "no device token in " + path.join(dir, "config.yaml") };
+        return {
+            ok: false,
+            error: "no device token in " + path.join(dir, "config.yaml"),
+        };
     const port = agentPort(dir);
-    const args = ["-sS", "-m", "15", "-X", method, "-H", "Authorization: Bearer " + token];
+    const args = [
+        "-sS",
+        "-m",
+        "15",
+        "-X",
+        method,
+        "-H",
+        "Authorization: Bearer " + token,
+    ];
     if (body !== undefined) {
         args.push("-H", "content-type: application/json", "-d", asciiJson(body));
     }
     args.push(`http://127.0.0.1:${port}${pathname}`);
     const r = (0, child_process_1.spawnSync)("curl", args, { encoding: "utf8", timeout: 20000 });
     if (r.error || r.status !== 0) {
-        return { ok: false, error: `device unreachable on 127.0.0.1:${port}` + (r.error ? ` (${r.error.message})` : "") };
+        return {
+            ok: false,
+            error: `device unreachable on 127.0.0.1:${port}` +
+                (r.error ? ` (${r.error.message})` : ""),
+        };
     }
     try {
         return { ok: true, body: JSON.parse(String(r.stdout || "").trim()) };
@@ -483,7 +503,9 @@ function fmtDuration(ms) {
     if (s < 3600)
         return `${Math.floor(s / 60)}m`;
     const h = Math.floor(s / 3600);
-    return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+    return h >= 24
+        ? `${Math.floor(h / 24)}d ${h % 24}h`
+        : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
 function targetLine(t, nowMs, width = 30) {
     const s = t.summary || {};
@@ -491,13 +513,21 @@ function targetLine(t, nowMs, width = 30) {
     const state = up ? "up" : s.up_now === false ? "down" : "no readings";
     const id = String(t.id || "");
     const since = s.since_ms ? ` ${fmtDuration(nowMs - s.since_ms)}` : "";
-    const status = s.last_status === null || s.last_status === undefined ? "" : `  HTTP ${s.last_status}`;
+    const status = s.last_status === null || s.last_status === undefined
+        ? ""
+        : `  HTTP ${s.last_status}`;
     // A content check that did not find its text is the case a status code cannot express, so it
     // is printed as its own word next to the code.
-    const match = s.last_expect_ok === false ? "  no match" : s.last_expect_ok === true ? "  matches" : "";
+    const match = s.last_expect_ok === false
+        ? "  no match"
+        : s.last_expect_ok === true
+            ? "  matches"
+            : "";
     const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
     const pct = s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
-    const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
+    const drops = s.drops
+        ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}`
+        : "";
     // The operator's own words belong on the line they explain, not in a separate view.
     const note = t.note && t.note.text ? `  — ${t.note.text}` : "";
     return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
@@ -528,13 +558,23 @@ function monitorsJson({ device, askedAtMs, payload, only }) {
         // The device's numbers, verbatim. `up: null` means "not read yet" and is NOT false.
         up: t.summary && t.summary.up_now !== undefined ? t.summary.up_now : null,
         up_pct: t.summary && t.summary.up_pct !== undefined ? t.summary.up_pct : null,
-        since_ms: t.summary && t.summary.since_ms !== undefined ? t.summary.since_ms : null,
+        since_ms: t.summary && t.summary.since_ms !== undefined
+            ? t.summary.since_ms
+            : null,
         drops: t.summary && t.summary.drops !== undefined ? t.summary.drops : null,
         latency_ms: t.summary && t.summary.latency ? t.summary.latency.avg : null,
-        last_status: t.summary && t.summary.last_status !== undefined ? t.summary.last_status : null,
-        last_expect_ok: t.summary && t.summary.last_expect_ok !== undefined ? t.summary.last_expect_ok : null,
+        last_status: t.summary && t.summary.last_status !== undefined
+            ? t.summary.last_status
+            : null,
+        last_expect_ok: t.summary && t.summary.last_expect_ok !== undefined
+            ? t.summary.last_expect_ok
+            : null,
         probes: t.summary && t.summary.probes !== undefined ? t.summary.probes : null,
-        transitions: (t.transitions || []).map((x) => ({ at_ms: x.at_ms, up: x.up, lasted_ms: x.lasted_ms })),
+        transitions: (t.transitions || []).map((x) => ({
+            at_ms: x.at_ms,
+            up: x.up,
+            lasted_ms: x.lasted_ms,
+        })),
     }));
     return {
         device: device || "",
@@ -1069,7 +1109,9 @@ function statusReport(f) {
  *  sentence's truthiness — where "0 releases" and "-1 releases" are both TRUTHY, so it would have refused every update,
  *  including the correct one. Caught by asking the artefact before shipping it. */
 function versionTriple(v) {
-    const t = String(v || "").split(".").map(Number);
+    const t = String(v || "")
+        .split(".")
+        .map(Number);
     return t.length === 3 && t.every((n) => Number.isFinite(n)) ? t : null;
 }
 /** Is `latest` ahead of `device` on the SAME release line? */
@@ -1167,11 +1209,17 @@ async function awaitReleaseMarker(o) {
  * misreporting its own version and refusing the update that would fix it.
  */
 function releaseMarkerVerdict(c) {
+    // WHOSE FAILURE IS THIS? The message is printed by TWO callers — `rollback`, which staged a release in
+    // order to PIN it, and `update`, which staged one to INSTALL it — and it said "rollback:" with
+    // "re-run `summrise rollback <want>`" for both. On the update path that advice is worse than useless:
+    // it names the version that just failed to install, so following it asks the device to pin a release
+    // it is not running. The verb decides the sentence now.
+    const verb = c.verb ?? "rollback";
     if (c.ok) {
         return {
             writePin: true,
             exitCode: 0,
-            message: `rollback: pinned to ${c.want} -- auto-upgrade refused until 'summrise rollback --clear' or a forced agent_update`,
+            message: `${verb}: pinned to ${c.want} -- auto-upgrade refused until 'summrise rollback --clear' or a forced agent_update`,
         };
     }
     return {
@@ -1181,12 +1229,17 @@ function releaseMarkerVerdict(c) {
         // failed, or it is still running (it kills and restarts the agent), or the marker
         // could not be read at all — and `saw === null` is the weakest of the three. The old
         // wording asserted "the swap did NOT take" for all of them.
-        message: `rollback: no release marker showing ${c.want} within ${Number.isFinite(c.waitedMs)
+        message: `${verb}: no release marker showing ${c.want} within ${Number.isFinite(c.waitedMs)
             ? Math.round(c.waitedMs / 1000) + "s"
             : "the read-back window"} ` +
             `(last read: ${c.saw ?? "empty or unreadable"}). ` +
             `NOT pinned (a pin would claim a version this device may not be running) and no release ` +
-            `marker written. Check the update log and \`summrise status\`, then re-run 'summrise rollback ${c.want}'.`,
+            `marker written. ` +
+            (verb === "update"
+                ? `Check the update log and \`summrise status\`, then re-run \`summrise update\`. If it fails ` +
+                    `the same way, \`summrise rollback ${c.from ?? "<the version it was on>"}\` pins the release ` +
+                    `this device is ACTUALLY running — which is not the one that failed to install.`
+                : `Check the update log and \`summrise status\`, then re-run 'summrise rollback ${c.want}'.`),
     };
 }
 function boxedVersions(installDir, pkgDir) {
@@ -1760,7 +1813,10 @@ const commands = {
         // shims rather than hand-written ones; when npm cannot, say the command.
         {
             const selfVer = String(require("../package.json").version || "");
-            const pfx = (0, child_process_1.spawnSync)("npm", ["prefix", "-g"], { encoding: "utf8", shell: true });
+            const pfx = (0, child_process_1.spawnSync)("npm", ["prefix", "-g"], {
+                encoding: "utf8",
+                shell: true,
+            });
             const pre = pfx.status === 0 ? String(pfx.stdout || "").trim() : "";
             if (selfVer && pre) {
                 const inst = (0, child_process_1.spawnSync)("npm", [
@@ -1903,7 +1959,7 @@ const commands = {
         const expect = expectAt >= 0 ? String(args[expectAt + 1] || "") : "";
         const positional = args.filter((a, i) => i > 0 && a !== "--expect" && i !== expectAt + 1);
         if (expectAt >= 0 && !expect) {
-            console.error("usage: summrise monitor add <host:port[/path]> --expect \"<text>\"");
+            console.error('usage: summrise monitor add <host:port[/path]> --expect "<text>"');
             process.exit(1);
         }
         if (sub === "add" || sub === "rm" || sub === "remove") {
@@ -1913,7 +1969,12 @@ const commands = {
                 process.exit(1);
             }
             if (sub === "add") {
-                const r = deviceApi("POST", "/api/monitors/add", { host: t.host, port: t.port, path: t.path, expect });
+                const r = deviceApi("POST", "/api/monitors/add", {
+                    host: t.host,
+                    port: t.port,
+                    path: t.path,
+                    expect,
+                });
                 if (!r.ok) {
                     console.error(`monitor add: ${r.error}`);
                     process.exit(1);
@@ -1934,7 +1995,9 @@ const commands = {
                 console.error(`monitor rm: ${r.error}`);
                 process.exit(1);
             }
-            console.log(r.body && r.body.removed ? `stopped watching ${t.id}` : `monitor rm: ${t.id} was not being watched`);
+            console.log(r.body && r.body.removed
+                ? `stopped watching ${t.id}`
+                : `monitor rm: ${t.id} was not being watched`);
             return;
         }
         if (sub === "probe") {
@@ -1964,7 +2027,10 @@ const commands = {
             const probe = payload.result && payload.result.probe;
             // The device sends the CRITERION with the answer (`expect`), so "no match" can name the
             // text it looked for — an unreadable verdict is a verdict nobody can act on.
-            console.log(probeLine({ id: t.id, expect: (payload.result && payload.result.expect) || null }, probe, Date.now()));
+            console.log(probeLine({
+                id: t.id,
+                expect: (payload.result && payload.result.expect) || null,
+            }, probe, Date.now()));
             return;
         }
         if (sub !== "list") {
@@ -1985,7 +2051,12 @@ const commands = {
             // encoding boundary too. PowerShell decodes a child's output with the console code page
             // (CP936 on d1), so raw UTF-8 through a pipe came back as mojibake while the same text
             // printed directly read fine — the second face of this bug.
-            console.log(asciiJson(monitorsJson({ device: os.hostname(), askedAtMs: Date.now(), payload: r.body, only: null }), 2));
+            console.log(asciiJson(monitorsJson({
+                device: os.hostname(),
+                askedAtMs: Date.now(),
+                payload: r.body,
+                only: null,
+            }), 2));
             return;
         }
         const targets = (r.body && r.body.targets) || [];
@@ -2622,7 +2693,14 @@ const commands = {
             sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
             now: () => Date.now(),
         });
-        const verdict = releaseMarkerVerdict({ ...check, want: toVersion });
+        const verdict = releaseMarkerVerdict({
+            ...check,
+            want: toVersion,
+            // THE VERB MATTERS: this is an INSTALL that failed, so the advice names the previous version as
+            // the thing to pin — not the one that just failed to install.
+            verb: "update",
+            from: fromVersion,
+        });
         if (verdict.writePin) {
             console.log(`update: ${fromVersion || "?"} -> ${toVersion} COMPLETE (the device reported the new release)`);
         }
@@ -3053,7 +3131,9 @@ if (require.main === module) {
         // The list is DERIVED from `commands`, so the help cannot promise a verb that was pruned
         // (`report` and `watch` were still advertised after their round-25 removal — a usage line is a
         // contract, and one that lies is worse than none).
-        console.log("summrise <" + Object.keys(commands).join("|") + "> -- Summrise Agent control");
+        console.log("summrise <" +
+            Object.keys(commands).join("|") +
+            "> -- Summrise Agent control");
         Object.keys(commands).forEach((k) => console.log(" ", k));
         process.exit(cmd ? 1 : 0);
     }

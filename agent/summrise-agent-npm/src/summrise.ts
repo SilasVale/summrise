@@ -1305,17 +1305,27 @@ export async function awaitReleaseMarker(o: {
  * misreporting its own version and refusing the update that would fix it.
  */
 export function releaseMarkerVerdict(
-  c: ReleaseMarkerCheck & { want: string },
+  c: ReleaseMarkerCheck & {
+    want: string;
+    verb?: "rollback" | "update";
+    from?: string;
+  },
 ): {
   writePin: boolean;
   exitCode: number;
   message: string;
 } {
+  // WHOSE FAILURE IS THIS? The message is printed by TWO callers — `rollback`, which staged a release in
+  // order to PIN it, and `update`, which staged one to INSTALL it — and it said "rollback:" with
+  // "re-run `summrise rollback <want>`" for both. On the update path that advice is worse than useless:
+  // it names the version that just failed to install, so following it asks the device to pin a release
+  // it is not running. The verb decides the sentence now.
+  const verb = c.verb ?? "rollback";
   if (c.ok) {
     return {
       writePin: true,
       exitCode: 0,
-      message: `rollback: pinned to ${c.want} -- auto-upgrade refused until 'summrise rollback --clear' or a forced agent_update`,
+      message: `${verb}: pinned to ${c.want} -- auto-upgrade refused until 'summrise rollback --clear' or a forced agent_update`,
     };
   }
   return {
@@ -1326,14 +1336,19 @@ export function releaseMarkerVerdict(
     // could not be read at all — and `saw === null` is the weakest of the three. The old
     // wording asserted "the swap did NOT take" for all of them.
     message:
-      `rollback: no release marker showing ${c.want} within ${
+      `${verb}: no release marker showing ${c.want} within ${
         Number.isFinite(c.waitedMs)
           ? Math.round(c.waitedMs / 1000) + "s"
           : "the read-back window"
       } ` +
       `(last read: ${c.saw ?? "empty or unreadable"}). ` +
       `NOT pinned (a pin would claim a version this device may not be running) and no release ` +
-      `marker written. Check the update log and \`summrise status\`, then re-run 'summrise rollback ${c.want}'.`,
+      `marker written. ` +
+      (verb === "update"
+        ? `Check the update log and \`summrise status\`, then re-run \`summrise update\`. If it fails ` +
+          `the same way, \`summrise rollback ${c.from ?? "<the version it was on>"}\` pins the release ` +
+          `this device is ACTUALLY running — which is not the one that failed to install.`
+        : `Check the update log and \`summrise status\`, then re-run 'summrise rollback ${c.want}'.`),
   };
 }
 
@@ -3043,7 +3058,14 @@ const commands = {
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       now: () => Date.now(),
     });
-    const verdict = releaseMarkerVerdict({ ...check, want: toVersion });
+    const verdict = releaseMarkerVerdict({
+      ...check,
+      want: toVersion,
+      // THE VERB MATTERS: this is an INSTALL that failed, so the advice names the previous version as
+      // the thing to pin — not the one that just failed to install.
+      verb: "update",
+      from: fromVersion,
+    });
     if (verdict.writePin) {
       console.log(
         `update: ${fromVersion || "?"} -> ${toVersion} COMPLETE (the device reported the new release)`,

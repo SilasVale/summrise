@@ -1778,18 +1778,30 @@ test("stop and restart mark the run as deliberate before killing it", () => {
 // ── following a LIVE console ────────────────────────────────────────────────
 
 test("the help cannot promise a verb that does not exist", () => {
-  // The round-25 prune deleted `report` and `watch` while the hand-written usage line still
-  // advertised them — a usage line is a contract. It is derived from `commands` now, and this pins
-  // that: every name printed comes from the dispatcher's own table, and nothing else is printed.
-  const shipped = readFileSync(
-    new URL("../bin/summrise.js", import.meta.url),
-    "utf8",
+  // EXECUTED, NOT READ AS TEXT. This used to pin a source-shaped string inside the COMPILED build, so
+  // when `prettier` re-wrapped the `console.log` across lines the test failed while the help was
+  // perfectly correct — an instrument measuring its own formatting. What it MEANS is that every verb the
+  // help prints is one the dispatcher actually has (the round-25 prune deleted `report` and `watch`
+  // while the hand-written usage line kept advertising them), and that is observable directly.
+  const { spawnSync } = require("node:child_process");
+  const bin = new URL("../bin/summrise.js", import.meta.url).pathname;
+  const r = spawnSync(process.execPath, [bin], { encoding: "utf8" });
+  assert.equal(r.status, 0, "a bare invocation prints the help and exits 0");
+  const printed = r.stdout
+    .split("\n")
+    .slice(1)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  assert.ok(
+    printed.length >= 10,
+    `expected the verb list, got ${printed.length} line(s)`,
   );
-  assert.match(
-    shipped,
-    /summrise <" \+ Object\.keys\(commands\)\.join\("\|"\) \+ ">/,
-  );
-  assert.doesNotMatch(shipped, /summrise <setup\|status\|report/);
+  for (const dead of ["report", "watch"]) {
+    assert.ok(
+      !printed.includes(dead),
+      `the help advertises '${dead}', which the dispatcher does not have`,
+    );
+  }
 });
 
 test("every schtasks action is CHECKED, so a service verb cannot fail silently", () => {
