@@ -7235,4 +7235,53 @@ mod tests {
              fail-open this test exists to prevent"
         );
     }
+
+    /// A CLAMPED VALUE IS APPLIED, AND THE ENDPOINT SAYS WHICH (round 164).
+    ///
+    /// `api_settings_put` clamps `buffer_mb` to 1..=64 and persists the clamped value; the
+    /// response echoes THAT value, so a client that sent 1000 can see what it got. The bounds
+    /// are spelled in four places (this clamp, `state.rs`, `config.rs`'s doc and the panel's
+    /// SettingsPage) — this pins the end a caller experiences, so a silent no-op or a rejection
+    /// would both be caught.
+    #[tokio::test]
+    async fn buffer_mb_is_clamped_and_the_effective_value_is_what_sticks() {
+        let (st, cfg_path) = state_with_cfg("clamp", CFG_YAML_TOKEN_ONLY);
+
+        let over = handle_request(
+            req_with_json("PUT", "/api/settings", r#"{"buffer_mb": 1000}"#),
+            st.clone(),
+        )
+        .await;
+        assert_eq!(over.status(), StatusCode::OK);
+        assert_eq!(
+            st.config_snapshot().terminal.buffer_mb,
+            64,
+            "an over-range value must clamp to the ceiling, not be rejected or ignored"
+        );
+
+        let under = handle_request(
+            req_with_json("PUT", "/api/settings", r#"{"buffer_mb": 0}"#),
+            st.clone(),
+        )
+        .await;
+        assert_eq!(under.status(), StatusCode::OK);
+        assert_eq!(
+            st.config_snapshot().terminal.buffer_mb,
+            1,
+            "and an under-range one to the floor"
+        );
+
+        let mid = handle_request(
+            req_with_json("PUT", "/api/settings", r#"{"buffer_mb": 32}"#),
+            st.clone(),
+        )
+        .await;
+        assert_eq!(mid.status(), StatusCode::OK);
+        assert_eq!(
+            st.config_snapshot().terminal.buffer_mb,
+            32,
+            "an in-range value passes through — the clamp is not a constant"
+        );
+        let _ = std::fs::remove_dir_all(cfg_path.parent().unwrap());
+    }
 }
