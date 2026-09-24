@@ -88,12 +88,6 @@ jobs:
       # pack-chain with "Cannot find type definition file for 'vite/client'" — a missing dependency, not a stale asset.
       - name: the console's committed assets match its source
         run: node ${{ github.workspace }}/scripts/test/console-assets-check.mjs
-      # THE PANEL SIDE OF THE SAME RULE (round 177). Five gates read the COMMITTED
-      # agent/resources/panel/panel.css and nothing compared it to its source; agent/build.rs guards by
-      # mtime, which misses a restored file or a same-second content drift. This rebuilds and asserts the
-      # tree does not move — the shape console-assets-check.mjs uses, for the reason its own header gives.
-      - name: Panel sheet freshness
-        run: node ${{ github.workspace }}/scripts/test/panel-sheet-freshness-check.mjs
 
   panel:
     name: panel (vitest)
@@ -118,6 +112,12 @@ jobs:
       - name: Test
         run: npm test
         working-directory: agent/resources/panel-react
+      # THE PANEL SHEET'S FRESHNESS (round 177, relocated round 190). Five gates read the COMMITTED
+      # agent/resources/panel/panel.css and nothing compared it to its source. THIS JOB is the one that
+      # installs agent/resources/panel-react's dependencies — round 190 moved it here after the `ui` job,
+      # which installs only gateway/ui's, reported the missing types as a failed panel build.
+      - name: Panel sheet freshness
+        run: node ${{ github.workspace }}/scripts/test/panel-sheet-freshness-check.mjs
 
   # THE DESIGN SUITE, ON EVERY PUSH. Rounds 184-213 found the delivery pipeline lying to the sweep four times
   # over — a console bundle two generations old, a harness carrying a reverted change, a probe reading a

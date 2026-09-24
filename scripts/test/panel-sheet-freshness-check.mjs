@@ -27,11 +27,16 @@ import { execFileSync } from "node:child_process";
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
 const git = (...a) => execFileSync("git", a, { cwd: ROOT, encoding: "utf8" }).trim();
 
-const dirty = git("status", "--porcelain");
+// THE QUESTION IS ABOUT THE ARTIFACT, NOT THE TREE (round 190). This used to refuse on a dirty tree,
+// which is the wrong precondition twice over: it cannot be satisfied in CI's `panel` job (which builds
+// before its gates) and it says nothing about whether the SHEET is current. Scoped to the built output,
+// `git diff --quiet HEAD` answers the real question and tolerates whatever else is in the tree.
+const dirty = git("status", "--porcelain", "--", "agent/resources/panel");
 if (dirty) {
   console.error(
-    `FAIL the working tree is not clean, so a rebuild's diff could not be told from your work:\n${dirty}\n` +
-      `Commit or stash first — this check rebuilds the panel in place.`,
+    `FAIL agent/resources/panel/ was already modified before this check rebuilt it, so a rebuild's diff\n` +
+      `could not be told from the change that was already there:\n${dirty}\n` +
+      `Commit or revert that first — this check compares against HEAD.`,
   );
   process.exit(1);
 }
@@ -46,7 +51,9 @@ try {
   process.exit(1);
 }
 
-const after = git("status", "--porcelain");
+// SCOPED TO THE ARTIFACT, like the pre-flight above (round 190). This one fired on ANY dirty file —
+// including the check s own uncommitted edit — which is a false positive with a message about the sheet.
+const after = git("status", "--porcelain", "--", "agent/resources/panel");
 if (after) {
   console.error(
     `FAIL a rebuild of the panel changed tracked files, so the COMMITTED sheet is not what the source produces:\n${after}\n` +
