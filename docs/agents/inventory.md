@@ -615,9 +615,13 @@ would say so — that is the point of writing it this way.
 | an instrument that cannot run is not a gate | `panel-audit-skip-check.mjs` reads the SOURCE: every name handed to `page.evaluate()` must be imported or declared, and the audit must judge with the shared `failures()`/`unmeasurable()` rather than a local threshold | green — and it was RED in the only place that could see it: `panel-render-audit.mjs` had never run anywhere (CI takes the emit path, which exits 2 first) and died on `PROBE is not defined` the first time a device gave it a browser. Its measuring half now reports 294 nodes / 0 failing / 2 waived, each with the reason printed |
 | all four surfaces' gates and suites | the design job + panel 814/103 + gateway 921/0 + the Rust suite (three configurations, clippy included) + all 46 gate commands in `ci.yml` via `scripts/test/all-gates.bash` | green on the pushed commit — counts re-measured 2026-09-24 (they read panel 806 / gateway 917 before, and NOTHING gates them: all 46 gate commands pass with a stale number in this cell, which is this file's own warning about counts, applied to itself) |
 
-**THE GATE COUNT, AND WHY IT IS NOT THE MEASURE**: sixteen gate/branch pairs are broken on purpose on every push
-(`gate-mutations-check`), six of them match source text and each says which direction of error it tolerates, and the three
-disciplines those six taught are in the ledger. What follows from this table is not more gates — it is that every clause has
+**THE GATE COUNT, AND WHY IT IS NOT THE MEASURE**: 26 gate/branch pairs are broken on purpose on every push
+(`gate-mutations-check`, whose own line is "26 gate(s) broken on purpose and every one of them bit" — re-measured
+2026-09-24; this said sixteen, which is what it was when the checkpoint was written at round 143, and the drift is the
+one this file warns about). Each entry carries a `from`/`to` pair, so "six of them match source text" and "the three
+disciplines those six taught" are claims this file CANNOT re-measure — they were the author's distinction, not a
+countable property of the entries — so they are left standing and marked unmeasured rather than restated as if
+verified. What follows from this table is not more gates — it is that every clause has
 something that can FAIL, which is the only kind of evidence this objective accepts.
 
 **WHAT IS OWED TO THE OPERATOR** (decisions, not work): the e2e cadence; the two dead citations in `CHARTER`; the
