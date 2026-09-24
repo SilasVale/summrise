@@ -167,6 +167,11 @@ export default function ModelsView() {
       if (info?.models?.length) {
         setAllModels(info.models);
         setRoutes(info.routes || []);
+        // A SUCCESS CLEARS THE FAILURE, because nothing else ever did: until 2026-09-24 `setFailed`
+        // was called ONCE in this file — with `true` — so the "could not be read" banner outlived a
+        // successful retry and sat over fresh data claiming the opposite. A state that only ever
+        // latches is indistinguishable from a state that is still true.
+        setFailed(false);
       } else setFailed(true);
       // Best-effort: the page is fully usable read-only, so a 403 here means
       // "no admin controls" rather than an error worth showing.
