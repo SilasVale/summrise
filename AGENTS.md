@@ -71,7 +71,8 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 **THE GATES THE STANDING OBJECTIVE ADDED ARE IN THE LEDGER, NOT HERE** (beginning with `contract-vocabulary-check`,
 `one-derivation-check`, `session-row-check`, `wire-field-check`, `console-wire-field-check`, `gateway-device-field-check`,
 `device-verdict-check`, `sweep-fixture-dupes-check` and `production-host-check`, plus the `harness-fixture-check` changes;
-`stub-surface-check` and `ci-command-table-check` came later, and `session-carry-detect-check` later still). Each
+`stub-surface-check` and `ci-command-table-check` came later, `session-carry-detect-check` later
+still, and `device-version-rule-check` after that). Each
 carries the mutation that must fail it, and each was
 written because the rule it holds had ALREADY cost a real defect. They live in `docs/agents/design-ledger.md` — section
 "Which mutation must fail which gate" — rather than in this table (`inventory.md` §12 names the INSTRUMENTS and their

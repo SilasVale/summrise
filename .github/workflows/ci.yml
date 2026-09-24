@@ -720,6 +720,11 @@ jobs:
         # disagreeing: `wireFieldsChanged` omitted `idleMs` and `commandRunning` while `wireFields`
         # carried them, so a row kept its discovery values for life. Nothing compared them until now.
         run: node scripts/test/session-carry-detect-check.mjs
+      - name: the two halves of the device-version rule agree
+        # The panel and the console each decide which of the device s two version fields wins, in different
+        # packages with no shared module — and BOTH were broken independently: round-304 on the gateway side
+        # (the frozen Cargo `version` showed v1.0.145 forever), and the panel records the other direction.
+        run: node scripts/test/device-version-rule-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —

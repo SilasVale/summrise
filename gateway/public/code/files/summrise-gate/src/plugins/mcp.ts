@@ -71,6 +71,31 @@ const DEVICE_PROBE_CACHE = new Map<string, any>(); // name -> { at, ok }
 const DEVICE_PROBE_TTL_MS = 30000;
 
 // Exported for direct pins (SOLID Round-31; additive — call sites untouched).
+/**
+ * WHICH VERSION FIELD WINS, and this is a RULE rather than two lines because it has been broken twice.
+ *
+ * `release` is the npm release (1.2.x, changes every release); `version` is the Cargo protocol version
+ * (1.0.x, FROZEN). Round-304: this side read `version`, so the console showed v1.0.145 forever and the
+ * outdated badge never cleared.
+ *
+ * THE SAME RULE AS THE PANEL'S `releaseVersion`
+ * (`agent/resources/panel-react/src/lib/agentVersion.ts`), which met it from the other direction: in the
+ * desktop shell the status strip read v1.2.354 while Settings reported v1.0.145 for the SAME device. Two
+ * copies of a rule is what let them disagree — the panel's own comment — and neither side could see the
+ * other until each named it. Change this and change that, or the two answers diverge again.
+ *
+ * `device-version-rule-check.mjs` holds both to one table.
+ */
+export function wireVersion(j: unknown): string | undefined {
+  const o = (j ?? {}) as { release?: unknown; version?: unknown };
+  if (typeof o.release === "string" && o.release) return o.release;
+  if (typeof o.version === "string" && o.version) return o.version;
+  // ABSENT, NOT FABRICATED — and this is where the two halves DELIBERATELY differ. The panel returns "" here
+  // and renders it as "v?" through `releaseVersionLabel`; this side leaves the field UNSET, because a state
+  // object that says `version: ""` claims an answer it does not have. `device-probe.test.mjs` pins it:
+  // "no version fields → absent, not fabricated". Extracting this function nearly changed that silently.
+  return undefined;
+}
 export async function cachedDeviceProbe(
   env: any,
   device: Device,
@@ -105,8 +130,7 @@ export async function cachedDeviceProbe(
       // Prefer the npm release over the frozen Cargo version (round-304:
       // version never changes, so the console showed v1.0.145 forever and
       // the outdated badge never cleared). Pre-release agents fall back.
-      if (j && typeof j.release === "string" && j.release) state.version = j.release;
-      else if (j && typeof j.version === "string") state.version = j.version;
+      state.version = wireVersion(j);
       // THE ONE VERDICT THE FLEET SHOWS (round 256): a device whose last run
       // crashed is a device somebody should look at. The device sends both
       // halves; only the fault and its sentence are forwarded — see the field

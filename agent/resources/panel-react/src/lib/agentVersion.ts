@@ -16,7 +16,12 @@
  * registration took got two answers.
  *
  * Two copies of a rule is what let them disagree, so the rule lives here now and both
- * callers use it. `version` remains the fallback for a device old enough not to send
+ * callers use it.
+ *
+ * AND IT IS STILL TWO COPIES, one per package: the gateway decides the same thing for the console in
+ * `gateway/src/plugins/mcp.ts` (`wireVersion`), and it met the same defect from the other side — round-304
+ * there, a strip reading v1.2.354 here. They cannot share a module, so each names the other and
+ * `device-version-rule-check.mjs` holds both to one table. `version` remains the fallback for a device old enough not to send
  * `release` at all.
  */
 export function releaseVersion(status: unknown): string {
