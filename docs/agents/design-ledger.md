@@ -5208,3 +5208,27 @@ the next round needs.
 
 Same family as everything else this stretch has recorded: a document whose two halves disagreed, where the fix is
 not to pick a winner but to make the disagreement visible at the point of use.
+
+### MY TEST-COUNT WRAPPER FAILED ON THE REPORTER IT CLAIMED TO READ (round 203)
+
+The CI run for `9bdd7ad7` came back **failure** — the first completed run since `26d0eb54`, and the first real
+verdict on rounds 193-201. Two of the risky changes passed outright: `agent (xwin check windows-msvc)` is green
+with the official LLVM tarball in place, and `proxies (node --test + wrangler dry-run)` is green with wrangler
+pinned. The failure was `panel`, at step 6: Test.
+
+  Test Files  107 passed (107)
+  Tests       832 passed (832)
+  FAIL …/agent/resources/panel-react: the suite exited 0 but its output carried no test count at all
+
+The suite ran 832 tests and passed. **My wrapper could not read vitest's summary.** In the raw log the line is
+`[2m Test Files [22m [1m [32m107 passed` — vitest COLORISES when it writes to a pipe, and the anchored
+`/^\s*Tests\s+(\d+)/` never matched a line beginning with an escape. So the wrapper reported "no test count" for
+a suite that had just run 832 of them, and turned a green job red.
+
+**I tested it on two packages and both were `node --test`.** `index` and `gateway` pass, and I wrote "reads all
+three reporters the repo uses" from the AGENTS.md reporter table rather than from a run. The third reporter was
+never exercised — in the file whose entire purpose is to assert that a suite ran something.
+
+ANSI is stripped before every match now, and the wrapper has been run against all three: vitest 832, node --test
+45 and 921, plus the empty-package mutation at exit 1. The lesson is not "strip ANSI" — it is that a claim about
+three formats needs three runs, and a table that documents a reporter is not a test of one.

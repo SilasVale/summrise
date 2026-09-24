@@ -42,9 +42,15 @@ try {
 }
 process.stdout.write(out);
 
-const tests = out.match(/^[ℹ#]\s*tests\s+(\d+)/m);
-const pass = out.match(/^[ℹ#]\s*pass\s+(\d+)/m);
-const vitest = out.match(/^\s*Tests\s+(\d+)\s+passed/m);
+// ANSI ESCAPES ARE STRIPPED FIRST, and CI is what taught it (round 203). vitest COLORISES its summary when
+// it writes to a pipe — `[2m Tests [22m [1m [32m832 passed` — so an anchored /^\s*Tests/ never matched, and
+// the wrapper reported "no test count" for a suite that had run 832 of them, turning a green panel job red.
+// This file was tested on `node --test` in two packages and never on the vitest reporter it claims to read.
+const clean = out.replace(/\u001b\[[0-9;]*m/g, "");
+
+const tests = clean.match(/^[ℹ#]\s*tests\s+(\d+)/m);
+const pass = clean.match(/^[ℹ#]\s*pass\s+(\d+)/m);
+const vitest = clean.match(/^\s*Tests\s+(\d+)\s+passed/m);
 
 const counted = pass ? Number(pass[1]) : vitest ? Number(vitest[1]) : tests ? Number(tests[1]) : null;
 
