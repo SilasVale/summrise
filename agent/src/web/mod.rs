@@ -146,7 +146,38 @@ pub(super) fn host_no_port(headers: &axum::http::HeaderMap) -> Option<&str> {
 /// `IpAddr` — from wherever `ConnectInfo` is still attached, and making this `async` so the owed penalty
 /// can be awaited; three call sites, one of which is the generic streaming helper above them. That is a
 /// deliberate change on an auth path, not a hurried one, so it is recorded here with its shape instead.
-fn check_auth(headers: &axum::http::HeaderMap, state: &AppState) -> Result<(), Box<Response>> {
+/// AND THIS GATE CARRIES THE PENALTY TOO, since 2026-09-24. It did not, while `TokenGate` — which
+/// guards `/mcp` — did: the exponential brute-force backoff (100 ms doubling to 2 s, PER PEER since
+/// round 207) was invoked from two sites, both inside `TokenGate`, so the surface whose token reaches
+/// SYSTEM-level device control paid nothing for wrong guesses. What made it a tension rather than an
+/// oversight is that the throttle must SLEEP, and this function takes HEADERS rather than the request
+/// (SOLID R108, so it stays usable from a `Send` future). It is `async` now and takes the peer, which
+/// is a `Copy` value read from `ConnectInfo` before any await — the shape the earlier comment predicted.
+///
+/// NO TOKEN CONFIGURED STILL FAILS CLOSED, and it is charged as a failure like any other guess: a
+/// hand-built Config that never got a token must not serve unauthenticated RCE routes, and a caller who
+/// reaches that state has guessed wrong about the device as surely as one who sent a bad token.
+async fn check_auth(
+    peer: Option<std::net::IpAddr>,
+    headers: &axum::http::HeaderMap,
+    state: &AppState,
+) -> Result<(), Box<Response>> {
+    /// Refuse: record the failure, pay what is owed, hand back the 401 body. ONE place, because there
+    /// are two ways to fail here and both are a caller guessing.
+    async fn deny(peer: Option<std::net::IpAddr>, owed: u64) -> Box<Response> {
+        note_auth_failure(peer);
+        if owed > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(owed)).await;
+        }
+        Box::new(built_response(
+            StatusCode::UNAUTHORIZED,
+            "application/json",
+            Body::from(r#"{"ok":false,"error":"unauthorized"}"#),
+        ))
+    }
+    // PAY THE PENALTY FIRST (round 206's ordering, adopted here): a caller inside its window does not
+    // even have its guess compared.
+    let owed = auth_penalty_remaining_ms(peer);
     // Write-through (audit A4): the token comes from the LIVE snapshot, not
     // a boot-time copy — a token rotated via config mutations is visible
     // immediately, without a restart.
@@ -157,11 +188,7 @@ fn check_auth(headers: &axum::http::HeaderMap, state: &AppState) -> Result<(), B
         // exits when randomness is unavailable) — a missing token here can
         // only come from a hand-built Config, which must never serve
         // unauthenticated RCE routes to the network.
-        return Err(Box::new(built_response(
-            StatusCode::UNAUTHORIZED,
-            "application/json",
-            Body::from(r#"{"ok":false,"error":"unauthorized"}"#),
-        )));
+        return Err(deny(peer, owed).await);
     };
     let from_header = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -175,13 +202,10 @@ fn check_auth(headers: &axum::http::HeaderMap, state: &AppState) -> Result<(), B
     if token_is_usable(token)
         && from_header.is_some_and(|h| timing_safe_eq(h.as_bytes(), token.as_bytes()))
     {
+        note_auth_success(peer);
         return Ok(());
     }
-    Err(Box::new(built_response(
-        StatusCode::UNAUTHORIZED,
-        "application/json",
-        Body::from(r#"{"ok":false,"error":"unauthorized"}"#),
-    )))
+    Err(deny(peer, owed).await)
 }
 
 /// Constant-time byte compare — the device token is compared at every
@@ -717,6 +741,7 @@ async fn handle_panel_home(
 /// This is the ONE place an SSE slot is acquired, which is why the fix was a
 /// single edit here plus the two signatures it forwards to.
 async fn sse_route_response<F, Fut>(
+    peer: Option<std::net::IpAddr>,
     headers: &axum::http::HeaderMap,
     state: &Arc<AppState>,
     stream: F,
@@ -725,7 +750,7 @@ where
     F: FnOnce(Arc<AppState>, SseConnectionGuard) -> Fut,
     Fut: std::future::Future<Output = Response>,
 {
-    if let Err(resp) = check_auth(headers, state) {
+    if let Err(resp) = check_auth(peer, headers, state).await {
         return *resp;
     }
     let guard = match acquire_sse_guard() {
@@ -743,6 +768,11 @@ async fn route_pre_dispatch(
     query: Option<&str>,
     headers: &axum::http::HeaderMap,
     state: &Arc<AppState>,
+    // The SOCKET's address, for the auth penalty (`check_auth` charges per peer). A SEPARATE value
+    // from `peer_is_loopback` below, and deliberately so: `peer_key` reads the same `ConnectInfo` and
+    // treats ABSENT as local (nobody to penalise), while the bool treats absent as NOT loopback, which
+    // DENIES the loopback token handout. One extension, two questions, two answers.
+    peer: Option<std::net::IpAddr>,
     // Whether the SOCKET is loopback — decided at the connection boundary, because a
     // `Host: 127.0.0.1` header costs an attacker nothing and this used to be the only
     // thing standing behind the loopback token handout.
@@ -750,12 +780,12 @@ async fn route_pre_dispatch(
 ) -> Option<Response> {
     // SSE event stream — streaming, handled before body parsing.
     if *method == Method::GET && path == "/api/events" {
-        return Some(sse_route_response(headers, state, sse_stream).await);
+        return Some(sse_route_response(peer, headers, state, sse_stream).await);
     }
 
     // SSE terminal byte stream — streamed TermOutput JSON frames.
     if *method == Method::GET && path == "/api/events/term" {
-        return Some(sse_route_response(headers, state, sse_term_stream).await);
+        return Some(sse_route_response(peer, headers, state, sse_term_stream).await);
     }
 
     // round-152: AI browser evidence stream — list + fetch screenshots from
@@ -773,7 +803,7 @@ async fn route_pre_dispatch(
             // would 404; reaching it without the guard would leak the device.
             || path == "/api/operation")
     {
-        if let Err(resp) = check_auth(headers, state) {
+        if let Err(resp) = check_auth(peer, headers, state).await {
             return Some(*resp);
         }
         if let Some(resp) = handle_browser_evidence(path, query).await {
@@ -929,12 +959,14 @@ async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Respo
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|ci| ci.0.ip().is_loopback())
         .unwrap_or(false);
+    let peer = peer_key(&req);
     if let Some(resp) = route_pre_dispatch(
         &method,
         &path,
         query_str.as_deref(),
         req.headers(),
         &state,
+        peer,
         peer_is_loopback,
     )
     .await
@@ -961,7 +993,7 @@ async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Respo
     // and the public surfaces above keep their own explicit, tested
     // behaviour. `every_dispatch_route_is_auth_gated` /
     // `deliberately_public_routes_stay_public` pin both halves.
-    if let Err(resp) = check_auth(req.headers(), &state) {
+    if let Err(resp) = check_auth(peer, req.headers(), &state).await {
         return *resp;
     }
 
@@ -3964,7 +3996,7 @@ mod tests {
             ("POST", "/mcp"),
         ] {
             assert!(
-                route_pre_dispatch(&method_of(m), p, None, &headers_of(m, p), &st, false)
+                route_pre_dispatch(&method_of(m), p, None, &headers_of(m, p), &st, None, false)
                     .await
                     .is_none(),
                 "{m} {p} is answered BEFORE the auth gate — it would bypass it"
@@ -3983,7 +4015,7 @@ mod tests {
             ("GET", "/some-unknown-page"),
         ] {
             assert!(
-                route_pre_dispatch(&method_of(m), p, None, &headers_of(m, p), &st, false)
+                route_pre_dispatch(&method_of(m), p, None, &headers_of(m, p), &st, None, false)
                     .await
                     .is_some(),
                 "{m} {p} must be answered before the gate (documented public surface)"
@@ -3999,6 +4031,7 @@ mod tests {
                 None,
                 &headers_of("GET", p),
                 &st,
+                None,
                 false,
             )
             .await
@@ -6752,7 +6785,9 @@ mod tests {
         }
 
         let st = state();
-        assert!(check_auth(req("GET", "/api/status").headers(), &st).is_ok());
+        assert!(check_auth(None, req("GET", "/api/status").headers(), &st)
+            .await
+            .is_ok());
         let mut gate = TokenGate::new(OkSvc, st.clone());
         let res = Service::call(&mut gate, req_with_token("POST", "/mcp", TEST_TOKEN))
             .await
@@ -6765,14 +6800,18 @@ mod tests {
 
         // /api/* path: old rejected, new accepted.
         assert!(check_auth(
+            None,
             req_with_token("GET", "/api/status", TEST_TOKEN).headers(),
             &st
         )
+        .await
         .is_err());
         assert!(check_auth(
+            None,
             req_with_token("GET", "/api/status", "rotated-token").headers(),
             &st
         )
+        .await
         .is_ok());
         // /mcp path: old rejected, new reaches the inner service.
         let res = Service::call(&mut gate, req_with_token("POST", "/mcp", TEST_TOKEN))
@@ -6850,6 +6889,7 @@ mod tests {
                 None,
                 &parts.headers,
                 &st,
+                None,
                 false,
             )
             .await
