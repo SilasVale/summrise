@@ -154,7 +154,7 @@ function corsHeaders(request) {
 }
 
 // Constant-time string equality for the CLIENT_KEY gate (same pattern as
-// index/src/index.js safeEq): SHA-256 both sides to fixed 32-byte digests
+// the repo standard): SHA-256 both sides to fixed 32-byte digests
 // first (no length early-exit to leak on), then fold XOR across every byte
 // without short-circuiting.
 async function safeEq(a, b) {

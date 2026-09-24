@@ -2,7 +2,7 @@
   "name": "summrise-dist",
   "private": true,
   "type": "module",
-  "description": "Summrise Index worker (Cloudflare) — one-time-claim unit tests via node --test",
+  "description": "Summrise Index worker (Cloudflare) — the landing page, the release channel and its manifests. The one-time-claim upload tests it used to advertise live in relay/.",
   "scripts": {
     "test": "node --test"
   }
