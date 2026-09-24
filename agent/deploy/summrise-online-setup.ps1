@@ -317,7 +317,17 @@ try {
   $da = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ('"' + $vb1 + '"') -WorkingDirectory $InstallDir
   $dt1 = New-ScheduledTaskTrigger -AtLogOn
   $dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)
-  Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1, $dw1) -Force | Out-Null
+  # THE PRINCIPAL AND THE SETTINGS THE COMMENT ABOVE ALREADY CLAIMED (round 143).
+  # It said the shape was "copied from the update flow's hardened version" and the body
+  # passed NEITHER: no -Principal (the CLI writes LogonType Interactive, RunLevel
+  # Highest) and no -Settings (a 10-minute ExecutionTimeLimit and IgnoreNew).
+  # ORDER IS WHY THIS MATTERS: step 6 runs AFTER `summrise setup`, so on the NSIS path
+  # THIS registration is the one that survives — the weaker definition was overwriting
+  # the hardened one on every install. Same shape as agent/summrise-agent-npm's register
+  # step, and installer_integrity.rs fails if the two ever diverge again.
+  $pr = New-ScheduledTaskPrincipal -UserId ('{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest
+  $st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+  Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1, $dw1) -Principal $pr -Settings $st -Force | Out-Null
   Say "SummriseDesktop 登录任务已就绪（含修复旧版指向）"
   Start-ScheduledTask -TaskName "SummriseDesktop" -ErrorAction SilentlyContinue
 } catch { Say "SummriseDesktop 任务跳过（行 $($_.InvocationInfo.ScriptLineNumber)）：$($_.Exception.Message)" }

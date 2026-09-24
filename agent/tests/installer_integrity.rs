@@ -158,3 +158,44 @@ fn every_prestaged_component_is_verified() {
         "the installer must ship the function it calls"
     );
 }
+
+/// THE LOGON TASK HAS TWO OWNERS AND THEY MUST SAY THE SAME THING (round 143).
+///
+/// `summrise setup` registers SummriseDesktop with an Interactive/Highest principal
+/// and a settings set (10-minute limit, IgnoreNew). The NSIS installer's setup script
+/// registers it TOO, and its step runs AFTER setup — so its definition is the one that
+/// survives, and it used to pass neither, overwriting the hardened one on every
+/// install. Both ends now carry both, and this fails if either drifts.
+#[test]
+fn the_task_has_one_definition() {
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let cli = read("summrise-agent-npm/src/summrise.ts");
+    // The two facts that were missing from the weaker end.
+    for (needle, who) in [
+        ("New-ScheduledTaskPrincipal", "the -Principal argument"),
+        ("New-ScheduledTaskSettingsSet", "the -Settings argument"),
+    ] {
+        assert!(
+            ps1.contains(needle),
+            "the installer registers SummriseDesktop without {who}, and its step runs \
+             last — so its definition is the one that survives"
+        );
+        assert!(cli.contains(needle), "the CLI must keep {who}");
+    }
+    // And the registration line itself must pass them.
+    let reg = ps1
+        .lines()
+        .find(|l| l.contains("Register-ScheduledTask SummriseDesktop"))
+        .expect("the installer must still register the task");
+    assert!(reg.contains("-Principal $pr"), "the installer must pass the principal: {reg}");
+    assert!(reg.contains("-Settings $st"), "the installer must pass the settings: {reg}");
+    // The two definitions must agree on the values, not merely on the argument names.
+    assert!(
+        ps1.contains("-RunLevel Highest") && cli.contains("-RunLevel Highest"),
+        "both ends must run the desktop shell at the logged-on user's level"
+    );
+    assert!(
+        ps1.contains("IgnoreNew") && cli.contains("IgnoreNew"),
+        "both ends must refuse a second instance"
+    );
+}
