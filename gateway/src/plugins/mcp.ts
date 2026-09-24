@@ -175,7 +175,14 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
   > = {};
   for (const d of devices) {
     // Agent + tunnel health: probe the device's own /api/status through its
-    // tunnel (cached 30s — the console polls every 30s already).
+    // tunnel (cached 30s — the console polls every 60s, `CONSOLE_POLL_MS` in
+    // gateway/ui/src/lib/deviceState.ts, so a request the console makes is NEVER
+    // served by this cache). THAT margin, not the console's interval, is the whole
+    // justification for the number: the 30s window exists for a second view and for
+    // a manual refresh, and any value comfortably under the poll would do.
+    // It said "the console polls every 30s already" until round 156 — a false
+    // reason, which is worse than none, because it is what a reader would trust
+    // when deciding whether this cache can grow.
     const probe = await cachedDeviceProbe(env, d, fresh);
     if (probe.agent) {
       // Bounded write: only touches KV when the version changed or the last
