@@ -5290,3 +5290,27 @@ before trusting it — including when the claim is mine.
 Both files say 56 again. The lesson is narrower than "verify": **a count of a structured file must come from the
 structure, not from a text search over it.** `JSON.parse` after stripping the comments gives 56; grep gave 58; the
 difference was two parameter names, and nothing in the pipeline could tell.
+
+### TWO ACCESSORS AGREED ON A DUPLICATE AND THE THIRD DID NOT (round 215)
+
+The nineteenth exploration's registry finding, and the code states the rule it breaks. `plugin_tools` was made
+last-wins in round 163 and its own doc comment spells out what all three accessors owe each other:
+
+  "`all_tools` would meanwhile have published both copies. Nothing registers a duplicate name today, and `register`
+   now warns if one ever does, but the two accessors must not disagree about the answer even then."
+
+`all_tools` still flat-mapped, so a tool name declared by two plugins was published TWICE — two identical entries in
+`tools/list`, which the MCP spec forbids — while `find_tool` and `plugin_tools` both resolved it to the second. And
+the asymmetry was visible in the tests: the PLUGIN-name collision has had a test since round 163, the TOOL-name
+collision had only a `tracing::warn!`.
+
+**WHAT LANDED.** `all_tools` is last-wins per name and order-preserving, so the generated spec snapshot is
+untouched; a test now registers two plugins declaring the same tool and asserts `all_tools()` returns it once. No
+duplicate name exists today, so the dedupe changes nothing that ships — it makes the three accessors agree about the
+answer they would give if one ever did. 630 lib tests pass.
+
+**AND MY TEST DID NOT COMPILE TWICE.** `E0716` — `reg.all_tools()` returns an owned `Vec`, so chaining `.iter()`
+off it borrows a temporary that dies at the end of the statement; rustc printed the fix and I took it. Then
+`cargo fmt --check` failed, because I had written the assertion message as a multi-line string literal that rustfmt
+reflows differently. Both are the ordinary cost of writing Rust through a script rather than an editor, and both
+were caught because the suite ran rather than the file being read.

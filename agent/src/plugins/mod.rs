@@ -119,10 +119,29 @@ impl PluginRegistry {
     }
 
     /// All tools across plugins (cached — no rebuilds).
+    ///
+    /// LAST WINS PER NAME, LIKE THE OTHER TWO ACCESSORS (round 215). This flat-mapped every plugin's list,
+    /// so a name declared by two plugins was published TWICE — two identical entries in `tools/list`, which
+    /// the MCP spec forbids — while `find_tool` and `plugin_tools` both resolved it to the second. The doc
+    /// comment on `plugin_tools` below already states the rule these three share; this was the one breaking
+    /// it. No duplicate name exists today, so this changes nothing that ships: it makes the three agree
+    /// about the answer they would give if one ever did. Order is preserved, so the generated spec snapshot
+    /// is untouched.
     pub fn all_tools(&self) -> Vec<Arc<summrise_agent_core::ToolDef>> {
-        self.tools_by_plugin
+        let flat: Vec<Arc<summrise_agent_core::ToolDef>> = self
+            .tools_by_plugin
             .iter()
             .flat_map(|(_, ts)| ts.iter().cloned())
+            .collect();
+        let mut last_at: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (i, tool) in flat.iter().enumerate() {
+            last_at.insert(tool.name.clone(), i);
+        }
+        flat.into_iter()
+            .enumerate()
+            .filter(|(i, tool)| last_at.get(&tool.name).copied() == Some(*i))
+            .map(|(_, tool)| tool)
             .collect()
     }
 
@@ -242,6 +261,45 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(b, c);
         assert_eq!(tool_error(""), json!({"ok": false, "error": ""}));
+    }
+
+    /// Two plugins declaring the SAME TOOL NAME must not be published twice (round 215).
+    ///
+    /// `register` warns on the collision and nothing asserted uniqueness, while the plugin-name case has had
+    /// a test since round 163. A duplicate here reaches a client as two identical entries in `tools/list`,
+    /// which the MCP spec forbids, and the three accessors would disagree about which handler owns it.
+    #[test]
+    fn duplicate_tool_names_are_published_once_and_resolve_last_wins() {
+        struct Named(&'static str, &'static str);
+        impl Plugin for Named {
+            fn name(&self) -> &'static str {
+                self.0
+            }
+            fn display_name(&self) -> &'static str {
+                self.0
+            }
+            fn description(&self) -> &'static str {
+                ""
+            }
+            fn tools(&self) -> Vec<ToolDef> {
+                vec![ToolDef::new(self.1, "d", serde_json::json!({}), |_| {
+                    Box::pin(async { Ok(serde_json::json!({})) })
+                })]
+            }
+        }
+        let mut reg = PluginRegistry::new();
+        reg.register(Box::new(Named("one", "shared_tool")));
+        reg.register(Box::new(Named("two", "shared_tool")));
+        let tools = reg.all_tools();
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["shared_tool"],
+            "two plugins declared 'shared_tool' and all_tools() published it more than once — two identical \
+             entries in tools/list, which the MCP spec forbids"
+        );
+        // And dispatch must reach the same handler the listing names.
+        assert!(reg.find_tool("shared_tool").is_some());
     }
 
     /// Two plugins sharing a name must not make the accessors disagree (round 163).
