@@ -394,25 +394,7 @@ impl TerminalPlugin {
         {
             let buf = Arc::clone(&output_buf);
             crate::tools::terminal::add_event_sink(Arc::new(move |payload: serde_json::Value| {
-                if payload.get("ev").and_then(|v| v.as_str()) != Some("session-evicted") {
-                    return;
-                }
-                let Some(sessions) = payload.get("sessions").and_then(|v| v.as_array()) else {
-                    return;
-                };
-                let Ok(mut store) = buf.lock() else { return };
-                for s in sessions {
-                    let (Some(id), kind, label) = (
-                        s.get("id").and_then(|v| v.as_str()),
-                        s.get("kind").and_then(|v| v.as_str()).unwrap_or("terminal"),
-                        s.get("label").and_then(|v| v.as_str()).unwrap_or(""),
-                    ) else {
-                        continue;
-                    };
-                    // No exit code: the session was taken away, so nothing can prove how it ended —
-                    // the same rule the job registry follows on the same event.
-                    store.retain_live(id, kind, label, None);
-                }
+                retain_evicted(&buf, &payload);
             }));
         }
         Self {
@@ -451,11 +433,88 @@ impl Plugin for TerminalPlugin {
     }
 }
 
+/// Move what an eviction took into HISTORY, where the caps apply.
+///
+/// The announcement carries id/kind/label for every session it took, and three of the four ways a
+/// session can end do not tell this store directly (see `SessionStore`'s doc). Extracted from the
+/// subscriber closure so the rule can be tested without building a manager and a stale session.
+///
+/// FEATURE-GATED because its only caller is: without `terminal` there are no desktop sessions to
+/// evict — the stub answers every call with `disabled_err()` — and `-D warnings` is right to call an
+/// unreachable helper dead code (the no-feature clippy run said so the moment this existed).
+#[cfg(feature = "terminal")]
+pub(crate) fn retain_evicted(buf: &OutputBuf, payload: &serde_json::Value) {
+    if payload.get("ev").and_then(|v| v.as_str()) != Some("session-evicted") {
+        return;
+    }
+    let Some(sessions) = payload.get("sessions").and_then(|v| v.as_array()) else {
+        return;
+    };
+    let Ok(mut store) = buf.lock() else { return };
+    for s in sessions {
+        let (Some(id), kind, label) = (
+            s.get("id").and_then(|v| v.as_str()),
+            s.get("kind").and_then(|v| v.as_str()).unwrap_or("terminal"),
+            s.get("label").and_then(|v| v.as_str()).unwrap_or(""),
+        ) else {
+            continue;
+        };
+        // No exit code: the session was taken away, so nothing can prove how it ended — the same rule
+        // the job registry follows on the same event.
+        store.retain_live(id, kind, label, None);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use summrise_agent_core::{AppEventBus, Plugin};
+
+    /// THE EVICTION RETAINS ITS BUFFER — the leak this subscriber exists to close. Without it the
+    /// SessionBuf stayed in `live` for ever: nothing caps that map, the sweeper never looks at it,
+    /// and `history` is the half that carries `max_history_sessions`/`max_history_bytes`. So a device
+    /// that evicts over a long run grew by one output buffer per eviction.
+    #[cfg(feature = "terminal")]
+    #[test]
+    fn an_eviction_moves_the_buffer_into_bounded_history() {
+        let buf: OutputBuf = Arc::new(std::sync::Mutex::new(SessionStore::new()));
+        buf.lock()
+            .unwrap()
+            .live
+            .insert("term-1".into(), SessionBuf::new());
+
+        // The shape the manager announces (its EvictedSession carries id/kind/label).
+        retain_evicted(
+            &buf,
+            &json!({"ev": "session-evicted", "cause": "idle",
+                    "sessions": [{"id": "term-1", "kind": "pty", "label": "shell"}]}),
+        );
+
+        let store = buf.lock().unwrap();
+        assert!(
+            !store.live.contains_key("term-1"),
+            "the evicted session must LEAVE `live` — that map is unbounded and never revisited"
+        );
+        assert!(
+            store.history.contains_key("term-1"),
+            "…and ARRIVE in `history`, where the caps apply"
+        );
+        let history_len = store.history.len();
+        drop(store);
+
+        // AND IT IS NARROW: an announcement that is not an eviction changes nothing, so this cannot
+        // become a hook that quietly retains on every event.
+        retain_evicted(
+            &buf,
+            &json!({"ev": "something-else", "sessions": [{"id": "term-2"}]}),
+        );
+        assert_eq!(
+            buf.lock().unwrap().history.len(),
+            history_len,
+            "only evictions are acted on"
+        );
+    }
 
     fn plugin() -> TerminalPlugin {
         let bus: Arc<dyn EventBus> = Arc::new(AppEventBus::new());
