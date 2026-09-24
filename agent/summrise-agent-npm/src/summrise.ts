@@ -2513,6 +2513,17 @@ const commands = {
     process.exit(1);
   },
   status() {
+    // THE EXIT CODE IS 0 EVEN WHEN THE REPORT SAYS "UNKNOWN", AND THAT IS THE CONVENTION.
+    //
+    // `status` is asked for a REPORT; it produces one, and the verdict lives in the text. `tunnel`
+    // exits 1 on the same unreadable process list (`:3655-3662`) because the thing IT was asked for —
+    // a running tunnel — did not happen. The two are not inconsistent; they answer different
+    // questions, and the difference is what the caller asked for rather than how bad the news is.
+    //
+    // A script that needs a VERDICT must not read this exit code. `monitor list --json` states its own
+    // contract at `:2424-2426`: "A device that could not be reached is a NON-ZERO EXIT with the reason
+    // on stderr, never a JSON body pretending everything is fine."
+    //
     // NOT via shell: `shell: true` concatenates argv into one cmd.exe string,
     // so the unquoted filter "IMAGENAME eq …" was split at its spaces, tasklist
     // rejected it, and this ALWAYS printed STOPPED even with the agent running.
