@@ -25,11 +25,11 @@ only the operator can answer. §2 is what must not be touched, with the reason.
 | panel SPA | **38,375 lines**; 46 components (8,755) · 19 hooks (3,177) · 28 lib modules (3,051) | `find agent/resources/panel-react/src -type f \| xargs wc -l` |
 | gateway | **13,724 lines / 41 files**, **61 route registrations** | `gateway/src`; routes registered by `plugins/registry.ts:123` |
 | console UI | 5,312 lines / 20 files + `globals.css` 2,731; **6 views**, all mounted (`App.tsx:21-26`) | `gateway/ui/src` |
-| landing | 531 lines / 29,496 bytes, one HTML string; **22 CSS classes defined, 22 used** | `index/src/page.js` |
-| proxies | 3 workers (zen-go 403, zen-us 339, api-relay 2,256 lines) — **all three referenced**, none orphaned | `channels.ts:436,456-467`; `build.sh:305-335`; `ci.yml:647-671` |
-| scripts | 46 files: 12 top level, 2 lib, 1 hook, **31 gates** (all CI-run) | `ls scripts scripts/test` |
-| tests | Rust **757**, gateway **877** + console 34, panel **803**, index 14, proxies 98, CLI/shell suites | each suite's own runner; all in CI except the device-targeted ones (§5.8) |
-| docs | 5 files: CHARTER 56, design-ledger 2,406, ideas 39, AGENTS 199, README 83 | `wc -l` |
+| landing | one HTML string in `index/src/page.js`; its CSS classes and byte count are the landing gate's answer, not a number here | `node scripts/test/landing-check.mjs` |
+| proxies | 3 workers — **all three referenced**, none orphaned (line counts move; `wc -l` them) | `channels.ts:436,456-467`; `build.sh:305-335`; `ci.yml:647-671` |
+| scripts | top level, lib, hook, and the gate files — **the gate count is `gate-mutations-check`'s own line, never a number here** (this cell said 31, and 31 was a reading) | `ls scripts scripts/test` |
+| tests | **EVERY SUITE PRINTS ITS OWN COUNT — run it.** No counts are carried here on purpose: this row read "Rust 757, gateway 877 + console 34, panel 803, index 14, proxies 98", and by round 140 every one of them was wrong (index 14 → 46, panel 803 → 832, gateway 877 → 921, proxies 98 → 106). §12 records the same lesson for the same reason | each suite's own runner; all in CI except the device-targeted ones (§5.8) |
+| docs | each file's size is `wc -l`'s answer — `design-ledger` read 2,406 here and is over 4,600 | `wc -l` |
 
 MCP tools by plugin `[measured]`: terminal **27** · system **9** · memory **6** · mcp-client **4** · monitor **4** ·
 playwright **2** · runs **2** · update **1** · design **1**.
@@ -44,7 +44,7 @@ playwright **2** · runs **2** · update **1** · design **1**.
 | **the four command renderers** (Trajectory / Path / CommandStream / DetailsPanel) | four projections of **one** read, not four implementations: one poll (`App.tsx:122-124` → `GET /api/sessions/{sid}` every 2 s), two groupers (`groupEvents` → cards, `groupRounds` → rounds), no view fetches its own (`useTrajectory.ts:98-100`). Deleting one removes a *shape*, not a duplicate — and CommandStream/DetailsPanel are the desktop density's only command inspector (§3.6) |
 | **all 46 panel components** | **no dead component exists**: every one has a live JSX render site `[measured]` by grepping `<Name` over non-test `.tsx`; `lib/orphanModules.test.ts` enforces the module-level version and proves its own two exemptions earned |
 | **all 10 `agent/tests/fixtures/*.json`** | **no orphan fixture**: each is read by a Rust `include_str!` **and** a panel test — the dual-ended wire contracts. Indexed as a route→fixture map at `lib/routeContracts.test.ts:24-59` |
-| **all 31 gates in `scripts/test/`** | all CI-run; the overlap audit (§3.1) found exactly one redundant pair and no gate whose question is asked twice elsewhere |
+| **every gate in `scripts/test/`** (the number is `gate-mutations-check`'s line, not a claim here) | all CI-run; the overlap audit (§3.1) found exactly one redundant pair and no gate whose question is asked twice elsewhere |
 | **the three design sweeps + `panel-render-audit.mjs`** | one shared core (`lib/design-sweep.mjs` 1,594 lines + `lib/contrast-probe.mjs` 549); each adapter supplies only its URL, page list, fixtures and widths |
 | **the marks / liveness / path state unions** | one declaration each: `PATH_STATES` (`lib/path.ts:36`), the liveness model (`lib/liveness.ts`), `cardState` as the canonical deriver (`CommandCard.tsx:33-52`) — the last one with a comment recording what happened when it was restated |
 | **the 15 MCP tools with no in-repo caller** | **not dead**: they are reachable through the device's own `/mcp` endpoint (`ConnectCard.tsx:119`), which is how external AI clients use them, and 13 carry an explicit `NOT_EXPOSED` reason in the gateway (`gateway/test/mcp-handler.test.mjs:260-296`). See §6.1 for the one question this raises |
