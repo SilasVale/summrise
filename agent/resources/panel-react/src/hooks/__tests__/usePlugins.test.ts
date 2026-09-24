@@ -255,8 +255,16 @@ describe("usePlugins — a failed inventory read", () => {
   it("still says `status poll failed` when the failure carried no words", async () => {
     // The fallback is not gone, it is the OTHER arm: a refusal with no `error` (or a body that is not an
     // object at all) has no sentence to show, and the module reports `reason: ""` rather than inventing
-    // one. `status poll failed` is what a message-less failure has always said, and it is unreachable for
-    // a failure that DOES carry words — which is the half round 4's review found missing.
+    // one. It is unreachable for a failure that DOES carry words — which is the half round 4's review
+    // found missing.
+    //
+    // ONE CASE DID NOT COME BACK BYTE FOR BYTE, and this comment said it had. Before round 26 this
+    // hook's own throw invented a sentence for a refusal (`res?.error || "status failed"`), so a refusal
+    // carrying no error rendered `status: status failed`; a transport failure with no message rendered
+    // `status poll failed`. Now there is ONE fallback for both, because the module reports `""` and
+    // cannot tell the two apart — and telling them apart would mean a fourth word on its interface for a
+    // sentence the hook used to make up. The invented sentence is the one that was dropped; `reason`
+    // cannot hand back what nobody said.
     let statusCalls = 0;
     mockCallApi.mockImplementation(async (path: string) => {
       if (String(path).includes("/api/spec")) return spec();

@@ -5495,6 +5495,38 @@ command a second time before the commit, and recorded IN the cell, because a num
 check by re-reading — which is why the cell carries the command beside it and why the sub-counts are still marked
 un-remeasured rather than guessed.
 
+### The review, and two ways the reason itself could lie (same round)
+
+Both axes ran against the fix, and both found something in the new code — which is the useful outcome, because the
+feature's whole point is that a sentence a person reads is now produced mechanically.
+
+**BLANK IS NOT TEXT, AND THE FIRST VERSION MEASURED THE SPELLING.** `refusalReason` handed on any truthy string, so
+`{ok:false, error:" "}` printed `inventory: ` — a blank where a label goes. The rule is stated NEXT DOOR in this panel
+(`lib/runs.ts`: "an empty or whitespace-only string is the same absence wearing a costume"), and the same codebase's
+`useSessions` already trims before testing. Both helpers trim now, and the TRIMMED value is what goes on, so a padded
+sentence does not arrive padded. The blank case had no test; it has one, and reverting the trim fails it.
+
+**AND A HELPER THAT RUNS INSIDE THE CATCH MUST NOT THROW.** `thrownReason` stringified anything that was not an
+`Error`, which is two defects in one line: `String({})` renders `[object Object]` — a sentence neither the device nor
+the thrower wrote, against the rule the module states six lines above it — and `String(Object.create(null))` THROWS,
+so the rejection would have escaped `refresh`, breaking the contract on its own doc comment ("NEVER rejects") for
+callers who invoke it as `void refresh()`. The fix is the same rule for both: a thrown string is text its thrower
+wrote, an `Error`'s message is a diagnosis, and NOTHING ELSE IS A SENTENCE. Tested with `{message:"boom"}` and with
+`Object.create(null)`, the second asserted by `await` — a rejected promise fails the test.
+
+**AND ONE SENTENCE DID NOT COME BACK BYTE FOR BYTE, WHICH A TEST COMMENT CLAIMED IT HAD.** The spec axis diffed the
+sentences against the pre-round-26 file: a refusal carrying no `error` used to render `status: status failed` (a
+sentence the HOOK invented in its own throw), while a transport failure with no message rendered `status poll failed`.
+With the module reporting `""` for both, and no way to tell them apart, there is ONE fallback now — and the comment
+that pinned the case as "what a message-less failure has always said" was false. Telling the two apart would mean a
+fourth word on the module's interface for a sentence the caller used to make up, which is the wrong trade; the
+comment and the ledger say so instead, and the exact case list is written where the test asserts it.
+
+**ALSO CORRECTED:** two comments in `usePlugins` that the deletion made stale — one describing a drift-guard between
+the fold's constant and "the page's copy of it" (the page has no copy now; it prints `reason`), and one still saying
+"nothing the operator reads changes" in the same paragraph that records the words coming back. A comment that denies
+its own paragraph is how a reader stops trusting either.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

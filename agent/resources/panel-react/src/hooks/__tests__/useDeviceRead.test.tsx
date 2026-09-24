@@ -503,6 +503,63 @@ describe("useDeviceRead — the reason a settle failed", () => {
     expect(result.current.reason).toBe("");
   });
 
+  it("reports NOTHING for a rejection that is not a sentence, and never rejects its own promise", async () => {
+    // TWO FAILURES THE REVIEW FOUND IN ONE PLACE, both from stringifying whatever arrived:
+    //   * `String({})` renders "[object Object]" — a sentence neither the device nor the thrower wrote,
+    //     and a fabricated reason beside a real failure is worse than none;
+    //   * `String(Object.create(null))` THROWS, and this runs INSIDE the catch — so the rejection would
+    //     escape `refresh`, which every caller invokes as `void refresh()` and whose contract says it
+    //     NEVER rejects.
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+
+    mockCallApi.mockRejectedValueOnce({ message: "boom" });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.reason).toBe("");
+    expect(result.current.read).toBe("unreadable");
+
+    // The one that used to THROW. `await` here is the assertion: a rejected promise fails the test.
+    mockCallApi.mockRejectedValueOnce(Object.create(null));
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("");
+  });
+
+  it("treats a BLANK device error as no words, so no sentence renders a label with nothing after it", async () => {
+    // `{ok:false, error:" "}` is TRUTHY, so the first version handed the blank straight on and the page
+    // drew `inventory: ` — the rule this panel states in `lib/runs.ts`: an empty or whitespace-only
+    // string is the same absence wearing a costume.
+    const { result } = renderRead<string>({
+      path: "/api/x",
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+
+    mockCallApi.mockResolvedValueOnce({ ok: false, error: "   " });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe("");
+
+    // AND A PADDED ONE ARRIVES UNPADDED — the same rule, one step further: the value handed on is the
+    // trimmed one, so the sentence is not drawn with the device's stray whitespace in it.
+    mockCallApi.mockResolvedValueOnce({ ok: false, error: "  playwright is not installed  " });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.reason).toBe("playwright is not installed");
+  });
+
   it("carries the FOLD's own message out, so the caller need not re-print it one layer up", async () => {
     // The third source, and the one `usePlugins` kept a ref for: a body the device SENT that the caller's
     // own fold cannot use. The message is already the caller's diagnosis — the module only has to keep it.

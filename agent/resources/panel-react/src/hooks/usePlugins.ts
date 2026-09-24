@@ -111,8 +111,10 @@ export function usePlugins(active: boolean) {
   // as one of three words — and, beside it, `reason`: the sentence it caught (see its `DeviceRead` doc),
   // which is the DEVICE's own `error` for a refusal, the transport's message for a throw, and the FOLD's
   // own message when the fold is what refused. This hook therefore keeps NO note of its own: the sentence
-  // for a body the fold refused is still written by the fold (the `throw` below, whose constant keeps the
-  // message and the page's copy of it from drifting), and it reaches the page through `reason`. The
+  // for a body the fold refused is still written by the fold (the `throw` below, whose constant makes the
+  // fold's message and the page's own copy of it ONE string — the page no longer has a copy, so the
+  // constant now serves the fold's throw and the `specLoaded` gate's wording), and it reaches the page
+  // through `reason`. The
   // clearing the deleted note did by hand is the module's too — `reason` is `""` after a success and is
   // overwritten by the next failure — so a later transport failure cannot inherit the previous body's
   // words.
@@ -179,9 +181,12 @@ export function usePlugins(active: boolean) {
   // there): the registry has loaded exactly when the read last ended `"ok"`.
   const specLoaded = specRead === "ok";
 
-  // THE PAGE'S TWO SENTENCES, FROM THE TWO READ STATES AND THE MODULE'S `reason`. The texts are the ones
-  // the two `catch` blocks used to set, so nothing the operator reads changes — and the words the failure
-  // carried now come back with it instead of being reduced to the read state. The spec one keeps its
+  // THE PAGE'S TWO SENTENCES, FROM THE TWO READ STATES AND THE MODULE'S `reason`. The SHAPES are the ones
+  // the two `catch` blocks used to set, and the words a failure carried now come back with it instead of
+  // being reduced to the read state — which IS a change the operator sees, in the direction round 4's
+  // review asked for. (A first version of this comment said "nothing the operator reads changes"; the
+  // sentence above it is the refutation, and a comment that denies its own paragraph is how a reader
+  // stops trusting either.) The spec one keeps its
   // `inventory: ` prefix, which is the shape the hand-written throw produced for the fold's own message
   // (this layer still diagnoses that one body) and is now also how a refusal's `error` reaches the page.
   //

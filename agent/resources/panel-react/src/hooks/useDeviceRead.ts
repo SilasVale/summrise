@@ -190,19 +190,29 @@ const DEFAULT_FLOOR_MS = 5_000;
 /** THE DEVICE'S OWN WORDS FOR A REFUSAL — handed on unchanged, because `lib/api.ts` writes `error` for
  *  a person. A refusal that carries no such string gets `""` rather than a sentence invented here: this
  *  module does not know what the caller wanted to say about it, and a fabricated reason beside a real
- *  failure is worse than none (see `DeviceRead.reason`). */
+ *  failure is worse than none (see `DeviceRead.reason`).
+ *
+ *  AND BLANK IS NOT TEXT. `{ok:false, error:" "}` is truthy, and handing it on printed `inventory: ` — a
+ *  blank where a label goes, which is the rule this panel states next door in `lib/runs.ts` ("an empty or
+ *  whitespace-only string is the same absence wearing a costume"). Trimmed before the test, and the
+ *  TRIMMED value is what goes on, so a padded sentence does not arrive padded. Found by review. */
 function refusalReason(body: unknown): string {
   const error = (body as { error?: unknown } | null | undefined)?.error;
-  return typeof error === "string" && error ? error : "";
+  if (typeof error !== "string") return "";
+  return error.trim();
 }
 
 /** THE WORDS A THROW CARRIES. `callApi` throws `Error`s (`HTTP 502`, `unauthorized`, a timeout) and a
- *  caller's fold arrives by the same path, so an `Error`'s message is the diagnosis in both cases.
- *  Anything that is not an `Error` is stringified — and a `null`/`undefined` rejection has NO words,
- *  while `String(null)` would print the literal word "null" as though the failure had sent it. */
+ *  caller's fold arrives by the same path, so an `Error`'s message is the diagnosis in both cases; a
+ *  thrown STRING is text its thrower wrote. NOTHING ELSE IS A SENTENCE — and this function must be TOTAL,
+ *  because it runs INSIDE the catch: `String({})` renders "[object Object]", a sentence neither the device
+ *  nor the thrower wrote, and `String(Object.create(null))` THROWS, which would escape `refresh` (callers
+ *  invoke it as `void refresh()`) and break the documented "NEVER rejects". Both were found by review, and
+ *  the same rule answers both: no words beats words nobody said. */
 function thrownReason(e: unknown): string {
-  if (e === null || e === undefined) return "";
-  return (e instanceof Error ? e.message : String(e)) || "";
+  if (typeof e === "string") return e.trim();
+  if (e instanceof Error) return e.message.trim();
+  return "";
 }
 
 export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
