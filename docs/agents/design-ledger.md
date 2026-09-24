@@ -5314,3 +5314,17 @@ off it borrows a temporary that dies at the end of the statement; rustc printed 
 `cargo fmt --check` failed, because I had written the assertion message as a multi-line string literal that rustfmt
 reflows differently. Both are the ordinary cost of writing Rust through a script rather than an editor, and both
 were caught because the suite ran rather than the file being read.
+
+**AND A SERIALIZATION FAILURE BECAME AN EMPTY SUCCESS, SILENTLY (round 216).** `to_value_or_empty` is read at 64
+call sites and converts a failure into `json!([])` with nothing said:
+
+  /// returning `[]` beats propagating a serialization panic.
+
+The reasoning is sound as far as it goes — the alternative in a request handler is a panic — but `[]` is the right
+SHAPE for a tool that returns a list and the wrong shape for one that returns an object, and nobody can tell which
+happened: not the caller, not the panel, not the console. A wrong-type success is worse than an error because it
+reads as an answer.
+
+The empty value stays; the silence does not. It logs at `error!` now, and a test makes the branch fire with a map
+whose key cannot be a JSON object key — a branch that had existed since the helper was written and had never been
+exercised by anything.

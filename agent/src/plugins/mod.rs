@@ -29,11 +29,20 @@ pub fn require_str(params: &Value, field: &str) -> Result<String, DeviceError> {
         })
 }
 
-/// Serialize a value, falling back to an empty JSON array on failure.
-/// (Tool results that are expected to serialize can't reasonably fail, but
-/// returning `[]` beats propagating a serialization panic.)
+/// Serialize a value, falling back to an empty JSON array on failure — AND SAY SO.
+///
+/// THE FALLBACK IS NOT SILENT (round 216). `[]` is the right SHAPE for a tool that returns a list and the
+/// wrong shape for one that returns an object, and a caller cannot tell which happened — 64 call sites read
+/// this, and so do the panel and the console through the wire. The empty value stays, because the
+/// alternative in a request handler is a panic; what it no longer is, is invisible.
 pub fn to_value_or_empty<T: serde::Serialize>(v: T) -> Value {
-    serde_json::to_value(v).unwrap_or_else(|_| json!([]))
+    match serde_json::to_value(v) {
+        Ok(value) => value,
+        Err(e) => {
+            tracing::error!("tool result failed to serialize; returning [] instead: {e}");
+            json!([])
+        }
+    }
 }
 
 /// The device-tool FAILURE envelope: exactly `{"ok": false, "error": msg}`.
@@ -261,6 +270,23 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(b, c);
         assert_eq!(tool_error(""), json!({"ok": false, "error": ""}));
+    }
+
+    /// A value that cannot serialize falls back to `[]` rather than panicking (round 216).
+    ///
+    /// The fallback existed since the helper was written and had no test, so nothing proved the branch was
+    /// reachable at all. A map with a non-string key is the simplest `Serialize` that fails.
+    #[test]
+    fn an_unserializable_result_falls_back_to_an_empty_array_instead_of_panicking() {
+        use std::collections::BTreeMap;
+        let mut bad: BTreeMap<(u8, u8), &str> = BTreeMap::new();
+        bad.insert((1, 2), "a tuple key cannot be a JSON object key");
+        assert_eq!(to_value_or_empty(&bad), serde_json::json!([]));
+        // And the ordinary path still returns the value itself.
+        assert_eq!(
+            to_value_or_empty(serde_json::json!({"ok": true})),
+            serde_json::json!({"ok": true})
+        );
     }
 
     /// Two plugins declaring the SAME TOOL NAME must not be published twice (round 215).
