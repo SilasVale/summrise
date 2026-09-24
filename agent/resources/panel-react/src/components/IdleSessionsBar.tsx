@@ -15,8 +15,13 @@ export function IdleSessionsBar({
   onClose,
 }: {
   candidates: Session[];
-  /** Close ONE session — the same call the tab's own × makes, so there is one close path. */
-  onClose: (sid: string) => void;
+  /** Close ONE session — the same call the tab's own × makes, so there is one close path.
+   *
+   *  ASYNC ON PURPOSE, and typed that way since 2026-09-24. It was `(sid: string) => void` while both
+   *  callers pass `closeSession`, which is an I/O call — TypeScript allows an async function where a
+   *  `void`-returning one is expected, so the promise was dropped, the loop below could not await it,
+   *  and the comment there claimed a sequencing the code did not do. */
+  onClose: (sid: string) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -35,10 +40,13 @@ export function IdleSessionsBar({
 
   const closeAll = async () => {
     setClosing(true);
-    // Sequential, and the list is recomputed by the caller after each close: closing a session is
-    // a real I/O call, and firing sixteen at once to save milliseconds is how a UI lies about what
-    // happened if one of them fails.
-    for (const s of candidates) onClose(s.sid);
+    // Sequential, and the list is the SNAPSHOT the button was pressed with: closing a session is a
+    // real I/O call, and firing sixteen at once to save milliseconds is how a UI lies about what
+    // happened if one of them fails. The awaits are what make `closing` below mean anything — without
+    // them the flag was cleared before the first close had even reached the device. The caller
+    // re-renders with a fresh list after each one; this loop walks the sessions the OFFER named, which
+    // is what the operator agreed to.
+    for (const s of candidates) await onClose(s.sid);
     setClosing(false);
     setConfirming(false);
   };
@@ -48,15 +56,26 @@ export function IdleSessionsBar({
       <span className="idle-text">{idleOfferText(candidates)}</span>
       {confirming ? (
         <>
-          <button className="btn btn-mini" onClick={() => setConfirming(false)} disabled={closing}>
+          <button
+            className="btn btn-mini"
+            onClick={() => setConfirming(false)}
+            disabled={closing}
+          >
             Keep them
           </button>
-          <button className="btn btn-danger btn-mini" onClick={closeAll} disabled={closing}>
+          <button
+            className="btn btn-danger btn-mini"
+            onClick={closeAll}
+            disabled={closing}
+          >
             {closing ? "Closing…" : `Close ${candidates.length}`}
           </button>
         </>
       ) : (
-        <button className="btn btn-ghost btn-mini" onClick={() => setConfirming(true)}>
+        <button
+          className="btn btn-ghost btn-mini"
+          onClick={() => setConfirming(true)}
+        >
           Close them
         </button>
       )}

@@ -13,7 +13,11 @@ import { IconRail } from "./IconRail";
 import { Shell, type Page } from "./Shell";
 import { idleSessions } from "../lib/idleSessions";
 import { useEvictedNotice } from "../hooks/useEvicted";
-import { GETTING_STARTED_KEY, GETTING_STARTED_VERSION, shouldShowGuide } from "../lib/gettingStarted";
+import {
+  GETTING_STARTED_KEY,
+  GETTING_STARTED_VERSION,
+  shouldShowGuide,
+} from "../lib/gettingStarted";
 import { ContextRail } from "./ContextRail";
 import { StatusBar } from "./StatusBar";
 import { useAgentVitals } from "../hooks/useAgentVitals";
@@ -42,7 +46,9 @@ interface Props {
   sessions: Session[];
   activeSid: string | null;
   onActivate: (sid: string) => void;
-  onClose: (sid: string) => void;
+  // ASYNC, like the close it is: `void` here meant the promise was discarded at every hop, and
+  // TypeScript accepts an async function where `void` is expected, so nothing complained (2026-09-24).
+  onClose: (sid: string) => Promise<void>;
   onExport: (sid: string) => void;
   onViewChange: (sid: string, v: SessionView) => void;
   /** App owns the view map; this shell only renders from it (see TerminalWorkspace). */
@@ -102,15 +108,25 @@ export function PanelApp(props: Props) {
   //    one channel that leaves the browser.
   // The WAITING question, not the armed gate: `pendingApprovalCount` is the panel's one rule for
   // "an AI is blocked on a human", and it is what the strip's waiting chip already reads.
-  const attention = useAttention(monitors, pendingApprovalCount(props.sessions));
+  const attention = useAttention(
+    monitors,
+    pendingApprovalCount(props.sessions),
+  );
   useAttentionTitle(attention);
   const [notifyPermission, requestNotifyPermission] = useNotifyPermission();
-  useAttentionNotifications(attention, notifyPermission, notifyPermission === "granted");
+  useAttentionNotifications(
+    attention,
+    notifyPermission,
+    notifyPermission === "granted",
+  );
   /** The card's "Send a test": the user gesture the browser requires, then one notification that
    *  says what the channel is for. Sent even with nothing wrong, because the point is to find out
    *  whether the OS will actually show it (Do Not Disturb is invisible from here). */
   const testNotification = async () => {
-    const state = notifyPermission === "granted" ? notifyPermission : await requestNotifyPermission();
+    const state =
+      notifyPermission === "granted"
+        ? notifyPermission
+        : await requestNotifyPermission();
     if (state !== "granted" || typeof Notification === "undefined") return;
     try {
       new Notification("Summrise", {
@@ -153,7 +169,10 @@ export function PanelApp(props: Props) {
       {/* The offer to shed what nobody is using — nothing drawn when there is nothing to offer
           (see lib/idleSessions for the threshold and why it is an hour). It closes through the same
           callback the tabs' own × uses, so there is one close path in this density. */}
-      <IdleSessionsBar candidates={idleSessions(props.sessions)} onClose={props.onClose} />
+      <IdleSessionsBar
+        candidates={idleSessions(props.sessions)}
+        onClose={props.onClose}
+      />
       <Shell
         density="panel"
         iconRail={
@@ -252,7 +271,11 @@ export function PanelApp(props: Props) {
                 onTestNotify={testNotification}
                 attention={attention}
                 runningRelease={vitals.release}
-                config={{ host: vitals.host, port: vitals.port, path: vitals.configPath }}
+                config={{
+                  host: vitals.host,
+                  port: vitals.port,
+                  path: vitals.configPath,
+                }}
               />
             )}
           </div>

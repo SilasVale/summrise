@@ -180,9 +180,9 @@ export function App() {
         else if (kind === "browser") openBrowserSession();
         else if (kind === "ssh" || kind === "serial") setModalKind(kind);
       },
-      onClose: (sid) => {
-        sessions.closeSession(sid);
-      },
+      // RETURNS the close, so the chain above it can await: a block body without `return` dropped the
+      // promise here, which is how `IdleSessionsBar`'s "Sequential" loop could not await it either.
+      onClose: (sid) => sessions.closeSession(sid),
       onActivate: (sid) => {
         sessions.activate(sid);
       },

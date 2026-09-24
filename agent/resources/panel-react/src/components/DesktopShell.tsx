@@ -16,7 +16,11 @@ import { useAgentVitals } from "../hooks/useAgentVitals";
 import { useBootHistory } from "../hooks/useBootHistory";
 import { useVitalsSeries } from "../hooks/useVitalsSeries";
 import { idleSessions } from "../lib/idleSessions";
-import { anyCommandRunning, sessionLiveness, sessionWaiting } from "../lib/liveness";
+import {
+  anyCommandRunning,
+  sessionLiveness,
+  sessionWaiting,
+} from "../lib/liveness";
 import { useEvictedNotice } from "../hooks/useEvicted";
 import { useMonitorAlerts, useMonitors } from "../hooks/useMonitors";
 import {
@@ -54,7 +58,9 @@ interface Props {
   sessions: Session[];
   activeSid: string | null;
   onActivate: (sid: string) => void;
-  onClose: (sid: string) => void;
+  // ASYNC, like the close it is: `void` here meant the promise was discarded at every hop, and
+  // TypeScript accepts an async function where `void` is expected, so nothing complained (2026-09-24).
+  onClose: (sid: string) => Promise<void>;
   onExport: (sid: string) => void;
   onViewChange: (sid: string, v: SessionView) => void;
   /**
@@ -158,7 +164,10 @@ export function DesktopShell({
   // Same rule, same hook, other density (see useStripOverflow for the measurement).
   // The hook returns { overflowing, hidden } — destructured rather than used as a boolean, which is how the
   // desktop's fade silently became always-on when the shape changed in round 168.
-  const { overflowing: moreTabs, hidden: hiddenTabs } = useStripOverflow(tabsRef, openTabs.length);
+  const { overflowing: moreTabs, hidden: hiddenTabs } = useStripOverflow(
+    tabsRef,
+    openTabs.length,
+  );
   // The shared disambiguation, applied to the SAME array the strip renders. Round 167 put this logic in
   // TabBar alone; round 170 measured `d1, serial:COM4, d1, …` on a rendered desktop page — the second home.
   const displayLabels = disambiguateLabels(openTabs);
@@ -185,12 +194,19 @@ export function DesktopShell({
   const attention = useAttention(monitors, pendingApprovalCount(sessions));
   useAttentionTitle(attention);
   const [notifyPermission, requestNotifyPermission] = useNotifyPermission();
-  useAttentionNotifications(attention, notifyPermission, notifyPermission === "granted");
+  useAttentionNotifications(
+    attention,
+    notifyPermission,
+    notifyPermission === "granted",
+  );
   /** The card's "Send a test": the user gesture the browser requires, then one notification that
    *  says what the channel is for. Sent even with nothing wrong, because the point is to find out
    *  whether the OS will actually show it (Do Not Disturb is invisible from here). */
   const testNotification = async () => {
-    const state = notifyPermission === "granted" ? notifyPermission : await requestNotifyPermission();
+    const state =
+      notifyPermission === "granted"
+        ? notifyPermission
+        : await requestNotifyPermission();
     if (state !== "granted" || typeof Notification === "undefined") return;
     try {
       new Notification("Summrise", {
@@ -252,365 +268,371 @@ export function DesktopShell({
       <IdleSessionsBar candidates={idleSessions(sessions)} onClose={onClose} />
       <Shell
         density="desktop"
-      iconRail={
-        <IconRail
-          page={page}
-          onPageChange={setPage}
-          connected={connected}
-          pendingCount={pendingApprovalCount(sessions)}
-          commandsInFlight={anyCommandRunning(sessions)}
-          desktop
-        />
-      }
-      canvas={
-        <div className="desktop-canvas">
-          {/* ── Header card: page title + session tabs + New menu ── */}
-          <header className="desktop-header">
-            <div className="desktop-header-title">
-              <span className="desktop-header-icon">
-                <Icon name={PAGE_ICONS[page]} size={15} />
-              </span>
-              <span>{PAGE_TITLES[page]}</span>
-            </div>
+        iconRail={
+          <IconRail
+            page={page}
+            onPageChange={setPage}
+            connected={connected}
+            pendingCount={pendingApprovalCount(sessions)}
+            commandsInFlight={anyCommandRunning(sessions)}
+            desktop
+          />
+        }
+        canvas={
+          <div className="desktop-canvas">
+            {/* ── Header card: page title + session tabs + New menu ── */}
+            <header className="desktop-header">
+              <div className="desktop-header-title">
+                <span className="desktop-header-icon">
+                  <Icon name={PAGE_ICONS[page]} size={15} />
+                </span>
+                <span>{PAGE_TITLES[page]}</span>
+              </div>
 
-            {page === "terminal" && (
-              <>
-                {/* Session tabs (compact pill strip inside the header) */}
-                <div
-                  className="desktop-tabs"
-                  role="tablist"
-                  aria-label="Terminal sessions"
-                  data-more={moreTabs ? "1" : undefined}
-                  ref={tabsRef}
-                >
-                  {openTabs.map((s, tabIndex) => {
-                    // Same rule as the panel's TabBar (one meaning, two
-                    // densities): a question waiting for a person is marked on
-                    // the tab itself, keyed on `pendingApproval` — NEVER on the
-                    // armed posture, which is permanent and would mark every
-                    // session forever.
-                    const waiting = sessionWaiting(s);
-                    // Same disambiguation the panel strip uses — the desktop renders its own tabs and was missed by
-                    // round 167's fix (round 170 measured `d1, serial:COM4, d1, …` here).
-                    const shown = displayLabels[tabIndex];
-                    return (
-                      <div
-                        key={s.sid}
-                        role="tab"
-                        aria-selected={s.sid === activeSid}
-                        className={`dtab ${s.sid === activeSid ? "active" : ""}`}
-                        data-active={s.sid === activeSid ? "1" : undefined}
-                        // THE ACCESSIBLE NAME IS THE DISAMBIGUATED LABEL (round 29 of the standing goal). The visible
-                        // text has been `shown` for rounds, and the panel density's strip puts `displayLabel` in
-                        // BOTH title and aria-label (TabBar.tsx:99-106) — but this strip kept passing `s.label`, the
-                        // RAW one, so for the ten-`pwsh` case `lib/sessionLabels.ts` was written for, a screen reader
-                        // heard ten identical tab names while the eye saw ten different ones. The same fix the panel
-                        // already carries, on the strip that did not get it.
-                        title={
-                          waiting
-                            ? `${shown} — waiting for your approval`
-                            : s.sid
-                        }
-                        aria-label={
-                          waiting
-                            ? `${shown} — waiting for your approval`
-                            : shown
-                        }
-                        onClick={() => onActivate(s.sid)}
-                      >
-                        {/* ONE MARK, as in the panel density: the silhouette is the session's liveness and the
+              {page === "terminal" && (
+                <>
+                  {/* Session tabs (compact pill strip inside the header) */}
+                  <div
+                    className="desktop-tabs"
+                    role="tablist"
+                    aria-label="Terminal sessions"
+                    data-more={moreTabs ? "1" : undefined}
+                    ref={tabsRef}
+                  >
+                    {openTabs.map((s, tabIndex) => {
+                      // Same rule as the panel's TabBar (one meaning, two
+                      // densities): a question waiting for a person is marked on
+                      // the tab itself, keyed on `pendingApproval` — NEVER on the
+                      // armed posture, which is permanent and would mark every
+                      // session forever.
+                      const waiting = sessionWaiting(s);
+                      // Same disambiguation the panel strip uses — the desktop renders its own tabs and was missed by
+                      // round 167's fix (round 170 measured `d1, serial:COM4, d1, …` here).
+                      const shown = displayLabels[tabIndex];
+                      return (
+                        <div
+                          key={s.sid}
+                          role="tab"
+                          aria-selected={s.sid === activeSid}
+                          className={`dtab ${s.sid === activeSid ? "active" : ""}`}
+                          data-active={s.sid === activeSid ? "1" : undefined}
+                          // THE ACCESSIBLE NAME IS THE DISAMBIGUATED LABEL (round 29 of the standing goal). The visible
+                          // text has been `shown` for rounds, and the panel density's strip puts `displayLabel` in
+                          // BOTH title and aria-label (TabBar.tsx:99-106) — but this strip kept passing `s.label`, the
+                          // RAW one, so for the ten-`pwsh` case `lib/sessionLabels.ts` was written for, a screen reader
+                          // heard ten identical tab names while the eye saw ten different ones. The same fix the panel
+                          // already carries, on the strip that did not get it.
+                          title={
+                            waiting
+                              ? `${shown} — waiting for your approval`
+                              : s.sid
+                          }
+                          aria-label={
+                            waiting
+                              ? `${shown} — waiting for your approval`
+                              : shown
+                          }
+                          onClick={() => onActivate(s.sid)}
+                        >
+                          {/* ONE MARK, as in the panel density: the silhouette is the session's liveness and the
                             lane tints it. `.tab-wait` used to sit beside this dot as a SECOND element, and round
                             245 removed its rule while this line kept rendering it — so for a day the desktop
                             strip showed a waiting session as nothing at all. (The dead-class guard checks CSS no
                             component renders; this was markup no rule matched, and only the browser sweep could
                             see it.) */}
-                        <span
-                          className="mark dtab-dot"
-                          data-live={sessionLiveness(s)}
-                          data-kind={s.kind}
-                        />
-                        <span className="dtab-name">{shown}</span>
-                        {confirmCloseSid === s.sid ? (
                           <span
-                            className="dtab-confirm"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span className="tab-confirm-hint">close?</span>
+                            className="mark dtab-dot"
+                            data-live={sessionLiveness(s)}
+                            data-kind={s.kind}
+                          />
+                          <span className="dtab-name">{shown}</span>
+                          {confirmCloseSid === s.sid ? (
+                            <span
+                              className="dtab-confirm"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="tab-confirm-hint">close?</span>
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-mini"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmCloseSid(null);
+                                  onClose(s.sid);
+                                }}
+                              >
+                                Close
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-mini"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmCloseSid(null);
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
                             <button
                               type="button"
-                              className="btn btn-danger btn-mini"
+                              className="dtab-close"
+                              title="Close session"
+                              aria-label={`Close session ${s.label}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setConfirmCloseSid(null);
-                                onClose(s.sid);
+                                setConfirmCloseSid(s.sid);
                               }}
                             >
-                              Close
+                              <Icon name="close" size={10} />
                             </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-mini"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setConfirmCloseSid(null);
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="dtab-close"
-                            title="Close session"
-                            aria-label={`Close session ${s.label}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmCloseSid(s.sid);
-                            }}
-                          >
-                            <Icon name="close" size={10} />
-                          </button>
-                        )}
+                          )}
+                        </div>
+                      );
+                    })}
+                    <StripMore n={hiddenTabs} />
+                  </div>
+
+                  {/* New-session menu — ONE entry point instead of four buttons */}
+                  <div className="desktop-new" ref={newMenuRef}>
+                    <button
+                      className="btn-new"
+                      onClick={() => setNewMenuOpen((o) => !o)}
+                      aria-expanded={newMenuOpen}
+                    >
+                      <Icon name="plus" size={13} /> New
+                    </button>
+                    {newMenuOpen && (
+                      <div className="new-menu" role="menu">
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setNewMenuOpen(false);
+                            onNewSession("pty");
+                          }}
+                        >
+                          <span className="nm-ico" data-kind="pty">
+                            <Icon name="terminal" size={13} />
+                          </span>{" "}
+                          Terminal
+                        </button>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setNewMenuOpen(false);
+                            onNewSession("ssh");
+                          }}
+                        >
+                          <span className="nm-ico" data-kind="ssh">
+                            <Icon name="ssh" size={13} />
+                          </span>{" "}
+                          SSH…
+                        </button>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setNewMenuOpen(false);
+                            onNewSession("serial");
+                          }}
+                        >
+                          <span className="nm-ico" data-kind="serial">
+                            <Icon name="serial" size={13} />
+                          </span>{" "}
+                          Serial…
+                        </button>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setNewMenuOpen(false);
+                            onNewSession("browser");
+                          }}
+                        >
+                          <span className="nm-ico" data-kind="browser">
+                            <Icon name="browser" size={13} />
+                          </span>{" "}
+                          Browser…
+                        </button>
                       </div>
-                    );
-                  })}
-                  <StripMore n={hiddenTabs} />
-                </div>
+                    )}
+                  </div>
 
-                {/* New-session menu — ONE entry point instead of four buttons */}
-                <div className="desktop-new" ref={newMenuRef}>
-                  <button
-                    className="btn-new"
-                    onClick={() => setNewMenuOpen((o) => !o)}
-                    aria-expanded={newMenuOpen}
-                  >
-                    <Icon name="plus" size={13} /> New
-                  </button>
-                  {newMenuOpen && (
-                    <div className="new-menu" role="menu">
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setNewMenuOpen(false);
-                          onNewSession("pty");
-                        }}
-                      >
-                        <span className="nm-ico" data-kind="pty">
-                          <Icon name="terminal" size={13} />
-                        </span>{" "}
-                        Terminal
-                      </button>
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setNewMenuOpen(false);
-                          onNewSession("ssh");
-                        }}
-                      >
-                        <span className="nm-ico" data-kind="ssh">
-                          <Icon name="ssh" size={13} />
-                        </span>{" "}
-                        SSH…
-                      </button>
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setNewMenuOpen(false);
-                          onNewSession("serial");
-                        }}
-                      >
-                        <span className="nm-ico" data-kind="serial">
-                          <Icon name="serial" size={13} />
-                        </span>{" "}
-                        Serial…
-                      </button>
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setNewMenuOpen(false);
-                          onNewSession("browser");
-                        }}
-                      >
-                        <span className="nm-ico" data-kind="browser">
-                          <Icon name="browser" size={13} />
-                        </span>{" "}
-                        Browser…
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* The view switch moved OUT of this row and into the session control bar, which
+                  {/* The view switch moved OUT of this row and into the session control bar, which
                     TerminalWorkspace renders in both densities from one place. It was competing with
                     the tabs for width: this header is the only way to reach a session in this density,
                     and round 168 measured ten of sixteen tabs truncated to `pws…` beside it. */}
+                </>
+              )}
+            </header>
 
-              </>
-            )}
-          </header>
-
-          {/* ── Content card ──
+            {/* ── Content card ──
               NOT a <main>: the desktop shell ALREADY has one (`main.desktop-main`), and a main
               inside a main is invalid HTML — measured live as `mains: ["main.desktop-main",
               "main.desktop-content"]`, i.e. one page with two main landmarks for a screen reader to
               choose between. */}
-          <div className="desktop-content">
-            {page === "terminal" && (
-              /* The terminal page's name, for the outline only — the panel density mounts the same
+            <div className="desktop-content">
+              {page === "terminal" && (
+                /* The terminal page's name, for the outline only — the panel density mounts the same
                  hidden h1 in PanelApp, and this density is the reason the desktop measured zero
                  headings on its landing page while every other page had one. */
-              <h1 className="sr-only">Terminal</h1>
-            )}
-            {page === "terminal" && (
-              <TerminalWorkspace
-                sessions={sessions as any}
-                activeSid={activeSid}
-                onActivate={onActivate}
-                onClose={onClose}
-                onExport={onExport}
-                onViewChange={onViewChange}
-                onSetControl={onSetControl}
-                onSetApproval={onSetApproval}
-                onDecideApproval={onDecideApproval}
-                onRevokeGrants={onRevokeGrants}
-                onSetGoal={onSetGoal}
-                registerWrite={registerWrite}
-                cmdEvents={cmdEvents}
-                token={token}
-                density="desktop"
-                sseState={sseState}
-                controlledView={activeView}
-                onControlledViewChange={(sid, v) => changeView(sid, v)}
-              />
-            )}
-            {/* The device speaking about a watched target (see MonitorAlerts): above the page, never
+                <h1 className="sr-only">Terminal</h1>
+              )}
+              {page === "terminal" && (
+                <TerminalWorkspace
+                  sessions={sessions as any}
+                  activeSid={activeSid}
+                  onActivate={onActivate}
+                  onClose={onClose}
+                  onExport={onExport}
+                  onViewChange={onViewChange}
+                  onSetControl={onSetControl}
+                  onSetApproval={onSetApproval}
+                  onDecideApproval={onDecideApproval}
+                  onRevokeGrants={onRevokeGrants}
+                  onSetGoal={onSetGoal}
+                  registerWrite={registerWrite}
+                  cmdEvents={cmdEvents}
+                  token={token}
+                  density="desktop"
+                  sseState={sseState}
+                  controlledView={activeView}
+                  onControlledViewChange={(sid, v) => changeView(sid, v)}
+                />
+              )}
+              {/* The device speaking about a watched target (see MonitorAlerts): above the page, never
                 over it, and gone on its own. */}
-            <MonitorAlerts alerts={monitorAlerts} />
-            {page === "history" && <HistoryPage sessions={sessions} />}
-            {page === "browser" && <BrowserPage token={token} />}
-            {page === "memory" && <MemoryPage />}
-            {page === "plugins" && <PluginsPage plugins={plugins} />}
-            {page === "settings" && (
-              <SettingsPage
-                onOpenMemory={() => setPage("memory")}
-                restarts={restarts}
-                restartsFailed={restarts.failed}
-                vitals={vitalsSeries}
-                vitalsFailed={vitalsSeries.failed}
-                monitors={monitors}
-                monitorsFailed={monitors.failed}
-                onMonitorAdd={monitors.add}
-                onMonitorRemove={monitors.remove}
-                onMonitorProbe={monitors.probe}
-                notifyPermission={notifyPermission}
-                onRequestNotify={requestNotifyPermission}
-                onTestNotify={testNotification}
-                attention={attention}
-                runningRelease={vitals.release}
-                config={{ host: vitals.host, port: vitals.port, path: vitals.configPath }}
+              <MonitorAlerts alerts={monitorAlerts} />
+              {page === "history" && <HistoryPage sessions={sessions} />}
+              {page === "browser" && <BrowserPage token={token} />}
+              {page === "memory" && <MemoryPage />}
+              {page === "plugins" && <PluginsPage plugins={plugins} />}
+              {page === "settings" && (
+                <SettingsPage
+                  onOpenMemory={() => setPage("memory")}
+                  restarts={restarts}
+                  restartsFailed={restarts.failed}
+                  vitals={vitalsSeries}
+                  vitalsFailed={vitalsSeries.failed}
+                  monitors={monitors}
+                  monitorsFailed={monitors.failed}
+                  onMonitorAdd={monitors.add}
+                  onMonitorRemove={monitors.remove}
+                  onMonitorProbe={monitors.probe}
+                  notifyPermission={notifyPermission}
+                  onRequestNotify={requestNotifyPermission}
+                  onTestNotify={testNotification}
+                  attention={attention}
+                  runningRelease={vitals.release}
+                  config={{
+                    host: vitals.host,
+                    port: vitals.port,
+                    path: vitals.configPath,
+                  }}
+                />
+              )}
+            </div>
+
+            {/* SSH/Serial connection modal — desktop density mounts it here
+              (App's setModalKind is shared with PanelApp; the modal itself
+              must render in THIS shell or SSH/Serial buttons are dead). */}
+            {connModal && (
+              <ConnModal
+                kind={connModal}
+                onClose={onConnClose}
+                onConnect={(target, extra) =>
+                  onConnConnect(connModal!, target, extra)
+                }
               />
             )}
           </div>
-
-          {/* SSH/Serial connection modal — desktop density mounts it here
-              (App's setModalKind is shared with PanelApp; the modal itself
-              must render in THIS shell or SSH/Serial buttons are dead). */}
-          {connModal && (
-            <ConnModal
-              kind={connModal}
-              onClose={onConnClose}
-              onConnect={(target, extra) =>
-                onConnConnect(connModal!, target, extra)
-              }
-            />
-          )}
-        </div>
-      }
-      statusBar={
-        <>
-              {/* ── Status strip: the shell's BOTTOM BAR (round 265) ──
+        }
+        statusBar={
+          <>
+            {/* ── Status strip: the shell's BOTTOM BAR (round 265) ──
                   It was folded into the content card footer, which made it start at the rail's edge and stop
                   at the canvas inset; the operator asked why the bar does not reach the window's left. Now it
                   renders into `Shell`'s statusBar slot, under the rail, exactly like the panel density's. */}
-              {showStatus && (
-                <div className={`desktop-status${statusError ? " error" : ""}`}>
-                  <span className="desktop-status-msg">
-                    {status ||
-                      (sseState === "down"
-                        ? "Connection lost — reconnecting…"
-                        : "")}
-                  </span>
-                  {/* This density has no StatusBar, so the device-level waiting
+            {showStatus && (
+              <div className={`desktop-status${statusError ? " error" : ""}`}>
+                <span className="desktop-status-msg">
+                  {status ||
+                    (sseState === "down"
+                      ? "Connection lost — reconnecting…"
+                      : "")}
+                </span>
+                {/* This density has no StatusBar, so the device-level waiting
                       count lives here instead (same shared chip). */}
-                  {/* THE RELAY, WHEN THERE IS ONE (round 207). The device reports it in /api/status; the panel shows it here,
+                {/* THE RELAY, WHEN THERE IS ONE (round 207). The device reports it in /api/status; the panel shows it here,
                       beside the facts the strip already carries. A device with NO relay renders nothing at all — "not configured"
                       is not news, and the field exists precisely so this can tell "none" from "broken" rather than guessing from
                       silence. Wording only for now: this is a text strip, and the silhouette work belongs with the other marks. */}
-                  {vitals.relay?.configured && (
-                    <span
-                      className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
-                      title={
-                        vitals.relay.connected
-                          ? "This device dialled out to its configured relay and the relay answers"
-                          : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
-                      }
-                    >
-                      {vitals.relay.connected ? "relay connected" : "relay unreachable"}
-                    </span>
-                  )}
-                  <BootChip
-                    lastBoot={vitals.lastBoot}
-                    uptimeSecs={vitals.uptimeSecs}
-                    recentCrashes={restarts.summary.crashes}
-                  />
-                  <LoadChip series={vitalsSeries} />
-                  <MonitorChip monitors={monitors} />
-                  <WaitingChip sessions={sessions} />
-                </div>
-              )}
-              {!showStatus && (
-                <div className="desktop-status idle">
-                  {/* The dial reads the same vitals the sentence spells out. Two
+                {vitals.relay?.configured && (
+                  <span
+                    className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
+                    title={
+                      vitals.relay.connected
+                        ? "This device dialled out to its configured relay and the relay answers"
+                        : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
+                    }
+                  >
+                    {vitals.relay.connected
+                      ? "relay connected"
+                      : "relay unreachable"}
+                  </span>
+                )}
+                <BootChip
+                  lastBoot={vitals.lastBoot}
+                  uptimeSecs={vitals.uptimeSecs}
+                  recentCrashes={restarts.summary.crashes}
+                />
+                <LoadChip series={vitalsSeries} />
+                <MonitorChip monitors={monitors} />
+                <WaitingChip sessions={sessions} />
+              </div>
+            )}
+            {!showStatus && (
+              <div className="desktop-status idle">
+                {/* The dial reads the same vitals the sentence spells out. Two
                       densities, ONE instrument — the desktop strip is a footer rather
                       than an instrument line, so the arcs sit beside the text instead of
                       replacing it. The sentence keeps every value, so nothing here is
                       colour-only. */}
-                  <VitalsDial cpu={vitals.cpu} mem={vitals.mem} size={18} />
-                  <span className="desktop-status-msg">
-                    {connected
-                      ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
-                      : "connecting…"}
-                  </span>
-                  {/* THE SAME FACT, IN THIS STRIP TOO (round 216). This file renders TWO status strips and only the other one
+                <VitalsDial cpu={vitals.cpu} mem={vitals.mem} size={18} />
+                <span className="desktop-status-msg">
+                  {connected
+                    ? `${host ? `${host} · ` : ""}${liveCount} session${liveCount === 1 ? "" : "s"}${vitals.release ? ` · v${vitals.release}` : ""}${vitals.uptime ? ` · up ${vitals.uptime}` : ""}${vitals.cpu !== null ? ` · CPU ${Math.round(vitals.cpu)}%` : ""}${vitals.mem !== null ? ` · MEM ${Math.round(vitals.mem)}%` : ""}`
+                    : "connecting…"}
+                </span>
+                {/* THE SAME FACT, IN THIS STRIP TOO (round 216). This file renders TWO status strips and only the other one
                       was taught about the relay, so the live panel showed nothing while /api/status said connected:true — found by
                       reading the rendered DOM's children, not the source. The FACT has one source (the hook reads it from
                       /api/status); this is the second place it is DRAWN, and both now draw it. */}
-                  {vitals.relay?.configured && (
-                    <span
-                      className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
-                      title={
-                        vitals.relay.connected
-                          ? "This device dialled out to its configured relay and the relay answers"
-                          : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
-                      }
-                    >
-                      {vitals.relay.connected ? "relay connected" : "relay unreachable"}
-                    </span>
-                  )}
-                  <BootChip
-                    lastBoot={vitals.lastBoot}
-                    uptimeSecs={vitals.uptimeSecs}
-                    recentCrashes={restarts.summary.crashes}
-                  />
-                  <LoadChip series={vitalsSeries} />
-                  <MonitorChip monitors={monitors} />
-                  <WaitingChip sessions={sessions} />
-                </div>
-              )}
-    
-        </>
-      }
+                {vitals.relay?.configured && (
+                  <span
+                    className={`desktop-status-relay${vitals.relay.connected ? "" : " is-failing"}`}
+                    title={
+                      vitals.relay.connected
+                        ? "This device dialled out to its configured relay and the relay answers"
+                        : `This device cannot reach its relay${vitals.relay.failures ? ` (${vitals.relay.failures} consecutive failures)` : ""}${vitals.relay.lastError ? `: ${vitals.relay.lastError}` : ""}`
+                    }
+                  >
+                    {vitals.relay.connected
+                      ? "relay connected"
+                      : "relay unreachable"}
+                  </span>
+                )}
+                <BootChip
+                  lastBoot={vitals.lastBoot}
+                  uptimeSecs={vitals.uptimeSecs}
+                  recentCrashes={restarts.summary.crashes}
+                />
+                <LoadChip series={vitalsSeries} />
+                <MonitorChip monitors={monitors} />
+                <WaitingChip sessions={sessions} />
+              </div>
+            )}
+          </>
+        }
       />
     </>
   );
