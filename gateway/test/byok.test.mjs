@@ -154,12 +154,18 @@ test("byok: the console key page renders EVERY managed key — the FIFTH consume
   // entry": a key the console cannot RENDER is a key the operator cannot fix,
   // and a key the probe cannot SPEND leaves `summrise check` blind. Both are the
   // same question asked of a different consumer.
+  // THE LIST MOVED TO lib/keyNames.ts ON 2026-09-24, because THIS GATE'S OWN SUBJECT had a second
+  // copy: the Overview tile carried an eight-name `KEY_ORDER` that nothing compared to anything, so
+  // the tile rendered "N/8" about an account this page called "N / 9". The page was the half that got
+  // fixed when the r4/ miss was found; the tile was the half nobody pointed a gate at. Now there is
+  // one array both views import, this gate reads it, and the assertion below forbids a view from
+  // declaring its own again — which is the only way the drift can come back.
   const { readFile } = await import("node:fs/promises");
   const { USER_KEY_NAMES } = await import("../src/store/users.ts");
-  const src = await readFile(new URL("../ui/src/views/Keys.tsx", import.meta.url), "utf8");
+  const src = await readFile(new URL("../ui/src/lib/keyNames.ts", import.meta.url), "utf8");
 
   const block = src.match(/const KEY_NAMES = \[([\s\S]*?)\];/);
-  assert.ok(block, "Keys.tsx must still declare KEY_NAMES as an array literal");
+  assert.ok(block, "lib/keyNames.ts must still declare KEY_NAMES as an array literal");
   const rendered = [...block[1].matchAll(/"([A-Z0-9_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(
     [...rendered].sort(),
@@ -171,10 +177,12 @@ test("byok: the console key page renders EVERY managed key — the FIFTH consume
   // ...and every rendered row must have BOTH a prefix mapping and a dictionary
   // entry in BOTH languages, or the page prints a raw token like
   // "key.R4_API_KEY.backend" where a provider name belongs (the bug the
-  // KEY_I18N_PREFIX comment records).
+  // KEY_I18N_PREFIX comment records). THE PREFIX MAP LIVES IN THE VIEW, not in the module that owns
+  // the list, so this reads a SECOND file: one for the names, one for how each name is spelled.
   const i18n = await readFile(new URL("../ui/src/i18n.ts", import.meta.url), "utf8");
+  const view = await readFile(new URL("../ui/src/views/Keys.tsx", import.meta.url), "utf8");
   for (const name of rendered) {
-    const prefix = src.match(
+    const prefix = view.match(
       new RegExp(`\\b${name}:\\s*"([a-z0-9]+)"`),
     )?.[1];
     assert.ok(prefix, `${name} has no KEY_I18N_PREFIX mapping`);
@@ -182,5 +190,16 @@ test("byok: the console key page renders EVERY managed key — the FIFTH consume
       const hits = i18n.split(`"key.${prefix}.${field}"`).length - 1;
       assert.equal(hits, 2, `key.${prefix}.${field} must be declared in BOTH dictionaries`);
     }
+  }
+
+  // AND NO VIEW MAY DECLARE ITS OWN LIST AGAIN. That is the only way this drift comes back, and it is
+  // how it arrived: the tile's copy was never compared to anything, so the page said nine and the tile
+  // said eight for as long as both existed.
+  for (const name of ["Keys.tsx", "Overview.tsx"]) {
+    const text = await readFile(new URL(`../ui/src/views/${name}`, import.meta.url), "utf8");
+    assert.ok(
+      !/const KEY_(NAMES|ORDER)\s*=\s*\[/.test(text),
+      `${name} declares its own key list again — the tile and the page disagreed for exactly this reason`,
+    );
   }
 });

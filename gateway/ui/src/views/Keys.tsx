@@ -3,18 +3,9 @@ import { useTranslation } from "../i18n.ts";
 import { useToast } from "../contexts/ToastContext.tsx";
 import { api, ApiError } from "../api/client.ts";
 import { PageHeader, Badge, CopyButton } from "../components/ui.tsx";
-
-const KEY_NAMES = [
-  "DEEPSEEK_API_KEY",
-  "OPENCODE_GO_API_KEY",
-  "QWEN_API_KEY",
-  "OPENROUTER_API_KEY",
-  "NVAPI_KEY",
-  "GMI_API_KEY",
-  "CMD_API_KEY",
-  "AMD_API_KEY",
-  "R4_API_KEY",
-];
+// ONE OWNER for the key vocabulary: it used to be an array literal here and another one in
+// Overview.tsx, and the two had already drifted (this file listed nine, the tile eight).
+import { KEY_NAMES } from "../lib/keyNames.ts";
 
 interface KeyInfo {
   configured: boolean;

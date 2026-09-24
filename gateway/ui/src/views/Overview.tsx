@@ -15,17 +15,9 @@ import {
 } from "../api/client.ts";
 import { maskToken } from "../lib/format.ts";
 import { Card, PageHeader, CopyButton } from "../components/ui.tsx";
-
-const KEY_ORDER = [
-  "DEEPSEEK_API_KEY",
-  "OPENCODE_GO_API_KEY",
-  "QWEN_API_KEY",
-  "OPENROUTER_API_KEY",
-  "NVAPI_KEY",
-  "GMI_API_KEY",
-  "CMD_API_KEY",
-  "AMD_API_KEY",
-];
+// The tile reads the SAME list the Keys page renders. It kept its own eight-name copy until
+// 2026-09-24, which is why the tile said "N/8" about an account the page called "N / 9".
+import { KEY_NAMES } from "../lib/keyNames.ts";
 
 // "DEEPSEEK_API_KEY" → "DEEPSEEK"; NVAPI_KEY has no "_API_KEY" suffix to strip.
 const keyLabel = (name: string) => (name === "NVAPI_KEY" ? "NV" : name.replace("_API_KEY", ""));
@@ -137,7 +129,7 @@ export default function Overview() {
 
   const tokenDisplay = tokenRevealed ? user?.token || "" : maskToken(user?.token);
 
-  const keyEntries = KEY_ORDER.map((name) => ({ name, info: user?.keys?.[name] }));
+  const keyEntries = KEY_NAMES.map((name) => ({ name, info: user?.keys?.[name] }));
   const configuredCount = keyEntries.filter((k) => k.info?.configured).length;
 
   const isAdmin = user?.role === "admin";
