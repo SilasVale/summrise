@@ -4682,3 +4682,65 @@ output decorated with two extra spaces; a plant that succeeded but landed AFTER 
 never reached it; a plant that broke the syntax instead of the behaviour; and a replace that hit the FIRST of
 three identical lines at two different indentations instead of the one at the route under test. Each time the
 mutation "passed", and each time the mutation was the thing that was wrong.
+
+## 2026-09-25 (the installer path: three claims that contradicted their own code)
+
+The thirteenth exploration took `agent/deploy/` — the one subsystem thirteen rounds had never opened — and
+its first finding was that the documentation disagreed with the code about the code's own subject. It is a
+small path by line count and it holds three of the sharpest defects this stretch found, because everything
+in it runs once, on a stranger's machine, with no CI able to reach it.
+
+**THE COMPONENTS WERE MEASURED, NOT VERIFIED.** The installer downloads cloudflared (54 MB), the playwright
+bundle (31 MB) and the electron runtime (115 MB) into the npm package directory, and `summrise setup` then
+takes them BY PRESENCE — `resolveComponent` returns a local path on mere presence — so the manifest pins
+those components carry were never consulted on this path at all. The acceptance was `Length -gt 1MB`, three
+times, and for the electron zip the next step is `Expand-Archive` and a copy into `dist\`: 115 MB of
+executable payload installed on a file size. AND THE TOOLS WERE ALREADY IN THE IMAGE — `SummriseIntegrity.ps1`
+ships `Get-ManifestSha256`, `Get-FileSha256` and `Test-FileSha256`, the installer dot-sources it, and it
+already verified the TGZ with them. The components simply never asked.
+
+**THE FAILURE DIALOG SENT THE OPERATOR TO A FILE THAT NEVER EXISTS.** It said "look at
+$INSTDIR\installer.log"; the transcript goes to `%ProgramData%\Summrise\logs\installer.log`, and the NSIS
+script already knew the right root because it passes `-ResultFile "$3\Summrise\logs\install-result.txt"` on
+the line above the run. Worse: `Start-Transcript`'s failure is swallowed (`catch { }`), so on a locked
+profile the old text sent the operator to a log that had never been created, with no way to tell that from
+"the log says nothing".
+
+**A FAILED INSTALL COULD NOT BE REMOVED.** `WriteUninstaller` and the Add/Remove registration came AFTER the
+`${If} $0 != 0` / Abort, so a failure left everything the setup script had already done — Machine PATH among
+it — with no uninstaller and no entry in Add/Remove Programs. The dialog's advice (re-run; it is idempotent)
+is true, but it is not the only thing an operator may want to do. Both are written before the step that can
+fail now, and the uninstall section already tolerates a partial install.
+
+**THE LOGON TASK HAD TWO OWNERS AND THE WEAKER ONE WON.** `summrise setup` registers `SummriseDesktop` with
+an Interactive/Highest principal and settings (a 10-minute limit, `IgnoreNew`); the installer's step 6
+registers it TOO, passes neither, and — because step 6 runs AFTER setup — its definition is the one that
+survives. Every NSIS install silently downgraded the hardened definition. The comment above it claimed 形态抄
+update 流的 hardened 版 ("the shape is copied from the hardened version"). It was not copied.
+
+**A SCRIPT THAT COULD NOT RUN, AND TWO DOCUMENTS THAT STILL NAMED ITS TARGET.** `build-linux-xwin.sh` built
+`--bin summrise-command`; `Cargo.toml` declares one bin, `summrise-agent`. Nothing live referred to the
+script, which is exactly why nobody noticed it was broken — and `gateway/DEVICE-INTEGRATION.md` and
+`cloudflared-config.example.yml` still described a `summrise-command` binary to operators and to the console.
+
+**TWO RE-RUN COSTS.** The setup script probes `Get-Command node` — which sees only the CURRENT session's PATH
+— and extends that PATH forty lines later, so a repair run deleted a working `components\node` and
+re-downloaded ~30 MB. And the prune that keeps five releases per minor matched `summrise-agent-*` ONLY, so
+the six installers published while the product was called `vale` were never candidates: measured against the
+live CDN, all still answered HTTP 200.
+
+**AND A REPORT'S SUMMARY IS NOT EVIDENCE — TWICE.** This exploration reported the NSIS installer as "built
+every release" (it is OPT-IN: `WITH_INSTALLER=0`, and the default PRUNES any staged exe), and
+`fix-tunnel.ps1` as having "no producer and no consumer" (the agent RUNS it, the CLI migrates it, and
+`paths.rs` maps it — it is the legacy-tunnel repair path). Both summaries were directionally right and wrong
+in the detail, and acting on either without checking would have made things worse: round 129 wrote a FALSE
+claim while correcting a true one, and round 146 nearly deleted a live repair script. The rule that comes out
+of it is the same one the mutation discipline teaches: verify the claim against the code that decides it,
+not against the summary that describes it.
+
+**AND THE HONEST LIMIT.** Every `runs-on` in `ci.yml` is `ubuntu-latest`. A 326-line PowerShell install path
+is therefore exercised only through pure-function tests on pwsh and text-offset pins in
+`agent/tests/installer_integrity.rs` — which now hold five separate ORDER guarantees, because order is what
+these defects had in common: dot-source before manifest before verify before install; components verified
+before they are kept; the uninstaller written before the step that can fail; the reuse check before the
+download; and both task definitions agreeing on their values.
