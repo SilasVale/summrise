@@ -342,8 +342,14 @@ mod sse_tests {
     //! round-371: the SSE loss-tolerant contract (epoch-first frames,
     //! lagged fallback, header shape) and the guard acquire/release cycle
     //! had zero tests. All sse_response cases use pre-queued broadcast
-    //! sends + sender-drop, so no timers are involved (the 30s heartbeat
-    //! arm is intentionally untested — it would take 30s).
+    //! sends + sender-drop, so no timers are involved —
+    //! EXCEPT the heartbeat, which this header used to write off ("the 30s
+    //! heartbeat arm is intentionally untested — it would take 30s"). That was
+    //! true of the CONSTANT, not of the arm: `SseStream::tick` is a field now,
+    //! so `heartbeat_frames_are_emitted_on_the_configured_tick` drives it at
+    //! 10 ms and reads the comment frame off the live body. A header that still
+    //! claimed the arm was untestable would be the file contradicting what it
+    //! proves, which is the failure this ledger records more than any other.
     //!
     //! NOTE: the counter is process-global, so tests that take a slot hold
     //! SSE_TEST_LOCK. Before R128 the rule was "never drain the pool", because

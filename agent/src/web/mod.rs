@@ -890,6 +890,20 @@ pub(crate) struct Route {
     pub method: &'static str,
     pub pattern: Pattern,
     pub id: RouteId,
+    /// THE TEST SURFACE OF THE TABLE, and `allow`ed as such rather than given a production reader
+    /// it does not have. This column is what lets `every_dispatch_route_is_auth_gated` walk the
+    /// table and know, per row, which of the three owners must refuse an anonymous request — and
+    /// what lets `the_route_table_has_a_floor_per_stage_and_a_method_vocabulary` notice a whole
+    /// STAGE losing its rows, which the first version of that floor did not.
+    ///
+    /// WHY IT IS NOT READ IN PRODUCTION, deliberately: a `debug_assert!` here was this refactor's
+    /// first attempt and it PANICKED a debug build on `OPTIONS /panel/index.html`, a path that
+    /// legitimately falls through the pre-dispatch walk while `route_of` still calls it `Public`.
+    /// Reading the column in the request path means encoding "where this is normally answered"
+    /// as a runtime rule, which is exactly the duplicated classification the auth gate's own
+    /// comment warns about. The rule belongs in a test; the compiler confirms the field is used
+    /// there (`cfg_attr(not(test))`, because the non-test lib build has no reader).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub stage: Stage,
 }
 
@@ -1182,15 +1196,6 @@ pub(crate) fn route_of(method: &str, path: &str) -> Option<RouteId> {
         .iter()
         .find(|r| r.method == method && r.pattern.matches(path))
         .map(|r| r.id)
-}
-
-/// The matched row's [`Stage`], derived FROM [`route_of`] rather than re-implementing the first-match
-/// rule, so the two answers cannot disagree. It is not a second lookup: it asks `route_of` which row
-/// matched and then reads that row's column. `dispatch`'s debug assertion and the table-walking tests
-/// are its callers.
-fn stage_of(method: &str, path: &str) -> Option<Stage> {
-    let id = route_of(method, path)?;
-    routes().iter().find(|r| r.id == id).map(|r| r.stage)
 }
 
 async fn route_pre_dispatch(
@@ -1518,25 +1523,20 @@ async fn dispatch(
     body_str: &str,
     query_str: Option<&str>,
 ) -> Result<serde_json::Value, Box<Response>> {
-    // THE `stage` COLUMN IS ENFORCED IN THE REQUEST PATH TOO, not only by the table-walking tests: a
-    // row the table marks `Public` or `PreDispatchAuthed` that REACHES the dispatcher means
-    // `route_pre_dispatch` stopped answering something the table says it owns — the two halves of the
-    // surface disagreeing, which is the drift this refactor exists to make impossible. Debug builds
-    // only, so the release path pays nothing. `Mcp` is exempt because axum's nested `TokenGate` claims
-    // `/mcp` (not this walk, and not that one), and `None` is exempt because an unknown path is
-    // legitimately this function's business: it is what answers "not found".
+    // NO `debug_assert!` ON THE `stage` COLUMN HERE, AND THE FIRST VERSION OF THIS REFACTOR HAD ONE.
+    // It read well — "a `Public` row that reaches the dispatcher means the table and the walk
+    // disagree" — and it was WRONG in a way the round's own test had already reasoned about: a request
+    // can reach this function legitimately while `route_of` calls it `Public`. `OPTIONS /panel/index.html`
+    // is exactly that case, and deliberately so (see the preflight arm: it answers every asset EXCEPT
+    // index.html, and what happens to that one is this function's "not found"). Measured consequence:
+    // a debug build panicked on that request. `pre_dispatch_stage_agrees_with_the_table` is where this
+    // rule lives, which is what that test's own comment decided 240 lines below — "IT IS A TEST RATHER
+    // THAN A `debug_assert!` INSIDE THE WALK … without adding a panic to the request path" — and the
+    // `OPTIONS` case is now pinned by `a_preflight_for_index_html_falls_through_to_not_found`.
     //
     // The OTHER direction — a `DispatchGated` row answered before the gate, i.e. an auth bypass — is
     // not visible from here (the request never arrives), and is what `every_dispatch_route_is_auth_gated`
     // refuses by sending a tokenless request to every row of the table.
-    debug_assert!(
-        !matches!(
-            stage_of(method, path),
-            Some(Stage::Public) | Some(Stage::PreDispatchAuthed)
-        ),
-        "dispatch was reached by {method} {path}, a row `routes()` marks as answered BEFORE it — \
-         route_pre_dispatch and the table disagree"
-    );
     let result = match route_of(method, path) {
         Some(RouteId::Spec) => api_spec(state),
         Some(RouteId::Status) => api_status(state).await,
@@ -4904,23 +4904,52 @@ mod tests {
         assert_eq!(route_of("DELETE", "/api/sessions"), None);
     }
 
-    /// The table's floor, and its method vocabulary.
+    /// The table's floorS (one per stage), and its method vocabulary.
     ///
-    /// A table that was emptied — or emptied of its DISPATCH rows by an edit that looked local —
-    /// would make `every_dispatch_route_is_auth_gated` pass by walking nothing, which is exactly the
-    /// "a gate that cannot fail" defect this round exists to remove. The count is a floor, not an
-    /// equality: adding routes must not require editing this number, but losing the dispatcher's rows
-    /// must fail loudly.
+    /// A table that was emptied — or emptied of one STAGE's rows by an edit that looked local — would
+    /// make the walk that reads that stage vacuous, which is exactly the "a gate that cannot fail"
+    /// defect this round exists to remove. The counts are FLOORS, not equalities: adding routes must
+    /// not require editing these numbers, but losing a stage's rows must fail loudly.
+    ///
+    /// ONE FLOOR PER STAGE, because the first version floored only `DispatchGated` and the review found
+    /// the hole: deleting every `Public` row failed NOTHING. The `Public` half of
+    /// `every_dispatch_route_is_auth_gated` walks zero rows and passes, and
+    /// `deliberately_public_routes_stay_public` carries its own hand-written list, so the panel SPA, the
+    /// status page and the discovery document could all have lost their rows in silence.
     #[test]
-    fn the_route_table_has_a_floor_and_a_method_vocabulary() {
-        let dispatch_rows = routes()
-            .iter()
-            .filter(|r| matches!(r.stage, Stage::DispatchGated))
-            .count();
+    fn the_route_table_has_a_floor_per_stage_and_a_method_vocabulary() {
+        for (stage, floor, what) in [
+            (
+                Stage::DispatchGated,
+                24,
+                "the auth walk's refusal half and `dispatch`'s arms",
+            ),
+            (
+                Stage::PreDispatchAuthed,
+                6,
+                "the streaming and evidence routes the walk agrees with",
+            ),
+            (Stage::Mcp, 2, "both /mcp methods"),
+            (
+                Stage::Public,
+                10,
+                "the panel SPA, the status page, the discovery document and the preflight",
+            ),
+        ] {
+            let rows = routes().iter().filter(|r| r.stage == stage).count();
+            assert!(
+                rows >= floor,
+                "`routes()` has {rows} {stage:?} rows and had {floor} when the table was introduced; \
+                 that stage covers {what}, and losing its rows makes the walk over it vacuous"
+            );
+        }
+        // AND THE TABLE AS A WHOLE. A row can be lost without dropping a stage below its floor only by
+        // ADDING one elsewhere, which is not a loss — so this pair is what makes "a row disappeared"
+        // visible from either direction.
         assert!(
-            dispatch_rows >= 24,
-            "`routes()` has {dispatch_rows} DispatchGated rows; it had 24 when the table was \
-             introduced, and a table that lost them would make the auth walk vacuous"
+            routes().len() >= 42,
+            "`routes()` has {} rows; it had 42 when the table was introduced",
+            routes().len()
         );
 
         // A method that is not one of these can never match a request, and `handle_request_inner`
@@ -4935,6 +4964,48 @@ mod tests {
                 row.method
             );
         }
+    }
+
+    /// A PREFLIGHT FOR `index.html` IS ANSWERED "NOT FOUND", AND THAT IS DELIBERATE — the case that
+    /// disproved the `debug_assert!` this refactor first put in `dispatch`.
+    ///
+    /// The preflight arm answers every asset under `/panel/` and `/desktop/` EXCEPT `index.html`, and it
+    /// says why in a comment ("the assets, never index.html"). What happens to the excluded one was,
+    /// until this test, unspecified: it falls out of `route_pre_dispatch` entirely and lands in the
+    /// dispatcher, which answers `{"ok":false,"error":"not found"}` with HTTP 200 — while `route_of`
+    /// legitimately calls that path a `Public` row (`OPTIONS` + `Prefix "/panel/"` → `PanelPreflight`).
+    ///
+    /// So the assertion "a `Public` row must never reach `dispatch`" is FALSE, and a debug build
+    /// panicked on this request. The rule now lives in the agreement test, where the request path pays
+    /// nothing, and THIS pins the behaviour that made the difference: not a panic, not a 204, but the
+    /// same not-found body any unknown path gets.
+    #[tokio::test]
+    async fn a_preflight_for_index_html_falls_through_to_not_found() {
+        let mut cfg = Config::default();
+        cfg.server.device_token = Some("sekret".into());
+        let st = Arc::new(AppState::new(cfg));
+        let resp =
+            handle_request(req_with_token("OPTIONS", "/panel/index.html", "sekret"), st).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "an excluded preflight must not be answered as an error either"
+        );
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("not found"),
+            "expected the dispatcher's not-found body, got: {text}"
+        );
+        // AND THE EXCLUDED PATH IS STILL A `Public` ROW, which is the fact that made the debug assertion
+        // wrong: the table describes where a path is NORMALLY answered, and this one is answered
+        // nowhere on purpose.
+        assert_eq!(
+            route_of("OPTIONS", "/panel/index.html"),
+            Some(RouteId::PanelPreflight)
+        );
     }
 
     /// THE APPROVAL POSTURE IS EVIDENCE — the gap that only a REAL RUN exposed.

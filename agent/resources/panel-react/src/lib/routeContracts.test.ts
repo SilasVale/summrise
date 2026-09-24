@@ -73,10 +73,31 @@ function panelSources(): string[] {
   return out;
 }
 
+/**
+ * Comments are stripped BEFORE the scans, because a scan that counts MENTIONS can be satisfied by
+ * prose — the rule this repo states in its sibling scan in `agent/src/web/mod.rs` ("Strip comments
+ * before counting… a naive scan counts MENTIONS"). Concretely: a doc example or a commented-out
+ * `path: "/api/somewhere"` would enter `called`, and "no route that is neither covered nor explained"
+ * would then pass while the panel called nothing of the sort.
+ *
+ * ONLY WHOLE-LINE AND BLOCK COMMENTS, deliberately. A strip at the first `//` would cut every
+ * `https://…` string literal in this tree, and a route literal sitting after one on the same line
+ * would silently disappear — a false NEGATIVE is worse here than the false positive this guards,
+ * because the floor below cannot tell a missing route from a route that moved. So a TRAILING comment
+ * (`callApi("/api/x"); // why`) still counts as code, which is right: that call is real.
+ */
+function stripComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join("\n");
+}
+
 describe("every device route the panel calls is either pinned or named as unpinned", () => {
   const called = new Set<string>();
   for (const f of panelSources()) {
-    const text = readFileSync(f, "utf8");
+    const text = stripComments(readFileSync(f, "utf8"));
     for (const m of text.matchAll(/(?:callApi|callTool)\(\s*[`"'](\/api\/[^`"']*)/g)) {
       // Normalise the parameterised forms to the shape used in the two lists above.
       called.add(m[1].split("?")[0]);

@@ -5040,6 +5040,66 @@ its four `Pattern` shapes and six routing tests); `agent/src/web/sse.rs` 474 →
 (109 files, +7 in the new `useDeviceRead` suite); the agent's lib tests 681 → 694. The route TABLE is the number
 that matters and the only one worth re-measuring from the source: 42 rows, counted inside `routes()`.
 
+### The review, and six things the first version got wrong (same round)
+
+The round ran its own `code-review` pass — two sub-agents, Standards and Spec — against the committed
+diff. Both found real defects, and the pattern in them is worth more than the fixes: **every one was a
+CLAIM that outran its evidence**, including three of mine in the commit body and the section above.
+
+**THE `debug_assert!` PANICKED A DEBUG BUILD, AND THE FILE'S OWN TEST HAD ALREADY ARGUED AGAINST IT.**
+The first version asserted in `dispatch` that a `Public` row can never arrive there. It can:
+`OPTIONS /panel/index.html` falls out of the preflight arm ON PURPOSE (the arm answers every asset
+*except* index.html) and lands in the dispatcher, while `route_of` still calls it `Public`. A debug
+build panicked on that request. `pre_dispatch_stage_agrees_with_the_table`'s own comment, 240 lines
+below, had already decided this exact question — *"IT IS A TEST RATHER THAN A `debug_assert!` INSIDE
+THE WALK … without adding a panic to the request path"* — so the assertion contradicted a decision
+recorded in the same file. Removed; `a_preflight_for_index_html_falls_through_to_not_found` pins the
+behaviour that made it wrong. Mutation: put the assertion back and that test panics at `:1526`.
+
+**THE FLOOR FLOORED ONE STAGE.** `dispatch_rows >= 24` — so deleting every `Public` row failed
+NOTHING: the walk over that stage goes vacuous and passes, and `deliberately_public_routes_stay_public`
+carries its own hand-written list. There is now one floor per stage plus a floor on the table's total.
+Mutation: delete the `GET /` row and it fails with *"has 9 Public rows and had 10"*.
+
+**THE COMMENT SAID THE OPPOSITE OF WHAT THE FILE PROVED.** `sse_tests`' header still read *"the 30s
+heartbeat arm is intentionally untested — it would take 30s"* — in the same commit that added the test
+which drives it at 10 ms. This is the failure this ledger records more than any other: a comment that
+was true when written and is now a licence for a gap that no longer exists.
+
+**`stage_of` LIED TWICE, AND THE FIX WAS TO DELETE IT.** Its doc claimed it was "not a second lookup"
+(it was) and that "the two answers cannot disagree" — while `find` by id reads the FIRST row with that
+id, and ids repeat (`Mcp` ×2, `PanelHome` ×4, `PanelFile` ×2, `PanelPreflight` ×2). No id currently
+carries two different stages, so the lie was latent rather than live; the function had one caller (the
+assertion above) and is gone. Deleting it left `Route::stage` unread in the non-test build, which
+clippy refuses — and the honest answer is not a fake production reader but `#[cfg_attr(not(test),
+allow(dead_code))]` with the reason written down: that column IS the test surface, and reading it in
+the request path is the duplicated classification the auth gate's comment warns about.
+
+**A GATE THAT COULD BE SATISFIED BY A COMMENT.** The route-contract scan in the panel reads panel
+sources for `path: "/api/…"`; the version that landed read them raw, so a doc example or a
+commented-out route entered the set and the "no route is neither covered nor explained" case could
+pass while the panel called nothing of the sort — the rule the sibling scan states in as many words
+("Strip comments before counting… a naive scan counts MENTIONS"). Comments are stripped now, whole-line
+and block only: a strip at the first `//` would cut every `https://` literal in this tree, and a route
+after one on the same line would vanish (a false negative is worse here — the floor cannot tell a
+missing route from a moved one). Measured both ways: the same route in a COMMENT passes, uncomment it
+and it fails, and with the strip removed the comment-only version fails too.
+
+**AND THREE CLAIMS OF MINE WERE TOO BIG**, corrected here because the record is what the next round
+reads: (1) "BOTH source scans are deleted" — the route-pairing scan is; the slot-acquisition scan
+REMAINS, because a count of `acquire_sse_guard()` IS the property it guards; (2) "the three route
+declarations collapse into ONE table" — `route_pre_dispatch` keeps its own literals by design and is
+pinned to the table by a test, so the honest word is PINNED, not merged; (3) "one module now owns all
+four drifts" — FIVE of thirteen loop sites migrated; six still hand-roll it (`useSessionArchive`,
+`useOperationRuns`, `useSSE`, `DeviceLogsCard`, `ConnectCard`, `EvidenceDrawer`), which is why the two
+that already had the ordering guard still declare it. That list is the next round's work, named in
+`useDeviceRead`'s header rather than implied by a claim of ownership.
+
+**Also removed, on the Spec axis's call:** `useDeviceRead`'s `path: string | (() => string)`. The
+cursor readers that need the function form (`useOperationRuns`, `useSessionArchive`) did NOT migrate,
+so its only consumer was a test — one adapter is a hypothetical seam by this repo's own rule. It can
+come back in the change that gives it a caller.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

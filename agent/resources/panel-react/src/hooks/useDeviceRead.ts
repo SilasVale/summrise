@@ -23,8 +23,9 @@
 //
 //   * MAY A LATE REPLY STILL WRITE? The unmount guard had three idioms (a local
 //     `let alive` in five files, a `useRef` plus a mount effect in two, an `aliveRef`
-//     in one). One idiom, here: a reply that settles after the card is gone must not
-//     touch state, because the last frame the operator saw is the last frame there is.
+//     in one — and the remaining loop sites had NO guard at all). One idiom, here: a reply
+//     that settles after the card is gone must not touch state, because the last frame the
+//     operator saw is the last frame there is.
 //
 //   * AND WHO WINS WHEN TWO READS OVERLAP? "Only the NEWEST read may write" existed in
 //     two of the thirteen (`useSessionArchive` is where it was written down), so the
@@ -32,15 +33,28 @@
 //     value. Here it is unconditional: every read takes a sequence number and only the
 //     one still current may write.
 //
-// A caller states the route, the fold, the value to start from and the cadence. The
-// four rules above are stated once, in this file, and every reader inherits them.
+// A caller states the route, the fold, the value to start from and the cadence. The four rules
+// above are stated once, here — AND INHERITED BY THE FIVE READERS MIGRATED SO FAR
+// (`useVitalsSeries`, `useBootHistory`, `useAgentVitals`, `useMonitors`, `UpdateCard`). THEY ARE
+// NOT YET INHERITED EVERYWHERE, and this comment used to claim they were: six loop sites still
+// hand-roll the same shape (`useSessionArchive`, `useOperationRuns`, `useSSE`, `DeviceLogsCard`,
+// `ConnectCard`, `EvidenceDrawer`) — which is why the two of those that already had the ordering
+// guard still declare it themselves. That is the next round's work, named here rather than
+// implied by a claim of ownership this module does not have yet.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
 import type { ReadState } from "../lib/readState";
 
 export interface DeviceReadOptions<T> {
-  /** The route to read. A function when the route carries a cursor. */
-  path: string | (() => string);
+  /** The route to read.
+   *
+   *  A STRING, not `string | (() => string)`. The first version accepted a function so a
+   *  cursor-carrying reader could advance its query per read, and the two readers that need
+   *  that (`useOperationRuns`, `useSessionArchive`) did NOT migrate in the same round — so the
+   *  form's only consumer was a test. That is a hypothetical seam by this repo's own rule (one
+   *  adapter is hypothetical, two is real), and it is deleted rather than kept warm: the reader
+   *  that needs it can add it back in the change that also gives it a caller. */
+  path: string;
   /** Pure. Called ONLY with a body the device actually sent. Never with a refusal. */
   reduce: (previous: T, body: unknown) => T;
   /** The value before the first successful read. */
@@ -74,9 +88,9 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   // handing out.
   const dataRef = useRef<T>(initial);
   // The route and the fold as they are NOW, not as they were when this hook first ran: a
-  // caller may hand in an inline `reduce` (a new function every render) and a path
-  // function closing over a moving cursor. Without this, a fresh `refresh` identity every
-  // render would re-arm the interval effect on every render — a self-inflicted poll storm.
+  // caller may hand in an inline `reduce` (a new function every render). Without this, a fresh
+  // `refresh` identity every render would re-arm the interval effect on every render — a
+  // self-inflicted poll storm.
   const pathRef = useRef(path);
   pathRef.current = path;
   const reduceRef = useRef(reduce);
@@ -100,9 +114,7 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   const refresh = useCallback(async () => {
     const seq = ++seqRef.current;
     try {
-      const route =
-        typeof pathRef.current === "function" ? pathRef.current() : pathRef.current;
-      const body = await callApi(route);
+      const body = await callApi(pathRef.current);
       if (!aliveRef.current || seq !== seqRef.current) return;
       // A REFUSAL IS NOT A BODY. `deviceRefused` (`lib/api.ts`) is the panel's one
       // predicate for "the device said no", and `reduce` is never shown a refusal: a

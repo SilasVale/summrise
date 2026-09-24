@@ -251,24 +251,4 @@ describe("useDeviceRead", () => {
     expect(result.current.data).toBe("b");
   });
 
-  // The route contract: a function is for a route that carries a cursor, so it is resolved
-  // AT READ TIME — a captured string would pin the first cursor forever.
-  it("resolves a function path at read time, so a cursor-carrying route advances", async () => {
-    mockCallApi.mockResolvedValue({ ok: true });
-    let cursor = 1;
-    const { result } = renderRead<number>({
-      path: () => `/api/x?after=${cursor}`,
-      reduce: (previous) => previous,
-      initial: 0,
-    });
-    await flush();
-    cursor = 7;
-    await act(async () => {
-      await result.current.refresh();
-    });
-    expect(mockCallApi.mock.calls.map((c) => c[0])).toEqual([
-      "/api/x?after=1",
-      "/api/x?after=7",
-    ]);
-  });
 });
