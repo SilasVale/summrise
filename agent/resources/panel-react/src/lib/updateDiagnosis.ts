@@ -25,11 +25,7 @@
 // worth testing, and every input is a string.
 
 type UpdateVerdict =
-  | "cli-swap-launched"
-  | "cli-only"
-  | "rust-swap"
-  | "never-arrived"
-  | "no-log";
+  "cli-swap-launched" | "cli-only" | "rust-swap" | "never-arrived" | "no-log";
 
 export interface UpdateDiagnosis {
   verdict: UpdateVerdict;
@@ -47,7 +43,23 @@ function receipts(lines: string[]): string[] {
   return lines.filter((l) => l.includes("update requested"));
 }
 
-/** `update start` lines — written by the swap script, whichever caller launched it. */
+/**
+ * `update start` lines — written by the swap script, WHICHEVER builder produced it: the CLI generates one
+ * at `<scripts>\summrise-update.ps1` and the agent generates another at the same path, and both write this
+ * line verbatim.
+ *
+ * THAT IS NOT AN AMBIGUITY THIS DIAGNOSIS HAS TO LIVE WITH, which is worth recording because the tenth
+ * architecture exploration read it as one ("the receipt cannot say which ran"). The RECEIPT is what tells
+ * them apart, and this file already relies on it: `update requested` present means the CLI ran, so a
+ * `start` beside it is `cli-swap-launched`; a `start` with NO receipt is `rust-swap` — "a swap was
+ * launched by the agent itself, which writes no receipt". Two builders, one line, and the distinction is
+ * carried by the line only one of them writes.
+ *
+ * WHAT IS NOT EQUIVALENT IS WHAT THE TWO SCRIPTS DO, and no verdict here can show it: the agent's swaps
+ * the boxed components (summrise-playwright.new.zip, cloudflared.new.exe) while the CLI's runs the
+ * fail-closed layout migration gate. Neither does both, so a CLI-launched update re-stages no
+ * components and an agent-launched one runs no migration gate — and both report a successful swap.
+ */
 function starts(lines: string[]): string[] {
   return lines.filter((l) => l.includes("update start"));
 }
@@ -89,7 +101,9 @@ function restartedFrom(lines: string[]): boolean | null {
  * collapsing the two would tell an operator their update was lost when none was
  * attempted.
  */
-export function diagnoseUpdate(log: string | null | undefined): UpdateDiagnosis {
+export function diagnoseUpdate(
+  log: string | null | undefined,
+): UpdateDiagnosis {
   if (log == null || log.trim() === "") {
     return {
       verdict: "no-log",
