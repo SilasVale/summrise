@@ -5341,3 +5341,18 @@ derives it, and both arms of the split are visible side by side in `web/mod.rs`.
 
 Still unpinned: neither envelope has a fixture. `monitor-row.json` pins `summary_of`'s key set (which both
 embeddings include) but not the envelope around it — which is the gap the fixture's own paragraph describes.
+
+**AND ONE PROBE'S ENVELOPE WAS A SIX-LINE BLOCK COPIED INTO TWO FILES (round 218).** Round 217 made the two doors
+agree; this removes the possibility of their disagreeing, which is the repo's own rule — one source of truth per
+fact. Both sites read, byte for byte:
+
+  let expect = crate::monitor::targets().into_iter().find(|t| t.id == id).and_then(|t| t.expect);
+  { ok: true, probe: probe, expect: expect, summary: summary(id) }
+
+`probe_envelope(id, probe)` now lives in `monitor.rs` beside `targets()` and `summary()`, which are the two things
+it composes, and both doors call it. The tool's block became one line; the route's became one line.
+
+**AND THE TEST ASKS THE QUESTION THE COMMENT ASKS.** It pins the key set, and then asserts that an unwatched id
+yields `expect: null` — because the field's own doc says `None` and `false` are different facts ("no answer" versus
+"the answer did not say it") and must not collapse. That distinction is the reason `expect` travels with the probe
+at all, so it is the thing worth pinning rather than the four key names alone.

@@ -1786,16 +1786,9 @@ async fn api_monitor_probe(body: &str) -> serde_json::Value {
             // probe wanted, so the target's own expectation travels with the result." This route — the
             // panel's "check now" — omitted it, so ONE probe answered a different shape depending on which
             // door it came through, and neither shape was pinned by a fixture or a test.
-            let expect = crate::monitor::targets()
-                .into_iter()
-                .find(|t| t.id == id)
-                .and_then(|t| t.expect);
-            serde_json::json!({
-                "ok": true,
-                "probe": p,
-                "expect": expect,
-                "summary": crate::monitor::summary(id),
-            })
+            // THE SAME ENVELOPE THE MCP TOOL RETURNS (round 218). One probe, one shape, whichever door
+            // it comes through — this was a hand-copy of the tool's block until round 217 made them agree.
+            crate::monitor::probe_envelope(id, p)
         }
         None => {
             serde_json::json!({"ok": false, "error": format!("not watching {id}"), "code": "invalid_params"})

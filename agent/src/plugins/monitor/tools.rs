@@ -148,16 +148,9 @@ fn tool_probe() -> ToolDef {
                     // is unreadable without the text the probe wanted, so the target's own
                     // expectation travels with the result.
                     Some(probe) => {
-                        let expect = crate::monitor::targets()
-                            .into_iter()
-                            .find(|t| t.id == id)
-                            .and_then(|t| t.expect);
-                        Ok(json!({
-                            "ok": true,
-                            "probe": probe,
-                            "expect": expect,
-                            "summary": crate::monitor::summary(&id),
-                        }))
+                        // ONE ENVELOPE, ONE PLACE (round 218): this block used to be copied verbatim
+                        // into the HTTP route, which is how the two came to disagree about `expect`.
+                        Ok(crate::monitor::probe_envelope(&id, probe))
                     }
                     None => Err(DeviceError::InvalidParams {
                         message: format!("not watching {id} — monitor_list shows what is"),

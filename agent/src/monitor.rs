@@ -676,6 +676,26 @@ pub fn recent_transitions(id: &str, limit: usize) -> Vec<Transition> {
 /// One target's summary over the samples it has: how many probes, how many answered, the share
 /// that did, the latency range, and WHEN the state last changed (the number an operator reads
 /// first — "down since 18:41" is the whole story).
+/// THE ENVELOPE BOTH DOORS RETURN, IN ONE PLACE (round 218).
+///
+/// Two doors ask the same question — the MCP tool `monitor_probe` and the route `/api/monitors/probe` — and
+/// they built this envelope from two hand-copied six-line blocks in two files. Round 217 made them agree; a
+/// shape copied into two places is what made them disagree in the first place, so it lives here now and both
+/// call it. `expect` travels with the probe because `expect_ok: false` is unreadable without the text the
+/// target wanted to see.
+pub fn probe_envelope(id: &str, probe: Probe) -> Value {
+    let expect = targets()
+        .into_iter()
+        .find(|t| t.id == id)
+        .and_then(|t| t.expect);
+    json!({
+        "ok": true,
+        "probe": probe,
+        "expect": expect,
+        "summary": summary(id),
+    })
+}
+
 pub fn summary(id: &str) -> Value {
     summary_of(&series(id, SERIES_MAX))
 }
@@ -794,6 +814,42 @@ mod tests {
     /// test recorded the consequence before this fixture existed: a hand-written transition shape looked plausible,
     /// was wrong, and the card drew no transitions at all.
     #[test]
+    /// ONE ENVELOPE, ONE SHAPE, PINNED (round 218).
+    ///
+    /// Two doors return this — the MCP tool `monitor_probe` and the route `/api/monitors/probe` — and they
+    /// were hand-copied six-line blocks until round 217 made them agree. `probe_envelope` is the one source
+    /// now; this pins what it promises, because the panel reads it and `monitor-row.json`'s own `_why`
+    /// records the cost of a wrong guess: "the shape is the contract, nothing validates it, and a wrong
+    /// guess looks like data."
+    #[test]
+    fn the_probe_envelope_names_every_key_both_doors_promise() {
+        let p = Probe {
+            ts_ms: 1,
+            ok: true,
+            ms: Some(2),
+            status: Some(200),
+            expect_ok: None,
+        };
+        let v = probe_envelope("127.0.0.1:1", p);
+        let mut keys: Vec<&str> = v
+            .as_object()
+            .expect("the envelope is an object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["expect", "ok", "probe", "summary"],
+            "the probe envelope changed shape — the panel reads this and a wrong guess looks like data"
+        );
+        // NO TARGET IS WATCHED under this id, so the criterion is ABSENT — and absent is not `false`.
+        assert!(
+            v["expect"].is_null(),
+            "an unwatched target has no expectation; null says that, and `false` would say it was not found"
+        );
+    }
+
     fn monitor_row_fixture_matches_the_payload() {
         let fixture: Value =
             serde_json::from_str(include_str!("../tests/fixtures/monitor-row.json"))
