@@ -19,8 +19,19 @@ const docs = ["AGENTS.md", "docs/agents/design-ledger.md", "docs/agents/inventor
   .join("\n");
 
 const wired = new Set([
-  ...[...ci.matchAll(/node scripts\/test\/([a-z0-9-]+-check)\.mjs/g)].map((m) => m[1]),
-  ...[...ci.matchAll(/bash scripts\/test\/([a-z0-9-]+-check)\.bash/g)].map((m) => m[1]),
+  // EVERY GATE THE WORKFLOW INVOKES, not only the ones named *-check (round 184). The two patterns
+  // above collected `-check.mjs` and `-check.bash` and the summary called that set "all", while TWELVE
+  // gate files CI runs were invisible to it: build-pins, publish-release, release-lib, script-syntax,
+  // panel-design-sweep, sweep-judges, smoke-index, smoke-helpers, release-audit, stylesheet-hygiene,
+  // scan-dups-check.py and all-gates itself. A census that counts a subset is the defect this gate
+  // exists to catch, one level up.
+  // THE EXTENSION IS STRIPPED, because the prose names gates by their BASE NAME — "beginning with
+  // `contract-vocabulary-check`, `one-derivation-check` …" (AGENTS.md). The first version of this
+  // widening kept the extension and reported EIGHT gates as unnamed that the very file it checks names
+  // in a paragraph — an instrument wrong before its subject, which is this suite s oldest lesson.
+  ...[...ci.matchAll(/(?:node|bash|python3)\s+scripts\/test\/([A-Za-z0-9._-]+)/g)].map((m) =>
+    m[1].replace(/\.(mjs|bash|py)$/, ""),
+  ),
 ]);
 
 if (wired.size < 20) {

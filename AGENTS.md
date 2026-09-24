@@ -49,7 +49,7 @@ instead. The story is in the ledger; the commands, by working directory:
 | `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p summrise-agent --all-targets -- -D warnings` · `cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings` · `cargo clippy -p summrise-agent-core --all-targets -- -D warnings` · `cargo test -p summrise-agent` · `cargo test -p summrise-agent --features terminal,keyring` · `cargo test -p summrise-agent-core` | — |
 | `agent/summrise-desktop-electron/` | `npm test` | — |
 
-All four were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
+All five were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
 and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what
 CI invokes.
 
