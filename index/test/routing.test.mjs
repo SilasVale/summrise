@@ -295,3 +295,27 @@ test("a malformed component pin is dropped AND said out loud", async () => {
     console.warn = realWarn;
   }
 });
+
+test("public/_headers states the artifact rule, and no route contradicts it", async () => {
+  // THE FILE GOVERNED EVERY /summrise-agent/* RESPONSE AND NOTHING READ IT (round 136). Its rule is
+  // explicit and carries its reason — "Device artifacts change under stable URLs — never let the edge
+  // serve a stale body (a device would silently receive an old build)" — and the cloudflared route still
+  // answered `public, max-age=3600` inside that very prefix, overriding it in code where the file could
+  // not see (round 135). A rule with no instrument is a comment.
+  const headers = await readFile(new URL("../public/_headers", import.meta.url), "utf8");
+  assert.match(headers, /\/summrise-agent\/\*/, "the artifact prefix must be covered");
+  assert.match(headers, /no-cache|no-store/, "and must forbid a stale body");
+  const rule = headers.slice(headers.indexOf("/summrise-agent/*"));
+  assert.doesNotMatch(rule, /max-age=[1-9]/, "…and must not permit even a small positive max-age");
+
+  // AND THE ROUTES AGREE. Electron answers from R2 with a validator; cloudflared revalidates through
+  // GitHub's ETag. Both were asserted on their own responses, which is what caught the contradiction —
+  // this asserts the file those assertions are FOR is still saying the same thing.
+  const src = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const positive = [...src.matchAll(/cache-control"?\s*:\s*"public, max-age=([1-9][0-9]*)/g)];
+  assert.deepEqual(
+    positive.map((m) => m[1]),
+    [],
+    "no route may answer a positive max-age for an artifact under this prefix",
+  );
+});
