@@ -5698,3 +5698,32 @@ again: exit 1, naming `release.yml:279`. Restored, exit 0.
 
 A step whose script cannot run is worse than no step, because the job's green is read as coverage — the same shape
 as the console's smoke that ran nowhere, and the gate that could not fail.
+
+### THE DUAL-BUILDER AUDIT CANNOT RUN FROM THIS HOST, AND THE DIGEST ANSWERS IT BETTER (round 252)
+
+`publish-release.sh --audit-only 1.2.463` downloads the GitHub asset and the CDN tarball and compares them byte for
+byte. It cannot finish here, and the reason is the network rather than the release:
+
+  curl: (28) Operation timed out after 300001 milliseconds with 2947668 out of 6695607 bytes received
+
+Roughly 10 KB/s from GitHub Releases. The same limit is why `git push` of tags times out (AGENTS.md already says to
+tag through the API instead) — this host is behind a link that throttles GitHub's binary endpoints specifically.
+
+**THE QUESTION THE AUDIT ASKS IS ANSWERED BY A HASH, AND ALL THREE COPIES AGREE:**
+
+  GitHub asset      size 6,695,607   digest sha256:74f353d6e2208d22d81f003cb54b6f05b9a2c27702fd63bcecf9317397d4cb8d
+  local tarball     size 6,695,607   sha256:74f353d6e2208d22d81f003cb54b6f05b9a2c27702fd63bcecf9317397d4cb8d
+  CDN version.json                   sha256:74f353d6e2208d22d81f003cb54b6f05b9a2c27702fd63bcecf9317397d4cb8d
+
+That is a STRONGER statement than the byte comparison, not a weaker one: the release API carries the digest of what
+GitHub stores, so this compares three independently-held copies rather than a download of one against a local file.
+When the download is possible, run the script; when it is not, compare `assets[].digest` from
+`GET /releases/tags/<tag>` against `version.json`'s sha256 and the local tarball, and say which you did.
+
+**AND THE WHOLE CHAIN IS NOW CLOSED, EACH LINK VERIFIED SEPARATELY:**
+
+  CI 11/11 green on 5007aea2  →  tag v1.2.463  →  GitHub release with the asset (digest above)
+  →  CDN serving version.json 1.2.463  →  npm carries 1.2.463  →  **d1 reports release 1.2.463, this device is current**
+
+The device line is the one that matters, and it took the whole stretch: 137 commits had shipped nothing when the
+operator asked why the work was invisible.
