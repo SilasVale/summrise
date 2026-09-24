@@ -1449,6 +1449,28 @@ function svc(action) {
     // silent either way. `autostart` already checks; this is the same pattern.
     return sh(`schtasks /${action} /TN ${TASK}`, { stdio: "inherit" });
 }
+/**
+ * The scheduled task's State (`Running`, `Ready`, `Disabled`, …) or **null when it could not be read**.
+ *
+ * THREE STATES, NOT ONE. `autostart` states the rule and names the shape — "a failed READ reported as
+ * evidence of ABSENCE" — which it calls the THIRD instance, after `statusReport` and `rollback status`.
+ * Here `null` means "I could not ask", and callers report that as itself instead of as a verdict.
+ *
+ * `LOCALE` is why this asks `Get-ScheduledTask` rather than parsing `schtasks /Query`: the latter's headers
+ * are localized, which is the reason `autostart` uses this call too.
+ */
+function taskState(name) {
+    const r = (0, child_process_1.spawnSync)("powershell", [
+        "-NoProfile",
+        "-Command",
+        `(Get-ScheduledTask -TaskName '${name}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty State)`,
+    ], { encoding: "utf8" });
+    const err = r && r.error;
+    if (!r || err || r.status !== 0)
+        return null; // spawn failed, or the read itself failed
+    const s = String(r.stdout || "").trim();
+    return s === "" ? null : s; // empty = the task is not there, which is also "no answer to Running?"
+}
 // Shared tunnel bootstrap: login (token or interactive) → create tunnel →
 // DNS route → write tunnel.yml. Used by `summrise setup --tunnel` and
 // `summrise tunnel install`.
@@ -1889,12 +1911,25 @@ const commands = {
         try {
             const reg = path.join(SCRIPTS_DIR, "register-desktop-task.ps1");
             fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
-            sh(
-            // DOUBLE quotes — a cmd-layer argument. The single-quoted version this shipped with
-            // reached PowerShell with the quotes included and died on the device with "unsupported
-            // path format" for a path that was perfectly valid.
-            `powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`);
-            console.log("setup: SummriseDesktop registered (logon + a 5-minute watchdog) and started");
+            // THE STATUS WAS DISCARDED AND THE SUCCESS LINE WAS UNCONDITIONAL, which is the defect the AGENT
+            // task's check ten lines below names in its own comment: "audit #7: used to claim success
+            // regardless". Worse, the `catch` below could not fire for this — `sh()` RETURNS, it does not
+            // throw — so the only thing it ever caught was `writeFileSync`.
+            //
+            // ONE CALL, and its status is READ. DOUBLE quotes in the command: a cmd-layer argument, because the
+            // single-quoted version this shipped with reached PowerShell with the quotes included and died on
+            // the device with "unsupported path format" for a path that was perfectly valid.
+            //
+            // A WARNING, NOT FATAL, unlike the agent task: headless installs have no SummriseDesktop, and the
+            // registration script itself exits quietly when electron is already alive.
+            const reg302 = sh(`powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`, { stdio: "pipe" });
+            if (reg302 && reg302.status === 0) {
+                console.log("setup: SummriseDesktop registered (logon + a 5-minute watchdog) and started");
+            }
+            else {
+                console.log(`setup: WARNING -- registering SummriseDesktop failed (status ${reg302 ? reg302.status : "spawn error"}); ` +
+                    `run: powershell -File "${SCRIPTS_DIR}\\register-desktop-task.ps1"`);
+            }
         }
         catch {
             console.log(`setup: WARNING -- could not register SummriseDesktop; run: powershell -File "${SCRIPTS_DIR}\\register-desktop-task.ps1"`);
@@ -2235,8 +2270,27 @@ const commands = {
         markDeliberateStop();
         const r = svc("End");
         if (r && r.status !== 0) {
-            console.error(`summrise stop: schtasks /End failed (status ${r.status}) -- the agent may still be running`);
-            process.exit(1);
+            // A NON-ZERO `/End` IS NOT EVIDENCE THE AGENT IS STILL RUNNING, and the mirror of this mistake is
+            // already documented twice in this file. `restart` says it about the identical condition: "a task
+            // that was not running has nothing to end, so a non-zero /End is the ordinary case". `svc`'s own
+            // comment records the ORIGINAL bug, which was the opposite — "`stop` printed 'stopped' and exited 0
+            // for a missing task or an access-denied". So the exit code answers neither question.
+            //
+            // ASK INSTEAD. `autostart` reads `Get-ScheduledTask ... -ExpandProperty State` and its comment names
+            // this exact shape — "a failed READ reported as evidence of ABSENCE" — which it calls the THIRD
+            // instance. This is the fourth, from the other side: an ordinary read taken as evidence of PRESENCE,
+            // with "the agent may still be running" printed for a task that had already stopped.
+            const st = taskState(TASK);
+            if (st === null) {
+                // Could not read it — say that, rather than guessing either way (the three-state rule).
+                console.error(`summrise stop: schtasks /End failed (status ${r.status}) and the task's state could not be read`);
+                process.exit(1);
+            }
+            if (st === "Running") {
+                console.error(`summrise stop: schtasks /End failed (status ${r.status}) and the task is still Running`);
+                process.exit(1);
+            }
+            console.error(`summrise stop: schtasks /End returned ${r.status}, but the task is not Running -- nothing to stop`);
         }
         console.log("stopped -- revives via 'summrise start' or the 5-min watchdog ('summrise autostart off' opts out of autostart)");
     },
@@ -3035,8 +3089,17 @@ const commands = {
         if (regLeft.status === 0)
             survivors.push("registry key HKLM\\SOFTWARE\\Summrise\\Agent");
         if (survivors.length) {
-            console.log("uninstall: WARNING -- still present after removal:", survivors.join(", "));
-            console.log("uninstall: a locked file or a permission problem; re-run after stopping the agent.");
+            // ONE FAILURE CLASS, ONE TREATMENT. The data-dir twin forty lines below exits 1 for exactly this
+            // ("FAILED to purge the data dir -- … is still present"), and this branch warned and exited 0 —
+            // while the comment directly above states the rule it was breaking: `sh()` discards its result
+            // "at every one of its call sites", so a locked file, an AV hold or a denied HKLM write "produced
+            // 'removed' with the thing still there, AND EXIT 0".
+            //
+            // The program dir and the registry key are what `uninstall` was asked to remove. A warning that
+            // exits 0 is the same false verdict the data-dir branch already refuses.
+            console.error("uninstall: FAILED -- still present after removal:", survivors.join(", "));
+            console.error("uninstall: a locked file or a permission problem; re-run after stopping the agent.");
+            process.exitCode = 1;
         }
         else {
             console.log("uninstall: program dir + registry removed");
