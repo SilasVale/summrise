@@ -72,7 +72,6 @@ const CLIENTS: ClientSpec[] = [
   },
 ];
 
-
 type Probe = { state: "idle" | "running" | "ok" | "fail"; detail?: string };
 
 export function ConnectCard() {
@@ -86,7 +85,13 @@ export function ConnectCard() {
   // configured value: whatever host the operator reached this panel on is, by
   // definition, a host their AI client can reach too. A hardcoded value here
   // would be wrong for every remote/tunnel user.
-  const mcpUrl = useMemo(() => `${location.protocol}//${getHost()}/mcp`, []);
+  //
+  // AND IT IS RECOMPUTED EVERY RENDER, which is what "live" has to mean: this was
+  // `useMemo(…, [])` — computed ONCE at mount — so an operator who reached the panel on one host and
+  // later on another kept a copy-ready URL pointing at the first. The memo saved a string concatenation
+  // and cost the property the sentence above claims. Found 2026-09-24 by the panel exploration; this
+  // card lives in Settings, which stays mounted across a reconnect.
+  const mcpUrl = `${location.protocol}//${getHost()}/mcp`;
   const token = getToken();
 
   useEffect(() => {

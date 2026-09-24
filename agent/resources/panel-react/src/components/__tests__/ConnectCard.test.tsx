@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ConnectCard } from "../ConnectCard";
-import { callApi } from "../../lib/api";
+import { callApi, getHost } from "../../lib/api";
 
 const TOKEN =
   "d3adb33fdeadbeefd3adb33fdeadbeefd3adb33fdeadbeefd3adb33fdeadbeef";
@@ -82,6 +82,27 @@ describe("ConnectCard", () => {
       "127.0.0.1:18080",
     );
     expect(snippet).toContain("/mcp");
+  });
+
+  // THE TEST ABOVE'S NAME SAYS "LIVE" AND IT ONLY EVER TESTED MOUNT. The endpoint was
+  // `useMemo(() => …, [])` — computed once — so a host change left a copy-ready URL pointing at the old
+  // device, in the one card whose whole job is telling an operator what to paste. It lives in Settings,
+  // which stays mounted across a reconnect, so this is reachable by an ordinary operator. The assertion
+  // is the CHANGE, which is the only shape that can tell a live derivation from a frozen one.
+  it("re-derives the endpoint when the host changes", async () => {
+    const host = getHost as unknown as ReturnType<typeof vi.fn>;
+    host.mockReturnValue(HOST);
+    const { rerender } = render(<ConnectCard />);
+    await screen.findByText(/tools available on this device/);
+    expect(document.querySelector(".connect-snippet")!.textContent).toContain(
+      HOST,
+    );
+
+    host.mockReturnValue("moved.example:18080");
+    rerender(<ConnectCard />);
+    const after = document.querySelector(".connect-snippet")!.textContent!;
+    expect(after, "the new host must appear").toContain("moved.example:18080");
+    expect(after, "and the old one must be gone").not.toContain(HOST);
   });
 
   it("masks the device token until it is explicitly revealed", async () => {
