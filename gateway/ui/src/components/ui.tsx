@@ -23,18 +23,22 @@ export function PageHeader({ title, description, actions }: { title: string; des
 
 /* ── Card ── */
 
-export function Card({ title, description, headerExtra, noMargin, className, children }: {
+// TWO PROPS WERE DELETED HERE ON 2026-09-24, both dead and both invisible to every gate: `Card`'s
+// `noMargin` and `Badge`'s `dot`. The console exploration found them by reading the components, and
+// `grep` confirmed no call site in src/ ever passed either — so deleting them changes NO caller, which
+// is the deletion test's cleanest case: the complexity leaves rather than moving. Nothing caught them
+// because `exports-check` reads EXPORTS, and a prop is not one.
+export function Card({ title, description, headerExtra, className, children }: {
   title?: ReactNode;
   description?: ReactNode;
   headerExtra?: ReactNode;
-  noMargin?: boolean;
   className?: string;
   children?: ReactNode;
 }) {
   return (
     <section className={`card${className ? ` ${className}` : ""}`}>
       {(title || headerExtra) && (
-        <div className={`card-header${noMargin ? " no-margin" : ""}`}>
+        <div className="card-header">
           <div>
             {title && <div className="card-title">{title}</div>}
             {description && <div className="card-description">{description}</div>}
@@ -51,10 +55,9 @@ export function Card({ title, description, headerExtra, noMargin, className, chi
 
 type BadgeTone = "success" | "error" | "warning" | "info" | "muted";
 
-export function Badge({ tone = "muted", dot, children }: { tone?: BadgeTone; dot?: boolean; children: ReactNode }) {
+export function Badge({ tone = "muted", children }: { tone?: BadgeTone; children: ReactNode }) {
   return (
     <span className={`badge badge-${tone}`}>
-      {dot && <span className="dot" />}
       {children}
     </span>
   );

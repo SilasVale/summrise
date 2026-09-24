@@ -1002,9 +1002,7 @@ pre code {
   margin-bottom: 14px;
 }
 
-.card-header.no-margin {
-  margin-bottom: 0;
-}
+
 
 .card-title {
   font-size: var(--fs-xs);
@@ -1134,10 +1132,7 @@ pre code {
 
 /* TWO STATES THAT HAD NO RULES AT ALL (round 24 of the standing goal). The Overview renders
    `className={`dot ${c.ok ? "ok" : "err"}`}` for every channel, and NEITHER `.dot.ok` nor `.dot.err` existed — so a
-   healthy channel and a broken one both drew the base decoration, and the state was invisible. Same class of
-   defect as the panel's `.tab-wait` (round 245): markup that renders and nothing paints. It is why the marks
-   check now lists this family's states instead of only `.sig-dot`'s.
-   THE SHAPES ARE THE VOCABULARY: SOLID is good, a DIAMOND needs attention (the same shape `.sig-dot.err` uses, and
+   healthy channel and a broken one both drew the base decoration, a DIAMOND needs attention (the same shape `.sig-dot.err` uses, and
    the panel gives a pending approval), a haloed solid is live, and a RING is absent. */
 .dot.ok {
   background: var(--success);
