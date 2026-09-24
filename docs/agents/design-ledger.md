@@ -5062,3 +5062,14 @@ working file rather than something new.
 
 A GATE IS THE OBVIOUS NEXT STEP: `build-pins.bash` holds the cargo-xwin pin for exactly this class of drift, so
 "CI and release resolve the same LLVM" belongs there — one place that fails when the two paths diverge again.
+
+**AND THE DRIFT HAS A GATE NOW (round 194).** `build-pins.bash` exists for exactly this species — its own header
+lists "the four build inputs that are HAND-COPIED, each with a single source of truth and NOTHING comparing them",
+and its #2 is the cargo-xwin case with the same shape: CI installing whatever is newest while the release pinned a
+version. The LLVM is #5. It reads the cache key and the LLVM release out of `release.yml` as the source of truth,
+requires BOTH workflows to name both, and refuses a distribution install outright — because a version check cannot
+see that drift (the distro package carries whatever the image ships), so the ban is the assertion.
+
+Six checks where there were none; the gate went 24 -> 30. Three mutations, all exit 1: the apt install put back,
+the cache key changed, the LLVM release changed. A gate that cannot fail is worse than no gate, and this one was
+built by first finding the defect it would have caught.

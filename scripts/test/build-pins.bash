@@ -125,5 +125,27 @@ for wf in .github/workflows/ci.yml .github/workflows/release.yml; do
   done < <(grep -oP 'typescript@\K[0-9][0-9.]*' "$wf" | sort -u)
 done
 
-echo "build-pins: $PASS checks passed"
+# ── 5. the LLVM the builders compile with: one tarball, and nothing from apt ──
+# THE SAME SPECIES AS #2, AND IT HAD ALREADY BITTEN (round 193). ci.yml s agent-windows-target ran
+# `apt-get install -y llvm` while release.yml refuses that exact package: "those are per-distro builds,
+# and the resulting lld laid .data out differently (measured on 1.2.317 — a 32-byte shift plus a 0x100
+# difference in where rust_panic landed)". The job pinned cargo-xwin against build drift in the step
+# below and took the compiler from the distribution. Nothing compared them; this does.
+LLVM_KEY="$(grep -oP "key: \Kllvm-[0-9.]+-official[^ ]*" .github/workflows/release.yml | head -1)"
+[ -n "$LLVM_KEY" ] || { echo "FAIL: release.yml no longer names an official LLVM tarball"; exit 1; }
+LLVM_TAR="$(grep -oP "llvmorg-\K[0-9.]+" .github/workflows/release.yml | head -1)"
+[ -n "$LLVM_TAR" ] || { echo "FAIL: release.yml no longer pins an LLVM release"; exit 1; }
+for wf in .github/workflows/ci.yml .github/workflows/release.yml; do
+  has "$wf takes its LLVM from the official tarball ($LLVM_KEY)" "$(cat "$wf")" "$LLVM_KEY"
+  has "$wf pins the same LLVM release (llvmorg-$LLVM_TAR)" "$(cat "$wf")" "llvmorg-$LLVM_TAR"
+  # A DISTRIBUTION LLVM IS THE DRIFT ITSELF, and a version check cannot see it: the distro package
+  # carries whatever version that image ships. The ban is the assertion.
+  if grep -qE "apt-get install[^\n]*[[:space:]]llvm([[:space:]]|$)" "$wf"; then
+    echo "FAIL: $wf installs llvm from the distribution — release.yml refuses that package by name as a"
+    echo "  measured source of build drift (a 32-byte .data shift on 1.2.317). Use the official tarball."
+    exit 1
+  fi
+  PASS=$((PASS+1))
+done
 
+echo "build-pins: $PASS checks passed"
