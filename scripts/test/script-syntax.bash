@@ -29,6 +29,18 @@ while IFS= read -r f; do
 done < <(git ls-files '*.sh' '*.bash')
 rm -f /tmp/script-syntax.err
 
+# A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN (round 170). `git ls-files` returns an EMPTY list when git
+# refuses the tree — a dubious-ownership / safe.directory refusal in a container does exactly that — and
+# the loop above then runs ZERO times, FAILED stays 0, and this printed `ok: script-syntax 0 files parse`
+# with EXIT 0. `set -euo pipefail` cannot catch it: the failure happens inside a process substitution,
+# which the shell does not check. MEASURED by the fifteenth exploration on a copy with .git removed.
+# 27 scripts are tracked today; 20 leaves room for a deliberate removal and none for a collapse.
+FLOOR=20
+if [ "$PASS" -lt "$FLOOR" ]; then
+  echo "script-syntax: read only $PASS file(s), expected at least $FLOOR — the scan is reading the wrong thing"
+  exit 1
+fi
+
 if [ "$FAILED" -gt 0 ]; then
   echo "script-syntax: $FAILED file(s) do not parse"
   exit 1

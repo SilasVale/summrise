@@ -30,7 +30,19 @@ WORKFLOW=".github/workflows/ci.yml"
 [ -f "$WORKFLOW" ] || { echo "  no $WORKFLOW — run from the repo" >&2; exit 1; }
 
 mapfile -t gates < <(
-  grep -ohE '(node|bash|python3) +scripts/test/[A-Za-z0-9._-]+' "$WORKFLOW" |
+  # THE PATH PREFIX IS STRIPPED, NOT MATCHED AROUND (round 170). ci.yml invokes one gate as
+  # `node ${{ github.workspace }}/scripts/test/console-assets-check.mjs`, and the old pattern —
+  # which required the script path to start immediately after the interpreter — never matched it.
+  # So that gate was named in the workflow and INVISIBLE to this runner, which is precisely the
+  # drift the header promises cannot happen ("THE LIST IS DERIVED, NOT RESTATED ... can never
+  # become a second list that drifts from the first"). MEASURED by the fifteenth exploration:
+  # 1 mention in ci.yml, 0 derived here.
+  #
+  # The strip runs FIRST, and that ordering is the whole fix: the prefix contains a SPACE, so a
+  # character class in the regex cannot span it — my first attempt widened the pattern to
+  # `[^ "]*`, which still excluded the prefix and still derived zero.
+  sed 's|\${{ github.workspace }}/||g' "$WORKFLOW" |
+    grep -ohE '(node|bash|python3) +scripts/test/[A-Za-z0-9._-]+' |
     sort -u |
     # ITSELF, EXCLUDED — load-bearing rather than tidy: this file is invoked from ci.yml (build-pins
     # enforces that EVERY scripts/test file is), so the extraction finds it, and running it would run
@@ -38,7 +50,10 @@ mapfile -t gates < <(
     # than a peer. Filtered out rather than blanked in the array, so the counts below stay exact.
     grep -v '^bash scripts/test/all-gates\.bash$'
 )
-if [ "${#gates[@]}" -lt 20 ]; then
+# THE FLOOR IS A FLOOR, NOT A FORMALITY (round 170). It was 20 against a list of 50, so HALVING the
+# workflow still passed it — a check that cannot notice half its subject missing is the vacuity this
+# file exists to catch in others. 40 leaves room for a deliberate removal and none for a collapse.
+if [ "${#gates[@]}" -lt 40 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi
