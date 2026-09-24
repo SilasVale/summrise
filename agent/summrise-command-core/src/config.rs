@@ -8,7 +8,6 @@ pub struct Config {
     pub server: ServerConfig,
     pub serial: SerialConfig,
     pub terminal: TerminalConfig,
-    pub browser: BrowserConfig,
     pub platform: PlatformConfig,
     pub memory: MemoryConfig,
     pub retention: RetentionConfig,
@@ -208,22 +207,6 @@ impl RetentionConfig {
     }
 }
 
-/// DEAD CONFIG — browser automation (CDP/headless-Chrome) was retired; the
-/// embedded Electron view + gateway MCP replaced it. Kept only so OLD config.yaml
-/// files with a `browser:` section still parse (serde(default) swallows the
-/// section; no production code reads these fields).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct BrowserConfig {
-    pub page_load_timeout_secs: u64,
-    /// Explicit headless browser executable. None = discover Edge/Chrome.
-    #[serde(default)]
-    pub headless_executable: Option<String>,
-    /// CDP debug port for the headless browser. None = default 19623.
-    #[serde(default)]
-    pub headless_cdp_port: Option<u16>,
-}
-
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let content = fs::read_to_string(path)?;
@@ -339,16 +322,6 @@ impl Default for SerialConfig {
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self { buffer_mb: 8 }
-    }
-}
-
-impl Default for BrowserConfig {
-    fn default() -> Self {
-        Self {
-            page_load_timeout_secs: 30,
-            headless_executable: None,
-            headless_cdp_port: None,
-        }
     }
 }
 

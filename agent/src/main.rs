@@ -474,14 +474,6 @@ pub(crate) fn unknown_key_warnings(config_path: &Path) -> Vec<String> {
         ),
         ("serial", &["default_baud_rate", "default_timeout_ms"]),
         ("terminal", &["buffer_mb"]),
-        (
-            "browser",
-            &[
-                "page_load_timeout_secs",
-                "headless_executable",
-                "headless_cdp_port",
-            ],
-        ),
         ("platform", &["console_url", "download_url"]),
         // The memory plugin's capacity policy (summrise-command-core MemoryConfig).
         // The panel's Settings PUT persists the SERIALIZED config, so this
@@ -852,7 +844,6 @@ mod tests {
             "  relay_url: https://relay.example\n  relay_token: rt\n  auth_token: legacy\n",
             "serial:\n  default_baud_rate: 115200\n  default_timeout_ms: 1000\n",
             "terminal:\n  buffer_mb: 8\n",
-            "browser:\n  page_load_timeout_secs: 30\n  headless_executable: null\n  headless_cdp_port: null\n",
             "platform:\n  console_url: https://api.saisi.online\n  download_url: https://agent.saisi.online\n",
             "memory:\n  max_entries: null\n  max_bytes: null\n  retention_days: null\n",
             // The retention block is SHIPPED in config.yaml (unlike memory,

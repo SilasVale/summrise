@@ -26,7 +26,6 @@ browser:
     assert_eq!(config.server.port, 9999);
     assert_eq!(config.serial.default_baud_rate, 9600);
     assert_eq!(config.serial.default_timeout_ms, 500);
-    assert_eq!(config.browser.page_load_timeout_secs, 15);
 }
 
 #[test]
@@ -37,16 +36,22 @@ fn config_partial_loads_with_defaults() {
     assert_eq!(config.server.port, 4000);
     assert_eq!(config.server.host, "127.0.0.1"); // default (loopback — LAN-safe)
     assert_eq!(config.serial.default_baud_rate, 115200); // whole section defaulted
-    assert_eq!(config.browser.page_load_timeout_secs, 30);
 }
 
 #[test]
 fn config_ignores_legacy_fields() {
     // Old config.yaml files (pre-0.6) carry ssh.default_timeout_secs and
-    // browser.chrome_cdp_url — unknown fields must not break loading
+    // browser.chrome_cdp_url — the whole `browser` SECTION is unknown now (round 166 removed
+    // BrowserConfig, which nothing read) and unknown sections must not break loading either.
     let yaml = "server:\n  port: 3000\nssh:\n  default_timeout_secs: 30\nbrowser:\n  chrome_cdp_url: \"ws://x\"\n  page_load_timeout_secs: 20\n";
     let config: Config = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(config.browser.page_load_timeout_secs, 20);
+    // The point of this test is that the KNOWN fields beside the legacy section still load —
+    // without reading one, the `unwrap()` above would prove only that parsing returned, and
+    // clippy says so ("unused variable: config"), which is how this assertion came back.
+    assert_eq!(
+        config.server.port, 3000,
+        "a legacy `browser:` section must not stop the fields beside it from loading"
+    );
 }
 
 #[test]
