@@ -88,6 +88,12 @@ jobs:
       # pack-chain with "Cannot find type definition file for 'vite/client'" — a missing dependency, not a stale asset.
       - name: the console's committed assets match its source
         run: node ${{ github.workspace }}/scripts/test/console-assets-check.mjs
+      # THE PANEL SIDE OF THE SAME RULE (round 177). Five gates read the COMMITTED
+      # agent/resources/panel/panel.css and nothing compared it to its source; agent/build.rs guards by
+      # mtime, which misses a restored file or a same-second content drift. This rebuilds and asserts the
+      # tree does not move — the shape console-assets-check.mjs uses, for the reason its own header gives.
+      - name: Panel sheet freshness
+        run: node ${{ github.workspace }}/scripts/test/panel-sheet-freshness-check.mjs
 
   panel:
     name: panel (vitest)
