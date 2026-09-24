@@ -307,6 +307,13 @@ const CASES = [
     to: "npm install --no-save --ignore-scripts --force typescript@5 @types/node@22",
   },
 
+  {
+    gate: "scripts/test/proxy-cors-parity-check.mjs",
+    file: "proxies/zen-us-proxy/src/index.js",
+    why: "a proxy drops a console origin the gateway still allows — the state five comments asserted could not happen, and which nothing compared before this gate (the guard named for it read no gateway file)",
+    from: '"https://ai.saisi.online",',
+    to: "",
+  },
 ];
 
 const run = (cmd, args) => {
