@@ -5727,3 +5727,59 @@ When the download is possible, run the script; when it is not, compare `assets[]
 
 The device line is the one that matters, and it took the whole stretch: 137 commits had shipped nothing when the
 operator asked why the work was invisible.
+
+### THE ARC OF THIS STRETCH: FROM "WHY CAN T I SEE PROGRESS" TO A DEVICE THAT IS CURRENT (rounds 213-255)
+
+The operator asked, in the middle of it: **"你最近改了什么，我怎么看不出进展呢"** — what have you changed lately, and why
+can I not see any progress. The question was correct and the answer was measurable, so it is recorded here rather
+than in a report nobody re-reads.
+
+**THE MEASUREMENT.** At that moment: **49 of the last 60 commits touched `docs`**, 24 touched `scripts` (the gate
+suite), 22 touched `agent` (mostly tests and comments), 5 touched `gateway`. **137 commits had landed since
+1.2.462 and nothing had been published.** Of those, roughly eighteen changed what the DEVICE does — the installer's
+repair path, the update receipt, the boot warning, a SYSTEM-reachable route's brute-force penalty — and every one of
+them existed only in this checkout.
+
+So the work was real and the delivery was zero. That is the whole diagnosis, and the loop had been treating
+"green gates" as the product.
+
+**WHAT FOLLOWED.** Two releases, both verified end to end:
+
+  1.2.463  the eighteen device fixes, plus the release that had never been possible: `release.yml`'s publish step
+           had NEVER PARSED. A missing `"` after `<<<"$(curl …)` swallowed two lines; the runner blamed a line
+           three below that is valid. It arrived with round 200's tag-move guard and was unreachable from the day
+           it was written, because only a SECOND publish reaches it.
+  1.2.464  three CLI commands that reported the wrong verdict, a panel that knew too much about the DOM, and the
+           gate that came out of 1.2.463's own blockage (`workflow-shell-check`, 112 run blocks).
+
+**EACH LINK VERIFIED SEPARATELY, and the last one is the point:** CI 11/11 green → tag → GitHub release with the
+asset → CDN `version.json` → npm `latest` → and on d1:
+
+  release: 1.2.463
+  this CLI: 1.2.463
+  latest: 1.2.463 (this device is current)
+
+**WHAT THE LOOP LEARNED ABOUT ITSELF, in its own failures:**
+
+- **A guard that searches for a string the change itself introduces is not a guard.** Mine skipped its own import
+  because the comment it had just inserted named the file it was checking for.
+- **`git checkout` prints "Aborting" and I read past it twice**, putting two empty commits on the wrong base.
+  "READ THE EXIT CODE, NOT THE OUTPUT" is in `AGENTS.md` and I had to be reminded by the tool.
+- **A mutation that does not bite is evidence about the MUTATION first.** Twice: the refusal guard in
+  `useOperationRuns` was a no-op (the hook merges), and a precedence check measured declaration order rather than
+  branch order.
+- **Editing a file with a script requires knowing what the lines around the anchor MEAN.** Four times: an attribute
+  split from its function, `ok: true` injected into a destructuring pattern, a brace walker sent into an unrelated
+  block by an expression-bodied arrow, and a publish step sliced at a line number.
+- **SIX report details did not survive being checked**, across four explorations, every one caught by reading the
+  subject instead of the summary.
+
+**WHAT REMAINS OPEN, for whoever continues:**
+
+- The six rows in `docs/agents/ideas.md` are waiting on the OPERATOR, not on the loop (CHARTER citations, a mark
+  shape, a landing host, the pre-commit hook symlink).
+- `1.2.453` still sits on the CDN with no GitHub release to audit against. It is the residue of the `alpha`
+  incident and is acknowledged in every publish rather than silently skipped.
+- The dual-builder audit cannot run from this host — GitHub Releases are throttled to ~10 KB/s here. Compare
+  `assets[].digest` against `version.json`'s sha256 instead, and say which you did.
+- `status` exits 0 on an UNKNOWN verdict, deliberately, and the reason is now written at the command.
