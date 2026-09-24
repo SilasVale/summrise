@@ -29,7 +29,7 @@
 //   * an in-flight reply that lands after unmount is dropped rather than
 //     calling setState on a dead component.
 import { useEffect, useRef, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 import type { OperationEvent, RunBoundary } from "../lib/runs";
 
 interface OperationSnapshot {
@@ -141,6 +141,14 @@ export function useOperationRuns(pollMs: number = OPERATION_POLL_MS): OperationS
           `/api/operation?since_ms=${cursorRef.current}&limit=${PAGE_LIMIT}`,
         );
         if (!aliveRef.current) return;
+        // A REFUSAL IS NOT AN EMPTY TIMELINE (round 232). `Array.isArray(res?.events) ? ... : []` turned
+        // every `{ok:false}` into zero events — and because the snapshot STARTS as EMPTY, a device that
+        // refused the FIRST poll rendered as a device with no runs at all. The other two archive readers
+        // already draw this line: `useCommandEvents` documents `found:false` versus an empty file, and
+        // `useSessionArchive` throws so that `[]` cannot mean "no sessions recorded". This one returned
+        // without asking. Keeping the last good snapshot matches the `!aliveRef` guard above; the poll
+        // retries, and a device that refuses forever shows what it last showed rather than a lie.
+        if (deviceRefused(res)) return;
         const events: OperationEvent[] = Array.isArray(res?.events) ? res.events : [];
         const boundaries: RunBoundary[] = Array.isArray(res?.runs) ? res.runs : [];
         // `cursor_ms` falls back to the requested `since_ms` on the device, so

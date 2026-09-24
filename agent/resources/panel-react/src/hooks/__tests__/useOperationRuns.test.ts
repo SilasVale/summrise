@@ -37,6 +37,7 @@ beforeEach(() => {
 describe("useOperationRuns", () => {
   it("polls /api/operation with a since cursor and a bounded limit", async () => {
     mockCallApi.mockResolvedValue({
+        ok: true,
       events: [ev(T0, "ls")],
       runs: [],
       cursor_ms: T0,
@@ -55,11 +56,13 @@ describe("useOperationRuns", () => {
     const boundary = ev(T0 + 1_000, "second");
     mockCallApi
       .mockResolvedValueOnce({
+        ok: true,
         events: [ev(T0, "first"), boundary],
         runs: [],
         cursor_ms: T0 + 1_000,
       })
       .mockResolvedValue({
+        ok: true,
         events: [boundary, ev(T0 + 2_000, "third")],
         runs: [],
         cursor_ms: T0 + 2_000,
@@ -85,6 +88,7 @@ describe("useOperationRuns", () => {
     // boundary list each poll would leave every run looking open forever.
     mockCallApi
       .mockResolvedValueOnce({
+        ok: true,
         events: [],
         runs: [
           { kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" },
@@ -92,6 +96,7 @@ describe("useOperationRuns", () => {
         cursor_ms: T0,
       })
       .mockResolvedValue({
+        ok: true,
         events: [],
         runs: [
           { kind: "run/begin", run_id: "r-a", ts_ms: T0, label: "the run" },
@@ -120,8 +125,8 @@ describe("useOperationRuns", () => {
 
   it("never rewinds its cursor, even if a reply reports an older one", async () => {
     mockCallApi
-      .mockResolvedValueOnce({ events: [], runs: [], cursor_ms: T0 + 5_000 })
-      .mockResolvedValue({ events: [], runs: [], cursor_ms: 0 });
+      .mockResolvedValueOnce({ ok: true, events: [], runs: [], cursor_ms: T0 + 5_000 })
+      .mockResolvedValue({ ok: true, events: [], runs: [], cursor_ms: 0 });
     renderHook(() => useOperationRuns(25));
     await waitFor(
       () => expect(mockCallApi.mock.calls.length).toBeGreaterThan(1),
@@ -133,6 +138,7 @@ describe("useOperationRuns", () => {
   it("keeps the last good snapshot when a poll fails (no blanking)", async () => {
     mockCallApi
       .mockResolvedValueOnce({
+        ok: true,
         events: [ev(T0, "survives")],
         runs: [],
         cursor_ms: T0,
@@ -150,6 +156,7 @@ describe("useOperationRuns", () => {
     // fresh array each time would re-derive every group and re-render the strip
     // (and the Path view around it) for no new fact, so the identity is kept.
     const payload = {
+      ok: true,
       events: [ev(T0, "one")],
       runs: [{ kind: "run/begin", run_id: "r-a", ts_ms: T0 }],
       cursor_ms: T0,
@@ -168,7 +175,7 @@ describe("useOperationRuns", () => {
   it("stops polling once it is unmounted", async () => {
     // An in-flight reply must not reach setState on a dead component, and the
     // interval must not keep asking a device nobody is watching.
-    mockCallApi.mockResolvedValue({ events: [], runs: [], cursor_ms: T0 });
+    mockCallApi.mockResolvedValue({ ok: true, events: [], runs: [], cursor_ms: T0 });
     const { unmount } = renderHook(() => useOperationRuns(20));
     await waitFor(() => expect(mockCallApi).toHaveBeenCalled());
     unmount();

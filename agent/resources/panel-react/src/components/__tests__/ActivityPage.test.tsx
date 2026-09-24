@@ -69,6 +69,7 @@ const end = (
 /** Answer every /api/operation poll with the same payload. */
 function device(events: OperationEvent[], runs: RunBoundary[] = []) {
   mockCallApi.mockResolvedValue({
+        ok: true,
     events,
     runs,
     since_ms: 0,
