@@ -4565,3 +4565,52 @@ independently, and only BREAKING one of them shows it. A security test whose com
 true, a doc promising `None` where the code always returned `Some`, a wholesale mock that turned a
 `TypeError` into passing silence, an SSE assertion on a header no consumer reads, a help test pinning
 whitespace — each was green, and each was wrong about what it measured.
+
+## 2026-09-24/25 (the proxies, four parity gates, and a test that had stopped being evidence)
+
+The eleventh exploration went at `proxies/` — four workers, ~5,900 lines, no pass in eleven rounds. It
+found the shape this stretch keeps meeting, and this time the repository had already written the remedy
+down without applying it everywhere.
+
+**FOUR PARITY GATES, BECAUSE THE FACTS THAT DRIFT HERE ARE THE ONES HELD IN SEVERAL FILES WITH A COMMENT
+ASSERTING THEY AGREE.** The gateway EXPORTS a CORS allowlist (and lets config extend it) while four
+proxies restate it; one documented 30s header budget is implemented three ways in seven sites across three
+deployment units; five caller-selectable upstream hosts live in a map that only three tests asserted; and
+the TypeScript version was named in three places with two values. Each is now a check that reads every end
+and fails on disagreement, each is wired, named, and paired with a mutation. The pattern is not a
+coincidence: a comment saying "these match" is the signal that nothing does.
+
+**AND THE GUARD NAMED FOR ONE OF THEM READ NO OTHER FILE.** `proxies/api-relay/api/test/proxy-gate.test.mjs:53`
+is titled "CORS matrix on the autonomous copy (drift guard vs gateway http.ts)" and imports `../proxy.js`
+and no gateway file at all — the copy checking itself. That is the twelfth instance of this stretch's
+recurring shape, and the first found by an exploration rather than by mutating something.
+
+**TWO LEAKS, BOTH INVISIBLE UNTIL COUNTED.** `relay.mjs` registered `server.on("error", …)` INSIDE the
+request handler, so every request added a listener to the process-lifetime server: Node warns at eleven,
+the array grows unbounded, and one real error would print its line once per accumulated listener. It is
+registered once in the factory now, and the test asserts the count is one before and after 25 requests.
+Separately, `SUMMRISE_RELAY_HEADER_TIMEOUT_MS` is read by three production handlers at module load and was
+set in exactly ONE place — a test, which never unset it, so anything imported later in that process would
+silently get 120 ms instead of the documented 30 s.
+
+**A TEST THAT HAD STOPPED BEING EVIDENCE.** The `summrise-relay` suite "did not finish in 120 s: 6 passed,
+the 7th was cancelled". The cause was one line of harness: `stop` set a flag the poll loop only re-read
+after the in-flight 25-second long poll resolved. Aborting that poll instead took the suite to THREE
+SECONDS and 8/8 passing — and the seventh test, CANCELLED rather than failing, began running for the first
+time. A cancelled test is not a passing test and not a failing one; it is nothing, and it sits in a suite
+CI runs.
+
+**A NEGATIVE THE EXPLORATION GOT WRONG, AND WHY THAT IS WORTH RECORDING.** It reported
+`server/test/vercel-references.test.mjs` as "a test whose only subject is a DELETED file". It is the
+opposite: a live gate asserting that no comment cites `vercel.json` as the authority for the code while the
+file is missing, and its header records two lessons of its own — a trailing `\b` that "did not match
+'DELETED'", and a round where the scan covered `server/*.mjs` only while the same stale sentence sat in the
+README an operator reads. An exploration's SUMMARY can overstate what its evidence shows, exactly as a test
+title can, and the remedy is the same: open the artifact.
+
+**AND THE EDIT-TOOL LESSON, AFTER FOUR ROUNDS OF PAYING FOR IT.** Anchors copied from `sed`/`awk` output
+that was piped through `sed 's/^/  /'` carry two extra spaces the file does not have. Rounds 99, 104 and
+117 each lost an edit to that; round 120 lost SIX attempts to it, including two mutations that planted
+nothing and one that broke the syntax. For an edit whose anchor is whitespace-sensitive, the tool that
+shows exact text beats a script that decorates it — and a mutation is only evidence once it is proven to
+have LANDED, which is why the last two rounds ran theirs before writing the commit message.
