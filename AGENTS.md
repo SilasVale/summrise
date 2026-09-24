@@ -46,6 +46,7 @@ instead. The story is in the ledger; the commands, by working directory:
 | `gateway/` | `npm run typecheck` (= `tsc --noEmit`) · `npm test` · `npm run lint` (= `eslint src/`) · `npm run format:check` | — |
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` | **not** `tsc --noEmit`, which is the check that missed them |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` | — |
+| `agent/summrise-agent-npm/` | `npm test` (= `node --test`, 55 cases) — **no install step**: the package has zero dependencies and no lockfile, so `npm ci` fails with `EUSAGE` | — |
 | `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p summrise-agent --all-targets -- -D warnings` · `cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings` · `cargo clippy -p summrise-agent-core --all-targets -- -D warnings` · `cargo test -p summrise-agent` · `cargo test -p summrise-agent --features terminal,keyring` · `cargo test -p summrise-agent-core` | — |
 | `agent/summrise-desktop-electron/` | `npm test` | — |
 
