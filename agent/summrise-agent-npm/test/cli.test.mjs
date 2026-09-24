@@ -1848,3 +1848,32 @@ test("--version answers the installer's acceptance check, and exits 0", () => {
     "and print the version, not the usage list",
   );
 });
+
+test("updateWouldNotMove: the parity fact, and it needs no network", () => {
+  // The guard in `update` exists because of round 201's measured defect: an older CLI stamped the install
+  // with the version it already had, the swap installed the same build, and nothing moved while
+  // `summrise status` kept telling the operator to run the command that could not help. That guard
+  // compares the CLI against the RELEASE CHANNEL, so it cannot fire when the CDN is unreadable — this is
+  // the same refusal from two facts already on the machine.
+  const { updateWouldNotMove } = require("../bin/summrise.js");
+  assert.equal(
+    updateWouldNotMove("1.2.438", "1.2.438"),
+    true,
+    "same version is the no-op",
+  );
+  assert.equal(
+    updateWouldNotMove("1.2.437", "1.2.438"),
+    false,
+    "a real step forward must proceed",
+  );
+  assert.equal(
+    updateWouldNotMove("", "1.2.438"),
+    false,
+    "no marker is not a no-op",
+  );
+  assert.equal(
+    updateWouldNotMove("1.2.438", ""),
+    false,
+    "nor is an unknown CLI version",
+  );
+});

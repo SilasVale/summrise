@@ -1164,6 +1164,21 @@ function versionTriple(v: string): number[] | null {
   return t.length === 3 && t.every((n) => Number.isFinite(n)) ? t : null;
 }
 
+/** WOULD THIS UPDATE MOVE THE DEVICE AT ALL? The parity fact, and it needs NO NETWORK: the CLI stamps
+ *  `<install>/.summrise-release` with ITS OWN version, and the device's `agent_update` reads that file as
+ *  the local version — so when the device is already on the version this CLI carries, the stamp equals
+ *  what is there, the swap installs the same build, and nothing moves. That is round 201's measured
+ *  defect ("update requested 1.2.438 -> 1.2.438", "copy ok=True", release unchanged), which is why the
+ *  guard below exists at all. THE GUARD THAT EXISTS CANNOT SEE IT: it compares the CLI against the
+ *  RELEASE CHANNEL, and when the CDN is unreadable `latest` is empty and the whole check is skipped, so a
+ *  network blip re-opens the defect. This one compares two facts already on the machine. */
+export function updateWouldNotMove(
+  fromVersion: string,
+  selfVersion: string,
+): boolean {
+  return Boolean(fromVersion) && fromVersion === selfVersion;
+}
+
 /** Is `latest` ahead of `device` on the SAME release line? */
 export function isBehind(device: string, latest: string): boolean {
   const a = versionTriple(device);
@@ -2648,6 +2663,29 @@ const commands = {
           selfVersion +
           " and change nothing, because the device reads <install>/.summrise-release (written by this package) as its version." +
           "\n  Install the new CLI first, then update again:" +
+          "\n    npm i -g summrise-agent" +
+          "\n    summrise update",
+      );
+      process.exit(1);
+    }
+    // AND THE SAME REFUSAL WITHOUT THE NETWORK. The guard above cannot fire when the CDN is
+    // unreadable, and the defect it exists for is exactly what happens then: an update that stamps the
+    // install with a version it already has, swaps in the same build, and reports success while
+    // `status` keeps saying the device is behind.
+    let deviceNow = "";
+    try {
+      deviceNow = fs
+        .readFileSync(path.join(ETC_DIR, ".summrise-release"), "utf8")
+        .trim();
+    } catch {
+      // No marker is not a no-op; the update below writes one.
+    }
+    if (updateWouldNotMove(deviceNow, selfVersion)) {
+      console.error(
+        `update: this CLI is ${selfVersion} and the device is ALREADY on ${deviceNow}.` +
+          "\n  Updating from here would stamp the device with the version it already has and change nothing," +
+          "\n  because the device reads <install>/.summrise-release (written by this package) as its version." +
+          "\n  If the device is meant to be newer, this CLI is too old to deliver it: install the new one first." +
           "\n    npm i -g summrise-agent" +
           "\n    summrise update",
       );
