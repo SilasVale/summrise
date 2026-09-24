@@ -43,9 +43,14 @@ const CLOUDFLARED_VERSION = "2026.8.3";
 // platform's 500 HTML page, which no device-side reader parses. electron-route.test.mjs
 // had recorded that gap in its own header ("flagged to the stage-n owner, deliberately
 // not cemented here"); it is cemented now.
-function proxyFailure(what, detail) {
+// A FAILURE MUST NOT BE CACHEABLE, and that is why this takes a status now (round 130). The manifest
+// handler hand-rolled `new Response("release manifest unavailable", { status: 503 })` — no content-type and NO
+// CACHE-CONTROL — and a 503 with no directives may be stored by a shared cache, so `/api/version` could keep
+// answering a failure for as long as the edge decided to keep it, long after the manifest was fixed. That is
+// the exact shape this helper exists to prevent, on the one route every device's updater calls.
+function proxyFailure(what, detail, status = 502) {
   return new Response(JSON.stringify({ error: `${what}: ${detail}` }), {
-    status: 502,
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
@@ -156,8 +161,11 @@ export default {
       }
       // Static fallback (assets unavailable): never serve a fabricated
       // manifest — agent_update refuses invalid sha256 anyway (round-119),
-      // so an explicit error is the honest answer.
-      return new Response("release manifest unavailable", { status: 503 });
+      // so an explicit error is the honest answer. THROUGH THE HELPER, so the
+      // answer carries a content-type and `no-store` like every other failure
+      // this worker returns (round 130): a bare 503 with no directives is
+      // cacheable, and this is the route every device's updater calls.
+      return proxyFailure("release manifest unavailable", "assets unavailable and no cached manifest", 503);
     }
     const pathname = new URL(request.url).pathname;
     // Windows online installer (NSIS, same npm channel underneath): the

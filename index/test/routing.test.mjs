@@ -130,6 +130,16 @@ test("/api/version fails honest 503 on missing/unverifiable manifest", async () 
     }).env,
   );
   assert.equal(badSha.status, 503);
+
+  // AND THE FAILURE MUST NOT BE CACHEABLE — the assertion this test was missing (round 130). The 503 was
+  // hand-rolled with no headers at all, while every other failure this worker returns goes through
+  // `proxyFailure`, which sets `no-store`. A 503 with no directives may be stored by a shared cache, and
+  // this is the route every device's updater calls: the edge would keep answering a failure long after the
+  // manifest was fixed, which is the "cached failure outlives the outage" shape the helper exists for.
+  for (const [label, res] of [["missing manifest", missing], ["unverifiable manifest", badSha]]) {
+    assert.equal(res.headers.get("cache-control"), "no-store", `${label}: a cacheable 503 blocks updates`);
+    assert.match(res.headers.get("content-type") || "", /application\/json/, `${label}: the body is JSON`);
+  }
 });
 
 test("unknown paths 404 (never the landing page as 200 HTML) and / renders it", async () => {
