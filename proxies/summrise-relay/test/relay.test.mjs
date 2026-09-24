@@ -18,11 +18,26 @@ async function withRelay(fn) {
 }
 
 /// The agent side, as the real one behaves: poll, answer whatever arrives, repeat until told to stop.
+///
+/// STOP ABORTS THE IN-FLIGHT POLL. `stop` used to only set a flag, and the loop only re-reads it after the
+/// current `await fetch` resolves — which for `/agent/pull` is the relay's LONG_POLL_MS, 25 seconds. So
+/// `await agent.stop()` waited out the whole window, five times per run: the suite did not finish in 120 s
+/// and its seventh test was cancelled rather than failed (eleventh exploration, round 124). The abort also
+/// exercises something the real agent does — a poll dropped mid-flight — which the relay handles by design.
 function startFakeAgent(base, { delayMs = 0, answer = (f) => ({ status: 200, headers: { "content-type": "text/plain" }, bodyB64: Buffer.from(`echo:${f.path}`).toString("base64") }) } = {}) {
   let stop = false;
+  const ctrl = new AbortController();
   const done = (async () => {
     while (!stop) {
-      const pull = await fetch(`${base}/agent/pull`, { headers: { authorization: `Bearer ${TOKEN}` } });
+      let pull;
+      try {
+        pull = await fetch(`${base}/agent/pull`, {
+          headers: { authorization: `Bearer ${TOKEN}` },
+          signal: ctrl.signal,
+        });
+      } catch {
+        return; // aborted by stop(): the poll was dropped, which is the point
+      }
       if (pull.status === 204) continue;
       const frame = await pull.json();
       if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
@@ -34,7 +49,7 @@ function startFakeAgent(base, { delayMs = 0, answer = (f) => ({ status: 200, hea
       });
     }
   })();
-  return { stop: () => { stop = true; return done; } };
+  return { stop: () => { stop = true; ctrl.abort(); return done; } };
 }
 
 test("a request with no agent connected is refused, and says why", async () => {
