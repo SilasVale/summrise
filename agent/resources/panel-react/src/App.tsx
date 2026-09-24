@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { initTransport } from "./lib/api";
 import { computeBoot } from "./lib/boot";
 import { browserBridge } from "./lib/embeddedBridge";
+import { pruneSessionViews } from "./lib/sessionViews";
 import { useSessions } from "./hooks/useSessions";
 import { useCommandEvents } from "./hooks/useCommandEvents";
 import { useSSE } from "./hooks/useSSE";
@@ -101,6 +102,21 @@ export function App() {
   const changeView = (sid: string, v: SessionView) => {
     setSessionViews((m) => ({ ...m, [sid]: v }));
   };
+
+  // PRUNE THE VIEWS OF SESSIONS THAT ARE GONE. `changeView` only ever ADDS, while the session list
+  // caps closed tombstones at 32 (`useSessions`) — so every session an operator ever opened a
+  // trajectory in left its sid in that record for the life of the page. The list is the only thing
+  // that knows a session is gone, so this reconciles against it; the decision is pure and lives in
+  // `lib/sessionViews` (tested, including the identity return that keeps this from re-rendering on
+  // every poll).
+  useEffect(() => {
+    setSessionViews((m) =>
+      pruneSessionViews(
+        m,
+        sessions.sessions.map((s) => s.sid),
+      ),
+    );
+  }, [sessions.sessions]);
 
   // round-132/133: refit the xterm when the terminal un-hides — the refit
   // effect skips while display:none, so a window resize while in another
