@@ -264,3 +264,30 @@ test("an ABSENT target defaults to og — and that default is explicit, not a fa
   assert.equal(dialed.length, 2, "both requests reached an upstream");
   assert.equal(dialed[0], dialed[1], "an absent target must dial exactly what ?target=og dials");
 });
+
+test("every TARGET in the map is exercised, and its host is pinned", async () => {
+  // The eleventh exploration measured this: only SOME of the five targets had their host asserted, so a
+  // typo in an unpinned one would send real traffic to the wrong host with every test green. Each target
+  // is an upstream a caller can select by name, so each one's destination belongs in a test.
+  const EXPECTED = {
+    og: "https://opencode.ai/zen/go",
+    ds: "https://api.deepseek.com",
+    qw: "https://token-plan.ap-southeast-1.maas.aliyuncs.com",
+    or: "https://openrouter.ai/api",
+    cm: "https://api.commandcode.ai/provider",
+  };
+  for (const [target, host] of Object.entries(EXPECTED)) {
+    let seenUrl = "";
+    await withStubFetch(async (url) => {
+      seenUrl = String(url);
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }, async () => {
+      await handler(post(`https://r.example/api/zen?target=${target}&path=/v1/chat/completions`, KEY));
+    });
+    assert.ok(
+      seenUrl.startsWith(host + "/"),
+      `target "${target}" must reach ${host}, but went to ${seenUrl || "(nowhere)"}`,
+    );
+  }
+  assert.equal(Object.keys(EXPECTED).length, 5, "the map has five targets — update this test when it changes");
+});
