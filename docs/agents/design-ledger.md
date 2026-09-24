@@ -5661,3 +5661,39 @@ Every finding now has an outcome, and the outcomes are not all fixes.
   file's own history is why. It is a SIZE, not a defect: no symptom follows from it that round 235 did not already
   fix, and splitting it would be nine files of churn for readability in a file whose 835 tests are green. The
   ledger's rule decides it — a sentence that does not change what you would DO does not change the code either.
+
+### A SHELL SCRIPT INSIDE A WORKFLOW IS STILL A SHELL SCRIPT (rounds 240-242)
+
+`release.yml`'s "Publish the release and attach the tgz (API)" step had NEVER EXECUTED. Its script did not parse:
+
+  read -r old old_digest <<<"$(curl -sf -H "$auth" "${api}/releases/${id}/assets?per_page=100" \
+         | jq -r --arg a "$ASSET" '.[] | select(.name==$a) | "\(.id) \(.digest // "")"')
+
+The `<<<"` opens a double-quoted string and nothing closes it. It swallowed the rest of that logical line, then the
+`local_digest="sha256:..."` two lines below, and the parser gave up at the `jq -r` after that — which is why the
+runner reported `line 42: syntax error near unexpected token ')'` for a line that is perfectly valid on its own.
+**One character.** `bash -n` on the step, extracted through the YAML parser: exit 2 before, exit 0 after.
+
+It cost a release: v1.2.463 published to the CDN and npm (sha256 74f353d6…, tarball byte-identical) with a GitHub
+release carrying NO asset, so the dual-builder audit had nothing to reconcile. The step arrived with round 200's
+tag-move guard, and the reason nobody noticed is in that guard's own design — only a SECOND publish reaches it.
+
+**THREE WAYS I MISREAD IT BEFORE GETTING IT RIGHT**, all recorded because the method is the point:
+
+1. **Line-number prefix bisection** (`head -1..N | bash -n`) is invalid for shell: a prefix of a multi-line
+   construct is legitimately incomplete, so the FIRST failure is the first OPEN construct, not the break. It
+   reported line 4.
+2. **`bash -n`'s line number is where the parser GAVE UP**, not where the error is. It blamed a valid line.
+3. **`cut`-ting the line for display** truncated it, which made a complete line look broken and sent me looking in
+   the wrong place.
+
+What worked: extract the step through the **YAML parser** (not text slicing), test prefixes at STATEMENT
+boundaries, and count quote parity — seven double-quotes on one logical line is odd, and the eighth was missing.
+
+**AND THE CLASS NOW HAS A GATE.** `workflow-shell-check.mjs` extracts every `run:` block from every workflow and
+`bash -n`s it: **112 blocks across the workflows**, and it fails with the exact message this bug deserved —
+"this `run:` block does not parse, so NO step after it in that job can run". Proven by removing the closing quote
+again: exit 1, naming `release.yml:279`. Restored, exit 0.
+
+A step whose script cannot run is worse than no step, because the job's green is read as coverage — the same shape
+as the console's smoke that ran nowhere, and the gate that could not fail.

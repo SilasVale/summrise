@@ -725,6 +725,12 @@ jobs:
         # packages with no shared module — and BOTH were broken independently: round-304 on the gateway side
         # (the frozen Cargo `version` showed v1.0.145 forever), and the panel records the other direction.
         run: node scripts/test/device-version-rule-check.mjs
+      - name: every workflow s embedded shell parses
+        # A script inside a workflow is still a script, and nothing checked that ours ran. release.yml s publish
+        # step had never executed: an unclosed `<<<"` swallowed two lines and the parser gave up three lines
+        # later, so the runner blamed a line that is valid. One character, unreachable for 40 rounds because
+        # only a SECOND publish reaches it.
+        run: node scripts/test/workflow-shell-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
