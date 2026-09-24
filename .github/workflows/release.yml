@@ -32,6 +32,9 @@ jobs:
   agent:
     name: agent (xwin build → npm tgz → release asset)
     runs-on: ubuntu-latest
+    # RELEASE IS THE LAST PLACE A HANG SHOULD BE SILENT (round 191). Every ci.yml job has carried
+    # a bound since round 176; this one — the job that publishes — was left on the 360-minute default.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       # A tag cut from red/stale main used to build + `gh release create`

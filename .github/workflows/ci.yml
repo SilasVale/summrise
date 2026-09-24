@@ -436,7 +436,16 @@ jobs:
       - name: every bash gate under a hostile umask
         run: |
           umask 077
-          for g in scripts/test/*.bash; do
+          # A GLOB THAT MATCHED NOTHING IS NOT A CLEAN RUN (round 191). This loop s own comment above
+          # claims every bash gate runs under 077; with no floor, an empty glob exits 0 and the claim
+          # is untested. The same rule the gate scripts already carry (script-syntax.bash s FLOOR 20).
+          shopt -s nullglob
+          gates=(scripts/test/*.bash)
+          if [ ${#gates[@]} -lt 5 ]; then
+            echo "::error::the umask loop selected ${#gates[@]} gate(s) — a glob that matched nothing is not a clean run"
+            exit 1
+          fi
+          for g in "${gates[@]}"; do
             echo "== $g"
             bash "$g"
           done
