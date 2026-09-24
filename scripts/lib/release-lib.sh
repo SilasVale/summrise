@@ -68,6 +68,25 @@ prune_last5_per_minor() {
     for k in "${KEEP[@]}"; do [ "$k" = "$f" ] && keep=1 && break; done
     if [ "$keep" -eq 0 ]; then rm -f "$f"; echo "pruned $(basename "$f")"; fi
   done
+
+  # A PRUNE THAT ONLY KNOWS THE CURRENT NAME CANNOT CLEAN UP AFTER A RENAME, which is exactly when it is
+  # needed (round 132). Every glob above matches `summrise-agent-*`, so the six installers this repo
+  # published while the product was called `vale` were never candidates: they sat in the asset directory
+  # (~40 MB, dated months earlier, including a `vale-agent-latest.tgz` alias pointing at 1.2.451) and were
+  # still answering HTTP 200 from the CDN long after the rename. Nothing in this repo named them — no
+  # route, no test, no doc — which is why nothing removed them either.
+  #
+  # NAMED EXPLICITLY RATHER THAN MATCHED LOOSELY. A `*-agent-*.tgz` sweep would delete a FUTURE product's
+  # assets the day it shares this directory; a declared list of superseded names is the same shape this
+  # repo uses for retired colours and production hosts, and a rename adds one word here.
+  local SUPERSEDED_NAMES="vale-agent"
+  local s
+  for s in $SUPERSEDED_NAMES; do
+    for f in "$dir"/"$s"-*.tgz; do
+      rm -f "$f"
+      echo "pruned $(basename "$f") (superseded product name)"
+    done
+  done
   eval "$_nullglob_was"
 }
 

@@ -38,6 +38,21 @@ check "1.3 keeps all 3 (under the cap)" \
 check "latest alias untouched" "$(cat "$T/summrise-agent-latest.tgz")" "x"
 check "unrelated files untouched" "$(cat "$T/unrelated.txt")" "keepme"
 
+# A RENAMED PRODUCT'S INSTALLERS ARE PRUNED TOO (round 132). The globs above match
+# `summrise-agent-*` only, so the six installers published while the product was called
+# `vale` were never candidates: ~40 MB sat in the asset directory for months, including a
+# `vale-agent-latest.tgz` alias, all still answering HTTP 200 from the CDN long after the
+# rename. Nothing in this repo named them, which is why nothing removed them.
+echo payload-old > "$T/vale-agent-1.2.451.tgz"
+echo payload-old > "$T/vale-agent-latest.tgz"
+prune_last5_per_minor "$T" >/dev/null
+check "a superseded product name is pruned" \
+  "$(ls "$T"/vale-agent-*.tgz 2>/dev/null | wc -l)" "0"
+check "and the current name is untouched by that sweep" \
+  "$(ls "$T"/summrise-agent-1.*.*.tgz 2>/dev/null | wc -l)" "8"
+check "and an UNRELATED file still survives it" "$(cat "$T/unrelated.txt")" "keepme"
+
+
 # 2. Exact-pattern discipline: dot-versions are NOT matched by the hyphen
 #    glob analogue, and non-tgz versioned names stay put. 1.2.9 < 1.2.10
 #    must sort by VERSION (sort -V), not lexicographically.
