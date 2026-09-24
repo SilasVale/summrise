@@ -5328,3 +5328,16 @@ reads as an answer.
 The empty value stays; the silence does not. It logs at `error!` now, and a test makes the branch fire with a map
 whose key cannot be a JSON object key — a branch that had existed since the helper was written and had never been
 exercised by anything.
+
+**AND ONE PROBE ANSWERED TWO SHAPES DEPENDING ON THE DOOR (round 217).** The MCP tool `monitor_probe` returns
+`{ok, probe, expect, summary}` and its own comment says why `expect` is load-bearing: "`expect_ok: false` is
+unreadable without the text the probe wanted, so the target's own expectation travels with the result." The HTTP
+route `/api/monitors/probe` — the panel's "check now" — returned `{ok, probe, summary}`, with no `expect`. Neither
+shape was pinned by a fixture or a test.
+
+The repo already knew what that costs, in `monitor-row.json`'s own `_why`: "the shape is the contract, nothing
+validates it, and **a wrong guess looks like data**." The route carries the criterion now, derived the way the tool
+derives it, and both arms of the split are visible side by side in `web/mod.rs`.
+
+Still unpinned: neither envelope has a fixture. `monitor-row.json` pins `summary_of`'s key set (which both
+embeddings include) but not the envelope around it — which is the gap the fixture's own paragraph describes.

@@ -1781,7 +1781,21 @@ async fn api_monitor_probe(body: &str) -> serde_json::Value {
     };
     match crate::monitor::probe_once(id).await {
         Some(p) => {
-            serde_json::json!({"ok": true, "probe": p, "summary": crate::monitor::summary(id)})
+            // THE ROUTE CARRIES THE CRITERION TOO (round 217). The MCP tool returns `expect` and its own
+            // comment says why it is load-bearing: "`expect_ok: false` is unreadable without the text the
+            // probe wanted, so the target's own expectation travels with the result." This route — the
+            // panel's "check now" — omitted it, so ONE probe answered a different shape depending on which
+            // door it came through, and neither shape was pinned by a fixture or a test.
+            let expect = crate::monitor::targets()
+                .into_iter()
+                .find(|t| t.id == id)
+                .and_then(|t| t.expect);
+            serde_json::json!({
+                "ok": true,
+                "probe": p,
+                "expect": expect,
+                "summary": crate::monitor::summary(id),
+            })
         }
         None => {
             serde_json::json!({"ok": false, "error": format!("not watching {id}"), "code": "invalid_params"})
