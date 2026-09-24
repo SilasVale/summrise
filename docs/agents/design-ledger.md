@@ -5420,6 +5420,39 @@ cases, the plugins hook's four); `agent/src` 51,127 → **51,258 lines** (unchan
 edits are panel-side, and this is the same drift the inventory now dates). The inventory's panel cell gained
 `hooks: 20` (was 19 — the read migration added a hook and the old count never included it).
 
+### The review, and the copy of the comment I corrected everywhere but one place (same round)
+
+**THE PARAGRAPH I FIXED IN THREE PLACES AND MISSED IN THE FOURTH.** Correcting the re-added timer, I
+rewrote the constant's doc, the module-call comment, and the effect's comment — and left the EXPORTED
+hook's docstring, two hundred lines below, still saying the reader "is now polled at the 2 s `pollMs`
+names … so `pollMs` IS the cadence again rather than an inert dependency". Both review axes found it
+independently, and both called it the same thing: the file contradicting what it proves, in the one copy a
+CALLER reads. No gate reads prose, and the round's own ledger entry had already recorded the reversal as
+caught — which is exactly how a stale justification survives: the record was right and the file was not.
+
+**AND TWO CLAIMS IN THE SECTION ABOVE WERE TOO BIG.**
+
+  * **"BOTH ERROR SENTENCES BYTE-IDENTICAL" IS TRUE OF THE STRINGS AND FALSE OF WHAT THEY CAN CARRY.**
+    `usePlugins`' pre-image rendered the DEVICE'S OWN WORDS for a failed status read (`status: <message>`)
+    and for a transport failure (`inventory: <message>`). The module's contract is three words and it never
+    hands the exception back — by design, and stated — so those branches are now unreachable: a refused
+    status read says `status poll failed`, and a transport failure says `inventory could not be read`. That
+    is a real information loss for an operator, and it is the SAME loss the other eleven migrated readers
+    already took, which is the honest framing: uniformity, not an oversight. If the device's words are
+    wanted, they belong on the module's interface (a `reason` beside `read`), not in one caller — named
+    here as a candidate rather than implied.
+  * **AND THE MODULE TOOK OVER A FIFTH GUARD, not four.** `useCommandEvents` never asked the refusal
+    question; now it inherits it. A 200 whose body is not `{ok:true,…}` (a proxy's error page, say) used to
+    settle as `"ok"` with zero events; it is `"unreadable"` and the fold never runs. The direction is right —
+    it is the rule every other reader follows — but the round said "four guards" and the count is five.
+
+**ALSO FROM THE REVIEW, both minor and both fixed:** `DeviceRead.refresh`'s own doc did not mention that a
+disabled read makes it a no-op (the rule was on the `enabled` OPTION, which is not the member a caller
+reads); and `resetKey`'s doc listed what it does not do without naming the loop hazard — the reset runs
+during render, so a key that differs on every render re-renders forever. It cannot hang (the ref is advanced
+before the state is set, so the re-render the reset causes stops), and that is now written down. Two test
+names that still said "polls"/"polling" were renamed; neither had checked a cadence.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

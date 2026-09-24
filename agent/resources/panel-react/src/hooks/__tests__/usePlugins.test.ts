@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe("usePlugins", () => {
-  it("pauses polling when not active and returns empty rows", async () => {
+  it("does not read while not active and returns empty rows", async () => {
     const { result } = renderHook(() => usePlugins(false));
     expect(result.current.rows).toEqual([]);
     // `useDeviceRead` reads at mount — so the hook hands it `enabled: active`, and this is the

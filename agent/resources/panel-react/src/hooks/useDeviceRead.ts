@@ -142,14 +142,23 @@ export interface DeviceReadOptions<T> {
    *  fresh object per render), and it does not by itself re-read. The re-read comes from the read
    *  effect, which depends on this key as well: a new subject is read at once, exactly as it is at
    *  mount, rather than at the next tick — a caller that switched subjects would otherwise show an
-   *  empty surface for up to a full cadence. */
+   *  empty surface for up to a full cadence.
+   *
+   *  AND A FRESH OBJECT PER RENDER IS A LOOP, NOT A SLOWDOWN: the reset is applied during render, so
+   *  a key that differs on every render would set state on every render. The ref is advanced BEFORE
+   *  the state is set (see the reset below), so the one re-render the reset causes finds the key
+   *  unchanged and stops — a caller cannot hang the panel, but it can make it re-render forever, and
+   *  a session id is the value this was built for. */
   resetKey?: unknown;
 }
 
 export interface DeviceRead<T> {
   data: T;
   read: ReadState;
-  /** Read now. Resolves when the read settles; NEVER rejects. */
+  /** Read now. Resolves when the read settles; NEVER rejects. WHEN THE READ IS DISABLED
+   *  (`enabled: false`) this DOES NOTHING AND RESOLVES — a caller reads this member rather than the
+   *  option's own doc, which is where the rule was first written and, until a review said so, the
+   *  only place it was. */
   refresh: () => Promise<void>;
 }
 

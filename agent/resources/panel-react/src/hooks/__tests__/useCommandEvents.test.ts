@@ -158,7 +158,7 @@ describe("groupEvents", () => {
 });
 
 describe("useCommandEvents", () => {
-  it("polls the session audit log and groups events", async () => {
+  it("reads the session audit log and groups events", async () => {
     mockCallApi.mockResolvedValue({
       ok: true,
       id: "s1",

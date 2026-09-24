@@ -456,9 +456,18 @@ function useSessionEventsWithState(
  *
  * NOTHING HERE IS POLLED *BY THIS FUNCTION*, which is what the two sentences above used to deny
  * ("Cards update every poll", "a FAILED poll"): the schedule belongs to the read above, whose loop
- * is `useDeviceRead`'s. The 5 s cadence was removed in round 163 and the reader is now polled at the
- * 2 s `pollMs` names, on top of the SSE-driven path in `App` and the reader's own effect — so
- * `pollMs` IS the cadence again rather than an inert dependency, and it is passed straight through.
+ * is `useDeviceRead`'s. AND NOTHING IS POLLED BY THE READ ABOVE EITHER — round 163 removed the
+ * cadence, and that reader is refetched on the two events that mean "look now" (this session produced
+ * terminal output; the tab regained focus), on top of the SSE-driven path in `App`. `pollMs` is
+ * therefore STILL INERT, exactly as it was: it sits in that effect's dependency list and has no effect
+ * on anything, and the signature keeps it because removing a public parameter is a wider change than
+ * correcting the sentence describing it.
+ *
+ * (THIS PARAGRAPH SAID THE OPPOSITE, and it is the one place a CALLER reads. The migration's first
+ * cut passed `everyMs: pollMs`, which re-added the timer, and this docstring was written to justify
+ * that — the inner comments and the call site were corrected in the same round and this copy was
+ * missed, leaving the file contradicting itself two hundred lines apart. Caught by review, not by a
+ * gate: no check reads prose.)
  */
 export function useCommandEvents(sid: string | null, pollMs = 2000) {
   // round-128: the raw events are exposed so the trajectory view reuses THIS
