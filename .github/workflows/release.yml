@@ -297,7 +297,7 @@ jobs:
           # no asset, and the empty-commit re-release AGENTS.md prescribes rebuilds IDENTICAL bytes. Only
           # a differing digest is refused, and where the API reports no digest the step behaves as before.
           read -r old old_digest <<<"$(curl -sf -H "$auth" "${api}/releases/${id}/assets?per_page=100" \
-                 | jq -r --arg a "$ASSET" '.[] | select(.name==$a) | "\(.id) \(.digest // "")"')
+                 | jq -r --arg a "$ASSET" '.[] | select(.name==$a) | "\(.id) \(.digest // "")"')"
           if [ -n "$old_digest" ]; then
             local_digest="sha256:$(sha256sum "agent/summrise-agent-npm/${ASSET}" | cut -d' ' -f1)"
             if [ "$old_digest" != "$local_digest" ]; then
