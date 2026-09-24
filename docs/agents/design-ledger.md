@@ -5449,3 +5449,36 @@ reads it, which is the AI.
 That makes the round-217 fix sharper rather than redundant: an MCP client and an HTTP client asking the same
 question should receive the same answer, and the one consumer that reads the answer reaches it through the MCP door.
 A shape that differed by door would be a contract nobody could state.
+
+### "NO MCP TOOL RESULT HAS A FIXTURE" IS TRUE AND MISLEADING (round 224)
+
+The nineteenth exploration's §5 ended on that sentence, and the fixtures bear it out: all ten in `agent/tests/`
+are HTTP-route, SSE or persisted-file shapes. But following the mechanism shows what it is FOR, and the sentence
+implies a gap that is not one.
+
+A fixture exists to pin a payload that a PARSER IN ANOTHER LANGUAGE reads — `required_by_panel` is, in
+`monitor-row.json`'s own words, "the list read off the panel's parser", with the device asserting it SENDS every one
+and the panel's test asserting it READS them. **No repo-side code parses an MCP tool result**; the AI does. So the
+absence of a fixture for one is not an absence of a contract — it is the mechanism correctly not applying.
+
+**AND MEASURING IT FOUND THE ONE PLACE IT DID APPLY AND WAS MISSING.** The panel parses ten routes, and every
+payload-bearing one has a fixture: boot-history, monitor-row, session-row, status, vitals-series. `/api/spec` was
+the exception — and it is exactly the payload round 222 followed to the panel, where `displayName` is drawn in the
+side rail and matched by the plugins search. A rename there empties the plugin list's labels with nothing to see,
+which is the failure that fixture family exists to prevent.
+
+Closed: `agent/tests/fixtures/plugin-spec.json` lists what the panel's `SpecPlugin` interface reads, and
+`plugin_spec_fixture_matches_the_payload` asserts the DEVICE builds every one of those keys — through
+`spec_plugin_object`, a state-free function extracted from `api_spec` so the route and the test build the same
+object rather than two that agree today.
+
+**AND THE ATTRIBUTE-BELONGS-ABOVE-THE-DOCS LESSON COST THREE ATTEMPTS (round 224).** Adding the fixture's test put
+`#[test]` between an existing doc comment and the `fn` it belonged to — the same insertion bug round 218 recorded.
+Repairing it took three tries, and every one failed the same way: I checked the line DIRECTLY above the `fn`, which
+is the last line of its doc block, so the attribute was never where I looked. The first repair deleted the wrong
+attribute; the second added a duplicate to the function that already had one; the third added two more. The
+diagnostic that finally settled it was counting attributes per function — `1` on mine, `3` on the original — which is
+the general form of the check I should have written first.
+
+The rule, for the next script that edits Rust: **an attribute goes above the doc block, not above the `fn`.** Any
+check that anchors on `fn` must scan upward over `///` lines to find it.

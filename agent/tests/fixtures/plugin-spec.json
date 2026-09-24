@@ -1,0 +1,29 @@
+{
+  "_why": "THE PLUGIN SPEC, pinned from both ends (round 224). Every other payload-bearing route the panel parses has a fixture (boot-history, monitor-row, session-row, status, vitals-series); this one did not. The panel renders `displayName` in its side rail (ContextRail.tsx) and matches it in the plugins search (PluginsPage.tsx), so a rename on the device side empties the labels with nothing to see — the failure monitor-row.json's own _why describes: 'a wrong guess looks like data'. `required_by_panel` is the list read off the panel's `SpecPlugin` interface; the device asserts it SENDS every one of them, and the panel's test asserts it READS them.",
+  "_shape": "read off agent/src/web/mod.rs (api_spec) and agent/resources/panel-react/src/hooks/usePlugins.ts (SpecPlugin)",
+  "required_by_panel": [
+    "name",
+    "displayName",
+    "description",
+    "tools"
+  ],
+  "each_tool": [
+    "name",
+    "description",
+    "schema"
+  ],
+  "plugin": {
+    "name": "memory",
+    "displayName": "Memory",
+    "description": "Device-local knowledge base shared across AI clients",
+    "tools": [
+      {
+        "name": "memory_save",
+        "description": "Store a fact",
+        "schema": {
+          "type": "object"
+        }
+      }
+    ]
+  }
+}

@@ -2310,6 +2310,25 @@ fn api_events_poll(state: &AppState, after: u64) -> serde_json::Value {
 
 // ── Plugin Spec ───────────────────────────────────────────────
 
+/// ONE PLUGIN'S SPEC OBJECT, in one place so a test can hold it to the fixture (round 224).
+///
+/// `api_spec` needs an `AppState`, so a test cannot call it; this takes exactly what the object is made of and
+/// both sides call it. The fixture `agent/tests/fixtures/plugin-spec.json` lists the keys the panel's
+/// `SpecPlugin` interface reads, and `plugin_spec_fixture_matches_the_payload` asserts this function emits them.
+fn spec_plugin_object(
+    name: &str,
+    display_name: &str,
+    description: &str,
+    tools: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "displayName": display_name,
+        "description": description,
+        "tools": tools,
+    })
+}
+
 fn api_spec(state: &AppState) -> serde_json::Value {
     let plugins: Vec<serde_json::Value> = state
         .plugin_registry
@@ -2328,13 +2347,7 @@ fn api_spec(state: &AppState) -> serde_json::Value {
                     })
                 })
                 .collect();
-            let obj = serde_json::json!({
-                "name": p.name(),
-                "displayName": p.display_name(),
-                "description": p.description(),
-                "tools": tools,
-            });
-            obj
+            spec_plugin_object(p.name(), p.display_name(), p.description(), tools)
         })
         .collect();
 
@@ -3223,6 +3236,11 @@ mod tests {
     }
 
     #[test]
+    /// THE PLUGIN SPEC'S OWN CONTRACT, from the device's side (round 224).
+    ///
+    /// `monitor-row.json` established the pattern: the fixture lists what the panel's parser reads, the
+    /// device asserts it SENDS every one of them, and the panel's test asserts it READS them. /api/spec was
+    /// the one payload-bearing route the panel parses without a fixture.
     fn spec_snapshot_pins_every_device_tool_for_the_gateway_contract() {
         // `agent/spec-tools.json` is the machine-readable face of THIS
         // registry. gateway/test/mcp-handler.test.mjs fails when a name in it
@@ -3327,6 +3345,52 @@ mod tests {
             rendered.trim_end(),
             "{path} is stale vs the live registry — run SUMMRISE_REFRESH_SPEC=1 cargo test spec_snapshot and commit it"
         );
+    }
+
+    #[test]
+    fn plugin_spec_fixture_matches_the_payload() {
+        let raw = include_str!("../../tests/fixtures/plugin-spec.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).expect("the fixture parses");
+        let required = fixture["required_by_panel"]
+            .as_array()
+            .expect("required_by_panel is an array");
+        // The fixture's sample plugin must itself carry every key the panel reads — a fixture that omits one
+        // would pass this test while the panel rendered an empty label.
+        let sample = &fixture["plugin"];
+        for key in required {
+            let k = key.as_str().expect("a key is a string");
+            assert!(
+                sample.get(k).is_some(),
+                "the fixture omits {k}, which required_by_panel says the panel reads"
+            );
+        }
+        // And what the DEVICE builds for a plugin must carry them too — through the same function the route
+        // uses, so this cannot pass while /api/spec sends something else.
+        let sample = &fixture["plugin"];
+        let built = spec_plugin_object(
+            sample["name"].as_str().unwrap(),
+            sample["displayName"].as_str().unwrap(),
+            sample["description"].as_str().unwrap(),
+            sample["tools"].as_array().cloned().unwrap_or_default(),
+        );
+        for key in required {
+            let k = key.as_str().unwrap();
+            assert!(
+                built.get(k).is_some(),
+                "the device does not build {k}, and the panel reads it — the plugin list would render empty"
+            );
+        }
+        // The nested tool list is read too (`tools?: { name }[]`).
+        let tools = built["tools"].as_array().expect("tools is an array");
+        if let Some(t0) = tools.first() {
+            for k in fixture["each_tool"]
+                .as_array()
+                .expect("each_tool is an array")
+            {
+                let k = k.as_str().unwrap();
+                assert!(t0.get(k).is_some(), "a tool in the spec omits {k}");
+            }
+        }
     }
 
     #[tokio::test]
