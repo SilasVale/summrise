@@ -70,6 +70,13 @@ function agentToken() {
     let tok = null;
     try {
         const raw = fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8");
+        // THIS PATTERN IS NARROWER THAN THE TWO OTHER PARSERS OF THE SAME LINE: the CLI's
+        // (bin/summrise.js, `[A-Za-z0-9._-]+`) and the agent's Rust recovery both accept more than
+        // lowercase hex. Measured against a live device on 2026-09-24 — the token is 64 hex characters
+        // with no space before the colon, so all three agree TODAY, and hex is what the worker issues.
+        // The failure mode if that ever stops being true is SILENT: no credential, a 401, a title that
+        // stays "Summrise" and vitals that stay blank — the state the comment above claims to have
+        // fixed. Widen this line before debugging that.
         const m = /device_token:\s*"?([0-9a-f]{16,})"?/.exec(raw);
         if (m)
             tok = m[1];
