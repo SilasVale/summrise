@@ -30,6 +30,7 @@ only the operator can answer. §2 is what must not be touched, with the reason.
 | scripts | top level, lib, hook, and the gate files — **the gate count is `gate-mutations-check`'s own line, never a number here** (this cell said 31, and 31 was a reading) | `ls scripts scripts/test` |
 | tests | **EVERY SUITE PRINTS ITS OWN COUNT — run it.** No counts are carried here on purpose: this row read "Rust 757, gateway 877 + console 34, panel 803, index 14, proxies 98", and by round 140 every one of them was wrong (index 14 → 46, panel 803 → 832, gateway 877 → 921, proxies 98 → 106). §12 records the same lesson for the same reason | each suite's own runner; all in CI except the device-targeted ones (§5.8) |
 | docs | each file's size is `wc -l`'s answer — `design-ledger` read 2,406 here and is over 4,600 | `wc -l` |
+| brand | 3 tracked assets, AND EACH HAS AN INSTRUMENT — which is the fact worth carrying, not the file count: `icon.ico` is embedded by `agent/build.rs`, which FAILS the build when it is missing rather than shipping an iconless exe; `logo.svg` is the CANONICAL MARK that `Icon.test.tsx` compares the drawn icon against; `icon.png` is served at `/brand/icon.png` | `agent/build.rs`; `agent/resources/panel-react/src/ui/__tests__/Icon.test.tsx` |
 
 MCP tools by plugin `[measured]`: terminal **27** · system **9** · memory **6** · mcp-client **4** · monitor **4** ·
 playwright **2** · runs **2** · update **1** · design **1**.
