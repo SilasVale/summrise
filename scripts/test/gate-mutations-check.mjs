@@ -314,6 +314,13 @@ const CASES = [
     from: '"https://ai.saisi.online",',
     to: "",
   },
+  {
+    gate: "scripts/test/proxy-timeout-parity-check.mjs",
+    file: "proxies/zen-us-proxy/src/index.js",
+    why: "one worker's header budget drifts from the number the README states — invisible to the other six sites, and it silently gives two callers of the same upstream different budgets",
+    from: "const HEADER_TIMEOUT_MS = 30000;",
+    to: "const HEADER_TIMEOUT_MS = 45000;",
+  },
 ];
 
 const run = (cmd, args) => {

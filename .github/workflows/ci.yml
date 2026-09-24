@@ -382,6 +382,10 @@ jobs:
       # and the test whose NAME claims to be the drift guard reads no gateway file at all.
       - name: the five CORS allowlists agree with the one the gateway owns
         run: node scripts/test/proxy-cors-parity-check.mjs
+      # ONE DOCUMENTED NUMBER, SEVEN IMPLEMENTATIONS in three deployment units — the README states a
+      # single 30s budget that nothing compared across the surfaces.
+      - name: the header-timeout budget is the one number the README states
+        run: node scripts/test/proxy-timeout-parity-check.mjs
 
       # A TEST THAT MOCKS lib/api WHOLESALE REPLACES EVERY EXPORT: the next one added there is `undefined`
       # at the call site, and a hook that catches its own read failures turns that TypeError into "a failed
