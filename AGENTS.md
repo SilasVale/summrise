@@ -72,8 +72,9 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 `one-derivation-check`, `session-row-check`, `wire-field-check`, `console-wire-field-check`, `gateway-device-field-check`,
 `device-verdict-check`, `sweep-fixture-dupes-check` and `production-host-check`, plus the `harness-fixture-check` changes;
 `stub-surface-check` and `ci-command-table-check` came later). Each carries the mutation that must fail it, and each was
-written because the rule it holds had ALREADY cost a real defect. They live in `docs/agents/design-ledger.md` and
-`inventory.md` §12 rather than in this table, because THIS is the file that gets truncated when it grows — the rule below,
+written because the rule it holds had ALREADY cost a real defect. They live in `docs/agents/design-ledger.md` — section
+"Which mutation must fail which gate" — rather than in this table (`inventory.md` §12 names the INSTRUMENTS and their
+verdicts, not the mutations), because THIS is the file that gets truncated when it grows — the rule below,
 applied to itself.
 
 **NO COUNT IS GIVEN HERE ON PURPOSE.** It said "ten" while the objective was at ten, and a round later there were twelve:
