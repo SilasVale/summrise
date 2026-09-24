@@ -4426,3 +4426,71 @@ mechanism or a redundant list, and the third — the deploy — was a real gap t
 script revealed (`wrangler deploy --dry-run` in CI, a manual deploy in production). The instruction at
 the top of `AGENTS.md` — read the ledger before proposing anything is a defect — is doing measurable
 work, which is the only kind of rule this file is interested in.
+
+## 2026-09-24 (the agent's HTTP surface, a new gate, and a release that was blocked twice)
+
+The ninth exploration went at `agent/src/web/` — 8,268 lines, the largest file in the repo, and the only
+surface none of the eight previous passes had opened. It found the usual shape in new places, and one
+thing the previous passes had not: **a security test whose own comment had stopped being true.**
+
+**`every_dispatch_route_is_auth_gated` LISTED 24 ROUTES WHILE `dispatch` ANSWERED 32**, and its comment
+promised "a new route added without auth fails HERE instead of shipping". The eight it did not test
+included the two most dangerous on the surface: `/api/update` and `/api/run/mark-exit`. Nothing was
+serving unauthenticated — all eight answer 401 once tested — so what had rotted was the SENTENCE, which
+is the thing a security test must not lie about. The list is now paired with `dispatch`'s own literals,
+and building that pairing taught three normalisations by failing on each: a `{PARAM}` template is a
+prefix, a trailing `/` is a match prefix, and a prefix is covered by an EXAMPLE UNDER IT. Planting a
+route in `dispatch` fails the test; that mutation is the proof.
+
+**THE BRUTE-FORCE THROTTLE GUARDED `/mcp` AND NOT THE GATE THAT REACHES SYSTEM.** `auth_backoff_ms` and
+its two neighbours were invoked from exactly two sites, both inside `TokenGate`; `check_auth` — whose own
+comment calls the device token "the ONLY gate between an unauthenticated network caller and SYSTEM-level
+device control" — recorded no failure and never slept. It was a TENSION rather than an oversight: the
+throttle must sleep, so it lives in an async block and keys on a peer from `ConnectInfo`, while
+`check_auth` took headers rather than the request on purpose so it stays usable from a `Send` future. It
+is `async` and takes the peer now, with the penalty read FIRST so a caller inside its window never has
+its guess compared, and one `deny` path for both failure branches. Eleven call sites, one of which the
+report had not named (there are TWO streaming branches), and the peer is threaded rather than re-derived:
+`peer_key` treats an absent peer as local, while the loopback bool treats absent as NOT loopback and
+denies the token handout — one extension, two questions, and the auth decision nobody understood well
+enough to fold together is the one that was left alone.
+
+**A DOC PROMISED `None` AND THE CODE ALWAYS RETURNED `Some`.** `handle_browser_evidence` said "Returns
+None when the path is not one of ours" and its two `if`s FELL THROUGH to the screenshot reader, so an
+unknown path was read as a pwshot name and answered `400 "bad name"` — a wrong answer dressed as a right
+one, which is also why the caller's `if let Some` looked permanently true. The defect lived in a SEAM
+BETWEEN TWO LISTS: the handler enumerates its three routes, and `route_pre_dispatch` enumerates the paths
+that reach it. Neither list could see the gap.
+
+**THE `200 + {ok:false}` SHAPE IS A CONTRACT, NOT FRICTION.** The exploration listed three answer-shapes
+for one failure and twelve readers in three dialects. The gateway settles it — `mcp.ts` records the shape
+in a comment and compensates with `!ok || data.ok === false` — so answering a failed tool with a non-2xx
+would break two clients. The readings were also three QUESTIONS, not one: `callApi`'s `res.ok` is the
+HTTP status, and the `s?.ok` reads in the browser and evidence panes are about a NESTED object. What was
+real is that eleven sites asked the first question in two dialects that DISAGREE about a body carrying no
+`ok`; they now call one `deviceRefused`, strict, because the device always sends `ok: true` on success.
+
+**AND ADDING THAT ONE EXPORT BROKE THREE TESTS INTO PASSING-LOOKING SILENCE.** Their mock was
+`vi.mock("../../lib/api", () => ({ callApi: vi.fn() }))`, which replaces EVERY export: the hook called
+`undefined`, threw into its own catch, and "a failed read must not update" quietly made no read update at
+all. The three went red with an EMPTY VALUE rather than an error — including two whose fixtures carry
+`ok: true`, because the throw happens before any fixture is read. `tsc` cannot see it; a `vi.mock`
+factory is never checked against the module. All nineteen factories now spread the original, and a new
+NAMED gate holds it: `panel-mock-spread-check.mjs`, with a floor (19 found, 15 required) so a renamed
+idiom reports "this proves nothing", wired into the design job, and paired with a mutation that puts a
+wholesale factory back. **ITS OWN FIRST RUN FAILED ON `lib/api.ts` ITSELF**, because the predicate's doc
+QUOTES the idiom it warns about — the trap `exports-check` and `retired-colours-check` each recorded on
+their own first run, which is why comments are stripped before the scan.
+
+**THE RELEASE WAS BLOCKED BY TWO OF MY OWN MISTAKES, AND DIAGNOSING THEM WAS THE WORK.** `pack-chain`
+went red because `console-smoke-check.mjs`, added four rounds earlier, runs the jsdom smokes with
+`cwd: gateway/ui` in a job whose steps are checkout and setup-node — so `jsdom` could not resolve and all
+four failed to LOAD. Reproducing CI's condition (hiding `node_modules` → exactly 0/4) found it; the log
+could not have, because the wrapper printed only lines matching `✗|FAIL|not ok` and a smoke that dies
+before its first check has none — it now prints the line that NAMES the error. `design` went red on the
+`routes-fail` scene with "2 loud elements", which was my own round-51 fix firing BOTH a toast and the
+persistent banner: one fact, two mechanisms, added by the pass whose whole subject is removing them.
+
+The release itself then went through cleanly — 1.2.462 audited byte-for-byte against the GitHub asset and
+installed on the device — and three earlier audit answers were the first-publish state, as they have been
+since 1.2.454.
