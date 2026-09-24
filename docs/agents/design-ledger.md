@@ -5434,3 +5434,18 @@ checking rather than acting.
 stopped one hop too early. The right question is never "who reads the field" but "who reads what the field feeds",
 and in a system with an HTTP surface between two languages that is exactly the hop a grep across one crate cannot
 make.
+
+**AND FOLLOWING THE PROBE'S DATA ONE MORE HOP SHARPENS WHY THE TWO DOORS MUST AGREE (round 223).** Round 217 made
+the MCP tool and the HTTP route return the same envelope; round 218 gave them one source. Following the response to
+its consumers shows neither surface UI actually reads it:
+
+  panel  useMonitors.ts:200,231   await callApi("…/monitors/probe", …).catch(() => {}); await refresh();
+  CLI    summrise.ts:2311         deviceApi("POST", "/api/monitors/probe", { id: t.id });   ← return unused
+
+The panel refreshes and re-reads the monitor list; the CLI prints its own confirmation. Both are deliberate — the
+route exists to TRIGGER a probe, and its body is a courtesy. Only the MCP tool hands the envelope to a consumer that
+reads it, which is the AI.
+
+That makes the round-217 fix sharper rather than redundant: an MCP client and an HTTP client asking the same
+question should receive the same answer, and the one consumer that reads the answer reaches it through the MCP door.
+A shape that differed by door would be a contract nobody could state.
