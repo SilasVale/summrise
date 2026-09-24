@@ -104,8 +104,17 @@ impl PluginRegistry {
                 tracing::warn!("plugin tool name collision: '{}' registered twice", t.name);
             }
         }
-        self.tools_by_plugin
-            .push((plugin.name().to_string(), tools));
+        // A DUPLICATE PLUGIN NAME IS WARNED ABOUT TOO (round 163). The tool-name case above has
+        // a warning; this one had none, and a duplicate name is what makes the accessors disagree:
+        // `find_tool` last-wins through `by_name`, `plugin_tools` last-wins as of this round, and
+        // `all_tools` publishing BOTH copies. Nothing registers a duplicate today ("None exists
+        // today" is what the comment above says of the tool case, and it holds here too) — but an
+        // unstated invariant that three readers depend on is worth a line of log when it breaks.
+        let pname = plugin.name().to_string();
+        if self.tools_by_plugin.iter().any(|(n, _)| *n == pname) {
+            tracing::warn!("plugin name collision: {pname:?} registered twice");
+        }
+        self.tools_by_plugin.push((pname, tools));
         self.plugins.push(plugin);
     }
 
@@ -118,9 +127,18 @@ impl PluginRegistry {
     }
 
     /// Tools of one plugin by name (cached).
+    ///
+    /// LAST WINS, MATCHING `find_tool` (round 163). `.find()` returned the FIRST entry, so if two
+    /// plugins ever shared a name this listing and dispatch would have named different owners: the
+    /// listing showed the first plugin's tools while `by_name` — built with `HashMap::insert` —
+    /// routed every one of those names to the SECOND plugin's handler, leaving the second plugin's
+    /// own tools unreachable through here entirely. `all_tools` would meanwhile have published
+    /// both copies. Nothing registers a duplicate name today, and `register` now warns if one
+    /// ever does, but the two accessors must not disagree about the answer even then.
     pub fn plugin_tools(&self, name: &str) -> &[Arc<summrise_agent_core::ToolDef>] {
         self.tools_by_plugin
             .iter()
+            .rev()
             .find(|(n, _)| n == name)
             .map(|(_, ts)| ts.as_slice())
             .unwrap_or(&[])
@@ -224,5 +242,52 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(b, c);
         assert_eq!(tool_error(""), json!({"ok": false, "error": ""}));
+    }
+
+    /// Two plugins sharing a name must not make the accessors disagree (round 163).
+    ///
+    /// `find_tool` routes through `by_name`, which is a HashMap and therefore last-wins.
+    /// `plugin_tools` used `.find()`, which is FIRST-wins, so the listing and dispatch could
+    /// name different owners and the second plugin's tools were unreachable by name. Nothing
+    /// registers a duplicate today; this pins the agreement for when something does.
+    #[test]
+    fn duplicate_plugin_names_do_not_make_the_accessors_disagree() {
+        struct Named(&'static str, &'static str);
+        impl Plugin for Named {
+            fn name(&self) -> &'static str {
+                self.0
+            }
+            fn display_name(&self) -> &'static str {
+                self.0
+            }
+            fn description(&self) -> &'static str {
+                ""
+            }
+            fn tools(&self) -> Vec<ToolDef> {
+                vec![ToolDef::new(self.1, "d", serde_json::json!({}), |_| {
+                    Box::pin(async { Ok(serde_json::json!({})) })
+                })]
+            }
+        }
+        let mut reg = PluginRegistry::new();
+        reg.register(Box::new(Named("dup", "first_tool")));
+        reg.register(Box::new(Named("dup", "second_tool")));
+        // The listing must name the tool that dispatch would actually reach.
+        let listed: Vec<&str> = reg
+            .plugin_tools("dup")
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(
+            listed,
+            vec!["second_tool"],
+            "plugin_tools must agree with find_tool"
+        );
+        assert!(
+            reg.find_tool("second_tool").is_some(),
+            "and the tool the listing names must be the one dispatch resolves"
+        );
+        // An unknown name is still empty rather than a panic.
+        assert!(reg.plugin_tools("nope").is_empty());
     }
 }
