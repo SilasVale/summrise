@@ -5559,3 +5559,31 @@ speaks gives "evicted.ts: reads \"invented_field_ms\", which neither the device 
 That is the lesson this ledger has recorded more than any other, and it arrived again: **a mutation that does not
 bite is evidence about the mutation first.** The gate guards an UNKNOWN read, not a renamed one, and knowing which
 is what makes the next person able to test it.
+
+### A GATE FOR THE SESSION ROW S CARRY LIST VERSUS ITS DETECT LIST (round 233)
+
+The twentieth exploration counted one session row s field names in five places inside `useSessions.ts`. Following it
+to the source found the file already says which two matter, and that the bug it describes WAS this disagreement:
+
+  AND THE LIST IS WHERE THE BUG WAS. It omitted `idleMs` and `commandRunning` while `wireFields` did too, so a
+  refresh neither carried them nor noticed them — a row kept its discovery values for life and three consumers
+  read them as live (sessionActive, the rail s anyCommandRunning, idleSessions offer-to-close). CARRY AND DETECT
+  ARE TWO LISTS; fixing the bug needed both.
+
+They CANNOT be merged, and the comment records the attempt: `pendingApproval` is derived at map time, so comparing
+the mapped objects reports a change on every poll and pulls the deadline earlier each time. So they stay explicit —
+and until now **nothing compared them**. `session-row-check.mjs` guards the READ side (a device field may only be
+read inside the mapping section); this guards the two lists agreeing with each other.
+
+**Which mutation must fail it**: remove `idleMs` from `wireFieldsChanged`. It reports
+`"idleMs: wireFields carries it, wireFieldsChanged never compares it"` — the historical bug verbatim. It also fails
+when `wireFields` stops spreading `liveFields`, because then the CARRY side is two lists of its own and the
+comparison can only see half.
+
+**AND THE GATE THAT CAUGHT THIS ONE**: `numbered-claims-check.mjs` failed the round after it was wired into
+`ci.yml`, because a gate invoked by the workflow and named NOWHERE an operator reads is a gate nobody can run by
+hand. That is why this section exists.
+
+**AND ITS OWN EXTRACTOR MADE THE MISTAKE THIS LEDGER HAS RECORDED FOUR TIMES.** The first version walked braces to
+find each list; `wireFieldsChanged` is an EXPRESSION-bodied arrow with no brace at all, so it walked into an
+unrelated block and reported every field as missing. Reading it as an expression fixed it.
