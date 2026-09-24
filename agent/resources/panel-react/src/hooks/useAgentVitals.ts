@@ -110,7 +110,12 @@ export function useAgentVitals(intervalMs = 15000): AgentVitals {
     const tick = async () => {
       try {
         const j = await callApi("/api/status");
-        if (!alive || !j) return;
+        // A FAILED READ MUST NOT UPDATE, which is the rule every sibling poller already follows
+        // (`useMonitors`, `useVitalsSeries`, `useBootHistory`, `UpdateCard` all gate on `ok !== true`)
+        // and this one did not: its guard was `!j`, which an EMPTY OBJECT passes because `{}` is
+        // truthy. So a refusal carrying fields would have been read as a sample. Keep-last is the right
+        // answer for a failed poll — "vitals are a nicety" — but keeping last means not reading it.
+        if (!alive || j?.ok !== true) return;
         // A partial sample UPDATES ONLY WHAT IT CARRIES. cpu_pct is missing on the
         // first poll by design, and blanking the memory reading because of it would
         // make the instrument flicker between "known" and "unknown" every start.
