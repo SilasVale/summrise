@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { callTool, getHost, getToken } from "../lib/api";
 import { FRAMES, type Frame } from "../lib/contract.gen";
+import { pruneLagMarkers } from "../lib/lagMarkers";
 
 // SSE terminal stream — connects to /api/events/term, dispatches byte frames
 // to the matching session's xterm (via per-session write callbacks registered
@@ -27,7 +28,11 @@ function backfillGap(
   sid: string,
   issueOffset: number,
   gapEnd: number | undefined,
-  cb: { write: (bytes: Uint8Array, start?: number) => void; getRendered: () => number; setRendered?: (n: number) => void },
+  cb: {
+    write: (bytes: Uint8Array, start?: number) => void;
+    getRendered: () => number;
+    setRendered?: (n: number) => void;
+  },
 ) {
   // Read [issueOffset, end) from the server buffer; write only the dropped
   // range [issueOffset, gapEnd) — bytes at or above gapEnd are (or will be)
@@ -39,7 +44,11 @@ function backfillGap(
   // sync loop already wrote (those < rendered at capture time), never the
   // whole gap (the round-104 bug).
   const before = cb.getRendered();
-  callTool("terminal_read", { session_id: sid, offset: issueOffset, clean: false })
+  callTool("terminal_read", {
+    session_id: sid,
+    offset: issueOffset,
+    clean: false,
+  })
     .then((r: any) => {
       if (!r || (!r.text && !r.raw)) return;
       let bytes: Uint8Array;
@@ -51,14 +60,20 @@ function backfillGap(
         bytes = new TextEncoder().encode(r.text);
       }
       const rel = Math.max(0, issueOffset - Number(r.start));
-      const to = gapEnd === undefined ? bytes.length : Math.min(rel + (gapEnd - issueOffset), bytes.length);
+      const to =
+        gapEnd === undefined
+          ? bytes.length
+          : Math.min(rel + (gapEnd - issueOffset), bytes.length);
       const from = Math.min(rel, bytes.length);
       // Skip bytes the sync loop already delivered before this read resolved
       // (dedup); write the rest of the gap.
       const syncDelivered = Math.max(0, before - issueOffset);
       const effectiveFrom = Math.max(from, rel + syncDelivered);
       if (to > effectiveFrom) {
-        cb.write(bytes.subarray(effectiveFrom, to), Number(r.start) + effectiveFrom);
+        cb.write(
+          bytes.subarray(effectiveFrom, to),
+          Number(r.start) + effectiveFrom,
+        );
       }
     })
     .catch(() => {
@@ -71,18 +86,33 @@ function backfillGap(
 
 export function useSSE(
   connected: boolean,
-  writeCallbacks: React.MutableRefObject<Map<string, { write: (bytes: Uint8Array, start?: number) => void; getRendered: () => number; setRendered?: (n: number) => void }>>,
+  writeCallbacks: React.MutableRefObject<
+    Map<
+      string,
+      {
+        write: (bytes: Uint8Array, start?: number) => void;
+        getRendered: () => number;
+        setRendered?: (n: number) => void;
+      }
+    >
+  >,
   getLiveSidsRef: React.MutableRefObject<() => string[]>,
 ) {
   const [sseState, setSseState] = useState<SseState>("connecting");
 
   useEffect(() => {
-    if (!connected) { setSseState("connecting"); return; }
+    if (!connected) {
+      setSseState("connecting");
+      return;
+    }
     // P2-1(b): reuse the transport singletons (initTransport in boot/connect)
     // instead of reading localStorage directly — one credential source.
     const hostname = getHost().trim();
     const token = getToken();
-    if (!hostname) { setSseState("down"); return; }
+    if (!hostname) {
+      setSseState("down");
+      return;
+    }
 
     let attempt = 0;
     let alive = true;
@@ -108,11 +138,22 @@ export function useSSE(
       const live = new Set(getLiveSidsRef.current());
       const sids = new Set<string>(live);
       for (const sid of writeCallbacks.current.keys()) sids.add(sid);
+      // A MARKER FOR A SESSION THAT IS NEITHER LIVE NOR REGISTERED CAN NEVER BE CLEARED, so the sweep
+      // is where it goes (2026-09-24, the panel exploration). `lagBackfill` is set WHOLESALE on
+      // reconnect — every registered session gets a marker — and cleared one entry at a time as that
+      // session's frames arrive, so a session that died in between kept its marker for the life of the
+      // page. The decision is `lib/lagMarkers` and its test pins the keep set, which is the subtle
+      // half: `sids` (registered ∪ live), not `live`, because a tombstone can be revived (round-245).
+      pruneLagMarkers(lagBackfill, sids);
       for (const sid of sids) {
         const cb = writeCallbacks.current.get(sid);
         if (!cb) continue;
         const from = cb.getRendered();
-        callTool("terminal_read", { session_id: sid, offset: from, clean: false })
+        callTool("terminal_read", {
+          session_id: sid,
+          offset: from,
+          clean: false,
+        })
           .then((r: any) => {
             if (r?.evicted) {
               // review #2: server reset/eviction — WITHOUT a cursor reset
@@ -146,7 +187,8 @@ export function useSSE(
               // clamp/rotate/trim and return a start AHEAD of the requested
               // offset; advancing by bytes-written desyncs it permanently
               // (dup + loss storms on every later sweep/frame).
-              if (skip < bytes.length) cb.write(bytes.subarray(skip), Number(r.start) + skip);
+              if (skip < bytes.length)
+                cb.write(bytes.subarray(skip), Number(r.start) + skip);
             } else if (skip > 0) {
               // No raw payload (clean path): best-effort re-encode — byte
               // alignment via TextEncoder, still safe for CJK.
@@ -166,7 +208,9 @@ export function useSSE(
       }
     };
     syncSweep();
-    const onVisible = () => { if (document.visibilityState === "visible") syncSweep(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncSweep();
+    };
     document.addEventListener("visibilitychange", onVisible);
 
     const backoff = () => {
@@ -189,8 +233,18 @@ export function useSSE(
           headers: { authorization: `Bearer ${token}` },
           signal: ctl.signal,
         }).finally(() => clearTimeout(abortTimer));
-        if (res.status === 401) { setSseState("down"); needResync = true; setTimeout(connect, backoff()); return; }
-        if (!res.ok || !res.body) { setSseState("down"); needResync = true; setTimeout(connect, backoff()); return; }
+        if (res.status === 401) {
+          setSseState("down");
+          needResync = true;
+          setTimeout(connect, backoff());
+          return;
+        }
+        if (!res.ok || !res.body) {
+          setSseState("down");
+          needResync = true;
+          setTimeout(connect, backoff());
+          return;
+        }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -208,7 +262,10 @@ export function useSSE(
             return Promise.race([
               reader.read(),
               new Promise<never>((_, reject) => {
-                t = setTimeout(() => reject(new Error("SSE read timeout")), 90_000);
+                t = setTimeout(
+                  () => reject(new Error("SSE read timeout")),
+                  90_000,
+                );
               }),
             ]).finally(() => clearTimeout(t!));
           };
@@ -219,7 +276,9 @@ export function useSSE(
             if (needResync) {
               needResync = false;
               syncSweep();
-              window.dispatchEvent(new CustomEvent("summrise-sessions-changed", { detail: {} }));
+              window.dispatchEvent(
+                new CustomEvent("summrise-sessions-changed", { detail: {} }),
+              );
             }
             buffer += decoder.decode(value, { stream: true });
             let idx;
@@ -227,21 +286,34 @@ export function useSSE(
               const raw = buffer.slice(0, idx);
               buffer = buffer.slice(idx + 2);
               setSseState("connected");
-              const dataText = raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5)).join("");
+              const dataText = raw
+                .split("\n")
+                .filter((l) => l.startsWith("data:"))
+                .map((l) => l.slice(5))
+                .join("");
               if (!dataText.trim()) continue;
               let frame;
-              try { frame = JSON.parse(dataText.trim()); } catch { continue; }
+              try {
+                frame = JSON.parse(dataText.trim());
+              } catch {
+                continue;
+              }
               // THE FRAMES THIS BUILD KNOWS (round 54). `FRAMES` is generated from the device's own vocabulary, so a
               // frame a NEWER agent invents is ignored here instead of dispatching a `summrise-<ev>` window event that
               // nothing can be listening for. The panel's own synthesized frames (`term-output`) are dispatched
               // elsewhere and do not travel through this branch.
-              if (typeof frame.ev === "string" && (FRAMES as readonly string[]).includes(frame.ev)) {
+              if (
+                typeof frame.ev === "string" &&
+                (FRAMES as readonly string[]).includes(frame.ev)
+              ) {
                 // round-163: control events (sessions-changed,
                 // playwright-changed) — the agent pushes them on the same
                 // stream; hooks subscribe via these window events. This is
                 // what replaced the 3s/5s status polls.
                 const ev = frame.ev as Frame;
-                window.dispatchEvent(new CustomEvent(`summrise-${ev}`, { detail: frame }));
+                window.dispatchEvent(
+                  new CustomEvent(`summrise-${ev}`, { detail: frame }),
+                );
                 continue;
               }
               if (Array.isArray(frame.data) && frame.session_id) {
@@ -251,7 +323,10 @@ export function useSSE(
                 // attaches the frame's absolute start offset; skip bytes the
                 // rendered offset already passed (round-83 wrote every frame
                 // unconditionally, duplicating what a sync read delivered).
-                if (typeof frame.start === "number" && frame.start < cb.getRendered()) {
+                if (
+                  typeof frame.start === "number" &&
+                  frame.start < cb.getRendered()
+                ) {
                   // round-104: a SKIPPED frame still consumes any pending
                   // lag entry — the sync loop already recovered the gap
                   // (rendered advanced past it), so a later backfill would
@@ -268,12 +343,24 @@ export function useSSE(
                   lagBackfill.delete(frame.session_id);
                   // round-112: cb was MISSING (dead code) — the backfill
                   // threw on cb.getRendered() and the gap was never written.
-                  backfillGap(frame.session_id, issue, typeof frame.start === "number" ? frame.start : undefined, cb);
+                  backfillGap(
+                    frame.session_id,
+                    issue,
+                    typeof frame.start === "number" ? frame.start : undefined,
+                    cb,
+                  );
                 }
-                cb.write(new Uint8Array(frame.data), typeof frame.start === "number" ? frame.start : undefined);
+                cb.write(
+                  new Uint8Array(frame.data),
+                  typeof frame.start === "number" ? frame.start : undefined,
+                );
                 // round-163: activity signal — command cards re-fetch on
                 // output instead of a 2s audit-log timer.
-                window.dispatchEvent(new CustomEvent("summrise-term-output", { detail: { sid: frame.session_id } }));
+                window.dispatchEvent(
+                  new CustomEvent("summrise-term-output", {
+                    detail: { sid: frame.session_id },
+                  }),
+                );
               } else if (frame.lagged) {
                 // round-100: the broadcast dropped frames for this lagging
                 // subscriber — bytes in [rendered, next frame's start) were
@@ -291,8 +378,13 @@ export function useSSE(
               }
             }
           }
-        } finally { await reader.cancel().catch(() => {}); }
-      } catch { setSseState("down"); needResync = true; }
+        } finally {
+          await reader.cancel().catch(() => {});
+        }
+      } catch {
+        setSseState("down");
+        needResync = true;
+      }
       if (alive) setTimeout(connect, backoff());
     };
     connect();
