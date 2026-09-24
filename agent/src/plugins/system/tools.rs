@@ -366,13 +366,16 @@ fn tool_file_download() -> ToolDef {
                     return Ok(to_value_or_empty(tool_error("IP-based URLs are blocked (SSRF protection)")));
                 }
                 let canonical = strip_verbatim(&resolve_dest(&path_str));
+                // The LANDING creates parents too (crate::transfer). This eager
+                // copy stays because it fails BEFORE the request is sent: a
+                // destination that cannot exist is reported without spending a
+                // network round trip, in the sentence this tool has always used.
                 if let Some(parent) = canonical.parent() {
                     if let Err(e) = tokio::fs::create_dir_all(parent).await {
                         let msg = format!("create parent {}: {e}", parent.display());
                         return Ok(to_value_or_empty(tool_error(msg)));
                     }
                 }
-                const MAX_BYTES: u64 = 100 * 1024 * 1024;
                 let client = match reqwest::Client::builder()
                     // 600 s, not 120: the whole point of this tool is the
                     // 100 MB image, and 100 MB over a real uplink (the 30 MB
@@ -393,61 +396,38 @@ fn tool_file_download() -> ToolDef {
                 if !resp.status().is_success() {
                     return Ok(to_value_or_empty(tool_error(format!("upstream returned {}", resp.status()))));
                 }
-                let mut stream = resp.bytes_stream();
-                let mut total: u64 = 0;
-                use tokio::io::AsyncWriteExt;
-                // Land in a `.part` file and rename into place. A firmware
-                // image that dies at 40 % must not sit at the caller's target
-                // path looking complete — that is how a half-written trx gets
-                // flashed onto a device.
-                let tmp = {
-                    let mut s = canonical.as_os_str().to_os_string();
-                    s.push(".part");
-                    std::path::PathBuf::from(s)
-                };
-                let mut f = match tokio::fs::OpenOptions::new()
-                    .write(true).create(true).truncate(true)
-                    .open(&tmp).await
+                // LAND THE BODY THROUGH THE SHARED RULE (crate::transfer): the
+                // `.part` sibling, the cap enforced while the bytes arrive, the
+                // rename LAST and the corpse removed on every failure path used
+                // to be spelled here. The rule owns them now — a firmware image
+                // that dies at 40 % must not sit at the caller's target path
+                // looking complete, which is how a half-written trx gets
+                // flashed onto a device. This door owns only the HTTP.
+                //
+                // `StreamReader` adapts reqwest's chunk stream to the
+                // `AsyncRead` the landing takes; it costs no new declaration
+                // (tokio-util is a direct dependency, and reqwest — also direct
+                // and not optional — turns its `io` feature on). The stream
+                // error becomes an `io::Error` carrying the SAME message, so
+                // the landing's "read chunk: …" reads exactly as it did when
+                // this loop owned it.
+                let mut body = tokio_util::io::StreamReader::new(
+                    resp.bytes_stream()
+                        .map(|chunk| chunk.map_err(std::io::Error::other)),
+                );
+                match crate::transfer::land_streamed(
+                    &canonical,
+                    crate::transfer::MAX_TRANSFER_BYTES,
+                    &mut body,
+                )
+                .await
                 {
-                    Ok(f) => f,
-                    Err(e) => {
-                        let msg = format!("open {}: {}", tmp.display(), e);
-                        return Ok(to_value_or_empty(tool_error(msg)));
-                    }
-                };
-                // Every early exit below must leave no corpse behind: the
-                // rename never runs, so delete the partial (best effort).
-                macro_rules! bail_part {
-                    ($($t:tt)*) => {{
-                        let msg = format!($($t)*);
-                        let _ = f.shutdown().await;
-                        let _ = tokio::fs::remove_file(&tmp).await;
-                        return Ok(to_value_or_empty(tool_error(msg)));
-                    }};
+                    Ok(bytes) => Ok(to_value_or_empty(json!({"ok": true, "path": canonical.to_string_lossy(), "bytes": bytes}))),
+                    // The landing's two refusals, rendered in the words this
+                    // door has always used for them.
+                    Err(crate::transfer::TransferError::TooLarge { cap }) => Ok(to_value_or_empty(tool_error(format!("file too large (>{cap} bytes)")))),
+                    Err(crate::transfer::TransferError::Io(e)) => Ok(to_value_or_empty(tool_error(format!("{e}")))),
                 }
-                while let Some(chunk) = stream.next().await {
-                    let chunk = match chunk {
-                        Ok(c) => c,
-                        Err(e) => bail_part!("read chunk: {e}"),
-                    };
-                    total += chunk.len() as u64;
-                    if total > MAX_BYTES {
-                        bail_part!("file too large (>{MAX_BYTES} bytes)");
-                    }
-                    if let Err(e) = f.write_all(&chunk).await {
-                        bail_part!("write: {e}");
-                    }
-                }
-                if let Err(e) = f.flush().await {
-                    bail_part!("flush: {e}");
-                }
-                drop(f);
-                if let Err(e) = tokio::fs::rename(&tmp, &canonical).await {
-                    let msg = format!("rename {} -> {}: {e}", tmp.display(), canonical.display());
-                    let _ = tokio::fs::remove_file(&tmp).await;
-                    return Ok(to_value_or_empty(tool_error(msg)));
-                }
-                Ok(to_value_or_empty(json!({"ok": true, "path": canonical.to_string_lossy(), "bytes": total})))
             }
         },
     )
@@ -478,9 +458,13 @@ fn tool_file_upload() -> ToolDef {
                 if !meta.is_file() {
                     return Ok(to_value_or_empty(tool_error("not a file")));
                 }
-                const MAX_BYTES: u64 = 100 * 1024 * 1024;
-                if meta.len() > MAX_BYTES {
-                    return Ok(to_value_or_empty(tool_error(format!("file too large ({} bytes, max {MAX_BYTES})", meta.len()))));
+                // The SAME number as the download's — one declaration now
+                // (crate::transfer::MAX_TRANSFER_BYTES), because the two
+                // directions of one transfer pair must not disagree about how
+                // large a transfer may be.
+                let max = crate::transfer::MAX_TRANSFER_BYTES;
+                if meta.len() > max {
+                    return Ok(to_value_or_empty(tool_error(format!("file too large ({} bytes, max {max})", meta.len()))));
                 }
                 let bytes = match std::fs::read(path) {
                     Ok(b) => b,
@@ -1064,6 +1048,41 @@ mod file_tool_tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// THE CORPSE RULE, THROUGH THE DOOR. The landing is `crate::transfer`'s
+    /// now; this is the door proving it hands its body to that rule rather than
+    /// to a loop of its own — a connection that dies mid-body must leave neither
+    /// the destination nor a `.part` beside it, and the refusal must arrive in
+    /// the landing's own phase sentence.
+    ///
+    /// (The over-cap refusal cannot be driven from here without streaming 100 MB
+    /// through the stub; the boundary itself is pinned in `crate::transfer`,
+    /// where the cap is a parameter.)
+    #[tokio::test]
+    async fn file_download_truncated_body_leaves_no_corpse() {
+        let dir = std::env::temp_dir().join(format!("summrise-dltrunc-{}", std::process::id()));
+        let port = stub_serve_truncated(70_000, 4_096).await;
+        let dest = dir.join("fw.bin");
+        let out = run(
+            &tool_file_download(),
+            json!({ "url": format!("http://localhost:{port}/fw.bin"), "path": dest.to_string_lossy() }),
+        )
+        .await;
+        assert_eq!(out["ok"], false, "a truncated body must fail: {out}");
+        assert!(
+            out["error"].as_str().unwrap().contains("read chunk"),
+            "the landing names the phase: {out}"
+        );
+        assert!(
+            !dest.exists(),
+            "a transfer that died mid-body must not appear at the caller's path"
+        );
+        assert!(
+            !dir.join("fw.bin.part").exists(),
+            "…and the staged part is removed with it"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// FNV-1a 64 — enough to prove byte-fidelity across the stream/rename
     /// path without pulling a hash crate into the dependency graph.
     fn md5_like(bytes: &[u8]) -> u64 {
@@ -1103,6 +1122,41 @@ mod file_tool_tests {
             let _ = sock.write_all(head.as_bytes()).await;
             let _ = sock.write_all(&payload).await;
             let _ = sock.flush().await;
+        });
+        port
+    }
+
+    /// Serve a body that DIES MID-FLIGHT for any GET: `declared` bytes are
+    /// promised in the header, `sent` are written, then the connection closes.
+    /// A stream reader sees a truncated message, which is the failure this test
+    /// needs — not a bad status, which the door rejects before the body.
+    async fn stub_serve_truncated(declared: usize, sent: usize) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = vec![0u8; 4096];
+            let mut seen = Vec::new();
+            while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+                let Ok(n) = sock.read(&mut buf).await else {
+                    return;
+                };
+                if n == 0 {
+                    return;
+                }
+                seen.extend_from_slice(&buf[..n]);
+            }
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: {declared}\r\nconnection: close\r\n\r\n"
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.write_all(&vec![9u8; sent]).await;
+            let _ = sock.flush().await;
+            // Dropping the socket here is the truncation: the declared length
+            // was never delivered.
         });
         port
     }

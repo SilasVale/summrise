@@ -5654,6 +5654,57 @@ failed) whose name was not captured; it did not reproduce in six subsequent runs
 `/tmp` data-dir fixtures at once — which is exactly what happened here (the fix agent and the parent were running
 `cargo test` concurrently). Left named rather than dismissed, because "it went green again" is not a diagnosis.
 
+## 2026-09-25 — the twenty-ninth exploration: the transfer, which round 28 named and did not own
+
+Round 28 finished "replace a file durably" and named the one thing it did not own: a TRANSFER — a payload arriving
+from somewhere else. Two doors land one, and only one of them had the shape the other needed.
+
+| door | staging | cap | on failure |
+|---|---|---|---|
+| `system_file_download` (`plugins/system/tools.rs`) | `.part` sibling | 100 MB, enforced while streaming | corpse removed, and a test pins it |
+| sftp download (`plugins/terminal/tools/files.rs`) | **none** | **none** | a truncated file AT THE DESTINATION |
+
+The sftp door read the whole remote file into a `Vec` and then `fs::write`d it: a firmware-sized read with nothing
+bounding it, and a short write (a full disk, a killed process) left a file that LOOKS COMPLETE at the caller's path —
+the failure the other door's own comment calls "how a half-written trx gets flashed". `MAX_BYTES = 100 * 1024 * 1024`
+was also declared twice in one file, for two directions, with nothing tying either to the tool prose that promises
+"100 MB".
+
+`transfer.rs` owns the rule now: `MAX_TRANSFER_BYTES` declared once, `TransferError { TooLarge, Io }`, and two doors
+onto ONE internal landing — `land_streamed` (reads at most `cap` bytes, aborting early) and `land_buffered` (refuses
+on the length BEFORE staging). The landing owns parents, the `.part` sibling (appended, visible — the same rule
+`atomic::temp_path` states for `.tmp`, and `.part` rather than `.tmp` on purpose: a staging file mid-transfer is not
+a replace in progress), the cap checked before each write, flush, close, RENAME LAST, and the corpse removed on every
+failure path including a failed rename.
+
+**WHY IT IS NOT FOLDED INTO `atomic::replace`, and the distinction is the whole design:** that rule takes a body
+ALREADY IN HAND (write it durably); this one takes a source STILL ARRIVING (bound it, stage it, then land it). Two
+rules, two owners — which is exactly what round 28 said when it named this as its remainder, and what `atomic.rs`'s
+header now points at instead of at itself.
+
+**MUTATIONS, reproduced here:** disabling the corpse removal fails FOUR transfer tests plus the system door's
+truncation test; replacing the sftp door's cap with `u64::MAX` fails its over-cap test with the payload's own size in
+the message. Both restored.
+
+**AND THREE BEHAVIOUR CHANGES BEYOND THE TWO NAMED, disclosed rather than discovered later:** the sftp door now
+CREATES missing parents (the landing rule; `fs::write` required them to exist), its failure sentence carries the
+landing's phase inside the door's own wording (`local write <p>: open <p>.part: <err>`), and the streaming door now
+writes the staged part with `std::fs` instead of a per-write `spawn_blocking` (same syscalls, bytes and messages
+unchanged). The door keeps its own eager parent check — it fails BEFORE the request, which is the whole point of
+checking a destination you were handed.
+
+**NUMBERS:** agent lib tests 717 → **730** (terminal,keyring) and 656 → **667** (default); `transfer.rs` is new, 511
+lines with its truth table; `cargo xwin check --target x86_64-pc-windows-msvc --features terminal,keyring` exits 0,
+which is the Windows half of the landing compiled by the same toolchain the release uses.
+
+### AND THE FIRST RELEASE QUESTION, ANSWERED WITH A NUMBER
+
+Seven rounds of commits were on `main`, CI-green, and **no device had seen any of them**: the released version was
+still 1.2.464, published 2026-09-24, before round 24. A round that improves an agent nobody is running is a
+half-delivered change, so the release follows (1.2.465) — and the thing worth recording here is that the gap was
+invisible from inside the loop: every round's evidence was "the gates are green", and none of it answered "does the
+device have this".
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

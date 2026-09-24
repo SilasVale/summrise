@@ -39,19 +39,22 @@
 //! caller stated is applied to the TEMP before the rename, exactly once,
 //! wherever the bytes came from.
 //!
-//! STILL SPELLING ITS OWN: the TRANSFER LANDING in `plugins/system/tools.rs:405`
-//! and `:445` — a download STREAM written to a `.part` sibling under a size cap,
-//! then renamed into place. It shares the temp+rename SHAPE and is not a
-//! whole-file replace, which is why it is a DIFFERENT rule and deferred rather
-//! than overlooked: the bytes arrive as an async (`tokio::fs`) stream that must
-//! refuse a too-large transfer chunk by chunk and abort mid-flight, where this
-//! module's writer is blocking and runs the caller's closure to completion; and
-//! the landing flushes without ever `sync_all`ing, which is the durability
-//! question that has to be answered for a firmware image before it can inherit
+//! THE ONE SITE THIS HEADER NAMED AS STILL SPELLING ITS OWN — the TRANSFER
+//! LANDING in `plugins/system/tools.rs` — HAS MOVED: [`crate::transfer`] owns
+//! it now, and both transfer doors call it. It was deferred rather than
+//! overlooked because it is a DIFFERENT rule, and that reason did not change:
+//! the bytes arrive as an async stream that must refuse a too-large transfer
+//! chunk by chunk and abort mid-flight, where this module's writer is blocking
+//! and runs the caller's closure to completion, and a landing stages a payload
+//! that has NOT finished arriving where this module replaces a body the caller
+//! already holds. THE DURABILITY QUESTION THIS HEADER RAISED TRAVELLED WITH THE
+//! RULE and is still OPEN, recorded where the rule lives: the landing flushes
+//! without ever `sync_all`ing, so a power cut after its rename can still lose a
+//! firmware image. That answer has to be given before the landing can inherit
 //! the sequence above. (This paragraph named `plugins/memory/store.rs`'s
-//! tombstone compaction as "the one member left to move" — that commit MOVED it:
-//! `MemoryStore::compact` calls [`replace`] now.) The remaining site is named here
-//! so the next round does not have to re-measure to find it.
+//! tombstone compaction as "the one member left to move" — that commit MOVED
+//! it: `MemoryStore::compact` calls [`replace`] now; the transfer landing was
+//! the last one, so this paragraph names no remaining site.)
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

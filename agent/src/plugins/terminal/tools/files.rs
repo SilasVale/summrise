@@ -49,6 +49,39 @@ fn sftp_connect_timed_out(host: &str, port: u16, user: &str) -> DeviceError {
     }
 }
 
+/// Land a downloaded remote file on THIS device, through the shared transfer
+/// rule ([`crate::transfer::land_buffered`]) — the size cap, the `.part`
+/// sibling and the corpse removal on every failure path.
+///
+/// Extracted from the handler so the rule is reachable by a test: the download
+/// arm needs a live SSH session (untestable headless, like the rest of this
+/// tool), and the RULE must not be untestable because the transport is. The
+/// handler calls exactly this, with exactly these arguments.
+///
+/// The failures name themselves in the family's words: an over-cap payload is
+/// refused by a sentence built like the upload arm's ("file too large (N bytes,
+/// max CAP)"), with the destination named, and a file-system failure keeps
+/// "local write <path>: …" with the landing's phase in front of the reason.
+#[cfg(feature = "terminal")]
+fn land_downloaded(local_path: &str, bytes: &[u8]) -> Result<u64, DeviceError> {
+    crate::transfer::land_buffered(
+        std::path::Path::new(local_path),
+        crate::transfer::MAX_TRANSFER_BYTES,
+        bytes,
+    )
+    .map_err(|e| match e {
+        crate::transfer::TransferError::TooLarge { cap } => DeviceError::Internal {
+            message: format!(
+                "file too large ({} bytes, max {cap}): {local_path}",
+                bytes.len()
+            ),
+        },
+        crate::transfer::TransferError::Io(e) => DeviceError::Internal {
+            message: format!("local write {local_path}: {e}"),
+        },
+    })
+}
+
 pub(super) fn tool_sftp(name: &'static str) -> ToolDef {
     ToolDef::new(
         name,
@@ -199,10 +232,17 @@ fn sftp_handler() -> impl summrise_agent_core::ToolHandler + 'static {
                                 .map_err(|e| DeviceError::Internal {
                                     message: format!("sftp read {remote_path}: {e}"),
                                 })?;
-                        std::fs::write(&local_path, &buf).map_err(|e| DeviceError::Internal {
-                            message: format!("local write {local_path}: {e}"),
-                        })?;
-                        serde_json::json!({"downloaded_bytes": buf.len(), "local_path": local_path})
+                        // LANDED THROUGH THE SHARED RULE (crate::transfer): the
+                        // cap, the `.part` staging and the corpse removal on
+                        // every failure path were missing here entirely. This
+                        // door read the whole remote file into memory and
+                        // called `std::fs::write` on the caller's path, so an
+                        // over-cap payload landed anyway and a write that died
+                        // halfway left a file at `local_path` that LOOKS
+                        // complete. Parents are created by the landing too
+                        // (std::fs::write required them to exist already).
+                        let landed = land_downloaded(&local_path, &buf)?;
+                        serde_json::json!({"downloaded_bytes": landed, "local_path": local_path})
                     }
                     "delete" => {
                         sftp.remove_file(&remote_path).await.map_err(|e| {
@@ -338,5 +378,64 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// THE DOWNLOAD DOOR'S NEW RULE, and the one behaviour it did not have: the
+    /// payload is landed through `crate::transfer`, so it is CAPPED. Over the
+    /// cap the door refuses in a sentence that names the cap, and — measured,
+    /// not assumed — NOTHING is left at `local_path`: no file, and no `.part`
+    /// corpse beside it. Before this round `std::fs::write` landed it anyway.
+    ///
+    /// `vec![0u8; …]` is a zeroed allocation and the refusal happens on `len()`
+    /// before a page is touched, so the 100 MB payload costs no real memory.
+    #[cfg(feature = "terminal")]
+    #[test]
+    fn an_over_cap_download_is_refused_and_lands_nothing() {
+        let dir = std::env::temp_dir().join(format!("summrise-sftp-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let dest = dir.join("fw.bin");
+        let over = vec![0u8; crate::transfer::MAX_TRANSFER_BYTES as usize + 1];
+        let err = land_downloaded(dest.to_string_lossy().as_ref(), &over)
+            .expect_err("a payload over the cap must be refused");
+        let msg = err.to_string();
+        assert!(msg.contains("file too large"), "{msg}");
+        assert!(
+            msg.contains(&crate::transfer::MAX_TRANSFER_BYTES.to_string()),
+            "the refusal must name the cap it applied: {msg}"
+        );
+        assert!(
+            !dest.exists(),
+            "an over-cap payload must land NOTHING at local_path"
+        );
+        assert_eq!(
+            std::fs::read_dir(&dir).expect("dir").count(),
+            0,
+            "…and leave no `.part` corpse either"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The other half of "this door uses the shared rule": a payload WITHIN the
+    /// cap lands, through the landing, and the parent directory does not have to
+    /// exist first — `std::fs::write` would have refused with NoSuchFile here,
+    /// and the landing creates parents (the fourth thing it brought to this
+    /// door, after the cap, the `.part` stage and the corpse removal).
+    #[cfg(feature = "terminal")]
+    #[test]
+    fn a_download_lands_through_the_shared_rule_and_creates_the_parent() {
+        let dir = std::env::temp_dir().join(format!("summrise-sftp-ok-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dest = dir.join("nested").join("fw.bin");
+        assert!(!dir.exists(), "the landing must create the whole path");
+        let landed = land_downloaded(dest.to_string_lossy().as_ref(), b"firmware")
+            .expect("a payload within the cap must land");
+        assert_eq!(landed, 8);
+        assert_eq!(std::fs::read(&dest).expect("read"), b"firmware");
+        assert!(
+            !dir.join("nested").join("fw.bin.part").exists(),
+            "the .part staging name is a sibling, and it is gone after the rename"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

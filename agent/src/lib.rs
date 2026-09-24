@@ -227,6 +227,12 @@ pub mod state;
 /// the plugins + the audit trail (SOLID R105).
 pub(crate) mod text;
 pub mod tools;
+/// ONE WAY TO LAND A TRANSFER — the `.part` sibling, the size cap enforced
+/// while the bytes arrive, the rename last and the corpse removed on every
+/// failure path, shared by both transfer doors (`system_file_download` and
+/// `terminal_sftp`). Internal-only: it is device file hygiene, not a wire
+/// surface.
+pub(crate) mod transfer;
 pub mod tunnel;
 pub mod vocabulary;
 pub mod web;
