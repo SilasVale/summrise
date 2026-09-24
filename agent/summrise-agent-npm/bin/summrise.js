@@ -3040,6 +3040,15 @@ const commands = {
 // WITHOUT tripping the usage print + process.exit at module load.
 if (require.main === module) {
     const [cmd, ...rest] = process.argv.slice(2);
+    // `--version` ANSWERS THE CHECK THE INSTALLER'S OWN CHECKLIST MAKES, and it used to fail it. It is not
+    // a verb, so it fell through to the usage branch below, printed the verb list and exited 1 — while
+    // step 4 of `deploy/README-installer.md` BEGINS with "`summrise --version` / the panel opens". A fresh
+    // install that worked therefore reported a failure in the one place the operator is told to look,
+    // which is the same defect as a comment promising more than the code does.
+    if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+        console.log(String(require("../package.json").version || ""));
+        process.exit(0);
+    }
     if (!cmd || !commands[cmd]) {
         // The list is DERIVED from `commands`, so the help cannot promise a verb that was pruned
         // (`report` and `watch` were still advertised after their round-25 removal — a usage line is a

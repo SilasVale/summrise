@@ -1814,3 +1814,25 @@ test("every schtasks action is CHECKED, so a service verb cannot fail silently",
     "an svc() call whose status is discarded is the defect its own doc names",
   );
 });
+
+test("--version answers the installer's acceptance check, and exits 0", () => {
+  // Step 4 of deploy/README-installer.md BEGINS with "`summrise --version` / the panel opens". It is not
+  // a verb, so it fell through to the usage branch, printed the verb list and exited 1 — a fresh install
+  // that had worked reported a FAILURE in the one place the operator is told to look. This is also the
+  // only documented invocation that mutates nothing, which is why it can be EXECUTED rather than read.
+  const { spawnSync } = require("node:child_process");
+  const bin = new URL("../bin/summrise.js", import.meta.url).pathname;
+  const r = spawnSync(process.execPath, [bin, "--version"], {
+    encoding: "utf8",
+  });
+  assert.equal(
+    r.status,
+    0,
+    `--version must exit 0, got ${r.status}: ${r.stdout}${r.stderr}`,
+  );
+  assert.match(
+    r.stdout.trim(),
+    /^\d+\.\d+\.\d+$/,
+    "and print the version, not the usage list",
+  );
+});

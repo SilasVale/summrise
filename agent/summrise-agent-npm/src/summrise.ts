@@ -301,8 +301,8 @@ export function desktopStartPs(installQ: string): string[] {
     "if (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }",
     "# DO NOT RE-REGISTER THE TASK TO START IT. Register-ScheduledTask needs the interactive",
     "# user's principal as DOMAIN\\user, and a shell running as a service account has no such",
-    "# mapping -- the device answered \"No mapping between account names and security IDs was",
-    "# done ... UserId\" from a PTY running as systemprofile, while the task itself was Ready.",
+    '# mapping -- the device answered "No mapping between account names and security IDs was',
+    '# done ... UserId" from a PTY running as systemprofile, while the task itself was Ready.',
     "# The task already carries the right principal -- `summrise setup` creates it -- so starting",
     "# it is all that is needed.",
     "$t = Get-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue",
@@ -336,38 +336,41 @@ export function parseAgentPort(yamlText: string): number | null {
 // scan, no YAML dependency. Absent means "cannot talk to the device API", which
 // the callers report as a state rather than as a crash.
 export function parseDeviceToken(yamlText) {
-    let inServer = false;
-    for (const raw of String(yamlText || "").split(/\r?\n/)) {
-        const line = raw.replace(/\s+$/, "");
-        if (/^\S/.test(line))
-            inServer = /^server\s*:/.test(line);
-        if (!inServer)
-            continue;
-        const m = /^\s*device_token\s*:\s*"?([A-Za-z0-9._-]+)"?\s*(#.*)?$/.exec(line);
-        if (m)
-            return m[1];
-    }
-    return null;
+  let inServer = false;
+  for (const raw of String(yamlText || "").split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, "");
+    if (/^\S/.test(line)) inServer = /^server\s*:/.test(line);
+    if (!inServer) continue;
+    const m = /^\s*device_token\s*:\s*"?([A-Za-z0-9._-]+)"?\s*(#.*)?$/.exec(
+      line,
+    );
+    if (m) return m[1];
+  }
+  return null;
 }
 function deviceToken(dir) {
-    try {
-        return parseDeviceToken(fs.readFileSync(path.join(dir, "config.yaml"), "utf8"));
-    }
-    catch {
-        return null;
-    }
+  try {
+    return parseDeviceToken(
+      fs.readFileSync(path.join(dir, "config.yaml"), "utf8"),
+    );
+  } catch {
+    return null;
+  }
 }
 // `host:port[/path]` -> the target id the device uses. A path is part of the
 // identity, so `192.168.1.1:80/` and `192.168.1.1:80` are two different checks.
 export function parseTargetArg(arg) {
-    const s = String(arg || "").trim();
-    const m = /^([^\s/:]+):(\d{1,5})(\/.*)?$/.exec(s);
-    if (!m)
-        return null;
-    const port = Number(m[2]);
-    if (!Number.isInteger(port) || port < 1 || port > 65535)
-        return null;
-    return { host: m[1], port, path: m[3] || "", id: `${m[1]}:${port}${m[3] || ""}` };
+  const s = String(arg || "").trim();
+  const m = /^([^\s/:]+):(\d{1,5})(\/.*)?$/.exec(s);
+  if (!m) return null;
+  const port = Number(m[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return {
+    host: m[1],
+    port,
+    path: m[3] || "",
+    id: `${m[1]}:${port}${m[3] || ""}`,
+  };
 }
 /**
  * JSON that survives the command line.
@@ -382,34 +385,49 @@ export function parseTargetArg(arg) {
  * mangle, and `JSON.parse` on the device restores the original text exactly.
  */
 export function asciiJson(value, indent?) {
-    return JSON.stringify(value, null, indent).replace(
-        /[\u007f-\uffff]/g,
-        (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
-    );
+  return JSON.stringify(value, null, indent).replace(
+    /[\u007f-\uffff]/g,
+    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
 }
 
 // The device's own API on loopback, with the token from etc\config.yaml.
 export function deviceApi(method, pathname, body?) {
-    const dir = ETC_DIR;
-    const token = deviceToken(dir);
-    if (!token)
-        return { ok: false, error: "no device token in " + path.join(dir, "config.yaml") };
-    const port = agentPort(dir);
-    const args = ["-sS", "-m", "15", "-X", method, "-H", "Authorization: Bearer " + token];
-    if (body !== undefined) {
-        args.push("-H", "content-type: application/json", "-d", asciiJson(body));
-    }
-    args.push(`http://127.0.0.1:${port}${pathname}`);
-    const r = spawnSync("curl", args, { encoding: "utf8", timeout: 20000 });
-    if (r.error || r.status !== 0) {
-        return { ok: false, error: `device unreachable on 127.0.0.1:${port}` + (r.error ? ` (${r.error.message})` : "") };
-    }
-    try {
-        return { ok: true, body: JSON.parse(String(r.stdout || "").trim()) };
-    }
-    catch {
-        return { ok: false, error: "device sent something that is not JSON" };
-    }
+  const dir = ETC_DIR;
+  const token = deviceToken(dir);
+  if (!token)
+    return {
+      ok: false,
+      error: "no device token in " + path.join(dir, "config.yaml"),
+    };
+  const port = agentPort(dir);
+  const args = [
+    "-sS",
+    "-m",
+    "15",
+    "-X",
+    method,
+    "-H",
+    "Authorization: Bearer " + token,
+  ];
+  if (body !== undefined) {
+    args.push("-H", "content-type: application/json", "-d", asciiJson(body));
+  }
+  args.push(`http://127.0.0.1:${port}${pathname}`);
+  const r = spawnSync("curl", args, { encoding: "utf8", timeout: 20000 });
+  if (r.error || r.status !== 0) {
+    return {
+      ok: false,
+      error:
+        `device unreachable on 127.0.0.1:${port}` +
+        (r.error ? ` (${r.error.message})` : ""),
+    };
+  }
+  try {
+    return { ok: true, body: JSON.parse(String(r.stdout || "").trim()) };
+  } catch {
+    return { ok: false, error: "device sent something that is not JSON" };
+  }
 }
 // `4m`, `1h 04m`, `2d 4h` — the shapes the rest of the panel uses.
 // `summrise report` — ONE block an operator can paste into a ticket, a chat or a
@@ -427,31 +445,42 @@ export function deviceApi(method, pathname, body?) {
 // brings its outage log with it, because "it is down" without "since when, and how
 // often" is the half of the answer that starts an argument.
 export function fmtDuration(ms) {
-    const s = Math.max(0, Math.floor(Number(ms || 0) / 1000));
-    if (s < 60)
-        return `${s}s`;
-    if (s < 3600)
-        return `${Math.floor(s / 60)}m`;
-    const h = Math.floor(s / 3600);
-    return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  const s = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  const h = Math.floor(s / 3600);
+  return h >= 24
+    ? `${Math.floor(h / 24)}d ${h % 24}h`
+    : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
 
 export function targetLine(t, nowMs, width = 30) {
-    const s = t.summary || {};
-    const up = s.up_now === true;
-    const state = up ? "up" : s.up_now === false ? "down" : "no readings";
-    const id = String(t.id || "");
-    const since = s.since_ms ? ` ${fmtDuration(nowMs - s.since_ms)}` : "";
-    const status = s.last_status === null || s.last_status === undefined ? "" : `  HTTP ${s.last_status}`;
-    // A content check that did not find its text is the case a status code cannot express, so it
-    // is printed as its own word next to the code.
-    const match = s.last_expect_ok === false ? "  no match" : s.last_expect_ok === true ? "  matches" : "";
-    const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
-    const pct = s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
-    const drops = s.drops ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}` : "";
-    // The operator's own words belong on the line they explain, not in a separate view.
-    const note = t.note && t.note.text ? `  — ${t.note.text}` : "";
-    return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
+  const s = t.summary || {};
+  const up = s.up_now === true;
+  const state = up ? "up" : s.up_now === false ? "down" : "no readings";
+  const id = String(t.id || "");
+  const since = s.since_ms ? ` ${fmtDuration(nowMs - s.since_ms)}` : "";
+  const status =
+    s.last_status === null || s.last_status === undefined
+      ? ""
+      : `  HTTP ${s.last_status}`;
+  // A content check that did not find its text is the case a status code cannot express, so it
+  // is printed as its own word next to the code.
+  const match =
+    s.last_expect_ok === false
+      ? "  no match"
+      : s.last_expect_ok === true
+        ? "  matches"
+        : "";
+  const lat = s.latency ? `  ${s.latency.avg}ms avg` : "";
+  const pct =
+    s.up_pct === null || s.up_pct === undefined ? "" : `  ${s.up_pct}% up`;
+  const drops = s.drops
+    ? `  ${s.drops} ${s.drops === 1 ? "drop" : "drops"}`
+    : "";
+  // The operator's own words belong on the line they explain, not in a separate view.
+  const note = t.note && t.note.text ? `  — ${t.note.text}` : "";
+  return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
 }
 // ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
 // `summrise monitor list --json` and `summrise watch --once --json` print the DEVICE'S OWN ANSWER,
@@ -464,62 +493,74 @@ export function targetLine(t, nowMs, width = 30) {
 // a script needs to branch on is in it; anything that is presentation (the coloured line, the
 // outage wording) is not.
 export function monitorsJson({ device, askedAtMs, payload, only }) {
-    const targets = ((payload && payload.targets) || [])
-        .filter((t) => !only || t.id === only)
-        .map((t) => ({
-            // EVERY field is present in every row, as `null` when the device did not send it: a
-            // field that vanishes from the JSON is a field a script cannot tell from `false`, and
-            // `JSON.stringify` drops `undefined` keys silently (which is how the first version of
-            // this shipped `up_pct` missing for a target that had never been probed).
-            id: t.id === undefined ? null : t.id,
-            host: t.host === undefined ? null : t.host,
-            port: t.port === undefined ? null : t.port,
-            path: t.path === undefined ? null : t.path,
-            expect: t.expect === undefined ? null : t.expect,
-            // The device's numbers, verbatim. `up: null` means "not read yet" and is NOT false.
-            up: t.summary && t.summary.up_now !== undefined ? t.summary.up_now : null,
-            up_pct: t.summary && t.summary.up_pct !== undefined ? t.summary.up_pct : null,
-            since_ms: t.summary && t.summary.since_ms !== undefined ? t.summary.since_ms : null,
-            drops: t.summary && t.summary.drops !== undefined ? t.summary.drops : null,
-            latency_ms: t.summary && t.summary.latency ? t.summary.latency.avg : null,
-            last_status: t.summary && t.summary.last_status !== undefined ? t.summary.last_status : null,
-            last_expect_ok:
-                t.summary && t.summary.last_expect_ok !== undefined ? t.summary.last_expect_ok : null,
-            probes: t.summary && t.summary.probes !== undefined ? t.summary.probes : null,
-            transitions: (t.transitions || []).map((x) => ({ at_ms: x.at_ms, up: x.up, lasted_ms: x.lasted_ms })),
-        }));
-    return {
-        device: device || "",
-        asked_at_ms: askedAtMs,
-        interval_secs: (payload && payload.interval_secs) || null,
-        targets,
-    };
+  const targets = ((payload && payload.targets) || [])
+    .filter((t) => !only || t.id === only)
+    .map((t) => ({
+      // EVERY field is present in every row, as `null` when the device did not send it: a
+      // field that vanishes from the JSON is a field a script cannot tell from `false`, and
+      // `JSON.stringify` drops `undefined` keys silently (which is how the first version of
+      // this shipped `up_pct` missing for a target that had never been probed).
+      id: t.id === undefined ? null : t.id,
+      host: t.host === undefined ? null : t.host,
+      port: t.port === undefined ? null : t.port,
+      path: t.path === undefined ? null : t.path,
+      expect: t.expect === undefined ? null : t.expect,
+      // The device's numbers, verbatim. `up: null` means "not read yet" and is NOT false.
+      up: t.summary && t.summary.up_now !== undefined ? t.summary.up_now : null,
+      up_pct:
+        t.summary && t.summary.up_pct !== undefined ? t.summary.up_pct : null,
+      since_ms:
+        t.summary && t.summary.since_ms !== undefined
+          ? t.summary.since_ms
+          : null,
+      drops:
+        t.summary && t.summary.drops !== undefined ? t.summary.drops : null,
+      latency_ms: t.summary && t.summary.latency ? t.summary.latency.avg : null,
+      last_status:
+        t.summary && t.summary.last_status !== undefined
+          ? t.summary.last_status
+          : null,
+      last_expect_ok:
+        t.summary && t.summary.last_expect_ok !== undefined
+          ? t.summary.last_expect_ok
+          : null,
+      probes:
+        t.summary && t.summary.probes !== undefined ? t.summary.probes : null,
+      transitions: (t.transitions || []).map((x) => ({
+        at_ms: x.at_ms,
+        up: x.up,
+        lasted_ms: x.lasted_ms,
+      })),
+    }));
+  return {
+    device: device || "",
+    asked_at_ms: askedAtMs,
+    interval_secs: (payload && payload.interval_secs) || null,
+    targets,
+  };
 }
 
 // ONE PROBE'S ANSWER, as a line — the terminal's version of what the device's `monitor_probe`
 // returns. Pure, because the wording is the feature: a DOWN probe says WHICH way it failed
 // (no connection / status 500 / 200 without the expected text), not merely that it failed.
 export function probeLine(target, probe, nowMs) {
-    const id = String((target && target.id) || "");
-    const ok = probe && probe.ok === true;
-    const state = ok ? "UP  " : "DOWN";
-    const bits = [];
-    if (probe && probe.status !== null && probe.status !== undefined)
-        bits.push(`HTTP ${probe.status}`);
-    // A content check is the one failure a status code cannot express, so it is named.
-    if (target && target.expect) {
-        if (probe && probe.expect_ok === false)
-            bits.push(`no match for "${target.expect}"`);
-        else if (probe && probe.expect_ok === true)
-            bits.push(`matches "${target.expect}"`);
-        else
-            bits.push(`could not read the body to look for "${target.expect}"`);
-    }
-    if (probe && typeof probe.ms === "number")
-        bits.push(`${probe.ms}ms`);
-    if (!ok && bits.length === 0)
-        bits.push("no answer");
-    return `${state} ${id}${bits.length ? "  " + bits.join("  ") : ""}`;
+  const id = String((target && target.id) || "");
+  const ok = probe && probe.ok === true;
+  const state = ok ? "UP  " : "DOWN";
+  const bits = [];
+  if (probe && probe.status !== null && probe.status !== undefined)
+    bits.push(`HTTP ${probe.status}`);
+  // A content check is the one failure a status code cannot express, so it is named.
+  if (target && target.expect) {
+    if (probe && probe.expect_ok === false)
+      bits.push(`no match for "${target.expect}"`);
+    else if (probe && probe.expect_ok === true)
+      bits.push(`matches "${target.expect}"`);
+    else bits.push(`could not read the body to look for "${target.expect}"`);
+  }
+  if (probe && typeof probe.ms === "number") bits.push(`${probe.ms}ms`);
+  if (!ok && bits.length === 0) bits.push("no answer");
+  return `${state} ${id}${bits.length ? "  " + bits.join("  ") : ""}`;
 }
 
 // The transitions a target has been through, newest first — the outage log an
@@ -801,10 +842,9 @@ export interface StatusFacts {
  * relies on, and a 3 s cap keeps `status` from hanging on a bad network.
  */
 export function latestCdnVersion(): string | null {
-  const base = (process.env.SUMMRISE_CDN || "https://agent.saisi.online").replace(
-    /\/+$/,
-    "",
-  );
+  const base = (
+    process.env.SUMMRISE_CDN || "https://agent.saisi.online"
+  ).replace(/\/+$/, "");
   const r = spawnSync("curl", ["-s", "-m", "3", `${base}/api/version`], {
     encoding: "utf8",
     timeout: 5000,
@@ -897,7 +937,10 @@ export function componentKey(fileName: string): string | null {
 }
 
 /** The manifest's component pins, or {} when it carries none (an older release). */
-export function componentPins(): Record<string, { url?: string; sha256?: string }> {
+export function componentPins(): Record<
+  string,
+  { url?: string; sha256?: string }
+> {
   const r = spawnSync("curl", ["-s", "-m", "5", `${cdnBase()}/api/version`], {
     encoding: "utf8",
     timeout: 8000,
@@ -936,7 +979,10 @@ export function sha256File(p: string): string {
  */
 export function resolveComponent(name: string, pkgPath: string): string | null {
   if (fs.existsSync(pkgPath)) return pkgPath;
-  const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "summrise-comp-")), name);
+  const dest = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "summrise-comp-")),
+    name,
+  );
   // -f: an HTTP error is a FAILURE, not a 404 page written to disk (the
   // HTML-polluted download that round-54 exists to remember).
   const r = spawnSync(
@@ -965,11 +1011,15 @@ export function resolveComponent(name: string, pkgPath: string): string | null {
       );
       return null;
     }
-    console.log(`setup: ${name} verified against the release manifest (${pin.slice(0, 12)}…)`);
+    console.log(
+      `setup: ${name} verified against the release manifest (${pin.slice(0, 12)}…)`,
+    );
   } else if (key) {
     console.log(`setup: ${name} fetched WITHOUT a manifest pin — not verified`);
   }
-  console.log(`setup: ${name} fetched from the release host (not in the package)`);
+  console.log(
+    `setup: ${name} fetched from the release host (not in the package)`,
+  );
   return dest;
 }
 
@@ -1108,7 +1158,9 @@ export function statusReport(f: StatusFacts): string[] {
  *  sentence's truthiness — where "0 releases" and "-1 releases" are both TRUTHY, so it would have refused every update,
  *  including the correct one. Caught by asking the artefact before shipping it. */
 function versionTriple(v: string): number[] | null {
-  const t = String(v || "").split(".").map(Number);
+  const t = String(v || "")
+    .split(".")
+    .map(Number);
   return t.length === 3 && t.every((n) => Number.isFinite(n)) ? t : null;
 }
 
@@ -1397,7 +1449,11 @@ export function writeReleaseMarker(installDir: string): void {
     if (!v) return;
     // No mkdir: callers (setup/update) always run after staging/migration,
     // so etc\ exists — a missing dir stays a silent best-effort skip.
-    fs.writeFileSync(path.join(installDir, "etc", ".summrise-release"), v, "utf8");
+    fs.writeFileSync(
+      path.join(installDir, "etc", ".summrise-release"),
+      v,
+      "utf8",
+    );
   } catch {
     /* best-effort */
   }
@@ -1412,7 +1468,12 @@ export function writeReleaseMarker(installDir: string): void {
 /** @returns how many files were actually staged — 0 means the sources were not
  *  present, which the caller MUST NOT report as "staged". */
 function stageDesktopShell(installDir: string, suffix: "" | ".new"): number {
-  const DESK_SRC = path.join(__dirname, "..", "summrise-desktop-electron", "src");
+  const DESK_SRC = path.join(
+    __dirname,
+    "..",
+    "summrise-desktop-electron",
+    "src",
+  );
   if (!fs.existsSync(DESK_SRC)) return 0;
   const desDst = path.join(
     installDir,
@@ -1432,7 +1493,12 @@ function stageDesktopShell(installDir: string, suffix: "" | ".new"): number {
   // icon.png/.ico go next to src/ (Electron loads from ../icon.png;
   // Windows Tray requires the .ico).
   for (const icon of ["icon.png", "icon.ico"]) {
-    const iconSrc = path.join(__dirname, "..", "summrise-desktop-electron", icon);
+    const iconSrc = path.join(
+      __dirname,
+      "..",
+      "summrise-desktop-electron",
+      icon,
+    );
     if (fs.existsSync(iconSrc))
       fs.copyFileSync(
         iconSrc,
@@ -1447,7 +1513,11 @@ function stageDesktopShell(installDir: string, suffix: "" | ".new"): number {
   // leaving the desktop shell dead on every fresh box. Write the minimal
   // manifest here (setup + update paths; idempotent, not held open by the
   // running shell).
-  const shellDir = path.join(installDir, "components", "summrise-desktop-electron");
+  const shellDir = path.join(
+    installDir,
+    "components",
+    "summrise-desktop-electron",
+  );
   try {
     fs.writeFileSync(
       path.join(shellDir, "package.json"),
@@ -1509,7 +1579,9 @@ function initTunnel(hostname, regKey) {
   const cfg = path.join(ETC_DIR, "tunnel.yml");
   if (!fs.existsSync(cf)) {
     console.error("tunnel: cloudflared.exe not staged at", cf);
-    console.error("  reinstall the package (npm i -g summrise-agent) to stage it.");
+    console.error(
+      "  reinstall the package (npm i -g summrise-agent) to stage it.",
+    );
     process.exit(1);
   }
   const host = hostname || "d1.agent.saisi.online";
@@ -1632,7 +1704,9 @@ function markDeliberateStop(reason: "stop" | "update" = "stop"): void {
   // real crash within ~60 s — the durations overlap, so an unmarked update lands as a CRASH.
   const r = deviceApi("POST", "/api/run/mark-exit", { reason });
   if (!r.ok) {
-    console.error(`  (note: could not mark this stop as deliberate -- ${r.error}; the next start may report a crash)`);
+    console.error(
+      `  (note: could not mark this stop as deliberate -- ${r.error}; the next start may report a crash)`,
+    );
     return;
   }
   if (r.body && r.body.marked === false) {
@@ -1824,9 +1898,13 @@ const commands = {
             console.error("setup: exe copy failed:", e?.message || e);
             process.exit(1);
           }
-          spawnSync("cmd", ["/c", "taskkill", "/F", "/IM", "summrise-agent.exe"], {
-            stdio: "ignore",
-          });
+          spawnSync(
+            "cmd",
+            ["/c", "taskkill", "/F", "/IM", "summrise-agent.exe"],
+            {
+              stdio: "ignore",
+            },
+          );
           try {
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);
           } catch {
@@ -1970,7 +2048,10 @@ const commands = {
     // shims rather than hand-written ones; when npm cannot, say the command.
     {
       const selfVer = String(require("../package.json").version || "");
-      const pfx = spawnSync("npm", ["prefix", "-g"], { encoding: "utf8", shell: true });
+      const pfx = spawnSync("npm", ["prefix", "-g"], {
+        encoding: "utf8",
+        shell: true,
+      });
       const pre = pfx.status === 0 ? String(pfx.stdout || "").trim() : "";
       if (selfVer && pre) {
         const inst = spawnSync(
@@ -2135,113 +2216,152 @@ const commands = {
   // is, needs no browser, and `summrise watch` keeps it live on screen.
   // async: `wait` blocks on probes (the dispatcher already awaits every command).
   async monitor(args) {
-      const sub = String(args[0] || "list").toLowerCase();
-      // `--expect <text>`: the page must CONTAIN this text, or the watch counts it as down — the
-      // difference between a working UI and a login page that answers 200.
-      const expectAt = args.indexOf("--expect");
-      const expect = expectAt >= 0 ? String(args[expectAt + 1] || "") : "";
-      const positional = args.filter((a, i) => i > 0 && a !== "--expect" && i !== expectAt + 1);
-      if (expectAt >= 0 && !expect) {
-          console.error("usage: summrise monitor add <host:port[/path]> --expect \"<text>\"");
+    const sub = String(args[0] || "list").toLowerCase();
+    // `--expect <text>`: the page must CONTAIN this text, or the watch counts it as down — the
+    // difference between a working UI and a login page that answers 200.
+    const expectAt = args.indexOf("--expect");
+    const expect = expectAt >= 0 ? String(args[expectAt + 1] || "") : "";
+    const positional = args.filter(
+      (a, i) => i > 0 && a !== "--expect" && i !== expectAt + 1,
+    );
+    if (expectAt >= 0 && !expect) {
+      console.error(
+        'usage: summrise monitor add <host:port[/path]> --expect "<text>"',
+      );
+      process.exit(1);
+    }
+    if (sub === "add" || sub === "rm" || sub === "remove") {
+      const t = parseTargetArg(positional[0]);
+      if (!t) {
+        console.error(
+          "usage: summrise monitor add <host:port[/path]>   (e.g. 192.168.1.1:80/ or 192.168.1.1:22)",
+        );
+        process.exit(1);
+      }
+      if (sub === "add") {
+        const r = deviceApi("POST", "/api/monitors/add", {
+          host: t.host,
+          port: t.port,
+          path: t.path,
+          expect,
+        });
+        if (!r.ok) {
+          console.error(`monitor add: ${r.error}`);
           process.exit(1);
-      }
-      if (sub === "add" || sub === "rm" || sub === "remove") {
-          const t = parseTargetArg(positional[0]);
-          if (!t) {
-              console.error("usage: summrise monitor add <host:port[/path]>   (e.g. 192.168.1.1:80/ or 192.168.1.1:22)");
-              process.exit(1);
-          }
-          if (sub === "add") {
-              const r = deviceApi("POST", "/api/monitors/add", { host: t.host, port: t.port, path: t.path, expect });
-              if (!r.ok) {
-                  console.error(`monitor add: ${r.error}`);
-                  process.exit(1);
-              }
-              if (r.body && r.body.ok === false) {
-                  console.error(`monitor add: ${r.body.error}`);
-                  process.exit(1);
-              }
-              // Probe once so the operator sees a reading instead of "no readings yet"
-              // for one 15 s cycle — the same courtesy the panel gives.
-              deviceApi("POST", "/api/monitors/probe", { id: t.id });
-              console.log(`watching ${t.id}${t.path ? " (HTTP GET, status code recorded)" : " (TCP connect)"}` +
-                  (expect ? ` requiring the body to contain "${expect}"` : ""));
-              return;
-          }
-          const r = deviceApi("POST", "/api/monitors/remove", { id: t.id });
-          if (!r.ok) {
-              console.error(`monitor rm: ${r.error}`);
-              process.exit(1);
-          }
-          console.log(r.body && r.body.removed ? `stopped watching ${t.id}` : `monitor rm: ${t.id} was not being watched`);
-          return;
-      }
-      if (sub === "probe") {
-          // CHECK NOW. The device probes every 15 s on its own timer; this is for the moment after
-          // a reboot or a config change, when waiting one cycle is the difference between "it is
-          // back" and "I am still guessing". The AI has had this ability since it existed; the
-          // operator's own terminal did not.
-          const t = parseTargetArg(positional[0]);
-          if (!t) {
-              console.error("usage: summrise monitor probe <host:port[/path]>");
-              process.exit(1);
-          }
-          const r = deviceApi("POST", "/api/tools/monitor_probe", { id: t.id });
-          const payload = r.ok ? r.body : null;
-          if (!r.ok) {
-              console.error(`monitor probe: ${r.error}`);
-              process.exit(1);
-          }
-          if (!payload || payload.ok !== true) {
-              // The device refuses to probe what it is not watching (one rule, one place). The
-              // CLI passes that on WITH the way out, instead of quietly adding a watch.
-              const why = (payload && payload.error) || "the device refused the probe";
-              console.error(`monitor probe: ${why}`);
-              console.error(`  to watch it: summrise monitor add ${t.id}`);
-              process.exit(1);
-          }
-          const probe = payload.result && payload.result.probe;
-          // The device sends the CRITERION with the answer (`expect`), so "no match" can name the
-          // text it looked for — an unreadable verdict is a verdict nobody can act on.
-          console.log(probeLine({ id: t.id, expect: (payload.result && payload.result.expect) || null }, probe, Date.now()));
-          return;
-      }
-      if (sub !== "list") {
-          console.error("usage: summrise monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | rm <host:port[/path]>]");
+        }
+        if (r.body && r.body.ok === false) {
+          console.error(`monitor add: ${r.body.error}`);
           process.exit(1);
+        }
+        // Probe once so the operator sees a reading instead of "no readings yet"
+        // for one 15 s cycle — the same courtesy the panel gives.
+        deviceApi("POST", "/api/monitors/probe", { id: t.id });
+        console.log(
+          `watching ${t.id}${t.path ? " (HTTP GET, status code recorded)" : " (TCP connect)"}` +
+            (expect ? ` requiring the body to contain "${expect}"` : ""),
+        );
+        return;
       }
-      const r = deviceApi("GET", "/api/monitors");
+      const r = deviceApi("POST", "/api/monitors/remove", { id: t.id });
       if (!r.ok) {
-          console.error(`monitor: ${r.error}`);
-          process.exit(1);
+        console.error(`monitor rm: ${r.error}`);
+        process.exit(1);
       }
-      if (args.includes("--json")) {
-          // For a script: the device's numbers, one object, no colour and no prose. A device that
-          // could not be reached is a NON-ZERO EXIT with the reason on stderr, never a JSON body
-          // pretending everything is fine.
-          const os = require("os");
-          // ASCII-escaped for the same reason the request body is (see `asciiJson`): a PIPE is an
-          // encoding boundary too. PowerShell decodes a child's output with the console code page
-          // (CP936 on d1), so raw UTF-8 through a pipe came back as mojibake while the same text
-          // printed directly read fine — the second face of this bug.
-          console.log(
-              asciiJson(
-                  monitorsJson({ device: os.hostname(), askedAtMs: Date.now(), payload: r.body, only: null }),
-                  2,
-              ),
-          );
-          return;
+      console.log(
+        r.body && r.body.removed
+          ? `stopped watching ${t.id}`
+          : `monitor rm: ${t.id} was not being watched`,
+      );
+      return;
+    }
+    if (sub === "probe") {
+      // CHECK NOW. The device probes every 15 s on its own timer; this is for the moment after
+      // a reboot or a config change, when waiting one cycle is the difference between "it is
+      // back" and "I am still guessing". The AI has had this ability since it existed; the
+      // operator's own terminal did not.
+      const t = parseTargetArg(positional[0]);
+      if (!t) {
+        console.error("usage: summrise monitor probe <host:port[/path]>");
+        process.exit(1);
       }
-      const targets = (r.body && r.body.targets) || [];
-      if (targets.length === 0) {
-          console.log("watching nothing. `summrise monitor add 192.168.1.1:22` starts one;");
-          console.log("add a path to check a web UI instead of a port: `summrise monitor add 192.168.1.1:80/`");
-          return;
+      const r = deviceApi("POST", "/api/tools/monitor_probe", { id: t.id });
+      const payload = r.ok ? r.body : null;
+      if (!r.ok) {
+        console.error(`monitor probe: ${r.error}`);
+        process.exit(1);
       }
-      const now = Date.now();
-      console.log(`watching ${targets.length} target(s), probed every ${r.body.interval_secs || 15}s:`);
-      for (const t of targets)
-          console.log(targetLine(t, now));
+      if (!payload || payload.ok !== true) {
+        // The device refuses to probe what it is not watching (one rule, one place). The
+        // CLI passes that on WITH the way out, instead of quietly adding a watch.
+        const why =
+          (payload && payload.error) || "the device refused the probe";
+        console.error(`monitor probe: ${why}`);
+        console.error(`  to watch it: summrise monitor add ${t.id}`);
+        process.exit(1);
+      }
+      const probe = payload.result && payload.result.probe;
+      // The device sends the CRITERION with the answer (`expect`), so "no match" can name the
+      // text it looked for — an unreadable verdict is a verdict nobody can act on.
+      console.log(
+        probeLine(
+          {
+            id: t.id,
+            expect: (payload.result && payload.result.expect) || null,
+          },
+          probe,
+          Date.now(),
+        ),
+      );
+      return;
+    }
+    if (sub !== "list") {
+      console.error(
+        "usage: summrise monitor [list [--json] | add <host:port[/path]> [--expect <text>] | probe <host:port[/path]> | rm <host:port[/path]>]",
+      );
+      process.exit(1);
+    }
+    const r = deviceApi("GET", "/api/monitors");
+    if (!r.ok) {
+      console.error(`monitor: ${r.error}`);
+      process.exit(1);
+    }
+    if (args.includes("--json")) {
+      // For a script: the device's numbers, one object, no colour and no prose. A device that
+      // could not be reached is a NON-ZERO EXIT with the reason on stderr, never a JSON body
+      // pretending everything is fine.
+      const os = require("os");
+      // ASCII-escaped for the same reason the request body is (see `asciiJson`): a PIPE is an
+      // encoding boundary too. PowerShell decodes a child's output with the console code page
+      // (CP936 on d1), so raw UTF-8 through a pipe came back as mojibake while the same text
+      // printed directly read fine — the second face of this bug.
+      console.log(
+        asciiJson(
+          monitorsJson({
+            device: os.hostname(),
+            askedAtMs: Date.now(),
+            payload: r.body,
+            only: null,
+          }),
+          2,
+        ),
+      );
+      return;
+    }
+    const targets = (r.body && r.body.targets) || [];
+    if (targets.length === 0) {
+      console.log(
+        "watching nothing. `summrise monitor add 192.168.1.1:22` starts one;",
+      );
+      console.log(
+        "add a path to check a web UI instead of a port: `summrise monitor add 192.168.1.1:80/`",
+      );
+      return;
+    }
+    const now = Date.now();
+    console.log(
+      `watching ${targets.length} target(s), probed every ${r.body.interval_secs || 15}s:`,
+    );
+    for (const t of targets) console.log(targetLine(t, now));
   },
   // Live view: redraw in place every few seconds until Ctrl+C. `summrise watch
   // <host:port[/path]>` narrows it to one target and adds its outage log.
@@ -3016,10 +3136,9 @@ const commands = {
       console.error("usage: summrise rollback <x.y.z> | status | --clear");
       process.exit(1);
     }
-    const base = (process.env.SUMMRISE_CDN || "https://agent.saisi.online").replace(
-      /\/+$/,
-      "",
-    );
+    const base = (
+      process.env.SUMMRISE_CDN || "https://agent.saisi.online"
+    ).replace(/\/+$/, "");
     const url = `${base}/summrise-agent/summrise-agent-${val}.tgz`;
     const head = spawnSync(
       "curl",
@@ -3230,9 +3349,13 @@ const commands = {
     // still there, and exit 0. The legacy-dir loop just above is the pattern.
     const survivors: string[] = [];
     if (fs.existsSync(DIR)) survivors.push(`install dir ${DIR}`);
-    const regLeft = spawnSync("reg", ["query", "HKLM\\SOFTWARE\\Summrise\\Agent"], {
-      encoding: "utf8",
-    });
+    const regLeft = spawnSync(
+      "reg",
+      ["query", "HKLM\\SOFTWARE\\Summrise\\Agent"],
+      {
+        encoding: "utf8",
+      },
+    );
     if (regLeft.status === 0)
       survivors.push("registry key HKLM\\SOFTWARE\\Summrise\\Agent");
     if (survivors.length) {
@@ -3401,7 +3524,9 @@ const commands = {
         return;
       }
       default:
-        console.log("usage: summrise tunnel <status|install|start|stop|update>");
+        console.log(
+          "usage: summrise tunnel <status|install|start|stop|update>",
+        );
         process.exit(1);
     }
   },
@@ -3411,11 +3536,24 @@ const commands = {
 // WITHOUT tripping the usage print + process.exit at module load.
 if (require.main === module) {
   const [cmd, ...rest] = process.argv.slice(2);
+  // `--version` ANSWERS THE CHECK THE INSTALLER'S OWN CHECKLIST MAKES, and it used to fail it. It is not
+  // a verb, so it fell through to the usage branch below, printed the verb list and exited 1 — while
+  // step 4 of `deploy/README-installer.md` BEGINS with "`summrise --version` / the panel opens". A fresh
+  // install that worked therefore reported a failure in the one place the operator is told to look,
+  // which is the same defect as a comment promising more than the code does.
+  if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+    console.log(String(require("../package.json").version || ""));
+    process.exit(0);
+  }
   if (!cmd || !commands[cmd]) {
     // The list is DERIVED from `commands`, so the help cannot promise a verb that was pruned
     // (`report` and `watch` were still advertised after their round-25 removal — a usage line is a
     // contract, and one that lies is worse than none).
-    console.log("summrise <" + Object.keys(commands).join("|") + "> -- Summrise Agent control");
+    console.log(
+      "summrise <" +
+        Object.keys(commands).join("|") +
+        "> -- Summrise Agent control",
+    );
     Object.keys(commands).forEach((k) => console.log(" ", k));
     process.exit(cmd ? 1 : 0);
   }
