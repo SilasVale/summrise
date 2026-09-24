@@ -652,13 +652,13 @@ jobs:
         working-directory: agent
         run: grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker — recompile src/summrise.ts and commit bin/summrise.js"; exit 1; }
       # (b) the SAME electron freshness gate as release.yml (the
-      # typescript@5 install is ~15s) — FAIL on mismatch. typeRoots points
+      # typescript@5.9.3 install is ~15s) — FAIL on mismatch. typeRoots points
       # at summrise-agent-npm's own @types and --noCheck skips typechecking
       # (electron's node_modules is not installed in CI) — see release.yml.
       - name: Electron src freshness (same gate as release)
         working-directory: agent
         run: |
-          (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)
+          (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5.9.3 @types/node@22)
           (cd summrise-agent-npm && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
             --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh --noCheck)
           for F in main.js preload.js url-policy.js; do

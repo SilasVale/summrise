@@ -202,7 +202,7 @@ jobs:
           # electron postinstall download is not needed for tsc).
           # summrise-agent-npm package.json is os:win32 — --force skips the
           # platform check on the Linux runner.
-          (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)
+          (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5.9.3 @types/node@22)
           (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json)
           cp summrise-agent-npm/dist/summrise.js summrise-agent-npm/bin/summrise.js
           grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker"; exit 1; }
