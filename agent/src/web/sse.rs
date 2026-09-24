@@ -93,8 +93,20 @@ pub(crate) fn acquire_sse_guard() -> Result<SseConnectionGuard, Box<Response>> {
         Some(g) => Ok(g),
         None => Err(Box::new(built_response(
             StatusCode::SERVICE_UNAVAILABLE,
-            "text/plain",
-            Body::from("too many SSE viewers (max 64)"),
+            // THE DEVICE'S OWN ERROR ENVELOPE, not a plain sentence. This said `text/plain` with the
+            // same words, and the panel's client surfaces a body ONLY when it parses as JSON with a
+            // string `error` — "otherwise keep the HTTP status" (`lib/api.ts`, and its comment says so).
+            // So the most useful message on this surface, "too many SSE viewers (max 64)", reached the
+            // operator as a bare "HTTP 503" and the panel simply reported the stream down. Every other
+            // error this agent sends is `{ok:false,error}`; this one now is too.
+            "application/json",
+            Body::from(
+                serde_json::json!({
+                    "ok": false,
+                    "error": "too many SSE viewers (max 64)",
+                })
+                .to_string(),
+            ),
         ))),
     }
 }

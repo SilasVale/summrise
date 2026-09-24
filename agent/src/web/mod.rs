@@ -6941,16 +6941,39 @@ mod tests {
 
         // Fill the pool, keeping every accepted response alive.
         let mut held = Vec::new();
+        let mut refused = None;
         for _ in 0..(max + 6) {
             let resp = open(st.clone()).await;
             if resp.status() != StatusCode::SERVICE_UNAVAILABLE {
                 held.push(resp);
+            } else if refused.is_none() {
+                refused = Some(resp);
             }
         }
         assert_eq!(
             held.len(),
             max,
             "expected the pool to fill to exactly {max}"
+        );
+
+        // THE REFUSAL SAYS WHY, IN THE SHAPE THE CLIENT PARSES. The panel's `lib/api.ts` surfaces a body
+        // only when it is JSON carrying a string `error` — its comment says "otherwise keep the HTTP
+        // status" — so this response used to reach the operator as a bare "HTTP 503" while the most
+        // useful sentence on this surface sat in a text/plain body nobody read. The message was always
+        // here; the envelope was not.
+        let refused = refused.expect("filling the pool past its cap must refuse at least once");
+        assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(refused.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let j: serde_json::Value = serde_json::from_slice(&body).expect("the refusal must be JSON");
+        assert_eq!(j["ok"], serde_json::json!(false));
+        assert!(
+            j["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("too many SSE viewers"),
+            "the operator-facing reason must survive the envelope: {j}"
         );
 
         // Let every pump task run. A guard that is dropped when the task
