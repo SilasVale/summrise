@@ -31,6 +31,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const git = (await import("../git.ts")).default;
 const github = (await import("../github.ts")).default;
 
+delete process.env.SUMMRISE_RELAY_HEADER_TIMEOUT_MS;
+
+// RESTORE IT AS SOON AS THE IMPORTS HAVE CAPTURED IT. The two handlers above read this at module
+// load, so the 120 ms is baked in by now; leaving it set meant a LATER import in this process — a
+// future test adding a third handler, say — silently got a 120 ms budget instead of the documented
+// 30 s. Found by the eleventh exploration, which measured exactly that: the only place this variable
+// was ever set is this file.
+
 /** A body that gives its FIRST chunk at once and its second after `ms` — i.e. one
  *  that is still flowing long after the headers arrived. */
 function drippingBody(first, second, ms) {
