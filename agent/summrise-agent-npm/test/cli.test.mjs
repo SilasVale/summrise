@@ -1877,3 +1877,28 @@ test("updateWouldNotMove: the parity fact, and it needs no network", () => {
     "nor is an unknown CLI version",
   );
 });
+
+test("busyMarkerPs names the same file as updateBusyPath", () => {
+  // The agent has had this contract on its own side since it fixed the SAME defect there — its comment
+  // says "busy_marker_path() and busy_marker_ps() both derive from it, and a contract test pins that they
+  // still name the same file". The CLI claimed ONE owner for this path while its generated swap script
+  // carried three hand-written copies of it, and a drift is invisible until an update runs: the swap
+  // releases a file the agent never created, the marker survives, and every later update is refused for
+  // up to an hour.
+  const { updateBusyPath, busyMarkerPs } = require("../bin/summrise.js");
+  const js = updateBusyPath().replace(/\\/g, "/");
+  const ps = busyMarkerPs();
+  assert.match(
+    ps,
+    /^\(Join-Path \$env:ProgramData '/,
+    "the PS form must read the same env var",
+  );
+  const rel = ps
+    .slice(ps.indexOf("'") + 1, ps.lastIndexOf("'"))
+    .replace(/\\/g, "/");
+  assert.ok(
+    rel.length > 0,
+    "the PS form must name a relative path, not the whole thing",
+  );
+  assert.ok(js.endsWith(rel), `${ps} must name the same file as ${js}`);
+});

@@ -75,6 +75,7 @@ exports.isBehind = isBehind;
 exports.behindBy = behindBy;
 exports.updateReceiptPs = updateReceiptPs;
 exports.updateBusyPath = updateBusyPath;
+exports.busyMarkerPs = busyMarkerPs;
 exports.awaitReleaseMarker = awaitReleaseMarker;
 exports.releaseMarkerVerdict = releaseMarkerVerdict;
 exports.boxedVersions = boxedVersions;
@@ -1184,6 +1185,21 @@ function updateReceiptPs(dataDirQ, fromVersion, toVersion) {
  */
 function updateBusyPath() {
     return path.join(process.env.ProgramData || "C:\\ProgramData", "SummriseAgent", "update-busy");
+}
+/**
+ * The SAME marker as the PowerShell text the swap script embeds, DERIVED from `updateBusyPath()` rather
+ * than written out by hand — which is what this file did, three times, inside the generated script. The
+ * agent fixed exactly this on its own side and says why (tools.rs, above BUSY_MARKER_REL): "It used to be
+ * spelled out TWICE: the Rust acquirer built <ProgramData>\SummriseAgent\update-busy from PathBuf joins
+ * while the generated PowerShell swap script carried the same location as two hand-written string
+ * literals. A drift between the two is invisible until an update actually runs — and then the swap
+ * releases a file the agent never created, the marker survives, and every later update is refused for up
+ * to an hour." The CLI's own doc above claims ONE owner for this path; this is what makes that true.
+ */
+function busyMarkerPs() {
+    const root = process.env.ProgramData || "C:\\ProgramData";
+    const rel = path.relative(root, updateBusyPath()).split(path.sep).join("\\");
+    return `(Join-Path $env:ProgramData '${rel}')`;
 }
 /**
  * Poll `etc\.summrise-release` until it shows `want`, or the budget expires.
@@ -2532,7 +2548,7 @@ const commands = {
             // BEFORE touching anything (fail-closed — a config-path argument boots
             // old AND new agents alike, so aborting here leaves the old version
             // running untouched). Without this the moved config strands the boot.
-            `try { ${bootTaskPs(`${q}\\summrise-agent.exe`, `${q}\\etc\\config.yaml`, false).join("; ")} } catch { "[$(Get-Date -Format o)] task repoint FAILED: $($_.Exception.Message)" | ${log}; try { Remove-Item -Force (Join-Path $env:ProgramData 'SummriseAgent\\update-busy') } catch {}; exit 1 }`,
+            `try { ${bootTaskPs(`${q}\\summrise-agent.exe`, `${q}\\etc\\config.yaml`, false).join("; ")} } catch { "[$(Get-Date -Format o)] task repoint FAILED: $($_.Exception.Message)" | ${log}; try { Remove-Item -Force (${busyMarkerPs()}) } catch {}; exit 1 }`,
             `"[$(Get-Date -Format o)] task repointed at etc\\config.yaml" | ${log}`,
             // Layout-v2 migration (ADR 0008): move pre-v2 root paths into their
             // v2 homes. Best-effort per item; the gate below is fail-closed.
@@ -2540,7 +2556,7 @@ const commands = {
             // Fail-closed gate: the new agent reads ONLY the v2 homes. A missing
             // config/hostname here means migration failed — do NOT swap (the old
             // exe keeps running the old layout until the next update).
-            `if ((-not (Test-Path '${q}\\etc\\config.yaml')) -or (-not (Test-Path '${q}\\etc\\summrise-agent.hostname'))) { "[$(Get-Date -Format o)] migration gate FAILED (etc\\config.yaml/hostname missing) -- aborting, old version keeps running" | ${log}; try { Remove-Item -Force (Join-Path $env:ProgramData 'SummriseAgent\\update-busy') } catch {}; exit 1 }`,
+            `if ((-not (Test-Path '${q}\\etc\\config.yaml')) -or (-not (Test-Path '${q}\\etc\\summrise-agent.hostname'))) { "[$(Get-Date -Format o)] migration gate FAILED (etc\\config.yaml/hostname missing) -- aborting, old version keeps running" | ${log}; try { Remove-Item -Force (${busyMarkerPs()}) } catch {}; exit 1 }`,
             // A running exe cannot be overwritten on Windows — stop the service
             // first (task end + process kill), THEN swap with retry.
             "try { Stop-ScheduledTask SummriseAgent -ErrorAction Stop } catch {}",
@@ -2564,7 +2580,7 @@ const commands = {
             // back up (it will run the old exe until the next update).
             `try { Start-ScheduledTask SummriseAgent -ErrorAction Stop } catch { schtasks /Run /TN SummriseAgent }`,
             `"[$(Get-Date -Format o)] task restarted" | ${log}`,
-            `try { Remove-Item -Force (Join-Path $env:ProgramData 'SummriseAgent\\update-busy') } catch {}`,
+            `try { Remove-Item -Force (${busyMarkerPs()}) } catch {}`,
             // Custom-port installs: the firewall rule must track the configured
             // bind port (baked at update time from the live config.yaml — the
             // swap itself runs from a static file and cannot read it).
