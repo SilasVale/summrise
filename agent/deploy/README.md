@@ -2,8 +2,7 @@
 
 Windows deployment notes for the summrise-agent device agent. The install and
 update channel is **npm-only** — but that is the AGENT's channel, not the whole story: the
-NSIS installer is **NOT retired**. `scripts/publish-release.sh` builds it every release, it ships the
-desktop task and the one-click install, and it is served as an asset when a release publishes one. Only
+NSIS installer is **NOT retired** — but it is OPT-IN, and that is the state to hold in mind: `scripts/publish-release.sh` builds it only under `--with-installer` (default `WITH_INSTALLER=0`), and the default path PRUNES any staged `SummriseAgent-Setup-*.exe` (`retire_installers`). That is why the manifest carries no `installer` field and the landing shows no button right now — a PUBLICATION STATE, not a retirement. When it IS built it ships the desktop task and the one-click install, and it is served as an asset. Only
 `setup.ps1` is retired, in `deploy/retired/`. `scripts/build.sh`'s comment carries the history of a
 comment that called the installer retired for long enough that a reader would have believed it.
 

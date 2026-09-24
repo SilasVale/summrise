@@ -4664,7 +4664,8 @@ that it is not, in a comment that says so in as many words — "THE NSIS INSTALL
 comment said it was for long enough that a reader would have believed it". The correction existed in ONE
 place and the READMEs never got it. `index/README.md` was wrong TWICE about the same route: it called the
 Setup.exe route a redirect to the console (it is served as an asset), and it called the installer retired. It
-is built every release, it ships the
+is built ON DEMAND (`--with-installer`; the default prunes any staged exe and the manifest then carries no
+`installer` field — a publication state, not a retirement), and when built it ships the
 desktop task and the one-click install, and an absent `installer` field in the manifest is a PUBLICATION
 STATE, not a retirement.
 
