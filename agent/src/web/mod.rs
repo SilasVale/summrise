@@ -5854,6 +5854,20 @@ mod tests {
             ("GET", "/api/browser/pwshot"),
             ("GET", "/mcp"),
             ("POST", "/mcp"),
+            // ADDED 2026-09-24, AND THEY WERE THE POINT OF THE COMMENT ABOVE. The eight below were in
+            // `dispatch` and NOT here, so "a new route added without auth fails HERE instead of
+            // shipping" was false for them — including the two most dangerous on the surface:
+            // `/api/update` reads the update state and `/api/run/mark-exit` marks how this process is
+            // about to die. Found by the agent-web exploration, which is also why the pairing check at
+            // the end of this test now exists.
+            ("GET", "/api/boots"),
+            ("GET", "/api/vitals/history"),
+            ("GET", "/api/update"),
+            ("GET", "/api/monitors"),
+            ("POST", "/api/monitors/add"),
+            ("POST", "/api/monitors/remove"),
+            ("POST", "/api/monitors/probe"),
+            ("POST", "/api/run/mark-exit"),
         ];
         for (m, p) in routes {
             let r = handle_request(req_anon(m, p), state()).await;
@@ -5868,6 +5882,42 @@ mod tests {
                 StatusCode::UNAUTHORIZED,
                 "{m} {p} served with a WRONG token"
             );
+        }
+
+        // THE LIST ABOVE IS HAND-WRITTEN AND HAD DRIFTED, so this closes the pair rather than trusting
+        // it: every `/api/…` literal inside `dispatch` must appear in that list, and the next route
+        // added there fails HERE — which is what the comment on this test has always claimed. The
+        // reverse is not required: this list also carries the pre-dispatch streaming routes and /mcp.
+        let src = std::fs::read_to_string(file!()).expect("this test reads its own file");
+        let from = src
+            .find("async fn dispatch")
+            .expect("dispatch moved — re-pair this check");
+        let body = &src[from..];
+        let until = body.find("\n    async fn ").unwrap_or(body.len());
+        let listed: std::collections::HashSet<&str> = routes.iter().map(|(_, p)| *p).collect();
+        for lit in body[..until].split('"').skip(1).step_by(2) {
+            // THREE NORMALISATIONS, each learned from this assertion failing on it:
+            //   a {PARAM} template is a prefix — `"/api/sessions/{sid}"` is the match arm while the list
+            //   names `/api/sessions/some-session-id`, the shape a caller actually sends;
+            //   a trailing `/` is a match prefix, not part of the path a caller uses;
+            //   and a prefix is covered by an EXAMPLE UNDER IT (`/api/tools` by
+            //   `/api/tools/terminal_list`) — which is how this list has always worked: it names the
+            //   callable shapes, not the match arms. What is NOT acceptable is a route with no example
+            //   anywhere, which is what this assertion exists to catch.
+            let path = lit.split('{').next().unwrap_or(lit).trim_end_matches('/');
+            if path.starts_with("/api/") {
+                let covered = listed.contains(path)
+                    || listed.iter().any(|p| {
+                        p.len() > path.len()
+                            && p.starts_with(path)
+                            && p.as_bytes()[path.len()] == b'/'
+                    });
+                assert!(
+                    covered,
+                    "dispatch answers {path} and every_dispatch_route_is_auth_gated does not test it — \
+                     add it to the list above, or the route ships unproven"
+                );
+            }
         }
     }
 
