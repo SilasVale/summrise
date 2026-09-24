@@ -65,6 +65,18 @@ async function mount(routes) {
 
 const me = (keys) => ({ username: "admin", role: "admin", token: "tok", keys });
 
+// THE FIRST-RUN CARD, FOUND ONE WAY FOR ALL THREE SCENES — and this line is why scenes 2 and 3 mean
+// something again. Scene 1 already looked the card up BY ITS TITLE, after round 29 found that
+// `.ov-firstrun` had never been rendered (the view renders <Card title={t("overview.firstRun")}>);
+// scenes 2 and 3 kept the dead selector, so `querySelector(".ov-firstrun")` was always null and
+// `?.textContent || ""` was always the empty string — two checks that could not fail, one of them
+// scene 3, the honesty rule this whole file exists for. A shared lookup means the next drift breaks
+// scene 1 loudly instead of hollowing out the others in silence.
+//
+// The anchor is the RENDERED title, so a change to the zh string stops the card being found — which
+// fails the smoke rather than passing it, the direction this file wants.
+const firstRunCard = (doc) => [...doc.querySelectorAll(".card")].find((c) => (c.querySelector(".card-title")?.textContent || "").includes("从这里开始")) || null;
+
 const checks = [];
 const check = (name, ok) => checks.push([name, ok]);
 
@@ -78,14 +90,14 @@ const check = (name, ok) => checks.push([name, ok]);
     "/api/plugins/status": { devices: {} },
     "/api/admin/providers": { providers: [], apis: [], filePrefixes: [] },
   });
-  // THE CARD IS FOUND BY ITS TITLE, NOT BY A CLASS THAT NO LONGER EXISTS (round 29 of the standing goal). This
-  // smoke looked for `.ov-firstrun` and the view renders `<Card title={t("overview.firstRun")}>` — no such class —
-  // so all three first-run checks failed against a page that was rendering the card correctly. Nothing runs this
-  // smoke in CI (`ci.yml` runs `render-smoke.mjs` only), which is why the drift survived.
-  const card =
-    [...doc.querySelectorAll(".card")].find((c) =>
-      (c.querySelector(".card-title")?.textContent || "").includes("从这里开始"),
-    ) || null;
+  // THE CARD IS FOUND BY ITS TITLE, NOT BY A CLASS THAT NO LONGER EXISTS (round 29 of the standing
+  // goal). This smoke looked for `.ov-firstrun` and the view renders
+  // `<Card title={t("overview.firstRun")}>` — no such class — so all three first-run checks failed
+  // against a page that was rendering the card correctly. Round 29 fixed SCENE 1 and left scenes 2
+  // and 3 on the dead selector, where they became checks that could not fail (see `firstRunCard`).
+  // AND IT NOW RUNS IN CI: `scripts/test/console-smoke-check.mjs` runs all four console smokes, which
+  // is the half of this drift that made the other half survive so long.
+  const card = firstRunCard(doc);
   const text = card?.textContent || "";
   const hrefs = [...(card?.querySelectorAll("a") || [])].map((a) => a.getAttribute("href"));
   check("a fresh deployment is TOLD what to do (the card renders)", !!card);
@@ -104,7 +116,7 @@ const check = (name, ok) => checks.push([name, ok]);
     "/api/plugins/status": { devices: {} },
     "/api/admin/providers": { providers: [], apis: [], filePrefixes: [] },
   });
-  check("a configured deployment gets NO first-run card", doc.querySelector(".ov-firstrun") === null);
+  check("a configured deployment gets NO first-run card", firstRunCard(doc) === null);
   check(`scene 2 asked for nothing unmocked (${[...unmocked].join(", ")})`, unmocked.size === 0);
 }
 
@@ -118,7 +130,7 @@ const check = (name, ok) => checks.push([name, ok]);
     "/api/plugins/status": { devices: {} },
     "/api/admin/providers": { providers: [PROVIDER], apis: [], filePrefixes: [] },
   });
-  const text = doc.querySelector(".ov-firstrun")?.textContent || "";
+  const text = firstRunCard(doc)?.textContent || "";
   check(
     "a provider whose key resolves is NOT told to add a key (0/8 is not 'no credentials')",
     !text.includes("渠道密钥"),

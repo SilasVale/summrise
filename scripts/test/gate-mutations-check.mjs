@@ -248,6 +248,15 @@ const CASES = [
   },
 
   {
+    gate: "scripts/test/console-smoke-check.mjs",
+    file: "gateway/ui/overview-render-smoke.mjs",
+    why: "the first-run lookup goes back to a class the view has never rendered — the exact state that left scene 3, the file's own point, asserting on the empty string for months while printing a green line",
+    from:
+      'const firstRunCard = (doc) => [...doc.querySelectorAll(".card")].find((c) => (c.querySelector(".card-title")?.textContent || "").includes("从这里开始")) || null;',
+    to: 'const firstRunCard = (doc) => doc.querySelector(".ov-firstrun");',
+  },
+
+  {
     gate: "scripts/test/contract-vocabulary-check.mjs",
     file: "agent/contract-vocabulary.json",
     why: "the artifact claims a value the device never writes — the state that silently never renders (round 156's clause)",

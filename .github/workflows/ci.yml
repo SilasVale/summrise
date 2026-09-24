@@ -65,11 +65,14 @@ jobs:
       - name: Unit tests
         run: npm test
         working-directory: gateway/ui
-      - name: Render smoke (jsdom)
-        run: |
-          JS=$(grep -o 'index-[^"]*\.js' ../public/index.html | head -1)
-          node render-smoke.mjs "../public/assets/$JS"
-        working-directory: gateway/ui
+      # ONE COMMAND FOR ALL OF THEM, AND THE SET IS DISCOVERED. This step used to run
+      # `render-smoke.mjs` alone, written inline; overview-render-smoke.mjs recorded the consequence
+      # in its own comment — "Nothing runs this smoke in CI (ci.yml runs render-smoke.mjs only),
+      # which is why the drift survived" — and by then two of its checks, one of them scene 3, the
+      # file's whole point, were asserting on the empty string. A smoke that runs nowhere is worse
+      # than no smoke, because its green is read as coverage.
+      - name: Render smokes (jsdom) — every one, discovered
+        run: node scripts/test/console-smoke-check.mjs
 
   # panel-react SPA tests — previously only ran in the release workflow
   # (added round-283); every main-branch CI run must cover them too.
