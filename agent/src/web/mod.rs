@@ -2452,6 +2452,39 @@ mod tests {
         );
     }
 
+    /// THE OTHER HALF OF ROUND 60'S DISTINCTION: a body that FAILS MID-READ is 400 `body_read_error`,
+    /// not 413. Its sibling above covers "too long"; this covers "the transport broke", which is the case
+    /// the old code lied about by calling every read failure "exceeds limit". It needs its own harness — a
+    /// stream that YIELDS AN ERROR rather than a body that is merely oversized — which is why it is a
+    /// separate test rather than a case in the one above.
+    #[tokio::test]
+    async fn a_body_that_fails_mid_read_is_400_with_the_body_read_error_code() {
+        let broken = futures::stream::iter(vec![Err::<bytes::Bytes, _>(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "the client went away mid-body",
+        ))]);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/tools/terminal_list")
+            .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+            .header("content-type", "application/json")
+            .body(Body::from_stream(broken))
+            .unwrap();
+        let r = handle_request(req, state()).await;
+        assert_eq!(
+            r.status(),
+            StatusCode::BAD_REQUEST,
+            "a broken transport is not a size violation — round 60 split these apart"
+        );
+        let b = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        let j: serde_json::Value = serde_json::from_slice(&b).expect("the refusal must be JSON");
+        assert_eq!(
+            j["code"],
+            serde_json::json!("body_read_error"),
+            "the OTHER code, which nothing produced in a test before this"
+        );
+    }
+
     fn req_with_host(path: &str, host: &str) -> Request<Body> {
         // round-102: token injection requires the gateway-proxy marker (or
         // loopback) — the inject cases set it, the must-NOT-inject cases
