@@ -31,6 +31,7 @@ opening title, then read forward; nothing below reorders them.
 | the gate discipline | auditing the gates themselves, which gates read comments, how this project serves a second configuration, whether failure messages tell a reader what to do | `AUDITING THE TEN GATES` |
 | the emit seam | six slices that turned five emitted payloads into modules and pinned each one with a gate | `"CAN YOU OPTIMIZE THE PANEL DISPLAY?"` |
 | the subsystem explorations | one dated `##` section per architecture pass: the release pipeline, the desktop command, the tool layer, the HTTP surface, the CLI, the proxies, the landing, the installer, the core crate | `2026-09-23 — the release pipeline audited its own author` |
+| the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 
 ## Looking for one thing
 
