@@ -2,8 +2,9 @@
 //!
 //! Four tools over ONE instrument (`crate::monitor`): read the watches, take a probe now, and
 //! add or remove a watch. Nothing here re-derives a rule the panel also has — `summary`,
-//! `series` and `TargetSpec` are the module's own, so an AI reading `monitor_list` and an
-//! operator reading the Reachability card see the same numbers (round 261's whole point).
+//! `series` and `TargetSpec` (the checked watch `TargetInput::parse` returns) are the module's
+//! own, so an AI reading `monitor_list` and an operator reading the Reachability card see the
+//! same numbers (round 261's whole point).
 //!
 //! WHAT THE ADD DOOR KEEPS, AND WHAT IT DOES NOT — stated precisely, because the first version of
 //! this paragraph claimed more than the code did and the review said so. It keeps its ENVELOPE
@@ -12,7 +13,7 @@
 //! vocabulary ("missing required field: host") — the tool schema declares both fields required, so
 //! that violation is the schema's to report. It does NOT keep the DOMAIN rules: what a host may
 //! contain, what port range is usable, whether an expectation needs a path — those live in
-//! `crate::monitor::TargetSpec::parse`, which the HTTP form calls as well, and which is why the
+//! `crate::monitor::TargetInput::parse`, which the HTTP form calls as well, and which is why the
 //! sentence a person reads for a bad HOST, a bad PORT, or an expectation with no path is the same
 //! through either door. A missing host therefore answers differently than an empty one BY LAYER,
 //! not by accident: the first is a schema violation the door names, the second is a rule the
@@ -91,7 +92,7 @@ fn tool_add() -> ToolDef {
             async move {
                 let host = require_str(&params, "host")?;
                 // THIS DOOR'S WIRE FACTS: is the port field there at all, and is it a number. WHICH
-                // NUMBER NAMES A SERVICE is `TargetSpec::parse`'s rule — this closure used to carry
+                // NUMBER NAMES A SERVICE is `TargetInput::parse`'s rule — this closure used to carry
                 // its own copy of the range check and its own wording for it, which is how the same
                 // mistake came to answer differently here and through the HTTP form. Even the
                 // absent-field sentence is monitor.rs's, for the same reason.
@@ -102,11 +103,21 @@ fn tool_add() -> ToolDef {
                 })?;
                 let path = params.get("path").and_then(|p| p.as_str()).unwrap_or("");
                 let expect = params.get("expect").and_then(|p| p.as_str()).unwrap_or("");
-                // ONE VALIDATOR, THEN THE STORE. `parse` is the door's door (the rules, with a
-                // reason a person reads); `add_target_full` is the store's. The MCP ENVELOPE stays
-                // this door's own — the HTTP form answers `{"ok":false,…,"code":"invalid_params"}`
-                // and that difference is the transports', not the rules'.
-                let spec = crate::monitor::TargetSpec::parse(&host, port, path, expect)
+                // NAMED FIELDS, THEN ONE VALIDATOR. The input is built by field NAME (so `path` and
+                // `expect` cannot be swapped by position — the shape of the wire value is stated,
+                // not implied), and `parse` is the door's door: the rules, with a reason a person
+                // reads. `add_target_full` is the store's, and it no longer re-checks what `parse`
+                // proved. The MCP ENVELOPE stays this door's own — the HTTP form answers
+                // `{"ok":false,…,"code":"invalid_params"}` and that difference is the transports',
+                // not the rules'.
+                let input = crate::monitor::TargetInput {
+                    host,
+                    port,
+                    path: path.to_string(),
+                    expect: expect.to_string(),
+                };
+                let spec = input
+                    .parse()
                     .map_err(|reason| DeviceError::InvalidParams { message: reason })?;
                 match crate::monitor::add_target_full(&crate::paths::data_dir(), &spec) {
                     Ok(t) => Ok(json!({
@@ -190,15 +201,33 @@ mod tests {
             .unwrap_or_else(|| panic!("missing tool: {name}"))
     }
 
+    /// The wire value a door would hand the constructor, built BY NAME.
+    fn input(host: &str, port: u64, path: &str, expect: &str) -> crate::monitor::TargetInput {
+        crate::monitor::TargetInput {
+            host: host.into(),
+            port,
+            path: path.into(),
+            expect: expect.into(),
+        }
+    }
+
+    /// THE VALIDATOR'S OWN SENTENCE for a case, asked of `monitor.rs` rather than re-typed here.
+    fn validator_reason(host: &str, port: u64, path: &str, expect: &str) -> String {
+        input(host, port, path, expect)
+            .parse()
+            .expect_err("this case must be refused")
+    }
+
     /// THE MCP DOOR'S OWN ENVELOPE — and the FIRST test this file has had. Its siblings carry 7 to
     /// 28; this one carried none, which is how a second copy of the port rules (and of their
     /// wording) survived here while `monitor.rs` had the original.
     ///
-    /// WHAT IS PINNED IS THE TRANSLATION, NOT THE RULE. The rules are `monitor::TargetSpec::parse`'s
-    /// and are pinned there without a filesystem; what this file owes is that a refusal arrives as
-    /// `DeviceError::InvalidParams` carrying EXACTLY the validator's sentence — not a paraphrase
-    /// written here. So the expected text is asked of the validator, and the case that is spelled
-    /// out in full is the port one, which is the sentence the two doors used to disagree about.
+    /// WHAT IS PINNED IS THE TRANSLATION, NOT THE RULE. The rules are
+    /// `monitor::TargetInput::parse`'s and are pinned there without a filesystem; what this file
+    /// owes is that a refusal arrives as `DeviceError::InvalidParams` carrying EXACTLY the
+    /// validator's sentence — not a paraphrase written here. So the expected text is asked of the
+    /// validator, and the case that is spelled out in full is the port one, which is the sentence
+    /// the two doors used to disagree about.
     ///
     /// No data dir and no state: every case is refused before `add_target_full` is reached.
     #[tokio::test]
@@ -209,10 +238,10 @@ mod tests {
             // A GIVEN port of zero is a DIFFERENT mistake from a MISSING one, and the review found
             // the first version answering both with the same sentence: an explicit 0 was routed
             // through `validate_target`, whose refusal is written for an absent field. Restated by
-            // CALLING the parser rather than by quoting it, so the two cannot drift.
+            // CALLING the constructor rather than by quoting it, so the two cannot drift.
             (
                 json!({"host": "192.0.2.1", "port": 0}),
-                crate::monitor::TargetSpec::parse("192.0.2.1", 0, "", "").unwrap_err(),
+                validator_reason("192.0.2.1", 0, "", ""),
             ),
             // …including when the field is not there at all, or is not a number: both are wire
             // facts THIS door establishes, and both answer with the same sentence.
@@ -224,7 +253,7 @@ mod tests {
                 json!({"host": "192.0.2.1", "port": "22"}),
                 crate::monitor::PORT_REQUIRED_REASON.to_string(),
             ),
-            // The range check that now lives in `TargetSpec::parse` (once, for both doors).
+            // The range check that now lives in `TargetInput::parse` (once, for both doors).
             (
                 json!({"host": "192.0.2.1", "port": 65536}),
                 "65536 is not a port".to_string(),
@@ -237,7 +266,7 @@ mod tests {
             // The refusal `parse` owns: an expectation with no path has no body to read.
             (
                 json!({"host": "192.0.2.1", "port": 22, "expect": "OpenWrt"}),
-                crate::monitor::TargetSpec::parse("192.0.2.1", 22, "", "OpenWrt").unwrap_err(),
+                validator_reason("192.0.2.1", 22, "", "OpenWrt"),
             ),
         ];
         for (params, reason) in cases {

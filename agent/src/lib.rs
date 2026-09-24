@@ -13,6 +13,10 @@ pub use summrise_agent_core::{
 pub mod bootstrap;
 pub mod register;
 pub mod relay;
+/// ONE AGE WINDOW, RESOLVED ONCE — the floor, the cap, the day conversion and
+/// the exclusive boundary that four families used to spell out for themselves.
+/// Internal-only: the arithmetic is a device rule, not a wire surface.
+pub(crate) mod retention;
 /// RUN identity — one AI execution's mint/end log (a label, never a credential).
 pub(crate) mod runs;
 
@@ -95,12 +99,21 @@ impl RetentionSweep {
 /// and `runs.jsonl`.
 ///
 /// WHY THIS LIVES IN `lib.rs`: the two prunes belong to the modules that own
-/// their records (`evidence::prune`, `runs::trim` — a shared `retention.rs`
-/// would be a primitive with one consumer, which the repo's PROMOTION rule
-/// rejects), and both modules are crate-private, so the BINARY cannot call them.
-/// This function is the single piece of glue that resolves the real directories
-/// through `paths.rs` and applies the configured windows; the tested core below
-/// takes the directories as parameters, the same design the two modules use.
+/// their records (`evidence::prune`, `runs::trim`), and both modules are
+/// crate-private, so the BINARY cannot call them. This function is the single
+/// piece of glue that resolves the real directories through `paths.rs` and
+/// applies the configured windows; the tested core below takes the directories
+/// as parameters, the same design the two modules use.
+///
+/// AND WHY THE RULE DOES NOT LIVE HERE ANY MORE. The sentence that used to stand
+/// above — "a shared `retention.rs` would be a primitive with one consumer,
+/// which the repo's PROMOTION rule rejects" — was MEASURED FALSE. There are four
+/// age-window consumers (`evidence`, `runs`, `session_log`, the memory store),
+/// and their copies of the window had drifted apart: two floors, one cap, and
+/// the day conversion spelled out four times. The window is [`retention::Cutoff`]
+/// now, with the truth table beside it, and this function keeps its one real job:
+/// resolving the directories. The false premise is recorded rather than deleted,
+/// because it is precisely what stopped anyone looking for the second consumer.
 ///
 /// Call it at boot and periodically — `main.rs` does both. It is deliberately
 /// NOT wired into `AppState::new` or the plugin registry: those are constructed
@@ -293,15 +306,21 @@ mod now_helpers {
 
 /// The RETENTION sweep's own pins: the glue that ties the two owners together,
 /// and the promise that the shipped `config.yaml` says what the binary does.
+///
+/// Named `retention_sweep_pins` rather than `retention` because that name now
+/// belongs to the shared window rule (`crate::retention`, whose truth table is
+/// the only place the boundary is asserted). Nothing here restates the window:
+/// this module tests the GLUE and the shipped config, which the rule module
+/// cannot see.
 #[cfg(test)]
-mod retention {
+mod retention_sweep_pins {
     use super::*;
+    use crate::retention::DAY_MS;
     use summrise_agent_core::config::{
         DEFAULT_EVIDENCE_RETENTION_DAYS, DEFAULT_RUNS_RETENTION_DAYS,
     };
 
     const NOW: u64 = 1_800_000_000_000;
-    const DAY_MS: u64 = 86_400_000;
 
     /// THE AGREEMENT PIN, and it is the same class of trap the platform block
     /// already documents: `config.yaml` is what a fresh install receives, while

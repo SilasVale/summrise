@@ -1297,15 +1297,36 @@ impl SessionLogger {
     /// the kill-on-close job (round-134) guarantees the previous agent
     /// generation's shells are all dead, so no live writer can race a
     /// prune. Returns the number of files removed.
+    ///
+    /// THE WINDOW IS [`crate::retention::Cutoff`] NOW, and this family GAINS the
+    /// 1-day floor it never had. That is the one deliberate behaviour change:
+    /// `prune_stale(0)` used to mean "delete every audit file with a nonzero
+    /// age"; it means "a one-day window" now, the same floor the evidence feed,
+    /// the run log and (as a cap, not a floor) the memory store already carry.
+    /// It is SAFE because the sole production caller passes 30
+    /// (`plugins/terminal/mod.rs`) — a month, three orders of magnitude past the
+    /// floor — so nothing on a real device changes; what changes is that a
+    /// degenerate argument can no longer reach a file a session is writing.
+    /// The CAP ([`crate::retention::MAX_RETENTION_DAYS`]) arrives with the same
+    /// call: it can only bite on an age past a century, and no audit file on this
+    /// device is older than the epoch that stamp is measured from.
     pub fn prune_stale(&self, max_age_days: u64) -> usize {
         use std::time::{Duration, SystemTime};
-        if SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .is_err()
-        {
+        // ONE clock read for the window; `age_of` still reads its own per file,
+        // because that is this family's clock (createdAt-or-mtime) and it stays
+        // here. A clock before the epoch stays a no-op, exactly as before.
+        let Ok(now) = SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
             return 0;
-        }
-        let max_age = Duration::from_secs(max_age_days.saturating_mul(86_400));
+        };
+        let now_secs = now.as_secs();
+        let cutoff =
+            crate::retention::Cutoff::days_before(max_age_days, now_secs.saturating_mul(1000));
+        // `age_of` hands back an AGE, and this family's comparison is `age >
+        // max_age` — the same exclusive boundary as `Cutoff::excludes`, expressed
+        // the other way round. The window is therefore the distance from now to
+        // the shared cutoff: exactly `days * DAY_SECS` whenever the window fits
+        // in the age of the epoch, which is every value that can reach here.
+        let max_age = Duration::from_secs(now_secs.saturating_sub(cutoff.cutoff_secs()));
         let mut removed = 0;
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return 0;
@@ -1533,12 +1554,61 @@ mod tests {
         assert!(dir.join("fresh.jsonl").exists());
         assert!(dir.join("not-a-session.txt").exists());
 
-        // max_age_days = 0 → cutoff is "now"; any file with a nonzero age
-        // is stale. The just-written audit file qualifies.
-        assert!(logger.prune_stale(0) >= 1);
-        assert!(!dir.join("fresh.jsonl").exists());
+        // max_age_days = 0 is FLOORED to a day now (see `prune_stale`), so a
+        // just-written audit file survives the degenerate argument. The floor
+        // itself is proven by `prune_stale_applies_the_floor_it_never_had`.
+        assert_eq!(logger.prune_stale(0), 0);
+        assert!(dir.join("fresh.jsonl").exists());
         // Only .jsonl files are ever considered.
         assert!(dir.join("not-a-session.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// THE ONE DELIBERATE BEHAVIOUR CHANGE OF THE SHARED WINDOW: this family had
+    /// no floor, so `prune_stale(0)` deleted every audit file with a nonzero age.
+    /// The floor now lifts every argument to at least a day, which cannot reach
+    /// today's file — while a genuinely old one still goes.
+    ///
+    /// The age is a FACT rather than a sleep: `age_of` prefers the `createdAt` in
+    /// the version header, so a header written 40 days back is 40 days old to
+    /// this family's own clock.
+    #[test]
+    fn prune_stale_applies_the_floor_it_never_had() {
+        let dir = temp_dir("prune-floor");
+        std::fs::create_dir_all(&dir).unwrap();
+        let logger = SessionLogger::new(dir.clone());
+        logger.log_command_start("fresh", "echo hi");
+        logger.log_command_end("fresh", Some(0), None, None);
+        // TWO seeded files, and the hour-old one is the decisive case: it is
+        // older than a zero-day window and INSIDE a one-day one, so its survival
+        // is the floor and nothing else. (A just-written file has age 0, which a
+        // zero-day window would also keep — it could not tell the two apart.)
+        let hour_ago = crate::unix_now().saturating_sub(3_600);
+        let old = crate::unix_now().saturating_sub(40 * crate::retention::DAY_SECS);
+        for (id, created) in [("recent", hour_ago), ("old", old)] {
+            std::fs::write(
+                dir.join(format!("{id}.jsonl")),
+                format!(
+                    "{{\"type\":\"session\",\"version\":1,\"id\":\"{id}\",\"createdAt\":{created}}}\n"
+                ),
+            )
+            .unwrap();
+        }
+
+        // A ZERO-day window: the floor resolves it to one day, which the 40-day
+        // file is past and the hour-old and in-flight files are not.
+        assert_eq!(logger.prune_stale(0), 1, "only the 40-day-old file goes");
+        assert!(!dir.join("old.jsonl").exists());
+        assert!(
+            dir.join("recent.jsonl").exists(),
+            "an HOUR-old audit file survives a zero-day argument: the floor is \
+             what keeps it — without the floor, `age > 0` removed it"
+        );
+        assert!(
+            dir.join("fresh.jsonl").exists(),
+            "and the in-flight session's own file survives too — the deletion \
+             this test used to assert"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

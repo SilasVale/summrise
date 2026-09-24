@@ -24,9 +24,15 @@
 //! watches. Every sibling record already had one — the memory store
 //! (`max_entries`/`max_bytes`/`retention_days`), the session audit trail
 //! (`prune_stale(30)`), `agent.log` (1 MB × 3), `mcp_diag.log` (1 MB) — so the
-//! bound belongs here, in the module that already owns the feed, rather than in
-//! a new `retention.rs` (a shared primitive needs a second REAL consumer before
-//! it is promoted; see the repo's PROMOTION rule).
+//! bound belongs here, in the module that already owns the feed.
+//!
+//! THE WINDOW ITSELF IS NOT OURS. This header used to argue that a shared
+//! `retention.rs` was "a primitive with one consumer" and therefore rejected by
+//! the repo's PROMOTION rule; that was measured false (four consumers, four
+//! spellings of the same arithmetic — see [`crate::retention`]). What stays here
+//! is everything that is true of THIS family: its clock (each file's mtime), its
+//! `owns(name)` predicate, and its per-class counts. The floor, the cap, the day
+//! conversion and the exclusive boundary come from `cutoff`.
 //!
 //! THE BOUND IS AGE, NOT SIZE, and that is a correctness property rather than a
 //! style choice. A size trigger fires exactly when a long operation has produced
@@ -44,7 +50,7 @@
 //! A prune that removes the screenshot an in-flight action JUST wrote is worse
 //! than a full disk, so the rule is structural rather than a promise about the
 //! window: [`prune`] never removes anything younger than
-//! [`MIN_RETENTION_DAYS`] (1 day), whatever the config says — a
+//! [`crate::retention::MIN_RETENTION_DAYS`] (1 day), whatever the config says — a
 //! `retention: {evidence_days: 0}` typo, a caller that skips
 //! `RetentionConfig::effective`, or a future re-wiring cannot produce a cutoff
 //! closer to now than yesterday. And every MUTATION of the feed (the append and
@@ -197,14 +203,13 @@ pub(crate) fn shot_name_is_safe(name: &str) -> bool {
 /// session's tail exactly that way), and one mutex is the whole fix.
 static FEED_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Hard floor on the evidence window, in days, independent of configuration.
-///
-/// The in-flight guarantee (see the module header): whatever a caller passes,
-/// the cutoff is never closer to now than yesterday, so a screenshot an action
-/// just wrote — or the `pwai_*.js` script a run is executing right now — can
-/// never be a deletion candidate. A window this module would otherwise honour
-/// is therefore clamped UP, never down.
-pub(crate) const MIN_RETENTION_DAYS: u64 = 1;
+// THE WINDOW'S FLOOR LIVES IN `crate::retention::MIN_RETENTION_DAYS` NOW. The
+// 1-day guarantee this module used to declare here — whatever a caller passes,
+// the cutoff is never closer to now than yesterday, so a screenshot an action
+// just wrote (or the `pwai_*.js` script a run is executing right now) can never
+// be a deletion candidate — is the SAME rule for all four age-bounded families,
+// so it is stated once, where the window is resolved. A copy per family is what
+// let the session trail have none.
 
 /// What one prune removed, per artifact class.
 ///
@@ -247,8 +252,9 @@ fn owns(name: &str) -> bool {
 /// `now_ms` is a parameter rather than a clock read so the boundary is
 /// testable exactly (the same discipline `append_action_line`'s `ts_ms` follows).
 ///
-/// The window is `max(MIN_RETENTION_DAYS, max_age_days)` — see the module
-/// header for why the floor exists.
+/// The window is resolved by [`crate::retention::Cutoff::days_before`] —
+/// floored at [`crate::retention::MIN_RETENTION_DAYS`] and capped, see the
+/// module header for why the floor exists.
 ///
 /// Two decisions inside that a reader should not have to reverse-engineer:
 ///
@@ -262,8 +268,7 @@ fn owns(name: &str) -> bool {
 pub(crate) fn prune(dir: &Path, max_age_days: u64, now_ms: u64) -> Pruned {
     let mut out = Pruned::default();
     let _guard = FEED_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let days = max_age_days.max(MIN_RETENTION_DAYS);
-    let cutoff_ms = now_ms.saturating_sub(days.saturating_mul(86_400_000));
+    let cutoff = crate::retention::Cutoff::days_before(max_age_days, now_ms);
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.filter_map(|e| e.ok()) {
             let name = e.file_name().to_string_lossy().to_string();
@@ -276,11 +281,11 @@ pub(crate) fn prune(dir: &Path, max_age_days: u64, now_ms: u64) -> Pruned {
             if meta.is_dir() {
                 continue;
             }
-            // `mtime_ms` is 0 when the stamp is unreadable, and 0 < cutoff is
-            // true for every real cutoff — hence the explicit guard rather
-            // than a comparison that would delete on a read error.
+            // `mtime_ms` is 0 when the stamp is unreadable, and 0 is below every
+            // real cutoff — hence the explicit guard rather than a comparison
+            // that would delete on a read error.
             let mtime = mtime_ms(&meta);
-            if mtime == 0 || mtime >= cutoff_ms {
+            if mtime == 0 || !cutoff.excludes(mtime) {
                 continue;
             }
             if std::fs::remove_file(e.path()).is_ok() {
@@ -292,11 +297,11 @@ pub(crate) fn prune(dir: &Path, max_age_days: u64, now_ms: u64) -> Pruned {
             }
         }
     }
-    out.action_lines = trim_actions(&actions_path(dir), cutoff_ms);
+    out.action_lines = trim_actions(&actions_path(dir), cutoff);
     out
 }
 
-/// Drop the `actions.jsonl` records older than `cutoff_ms`, oldest-first.
+/// Drop the `actions.jsonl` records the window EXCLUDES, oldest-first.
 ///
 /// The file's on-disk FORMAT is untouched: whole lines are dropped and the
 /// survivors keep their exact bytes, so every reader — `recent_actions`, the
@@ -305,7 +310,7 @@ pub(crate) fn prune(dir: &Path, max_age_days: u64, now_ms: u64) -> Pruned {
 ///
 /// The rewrite is atomic and the caller holds [`FEED_LOCK`], which is exactly
 /// the precondition [`crate::jsonl::rewrite_atomically`] documents.
-fn trim_actions(path: &Path, cutoff_ms: u64) -> usize {
+fn trim_actions(path: &Path, cutoff: crate::retention::Cutoff) -> usize {
     let Some(content) = crate::jsonl::read_lossy(path) else {
         return 0;
     };
@@ -316,7 +321,7 @@ fn trim_actions(path: &Path, cutoff_ms: u64) -> usize {
             Ok(v) => v
                 .get("ts_ms")
                 .and_then(|t| t.as_u64())
-                .is_some_and(|ts| ts < cutoff_ms),
+                .is_some_and(|ts| cutoff.excludes(ts)),
             // Unparseable: KEEP (see `prune`'s notes).
             Err(_) => false,
         };
@@ -379,6 +384,7 @@ fn notify_changed_on(bus: Option<&dyn EventBus>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::retention::{Cutoff, DAY_MS};
     use summrise_agent_core::AppEventBus;
 
     fn tmp_dir(tag: &str) -> PathBuf {
@@ -628,9 +634,9 @@ mod tests {
     }
 
     /// A fixed "now" for the whole retention group, so the boundary assertions
-    /// are exact instead of drifting with the wall clock.
+    /// are exact instead of drifting with the wall clock. The day conversion is
+    /// [`crate::retention::DAY_MS`] — this module no longer declares its own.
     const NOW: u64 = 1_800_000_000_000;
-    const DAY_MS: u64 = 86_400_000;
 
     /// (a) The window is enforced: old artifacts go, fresh ones stay.
     ///
@@ -670,23 +676,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The boundary is the WINDOW, and it is exclusive: a file exactly at the
-    /// cutoff is kept (age == window is not "older than the window"), one
-    /// millisecond past it is removed. Without this the rule would be "≈30
-    /// days" and a mutation to `<=`/`>=` would pass every other test here.
+    /// AN IO TEST NOW, NOT A RULE TEST: the boundary itself — exclusive, a stamp
+    /// exactly on the cutoff is KEPT — is asserted once, in
+    /// `retention::tests::cutoff_truth_table`. What is asserted HERE is what only
+    /// this family can show: that `prune` consults that boundary with ITS OWN
+    /// clock (each file's mtime) and its own predicate.
+    ///
+    /// The two stamps are therefore READ FROM the shared cutoff rather than
+    /// re-derived here: re-deriving them is how this test used to be the third
+    /// copy of one rule.
     #[test]
     fn prune_boundary_is_exactly_the_window() {
         let dir = tmp_dir("prune-boundary");
-        seed(&dir, "at-cutoff.png", NOW - 30 * DAY_MS);
-        seed(&dir, "one-ms-past.png", NOW - 30 * DAY_MS - 1);
+        let cutoff = Cutoff::days_before(30, NOW);
+        seed(&dir, "at-cutoff.png", cutoff.cutoff_ms());
+        seed(&dir, "one-ms-past.png", cutoff.cutoff_ms() - 1);
 
         let removed = prune(&dir, 30, NOW);
 
         assert_eq!(removed.shots, 1);
         assert!(
             dir.join("at-cutoff.png").exists(),
-            "the boundary is exclusive — same semantics as \
-             session_log::prune_stale's `age > max_age`"
+            "the boundary is exclusive — see retention::tests::cutoff_truth_table \
+             for the rule, which is no longer restated here"
         );
         assert!(!dir.join("one-ms-past.png").exists());
         let _ = std::fs::remove_dir_all(&dir);

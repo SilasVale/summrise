@@ -952,8 +952,18 @@ impl MemoryStore {
             // no upper bound: in DEBUG a large value panics on the multiply, and in RELEASE
             // it WRAPS — `days = 2^57` is exactly 0 mod 2^64, so the cutoff became NOW and
             // the whole store was retired. A century is far past any real retention and
-            // makes the arithmetic total.
-            let secs = days.min(36_500).saturating_mul(86_400);
+            // makes the arithmetic total. (The cap and the day conversion are the shared
+            // rule now — `retention::MAX_RETENTION_DAYS` and `retention::DAY_SECS`; this
+            // comment is the incident those constants exist for, so it stays here, where
+            // the damage was done.)
+            //
+            // NOTE WHAT THIS FAMILY DOES *NOT* TAKE: the floor. `retention_days: None`
+            // means "never retire", and applying `MIN_RETENTION_DAYS` to a `Some(0)` would
+            // silently overrule the operator who asked for exactly that — a different
+            // trade from the three families whose floor is an in-flight guarantee.
+            let secs = days
+                .min(crate::retention::MAX_RETENTION_DAYS)
+                .saturating_mul(crate::retention::DAY_SECS);
             let cutoff = crate::unix_now().saturating_sub(secs);
             let ids: Vec<String> = guard
                 .by_id

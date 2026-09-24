@@ -5228,6 +5228,81 @@ advances a caller-held ref inside it, and the contract now states the two guaran
 (the fold sees only bodies the device sent; a throw is reported as `unreadable`) rather than one it
 is not.
 
+## 2026-09-25 — the twenty-fifth exploration: one window, and a watch that cannot be built invalid
+
+Two candidates, one shape — a rule every caller restates — and in BOTH a comment claiming the restating was
+already over. Both comments were wrong, and both were the reason nobody looked.
+
+### FOUR CONSUMERS, AND A SENTENCE THAT SAID ONE
+
+`agent/src/lib.rs` refused a shared retention module in as many words: *"a shared `retention.rs` would be a
+primitive with one consumer, which the repo's PROMOTION rule rejects."* Measured, there were **four**
+age-window consumers — plus a fifth thing that is not age-based at all:
+
+| family | clock | window rule it carried |
+|---|---|---|
+| `evidence::prune` | each file's **mtime** | floor `MIN_RETENTION_DAYS`, `now - days*86_400_000`, removes when `mtime < cutoff` |
+| `runs::trim` | each record's **ts_ms** | THE SAME TWO LINES, VERBATIM, and its OWN copy of the constant |
+| `session_log::prune_stale` | a `Duration` from its own clock read | `days * 86_400` SECONDS, and **no floor at all** |
+| memory store | record `updated_at` | a **CAP** (36,500 days), from a real wrap bug |
+| `runstate::prune_history` | — | COUNT-based (`BOOT_HISTORY_MAX`); NOT a client, and now says so |
+
+Also measured: the day conversion was spelled **7 times** across the five scoped files and a `DAY_MS` TEST
+constant declared **three** times; and two tests asserted one property under near-identical names
+(`prune_boundary_is_exactly_the_window`, `trim_boundary_is_exactly_the_window`), each citing
+`session_log::prune_stale` as the semantics it mirrors — a third copy of the rule, as prose.
+
+`retention.rs` owns the WINDOW and nothing else: `MIN_RETENTION_DAYS`/`MAX_RETENTION_DAYS` declared once,
+`Cutoff::days_before(days, now_ms)` (floor + cap + saturating arithmetic, one place), `Cutoff::excludes(stamp)`
+(the boundary is EXCLUSIVE — a stamp exactly ON the cutoff is KEPT), and `cutoff_ms()`/`cutoff_secs()` so no
+family re-derives the arithmetic for its own clock. The families keep their clocks, predicates and IO. The
+day-conversion spellings went **7 → 0** and the floor/cap declarations **3 → 0**.
+
+**MUTATIONS, all planted and all bit:** removing the FLOOR fails the truth table *and* both session_log family
+tests (`prune_stale_applies_the_floor_it_never_had`, `prune_stale_keeps_fresh_and_removes_old`); removing the CAP
+fails the truth table; making the boundary INCLUSIVE fails the truth table; and `evidence::prune` no longer
+consulting the window fails **four** evidence tests. The last one is the check that matters most, because it is
+the one that proves the family tests are IO tests with teeth rather than a second copy of the rule.
+
+**AND THE ONE DELIBERATE BEHAVIOUR CHANGE IS NAMED RATHER THAN SMUGGLED:** `session_log::prune_stale` now
+applies the 1-day floor it never had (safe — its sole caller passes 30), and an existing assertion inside
+`prune_stale_keeps_fresh_and_removes_old` moved from `>= 1` to `== 0` because that deletion IS the change.
+
+### A WATCH THAT CANNOT BE BUILT INVALID
+
+The previous round retired `add_target_full(data_dir, host, port, path, expect)` because three adjacent
+`&str`s let `path` and `expect` be swapped in silence — and then gave the replacement the signature
+`TargetSpec::parse(&str, u64, &str, &str)`. **The hazard moved one level up, under a comment saying it was
+gone**, and `validate_path` normalises `"OpenWrt"` to `/OpenWrt` rather than refusing it. The store, unable to
+trust its input, re-validated four things and said why: *"The fields are public, so the store cannot assume its
+caller came through the parser."* That is an invariant written down instead of carried by a type.
+
+Now there are two values with different jobs: `TargetInput` (what a door read off its wire — named fields, so
+the swap cannot be written down) and `TargetSpec` (the rules RAN — private fields, one constructor, accessors).
+`add_target_full` kept its signature and **lost all four guards**, because a `TargetSpec` that reached it has
+already been through the rules; the zero-port state it used to guard against is now *unrepresentable*.
+Measured before touching it: `TargetSpec` was built literally at exactly THREE sites, all in tests, so private
+fields cost nothing in production.
+
+**MUTATION:** removing the port guard from the constructor fails three tests — the truth table, the MCP door's
+envelope test, and the store's at-capacity-sentinel test. A new test covers the case the old signature could not
+express: fields written BY NAME in reversed source order still produce the right watch.
+
+### WHAT IT COST, AND THE COLLISION WORTH RECORDING
+
+Two sub-agents worked disjoint file sets in ONE tree, and both required `cargo fmt --all` — which rewrites
+whatever is in the tree, so each reformatted the other's in-progress files (layout only; content intact). Then
+one agent's new test arithmetic underflowed at COMPILE time (`NOW - MAX_RETENTION_DAYS * DAY_MS` with
+`NOW = 1.8e12`), which made the whole crate red for the other agent — the second agent correctly refused to
+"fix" a file outside its scope and verified in a frozen copy instead. The lesson is about the METHOD: parallel
+agents sharing a Rust tree share a build, and a required `cargo fmt` is not scope-confined. Both agents
+reported it rather than papering over it, and both frozen-copy result sets reproduced exactly when re-run in
+the real tree afterwards (702 tests / 0 failed with `terminal,keyring`, 644 / 0 default).
+
+**NUMBERS:** `agent/src` 49,132 → **51,127 lines** (drifted 1,995 across rounds 24-26 while the inventory cell
+still carried the old number — the inventory gained a date and a SHA on four cells for that reason). `runs.rs`
+got SMALLER (134 → 124): the window arithmetic left it.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

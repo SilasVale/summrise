@@ -260,12 +260,12 @@ fn append(dir: &Path, rec: &Value) {
 /// one. See [`crate::jsonl::rewrite_atomically`] for the incident behind it.
 static RUNS_LOCK: Mutex<()> = Mutex::new(());
 
-/// Hard floor on the window, in days, independent of configuration — the same
-/// in-flight guarantee the evidence feed carries, for the same reason: a
-/// `retention: {runs_days: 0}` typo (or a caller that skipped
-/// `RetentionConfig::effective`) must not be able to drop the run that is
-/// running right now.
-pub(crate) const MIN_RETENTION_DAYS: u64 = 1;
+// THE WINDOW'S FLOOR LIVES IN `crate::retention::MIN_RETENTION_DAYS` NOW. The
+// in-flight guarantee this module used to declare here — a `retention:
+// {runs_days: 0}` typo, or a caller that skipped `RetentionConfig::effective`,
+// must not be able to drop the run that is running right now — is the SAME rule
+// the evidence feed and the audit trail carry, so it is stated once, where the
+// window is resolved.
 
 /// What one trim removed.
 ///
@@ -277,10 +277,10 @@ pub(crate) struct Trimmed {
     pub records: usize,
 }
 
-/// Drop the records older than `max_age_days` (floored at
-/// [`MIN_RETENTION_DAYS`]). Returns what was removed.
+/// Drop the records the window excludes. Returns what was removed.
 ///
-/// The window is `max(MIN_RETENTION_DAYS, max_age_days)`, and `now_ms` is a
+/// The window is resolved by [`crate::retention::Cutoff::days_before`] — floored
+/// at [`crate::retention::MIN_RETENTION_DAYS`] and capped — and `now_ms` is a
 /// parameter so the boundary is testable exactly.
 ///
 /// WHAT THIS DOES NOT DO, stated rather than implied: records are filtered one
@@ -368,8 +368,7 @@ pub(crate) fn abandon_open_runs(dir: &Path, outcome: &str) -> usize {
 pub(crate) fn trim(dir: &Path, max_age_days: u64, now_ms: u64) -> Trimmed {
     let mut out = Trimmed::default();
     let _guard = RUNS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let days = max_age_days.max(MIN_RETENTION_DAYS);
-    let cutoff_ms = now_ms.saturating_sub(days.saturating_mul(86_400_000));
+    let cutoff = crate::retention::Cutoff::days_before(max_age_days, now_ms);
     let Some(contents) = crate::jsonl::read_lossy(&runs_path(dir)) else {
         return out;
     };
@@ -379,7 +378,7 @@ pub(crate) fn trim(dir: &Path, max_age_days: u64, now_ms: u64) -> Trimmed {
             Ok(v) => v
                 .get("ts_ms")
                 .and_then(|t| t.as_u64())
-                .is_some_and(|ts| ts < cutoff_ms),
+                .is_some_and(|ts| cutoff.excludes(ts)),
             Err(_) => false,
         };
         if old {
@@ -405,6 +404,7 @@ pub(crate) fn trim(dir: &Path, max_age_days: u64, now_ms: u64) -> Trimmed {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::retention::{Cutoff, DAY_MS};
 
     fn dir(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("summrise-runs-{tag}-{}", std::process::id()));
@@ -973,9 +973,9 @@ mod tests {
     /// A fixed "now" so the boundary assertions are exact rather than drifting
     /// with the wall clock, plus a helper that writes a record with a chosen
     /// stamp (the module's own writers always stamp NOW, which is useless for
-    /// testing a window).
+    /// testing a window). The day conversion is [`crate::retention::DAY_MS`] —
+    /// this module no longer declares its own.
     const NOW: u64 = 1_800_000_000_000;
-    const DAY_MS: u64 = 86_400_000;
 
     fn seed(d: &std::path::Path, run_id: &str, ts_ms: u64) {
         append(
@@ -1016,19 +1016,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// The boundary is the WINDOW and it is exclusive, mirroring
-    /// `session_log::prune_stale`'s `age > max_age`: a record exactly at the
-    /// cutoff survives.
+    /// AN IO TEST NOW, NOT A RULE TEST: the boundary itself — exclusive, a
+    /// record exactly on the cutoff survives — is asserted once, in
+    /// `retention::tests::cutoff_truth_table`. What is asserted HERE is what only
+    /// this family can show: that `trim` consults that boundary with ITS OWN
+    /// clock (each record's `ts_ms`) and its own predicate.
+    ///
+    /// The stamps are READ FROM the shared cutoff rather than re-derived here:
+    /// re-deriving them is how this test used to mirror `session_log::prune_stale`
+    /// in prose — the third copy of one rule.
     #[test]
     fn trim_boundary_is_exactly_the_window() {
         let d = dir("trim-boundary");
-        seed(&d, "at-cutoff", NOW - 90 * DAY_MS);
-        seed(&d, "one-ms-past", NOW - 90 * DAY_MS - 1);
+        let cutoff = Cutoff::days_before(90, NOW);
+        seed(&d, "at-cutoff", cutoff.cutoff_ms());
+        seed(&d, "one-ms-past", cutoff.cutoff_ms() - 1);
 
         let out = trim(&d, 90, NOW);
 
         assert_eq!(out.records, 1);
-        assert!(known(&d, "at-cutoff"), "the boundary is exclusive");
+        assert!(
+            known(&d, "at-cutoff"),
+            "the boundary is exclusive — see retention::tests::cutoff_truth_table \
+             for the rule, which is no longer restated here"
+        );
         assert!(!known(&d, "one-ms-past"));
         let _ = std::fs::remove_dir_all(&d);
     }
