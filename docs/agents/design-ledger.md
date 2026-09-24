@@ -5073,3 +5073,20 @@ see that drift (the distro package carries whatever the image ships), so the ban
 Six checks where there were none; the gate went 24 -> 30. Three mutations, all exit 1: the apt install put back,
 the cache key changed, the LLVM release changed. A gate that cannot fail is worse than no gate, and this one was
 built by first finding the defect it would have caught.
+
+**AND WRANGLER WAS THE FOURTH MOVING TOOL (round 195).** The seventeenth exploration measured it: the only
+wrangler validation in either workflow installed `wrangler@4` — a bare major — so CI dry-ran every proxy with
+whatever 4.x was newest that day, while the deploy box runs 4.127.0. Measured when the pin was written: **ten
+minor versions apart**, with `npm view wrangler version` reporting 4.137.0. The repo already pins rust 1.98.1,
+cargo-xwin 0.23.0 and typescript 5.9.3 — each with a comment naming the drift it prevents — and left the tool that
+PUBLISHES the workers unpinned.
+
+`build-pins` clause 6 reads the version out of ci.yml, requires `build.sh` to name the same one in its install
+message, and refuses a bare major in either workflow or the build script. 30 -> 34 checks. Two mutations, both
+exit 1: the bare major put back, and the two ends disagreeing.
+
+**AND IT FIRED ON ITS OWN EXPLANATION FIRST.** The step's comment quotes the removed `wrangler@4` to say why it is
+gone — the repo's house style, since "a gate that deletes its reasons is worse than no gate" — and the raw scan
+read that quotation as the drift. Comments are stripped before the scan now, which is what `retired-colours-check`
+and `css-vars-check` already do and for the same reason. Fifteenth time in this stretch that an instrument was
+wrong before its subject, and the second time the fix was the rule those two gates had already written down.

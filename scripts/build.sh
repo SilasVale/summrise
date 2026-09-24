@@ -10,7 +10,7 @@
 #   ./scripts/build.sh api-relay       # build + deploy the VPS api relay (vrelay @ Oracle box)
 #   ./scripts/build.sh deploy          # build agent + deploy gateway/index
 #
-# Dependencies: cargo-xwin, wrangler (global v4), CLOUDFLARE_API_TOKEN (deploy
+# Dependencies: cargo-xwin, wrangler (global 4.127.0, pinned with build-pins.bash), CLOUDFLARE_API_TOKEN (deploy
 # only, or a ~/.cloudflare-token file).
 set -euo pipefail
 
@@ -65,9 +65,9 @@ preflight_deploy() {
   # whole chain BEFORE the first step runs.
   preflight_agent_toolchain || return 1
   command -v wrangler >/dev/null 2>&1 \
-    || { echo "  !! wrangler not found — install: npm i -g wrangler@4" >&2; return 1; }
+    || { echo "  !! wrangler not found — install: npm i -g wrangler@4.127.0" >&2; return 1; }
   wrangler --version >/dev/null 2>&1 \
-    || { echo "  !! wrangler not runnable — reinstall: npm i -g wrangler@4" >&2; return 1; }
+    || { echo "  !! wrangler not runnable — reinstall: npm i -g wrangler@4.127.0" >&2; return 1; }
   [[ -n "$(cf_token)" ]] \
     || { echo "  !! CLOUDFLARE_API_TOKEN (or ~/.cloudflare-token) missing — deploy would fail at every worker" >&2; return 1; }
 }

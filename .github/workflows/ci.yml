@@ -853,8 +853,13 @@ jobs:
       - name: Test zen-us
         run: node --test
         working-directory: proxies/zen-us-proxy
-      - name: Install wrangler
-        run: npm install -g wrangler@4
+      - name: Install wrangler (pinned)
+        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
+        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
+        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
+        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
+        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
+        run: npm install -g wrangler@4.127.0
       - name: Dry-run zen-go
         run: wrangler deploy --dry-run
         working-directory: proxies/zen-go-proxy

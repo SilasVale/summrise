@@ -148,4 +148,25 @@ for wf in .github/workflows/ci.yml .github/workflows/release.yml; do
   PASS=$((PASS+1))
 done
 
+# ── 6. wrangler: the tool that PUBLISHES the workers, on a moving major until now ──
+# Same species as #2 and #5 (round 195). CI installed `wrangler@4` and dry-ran every proxy with it while
+# the deploy box ran 4.127.0 — ten minor versions apart when this was written. The pin lives in ci.yml
+# and build.sh names the same version in its install message; this holds the two together and refuses a
+# bare major, because `@4` is precisely the drift.
+WRANGLER="$(grep -oP "wrangler@\K[0-9]+\.[0-9]+\.[0-9]+" .github/workflows/ci.yml | head -1)"
+[ -n "$WRANGLER" ] || { echo "FAIL: ci.yml no longer pins wrangler to an exact version"; exit 1; }
+has "build.sh names the same wrangler ($WRANGLER) in its install message" "$(cat scripts/build.sh)" "wrangler@$WRANGLER"
+# COMMENTS ARE STRIPPED FIRST, and this gate learned it by firing on its own explanation (round 195): the
+# step s comment QUOTES the removed `wrangler@4` to say why it is gone, and the raw scan read that as the
+# drift. The repo has the rule already — retired-colours-check and css-vars-check both strip comments, and
+# the ledger keeps the reason: a gate that deletes its reasons is worse than no gate.
+for f in .github/workflows/ci.yml .github/workflows/release.yml scripts/build.sh; do
+  if sed "s/#.*$//" "$f" | grep -qE "wrangler@[0-9]+([^.]|$)"; then
+    echo "FAIL: $f names a BARE wrangler major — that resolves to whatever is newest that day, which is"
+    echo "  the drift this pin exists to stop. Pin the exact version ($WRANGLER today)."
+    exit 1
+  fi
+  PASS=$((PASS+1))
+done
+
 echo "build-pins: $PASS checks passed"
