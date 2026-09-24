@@ -504,10 +504,14 @@ mod tests {
         drop(store);
 
         // AND IT IS NARROW: an announcement that is not an eviction changes nothing, so this cannot
-        // become a hook that quietly retains on every event.
+        // become a hook that quietly retains on every event. THE FRAME HERE MUST BE A LISTED ONE —
+        // this payload first said "something-else", and `contract-vocabulary-check` failed the build
+        // for it, correctly: that gate reads every frame literal in the agent's source (this is
+        // source, a test fixture is not exempt) and refuses one the two ends do not both spell. A
+        // test is exactly where an unlisted frame could hide.
         retain_evicted(
             &buf,
-            &json!({"ev": "something-else", "sessions": [{"id": "term-2"}]}),
+            &json!({"ev": "sessions-changed", "sessions": [{"id": "term-2"}]}),
         );
         assert_eq!(
             buf.lock().unwrap().history.len(),
