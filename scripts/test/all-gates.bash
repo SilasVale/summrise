@@ -14,6 +14,11 @@
 # A gate that exits 2 is declaring "this host cannot run me" (the design sweep needs a browser and says
 # so); that is reported as `n/a`, never as a pass and never as a failure.
 #
+# A gate that exits 3 is declaring the OPPOSITE: "I ran, and I could not measure" — a floor that read
+# nothing, patterns that went stale. That is counted as a FAILURE, because an instrument that proves
+# nothing is not an exemption (round 172: three gates printed FAIL and exited 2, and this script
+# reported them as n/a while exiting 0).
+#
 # WHAT THIS DOES NOT COVER, learned the hard way on 2026-09-24: this is HALF of "what CI runs". It runs
 # the GATE COMMANDS, not the per-directory SUITES in AGENTS.md's table — `gateway`'s
 # typecheck/lint/format/test, `gateway/ui`'s build+test, `agent/resources/panel-react`'s, the three
@@ -67,6 +72,10 @@ for cmd in "${gates[@]}"; do
   case $code in
     0) ok=$((ok + 1)); printf '  ok    %s\n' "$cmd" ;;
     2) notrun=$((notrun + 1)); printf '  n/a   %s (declared it cannot run here)\n' "$cmd" ;;
+    # 3 IS A FAILURE, NOT AN EXEMPTION (round 172). A gate that ran and could not measure — its patterns
+    # went stale, a floor read nothing — has proved nothing, and "proved nothing" must not read as "not
+    # applicable". Three gates printed FAIL and exited 2, which this case used to swallow.
+    3) fail=$((fail + 1)); printf '  FAIL  %s (ran but could not measure)\n' "$cmd"; printf '%s\n' "$out" | tail -4 | sed 's/^/          /' ;;
     *) fail=$((fail + 1)); printf '  FAIL  %s\n' "$cmd"; printf '%s\n' "$out" | tail -4 | sed 's/^/          /' ;;
   esac
 done

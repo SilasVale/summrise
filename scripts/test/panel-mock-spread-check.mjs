@@ -61,7 +61,10 @@ if (spread < FLOOR) {
   console.error(
     `  read ${spread} spread-form vi.mock(s) of lib/api, expected at least ${FLOOR} — the idiom may have been renamed, and this check would then pass having examined nothing`,
   );
-  process.exit(2);
+  // EXIT 3, NOT 2 (round 172). 2 is documented as "this host cannot run me" and the runner maps it to
+  // `n/a` without counting a failure — but this branch MEASURED NOTHING because its subject moved, which
+  // is a broken instrument rather than an exempt host. It prints FAIL and now says so in the code too.
+  process.exit(3);
 }
 if (whole.length) {
   console.error(

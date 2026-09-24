@@ -47,7 +47,10 @@ function originsOf(file) {
 const owner = originsOf(OWNER);
 if (!owner || owner.length < 2) {
   console.error(`  FAIL could not read an allowlist from ${OWNER} — this proves nothing`);
-  process.exit(2);
+  // EXIT 3, NOT 2 (round 172). 2 is documented as "this host cannot run me" and the runner maps it to
+  // `n/a` without counting a failure — but this branch MEASURED NOTHING because its subject moved, which
+  // is a broken instrument rather than an exempt host. It prints FAIL and now says so in the code too.
+  process.exit(3);
 }
 
 let bad = 0;
