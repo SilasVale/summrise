@@ -429,21 +429,15 @@ export function deviceApi(method, pathname, body?) {
     return { ok: false, error: "device sent something that is not JSON" };
   }
 }
-// `4m`, `1h 04m`, `2d 4h` — the shapes the rest of the panel uses.
-// `summrise report` — ONE block an operator can paste into a ticket, a chat or a
-// handover note, assembled from data the device already serves.
-//
-// WHY IT IS A COMMAND AND NOT A SENTENCE IN THE DOCS. Everything here exists on the
-// device: the release it runs, how long the agent has been up, what the previous boot
-// looked like, CPU/memory, the sessions open, and every watched target with its
-// outages. What was missing is a shape a person can hand to somebody else — the
-// numbers are the same, the ASSEMBLY is the feature.
-//
-// THE RENDER IS PURE (`reportText`) and the fetching is three lines of `deviceApi`, so
-// the format is testable without a device. Two rules it keeps: a server that did not
-// answer is printed as NOT READ, never as an invented value; and a target that is down
-// brings its outage log with it, because "it is down" without "since when, and how
-// often" is the half of the answer that starts an argument.
+/**
+ * A duration in the shapes the rest of the panel uses: `45s`, `4m`, `1h 04m`, `2d 4h`.
+ *
+ * IT USED TO CARRY FOURTEEN LINES ABOUT `summrise report`, a verb pruned in round 25 — including "THE
+ * RENDER IS PURE (`reportText`)", naming a function that occurs nowhere else in this file. The doc
+ * described a command an operator cannot run, on a function whose actual job went unsaid. Two rules from
+ * that block are worth keeping, and this is not the place they belong: a server that did not answer is
+ * printed as NOT READ, never as an invented value, and a target that is down brings its outage log.
+ */
 export function fmtDuration(ms) {
   const s = Math.max(0, Math.floor(Number(ms || 0) / 1000));
   if (s < 60) return `${s}s`;
@@ -483,7 +477,7 @@ export function targetLine(t, nowMs, width = 30) {
   return `${up ? "UP  " : s.up_now === false ? "DOWN" : "?   "} ${id.padEnd(width)} ${state}${since}${status}${match}${lat}${pct}${drops}${note}`;
 }
 // ── MACHINE-READABLE OUTPUT ────────────────────────────────────────────────
-// `summrise monitor list --json` and `summrise watch --once --json` print the DEVICE'S OWN ANSWER,
+// `summrise monitor list --json` prints the DEVICE'S OWN ANSWER,
 // projected rather than re-derived: the summaries, the transitions and the samples are the ones
 // `/api/monitors` returns, so a script and the panel (and the AI) can never disagree about whether
 // a target is up. The CLI adds only what the device cannot know — which device answered, and when
@@ -2262,10 +2256,10 @@ const commands = {
     }
   },
 
-  // ── monitor / watch ─────────────────────────────────────────────────────
+  // ── monitor ────────────────────────────────────────────────────────────
   // The device's reachability instrument, in the terminal the operator already
   // works in. The panel draws the same numbers; this runs where the ssh session
-  // is, needs no browser, and `summrise watch` keeps it live on screen.
+  // is, needs no browser, and runs its live view until Ctrl+C.
   // async: `wait` blocks on probes (the dispatcher already awaits every command).
   async monitor(args) {
     const sub = String(args[0] || "list").toLowerCase();
@@ -2415,7 +2409,7 @@ const commands = {
     );
     for (const t of targets) console.log(targetLine(t, now));
   },
-  // Live view: redraw in place every few seconds until Ctrl+C. `summrise watch
+  // Live view: redraw in place every few seconds until Ctrl+C. `summrise monitor
   // <host:port[/path]>` narrows it to one target and adds its outage log.
   // `summrise desktop` = put the window back, or say it is already there.
   //
