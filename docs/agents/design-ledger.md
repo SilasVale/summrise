@@ -5384,3 +5384,31 @@ file scope, because the macro implements the trait through `$crate` and the file
 
 Four fixes, three instruments, none of them the compiler alone. The insertion bug is the second time this stretch
 has recorded that a script editing a file must know what the lines around its anchor MEAN, not just where they are.
+
+### A REFACTOR THAT WAS RIGHT AND NOT WORTH IT, AND THE RUST FACT THAT STOPPED IT (round 220)
+
+Round 219 added `simple_plugin!` and converted `runs` and `monitor`. This round tried to convert the other seven and
+**reverted the attempt**. The reasoning is the part worth keeping.
+
+**THE MACRO FITS TWO OF NINE, AND THE REASON IS RUST'S MACRO HYGIENE.** The remaining plugins do not pass a bare
+path — `memory` writes `tools::build(self.store.clone())`, `terminal` passes seven `&self.` fields across multiple
+lines, and `design`/`mcp_client`/`update` return `vec![…]` expressions. Widening `$tools:path` to `$tools:expr` is
+the obvious move and it fails with **E0424, "expected value, found module `self`"**: a call-site `self` cannot
+resolve inside a `macro_rules!` expansion. That is hygiene, not a bug in the call.
+
+The textbook fix is for the MACRO to bind the receiver and hand it in — `let plugin = self; ($tools)(plugin)` — with
+each call site becoming `|me| tools::build(me.store.clone())`. That is correct, and it worked for six of the seven.
+
+**AND THEN IT WAS NOT WORTH IT.** Three rounds of the nine-file rewrite produced: one round of compile errors from
+removing an import the tests needed, one from a double semicolon my own replacement introduced, and one from my
+argument splitter mishandling `terminal`'s multi-line call. At that point the honest accounting is that the GAIN is
+cosmetic — nine impls become nine one-liners, with no behaviour changed and no defect fixed — while the RISK is nine
+files in the one subsystem where a mistake reaches every tool the product exposes.
+
+Reverted to round 219's state: `runs` and `monitor` converted, the other seven as written, clippy clean, 632 tests
+passing. The macro stays because it is a genuine improvement where it applies and costs nothing where it does not;
+the seven are left alone, with the E0424 constraint recorded here so a future attempt starts from the fact rather
+than rediscovering it.
+
+**THE LEDGER'S OWN RULE APPLIED TO A REFACTOR**: a change that does not alter what the system DOES has to be
+justified by what it makes possible, not by how it reads.
