@@ -24,7 +24,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// TWO levels up, not one: this file moved from scripts/ to scripts/test/ in round 174 so that both the
+// local derivation (all-gates.bash reads its list out of ci.yml) and build-pins.bash’s wiring check
+// (which only walks scripts/test/) could see it. In scripts/ it ran in CI and was invisible to both —
+// 4.8 KB of gate that no local run and no wiring pin covered.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Each frontend's CSS, as one blob: tokens and consumers often live apart. */
 function consoleCss() {
