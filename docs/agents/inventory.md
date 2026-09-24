@@ -4,8 +4,8 @@
 can be deleted. Every claim below is a measurement — a count from a command, a `path:line`, or a quoted header comment.
 Where a verdict is a judgement rather than a measurement it says `[judgment]`. Nothing here was deleted or changed to
 produce it: it is a read-only inventory. It was taken on 2026-09-21 at `main` = `476c276a` and RE-MEASURED on
-2026-09-24 at `main` = `c12e556c`. Every cell below carries the command that produced it, so re-run that command
-rather than trusting the number. A cell that was NOT re-measured in the 2026-09-24 pass says so where it sits., so re-run that.
+2026-09-24 at `main` = `c12e556c`. Every cell carries the command that produced it, so re-run that command rather
+than trusting the number; a cell that was NOT re-measured in the 2026-09-24 pass says so where it sits.
 
 **How to act on it.** §4 is the delete list, §3 the merge list, §5 defects the inventory itself found, §6 the questions
 only the operator can answer. §2 is what must not be touched, with the reason.
