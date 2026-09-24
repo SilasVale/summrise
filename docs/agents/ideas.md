@@ -12,6 +12,13 @@ Rules for the loop:
   the round log — with evidence — if the loop judges it not worth doing.
 - Never dropped silently. Never reinterpreted into something else.
 - `docs/CHARTER.md` is the user's alone; the loop may only propose changes.
+- **THE PRE-RENAME NAMES STAY, AND THIS IS HOW TO READ THEM.** The product was `vale` before it was `summrise`.
+  Rows written before the rename cite names that were REAL THEN and do not exist now: `vale status` is
+  `summrise status`; `agent/vale-agent-npm/` is `agent/summrise-agent-npm/`; `index/public/vale-agent/` is
+  `index/public/summrise-agent/`; and `/vale-agent/*.tgz` on the CDN is `/summrise-agent/*.tgz`. The rows are
+  history and are not rewritten — a reader verifying one should read its paths through this note. (Added round
+  189: two `done` rows cited `agent/vale-agent-npm/package.json`, which no longer exists, and a `done` row a
+  reader cannot check is not evidence.)
 
 | # | Idea (the user's words) | Status | Where it landed |
 |---|---|---|---|
