@@ -1973,3 +1973,85 @@ test("no component ARTEFACT is boxed in the package, which is why the loader's f
     );
   }
 });
+
+test("`stop` ASKS whether the task is still running, instead of inferring it from /End", () => {
+  // The twenty-second exploration found `stop` exiting 1 AFTER achieving its goal, printing "the agent
+  // may still be running" — a false sentence. `restart` says so about the identical condition in its own
+  // comment ("a task that was not running has nothing to end, so a non-zero /End is the ordinary case"),
+  // and `svc`'s comment records the ORIGINAL bug, which was the opposite direction: "`stop` printed
+  // 'stopped' and exited 0 for a missing task or an access-denied". So the exit code answers neither
+  // question and the command has to read the task's State.
+  //
+  // Like the `svc` wiring test above: the body is inline and executes schtasks, so there is no unit to
+  // call — what CAN be pinned is the SHAPE, by reading the built artifact as text.
+  const built = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+
+  // 1. The state reader exists and asks the locale-independent way (`schtasks /Query` headers localize,
+  //    which is the reason `autostart` uses Get-ScheduledTask too).
+  assert.match(
+    built,
+    /function taskState\(/,
+    "taskState() is gone — `stop` has nothing to ASK with",
+  );
+  assert.match(
+    built,
+    /Get-ScheduledTask -TaskName '\$\{name\}' -ErrorAction SilentlyContinue \| Select-Object -ExpandProperty State/,
+    "taskState() no longer reads State through Get-ScheduledTask",
+  );
+
+  // 2. `stop` calls it inside the non-zero-/End branch, and branches THREE ways: could-not-read,
+  //    still-Running, and not-Running (the last must NOT exit — the goal was met).
+  const stopBody = built.slice(built.indexOf("stop() {"), built.indexOf("restart() {"));
+  assert.match(
+    stopBody,
+    /taskState\(TASK\)/,
+    "`stop` stopped asking: a non-zero /End is being reported as evidence of PRESENCE again",
+  );
+  assert.match(
+    stopBody,
+    /st === null/,
+    "`stop` lost its could-not-read branch — a failed READ must not answer either way",
+  );
+  assert.match(
+    stopBody,
+    /the task is not Running -- nothing to stop/,
+    "`stop` no longer says the non-zero /End was harmless when the task had already stopped",
+  );
+  // The not-Running branch must not terminate: only the two failure branches may.
+  const notRunningAt = stopBody.indexOf("nothing to stop");
+  const afterNotRunning = stopBody.slice(notRunningAt, notRunningAt + 200);
+  assert.ok(
+    !/process\.exit\(/.test(afterNotRunning),
+    "`stop` exits non-zero for a task that had already stopped — that is the round-249 defect back",
+  );
+});
+
+test("`setup` reports the desktop task registration it actually got", () => {
+  // It printed "SummriseDesktop registered (logon + a 5-minute watchdog) and started" unconditionally,
+  // with `sh()`'s status discarded — and the enclosing try/catch could not fire, because `sh()` RETURNS
+  // rather than throws. The AGENT task ten lines below names the defect in its own comment: "audit #7:
+  // used to claim success regardless".
+  const built = readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    built.includes("registering SummriseDesktop failed"),
+    "`setup` has no failure branch for the desktop task registration again",
+  );
+  // And the success sentence must sit INSIDE the success branch. Checking its position relative to the
+  // failure sentence is not enough — in an if/else the success one comes first. What distinguishes a
+  // conditional claim from the old unconditional one is that a `status === 0` test precedes it.
+  const successAt = built.indexOf(
+    "SummriseDesktop registered (logon + a 5-minute watchdog) and started",
+  );
+  assert.ok(successAt > 0, "the success sentence is gone");
+  assert.match(
+    built.slice(Math.max(0, successAt - 300), successAt),
+    /status === 0/,
+    "the success sentence is no longer guarded by a status check — it prints unconditionally again",
+  );
+});
