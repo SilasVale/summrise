@@ -260,6 +260,13 @@ test("mcp: GET → 200 text/event-stream keepalive stream; cancel() clears the t
 // it in NOT_EXPOSED with a reason.
 import { readFileSync } from "node:fs";
 
+// THE RENAME MAP, ONCE (round 226). It stood identically at three places in this file — and a fourth
+// once one caller needed it — while the rename it mirrors is two lines in the source:
+//   gateway/src/mcp.ts:238   body.command = body.input; delete body.input;
+// If that changes this must change with it; a copy per test is how the two drift apart unnoticed.
+// MODULE SCOPE, because three tests read it.
+const RENAMES = { terminal_execute: { input: "command" } };
+
 // ONE WALKER, USED BY BOTH PROSE GATES. There were two copies of this reader, and only one of them
 // unescaped a single-quoted literal — the style prettier picks when a description contains a double
 // quote, which is how browser_run_script is written. The containment gate therefore failed on a text
@@ -416,7 +423,6 @@ test("contract: the gateway advertises every parameter the device accepts", asyn
   const GATEWAY_ONLY = new Set(["device"]);
   // Deliberate renames applied in callTerminalToolOnce, mirrored here so the
   // comparison is about what the DEVICE receives.
-  const RENAMES = { terminal_execute: { input: "command" } };
 
   const problems = [];
   for (const t of deviceTools()) {
@@ -463,7 +469,6 @@ test("contract: no advertised parameter is a name the device would reject", asyn
   // silently dropped.
   const { allMcpTools } = await import("../src/mcp-tools.ts");
   const byName = new Map(allMcpTools().map((t) => [t.name, t]));
-  const RENAMES = { terminal_execute: { input: "command" } };
   const GATEWAY_ONLY = new Set(["device"]);
 
   const problems = [];
@@ -1060,7 +1065,6 @@ test("contract: the console's `required` matches the device's, after renames", a
   const byName = new Map(allMcpTools().map((t) => [t.name, t]));
   // Same declared seams as the name-contract tests above.
   const GATEWAY_ONLY = new Set(["device"]);
-  const RENAMES = { terminal_execute: { input: "command" } };
 
   const problems = [];
   for (const t of deviceTools()) {

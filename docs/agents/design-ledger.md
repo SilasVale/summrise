@@ -5482,3 +5482,20 @@ the general form of the check I should have written first.
 
 The rule, for the next script that edits Rust: **an attribute goes above the doc block, not above the `fn`.** Any
 check that anchors on `fn` must scan upward over `///` lines to find it.
+
+### ONE RENAME, DECLARED FOUR TIMES (round 226)
+
+The nineteenth exploration counted it: the console rewrites `terminal_execute`'s first parameter before forwarding
+(`mcp.ts:238` — `body.command = body.input; delete body.input;`), and the test file declared that rename
+**identically at three places**. Round 221's type check made it four.
+
+All three were byte-identical, so the fix is a hoist: one `RENAMES` at module scope with the source line it mirrors
+written above it. The first attempt put it where the first copy had been — inside a test — and two sibling tests
+immediately failed with `ReferenceError: RENAMES is not defined`, which is the whole reason there were three copies:
+each test needed its own. Module scope is the answer the copies were working around.
+
+**WHAT IS NOT FIXED, AND IS THE REAL FRAGILITY**: nothing compares that map to the source. If `mcp.ts` renames a
+second parameter, or renames this one differently, the test keeps asserting yesterday's contract and passes. A
+source-text check would be the usual answer here and it would be the wrong one — the two are one `if` and one object
+literal in different languages. The honest fix is to export the map FROM `mcp.ts` so the test imports the same
+binding the code uses, which is a change to the source rather than to its copy.
