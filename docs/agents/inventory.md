@@ -693,7 +693,7 @@ callers.
 | a session's failure | `sessionFailed` (`lib/liveness.ts`) | "absent is neither failure nor success" | its own test matrix |
 | a monitor's mark state | `monitorMarkClass` / `monitorModifier` (`lib/monitorMark.ts`) | the fallback when no state applies | `one-derivation-check`'s mark clause |
 | a plugin row's state + label | `playwrightState` (`usePlugins.ts`) | the `null` for "poll still pending" | panel tests |
-| the console's device signal | `deviceState.ts` (`deviceSignal`/`signalOf`) | nothing — three views import it | `console-wire-field-check` |
+| the console's device signal | `deviceState.ts` (`agentSignal:98`/`tunnelSignal:103`, both returning `DeviceSignal`) | nothing — three views import it | `console-wire-field-check` |
 | the tunnel's tri-state | `tunnelKnownDown` (`deviceState.ts`) | the modal it opens | `console-wire-field-check` |
 | the update verdict | the DEVICE's `/api/update`, forwarded through three files | the console's old comparison, as a guarded fallback | `device-verdict-check` |
 | the install base URL | `indexWorkerBase` (`devices.ts`) | nothing | `production-host-check` |

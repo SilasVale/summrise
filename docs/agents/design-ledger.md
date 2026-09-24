@@ -5256,3 +5256,18 @@ number from an instrument I already know is unreliable is how the table got wron
 And one incidental discovery worth the line: **`agent/spec-tools.json` is not JSON.** `require()` refuses it —
 "Unexpected token '/', // Device" — because it carries comments, so the cell's own evidence command cannot be run
 the obvious way. Counting `"name"` occurrences gives 58, which matches.
+
+**AND §14 NAMED A FUNCTION THAT DOES NOT EXIST (round 205).** Its table of "one fact, one derivation" row for the
+console's device signal read `deviceState.ts` (`deviceSignal`/`signalOf`). Verified: `deviceSignal` appears in ZERO
+files of the repository — the name is `DeviceSignal`, a TYPE, used as the return type of two functions. `signalOf`
+does exist, at `:86`, but it is NOT exported (no `export` keyword), and the row's own claim is "three views import
+it". The exports that matter are `agentSignal:98` and `tunnelSignal:103`.
+
+The row names them now. This is the fourth variant of the same shape this stretch has recorded — after a path that
+did not exist, a section that contradicted its neighbour, and a measurement of a file nobody has — and it is the
+mildest of the four: the cited FILE was right, the cited LINE was right, and only the symbol was a near-miss of the
+type name it returns. A reader following it would have found `DeviceSignal` in the file and concluded they had
+misread, which is exactly how a near-miss survives review.
+
+Spot-checked the rest of §14's derivations while there: `path.ts:stateFromEnd`, `liveness.ts:sessionFailed` and
+`monitorMark.ts:monitorMarkClass` all exist where named, and `vocabulary.rs` is in the core crate.
