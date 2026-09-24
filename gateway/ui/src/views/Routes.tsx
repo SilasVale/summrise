@@ -35,16 +35,20 @@ export default function RoutesView() {
       // `Promise.all` cannot reject. Three nulls therefore means NOTHING WAS READ, which used to
       // render as the DEFAULT host — a plausible, copy-ready client config claiming to be this
       // gateway's, inside the JSON block below. A failure indistinguishable from success is stated
-      // instead: the toast keeps its string, and the flag keeps it on screen.
+      // instead: the persistent banner below says so where the config is, and it does NOT scroll away.
+      //
+      // NO TOAST HERE, and that is a correction rather than an omission (2026-09-24). I first made this
+      // branch fire BOTH the toast and the banner, and the design sweep then failed the scene with "2
+      // loud elements — a page has ONE focal point at most": a toast at 8660px² beside the rail's
+      // active button, plus a contrast finding on the toast's own text. Two mechanisms for one fact is
+      // the pattern this whole pass has been removing; the banner is the one that stays on screen.
       if (!route && !publicInfo && !proxy) {
         setLoadFailed(true);
-        toast(t("route.loadFail"), true);
       } else setLoadFailed(false);
     } catch {
       // Unreachable today; kept because a future edit that drops one of the per-read catches must
-      // still land somewhere that tells the operator.
+      // still land somewhere that tells the operator — which the banner does.
       setLoadFailed(true);
-      toast(t("route.loadFail"), true);
     }
     setLoading(false);
   }, [toast, t]);
@@ -104,7 +108,10 @@ export default function RoutesView() {
 
   return (
     <div>
-      <PageHeader title={t("nav.routes")} description={<span dangerouslySetInnerHTML={{ __html: t("routes.lede") }} />} />
+      <PageHeader
+        title={t("nav.routes")}
+        description={<span dangerouslySetInnerHTML={{ __html: t("routes.lede") }} />}
+      />
 
       {/* A PERSISTENT MARKER, not only the toast: the toast scrolls away, and what it warns about —
           the copy-ready config below — stays on screen. The markup is the loading card's, so this
@@ -131,7 +138,11 @@ export default function RoutesView() {
               the badge beside it already carries the current state. A control whose
               label is a category forces the reader to work out the polarity from the
               state pill and then invert it; naming the outcome removes the step. */}
-          <button className="btn btn-secondary btn-sm" disabled={usproxyLoading} onClick={handleToggleProxy}>
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={usproxyLoading}
+            onClick={handleToggleProxy}
+          >
             {usproxyOn ? t("usproxy.turnOff") : t("usproxy.turnOn")}
           </button>
         </Card>
