@@ -130,6 +130,22 @@ pub(super) fn host_no_port(headers: &axum::http::HeaderMap) -> Option<&str> {
 /// preflight) and bypass auth. Clients use the Authorization header (the
 /// panel fetches SSE with fetch(), which sets headers; nothing used the
 /// query param).
+///
+/// AND THIS GATE HAS NO BRUTE-FORCE PENALTY, while `TokenGate` — which guards `/mcp` — has one. Found
+/// 2026-09-24 by the agent-web exploration, and the asymmetry is not an oversight so much as a tension
+/// between two decisions that were each right:
+///
+///   * the throttle (`note_auth_failure` / `auth_penalty_remaining_ms`, round 206/207) must SLEEP, so it
+///     lives in an `async` block and its input is a `peer` taken from the request's `ConnectInfo`;
+///   * THIS function takes HEADERS rather than the request, on purpose, so it stays usable from a `Send`
+///     future — see the paragraph above — and it is therefore synchronous and has no peer to charge.
+///
+/// The consequence is measured rather than argued: `/mcp` pays an exponential backoff for wrong tokens
+/// (100 ms doubling to 2 s, per peer) and the `/api/*` surface pays nothing, although this is the gate
+/// whose token reaches SYSTEM-level device control. Covering it means threading a `Copy` value — the
+/// `IpAddr` — from wherever `ConnectInfo` is still attached, and making this `async` so the owed penalty
+/// can be awaited; three call sites, one of which is the generic streaming helper above them. That is a
+/// deliberate change on an auth path, not a hurried one, so it is recorded here with its shape instead.
 fn check_auth(headers: &axum::http::HeaderMap, state: &AppState) -> Result<(), Box<Response>> {
     // Write-through (audit A4): the token comes from the LIVE snapshot, not
     // a boot-time copy — a token rotated via config mutations is visible
