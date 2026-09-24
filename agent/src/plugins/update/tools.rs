@@ -298,7 +298,10 @@ pub fn update_busy() -> bool {
 /// WHERE THE DEVICE RECORDS THE UPDATE IT LAUNCHED (2026-09-21).
 ///
 /// The verdict an operator reads after clicking Update is a four-way READING OF A LOG FILE — `summrise-update.log`,
-/// written by TWO programs (the CLI writes the `update requested` receipt, the generated swap script writes the
+/// written by BOTH launchers in the same shape: each writes an `update requested -> <version>` receipt
+/// before the swap it asked for, then the generated script writes the stages. (This said "the CLI writes
+/// the receipt" until round 161, which was true only of the CLI — the agent's script wrote no receipt, so
+/// on that path the idiom below could not be read at all.) The generated swap script writes the
 /// stages). The question that decides whether it is safe to press the button again is "did the swap actually
 /// start on this device", and the DEVICE knows the answer at the moment it hands the script to WMI. That answer
 /// belongs on the wire, not in a regex over text the device merely happens to have written.
@@ -769,6 +772,15 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         // acquirer above uses (busy_marker_ps), never a second literal.
         let busy_ps = busy_marker_ps();
         let script = format!(
+            // THE RECEIPT THIS SIDE NEVER WROTE (round 161). The comment on `attempt_path` says the
+            // verdict log "is written by TWO programs (the CLI writes the `update requested` receipt,"
+            // "the generated swap script writes the stages)" — and on the agent path only the second
+            // half existed. The idiom an operator (and the CLI's own tests) read is "requested present
+            // + start absent => the launcher ran and the swap did not"; without this line the agent
+            // path could not be read that way at all. Same shape as the CLI's, and the TARGET version
+            // is the half that matters: a receipt that cannot name what it is installing is half a
+            // receipt (summrise-agent-npm learned that when cmd.exe ate the arrow and the version).
+            r#""[$(Get-Date -Format o)] update requested -> {ver} (launched by the agent)" | Out-File '{logs}\summrise-update.log' -Append;
             r#""[$(Get-Date -Format o)] update start" | Out-File '{logs}\summrise-update.log' -Append;
 try {{
 $uaction = New-ScheduledTaskAction -Execute '{q}\summrise-agent.exe' -Argument ('"' + '{etc}\config.yaml' + '"');
@@ -1806,5 +1818,32 @@ mod tests {
         );
         // And it must name the same two files the CLI's gate names, because it is the same rule.
         assert!(src.contains("etc}\\config.yaml") && src.contains("etc}\\summrise-agent.hostname"));
+    }
+
+    /// THE AGENT PATH WRITES THE SAME RECEIPT AS THE CLI (round 161).
+    ///
+    /// The verdict log is a four-way reading, and the idiom is "requested present + start absent =>
+    /// the launcher ran and the swap did not". Only the CLI wrote the receipt, so on the agent path
+    /// the idiom could not be read at all. The TARGET version is the half that matters: a receipt
+    /// that cannot name what it is installing is half a receipt, which is what summrise-agent-npm
+    /// learned when cmd.exe ate the arrow and the version out of its own.
+    #[test]
+    fn the_agent_also_writes_the_requested_receipt() {
+        let src = include_str!("tools.rs");
+        let receipt = src
+            .find("update requested -> {ver}")
+            .expect("the swap script must write the receipt the CLI writes");
+        let start = src
+            .find("update start")
+            .expect("update start must still be there");
+        assert!(
+            receipt < start,
+            "the receipt ({receipt}) must precede update start ({start}) — otherwise the idiom \
+             'requested present + start absent' cannot be read"
+        );
+        assert!(
+            src.contains("launched by the agent"),
+            "and it must say which launcher wrote it"
+        );
     }
 }
