@@ -190,6 +190,22 @@ test("cloudflared.exe proxies GitHub: pass-through on success, 502 on failure", 
     assert.equal(ok.headers.get("content-type"), "application/octet-stream");
     assert.equal(await ok.text(), "clfz-binary");
 
+    // AND IT REVALIDATES, which is what `public/_headers` requires for this whole prefix (round 135).
+    // The route used to answer `public, max-age=3600` on a STABLE url whose bytes move with
+    // CLOUDFLARED_VERSION, so the edge could hand out the previous binary for an hour while version.json's
+    // pin had already moved — `summise setup` then REFUSES the mismatch, fail-closed but unable to install
+    // until the cache expires. A long max-age here is the defect, whatever the bandwidth argument for it.
+    assert.equal(
+      ok.headers.get("cache-control"),
+      "public, no-cache",
+      "a mutable artifact URL must revalidate — _headers says never serve a stale body",
+    );
+    assert.doesNotMatch(
+      ok.headers.get("cache-control") || "",
+      /max-age=[1-9]/,
+      "a positive max-age is exactly what _headers exists to forbid on /summrise-agent/*",
+    );
+
     globalThis.fetch = async () => new Response("nope", { status: 503 });
     const bad = await worker.fetch(
       new Request("https://dl.local/summrise-agent/cloudflared.exe"),

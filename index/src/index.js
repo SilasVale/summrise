@@ -232,12 +232,25 @@ export default {
         return proxyFailure("cloudflared upstream fetch failed", resp.status);
       }
       // Stream the body through (no buffering — 54MB fits the response path).
+      //
+      // AND REVALIDATE, LIKE `public/_headers` SAYS. This was `public, max-age=3600` on a STABLE url whose
+      // bytes move with CLOUDFLARED_VERSION — the exact shape the headers file forbids for this prefix:
+      // "Device artifacts change under stable URLs — never let the edge serve a stale body (a device would
+      // silently receive an old build)". The consequence is fail-closed but user-visible: `version.json`'s
+      // pin updates the moment a release publishes, so `summise setup` REFUSES the stale bytes and the
+      // install cannot proceed — for up to an hour after a cloudflared bump, with nothing to retry against.
+      // GitHub's own etag rides through, so the revalidation is a 304 rather than 54 MB (round 135).
+      const cfEtag = resp.headers.get("etag");
+      const cfValidators = { "cache-control": "public, no-cache", ...(cfEtag ? { etag: cfEtag } : {}) };
+      if (cfEtag && request.headers.get("if-none-match") === cfEtag) {
+        return new Response(null, { status: 304, headers: cfValidators });
+      }
       return new Response(resp.body, {
         status: 200,
         headers: {
           "content-type": "application/octet-stream",
           "content-disposition": 'attachment; filename="cloudflared.exe"',
-          "cache-control": "public, max-age=3600",
+          ...cfValidators,
         },
       });
     }
