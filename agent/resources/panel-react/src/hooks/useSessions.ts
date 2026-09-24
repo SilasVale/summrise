@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi, callTool } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 
 // Session state (migrated from panel.js) — the xterm instance + render
 // cursor live OUTSIDE React state (imperative, heavy); React tracks only the
@@ -643,12 +644,9 @@ export function useSessions(connected: boolean) {
             parts.push(
               `\n…[export truncated at ${MAX_EXPORT_PAGES} MiB — read the full log via terminal_read offset ${offset}]…\n`,
             );
-          const blob = new Blob([parts.join("")], { type: "text/plain" });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = `${sid}.log`;
-          a.click();
-          URL.revokeObjectURL(a.href);
+          // The anchor plumbing lives in `lib/download.ts` now (round 235): this hook owns sessions, not
+          // DOM. Its listeners and timers ARE its job; clicking an anchor is not.
+          downloadBlob(`${sid}.log`, new Blob([parts.join("")], { type: "text/plain" }));
           if (truncated)
             setStatusState(
               `export truncated at ${MAX_EXPORT_PAGES} MiB — the file tail says where to continue reading`,
