@@ -4744,3 +4744,73 @@ is therefore exercised only through pure-function tests on pwsh and text-offset 
 these defects had in common: dot-source before manifest before verify before install; components verified
 before they are kept; the uninstaller written before the step that can fail; the reuse check before the
 download; and both task definitions agreeing on their values.
+
+## 2026-09-25/26 (the installer and the core crate, and six report details that were wrong)
+
+Seventeen rounds, two explorations, and one design pass. The pattern worth recording is not any single defect
+but how the findings arrived: an exploration would report five things, and CHECKING EACH ONE before acting
+found that roughly a third were wrong — always in the direction of worse than reality. Acting on the summary
+would have made things worse twice and deleted a live repair path once.
+
+**THE INSTALLER, WHERE EVERY LINE RUNS ONCE ON A STRANGER'S MACHINE AND NO CI CAN REACH IT.**
+
+*Components were MEASURED, not verified.* The installer downloaded cloudflared (54 MB), the playwright bundle
+(31 MB) and the electron runtime (115 MB) into the npm package dir, and `summrise setup` took them BY PRESENCE
+— so the manifest pins those components carry were never consulted on that path. The acceptance was
+`Length -gt 1MB`, three times, and for the electron zip the next step is `Expand-Archive` and a copy into
+`dist\`. The tools to close it were ALREADY IN THE IMAGE: `SummriseIntegrity.ps1` ships the sha256 functions,
+the installer dot-sources it, and the tgz was already verified with them.
+
+*A failed install could not be removed.* `WriteUninstaller` and the Add/Remove registration came AFTER the
+`${If} $0 != 0` / Abort, so a failure left Machine PATH written and no way to uninstall. The dialog's advice
+(re-run; it is idempotent) is true but not the only thing an operator may want.
+
+*The logon task had two owners and the weaker one won by ORDER.* `summrise setup` registers `SummriseDesktop`
+with an Interactive/Highest principal and a 10-minute limit; the installer registered it too, passed neither,
+and ran LAST. Every NSIS install silently downgraded the hardened definition, while the comment above it
+claimed the shape was "copied from the hardened version".
+
+*The CDN arm named a version it was not pinned to*, and the prune could not clean up after a rename: six
+installers from the product's OLD name were still answering HTTP 200 months later, because the glob matched
+the current name only.
+
+**THE CORE CRATE, WHOSE INTERFACE EVERY PLUGIN AND THE CONSOLE DEPEND ON.**
+
+*The boot warning called an operator's own key a typo.* `unknown_key_warnings` hand-lists every config key and
+warns "IGNORED by the agent (typo? check docs; will never take effect)" — and `server` omitted `relay_url` and
+`relay_token`, which the relay client READS, plus the legacy `auth_token` alias serde still honours. The test
+NAMED after that property could not see it, because its fixture never wrote those keys.
+
+*Two accessors disagreed about a shared name.* `find_tool` is last-wins through a HashMap; `plugin_tools` was
+FIRST-wins through `.find()`; `all_tools` published both. A duplicate plugin name — which nothing warns about
+either — would have made the listing and dispatch name different owners.
+
+*`BrowserConfig` had no reader*, and deleting it needed three test assertions removed, a fixture in the
+warning-coverage test removed, and a `SECTIONS` blessing removed. The compiler found the first, the test named
+after the property found the second, and clippy found that the third test then asserted NOTHING after its
+`unwrap()`.
+
+**THE SWAP-SEAM DESIGN PASS REFUTED ITS OWN BRIEF.** I asked for two designs for "the CLI and the agent build
+different swap scripts". The pass verified the claim first and found that the component staging it described
+reads files out of a tgz that has never contained them — nine entries, neither file — so `tools.rs:805-806`
+were dead lines and the comment above them named a guarantee the code could not deliver. The real divergences
+were elsewhere: the CLI's migration gate, the desktop-shell swap, and the receipt. It also found a live hazard
+the brief had not mentioned: the agent's swap repoints the boot task at `etc\config.yaml` and then kills the
+agent, with no check that the file exists, where the CLI gates and aborts.
+
+**AND THE SIX WRONG DETAILS, WHICH ARE THE POINT.** "The operator's file is gone" (it is quarantined, logged
+to stderr and the startup log, and token-preserving across four rounds of hardening). "No producer and no
+consumer" for `fix-tunnel.ps1` (the agent runs it, the CLI migrates it — it is the legacy repair path).
+"The clamp is silent" (the response echoes the value it used). "Ten browser variants constructed nowhere"
+(two are, in tests). `install-panel-url.txt` was a documented decision, not a duplication. "Built every
+release" (it is opt-in, and the default PRUNES it). And "nothing reads the TS side" — `agent/tests/gateway_code_contract.rs`
+exists for exactly that drift, states the problem in its own header, and parses BOTH files so the assertion
+cannot agree with itself. That report read `error.rs` and `mcp-errors.ts` and never opened `agent/tests/`. Each was checked before acting; two would have become
+new defects, one would have deleted a live path. AN EXPLORATION'S SUMMARY IS NOT EVIDENCE — check the claim
+against the code that decides it, and expect a third of the details to need correcting.
+
+**AND THE MECHANICAL LESSONS, WHICH KEPT RECURRING.** `cargo fmt --check` is a CI step and skipping it reddened
+a run for five rounds. The shell mangled five one-liners (an apostrophe, a backslash, a backtick, a JS string
+continuation) — write the script to a file and run that. A mutation is evidence only once it is proven to have
+LANDED: my guards caught four that had not, and each time the "passing" mutation was the thing that was wrong.
+And comments-are-not-code bit four times, twice inside the tests written to prevent exactly that.
