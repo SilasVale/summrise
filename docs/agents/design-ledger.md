@@ -5610,3 +5610,54 @@ sent me to write a second mount of a shell that already has one.
 `ok:false` dialects in `useOperationRuns` (20th, twice — once wrong about the hook, once about my own guard); and
 now `PanelApp`'s test coverage. Every one was caught the same way, and it is the method rather than the finding that
 is worth keeping: **the claim and the thing it describes are different objects, and only one of them can be quoted.**
+
+### THE TWENTIETH EXPLORATION, DISPOSITIONED (rounds 226-239)
+
+Nineteen reviews had measured how the front ends PAINT. This one asked how they are STRUCTURED — where state
+lives, what components know about the wire, whether two UIs rendering overlapping facts duplicate each other.
+Every finding now has an outcome, and the outcomes are not all fixes.
+
+**FIXED.**
+
+- **One parameter rename, declared four times.** `terminal_execute`'s `input`→`command` rewrite sat byte-identically
+  at three places in `test/mcp-handler.test.mjs`, and round 221's type check made it four. `PARAM_RENAMES` is now
+  EXPORTED from `gateway/src/mcp.ts` and the test imports the binding the code uses (rounds 226-227).
+- **The console had no request timeout anywhere.** `client.ts` was the console's only `fetch` and carried no
+  `AbortSignal`; a stalled tunnel left every caller awaiting a promise that could not settle, and the views gating
+  a spinner on it stayed busy for as long as the tab was open. It carries `AbortSignal.timeout(30_000)` now — the
+  bound the panel has had since round 107 — translated to an `ApiError` so callers see it (round 230).
+- **Two views of one endpoint disagreed.** `DevicesPanel` writes device status only when the reply carries it;
+  `Overview` wrote `s.devices || {}`, so a bodyless reply blanked the fleet — while the comment one line below says
+  "tiles keep their last value". Overview now does what its comment says (round 230).
+- **DOM work inside a state hook.** `exportSession` built a Blob and clicked an anchor. `lib/download.ts` holds it
+  now, the hook no longer names `createElement`, and the helper is testable without rendering — which is what
+  `exportSession` never was (round 235).
+- **CARRY and DETECT had nothing comparing them.** `useSessions.ts` says it about itself: the two lists cannot be
+  merged (`pendingApproval` is derived at map time) and the bug WAS them disagreeing. `session-carry-detect-check`
+  holds them together, proven by removing `idleMs` (round 233).
+- **The device-version rule, implemented twice.** The panel and the console each decide `release` vs `version`,
+  and BOTH halves broke independently. Each is a named function now, each names the other by path, and
+  `device-version-rule-check` holds them to one rule (round 236).
+
+**REVERSED — the report was wrong, or my reading of it was.**
+
+- **"One session row's field names declared in five places"** is true and leads to the two lists above; the FIVE
+  count is about declarations, and the file already documents which two matter.
+- **"`ok:false` handled in four dialects, so a refusal renders as an empty timeline."** True of the DIALECTS;
+  false for `useOperationRuns`, which MERGES (`mergeEvents(prev, [])` returns `prev`) and cannot blank. My guard
+  was a no-op and its comment claimed otherwise — a mutation that removed it changed no test (round 232).
+- **"`PanelApp.tsx` (295 lines): real logic, no test."** It IS rendered — `ActivityPage.test.tsx:418` mounts it
+  through the real shell with the full prop set, deliberately ("or the feature is implemented and invisible"), and
+  two more files assert against it by source. What it lacks is a test FILE of its own (round 237).
+- **"The console's suite has zero render or behaviour tests."** Accurate about `npm test`, and the report says so —
+  rendering is covered by four playwright smokes, run by `console-smoke-check.mjs`, which DISCOVERS them after the
+  lesson its own comment records: "A smoke that runs nowhere is worse than no smoke, because its green is read as
+  coverage." Not a reversal, but not a gap either (round 238).
+
+**DECLINED, WITH THE MEASUREMENT.**
+
+- **"`useSessions.ts` is 837 lines — accumulated, not inherent."** Measured: **835 lines, 286 of them comments
+  (34%), 20 `round-NN` markers**, 549 code lines, largest single function ~42. The characterisation holds and the
+  file's own history is why. It is a SIZE, not a defect: no symptom follows from it that round 235 did not already
+  fix, and splitting it would be nine files of churn for readability in a file whose 835 tests are green. The
+  ledger's rule decides it — a sentence that does not change what you would DO does not change the code either.
