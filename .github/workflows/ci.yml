@@ -291,8 +291,44 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
-      - name: Install LLVM (llvm-lib needed by ring's cc build)
-        run: sudo apt-get update && sudo apt-get install -y llvm
+      # THE SAME LLVM THE RELEASE USES, NOT THE DISTRO PACKAGE (round 193). This job validated the
+      # Windows target against apt's `llvm` while release.yml refuses it: "those are per-distro builds,
+      # and the resulting lld laid .data out differently (measured on 1.2.317 — a 32-byte shift plus a
+      # 0x100 difference in where rust_panic landed)". The step below is a verbatim copy of the
+      # release's, sharing its cache key, because the POINT is that both builders invoke the same
+      # binaries — which is the reason the next step pins cargo-xwin.
+      - name: Restore the LLVM tarball (same cache key as release.yml)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/llvm.tar.xz
+          key: llvm-18.1.8-official-ubuntu18.04
+      - name: Extract LLVM 18.1.8 (official tarball)
+        run: |
+          set -euo pipefail
+          TB=/tmp/llvm.tar.xz
+          if [ ! -s "$TB" ]; then
+            curl -fsSL -o "$TB" \
+              https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+          fi
+          mkdir -p "$HOME/llvm18"
+          tar xf "$TB" -C "$HOME/llvm18" --strip-components=1
+          # ubuntu-18.04's libtinfo.so.5, which the 24.04 runner does not ship.
+          curl -fsSL -o /tmp/libtinfo5.deb \
+            http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2.1_amd64.deb
+          dpkg-deb -x /tmp/libtinfo5.deb "$HOME/llvm18-compat"
+          export LD_LIBRARY_PATH="$HOME/llvm18-compat/lib/x86_64-linux-gnu"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          "$HOME/llvm18/bin/clang" --version | head -1
+      - name: Point cargo-xwin at that LLVM
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cache/cargo-xwin"
+          ln -sf "$HOME/llvm18/bin/clang"    "$HOME/.cache/cargo-xwin/clang-cl"
+          ln -sf "$HOME/llvm18/bin/lld-link" "$HOME/.cache/cargo-xwin/lld-link"
+          ln -sf "$HOME/llvm18/bin/llvm-rc"  "$HOME/.cache/cargo-xwin/llvm-rc"
+          AR="$(rustc --print sysroot)/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-ar"
+          ln -sf "$AR" "$HOME/.cache/cargo-xwin/llvm-lib"
+          ln -sf "$AR" "$HOME/.cache/cargo-xwin/llvm-dlltool"
       - name: Install cargo-xwin
         # PINNED, like release.yml:168-169. A bare install grabs whatever is newest
         # that day, so this job would validate the Windows target against a

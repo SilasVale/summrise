@@ -5032,3 +5032,33 @@ orphans), which reading the artefact settled in ten seconds.
 What it bought: an instruction file a reader can read whole, a budget that no longer binds, and the evidence in the
 one place designed to hold it. The cap was never the problem; the file's shape was, and the cap is what made someone
 look.
+
+### THE WINDOWS TARGET WAS VALIDATED WITH A TOOLCHAIN THE RELEASE REJECTS (round 193)
+
+The seventeenth exploration asked, for each job, whether it could go green while the thing it names is broken.
+`agent-windows-target` was the sharpest yes: it ran `sudo apt-get install -y llvm` with the comment "llvm-lib
+needed by ring's cc build", while `release.yml` refuses that exact package in as many words —
+
+  LLVM 18.1.8 from the OFFICIAL release tarball. NOT apt.llvm.org and NOT the distro `llvm` package: those are
+  per-distro builds, and the resulting lld laid .data out differently (measured on 1.2.317 — a 32-byte shift
+  plus a 0x100 difference in where rust_panic landed).
+
+**AND THE SAME JOB ALREADY PINNED ITS OTHER TOOL FOR THIS REASON.** One step below the apt install, cargo-xwin
+carries a comment explaining the hazard precisely: "a bare install grabs whatever is newest that day, so this job
+would validate the Windows target against a different cargo-xwin than the builder uses — a new xwin that rejects
+the current invocation fails the RELEASE having passed CI, or the reverse." The job pinned one tool against build
+drift and installed the other from the distribution. `build-pins.bash` keeps cargo-xwin, the toolchains and the
+pins in step; it had never mentioned llvm at all.
+
+**THE FIX COPIES RATHER THAN INVENTS.** `release.yml` already had the whole answer in three steps — the shared
+cache key, the official tarball, the `libtinfo.so.5` compat library the 24.04 runner lacks, and the five symlinks
+into `~/.cache/cargo-xwin` that make both builders invoke the same binaries. They are now in the CI job verbatim,
+and the shared cache key means no extra download.
+
+Verified as far as a file can be: zero occurrences of `apt-get install -y llvm` in either workflow, the same
+cache key in both, and EVERY line of the release's LLVM block present in `ci.yml` (0 missing). What is NOT
+verified is that the job runs — that needs a push, and the honest position is that the steps are a copy of a
+working file rather than something new.
+
+A GATE IS THE OBVIOUS NEXT STEP: `build-pins.bash` holds the cargo-xwin pin for exactly this class of drift, so
+"CI and release resolve the same LLVM" belongs there — one place that fails when the two paths diverge again.
