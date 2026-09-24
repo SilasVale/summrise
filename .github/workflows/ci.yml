@@ -23,9 +23,15 @@ concurrency:
 # beyond that because neither produces a build artifact. Trigger: the PR that
 # adds a build/pack step to either directory MUST add a matching CI job.
 jobs:
+# EVERY JOB IS BOUNDED (round 176). GitHub's default job timeout is SIX HOURS, and a gate that
+# hangs — a browser that never returns, a network wait, a deadlock — would spend all of it on a
+# runner that bills for it. The longest run measured while auditing the gate suite was 27 minutes
+# (pack-chain, which executes the gate scripts one at a time); 45 is roughly 3x that, so a job that
+# exceeds it is not slow, it is stuck.
   gateway:
     name: gateway (test + typecheck + lint + format)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,6 +58,7 @@ jobs:
   ui:
     name: ui (tsc + build + test + render smoke)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -85,6 +92,7 @@ jobs:
   panel:
     name: panel (vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -122,6 +130,7 @@ jobs:
   # install lays down.
   design:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -161,6 +170,7 @@ jobs:
   agent:
     name: agent (cargo test + clippy + fmt)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -212,6 +222,7 @@ jobs:
     # host policy requires.
     name: agent (e2e governance + runs, real binary on loopback)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -264,6 +275,7 @@ jobs:
     # Compile check for the Windows MSVC target (xwin pulls the SDK; separate job for caching)
     name: agent (xwin check windows-msvc)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -294,6 +306,7 @@ jobs:
   pack-chain:
     name: pack-chain (npm artifact gates, no exe)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -760,6 +773,7 @@ jobs:
   index:
     name: index (node --test)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -776,6 +790,7 @@ jobs:
   proxies:
     name: proxies (node --test + wrangler dry-run)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -839,6 +854,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     name: toolchain fingerprint (on demand)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
