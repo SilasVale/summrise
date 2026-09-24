@@ -70,7 +70,18 @@ for cmd in "${gates[@]}"; do
   out=$($cmd 2>&1)
   code=$?
   case $code in
-    0) ok=$((ok + 1)); printf '  ok    %s\n' "$cmd" ;;
+    # A GATE THAT SAID NOTHING HAS PROVED NOTHING (round 175). Exit 0 with EMPTY output is
+    # indistinguishable from a gate that measured, and every gate here prints a summary line — that is
+    # the convention this suite reads. So empty output is a FAILURE, not a pass, and it is labelled so
+    # the reader knows it was not the gate s verdict that failed but the gate s silence.
+    0)
+      if [ -z "$out" ]; then
+        fail=$((fail + 1))
+        printf '  FAIL  %s (exited 0 having printed NOTHING — a gate that says nothing has proved nothing)\n' "$cmd"
+      else
+        ok=$((ok + 1)); printf '  ok    %s\n' "$cmd"
+      fi
+      ;;
     2) notrun=$((notrun + 1)); printf '  n/a   %s (declared it cannot run here)\n' "$cmd" ;;
     # 3 IS A FAILURE, NOT AN EXEMPTION (round 172). A gate that ran and could not measure — its patterns
     # went stale, a floor read nothing — has proved nothing, and "proved nothing" must not read as "not
