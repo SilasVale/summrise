@@ -5587,3 +5587,26 @@ hand. That is why this section exists.
 **AND ITS OWN EXTRACTOR MADE THE MISTAKE THIS LEDGER HAS RECORDED FOUR TIMES.** The first version walked braces to
 find each list; `wireFieldsChanged` is an EXPRESSION-bodied arrow with no brace at all, so it walked into an
 unrelated block and reported every field as missing. Reading it as an expression fixed it.
+
+### THE SIXTH REPORT DETAIL REVERSED BY READING THE SUBJECT (round 237)
+
+The twentieth exploration's §6 ended with a list of "real logic, no test", headed by **`PanelApp.tsx` (295 lines,
+six polled hooks, `localStorage`, `new Notification`)**. It is wrong, and the way it is wrong is the point.
+
+`PanelApp` IS rendered — `src/components/__tests__/ActivityPage.test.tsx:418` mounts it through the real shell with
+the full prop set, and that test says why in its own comment:
+
+  it("is reachable from the rail with NO sessions open, and shows what ran", async () => {
+    // The reachability half: the page must be on the rail and it must mount
+    // through the real shell, or the feature is implemented and invisible.
+
+Two more files assert against it by source (`documentOutline.test.ts:109-113` requires it to render both the shell
+and the guide; `pageCoverage.test.ts:35` lists it as one of the two SHELLS). What the report actually found is that
+`PanelApp` has no test FILE OF ITS OWN — which is a different claim from no test, and the one it wrote would have
+sent me to write a second mount of a shell that already has one.
+
+**THE RUNNING COUNT IS NOW SIX.** Across four explorations, six report details have not survived being checked:
+§5.8's count, §12's vintages, and `completed:skipped` (18th); the metadata strings "read at one site" (19th); the
+`ok:false` dialects in `useOperationRuns` (20th, twice — once wrong about the hook, once about my own guard); and
+now `PanelApp`'s test coverage. Every one was caught the same way, and it is the method rather than the finding that
+is worth keeping: **the claim and the thing it describes are different objects, and only one of them can be quoted.**
