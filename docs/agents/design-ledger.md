@@ -5090,3 +5090,29 @@ gone — the repo's house style, since "a gate that deletes its reasons is worse
 read that quotation as the drift. Comments are stripped before the scan now, which is what `retired-colours-check`
 and `css-vars-check` already do and for the same reason. Fifteenth time in this stretch that an instrument was
 wrong before its subject, and the second time the fix was the rule those two gates had already written down.
+
+### AN INSTRUMENT WRONG BEFORE ITS SUBJECT, AND THIS TIME IT WAS ME (round 197)
+
+Verifying the seventeenth exploration's claims locally — work that needs no push — I ran a grep for
+`build-installer` and read this:
+
+  scripts/build.sh:138:  # that a reader would have believed it: round-320 deleted build-installer.sh
+
+The file exists (11,349 bytes, executable) and three scripts call it, so I concluded the comment was false and
+started to write a fix. Then I read the lines around it, which is the step I had skipped:
+
+  build.sh:137-142:  THE NSIS INSTALLER IS **NOT** RETIRED, and this comment said it was for long enough that a
+                     reader would have believed it: round-320 deleted build-installer.sh (182a0347), a later
+                     round restored it for the online setup.exe (cf6b3383), and publish-release.sh calls it on
+                     every release today. The manifest simply carries no `installer` field at the moment, which
+                     is why the landing shows no Setup.exe button — a publication state, not a retirement.
+
+The comment explains the whole history: the deletion, the restoration, the callers, and why the landing shows no
+button. My grep showed one line of a paragraph and I read a stale negative into it. **A grep result is a line, not
+a context**, and this is the sixteenth time in this stretch that an instrument was wrong before its subject — the
+first time the instrument was a search I ran myself.
+
+**AND THE REAL FINDING IS THE INVERSE.** `inventory.md` row 4.8 still asserts, of that same comment, that "the
+comment is false" and that "either the script or the comment goes". It was written when that was true and the
+comment has since been CORRECTED — so the stale entry is in the document whose entire job is to be a current
+checkpoint. That is the eighteenth exploration's subject, and it is the first finding it gets handed.
