@@ -12,7 +12,7 @@
 // which restarts while the operator watches shows up, and cheap enough that a device that
 // never restarts costs one small request a minute.
 import { useEffect, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 import type { BootKind } from "./useAgentVitals";
 
 export interface BootRecord {
@@ -47,17 +47,27 @@ export const EMPTY_BOOT_HISTORY: BootHistory = {
   summary: { windowSecs: 86_400, boots: 0, crashes: 0 },
 };
 
-const KINDS: BootKind[] = ["first-run", "clean-exit", "replaced", "machine-restart", "crashed"];
+const KINDS: BootKind[] = [
+  "first-run",
+  "clean-exit",
+  "replaced",
+  "machine-restart",
+  "crashed",
+];
 
-const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const str = (v: unknown): string | null =>
+  typeof v === "string" && v ? v : null;
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
 
 /** Read `/api/boots`'s body. Never throws; a body it cannot use is an empty history, which
  *  the card renders as "nothing to show" rather than as a device that never restarted —
  *  the failure flag is the caller's to keep (see the hook's `failed`). */
 export function parseBootHistory(j: unknown): BootHistory {
   const body = (j ?? {}) as { boots?: unknown; summary?: unknown };
-  const boots: BootRecord[] = (Array.isArray(body.boots) ? body.boots : []).flatMap((raw) => {
+  const boots: BootRecord[] = (
+    Array.isArray(body.boots) ? body.boots : []
+  ).flatMap((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
     const tsMs = num(r.ts_ms);
     // A record with no usable stamp is DROPPED: it cannot be placed on a time axis, and a
@@ -89,7 +99,9 @@ export function parseBootHistory(j: unknown): BootHistory {
 
 /** The history, refreshed once a minute. `failed` distinguishes "the device did not
  *  answer" from "the device has no history" — two facts this panel never collapses. */
-export function useBootHistory(intervalMs = 60_000): BootHistory & { failed: boolean } {
+export function useBootHistory(
+  intervalMs = 60_000,
+): BootHistory & { failed: boolean } {
   const [history, setHistory] = useState<BootHistory>(EMPTY_BOOT_HISTORY);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -98,7 +110,7 @@ export function useBootHistory(intervalMs = 60_000): BootHistory & { failed: boo
       try {
         const j = await callApi("/api/boots");
         if (!alive) return;
-        if (j?.ok !== true) {
+        if (deviceRefused(j)) {
           setFailed(true);
           return;
         }

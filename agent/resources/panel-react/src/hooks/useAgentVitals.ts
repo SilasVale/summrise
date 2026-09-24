@@ -11,7 +11,7 @@
 // the second poll onward. Nothing here invents a zero for it — an instrument that
 // reports 0% when it means "unknown" is worse than one that reports nothing.
 import { useEffect, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 import { releaseVersion } from "../lib/agentVersion";
 
 export interface AgentVitals {
@@ -111,11 +111,12 @@ export function useAgentVitals(intervalMs = 15000): AgentVitals {
       try {
         const j = await callApi("/api/status");
         // A FAILED READ MUST NOT UPDATE, which is the rule every sibling poller already follows
-        // (`useMonitors`, `useVitalsSeries`, `useBootHistory`, `UpdateCard` all gate on `ok !== true`)
+        // (and so do `useMonitors`, `useVitalsSeries`, `useBootHistory` and `UpdateCard` — all of them now
+        // through `deviceRefused`, which is where the rule lives and the only place it is spelled)
         // and this one did not: its guard was `!j`, which an EMPTY OBJECT passes because `{}` is
         // truthy. So a refusal carrying fields would have been read as a sample. Keep-last is the right
         // answer for a failed poll — "vitals are a nicety" — but keeping last means not reading it.
-        if (!alive || j?.ok !== true) return;
+        if (!alive || deviceRefused(j)) return;
         // A partial sample UPDATES ONLY WHAT IT CARRIES. cpu_pct is missing on the
         // first poll by design, and blanking the memory reading because of it would
         // make the instrument flicker between "known" and "unknown" every start.

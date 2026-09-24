@@ -6,7 +6,7 @@
 // The device states its cadence in the reply and this hook uses it, rather than hardcoding
 // a number that a future sampler change would silently invalidate.
 import { useEffect, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 
 interface VitalsSample {
   tsMs: number;
@@ -23,16 +23,27 @@ export interface VitalsSeries {
   spanSecs: number;
 }
 
-export const EMPTY_SERIES: VitalsSeries = { samples: [], intervalSecs: 0, spanSecs: 0 };
+export const EMPTY_SERIES: VitalsSeries = {
+  samples: [],
+  intervalSecs: 0,
+  spanSecs: 0,
+};
 
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
 
 /** Read `/api/vitals/history`. A body this build cannot use is an EMPTY series — never a
  *  throw — and a sample with no usable stamp is dropped, because it cannot be placed on the
  *  time axis the chip's window and the chart's x-axis both use. */
 export function parseVitalsSeries(j: unknown): VitalsSeries {
-  const body = (j ?? {}) as { samples?: unknown; interval_secs?: unknown; span_secs?: unknown };
-  const samples: VitalsSample[] = (Array.isArray(body.samples) ? body.samples : []).flatMap((raw) => {
+  const body = (j ?? {}) as {
+    samples?: unknown;
+    interval_secs?: unknown;
+    span_secs?: unknown;
+  };
+  const samples: VitalsSample[] = (
+    Array.isArray(body.samples) ? body.samples : []
+  ).flatMap((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
     const tsMs = num(r.ts_ms);
     if (tsMs === null) return [];
@@ -54,7 +65,9 @@ export function parseVitalsSeries(j: unknown): VitalsSeries {
 
 /** The series, refreshed on the device's own cadence (default 30 s, floored at 10 s so a
  *  malformed reply cannot turn the panel into a poller). */
-export function useVitalsSeries(intervalMs = 30_000): VitalsSeries & { failed: boolean } {
+export function useVitalsSeries(
+  intervalMs = 30_000,
+): VitalsSeries & { failed: boolean } {
   const [series, setSeries] = useState<VitalsSeries>(EMPTY_SERIES);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -63,7 +76,7 @@ export function useVitalsSeries(intervalMs = 30_000): VitalsSeries & { failed: b
       try {
         const j = await callApi("/api/vitals/history");
         if (!alive) return;
-        if (j?.ok !== true) {
+        if (deviceRefused(j)) {
           setFailed(true);
           return;
         }

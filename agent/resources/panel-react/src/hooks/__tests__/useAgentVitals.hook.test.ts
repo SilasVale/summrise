@@ -10,7 +10,16 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { callApi } from "../../lib/api";
 import { useAgentVitals } from "../useAgentVitals";
 
-vi.mock("../../lib/api", () => ({ callApi: vi.fn() }));
+// SPREAD THE REAL MODULE, MOCK ONLY THE TRANSPORT. This said `() => ({ callApi: vi.fn() })`, which
+// replaces EVERY export of `lib/api` — so when the hook started asking `deviceRefused(j)` (the shared
+// predicate behind "a failed read must not update"), the mock answered `undefined`, every poll threw
+// into the hook's own catch, and the strip simply never updated. All three tests here failed with an
+// empty value, INCLUDING the two whose fixtures carry `ok: true`, because the throw happens before any
+// fixture is read. `tsc` cannot see it: a `vi.mock` factory is not checked against the module.
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
+  callApi: vi.fn(),
+}));
 
 const mockCallApi = callApi as unknown as ReturnType<typeof vi.fn>;
 

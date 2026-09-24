@@ -19,7 +19,7 @@
 //   * "pinned by summrise rollback" — an update may exist that this device will REFUSE;
 //   * "already in flight" — the busy marker, so a second click cannot race the first.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 
 export interface UpdateStatus {
   current: string;
@@ -58,7 +58,8 @@ const EMPTY_UPDATE: UpdateStatus = {
   lastAttempt: null,
 };
 
-const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+const str = (v: unknown): string | null =>
+  typeof v === "string" && v ? v : null;
 
 /** Read `/api/update`. Never throws; a body this build cannot use is the empty state, which
  *  renders as "unknown" rather than as "current". */
@@ -76,7 +77,9 @@ export function parseUpdateStatus(j: unknown): UpdateStatus {
     // so a non-positive or non-finite value is null — the same "absent, never zero" rule the vitals and boot
     // records follow.
     checkedAt:
-      typeof b.checked_at === "number" && Number.isFinite(b.checked_at) && b.checked_at > 0
+      typeof b.checked_at === "number" &&
+      Number.isFinite(b.checked_at) &&
+      b.checked_at > 0
         ? b.checked_at
         : null,
     lastAttempt: parseAttempt(b.last_attempt),
@@ -86,11 +89,14 @@ export function parseUpdateStatus(j: unknown): UpdateStatus {
 /** The launch record, or null. A record without a POSITIVE time, a `from` and a `to` is not one — the device
  *  refuses such a body too (`last_update_attempt`), and this refuses it again because the two ends of a wire
  *  contract drift independently: half a record would render as "updated from to at Invalid Date". */
-export function parseAttempt(v: unknown): { atMs: number; from: string; to: string } | null {
+export function parseAttempt(
+  v: unknown,
+): { atMs: number; from: string; to: string } | null {
   if (!v || typeof v !== "object") return null;
   const a = v as Record<string, unknown>;
   const atMs = a.at_ms;
-  if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs <= 0) return null;
+  if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs <= 0)
+    return null;
   const from = typeof a.from === "string" ? a.from : "";
   const to = typeof a.to === "string" ? a.to : "";
   if (!from && !to) return null;
@@ -110,11 +116,15 @@ export function attemptAge(atMs: number | null, nowMs: number): string {
   return age ? age.replace(/^checked /, "") : "at an unknown time";
 }
 
-export function checkedAge(checkedAt: number | null, nowMs: number): string | null {
+export function checkedAge(
+  checkedAt: number | null,
+  nowMs: number,
+): string | null {
   // ZERO IS NOT A TIME. The mapper already refuses non-positive values, and this refuses them again because the
   // formatter is the last place before the screen: `epoch 0` renders as "checked 497204h ago", which is a claim
   // about a device that simply has not answered that question.
-  if (checkedAt === null || !Number.isFinite(checkedAt) || checkedAt <= 0) return null;
+  if (checkedAt === null || !Number.isFinite(checkedAt) || checkedAt <= 0)
+    return null;
   const secs = Math.max(0, Math.round((nowMs - checkedAt) / 1000));
   if (secs < 90) return `checked ${secs}s ago`;
   const mins = Math.round(secs / 60);
@@ -142,7 +152,7 @@ export function useUpdateStatus(intervalMs = 60_000): UpdateStatus & {
     try {
       const j = await callApi("/api/update");
       if (!alive.current) return;
-      if (j?.ok !== true) {
+      if (deviceRefused(j)) {
         setFailed(true);
         return;
       }
@@ -208,7 +218,7 @@ export function UpdateCard({
         body: JSON.stringify(force ? { force: true } : {}),
       });
       const result = r?.result ?? {};
-      if (r?.ok !== true) {
+      if (deviceRefused(r)) {
         setPhase("error");
         setMessage(str(r?.error) ?? "the device refused the update");
         return;
@@ -221,13 +231,17 @@ export function UpdateCard({
       }
       if (result.status === "pinned") {
         setPhase("error");
-        setMessage(str(result.message) ?? "the device is pinned by summrise rollback");
+        setMessage(
+          str(result.message) ?? "the device is pinned by summrise rollback",
+        );
         return;
       }
       // "upgrading": the download runs in the background and the swap kills the agent. Stay
       // in `applying` — the effect above watches for the release to change.
       setMessage(
-        str(result.remote) ? `installing ${result.remote} — the panel reconnects on the new build` : "installing…",
+        str(result.remote)
+          ? `installing ${result.remote} — the panel reconnects on the new build`
+          : "installing…",
       );
     } catch (e) {
       // The connection dropping HERE is expected during a swap; the version poll decides
@@ -248,16 +262,21 @@ export function UpdateCard({
       <h3>Agent update</h3>
       {failed && !status.current ? (
         <p className="muted">
-          The device did not answer, so its update state could not be read. That is not the
-          same as being up to date.
+          The device did not answer, so its update state could not be read. That
+          is not the same as being up to date.
         </p>
       ) : (
         <>
           <p className="update-line">
             <span>running {status.current || "unknown"}</span>
             {status.latest && (
-              <span className="update-latest" data-available={status.updateAvailable ? "yes" : "no"}>
-                {status.updateAvailable ? `${status.latest} available` : `latest is ${status.latest}`}
+              <span
+                className="update-latest"
+                data-available={status.updateAvailable ? "yes" : "no"}
+              >
+                {status.updateAvailable
+                  ? `${status.latest} available`
+                  : `latest is ${status.latest}`}
               </span>
             )}
             {/* THE AGE OF THE ANSWER, which is the device's own fact (`checked_at`) and was being thrown away.
@@ -281,8 +300,9 @@ export function UpdateCard({
 
           {!status.channel && (
             <p className="muted">
-              No update channel is configured on this install (<code>platform.download_url</code> is
-              unset), so this device is updated by hand. That is a supported way to run it.
+              No update channel is configured on this install (
+              <code>platform.download_url</code> is unset), so this device is
+              updated by hand. That is a supported way to run it.
             </p>
           )}
 
@@ -296,8 +316,8 @@ export function UpdateCard({
               data-from={status.lastAttempt.from}
               data-to={status.lastAttempt.to}
             >
-              Last update launched on this device: {status.lastAttempt.from || "?"} →{" "}
-              {status.lastAttempt.to || "?"},{" "}
+              Last update launched on this device:{" "}
+              {status.lastAttempt.from || "?"} → {status.lastAttempt.to || "?"},{" "}
               <span
                 className="update-attempt-age"
                 title={`the device handed the swap script over at ${new Date(status.lastAttempt.atMs).toLocaleTimeString()}`}
@@ -311,21 +331,23 @@ export function UpdateCard({
             // UNKNOWN, never "current": the release server not answering is a different fact
             // from the device being up to date, and this line is the only place that says so.
             <p className="update-warn" data-kind="unreachable">
-              The release server did not answer ({status.error}) — so whether a newer build
-              exists is unknown, not "no".
+              The release server did not answer ({status.error}) — so whether a
+              newer build exists is unknown, not "no".
             </p>
           )}
 
           {status.pinnedTo && (
             <p className="update-warn" data-kind="pinned">
-              Pinned to <strong>{status.pinnedTo}</strong> by <code>summrise rollback</code>. An update
-              may exist that this device will refuse until the pin is cleared on the device.
+              Pinned to <strong>{status.pinnedTo}</strong> by{" "}
+              <code>summrise rollback</code>. An update may exist that this
+              device will refuse until the pin is cleared on the device.
             </p>
           )}
 
           {busy && (
             <p className="update-warn" data-kind="busy">
-              An update is already in flight on this device — a second one would race it.
+              An update is already in flight on this device — a second one would
+              race it.
             </p>
           )}
 
@@ -333,22 +355,36 @@ export function UpdateCard({
             <div className="update-actions">
               {phase === "confirm" ? (
                 <>
-                  <button type="button" className="btn btn-danger" onClick={() => void apply(status.latest === status.current)}>
-                    {status.updateAvailable ? `Yes, update to ${status.latest}` : `Yes, reinstall ${status.current}`}
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={() => void apply(status.latest === status.current)}
+                  >
+                    {status.updateAvailable
+                      ? `Yes, update to ${status.latest}`
+                      : `Yes, reinstall ${status.current}`}
                   </button>
-                  <button type="button" className="btn btn-ghost" onClick={() => setPhase("idle")}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setPhase("idle")}
+                  >
                     Cancel
                   </button>
                 </>
               ) : (
-                <button type="button" className="btn" onClick={() => setPhase("confirm")}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setPhase("confirm")}
+                >
                   {action}
                 </button>
               )}
               {!status.updateAvailable && phase === "idle" && (
                 <span className="muted update-note">
-                  Reinstalling downloads and re-applies the same build — the repair path for a
-                  damaged install.
+                  Reinstalling downloads and re-applies the same build — the
+                  repair path for a damaged install.
                 </span>
               )}
             </div>
@@ -356,8 +392,8 @@ export function UpdateCard({
 
           {phase === "confirm" && (
             <p className="update-warn" data-kind="confirm">
-              This device will restart the agent to apply the build. The panel reconnects by
-              itself within about a minute; terminals close.
+              This device will restart the agent to apply the build. The panel
+              reconnects by itself within about a minute; terminals close.
             </p>
           )}
 

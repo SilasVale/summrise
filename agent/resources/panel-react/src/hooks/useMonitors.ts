@@ -6,7 +6,7 @@
 // page. One poller per shell feeds both, and the actions live here too so a card and any future
 // caller send exactly the same requests.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 
 interface MonitorProbe {
   tsMs: number;
@@ -64,9 +64,14 @@ export interface Monitors {
   seriesMax: number;
 }
 
-export const EMPTY_MONITORS: Monitors = { targets: [], intervalSecs: 0, seriesMax: 0 };
+export const EMPTY_MONITORS: Monitors = {
+  targets: [],
+  intervalSecs: 0,
+  seriesMax: 0,
+};
 
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** Read `/api/monitors`. A body this build cannot use is an EMPTY monitor list — never a throw
@@ -80,27 +85,33 @@ export function parseMonitors(j: unknown): Monitors {
     if (!id) return [];
     const s = (r.summary ?? {}) as Record<string, unknown>;
     const lat = (s.latency ?? null) as Record<string, unknown> | null;
-    const series: MonitorProbe[] = (Array.isArray(r.series) ? r.series : []).flatMap((p) => {
+    const series: MonitorProbe[] = (
+      Array.isArray(r.series) ? r.series : []
+    ).flatMap((p) => {
       const pr = (p ?? {}) as Record<string, unknown>;
       const tsMs = num(pr.ts_ms);
       if (tsMs === null) return [];
       return [{ tsMs, ok: pr.ok === true, ms: num(pr.ms) }];
     });
-    const transitions: MonitorTransition[] = (Array.isArray(r.transitions) ? r.transitions : []).flatMap(
-      (raw) => {
-        const t = (raw ?? {}) as Record<string, unknown>;
-        const atMs = num(t.at_ms);
-        if (atMs === null) return [];
-        return [{ atMs, up: t.up === true, lastedMs: num(t.lasted_ms) ?? 0 }];
-      },
-    );
+    const transitions: MonitorTransition[] = (
+      Array.isArray(r.transitions) ? r.transitions : []
+    ).flatMap((raw) => {
+      const t = (raw ?? {}) as Record<string, unknown>;
+      const atMs = num(t.at_ms);
+      if (atMs === null) return [];
+      return [{ atMs, up: t.up === true, lastedMs: num(t.lasted_ms) ?? 0 }];
+    });
     return [
       {
         id,
         host: str(r.host),
         port: num(r.port) ?? 0,
-        path: r.path === null || r.path === undefined ? null : str(r.path) || null,
-        expect: r.expect === null || r.expect === undefined ? null : str(r.expect) || null,
+        path:
+          r.path === null || r.path === undefined ? null : str(r.path) || null,
+        expect:
+          r.expect === null || r.expect === undefined
+            ? null
+            : str(r.expect) || null,
         transitions,
         series,
         summary: {
@@ -112,10 +123,15 @@ export function parseMonitors(j: unknown): Monitors {
           sinceMs: num(s.since_ms),
           drops: num(s.drops),
           latency: lat
-            ? { min: num(lat.min) ?? 0, avg: num(lat.avg) ?? 0, max: num(lat.max) ?? 0 }
+            ? {
+                min: num(lat.min) ?? 0,
+                avg: num(lat.avg) ?? 0,
+                max: num(lat.max) ?? 0,
+              }
             : null,
           lastStatus: num(s.last_status),
-          lastExpectOk: typeof s.last_expect_ok === "boolean" ? s.last_expect_ok : null,
+          lastExpectOk:
+            typeof s.last_expect_ok === "boolean" ? s.last_expect_ok : null,
         },
       },
     ];
@@ -132,7 +148,12 @@ export function parseMonitors(j: unknown): Monitors {
 export function useMonitors(intervalMs = 20_000): Monitors & {
   failed: boolean;
   refresh: () => Promise<void>;
-  add: (host: string, port: number, path?: string, expect?: string) => Promise<{ ok: boolean; error?: string }>;
+  add: (
+    host: string,
+    port: number,
+    path?: string,
+    expect?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
   probe: (id: string) => Promise<void>;
 } {
@@ -150,7 +171,7 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
     try {
       const j = await callApi("/api/monitors");
       if (!alive.current) return;
-      if (j?.ok !== true) {
+      if (deviceRefused(j)) {
         setFailed(true);
         return;
       }
@@ -170,19 +191,24 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ host, port, path, expect }),
         });
-        if (j?.ok !== true) return { ok: false, error: str(j?.error) || "the device refused it" };
+        if (deviceRefused(j))
+          return { ok: false, error: str(j?.error) || "the device refused it" };
         // Probe immediately: a target that shows "no readings yet" for 15 s after being added
         // reads as a target that is not being watched.
         const id = str(j?.target?.id);
-        if (id) await callApi("/api/monitors/probe", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id }),
-        }).catch(() => {});
+        if (id)
+          await callApi("/api/monitors/probe", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id }),
+          }).catch(() => {});
         await refresh();
         return { ok: true };
       } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : "the call failed" };
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : "the call failed",
+        };
       }
     },
     [refresh],
@@ -214,7 +240,10 @@ export function useMonitors(intervalMs = 20_000): Monitors & {
 
   useEffect(() => {
     void refresh();
-    const t = window.setInterval(() => void refresh(), Math.max(5_000, intervalMs));
+    const t = window.setInterval(
+      () => void refresh(),
+      Math.max(5_000, intervalMs),
+    );
     return () => window.clearInterval(t);
   }, [refresh, intervalMs]);
 
@@ -272,7 +301,12 @@ export function useMonitorAlerts(ttlMs = 12_000): MonitorAlert[] {
     const onFrame = (e: Event) => {
       const alert = parseMonitorChange((e as CustomEvent).detail);
       if (!alert) return;
-      setAlerts((prev) => [alert, ...prev.filter((a) => a.key !== alert.key)].slice(0, MAX_ALERTS));
+      setAlerts((prev) =>
+        [alert, ...prev.filter((a) => a.key !== alert.key)].slice(
+          0,
+          MAX_ALERTS,
+        ),
+      );
       window.setTimeout(() => {
         setAlerts((prev) => prev.filter((a) => a.key !== alert.key));
       }, ttlMs);
@@ -289,7 +323,9 @@ export function fmtSince(ms: number): string {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   const h = Math.floor(s / 3600);
-  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  return h >= 24
+    ? `${Math.floor(h / 24)}d ${h % 24}h`
+    : `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
 
 /** A link that has fallen more than once in the window is UNSTABLE — the pattern, as opposed to

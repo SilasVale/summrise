@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 
 // Plugin inventory + playwright-mcp control (round-admin-ui Task 6).
 //
@@ -118,25 +118,39 @@ export function usePlugins(active: boolean) {
         if (!Array.isArray(specRes?.plugins)) {
           throw new Error("the spec route answered without a plugins list");
         }
-        setSpec((specRes.plugins as SpecPlugin[]).filter((p) => p && typeof p.name === "string"));
+        setSpec(
+          (specRes.plugins as SpecPlugin[]).filter(
+            (p) => p && typeof p.name === "string",
+          ),
+        );
         setSpecLoaded(true);
       } catch (e: any) {
         if (!activeRef.current) return;
         // Said out loud, and NOT as a permanent "Loading…". The id is left
         // unset so the next refocus/event retries, but the surface must not
         // imply progress that stopped.
-        setSpecError(e?.message ? `inventory: ${e.message}` : "inventory could not be read");
+        setSpecError(
+          e?.message
+            ? `inventory: ${e.message}`
+            : "inventory could not be read",
+        );
       }
     }
     try {
       const res = await callApi("/api/plugins/status");
       if (!activeRef.current) return;
-      if (res && typeof res === "object" && res.ok === false) throw new Error(res.error || "status failed");
-      setPlaywright(res?.playwright && typeof res.playwright === "object" ? res.playwright : null);
+      if (deviceRefused(res)) throw new Error(res?.error || "status failed");
+      setPlaywright(
+        res?.playwright && typeof res.playwright === "object"
+          ? res.playwright
+          : null,
+      );
       setStatusError("");
     } catch (e: any) {
       if (!activeRef.current) return;
-      setStatusError(e?.message ? `status: ${e.message}` : "status poll failed");
+      setStatusError(
+        e?.message ? `status: ${e.message}` : "status poll failed",
+      );
     }
   }, [specLoaded]);
 
@@ -146,7 +160,9 @@ export function usePlugins(active: boolean) {
   useEffect(() => {
     if (!active) return;
     refresh();
-    const onChange = () => { refresh(); };
+    const onChange = () => {
+      refresh();
+    };
     window.addEventListener("summrise-playwright-changed", onChange);
     document.addEventListener("visibilitychange", onChange);
     return () => {
@@ -160,33 +176,38 @@ export function usePlugins(active: boolean) {
     setLog((prev) => [...prev.slice(-(MAX_LOG - 1)), { ts, text, error }]);
   }, []);
 
-  const runAction = useCallback(async (which: "start" | "stop") => {
-    if (busyRef.current) return;
-    setBusy(which);
-    try {
-      const res = await callApi(`/api/plugins/playwright/${which}`, { method: "POST" });
-      setActionError("");
-      // NOT "ok". A start/stop whose reply carried no status is a call whose
-      // outcome the panel did NOT learn, and logging it `ok` reports success the
-      // device never claimed. Every current device path sends `status`, so this
-      // arm is reached only when the reply is empty or unreadable — precisely
-      // when a verdict must not be invented.
-      const status =
-        res && typeof res === "object" && typeof res.status === "string"
-          ? res.status
-          : "(no status in the reply)";
-      pushLog(`${which} → ${status}`, false);
-    } catch (e: any) {
-      setActionError(e?.message || `${which} failed`);
-      pushLog(`${which} FAILED: ${e?.message || "unknown error"}`, true);
-    } finally {
-      setBusy(null);
-      // Re-read NOW: with no poll (round 163) nothing else would re-read after
-      // an action, so the row would keep showing the pre-action state until a
-      // refocus or a `playwright-changed` event.
-      refresh();
-    }
-  }, [pushLog, refresh]);
+  const runAction = useCallback(
+    async (which: "start" | "stop") => {
+      if (busyRef.current) return;
+      setBusy(which);
+      try {
+        const res = await callApi(`/api/plugins/playwright/${which}`, {
+          method: "POST",
+        });
+        setActionError("");
+        // NOT "ok". A start/stop whose reply carried no status is a call whose
+        // outcome the panel did NOT learn, and logging it `ok` reports success the
+        // device never claimed. Every current device path sends `status`, so this
+        // arm is reached only when the reply is empty or unreadable — precisely
+        // when a verdict must not be invented.
+        const status =
+          res && typeof res === "object" && typeof res.status === "string"
+            ? res.status
+            : "(no status in the reply)";
+        pushLog(`${which} → ${status}`, false);
+      } catch (e: any) {
+        setActionError(e?.message || `${which} failed`);
+        pushLog(`${which} FAILED: ${e?.message || "unknown error"}`, true);
+      } finally {
+        setBusy(null);
+        // Re-read NOW: with no poll (round 163) nothing else would re-read after
+        // an action, so the row would keep showing the pre-action state until a
+        // refocus or a `playwright-changed` event.
+        refresh();
+      }
+    },
+    [pushLog, refresh],
+  );
 
   const start = useCallback(() => runAction("start"), [runAction]);
   const stop = useCallback(() => runAction("stop"), [runAction]);
@@ -195,39 +216,48 @@ export function usePlugins(active: boolean) {
   // playwright plugins run in-process → success. Playwright maps the four
   // StateDot states: running → ongoing, last action failed → error,
   // stopped → warn.
-/** THE PLAYWRIGHT ROW'S STATE AND ITS LABEL, PAIRED ONCE (round 127 of the standing goal).
- *
- *  The ladder was written twice in this file — once inside `rows`, once in `playwrightRow` — with the same three states,
- *  the same three labels and the same order, differing only in what the CALLER does when none of them applies (a spec row
- *  falls back to `warn`; the card is `null` while its first status poll is still pending). The pair is the fact; the
- *  fallback is the caller's. Writing the pair twice is how `Running` becomes `running` in one place and `Stopped` becomes
- *  `Paused` in the other without anybody noticing. */
-function playwrightState(
-  running: boolean | undefined,
-  actionError: unknown,
-): { state: "ongoing" | "error" | "warn"; stateLabel: string } | null {
-  if (running) return { state: "ongoing", stateLabel: "Running" };
-  if (actionError) return { state: "error", stateLabel: "Error" };
-  return null;
-}
+  /** THE PLAYWRIGHT ROW'S STATE AND ITS LABEL, PAIRED ONCE (round 127 of the standing goal).
+   *
+   *  The ladder was written twice in this file — once inside `rows`, once in `playwrightRow` — with the same three states,
+   *  the same three labels and the same order, differing only in what the CALLER does when none of them applies (a spec row
+   *  falls back to `warn`; the card is `null` while its first status poll is still pending). The pair is the fact; the
+   *  fallback is the caller's. Writing the pair twice is how `Running` becomes `running` in one place and `Stopped` becomes
+   *  `Paused` in the other without anybody noticing. */
+  function playwrightState(
+    running: boolean | undefined,
+    actionError: unknown,
+  ): { state: "ongoing" | "error" | "warn"; stateLabel: string } | null {
+    if (running) return { state: "ongoing", stateLabel: "Running" };
+    if (actionError) return { state: "error", stateLabel: "Error" };
+    return null;
+  }
 
-  const rows = useMemo<PluginRow[]>(() => spec.map((p) => {
-    const base = {
-      name: p.name,
-      displayName: p.displayName,
-      description: p.description,
-      enabled: true,
-      // stage-n: tools count badge (terminal=25, memory=6, …)
-      toolCount: Array.isArray(p.tools) ? p.tools.length : undefined,
-    };
-    if (p.name === "playwright") {
-      const pw = playwright ?? undefined; // PluginRow.playwright is `?`, not nullable
-      const live = playwrightState(playwright?.running, actionError);
-      if (live) return { ...base, ...live, playwright: pw };
-      return { ...base, state: "warn" as const, stateLabel: "Stopped", playwright: pw };
-    }
-    return { ...base, state: "success" as const, stateLabel: "Loaded" };
-  }), [spec, playwright, actionError]);
+  const rows = useMemo<PluginRow[]>(
+    () =>
+      spec.map((p) => {
+        const base = {
+          name: p.name,
+          displayName: p.displayName,
+          description: p.description,
+          enabled: true,
+          // stage-n: tools count badge (terminal=25, memory=6, …)
+          toolCount: Array.isArray(p.tools) ? p.tools.length : undefined,
+        };
+        if (p.name === "playwright") {
+          const pw = playwright ?? undefined; // PluginRow.playwright is `?`, not nullable
+          const live = playwrightState(playwright?.running, actionError);
+          if (live) return { ...base, ...live, playwright: pw };
+          return {
+            ...base,
+            state: "warn" as const,
+            stateLabel: "Stopped",
+            playwright: pw,
+          };
+        }
+        return { ...base, state: "success" as const, stateLabel: "Loaded" };
+      }),
+    [spec, playwright, actionError],
+  );
 
   // The playwright card is driven by the live status DIRECTLY — independent
   // of /api/spec, so the control card still works if the registry fetch
@@ -240,12 +270,29 @@ function playwrightState(
       enabled: true,
     };
     const live = playwrightState(playwright?.running, actionError);
-    if (live) return { ...base, ...live, playwright: playwright ?? { running: false } };
-    if (playwright !== null) return { ...base, state: "warn" as const, stateLabel: "Stopped", playwright };
+    if (live)
+      return { ...base, ...live, playwright: playwright ?? { running: false } };
+    if (playwright !== null)
+      return {
+        ...base,
+        state: "warn" as const,
+        stateLabel: "Stopped",
+        playwright,
+      };
     return null;
   }, [playwright, actionError]);
 
   // One line for the caller, in the order the reads happen: the inventory is
   // the page's body, the status is a row inside it.
-  return { rows, specLoaded, playwright, playwrightRow, loadError: specError || statusError, busy, log, start, stop };
+  return {
+    rows,
+    specLoaded,
+    playwright,
+    playwrightRow,
+    loadError: specError || statusError,
+    busy,
+    log,
+    start,
+    stop,
+  };
 }

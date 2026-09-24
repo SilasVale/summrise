@@ -14,7 +14,7 @@
 // It is a DIAGNOSTIC, not a control: nothing here updates anything. The update
 // still happens through the CLI or the console.
 import { useEffect, useState } from "react";
-import { callApi } from "../lib/api";
+import { callApi, deviceRefused } from "../lib/api";
 import { diagnoseUpdate, type UpdateDiagnosis } from "../lib/updateDiagnosis";
 
 interface LogFile {
@@ -50,7 +50,7 @@ export function DeviceLogsCard() {
         // a claim about the device made from a response that refused to make it.
         // The route's contract is `ok:true` plus a `logs` array; anything else is
         // a failure to report, not an empty result to draw.
-        if (r?.ok !== true || !Array.isArray(r.logs)) {
+        if (deviceRefused(r) || !Array.isArray(r.logs)) {
           setFailed(true);
           return;
         }
@@ -73,14 +73,17 @@ export function DeviceLogsCard() {
       <h2>Device logs</h2>
       {failed ? (
         <p className="muted">
-          The device did not answer, so its logs could not be read. This is not the same
-          as a device with no logs.
+          The device did not answer, so its logs could not be read. This is not
+          the same as a device with no logs.
         </p>
       ) : logs === null ? (
         <p className="muted">Reading the device's logs…</p>
       ) : (
         <>
-          <p className={`device-logs-verdict device-logs-verdict-${VERDICT_TONE[d.verdict]}`} data-verdict={d.verdict}>
+          <p
+            className={`device-logs-verdict device-logs-verdict-${VERDICT_TONE[d.verdict]}`}
+            data-verdict={d.verdict}
+          >
             {d.summary}
           </p>
           {d.receipt && <p className="device-logs-receipt">{d.receipt}</p>}
@@ -91,19 +94,26 @@ export function DeviceLogsCard() {
                 <button
                   type="button"
                   className="device-logs-toggle"
-                  onClick={() => setOpen((cur) => (cur === l.name ? null : l.name))}
+                  onClick={() =>
+                    setOpen((cur) => (cur === l.name ? null : l.name))
+                  }
                   aria-expanded={open === l.name}
                 >
                   {l.name}
                   {/* An ABSENT file is named as absent. The route reports the
                       difference deliberately; flattening it here would throw
                       that away. */}
-                  {!l.present && <span className="device-logs-absent">not written yet</span>}
+                  {!l.present && (
+                    <span className="device-logs-absent">not written yet</span>
+                  )}
                 </button>
-                {open === l.name && l.present && <pre className="device-logs-tail">{l.log}</pre>}
+                {open === l.name && l.present && (
+                  <pre className="device-logs-tail">{l.log}</pre>
+                )}
                 {open === l.name && !l.present && (
                   <p className="muted">
-                    This device has never written {l.name}, so there is nothing to show.
+                    This device has never written {l.name}, so there is nothing
+                    to show.
                   </p>
                 )}
               </div>
