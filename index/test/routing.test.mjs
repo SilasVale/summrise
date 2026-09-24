@@ -319,3 +319,19 @@ test("public/_headers states the artifact rule, and no route contradicts it", as
     "no route may answer a positive max-age for an artifact under this prefix",
   );
 });
+
+test("with no CONSOLE_URL the landing points at the request's own origin", async () => {
+  // THE FALLBACK IS THE MECHANISM BEHIND THE FILE'S OWN PROMISE — "The console URL is set per-deployment
+  // via the CONSOLE_URL var (no production domain is hardcoded here)" — and NOTHING exercised it: both
+  // fixtures set CONSOLE_URL, so the env-less path had no coverage at all (round 137, from the twelfth
+  // exploration). It also feeds the landing's console link, so a wrong fallback sends visitors somewhere
+  // wrong rather than failing loudly.
+  const { env } = makeEnv(null);
+  delete env.CONSOLE_URL;
+  const page = await worker.fetch(new Request("https://dl.example/"), env);
+  const html = await page.text();
+  assert.match(html, /https:\/\/dl\.example/, "the console link must fall back to the request's origin");
+  assert.doesNotMatch(html, /console\.example/, "and not to the value the other fixtures set");
+  // The promise itself: with no var and no fallback domain in the source, no production host can appear.
+  assert.doesNotMatch(html, /saisi\.online/, "no production domain may be hardcoded — that is what CONSOLE_URL is for");
+});
