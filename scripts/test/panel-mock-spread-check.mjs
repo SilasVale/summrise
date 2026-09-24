@@ -9,6 +9,11 @@
 // `tsc` cannot see it: a `vi.mock` factory is never checked against the module it replaces.
 //
 // THE RULE: a factory for `lib/api` must SPREAD THE ORIGINAL. Mock the transport, keep the module.
+//
+// AND `lib/api` IS THE ONLY MODULE THIS SUITE MOCKS AT ALL — measured, not assumed: twenty `vi.mock` calls
+// exist in the panel and every one targets it (nineteen as "../../lib/api", one as "./api" from
+// `boot.test.ts`). That is what makes a check scoped to one module the whole surface rather than a
+// sample of it, and it is why widening this gate is not a TODO: there is nothing else to widen to.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
