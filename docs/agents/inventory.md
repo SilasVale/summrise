@@ -174,6 +174,14 @@ groupers. The only genuine duplication in that area is a **fetch** (§5.2).
 
 ## 6. NEEDS YOU — what the repository cannot answer
 
+> **SUPERSEDED BY §7 — READ IT (round 209).** §7 opens by saying so itself: "Every item below was ‘waiting on
+> you’ in §6. Most of them turned out to be answerable by measurement, and two only after a small change to the
+> device." Fifteen of the sixteen are answered there, measured against d1 (1.2.437) and the live gateway. **The
+> list below is the record of the questions as they stood, not a list of what is owed.** THE LIVE LIST IS
+> `docs/agents/ideas.md` — six rows currently say "waiting on you", and that file is the operator’s own inbox
+> rather than a snapshot of it. §6.16’s enumeration of those rows has drifted for the same reason: it names six
+> and the membership has changed (row 18 is "half done", row 25 is not listed).
+
 1. **Do external MCP clients use the 15 no-caller tools** (`system_file_read/write/list/stat`, `system_process_*`,
    `system_net_test`, `page_view`, `mcp_client_list/disconnect`, `sftp`/`terminal_sftp`, the prefixed `terminal_secret_*`)?
    The device serves them on its own `/mcp`, and the repo cannot see that traffic. §2 keeps them on that basis.
