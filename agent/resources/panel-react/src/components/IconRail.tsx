@@ -31,10 +31,28 @@ export const PAGE_ICONS: Record<Page, IconName> = {
   settings: "settings",
 };
 
-export function IconRail({ page, onPageChange, connected, desktop, pendingCount = 0,
-  commandsInFlight, onOpenGuide }: {
+export function IconRail({
+  page,
+  onPageChange,
+  connected,
+  desktop,
+  pendingCount = 0,
+  commandsInFlight,
+  onOpenGuide,
+}: {
   page: Page;
   onPageChange: (p: Page) => void;
+  /**
+   * IS THE SSE STREAM UP — not "do we hold credentials", which is what `App` means by the same word
+   * when it passes `connected` to `useSessions`/`usePlugins`. Two facts, one name, and the panel
+   * exploration flagged it (2026-09-24).
+   *
+   * RENAMING IT IS A MEASURED JOB, NOT A GREP: a dry run over `connected` as an identifier found 31
+   * sites in six files, and `DesktopShell` was the trap — 9 of its 11 are `vitals.relay.connected` and
+   * the labels around it, which is the RELAY's fact and must not move. Six occurrences are quoted
+   * (`"connected"` as the sseState value, `"disconnected"` as a label) and stay. When this is renamed,
+   * use exact per-site pairs rather than a word-boundary pass, and let `tsc` prove it.
+   */
   connected: boolean;
   desktop?: boolean;
   /** Sessions holding a question for the operator (see `pendingApprovalCount`).
@@ -46,7 +64,10 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
   /** Reopen the getting-started guide. Absent on a surface that does not host it. */
   onOpenGuide?: () => void;
 }) {
-  const btn = (active: boolean) => (desktop ? `desktop-rail-btn${active ? " active" : ""}` : `rail-btn${active ? " active" : ""}`);
+  const btn = (active: boolean) =>
+    desktop
+      ? `desktop-rail-btn${active ? " active" : ""}`
+      : `rail-btn${active ? " active" : ""}`;
   const [theme, setThemeState] = useState(getTheme());
   const themeBtnClass = desktop ? "desktop-rail-btn" : "rail-btn";
   const flipTheme = () => setThemeState(toggleTheme());
@@ -75,9 +96,13 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
   return (
     <>
       {desktop ? (
-        <div className="desktop-rail-brand" title="Summrise"><BrandMark size={26} /></div>
+        <div className="desktop-rail-brand" title="Summrise">
+          <BrandMark size={26} />
+        </div>
       ) : (
-        <div className="rail-brand" title="Summrise"><BrandMark size={20} /></div>
+        <div className="rail-brand" title="Summrise">
+          <BrandMark size={20} />
+        </div>
       )}
       {(Object.keys(PAGE_ICONS) as Page[]).map((p) => (
         <button
@@ -100,7 +125,10 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
         aria-label="theme"
         onClick={flipTheme}
       >
-        <Icon name={theme === "dark" ? "sun" : "moon"} size={desktop ? 16 : 18} />
+        <Icon
+          name={theme === "dark" ? "sun" : "moon"}
+          size={desktop ? 16 : 18}
+        />
       </button>
       {/* THE GUIDE'S WAY BACK. A first-run card that can only be seen once is a card somebody
           closes by accident and then resents; this sits next to the other rail controls, where
@@ -126,7 +154,9 @@ export function IconRail({ page, onPageChange, connected, desktop, pendingCount 
       ) : (
         <div className="rail-spacer" />
       )}
-      {!desktop && <div className="mark rail-dot" data-live={state} title={label} />}
+      {!desktop && (
+        <div className="mark rail-dot" data-live={state} title={label} />
+      )}
     </>
   );
 }
