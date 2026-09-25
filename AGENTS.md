@@ -160,25 +160,41 @@ agreed, and they are history — the ledger holds the incidents.) What the hook 
 assembly of all five artifacts in under a second: a payload module that does not parse, a require the assembler cannot
 resolve, or an emitter that was renamed or deleted fails at the commit instead of in the design job.
 
-**AND IT IS STILL NOT INSTALLED, WHICH HAS NOW COST A PUSH.** Round 93's commit carried a backtick in a comment,
+**IT IS INSTALLED NOW (round 118), AND BOTH COMMANDS THIS PARAGRAPH USED TO PRESCRIBE WERE WRONG ON THIS BOX.** Round 93's commit carried a backtick in a comment,
 the probe module stopped PARSING, and five of the ten CI jobs went red (ui, panel, gateway, design, pack-chain —
 everything that imports it). The hook refuses that commit in under a second, and so does
-`contrast-probe-check.mjs`, which CI runs at `ci.yml:506` — but nothing runs the hook unless the loop does it by
-hand, because `core.hooksPath` is global. RUN IT BY HAND BEFORE EVERY COMMIT until the symlink below exists; the
-story is in the ledger under "THE 46TH BACKTICK REACHED A COMMIT".
+`contrast-probe-check.mjs`, which CI runs at `ci.yml:506` — but nothing ran the hook, because `core.hooksPath` is
+global and both prescribed fixes for that were wrong here (below). **IT RUNS ITSELF NOW** — the paragraph after this
+one records what is installed and how it was proven; the story of what the absence cost is in the ledger under
+"THE 46TH BACKTICK REACHED A COMMIT", and round 117's own push through a red gate is why it is no longer a habit.
 
 TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
 
-  * **`.git/hooks/pre-commit` will NOT run on this machine.** `core.hooksPath` is set globally in
-    `~/.gitconfig` to `~/.config/git/hooks`, and git ignores the per-repo directory entirely when that is set.
-    The first version of this hook was symlinked into `.git/hooks/` and a deliberately broken emitter was
-    committed twice with it in place. Install it where the config actually looks:
+  * **`.git/hooks/pre-commit` will NOT run on this machine** — `core.hooksPath` is set globally in `~/.gitconfig`
+    to `~/.config/git/hooks`, and git ignores the per-repo directory entirely when that is set. **AND THE TWO FIXES
+    THIS PARAGRAPH USED TO GIVE ARE BOTH WRONG HERE, which is why it went uninstalled for so long and why round 117
+    pushed through a red gate with the hook run by hand and its exit code thrown away:**
 
-        ln -sf "$PWD/scripts/hooks/pre-commit" ~/.config/git/hooks/pre-commit
+        ln -sf "$PWD/scripts/hooks/pre-commit" ~/.config/git/hooks/pre-commit     # DON'T
 
-    or set a repo-local path (which would SHADOW any global hooks, so read what is already there first):
+    That path is GLOBAL and this box has ~20 repositories. The hook runs summrise's own emitters, so installing it
+    there would make every OTHER repo's commits fail on files that do not exist in them. And:
 
-        git config core.hooksPath scripts/hooks
+        git config core.hooksPath scripts/hooks                                   # DON'T either
+
+    shadows the global directory — which is not empty: it holds the operator's `post-commit` (tokensave auto-sync),
+    so this repo would silently stop syncing.
+
+    **WHAT IS ACTUALLY INSTALLED (round 118)**: a repo-local `.githooks/` holding BOTH links, and a repo-local path
+    that points at it:
+
+        mkdir -p .githooks
+        ln -sf ../scripts/hooks/pre-commit .githooks/pre-commit
+        ln -sf ~/.config/git/hooks/post-commit .githooks/post-commit
+        git config --local core.hooksPath .githooks
+
+    Proven by making an empty commit and watching it run. `.githooks/` is machine-local (one link points outside the
+    repo), so it is gitignored; the COMMAND is the artifact, and this paragraph is where it lives.
 
   * **PROVE THE MUTATION, NOT THE HOOK.** The first attempt at proving it bit planted a backtick after
     `function browserScript() {` — inside the function body and OUTSIDE the template literal — so the emitter

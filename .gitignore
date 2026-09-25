@@ -46,3 +46,6 @@ cloudflared-run.sh
 # scenarios got the reconcile refusal where they expect the stale-exe one. Ignored so the next
 # `git add -A` cannot do it again.
 docs/agents/release-reconcile.txt
+
+# machine-local hook links (round 118) — the command is in AGENTS.md, not the link
+.githooks/
