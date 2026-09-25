@@ -34,6 +34,9 @@ const {
   newestOf,
   componentUrl,
   componentKey,
+  componentFetchUrl,
+  componentPins,
+  resolveComponent,
   desktopTaskPs,
   desktopStartPs,
 } = require("../bin/summrise.js");
@@ -83,6 +86,173 @@ test("componentUrl: a component comes from the release host, under the agent pat
     componentUrl("anything").indexOf("/summrise-agent/") > 0,
     "components live under the agent path",
   );
+});
+
+test("componentFetchUrl: the manifest's OWN url is the address, the derived route only the fallback", () => {
+  // version.json has published a `url` beside each component's sha256 since the pins existed, and
+  // this CLI read the digest while the ADDRESS was retyped here — one fact, two authors. These
+  // cases pin which one wins, and that a silent manifest keeps the URL every release before this
+  // one used (setup must not lose the ability to fetch because a manifest field is missing).
+  const url = "https://mirror.test/summrise-agent/cloudflared.exe";
+  assert.equal(
+    componentFetchUrl("cloudflared.exe", {
+      cloudflared: { url, sha256: "a".repeat(64) },
+    }),
+    url,
+    "the manifest's url must be the address that is fetched",
+  );
+  // The manifest's KEY is not the file name (componentKey), so a url filed under the wrong key
+  // must not be borrowed by a component it does not describe.
+  assert.equal(
+    componentFetchUrl("electron-win32-x64.zip", {
+      cloudflared: { url, sha256: "a".repeat(64) },
+    }),
+    componentUrl("electron-win32-x64.zip"),
+    "a component the manifest does not carry falls back to the derived route",
+  );
+  for (const pins of [
+    {},
+    { cloudflared: { sha256: "a".repeat(64) } }, // an older release: digest, no url
+    { cloudflared: { url: "", sha256: "a".repeat(64) } },
+    { cloudflared: { url: "   ", sha256: "a".repeat(64) } },
+    { cloudflared: { url: "/summrise-agent/cloudflared.exe", sha256: "a".repeat(64) } },
+    { cloudflared: { url: "ftp://mirror.test/cloudflared.exe", sha256: "a".repeat(64) } },
+  ]) {
+    assert.equal(
+      componentFetchUrl("cloudflared.exe", pins),
+      componentUrl("cloudflared.exe"),
+      `an unusable manifest url (${JSON.stringify(pins)}) must fall back, never fetch a non-http URL`,
+    );
+  }
+  // A file this release does not pin at all (componentKey === null) keeps the derived route.
+  assert.equal(
+    componentFetchUrl("fix-tunnel.ps1", { cloudflared: { url } }),
+    componentUrl("fix-tunnel.ps1"),
+  );
+});
+
+/** A fake `curl` on PATH: answers the api-version path from FAKE_MANIFEST (or fails) and every
+ *  other URL by copying FAKE_PAYLOAD to `-o`, logging each URL it was asked for. */
+function withFakeCurl({ manifest, payload, apiFails = false }, fn) {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "summrise-fakecurl-"));
+  const log = path.join(dir, "urls.log");
+  const mf = path.join(dir, "manifest.json");
+  const pl = path.join(dir, "payload.bin");
+  const apiFail = path.join(dir, "api-fail");
+  fs.writeFileSync(log, "");
+  fs.writeFileSync(mf, manifest ?? "");
+  fs.writeFileSync(pl, payload ?? "");
+  fs.writeFileSync(path.join(dir, "curl"), `#!/usr/bin/env bash
+url="\${!#}"
+printf '%s\\n' "$url" >> '${log}'
+case "$url" in
+  */api/version)
+    [ -f '${apiFail}' ] && exit 22
+    cat '${mf}' ;;
+  *)
+    dest=""; prev=""
+    for a in "$@"; do [ "$prev" = "-o" ] && dest="$a"; prev="$a"; done
+    [ -z "$dest" ] && exit 2
+    cp '${pl}' "$dest" ;;
+esac
+`, { mode: 0o755 });
+  if (apiFails) fs.writeFileSync(apiFail, "1");
+  const oldPath = process.env.PATH;
+  const oldCdn = process.env.SUMMRISE_CDN;
+  process.env.PATH = `${dir}:${oldPath}`;
+  process.env.SUMMRISE_CDN = "https://cdn.test"; // so the DERIVED route is visibly a different host
+  const urls = () => fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean);
+  try {
+    return fn({ dir, urls });
+  } finally {
+    process.env.PATH = oldPath;
+    if (oldCdn === undefined) delete process.env.SUMMRISE_CDN;
+    else process.env.SUMMRISE_CDN = oldCdn;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("resolveComponent fetches the url the manifest PUBLISHED — that field now has a reader", () => {
+  // The measured friction this pins: components.<name>.url was read by nobody, while the same CDN
+  // path was retyped in the CLI beside it. They agree today, so this is a drift guard and NOT a
+  // behaviour change — the assertion is that the bytes come from the address the release published,
+  // and the DIGEST check beside it still decides whether they are staged.
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const crypto = require("node:crypto");
+  const payload = Buffer.from("pretend cloudflared bytes");
+  const sha = crypto.createHash("sha256").update(payload).digest("hex");
+  const published = "https://manifest-host.test/summrise-agent/cloudflared.exe";
+
+  withFakeCurl(
+    {
+      manifest: JSON.stringify({
+        version: "9.9.9",
+        sha256: "0".repeat(64),
+        components: { cloudflared: { url: published, sha256: sha } },
+      }),
+      payload,
+    },
+    ({ dir, urls }) => {
+      const got = resolveComponent(
+        "cloudflared.exe",
+        path.join(dir, "not-in-the-package.exe"),
+      );
+      assert.ok(got, "a component whose digest matches must be staged");
+      assert.deepEqual(fs.readFileSync(got), payload);
+      const downloads = urls().filter((u) => !u.endsWith("/api/version"));
+      assert.deepEqual(
+        downloads,
+        [published],
+        `the fetch must use the manifest's url, not a route derived in the CLI ` +
+          `(fetched: ${downloads.join(", ") || "nothing"})`,
+      );
+    },
+  );
+
+  // AND THE MANIFEST IS NOT A WAY PAST THE DIGEST: bytes that do not hash to the published pin are
+  // still refused, which is the property round 12 added and this round must not weaken.
+  withFakeCurl(
+    {
+      manifest: JSON.stringify({
+        version: "9.9.9",
+        sha256: "0".repeat(64),
+        components: { cloudflared: { url: published, sha256: "b".repeat(64) } },
+      }),
+      payload,
+    },
+    ({ dir }) => {
+      assert.equal(
+        resolveComponent("cloudflared.exe", path.join(dir, "not-in-the-package.exe")),
+        null,
+        "a published url must not excuse a sha256 mismatch",
+      );
+    },
+  );
+
+  // A manifest that cannot be read (an older release, no network, the worker's 503) keeps the URL
+  // this CLI used before the field was read: the fallback is the behaviour that must not change.
+  withFakeCurl({ payload, apiFails: true }, ({ dir, urls }) => {
+    const got = resolveComponent(
+      "cloudflared.exe",
+      path.join(dir, "not-in-the-package.exe"),
+    );
+    assert.ok(
+      got,
+      "a silent manifest is a warning, not a refusal (an older release must still install)",
+    );
+    assert.deepEqual(fs.readFileSync(got), payload);
+    const downloads = urls().filter((u) => !u.endsWith("/api/version"));
+    assert.deepEqual(
+      downloads,
+      ["https://cdn.test/summrise-agent/cloudflared.exe"],
+      "a silent manifest must fall back to the derived route, unchanged",
+    );
+  });
 });
 
 test("desktopTaskPs / desktopStartPs: asking for the window, and answering with a FACT", () => {

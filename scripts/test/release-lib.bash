@@ -261,8 +261,6 @@ rm -rf "$FIXHOME"
 check "cf_token prints NOTHING when there is no env and no file (callers gate on that)" \
   "$(env -u CLOUDFLARE_API_TOKEN HOME=/nonexistent bash -c 'source scripts/lib/release-lib.sh; cf_token')" ""
 
-echo "release-lib: $PASS checks passed"
-
 
 # ── retiring the NSIS installer (round 27) ───────────────────────────────────
 # Measured state that motivated it: six staged exes (1.2.358-1.2.365, 40 MB) were uploaded by
@@ -282,3 +280,73 @@ check "the manifest survives" "$(cat "$R/version.json")" "{}"
 out="$(retire_installers "$R")"
 check_match "an empty asset dir is reported honestly" "$out" "no staged installer to retire"
 rm -rf "$R"
+
+# ── the component ADDRESS pin (2026-09-25) ───────────────────────────────────
+# Measured this round: version.json published a `url` per boxed component BESIDE its sha256, every
+# consumer read the digest, and the url was read by NOBODY — while the same CDN path was retyped in
+# four places. The two readers that fetch the manifest for the digest now take the address from the
+# same body; component_route_verdict pins the copies that cannot fetch anything against the routes
+# index/src/index.js actually serves. These cases drive every branch of it, including the FLOORS: a
+# pin whose extraction reads nothing must fail, not pass silently.
+D="$T/pin"
+pin_fixture() {
+  mkdir -p "$D/index/src" "$D/agent/deploy" "$D/agent/summrise-agent-npm/src" "$D/scripts"
+  cat > "$D/index/src/index.js" <<'EOF'
+    if (pathname === "/summrise-agent/cloudflared.exe") { return assets(request); }
+    if (pathname === "/summrise-agent/summrise-playwright.zip") { return r2(request); }
+EOF
+  printf '%s\n' '{"cloudflared":{"url":"https://agent.saisi.online/summrise-agent/cloudflared.exe","sha256":"aa"}}' > "$D/index/components.json"
+  printf '%s\n' 'Download-File "$CdnBase/summrise-agent/cloudflared.exe" $cfDest "cloudflared" | Out-Null' > "$D/agent/deploy/summrise-online-setup.ps1"
+  printf '%s\n' 'const zip = resolveComponent(' '  "cloudflared.exe",' '  path.join(__dirname, "..", "cloudflared.exe"),' ');' > "$D/agent/summrise-agent-npm/src/summrise.ts"
+  printf '%s\n' 'OUT="${OUT:-$ROOT/index/public/summrise-agent/summrise-playwright.zip}"' > "$D/scripts/build-playwright-bundle.sh"
+}
+pin_says() { # pin_says <desc> <substring the refusal must carry>
+  local out rc=0
+  out="$(component_route_verdict "$D")" || rc=$?
+  if [ "$rc" -ne 0 ] && [[ "$out" == *"$2"* ]]; then PASS=$((PASS+1)); else
+    echo "FAIL: $1 (rc=$rc)"; echo "  out: $out"; exit 1
+  fi
+}
+pin_drift() { # pin_drift <desc> <file> <sed-expr> <substring the refusal must carry>
+  pin_fixture
+  sed -i "$3" "$D/$2"
+  pin_says "$1" "$4"
+}
+
+pin_fixture
+check "an agreed fixture has NO findings" "$(component_route_verdict "$D")" ""
+# The pin is only as good as the ROUTE table it reads: a served set that reads nothing must fail.
+printf '%s\n' '#!/usr/bin/env bash' > "$D/index/src/index.js"
+pin_says "a worker whose route table reads NOTHING fails the pin" "the route table moved"
+rm -f "$D/index/src/index.js"
+pin_says "a MISSING worker fails the pin" "the index worker is missing"
+
+pin_drift "a renamed path in the PIN FILE is refused" index/components.json 's|cloudflared\.exe|cloudflared-x64.exe|' "index/components.json publishes /summrise-agent/cloudflared-x64.exe"
+pin_drift "a renamed path in the INSTALLER's fallback is refused" agent/deploy/summrise-online-setup.ps1 's|cloudflared\.exe|cloudflared-x64.exe|' "summrise-online-setup.ps1 spells /summrise-agent/cloudflared-x64.exe"
+pin_drift "a renamed path in the CLI's call site is refused" agent/summrise-agent-npm/src/summrise.ts 's|"cloudflared\.exe"|"cloudflared-x64.exe"|' "summrise.ts asks setup for /summrise-agent/cloudflared-x64.exe"
+pin_drift "a renamed path in the BUNDLE PRODUCER is refused" scripts/build-playwright-bundle.sh 's|summrise-playwright\.zip|playwright.zip|' "build-playwright-bundle.sh writes index/public/summrise-agent/playwright.zip"
+# …and the ROUTE is the derivation: moving it is what every copy must follow, so a copy left
+# behind is refused the same way. This is the direction that a "does the file exist" check misses.
+pin_fixture
+sed -i 's|/summrise-agent/cloudflared\.exe|/summrise-agent/cloudflared-x64.exe|' "$D/index/src/index.js"
+pin_says "a copy left behind by a MOVED ROUTE is refused" "index/components.json publishes /summrise-agent/cloudflared.exe"
+
+# The floors: a copy that yields no path at all proves nothing, so it is a failure.
+pin_fixture
+printf '%s\n' '# the fallbacks moved elsewhere' > "$D/agent/deploy/summrise-online-setup.ps1"
+pin_says "an installer with no fallback left is a FAILURE, not silence" "no \$CdnBase/summrise-agent path could be read"
+pin_fixture
+printf '%s\n' 'const other = 1;' > "$D/agent/summrise-agent-npm/src/summrise.ts"
+pin_says "a CLI whose loader moved is a FAILURE, not silence" "no resolveComponent call site could be read"
+pin_fixture
+: > "$D/index/components.json"
+pin_says "a pin file with no components is a FAILURE, not silence" "no component url could be read"
+pin_fixture
+: > "$D/scripts/build-playwright-bundle.sh"
+pin_says "a bundle producer whose OUT default moved is a FAILURE, not silence" "no index/public/summrise-agent path could be read"
+
+# AND THE REAL TREE: the pin must be silent on the repo as it stands — every copy in it names a
+# path the worker serves. A fixture-only gate would pass while the repo itself drifted.
+check "the repo's own copies all name a served route" "$(component_route_verdict "$PWD")" ""
+
+echo "release-lib: $PASS checks passed"

@@ -922,6 +922,33 @@ export function componentUrl(name: string): string {
   return `${cdnBase()}/summrise-agent/${name}`;
 }
 
+/**
+ * The address to FETCH a boxed component from: the release manifest's own `url` for it, or
+ * `componentUrl`'s derived route when the manifest carries none.
+ *
+ * WHY THE MANIFEST IS THE AUTHOR. Every release since the pins existed has published a `url`
+ * beside each component's `sha256` in version.json, and this CLI read the digest while the
+ * address was retyped here — one fact, two authors. They agree today, which is why reading the
+ * manifest is a DRIFT GUARD rather than a fix: index/src/index.js rebuilds the published url
+ * against the origin of the request that asked for `/api/version`, so the address it hands back
+ * is the one this function would have derived — under $SUMMRISE_CDN too, where both move
+ * together. A release whose url and route disagreed (a renamed bundle, the round-115 shape)
+ * now fetches what it published; a silent manifest (an older release, or no network) keeps the
+ * derived route, which is what every release before this one did.
+ *
+ * Pure — the tests pin it. The digest check beside it is unchanged.
+ */
+export function componentFetchUrl(
+  name: string,
+  pins: Record<string, { url?: string; sha256?: string }>,
+): string {
+  const key = componentKey(name);
+  const u = key ? (pins[key] || {}).url : "";
+  return typeof u === "string" && /^https?:\/\/\S+$/.test(u.trim())
+    ? u.trim()
+    : componentUrl(name);
+}
+
 /** The release manifest's key for a component's FILE name (they are not the same string). */
 export function componentKey(fileName: string): string | null {
   if (fileName.startsWith("summrise-playwright")) return "playwright";
@@ -986,9 +1013,16 @@ export function resolveComponent(name: string, pkgPath: string): string | null {
   );
   // -f: an HTTP error is a FAILURE, not a 404 page written to disk (the
   // HTML-polluted download that round-54 exists to remember).
+  //
+  // THE MANIFEST IS READ ONCE, BEFORE THE FETCH, because it is the author of the DIGEST (below)
+  // and now of the ADDRESS too (componentFetchUrl). Same read, same object, same order of
+  // effects: an unreachable manifest yields `{}`, the fetch falls back to the derived route, and
+  // the digest check then says "fetched WITHOUT a manifest pin — not verified", exactly as it
+  // did when the address was derived unconditionally.
+  const pins = componentPins();
   const r = spawnSync(
     "curl",
-    ["-fsSL", "-m", "300", "-o", dest, componentUrl(name)],
+    ["-fsSL", "-m", "300", "-o", dest, componentFetchUrl(name, pins)],
     { encoding: "utf8", timeout: 320000 },
   );
   if (r.status !== 0 || !fs.existsSync(dest) || fs.statSync(dest).size === 0) {
@@ -1002,8 +1036,11 @@ export function resolveComponent(name: string, pkgPath: string): string | null {
   // because the failure it prevents is a device running bytes nobody published.
   // No pin at all (an older release) is a warning, not a refusal: it must not make
   // an install impossible.
+  //
+  // `pins` is the read from above — ONE manifest read per component fetch, exactly as before; the
+  // check itself is unchanged.
   const key = componentKey(name);
-  const pin = key ? (componentPins()[key] || {}).sha256 || "" : "";
+  const pin = key ? (pins[key] || {}).sha256 || "" : "";
   if (pin) {
     const got = sha256File(dest);
     if (got !== pin) {

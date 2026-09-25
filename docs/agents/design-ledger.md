@@ -6042,6 +6042,38 @@ device-ADJACENT rather than device-behavioural — the installer matters at inst
 Windows with a console, the desktop shell only to the electron app. They batch into 1.2.468, and the standard stands:
 a device-affecting change ends with the device saying so.
 
+## 2026-09-25 — the thirty-sixth exploration: the manifest published the address; every reader retyped it
+
+The release manifest carries, per component, a `sha256` AND a `url`. The digest is read everywhere — round 34's
+installer fix leaned on exactly that — and the url was read by **nobody**, while the CDN path it spells was retyped in
+four places (`agent/deploy/summrise-online-setup.ps1`, `agent/summrise-agent-npm/src/summrise.ts`,
+`index/components.json`, the publisher). They agreed, which is how a respelled path stays invisible until one copy moves.
+
+**THE FIELD HAS READERS NOW**, so the publisher keeps writing it: the installer's PowerShell gained a pure
+`Get-ComponentUrl -ManifestJson -Name -Fallback -BaseUrl` used at all three component sites, and the CLI's
+`resolveComponent` takes `components.<name>.url` from the same manifest read it already makes for the digest (falling
+back to its derived URL when the manifest is silent or the value is not absolute http(s)). The digest check is
+untouched, and no install path changes bytes: for the default and any bare-origin base the published url IS today's
+derived one.
+
+**AND THE DRIFT IS NOW REFUSED AT PUBLISH TIME**: `component_route_verdict` in `scripts/lib/release-lib.sh` compares
+every declared copy (the components.json urls, the installer's three fallbacks, the CLI's call-site names, the bundle
+producer's output) against the routes `index/src/index.js` SERVES, requires each copy to yield at least one path (a
+silent rule fails rather than passing), and `publish-release.sh` refuses a publish on drift beside the existing
+cloudflared digest cross-check. Proven by changing a served route in `index/src/index.js` and watching release-lib
+exit 1.
+
+**TWO THINGS ROUND 13 LEFT THAT THIS ROUND FOUND, and both are the kind a commit cannot see**: the new
+`agent/summrise-desktop-electron/test/ipc-door.test.mjs` was on disk at mode **600** while git recorded 644 — invisible
+to `git status`, and it made `publish-release.bash` fail ("pack input modes match a fresh checkout"). Fixed by
+`chmod 644`. And `AGENTS.md`'s reporter table said the npm suite was "55 cases" while it was 57 at HEAD and is 59 now —
+the drift that file itself warns about in the cell above it. Corrected.
+
+**NUMBERS:** the CLI package 57 → **59 tests**; `release-lib` 49 → **65 checks** (+ a `gate-mutations-check` row);
+`publish-release.bash` **19 checks, 0 failed**; the index worker 45/45. NOT VERIFIED HERE: there is no PowerShell on
+this box, so the installer's new call sites and the 15 new `.ps1` checks are unexecuted — CI's fail-closed pwsh step is
+what runs them, and that is stated rather than implied.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

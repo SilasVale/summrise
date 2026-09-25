@@ -275,6 +275,114 @@ pack_input_mode_verdict() {
   return 0
 }
 
+# component_route_verdict <repo_root>
+# Prints one line per copy of a boxed component's CDN path that names something the index
+# worker does NOT serve, and returns 0 when every declared copy agrees with the route table.
+#
+# WHY THIS EXISTS (2026-09-25). Measured on the live CDN: version.json carried a `url` per
+# component BESIDE its sha256, every consumer read the DIGEST, and the url was read by NOBODY —
+# while the same CDN path was retyped in four places. Two of those readers (the npm CLI's
+# resolveComponent, the online installer's component blocks) already fetched the manifest for the
+# digest and now take the ADDRESS from the same body; the copies that cannot fetch anything keep
+# the path and are compared HERE against the one derivation that is not a copy: the routes
+# index/src/index.js answers. A copy that moves without the route, or a route that moves without
+# the copies, is the drift this refuses.
+#
+# PATHS, NOT HOSTS. The worker REBUILDS every published url against the origin of the request
+# that asked for /api/version, so a host spelled in these files belongs to whatever mirror they
+# point at; the path is the part that must be served. That is also why reading the manifest in
+# those two readers changes no bytes today: same path, same origin.
+#
+# THE EXTRACTION IS PER FILE because the copies spell different things (a full url, a $CdnBase
+# expression, a call argument, an OUT default) — and every declared copy must yield at least one
+# path: a rule that silently stops matching proves nothing, which is the failure all-gates
+# reports as a gate that "exited 0 having printed NOTHING". A copy that is genuinely gone gets
+# removed from the list below, in the commit that removes it.
+component_route_verdict() {
+  local root="${1:?repo root}"
+  local worker="$root/index/src/index.js"
+  local report="" served
+  [ -f "$worker" ] || { echo "the index worker is missing ($worker) — the addresses cannot be compared to anything"; return 1; }
+  # The served paths, read from the worker's own route table rather than from any of the copies.
+  served="$(grep -oE 'pathname === "/summrise-agent/[A-Za-z0-9._-]+"' "$worker" | grep -oE '/summrise-agent/[A-Za-z0-9._-]+' | sort -u)"
+  if [ -z "$served" ]; then
+    echo "no /summrise-agent route could be read from index/src/index.js — the route table moved, so this proves nothing"
+    return 1
+  fi
+
+  # 1. THE PIN FILE. publish-release.sh copies index/components.json verbatim into version.json's
+  # `components` block, so its url is what the static manifest publishes to the world.
+  local pins="$root/index/components.json" u p n=0
+  if [ -f "$pins" ]; then
+    while IFS= read -r u; do
+      [ -n "$u" ] || continue
+      n=$((n + 1))
+      p="${u#*://}"; p="/${p#*/}"
+      grep -qxF "$p" <<<"$served" || report="${report}index/components.json publishes $p, which index/src/index.js does not serve"$'\n'
+    done < <(python3 -c "
+import json
+try:
+    pins = json.load(open('$pins'))
+except Exception:
+    pins = {}   # an unreadable pin file reports BELOW as 'no component url could be read'
+for k, v in sorted(pins.items()):
+    if not k.startswith('_') and isinstance(v, dict):
+        print(v.get('url') or '')
+")
+    [ "$n" -gt 0 ] || report="${report}no component url could be read from index/components.json — the pin file moved, so this proves nothing"$'\n'
+  fi
+
+  # 2. THE INSTALLER'S FALLBACKS. `summrise-online-setup.ps1` now takes each component's address
+  # from the manifest it reads (Get-ComponentUrl) and keeps this path for the arm where that
+  # manifest cannot be read at all — the one copy that is genuinely offline, so it is the one that
+  # most needs a pin.
+  local ps1="$root/agent/deploy/summrise-online-setup.ps1"
+  if [ -f "$ps1" ]; then
+    n=0
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      n=$((n + 1))
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/deploy/summrise-online-setup.ps1 spells /summrise-agent/$p, which index/src/index.js does not serve"$'\n'
+    done < <(grep -oP '\$CdnBase/summrise-agent/[A-Za-z0-9._-]+(?=")' "$ps1" | sed 's|.*/summrise-agent/||' | sort -u)
+    [ "$n" -gt 0 ] || report="${report}no \$CdnBase/summrise-agent path could be read from agent/deploy/summrise-online-setup.ps1 — the fallbacks moved, so this proves nothing"$'\n'
+  fi
+
+  # 3. THE CLI'S CALL SITES. resolveComponent's first argument is the file the release host is
+  # asked for when the manifest is silent, so it must be a name the worker serves — the manifest
+  # url wins while it is there, which is exactly what would hide this drift until the first device
+  # that cannot read the manifest.
+  local ts="$root/agent/summrise-agent-npm/src/summrise.ts"
+  if [ -f "$ts" ]; then
+    n=0
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      n=$((n + 1))
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/summrise-agent-npm/src/summrise.ts asks setup for /summrise-agent/$p, which index/src/index.js does not serve"$'\n'
+    done < <(python3 -c "
+import re
+src = open('$ts').read()
+print('\n'.join(sorted(set(re.findall(r'resolveComponent\(\s*\"([A-Za-z0-9._-]+)\"', src)))))
+")
+    [ "$n" -gt 0 ] || report="${report}no resolveComponent call site could be read from agent/summrise-agent-npm/src/summrise.ts — the loader moved, so this proves nothing"$'\n'
+  fi
+
+  # 4. THE BUNDLE PRODUCER. build-playwright-bundle.sh writes the artefact the worker serves at
+  # the playwright route; its OUT default is the last place that path is spelled.
+  local bundle="$root/scripts/build-playwright-bundle.sh"
+  if [ -f "$bundle" ]; then
+    n=0
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      n=$((n + 1))
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}scripts/build-playwright-bundle.sh writes index/public/summrise-agent/$p, which index/src/index.js does not serve"$'\n'
+    done < <(grep -oP 'index/public/summrise-agent/[A-Za-z0-9._-]+' "$bundle" | sed 's|.*/summrise-agent/||' | sort -u)
+    [ "$n" -gt 0 ] || report="${report}no index/public/summrise-agent path could be read from scripts/build-playwright-bundle.sh — the OUT default moved, so this proves nothing"$'\n'
+  fi
+
+  if [ -n "$report" ]; then printf '%s' "$report"; return 1; fi
+  return 0
+}
+
 # cf_token — the Cloudflare API token: env first, then ~/.cloudflare-token.
 #
 # ONE OWNER. It used to be written out four times, byte-identical, in build.sh,

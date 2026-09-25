@@ -219,7 +219,15 @@ try {
   $pkgDir = Join-Path $NpmGlobal "node_modules\summrise-agent"
   $cfDest = Join-Path $pkgDir "cloudflared.exe"
   if (-not (Test-Path $cfDest)) {
-    Download-File "$CdnBase/summrise-agent/cloudflared.exe" $cfDest "cloudflared" | Out-Null
+    # THE ADDRESS COMES FROM THE MANIFEST THIS BLOCK ALREADY READS (2026-09-25), with the path this
+    # script used to retype as the fallback for a manifest that publishes none (an older release) or
+    # cannot be read. Same bytes either way, because index/src/index.js rebuilds
+    # components.cloudflared.url against the origin of the /api/version request — the host -CdnBase
+    # already points at. The fallback stays because this arm must still stage a component on a box
+    # where the manifest fetch failed; the sha256 check below is what decides whether it is kept.
+    # -BaseUrl is what keeps a MIRROR's spelling: only a bare origin can take the published url (a
+    # path-prefixed -CdnBase would lose its prefix), so every other base keeps the path built here.
+    Download-File (Get-ComponentUrl -ManifestJson $manifestJson -Name "cloudflared" -Fallback "$CdnBase/summrise-agent/cloudflared.exe" -BaseUrl $CdnBase) $cfDest "cloudflared" | Out-Null
   }
   if (Test-Path $cfDest) {
     # Verified whether or not we just downloaded it: a file already here came from a
@@ -247,13 +255,15 @@ try {
     Say "下载 playwright 浏览器工具包（约 30MB，走我们的 CDN）..."
     try {
       $ProgressPreference = "SilentlyContinue"
-      Invoke-WebRequest -Uri "$CdnBase/summrise-agent/summrise-playwright.zip" -OutFile $pwDest -UseBasicParsing -TimeoutSec 600
+      Invoke-WebRequest -Uri (Get-ComponentUrl -ManifestJson $manifestJson -Name "playwright" -Fallback "$CdnBase/summrise-agent/summrise-playwright.zip" -BaseUrl $CdnBase) -OutFile $pwDest -UseBasicParsing -TimeoutSec 600
     } catch { Say "playwright 下载失败：$($_.Exception.Message)" }
   }
   # VERIFIED WHETHER OR NOT WE JUST DOWNLOADED IT, and that is the point rather than a
   # detail: a file already at this path was staged by a PREVIOUS run, possibly by the
   # installer from before this check existed, and `summrise setup` takes it by presence.
   # SIZE IS NOT A VERDICT: the acceptance used to be "> 1MB", which accepts any 31 MB.
+  # The ADDRESS is the manifest's components.playwright.url when it publishes one (see the
+  # cloudflared block for why that changes no bytes), with this script's own path as the fallback.
   $wantPw = Get-ComponentSha256 -ManifestJson $manifestJson -Name "playwright"
   if ((Test-Path $pwDest) -and (Test-FileSha256 -Path $pwDest -Expected $wantPw)) {
     Say "playwright 已随包（sha256 校验通过；浏览器工具将启用）"
@@ -294,11 +304,13 @@ if (-not $electronOk) {
   # installs the new one while the npm arm still installs 33.4.11, and nothing compares them.
   # Publishing the version in the manifest would let both arms agree; that is a worker change
   # (index/src/index.js rebuilds `components` as {url, sha256}), so it is named here, not faked.
+  # ITS url IS READ NOW (2026-09-25): components.electron.url is the address this arm fetches,
+  # with the retyped path below kept as the fallback for a manifest that publishes none.
   Say "下载 Electron（约 115MB，走我们的 CDN）..."
   $got = $false
   try {
     $ProgressPreference = "SilentlyContinue"
-    Invoke-WebRequest -Uri "$CdnBase/summrise-agent/electron-win32-x64.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 900
+    Invoke-WebRequest -Uri (Get-ComponentUrl -ManifestJson $manifestJson -Name "electron" -Fallback "$CdnBase/summrise-agent/electron-win32-x64.zip" -BaseUrl $CdnBase) -OutFile $zip -UseBasicParsing -TimeoutSec 900
     # VERIFIED, NOT MEASURED (round 143). The acceptance here was "> 1MB", and what follows
     # EXPANDS this zip and copies its contents into dist\\ — 115 MB of executable payload
     # installed on the strength of a file size. The manifest pins this component; ask it.

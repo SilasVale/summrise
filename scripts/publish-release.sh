@@ -379,6 +379,24 @@ if [ -f index/components.json ] && [ -f agent/src/tunnel.rs ]; then
   echo "  component pins: cloudflared agrees with the agent's CLOUDFLARED_SHA256 (${RUST_CF:0:12}…)"
 fi
 
+# ── every copy of a component's ADDRESS must be a path the worker SERVES (2026-09-25) ─────────
+# The digest above has two pins and a cross-check; the ADDRESS had four copies and no comparison at
+# all — version.json published a `url` per component that NOBODY read. The two readers that fetch
+# the manifest for the digest now take the address from the same body (the npm CLI's
+# resolveComponent, the installer's component blocks); the copies that cannot fetch anything are
+# compared here against the routes index/src/index.js answers, so a rename on one side of that chain
+# cannot leave the other side publishing a dead address. The gate lives in scripts/lib/release-lib.sh
+# so it has behavioural tests (round 154's rule for every refusal in this block).
+if [ -f index/components.json ] && [ -f index/src/index.js ]; then
+  if ! ROUTE_BAD=$(component_route_verdict "$PWD"); then
+    echo "::error::component address drift — a published url and the route that serves it disagree:" >&2
+    printf '%s' "$ROUTE_BAD" >&2
+    echo "  Fix: index/src/index.js is the derivation; move the copy to the route it serves." >&2
+    exit 1
+  fi
+  echo "  component addresses: every declared copy names a path index/src/index.js serves"
+fi
+
 # ── --dry-run: every gate that can REFUSE, and nothing that can CHANGE anything ────────────────
 # The 30 refusals above are this module's real interface, and until now the only way to exercise
 # one was to attempt a release: the whole gate block needs no credential and touches nothing, but

@@ -321,6 +321,17 @@ const CASES = [
     from: "const HEADER_TIMEOUT_MS = 30000;",
     to: "const HEADER_TIMEOUT_MS = 45000;",
   },
+  {
+    gate: "scripts/test/release-lib.bash",
+    // THE ROUTE MOVES, THE COPIES DO NOT (2026-09-25). The measured state this pairs with: version.json published
+    // a `url` per boxed component BESIDE its sha256, every consumer read the DIGEST, and the url was read by
+    // NOBODY — while the same CDN path was retyped in index/components.json, the online installer, the npm CLI and
+    // the bundle producer. Two of those readers now take the address from the manifest body they already fetch for
+    // the digest; component_route_verdict pins the rest against the routes index/src/index.js serves. Renaming the
+    // ROUTE is the direction a "does the file still exist" check cannot see, so it is the one proven here.
+    from: 'if (pathname === "/summrise-agent/cloudflared.exe") {',
+    to: 'if (pathname === "/summrise-agent/cloudflared-x64.exe") {',
+  },
 ];
 
 const run = (cmd, args) => {

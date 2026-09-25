@@ -73,6 +73,46 @@ Check "a manifest with NO components block is refused" `
 Check "malformed JSON is refused" (Get-ComponentSha256 -ManifestJson 'not json' -Name 'cloudflared') ""
 Check "an empty body is refused" (Get-ComponentSha256 -ManifestJson '' -Name 'cloudflared') ""
 
+# --- the component ADDRESS reader (2026-09-25) -------------------------------
+# version.json publishes a `url` beside each component's sha256, and the installer read the DIGEST
+# from that manifest while RETYPING the matching path in its download blocks — one fact, two
+# authors. These cases pin which of the two wins. The half that must not change is the fallback: a
+# manifest that cannot answer must leave the caller the path it used before, never "" (which would
+# download nothing at all), and a url that is not an absolute http(s) address is never fetched,
+# because what the caller does with this answer is install whatever it points at.
+$fallback = 'https://cdn.example/summrise-agent/cloudflared.exe'
+$urls = '{"version":"1.2.364","components":{"cloudflared":{"url":"https://mirror.example/summrise-agent/cloudflared.exe","sha256":"' + $sha + '"}}}'
+
+Check "the URL THE MANIFEST PUBLISHED is the address fetched" `
+  (Get-ComponentUrl -ManifestJson $urls -Name 'cloudflared' -Fallback $fallback) 'https://mirror.example/summrise-agent/cloudflared.exe'
+# -BaseUrl is the spelling the installer actually uses (-CdnBase), and it is what keeps this reader
+# from moving a mirror's URL: the worker rebuilds the published url against the ORIGIN of the
+# /api/version request, so only a bare origin can take it. Every other spelling keeps the path the
+# caller built, which is the URL it used before the manifest was read at all.
+Check "a BARE-ORIGIN -CdnBase takes the published url" `
+  (Get-ComponentUrl -ManifestJson $urls -Name 'cloudflared' -Fallback $fallback -BaseUrl 'https://cdn.example') 'https://mirror.example/summrise-agent/cloudflared.exe'
+Check "a PATH-PREFIXED -CdnBase keeps its OWN spelling" `
+  (Get-ComponentUrl -ManifestJson $urls -Name 'cloudflared' -Fallback $fallback -BaseUrl 'https://cdn.example/mirror') $fallback
+Check "a TRAILING-SLASH -CdnBase keeps its own spelling too" `
+  (Get-ComponentUrl -ManifestJson $urls -Name 'cloudflared' -Fallback $fallback -BaseUrl 'https://cdn.example/') $fallback
+Check "a component the manifest does not carry falls back" `
+  (Get-ComponentUrl -ManifestJson $urls -Name 'electron' -Fallback $fallback) $fallback
+Check "a manifest with NO components block falls back" `
+  (Get-ComponentUrl -ManifestJson ('{"version":"1.2.364","sha256":"' + $sha + '"}') -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "a component with a digest but no url falls back" `
+  (Get-ComponentUrl -ManifestJson ('{"components":{"cloudflared":{"sha256":"' + $sha + '"}}}') -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "an EMPTY url falls back" `
+  (Get-ComponentUrl -ManifestJson '{"components":{"cloudflared":{"url":""}}}' -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "a RELATIVE url falls back (never fetched)" `
+  (Get-ComponentUrl -ManifestJson '{"components":{"cloudflared":{"url":"/summrise-agent/cloudflared.exe"}}}' -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "a NON-http scheme falls back" `
+  (Get-ComponentUrl -ManifestJson '{"components":{"cloudflared":{"url":"ftp://x/cloudflared.exe"}}}' -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "a url with a SPACE falls back" `
+  (Get-ComponentUrl -ManifestJson '{"components":{"cloudflared":{"url":"https://x/a b.exe"}}}' -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "malformed JSON falls back" (Get-ComponentUrl -ManifestJson 'not json' -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "an empty body falls back" (Get-ComponentUrl -ManifestJson '' -Name 'cloudflared' -Fallback $fallback) $fallback
+Check "an empty name falls back" (Get-ComponentUrl -ManifestJson $urls -Name '' -Fallback $fallback) $fallback
+
 # --- the file verdict -------------------------------------------------------
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("summrise-integrity-" + [Guid]::NewGuid().ToString('N') + ".bin")
 [IO.File]::WriteAllText($tmp, "hello")

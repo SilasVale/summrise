@@ -68,3 +68,41 @@ function Get-ComponentSha256 {
   if ($sha -notmatch '^[0-9a-fA-F]{64}$') { return "" }
   return $sha.ToLower()
 }
+
+function Get-ComponentUrl {
+  # The ADDRESS the manifest publishes for a NAMED component, or $Fallback when it
+  # publishes none — the mirror image of Get-ComponentSha256's contract, and the
+  # fallback is what keeps "" from ever meaning "fetch nothing".
+  #
+  # WHY THIS EXISTS (2026-09-25). version.json has published a `url` beside each
+  # component's sha256 for as long as the pins have existed, and this installer
+  # read the DIGEST from it while RETYPING the matching path three blocks below
+  # (`$CdnBase/summrise-agent/<file>`) — one fact with two authors, which is how a
+  # renamed component comes to be published at one address and fetched from
+  # another. index/src/index.js rebuilds the published url against the ORIGIN OF
+  # THE REQUEST that asked for /api/version, so the address it hands back is
+  # exactly the one this script derives from -CdnBase: they agree today, which is
+  # why reading the manifest is a DRIFT GUARD and not a fix, and why a mirror set
+  # with -CdnBase keeps fetching from the mirror.
+  #
+  # A url that is NOT an absolute http(s) address is refused in favour of the
+  # fallback rather than fetched: what the caller does with the answer is download
+  # and install it.
+  #
+  # AND SO IS EVERY SPELLING OF -CdnBase THAT IS NOT A BARE ORIGIN ($BaseUrl, when
+  # the caller passes it). The published url is rebuilt against the ORIGIN of the
+  # /api/version request, so it cannot carry a mirror's path prefix: for
+  # `https://host/mirror` — or `https://host/`, which the derived URLs spell with a
+  # double slash today — this arm keeps the path it built itself, which is the URL
+  # it used before the manifest was read at all.
+  param([string]$ManifestJson, [string]$Name, [string]$Fallback, [string]$BaseUrl = "")
+  if (-not $ManifestJson -or -not $Name) { return $Fallback }
+  try { $m = $ManifestJson | ConvertFrom-Json } catch { return $Fallback }
+  if (-not $m -or -not $m.components) { return $Fallback }
+  $c = $m.components.$Name
+  if (-not $c) { return $Fallback }
+  $u = "$($c.url)"
+  if ($u -notmatch '^https?://[^\s]+$') { return $Fallback }
+  if ($BaseUrl -and $BaseUrl -notmatch '^https?://[^/]+$') { return $Fallback }
+  return $u
+}
