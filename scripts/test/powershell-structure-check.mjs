@@ -10,13 +10,17 @@
 // second.
 //
 // WHAT IT IS: a structural scan, NOT a parser. It answers ONE question — do `{}`, `()` and `[]` balance OUTSIDE
-// single-quoted strings, here-strings and comments, and INSIDE every `$( … )` subexpression a double-quoted string
-// carries. That last region is the one this check used to document as a hole about itself, and it is the region
-// that matters most here: the launcher lines this installer WRITES are built out of `"… $(Get-Thing) …"`, and a
-// `$( … )` is CODE with its own braces and parens, not text. The stripping is what makes it correct rather than a
-// false alarm: the installer writes launcher scripts whose bodies contain braces (`'… { exit }; …'`,
-// summrise-online-setup.ps1:443), and the integrity tests carry JSON in single-quoted strings
-// (`'{"version":"1.2.364"}'`), so a naive count fails on correct code. What it therefore cannot see is listed at
+// single-quoted strings, single-quoted here-strings and comments, and INSIDE every `$( … )` subexpression a
+// DOUBLE-QUOTED thing carries — whether that thing is a `"…"` string or the body of a `@" … "@` here-string, which
+// PowerShell expands by the same rules and which is therefore scanned by the same pass (`expandingBody`). That
+// region is the one this check kept documenting as a hole about itself, twice: the plain double-quoted string
+// (round 50), and now the double-quoted here-string. It is the region that matters most here — the launcher lines
+// this installer WRITES are built out of `"… $(Get-Thing) …"`, and a `$( … )` is CODE with its own braces and
+// parens, not text. The stripping is what makes it correct rather than a false alarm: the installer writes launcher
+// scripts whose bodies contain braces (`'… { exit }; …'`, summrise-online-setup.ps1:443), the integrity tests carry
+// JSON in single-quoted strings (`'{"version":"1.2.364"}'`), and the retired installer writes tunnel.yml into a
+// `@" … "@` here-string (retired/vale-agent-setup.ps1:382) — so a naive count
+// fails on correct code. What it therefore cannot see is listed at
 // the bottom of this file, and the snippets it is judged by are the `SELF_TEST` table below — a scanner whose skip
 // rules were never themselves tested is the instrument this suite trusts least. `installer_integrity.rs` keeps its
 // own pins; this is a DIFFERENT instrument — syntax SHAPE, not wiring — and neither weakens nor duplicates the other.
@@ -48,9 +52,11 @@ function ps1Files(dir) {
 }
 
 /** One left-to-right pass, skipping whole the things that make a bracket not-code: `#` comments, `<# … #>`
- *  comments, here-strings, single-quoted strings and double-quoted strings — EXCEPT that a `$( … )` inside a
- *  double-quoted string is code, and is scanned as such (see `doubleQuoted`). Returns the problems found, each
- *  naming the line it starts on. */
+ *  comments, single-quoted strings, single-quoted here-strings and double-quoted strings — EXCEPT that a `$( … )`
+ *  inside a double-quoted thing is code, and is scanned as such (see `expandingBody`). A double-quoted HERE-STRING
+ *  (`@" … "@`) is such a thing too: PowerShell expands it exactly like a `"…"` string, so its body is scanned, even
+ *  though its braces-free opening line and its line-anchored `"@` terminator make it LOOK like the opaque kind.
+ *  Returns the problems found, each naming the line it starts on. */
 function scan(src, file) {
   const problems = [];
   const stack = []; // every open bracket, with the line it was opened on
@@ -86,25 +92,26 @@ function scan(src, file) {
     return true;
   }
 
-  /** A DOUBLE-QUOTED STRING: a backtick escapes the NEXT character (`` `" `` is a literal quote, which the
-   *  integrity tests use to carry JSON) and `""` is an escaped quote.
+  /** A DOUBLE-QUOTED BODY — the inside of a `"…"` string AND the inside of a `@" … "@` here-string, which
+   *  PowerShell EXPANDS by the same rules and so is scanned by the same pass. A backtick escapes the next
+   *  character (`` `" `` is a literal quote, which the integrity tests use to carry JSON) and `""` is an escaped
+   *  quote in a string.
    *
    *  `$( … )` INSIDE IT IS NOT TEXT. PowerShell evaluates it, so its braces and parens belong to the file's
    *  structure exactly like brackets outside the string — and a launcher line is where they are written. The
    *  subexpression's `(` joins the SAME stack, its body is scanned as code, and it ends at the `)` that closes it;
    *  a `$( … )` inside that body nests the same way. A plain `$name` — and `${name}`, whose braces are part of the
-   *  NAME, not a group — is a variable reference and stays opaque. */
-  function doubleQuoted() {
-    const at = line;
-    skipTo(i + 1); // the opening quote
+   *  NAME, not a group — is a variable reference and stays opaque.
+   *
+   *  `step()` is the ONE rule the two callers do not share: it reports whether the body ENDS at the cursor,
+   *  consuming the terminator when it does — a `"…"` string ends at a bare `"`, an `@" … "@` here-string at `"@` at
+   *  the START of a line, because that is what PowerShell requires and the only place its body may end. Returns
+   *  false when the body — or a string a subexpression inside it opened — ran away; `fail` has already said why. */
+  function expandingBody(step, at, why) {
     while (i < n) {
+      if (step()) return true;
       const c = src[i];
       if (c === "`") { skipTo(Math.min(i + 2, n)); continue; } // the backtick escapes whatever follows
-      if (c === '"') {
-        if (src[i + 1] === '"') { skipTo(i + 2); continue; } // an escaped quote, still inside
-        i++;
-        return true;
-      }
       if (c === "$" && src[i + 1] === "(") {
         stack.push({ ch: "(", line });
         skipTo(i + 2);
@@ -114,8 +121,24 @@ function scan(src, file) {
       if (c === "\n") line++;
       i++;
     }
-    fail(at, "a double-quoted string is never closed — `pwsh` would reject the file");
+    fail(at, why);
     return false;
+  }
+
+  /** A DOUBLE-QUOTED STRING `"…"`: `""` is an escaped quote, and everything else is the body above. */
+  function doubleQuoted() {
+    const at = line;
+    skipTo(i + 1); // the opening quote
+    return expandingBody(
+      () => {
+        if (src[i] !== '"') return false;
+        if (src[i + 1] === '"') { skipTo(i + 2); return false; } // an escaped quote, still inside
+        skipTo(i + 1);
+        return true;
+      },
+      at,
+      "a double-quoted string is never closed — `pwsh` would reject the file",
+    );
   }
 
   /** CODE — outside every string, and inside a `$( … )` subexpression. `subDepth` is the stack depth at which the
@@ -143,12 +166,40 @@ function scan(src, file) {
         continue;
       }
 
-      // A HERE-STRING IS NOT CODE EITHER: `@'` / `@"`, opened at the end of a line and closed by `'@` / `"@` at the
-      // START of one (PowerShell 5.1's rule, and these scripts are `#Requires -Version 5.1`). Its body is raw text —
-      // an installer writing a config puts exactly that in one — and a body holding an odd number of quotes would
-      // otherwise desynchronize every line below it.
+      // A HERE-STRING IS OPENED AT THE END OF A LINE AND CLOSED BY `'@` / `"@` AT THE START OF ONE (PowerShell
+      // 5.1's rule, and these scripts are `#Requires -Version 5.1`). A body holding an odd number of quotes would
+      // otherwise desynchronize every line below it. THE TWO FORMS ARE NOT THE SAME, and that is the whole reason
+      // this branch is longer than it looks:
+      //
+      //   * `@' … '@` expands NOTHING. Its body is RAW TEXT — an installer writing a config or a JSON manifest puts
+      //     exactly that in one — so braces inside it are DATA, not groups, and it is skipped whole.
+      //   * `@" … "@` expands variable references AND `$( … )` subexpressions, exactly as a `"…"` string does, so
+      //     its body goes through `expandingBody` and the subexpressions' brackets land on the file's own stack.
+      //     Skipping it whole is what this check did until now, and it is a hole a `{` opened in a here-string
+      //     subexpression falls straight through.
       if (c === "@" && (src[i + 1] === "'" || src[i + 1] === '"') && /^[^\S\n]*\r?\n/.test(src.slice(i + 2))) {
         const q = src[i + 1];
+        const at = line;
+        if (q === '"') {
+          // The terminator rule IS the body rule here: `"@` only ends the here-string at the start of a line, and
+          // an earlier `"@` — or a lone `"` inside the body — is text.
+          const atTerminator = () => {
+            if (src[i] !== "\n" || src[i + 1] !== '"' || src[i + 2] !== "@") return false;
+            skipTo(i + 3);
+            return true;
+          };
+          skipTo(i + 2); // past the opening `@"`; the newline PowerShell requires is part of the body
+          if (
+            !expandingBody(
+              atTerminator,
+              at,
+              "`@\"` opens a here-string that is never closed by `\"@` at the start of a line",
+            )
+          ) {
+            return false;
+          }
+          continue;
+        }
         const end = src.indexOf(`\n${q}@`, i + 2);
         if (end < 0) {
           fail(at, `\`@${q}\` opens a here-string that is never closed by \`${q}@\` at the start of a line`);
@@ -201,10 +252,10 @@ function scan(src, file) {
 
 // ── THE SCANNER'S OWN FIXTURES. pwsh is not installed here, so these snippets are the only place the rules above
 // are stated as VERDICTS — and the instrument had never been tested, only its subject. A skip rule one character
-// too greedy reports "balanced" over precisely the edit this check exists to catch. The two rows that carry the
-// weight are the first two: the SAME brace must FAIL inside a `$( … )` and PASS inside a single-quoted string,
-// because the installer writes launcher scripts and JSON manifests that hold braces, and a scanner that cannot tell
-// those apart fails correct code and gets reverted within a week.
+// too greedy reports "balanced" over precisely the edit this check exists to catch. The rows that carry the weight
+// are the pairs: the SAME brace must FAIL inside a `$( … )` and PASS inside a single-quoted string, in a here-string
+// exactly as in a plain string — because the installer writes launcher scripts and JSON manifests that hold braces,
+// and a scanner that cannot tell those apart fails correct code and gets reverted within a week.
 const SELF_TEST = [
   ["a `{` opened inside a `$( … )` in a double-quoted string", '"$(Get-X { )"', false],
   ["braces that are TEXT — the JSON the integrity tests carry in `'…'`", '\'{"a":1}\'', true],
@@ -214,6 +265,18 @@ const SELF_TEST = [
   ["a backtick still escapes inside the string: `` `$( `` is literal", '"`$(Get-X { )"', true],
   ["a `)` inside a single-quoted string does not end the subexpression", '"$(Get-X -A \')\')"', true],
   ["a `#` comment's braces are not code", "# { and (\n( )\n", true],
+  // THE HERE-STRING ROWS. A `@" … "@` body is EXPANDED by PowerShell, so it is the same region as the rows above
+  // and must get the same verdicts; a `@' … '@` body is not, and must stay opaque. Without the first of these the
+  // gate is exactly where round 50 left it, and the rest are what keep it from over-reaching into correct code.
+  ["a `{` opened inside a `$( … )` in a DOUBLE-QUOTED here-string", '@"\n$(Get-X { )\n"@\n', false],
+  ["the same braces are TEXT inside a SINGLE-quoted here-string", "@'\n{ $(Get-X )\n'@\n", true],
+  ["a balanced `$( … )` carrying a group, inside `@\" … \"@`", '@"\n$(Get-X -A { 1 })\n"@\n', true],
+  ["`${name}` inside a here-string is a variable NAME, not a group", '@"\n${name}\n"@\n', true],
+  [
+    "an INDENTED `\"@` does not end the here-string: the body runs on to the real `\"@` at column 0",
+    '@"\n  "@ is text\n"@\n',
+    true,
+  ],
 ];
 
 let fixtureFailures = 0;
@@ -282,15 +345,18 @@ if (checked < FLOOR) {
   process.exit(1);
 }
 console.log(
-  `powershell-structure: ${checked} .ps1 file(s) under ${DIR} balance {} () [] outside single-quoted strings, here-strings\n` +
-    `and comments — and inside the \`$( … )\` subexpressions a double-quoted string carries. ${SELF_TEST.length} scanner fixture(s) agree.`,
+  `powershell-structure: ${checked} .ps1 file(s) under ${DIR} balance {} () [] outside single-quoted strings,\n` +
+    `single-quoted here-strings and comments — and inside the \`$( … )\` subexpressions a double-quoted string or a\n` +
+    `\`@" … "@\` here-string carries. ${SELF_TEST.length} scanner fixture(s) agree.`,
 );
 
-// WHAT THIS CANNOT SEE, so the next reader does not mistake it for a parser: a `$( … )` inside a double-quoted
-// HERE-STRING (`@" … "@`), whose body is still skipped whole — `pwsh` evaluates those too, the deploy files carry
-// none today, and a here-string is where the installer puts text it does NOT want interpolated, so the two
-// mistakes are not symmetric. A `$( … )` in a plain double-quoted string is OFF this list now: it is scanned by
-// `doubleQuoted`, its brackets counted on the same stack as the file's own, and the `SELF_TEST` table above fails
-// if that stops being true. What also remains invisible is anything semantic — a misspelled cmdlet, a wrong
-// parameter, a missing `param` block; and whether the file would RUN. `pwsh` answers those, and it is not installed
-// here, which is the whole reason this check exists at the level it does.
+// WHAT THIS CANNOT SEE, so the next reader does not mistake it for a parser:
+//   * TEXT, BY DESIGN. A brace inside a `'…'` string or a `@' … '@` here-string is DATA — the installer writes
+//     launcher scripts and JSON manifests that hold braces, and a scan that failed those would be reverted within
+//     the week. A `${name}`/`$name` is the same kind of thing: its braces name a variable, they do not group.
+//   * ANYTHING SEMANTIC. A misspelled cmdlet, a wrong parameter, a missing `param` block, whether the code would
+//     RUN. `pwsh` answers those and is not installed here, which is the whole reason this check exists at the level
+//     it does.
+// The `$( … )` subexpression is NOT on this list any more — neither in a plain double-quoted string (round 50) nor
+// in a double-quoted here-string (this round): both are scanned by `expandingBody`, on the same stack as the file's
+// own brackets, and the `SELF_TEST` table above fails if that stops being true.

@@ -104,15 +104,16 @@ assumed:
 truncation this section warns about, applied to itself. `scripts/test/gate-mutations-check.mjs` automates
 the mutations that can be automated and runs them on every push; the ledger holds the rest.
 
-**`powershell-structure-check` IS PROVEN BY TWO AUTOMATED BITES AND ONE NON-BITE.**
+**`powershell-structure-check` IS PROVEN BY THREE AUTOMATED BITES AND ONE NON-BITE.**
 `agent/deploy/**/*.ps1` is the code that runs AS ADMINISTRATOR on a customer's machine, and NOTHING here had ever
 parsed it: no `pwsh` exists on this box, so rounds 28, 31 and 32 each censused its brackets BY HAND against the
 previous version, and `script-syntax.bash` walks `git ls-files '*.sh' '*.bash'` — 27 files, with `.ps1` not among
 them. It asserts `{}` `()` `[]` balance OUTSIDE single-quoted strings, double-quoted strings, here-strings and
 comments, and says in the file what it cannot see. The bites live in `gate-mutations-check.mjs` — a `}` deleted from
 `agent/deploy/fix-tunnel.ps1`, and (round 50) a `{` opened inside a `$( … )` subexpression in a
-double-quoted string, which the gate could NOT see until then: the HEAD version of the gate exits 0 on
-that same mutated file and the current one exits 1; the half that CANNOT live there is the non-bite, recorded here because a
+double-quoted string (round 50), and the same inside a `@" … "@` HERE-STRING (round 51) — both were invisible
+to the gate until their rounds, and in both cases the HEAD version of the gate exits 0 on the mutated file
+while the current one exits 1; the half that CANNOT live there is the non-bite, recorded here because a
 gate that cannot tell the two apart gets reverted: a `{` planted INSIDE a single-quoted string — the launcher
 scripts the installer writes (`summrise-online-setup.ps1:443`), the JSON manifests the integrity tests carry
 (`'{"version":"1.2.364"}'`) — must still PASS, and does.

@@ -370,6 +370,22 @@ const CASES = [
     from: "    sc.exe start cloudflared 2>$null | Out-Null\n",
     to: '    sc.exe start cloudflared 2>$null | Out-Null\n"$(Write-Host { )"\n',
   },
+
+  {
+    gate: "scripts/test/powershell-structure-check.mjs",
+    // THE THIRD REGION OF THE SAME GATE, and the last one it documented as a hole about itself: a `$( … )` inside a
+    // DOUBLE-QUOTED HERE-STRING. PowerShell expands `@" … "@` exactly like a `"…"` string — variables AND
+    // subexpressions — so the braces in there are code, while a `@' … '@` here-string expands NOTHING and keeps its
+    // braces as text (`SELF_TEST` holds both verdicts). The two cases above cannot see this one: the first needs a
+    // brace the scanner already counted, the second a brace inside a plain `"…"`, and a here-string body was skipped
+    // whole until now. MEASURED with the HEAD gate over this same mutated file: it exited 0 (the body was text to it)
+    // where the current gate exits 1, reporting the `)` that closes the `{`. Same anchor as `$oldEAP2` in the real
+    // deploy file, so a rename of that line is reported as "the anchor is GONE" rather than passing quietly.
+    file: "agent/deploy/fix-tunnel.ps1",
+    why: "a `{` opened inside a `$( … )` in a double-quoted HERE-STRING and closed by its `)` — invisible to a scanner that skips here-strings whole",
+    from: "    $ErrorActionPreference = $oldEAP2\n",
+    to: '    $ErrorActionPreference = $oldEAP2\n@"\n$(Write-Host { )\n"@\n',
+  },
 ];
 
 const run = (cmd, args) => {
