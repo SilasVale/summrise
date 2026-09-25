@@ -5705,6 +5705,33 @@ half-delivered change, so the release follows (1.2.465) — and the thing worth 
 invisible from inside the loop: every round's evidence was "the gates are green", and none of it answered "does the
 device have this".
 
+### 1.2.465 SHIPPED, AND THE DEVICE IS CURRENT (same day)
+
+The release the section above predicted, with its own evidence rather than a claim:
+
+- **the artifact**: version bumped BEFORE the build (`build.rs` embeds the npm package's version into the exe's
+  VERSIONINFO — verified UTF-16 in the binary, `1.2.465`), `./scripts/build.sh agent` green (panel 876 tests), and a
+  `--dry-run` that passed every gate first: exe provenance against its inputs, `bin/summrise.js` freshness by tsc +
+  cmp, the electron sources in sync, pack inputs committed-clean, and the three component pins unchanged.
+- **the reconcile gate refused the first attempt, correctly**: `1.2.453` has been on the CDN since 2026-09-23 with no
+  GitHub release to audit against. It cannot be settled (its release never existed, and tagging that old commit now is
+  the tag-move hazard this ledger already records), so the run acknowledged it — which ADDS to the ledger rather than
+  clearing it, and that debt is still visible there.
+- **deployed**: Cloudflare version `2581be1f-a452-4421-99e6-e26c0f8378e9`; the post-publish smoke verified the LIVE
+  CDN (`/api/version` → v1.2.465 with the versioned and latest binaries' sha256 checked against the manifest); npm
+  published `summrise-agent@1.2.465` under `latest`; tag `v1.2.465` → `5dbda5d1`, whose CI was green BEFORE the tag
+  (10/11, the 11th skipped by design); `release.yml` succeeded; and `--audit-only 1.2.465` reports
+  **CDN == GitHub asset byte-for-byte** (`19c0a9e20bd7a812…`).
+- **and the device, which is the only opinion that counts**: `summrise status` on d1 said
+  `release: 1.2.463 … THIS DEVICE IS BEHIND by 2 releases`. The CLI was updated first (it refuses to ship an exe its
+  own version predates), then `summrise update` — which restarted the agent and took the agent-hosted PTY with it, as
+  documented — and afterwards: `release: 1.2.465 · this CLI: 1.2.465 · latest: 1.2.465 (this device is current)`.
+  The panel the new agent serves was opened in the device's own browser: title `Summrise Agent`, **0 console errors**.
+
+THE LESSON WORTH KEEPING is not the runbook, which worked as written. It is that **twenty-nine rounds of green gates
+never answered "does the device have this"**, and the answer took one command to find out. A round's evidence should
+include the question the release answers, or the loop can stay green and deliver nothing.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
