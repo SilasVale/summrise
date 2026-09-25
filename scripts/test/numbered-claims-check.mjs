@@ -31,7 +31,10 @@ const ci = ["ci.yml", "release.yml"]
 // mentioned once inside its narrative counted as documented. The eighteenth exploration measured the
 // consequence: `proxy-cors-parity-check` and `proxy-timeout-parity-check` were reachable ONLY through it.
 // They are named in the ledger now, and this asks the question its own message states: AGENTS.md or the ledger.
-const docs = ["AGENTS.md", "docs/agents/design-ledger.md"]
+// THE APPENDIX IS DOCUMENTED SURFACE TOO (round 49): the lookup tables moved out of the ledger's
+// narrative and AGENTS.md POINTS AT THEM, so a gate named only there is named where an operator
+// reads — and this list is the definition of "where an operator reads".
+const docs = ["AGENTS.md", "docs/agents/design-ledger.md", "docs/agents/ledger-appendix.md"]
   .map((f) => readFileSync(`${ROOT}/${f}`, "utf8"))
   .join("\n");
 

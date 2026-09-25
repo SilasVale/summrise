@@ -19,6 +19,13 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INSTRUCTIONS = "AGENTS.md";
 const ARCHIVE = "docs/agents/design-ledger.md";
+// THE LOOKUP TABLES MOVED OUT (round 49): "Looking for one thing" (302 KB) and the gate table (91 KB)
+// were 59% of the archive and are TABLES rather than narrative, so they live in an appendix. The
+// index at the top of the archive still NAMES their sections, so a title resolves against
+// EITHER file — and a ceiling on each is what stops either growing back into the other.
+const APPENDIX = "docs/agents/ledger-appendix.md";
+const ARCHIVE_CEILING = 400_000;
+const ARCHIVE_FLOOR_APX = 100_000;
 // The harness truncates at 65,536 and NAME it here, so the number in the failure is the real one.
 const HARNESS_BUDGET = 65536;
 const CEILING = 48_000;
@@ -52,9 +59,19 @@ if (!existsSync(join(ROOT, ARCHIVE))) {
 // There is no index gate anywhere else, and this is the file whose whole problem was findability.
 // A title is an exact string, so this is checkable — unlike the `ci.yml:N` citations, which are not,
 // because a line number moves when anything above it is inserted and a title does not.
-const idxEnd = archive.indexOf("\n### ");
-const index = idxEnd > 0 ? archive.slice(0, idxEnd) : "";
-const headings = [...archive.matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
+// THE INDEX IS DELIMITED, NOT GUESSED (round 49). It used to be "everything before the first `### `",
+// which broke the moment a section that HELD that first `### ` was moved out: the region then swallowed
+// narrative containing backticked code (`SEQUENCE=...`, `SummriseIntegrity.ps1`) and the check reported
+// nine section titles that were never titles. An explicit marker pair says where the index is, so the
+// check cannot be broken by moving a section.
+const idxStart = archive.indexOf("<!-- ledger-index:start -->");
+const idxEnd = archive.indexOf("<!-- ledger-index:end -->");
+if (idxStart < 0 || idxEnd < 0) failures.push(`${ARCHIVE} has no ledger-index markers — the index is delimited rather than guessed, and the check cannot read it without them`);
+const index = idxStart >= 0 && idxEnd > idxStart ? archive.slice(idxStart, idxEnd) : "";
+const appendix = existsSync(join(ROOT, APPENDIX)) ? readFileSync(join(ROOT, APPENDIX), "utf8") : "";
+if (!appendix) failures.push(`${APPENDIX} does not exist — the lookup tables were DELETED rather than moved`);
+else if (Buffer.byteLength(appendix, "utf8") < ARCHIVE_FLOOR_APX) failures.push(`${APPENDIX} is under ${ARCHIVE_FLOOR_APX} bytes — the tables were pruned rather than moved`);
+const headings = [...(archive + "\n" + appendix).matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
 const named = [...index.matchAll(/`([^`]+)`/g)]
   .map((m) => m[1])
   .filter((s) => /^[A-Z0-9"]/.test(s) && s.length > 18);
@@ -65,7 +82,7 @@ if (brokenIndex.length) {
       `the pointer to it: ${brokenIndex.join(", ")}`,
   );
 }
-  const archiveBytes = Buffer.byteLength(archive, "utf8");
+  const archiveBytes = existsSync(join(ROOT, ARCHIVE)) ? Buffer.byteLength(readFileSync(join(ROOT, ARCHIVE), "utf8"), "utf8") : 0;
   if (archiveBytes < ARCHIVE_FLOOR) {
     failures.push(`${ARCHIVE} is only ${archiveBytes} bytes — an archive under the floor means the prune deleted instead of moving`);
   }
@@ -78,4 +95,6 @@ if (failures.length) {
   for (const f of failures) console.error(`ledger-budget-check: ${f}`);
   process.exit(1);
 }
-console.log(`ledger-budget-check: ok — the instruction file fits (${bytes} of ${CEILING} bytes — the ENFORCED ceiling; the harness truncates at ${HARNESS_BUDGET}) and the long form is in ${ARCHIVE}`);
+const archiveBytes = existsSync(join(ROOT, ARCHIVE)) ? Buffer.byteLength(readFileSync(join(ROOT, ARCHIVE), "utf8"), "utf8") : 0;
+if (archiveBytes > ARCHIVE_CEILING) failures.push(`${ARCHIVE} is ${archiveBytes} bytes and the ceiling is ${ARCHIVE_CEILING} — an append-only record stops being readable long before it stops being writable, and this file was 660 KB when the lookup tables were split out (round 49)`);
+console.log(`ledger-budget-check: ok — the instruction file fits (${bytes} of ${CEILING} bytes — the ENFORCED ceiling; the harness truncates at ${HARNESS_BUDGET}) and the long form is in ${ARCHIVE} (${archiveBytes} B of ${ARCHIVE_CEILING}) with the tables in ${APPENDIX}`);
