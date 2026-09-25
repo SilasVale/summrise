@@ -139,17 +139,35 @@ async function sectionTerminal() {
   const sid = await tool('terminal_open', { kind: 'pty' });
   if (typeof sid !== 'string' && !(sid && sid.sid)) throw new Error('terminal_open bad result');
   const sessionId = typeof sid === 'string' ? sid : sid.sid;
-  await sleep(2500); // let the shell boot (first-prompt gate)
+  // A REAL GATE, NOT A SLEEP WEARING ONE'S NAME (round 113). This was `await sleep(2500)` with the comment
+  // "let the shell boot (first-prompt gate)" — but a fixed sleep is not a gate: under load the first PowerShell
+  // prompt can take longer, the command lands in a shell still starting, and the check below fails with
+  // `state=partial exit=null` while nothing is wrong with the product (round 104 caught exactly that, and round 93
+  // established the class). So poll for evidence the shell is up, the way the click check polls for its view.
+  for (let i = 0; i < 12; i++) {
+    await sleep(1000);
+    const sc = await tool('terminal_read', { session_id: sessionId, offset: 0 });
+    const txt = (sc && (sc.text || sc)) || '';
+    if (String(txt).trim().length > 0) break; // the shell has produced its prompt
+  }
   const ls = await tool('terminal_list', {});
   const lsArr = Array.isArray(ls) ? ls : (ls && ls.sessions) || [];
   check('terminal list contains session', lsArr.some((s) => (s && s.id) === sessionId || s === sessionId),
     'sessions=' + lsArr.length);
   const rs = await tool('terminal_resize', { session_id: sessionId, rows: 30, cols: 120 });
   check('terminal resize ok', rs === 'OK', String(rs).slice(0, 20));
-  const ex = await tool('terminal_execute', {
-    command: 'Write-Output E2E-SESSION-OK',
-    session_id: sessionId, timeout_secs: 20,
-  });
+  // AND TWO ATTEMPTS, because a command that arrives while the shell is still settling can legitimately come back
+  // partial — the click check uses the same shape for the same reason ("a click can land while the view is
+  // mid-navigation"). The proof stays strict: the marker must actually appear, `state: 'done'`.
+  let ex = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await sleep(3000);
+    ex = await tool('terminal_execute', {
+      command: 'Write-Output E2E-SESSION-OK',
+      session_id: sessionId, timeout_secs: 30,
+    });
+    if (ex && ex.state === 'done' && (ex.text || '').includes('E2E-SESSION-OK')) break;
+  }
   check('terminal session execute', ex && ex.state === 'done' && (ex.text || '').includes('E2E-SESSION-OK'),
     'state=' + (ex && ex.state) + ' exit=' + (ex && ex.exit_code));
   // THE DEVICE REPORTS THE LAST COMMAND'S OUTCOME ON THE ROW EVERY CLIENT POLLS (round 96).

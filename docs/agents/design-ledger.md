@@ -35,6 +35,38 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 113 — I diagnosed a flake and built machinery, and the re-run says the PREDICATE is wrong
+
+Round 104 saw `FAIL terminal session execute -- state=partial exit=null` once, called it the documented flake class, and this
+round acted on that reading: the check's `await sleep(2500)` — commented "let the shell boot (first-prompt gate)" — was a sleep
+wearing a gate's name, so it became a real poll for the shell's first output, and the execute got a second attempt and a 30-second
+timeout. Deployed and run TWICE on the device:
+
+```
+run 1: == 11/12 passed ==   FAIL terminal session execute  -- state=partial exit=null
+run 2: == 11/12 passed ==   FAIL terminal session execute  -- state=partial exit=null
+```
+
+**TWO FOR TWO, IDENTICAL — so it was never a flake, and the machinery did not touch it.** The hypothesis was wrong; the run is
+what said so.
+
+**AND THE DISCRIMINATOR HAS BEEN IN THIS LEDGER SINCE ROUND 87**: the PANEL section opens a PTY and runs
+`Write-Output "PANEL-VIS-…"` through the same `terminal_execute`, and its check reads
+`PASS panel ai write -- state=partial`. **It passes BECAUSE it only asks for the marker in the text**: `!!(ex && (ex.text ||'').includes(marker))`.
+The terminal section asks for `ex.state === 'done'` **as well** — and on this device a PTY execute of `Write-Output` returns
+`state=partial` with `exit_code=null` EVERY time, marker present and correct.
+
+**SO THE CHECK ASSERTS A STATE THE DEVICE DOES NOT PRODUCE, WHILE THE THING IT ACTUALLY WANTS IS ALREADY IN ITS HANDS** — the same
+shape as the panel selector (round 90) and the mcp arm (rounds 100-103), in a third section. The fix is not machinery: it is to ask
+whether the marker came back, and to treat `partial` as the normal shape of a PTY execute on this device — or to record why a
+`done` is expected, if some caller genuinely needs it.
+
+**THE MACHINERY STAYS ANYWAY, ON ITS OWN MERITS**: a poll for the shell's first output is a better gate than a fixed 2.5 s sleep,
+and a second attempt with a longer timeout is what the click check already does for the same class of timing. Neither is proven to
+fix anything — they are proven NOT to have made this worse (11/12 both runs, the same total as before). **A change that does not
+fix the thing it was aimed at should say so in its own record**, which is what this section is for.
+
+
 **Round 112, one line**: the inventory's docs cell said the ledger "is over 4,600" lines, and `wc -l` now reads **4,286**
 — because round 107 moved 91 KB of table out of it. **The cell was true when written and false the moment I split the file**, which is
 the drift that cell exists to warn about, so it now names all THREE archives with their counts and the command that produces them.
