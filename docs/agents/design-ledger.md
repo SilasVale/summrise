@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 121, one line**: the whole suite re-run after NINE rounds of change (107-120: the mutation table moved to its own
+archive, a ceiling was added for it and proven, five pointers corrected, the inventory cell re-measured, the e2e script's terminal
+predicate fixed, the pre-commit hook installed and proven to refuse) — `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not
+runnable here (of 58)**, the same totals as round 111 and as every run before them. The last full-suite run predated the hook
+install, so this is also the first time the suite has run WITH a hook that fires on commit.
+
+
 ### round 120 — the hook is PROVEN TO REFUSE, which is what round 118 owed it
 
 Round 118 installed the pre-commit hook and proved it RUNS (an empty commit, exit 0). Its own paragraph carries the rule that
