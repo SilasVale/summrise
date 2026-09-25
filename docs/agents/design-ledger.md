@@ -35,6 +35,23 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 135, one line — THE CHECK WAS MADE BEFORE IT WAS DEMANDED, WHICH IS THE FIRST TIME IN THIS THREAD**: round 134 added
+a NEW file, `gateway/test/instruments-mirror.test.mjs`, and verified it with `npm test` alone — while CI runs FOUR checks in that
+directory and two of them (`lint`, `format:check`) are the ones that object to a new `.mjs`. Rounds 128 and 130 both learned this
+AFTER a red result; this round ran all four first:
+
+```
+typecheck      exit=0  ok
+test           exit=0  ok
+lint           exit=0  ok
+format:check   exit=0  ok
+```
+
+**ALL FOUR PASS, SO ROUND 134 IS FULLY VERIFIED AND NOTHING NEEDS AMENDING.** The value here is not the result — it is that the
+question "which checks are aimed at what I changed" was asked at the moment of the change rather than one round later, which is the
+difference between a rule this ledger has written down and a rule it has absorbed.
+
+
 ### round 134 — the unguarded mirror gets its guard, and both directions are proven by exit code
 
 Round 133 found nine mirrored instruments under `gateway/public/code/files/instruments/` with **no test referencing them at all**,
