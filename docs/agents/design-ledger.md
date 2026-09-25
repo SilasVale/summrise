@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 114, one line**: round 113 named the fix, this round applied it — the terminal check now asserts the MARKER and
+REPORTS the state (`state=partial exit=null` is what this device produces for a PTY execute, measured twice in a row), instead of
+demanding a state name the device does not emit. **THE DEVICE VERIFICATION IS OWED and is written down as owed**: the corrected
+script is deployed (`CDN e2e.js 200 · 60,641 B`), and the run that would say `12/12` has not been made yet. The last three rounds
+have each been corrected by exactly that kind of run, so the next one owes it before anything else.
+
+
 ### round 113 — I diagnosed a flake and built machinery, and the re-run says the PREDICATE is wrong
 
 Round 104 saw `FAIL terminal session execute -- state=partial exit=null` once, called it the documented flake class, and this
