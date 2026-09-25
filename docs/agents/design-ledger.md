@@ -6887,6 +6887,39 @@ first version did not know existed.
 **NUMBERS:** CLI 3,773 → **3,790**; its test file **2,617** (new to the cell); `agent/src` 54,340 and panel 42,718
 re-verified unchanged; the tree at `957f0279`; live **1.2.469**, device current.
 
+## 2026-09-25 — the fifty-ninth exploration: an instrument for the code no instrument could see
+
+Three rounds (28, 31, 32) ended with the same sentence — "unexecuted here" — about `agent/deploy/*.ps1`, the code that runs
+**as administrator on a customer's machine**. The reason was measured and is worse than it sounds: **no `pwsh` exists on
+this box**, and `script-syntax.bash` walks `git ls-files '*.sh' '*.bash'` — 27 files, with `.ps1` not among them. So those
+rounds censused brackets BY HAND against the previous version, which is exactly the kind of check that stops happening.
+
+`scripts/test/powershell-structure-check.mjs` closes the shape half of that gap: `{}` `()` `[]` balance across **7** `.ps1`
+files under `agent/deploy/` (including `retired/`), skipping single-quoted strings (`''`), double-quoted strings (backtick
+and `""`), here-strings (`@'`/`@"` … `'@`/`"@`), `#` comments and `<# … #>` blocks. It walks the directory rather than
+`git ls-files`, so an unreadable file **fails by name**, and it prints how many files it checked — a check that silently
+checks nothing is the failure this ledger has a section about.
+
+**WIRED WHERE CI RUNS IT**: `ci.yml`'s pack-chain, right after "every shell script parses". `all-gates.bash` needed NO edit
+because it derives its list from `ci.yml` (verified: the new gate is line 42 of 58). AGENTS.md names it in the gate-bite
+section, which `numbered-claims-check` requires, and `ci-command-table-check` confirms the per-directory table is still
+accurate — that table names npm/cargo suites only, which its own regex proves.
+
+**AND THE PROOF HAS TWO HALVES, ONE OF WHICH IS A NON-BITE**: deleting a `}` from `fix-tunnel.ps1` fails with
+`agent/deploy/fix-tunnel.ps1:92 — \`{\` is opened here and never closed — \`pwsh\` would reject the file`; and a `{` planted
+INSIDE a single-quoted string — the launcher scripts the installer writes, the JSON manifests the integrity tests carry —
+must still PASS, and does. **A gate that cannot tell those apart gets reverted**, which is why the non-bite is recorded in
+AGENTS.md beside the bite rather than left implicit.
+
+**AND THE ROUND'S OWN INSTRUMENT WAS VACUOUS FIRST**: the initial scanner had an unconditional `return problems` after its
+early returns, so it returned an empty result at the first quote and passed everything. The mutation matrix caught it. That
+is the second time this session a check passed for the wrong reason (round 32's gate floor, round 9's `SITES` allow-list),
+and the pattern is the same each time: **the instrument was written to look at the thing, and looked at nothing.**
+
+**NUMBERS:** 7 `.ps1` files checked; the gate is wired in `ci.yml` and carried by `gate-mutations-check`'s case list; the
+non-bite recorded in AGENTS.md; live **1.2.469**, device current. NOT COVERED, and said in the file: `$()` inside a
+double-quoted string, and anything semantic — this is SHAPE, and the PowerShell is still never executed here.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

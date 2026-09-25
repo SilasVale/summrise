@@ -337,6 +337,24 @@ const CASES = [
     from: 'if (pathname === "/summrise-agent/cloudflared.exe") {',
     to: 'if (pathname === "/summrise-agent/cloudflared-x64.exe") {',
   },
+
+  {
+    gate: "scripts/test/powershell-structure-check.mjs",
+    // ONE `}` IS THE WHOLE MUTATION, and that is the point of the gate: `agent/deploy/*.ps1` runs AS ADMINISTRATOR on a
+    // customer's machine, no `pwsh` on this box ever parses it, and `script-syntax.bash` walks `git ls-files '*.sh'
+    // '*.bash'` — 27 files, `.ps1` not among them. The second half of the proof CANNOT live here, because it is a
+    // non-bite: a `{` planted INSIDE a single-quoted string (the launcher scripts the installer writes, the JSON the
+    // integrity tests carry) must still PASS, or the gate would fail correct code and be reverted within a week. That
+    // half is recorded in AGENTS.md beside the gate's name.
+    file: "agent/deploy/fix-tunnel.ps1",
+    why: "one `}` deleted from the deploy PowerShell, which nothing on this box would otherwise have parsed",
+    from:
+      '    Write-Host "!! cloudflared not found at $installDir\\components\\cloudflared.exe nor $installDir\\tools\\cloudflared.exe"\n' +
+      "    exit 1\n}\n",
+    to:
+      '    Write-Host "!! cloudflared not found at $installDir\\components\\cloudflared.exe nor $installDir\\tools\\cloudflared.exe"\n' +
+      "    exit 1\n",
+  },
 ];
 
 const run = (cmd, args) => {

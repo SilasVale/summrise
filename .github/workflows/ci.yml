@@ -618,6 +618,14 @@ jobs:
       # `fi` in publish-release.sh and found out only when a publish was attempted.
       - name: every shell script parses
         run: bash scripts/test/script-syntax.bash
+      # AND THE POWER SHELL THAT RUNS AS ADMINISTRATOR ON A CUSTOMER'S MACHINE IS THE ONE THING NO `pwsh` HERE EVER
+      # PARSED. `agent/deploy/*.ps1` is the installer, the tunnel repair and the integrity library; there is no pwsh on
+      # this box, so rounds 28, 31 and 32 each checked its brackets BY HAND against the previous version — and the gate
+      # above walks `git ls-files '*.sh' '*.bash'` (27 files), with `.ps1` not among them. This is the one question pwsh
+      # would have answered in a second: do {} () [] balance OUTSIDE strings and comments. Structural, not a parser, and
+      # it says in the file what it cannot see.
+      - name: the deploy PowerShell is structurally sound
+        run: node scripts/test/powershell-structure-check.mjs
       # A COMMENT IN A STYLESHEET MUST NOT READ AS CODE. Round 87 found the console's sheet carrying
       # four `/*` and one `*/` in one region: a real rule sat inside the resulting comment and had
       # never applied, while every text-reading instrument judged it live. The panel had the other
