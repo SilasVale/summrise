@@ -35,6 +35,17 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 116, one line — THE SUITE'S CURRENT BASELINE, AFTER ALL THREE FIXES**: the whole device suite gives
+**73/74 passed (2 skipped)** — up from round 104's 72/74 — with the terminal check passing (`state=partial exit=null` reported in
+its line), the panel's two checks passing, and the http arm's two visibility checks SKIPPED by name of arm. **The one remaining
+failure is `FAIL mcp stdio click drives embedded view -- https://example.com/`, and its character is now specific rather than
+vague: it appears in FULL-SUITE runs and not in section-only ones** (round 104 full: failed; rounds 103/115 mcp-and-terminal only:
+passed) — which is exactly what that check's own comment predicts, "under contention (parallel drivers on one box) a click can land
+while the view is mid-navigation and silently do nothing (device-caught)". **So the honest baseline is 73/74 with one
+load-dependent check, not 74/74 and not a mystery**, and the difference from round 104 is that both of ITS failures have been
+chased to an end: one was a wrong predicate (fixed, 12/12 twice) and one was this flake, now bounded to the load case.
+
+
 **Round 114, one line**: round 113 named the fix, this round applied it — the terminal check now asserts the MARKER and
 REPORTS the state (`state=partial exit=null` is what this device produces for a PTY execute, measured twice in a row), instead of
 demanding a state name the device does not emit. **AND THE OWED VERIFICATION IS PAID (round 115): `12/12 passed`, TWICE**, with the check reporting
