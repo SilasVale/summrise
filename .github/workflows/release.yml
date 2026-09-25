@@ -206,7 +206,12 @@ jobs:
           # CGU hash in those names, and the ORDER the linker laid them down in. Printed here so the next release
           # answers "which object file moved" with a text diff instead of another round of hypotheses.
           echo "== .data symbols, in link order (compare against the release box's map: same CGU hashes? same order?) =="
-          grep -E "^ +0003:" /tmp/agent-map.txt | head -40
+          # `grep … | head` UNDER `set -o pipefail` KILLS THE STEP (round 67): head closes the pipe, grep
+          # gets SIGPIPE, the pipeline exits non-zero, and the RELEASE FAILS — which is exactly what happened
+          # to 1.2.472, whose GitHub asset is consequently missing while the CDN and npm halves shipped fine.
+          # A diagnostic must not be able to fail the build: write it out, then read from the file.
+          grep -E "^ +0003:" /tmp/agent-map.txt > /tmp/agent-map-data.txt || true
+          head -40 /tmp/agent-map-data.txt
       - name: Pack the npm artifact
         working-directory: agent
         run: |

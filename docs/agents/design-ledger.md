@@ -127,6 +127,30 @@ the cause, and the first version of this test was WRONG in a way worth recording
 1.2.470 asset and read 634,076 differing bytes — a number about the VERSION, not about the variable. **A cross-version
 comparison is not a measurement of a build flag**; the same-version pair is, and it was one command away.
 
+### THE ANSWER, COMPLETE: THE SAME CGU HASH, A DIFFERENT CODEGEN UNIT (round 67)
+
+The instrument rounds 61-64 placed printed CI's `.data` symbol list during the 1.2.472 release — and the log carried the
+answer even though that same step killed the release (below):
+
+```
+CI     .data+0x000  _RNvCs1njKG4L9aB3_7___rustc22___rust_panic_type_info  ...  -cgu.00.rcgu.o
+this   .data+0x130  _RNvCs1njKG4L9aB3_7___rustc22___rust_panic_type_info  ...  -cgu.13.rcgu.o
+```
+
+**The crate hash is IDENTICAL on both sides (`45d6daa740c90b90`), so the partitioning into sixteen units is the same — but
+`__rust_panic_type_info` is emitted into `cgu.00` on the runner and `cgu.13` here.** That single membership difference is the
+whole divergence: `.data` contributions are laid out by object file, so a symbol in `cgu.00` lands before the panic-location
+CALLSITEs while one in `cgu.13` lands after them — 304 bytes apart — and all 1,168 references follow it. Nothing about the
+source, the toolchain, the flags or the environment differs; **the compiler assigned one item to a different codegen unit.**
+
+**AND THE INSTRUMENT PAID FOR ITSELF BY BREAKING THE RELEASE, WHICH IS RECORDED HERE RATHER THAN FIXED QUIETLY**: the step I
+added in round 64 ended `grep -E "^ +0003:" /tmp/agent-map.txt | head -40`, and under `set -euo pipefail` a `head` that
+closes the pipe gives `grep` a SIGPIPE — `write error: Broken pipe`, exit 2 — so **the `Cross-compile the agent exe` step
+failed and 1.2.472 has no GitHub release asset**, while its CDN and npm halves shipped and the device is unaffected. The fix
+is in the workflow now (write to a file, then read from it) and the lesson is general: **a diagnostic must not be able to
+fail the build it is describing.** 1.2.472's missing asset joins `1.2.453` in the reconcile ledger rather than moving a tag,
+because a moved tag is the hazard that ledger exists for.
+
 **WHAT THIS DOES AND DOES NOT EXPLAIN**: it explains the whole divergence — there is nothing else different in the image — and it
 converts "the two builders disagree by 1,484 bytes" into "**the two builders place one Rust runtime static 304 bytes apart within
 `.data`**", which is a property of the `/Brepro`-reproducible link whose *cause* is the ordering of codegen-unit contributions
