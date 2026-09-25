@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 82, one line**: the inventory's last open instrument gap (§5.8 — seven e2e sections that CI cannot run because
+they need a device) was closed the only way it can be: **a documented cadence in AGENTS.md**, naming the sections, the command
+(`node agent/scripts/e2e/e2e.js --only <section>`), and the trigger — the paths whose change makes a section the thing to run.
+A test nothing runs and nobody is told to run is a test that rots silently; the gap was never the missing CI job, it was the
+missing sentence.
+
+
 **Round 81, one line**: the full suite re-run after the panel rounds (73, 78 — the read module gained `keepEdits` and then
 `read`, and `SettingsPage`/`ConnModal` migrated onto them): `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable
 here (of 58)**, unchanged. Rounds that move a SEAM the rest of the panel reads through earn the whole suite, not the panel's own

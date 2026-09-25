@@ -67,6 +67,15 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 `exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
 "the suite did not run" and re-running it another way. The reporter table is what prevents that; the story is in the ledger.)
 
+**SEVEN OF THE NINE E2E SECTIONS RUN NOWHERE — SO RUN THEM WHEN YOU TOUCH WHAT THEY COVER.** `agent/scripts/e2e/e2e.js`
+declares nine sections and CI runs two of them (`--only governance,runs`); the other seven — terminal, file, workflow,
+panel, mcp, evidence, browser — need a real device, so no schedule and no CI job can carry them. The inventory measured
+that gap (§5.8) and the missing half was a CADENCE: a section that nothing runs and nobody is told to run is a section
+that rots silently. So: after changing a terminal backend, a file-relay path, a workflow step, the panel's wiring, the
+MCP surface, the evidence drawer or the browser/playwright door, run its section against the device by hand —
+`node agent/scripts/e2e/e2e.js --only <section>` — and say in the commit what it reported. It is the only instrument in
+this repository that exercises those paths end to end, and it is the one instrument no gate can remind you about.
+
 **AND A CANCELLED JOB IS REPORTED AS A FAILURE — THE COUNT IS A SUMMARY, THE LOG IS THE MEASUREMENT.**
 Superseding a run (any push while it is in flight) leaves its in-progress jobs at `conclusion: failure` in
 `check-runs`, **indistinguishable from real ones in a count**: five of eleven read as failed and the tree was
