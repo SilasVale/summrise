@@ -35,6 +35,29 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 85 — the cadence gets its transport, and the transport is the one the repo already uses
+
+Round 83 corrected the e2e cadence to "get the script onto the device, then run its section there with the device's own
+token and base". This round built the first half of that — and found the second thing the wrong version had hidden:
+
+- the Linux→device INBOX route needs an admin token that is not in any file on this box, so it is not a route a round can
+  take on its own;
+- but the repo ALREADY has a sanctioned transport for exactly this shape of problem, and it is the one `live-panel-probe.mjs`
+  uses: **emit into the CDN's public directory, deploy the index, and let the device fetch it over an outbound GET.** That
+  route needs no inbound listener (which the server rules forbid anyway), no token beyond the deploy credential the index
+  build already uses, and no content in an AI context.
+
+So `agent/scripts/e2e/e2e.js` is now also published at `https://agent.saisi.online/summrise-agent/e2e.js` — verified live with
+`200` and **54,783 bytes**, the file's exact size, which is the check that says the deployed bytes are the script and not an
+error page. **IT IS COMMITTED LIKE THE PANEL BUILD AND THE PROBE ARE**, for the reason that section of AGENTS.md gives: Workers
+Assets uploads the directory but HONOURS `.gitignore`, so an ignored-or-untracked file is silently absent from the deploy —
+the failure mode where the URL works today and 404s after the next clean checkout.
+
+**WHAT IS STILL OPEN, STATED SO THE NEXT ROUND DOES NOT HAVE TO REDISCOVER IT**: the second half — running a section on the
+device against the live panel — has not been executed. The cadence now has a transport and a URL; what it does not yet have is
+a recorded VERDICT from the device, and that is the thing the cadence exists to produce.
+
+
 **Round 84, one line**: end-of-session state verified by command — tree clean and `main == origin/main`; CDN and npm both
 **1.2.474**; ledger **301,320 B** of 400,000 and its appendix **396,139 B** under the same gate; AGENTS.md **22,524 B** of 48,000;
 both instruction gates green; the reconcile ledger still holding the historical 1.2.453 (1.2.472's missing asset is named by the
