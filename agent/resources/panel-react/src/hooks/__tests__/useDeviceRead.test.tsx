@@ -632,6 +632,113 @@ describe("useDeviceRead — the reason a settle failed", () => {
   });
 });
 
+// `read` — THE DOOR THAT IS NOT A GET, added with `ConnModal`. `path` states a route and nothing
+// else, while the panel's tool readers send a POST carrying a JSON body and unwrap `result` from the
+// `{ok, result}` answer — a request no route text can express. Two halves are pinned here: the
+// caller's read REPLACES the module's own fetch, and everything after it — the refusal guard, the
+// fold, `reason`, the keep-last-on-failure rule — behaves exactly as it does for a `path`. The last
+// case pins the BOUNDARY that shaped the design (`callTool`'s unwrapped `result` cannot be a `read`).
+describe("useDeviceRead — a caller's own read", () => {
+  it("uses `read` INSTEAD of the path, and never makes the path fetch", async () => {
+    const read = vi.fn(async () => ({ ok: true, v: "tool" }));
+    const reduce = fold();
+    const { result } = renderRead<string>({
+      // BOTH DOORS ARE STATED, deliberately, so the assertion below can be about ONE of them: a
+      // module that fell back to `callApi` would be making a request the caller did not ask for.
+      path: "/api/never-fetched",
+      read,
+      reduce,
+      initial: "start",
+    });
+    await flush();
+    expect(
+      mockCallApi,
+      "the path fetch is not made when the caller brought its own read",
+    ).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(
+      result.current.data,
+      "and the fold is handed what the read resolved",
+    ).toBe("tool");
+    expect(reduce).toHaveBeenCalledWith("start", { ok: true, v: "tool" });
+    expect(result.current.read).toBe("ok");
+  });
+
+  it("treats a throwing read as a FAILED read: the last good value stays and `reason` carries the words", async () => {
+    // THE FAILURE PATH IS THE MODULE'S, WHICHEVER DOOR THE BODY CAME THROUGH: a tool that refused
+    // (`callTool` throws on `{ok:false}`) or a transport that went away must report as a failed
+    // read, never as a device with an empty list.
+    const read = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({ ok: true, v: "first" })
+      .mockRejectedValueOnce(new Error("tool terminal_saved_connections failed"));
+    const { result } = renderRead<string>({
+      read,
+      reduce: fold(),
+      initial: "start",
+    });
+    await flush();
+    expect(result.current.data).toBe("first");
+    expect(result.current.read).toBe("ok");
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe(
+      "tool terminal_saved_connections failed",
+    );
+    expect(
+      result.current.data,
+      "a read that failed is not a device that is empty",
+    ).toBe("first");
+  });
+
+  it("keeps the refusal guard in front of the fold, whichever door the body came through", async () => {
+    const reduce = fold();
+    const read = vi.fn(async () => ({
+      ok: false,
+      error: "the terminal feature is not built into this agent",
+    }));
+    const { result } = renderRead<string>({ read, reduce, initial: "start" });
+    await flush();
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toBe(
+      "the terminal feature is not built into this agent",
+    );
+    expect(reduce, "a refusal never reaches the fold").not.toHaveBeenCalled();
+    expect(result.current.data).toBe("start");
+  });
+
+  it("fails a read that stated NEITHER door as a failed read, rather than fetching `/undefined`", async () => {
+    // Both members are optional, so this state is reachable by a caller and invisible to `tsc`; the
+    // module fails it closed, and the sentence names the missing half.
+    const { result } = renderRead<string>({ reduce: fold(), initial: "start" });
+    await flush();
+    expect(mockCallApi).not.toHaveBeenCalled();
+    expect(result.current.read).toBe("unreadable");
+    expect(result.current.reason).toContain("`path` or a `read`");
+  });
+
+  it("checks the ENVELOPE of what a read resolves, which is why `callTool` cannot be handed over", async () => {
+    // THE BOUNDARY, MEASURED RATHER THAN ASSUMED. `callTool` resolves `result` (`lib/api.ts` 103-114)
+    // and a `result` carries no `ok`, so a read built from it is indistinguishable from a refusal:
+    // the guard stops it and the fold never sees it. That is why a tool reader states the POST and
+    // unwraps in its own fold (`ConnModal`) instead of handing the helper over — and why this case is
+    // here, so the rule is not "relaxed" the next time somebody meets it.
+    const reduce = fold();
+    const read = vi.fn(async () => ({ connections: [] }));
+    const { result } = renderRead<string>({ read, reduce, initial: "start" });
+    await flush();
+    expect(result.current.read).toBe("unreadable");
+    expect(
+      result.current.reason,
+      "no `ok`, so no words either — the module invents no sentence about it",
+    ).toBe("");
+    expect(reduce, "and the unwrapped body is never folded").not.toHaveBeenCalled();
+  });
+});
+
 // `keepEdits` — THE ONE WRITE-BACK THAT IS AN ASSIGNMENT INTO A FORM. Every other reader here hands
 // its value to a surface that renders it; a form-seeding read hands it to fields the operator may
 // already be typing in, and the answer can arrive seconds later (a relay, a device busy in a child

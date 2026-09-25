@@ -43,10 +43,11 @@
 //
 // A caller states the route, the fold, the value to start from, the cadence — and, since the change
 // that migrated `useCommandEvents`, whether the read is LIVE at all (`enabled`) and what a CHANGE OF
-// SUBJECT is (`resetKey`). The four rules above are stated once, here, and the readers that inherit
-// them are these — NAMED RATHER THAN COUNTED, deliberately: this sentence said NINE, then TEN, and the
-// NUMBER is the part that drifts when a round adds one (the lesson AGENTS.md records for its own gate
-// count). The exclusions, which are not readers of this loop, are the two paragraphs below.
+// SUBJECT is (`resetKey`) — or, when its door is not the one this module builds, its OWN READ
+// (`read`, added with `ConnModal`). The four rules above are stated once, here, and the readers that
+// inherit them are these — NAMED RATHER THAN COUNTED, deliberately: this sentence said NINE, then TEN,
+// and the NUMBER is the part that drifts when a round adds one (the lesson AGENTS.md records for its
+// own gate count). The exclusions, which are not readers of this loop, are the two paragraphs below.
 //
 //   * migrated first: `useVitalsSeries`, `useBootHistory`, `useAgentVitals`, `useMonitors`,
 //     `UpdateCard`;
@@ -59,6 +60,11 @@
 //     read whose value SEEDS five editable fields, where `keepEdits` is what stops a late answer
 //     from writing over what the operator has typed (the option's own doc has the shape, and why
 //     withholding the settle would have been the wrong instrument for it).
+//
+//   * migrated with the option that exists because IT needed it, one round later: `ConnModal` — its
+//     saved-connection list is the TOOL ROUTE, a POST carrying a JSON body whose answer is unwrapped
+//     in the fold, so the fetch is the caller's: `read`. Its re-read when the modal's `kind` changes
+//     is the modal's own `refresh`, not a `resetKey` — the note beside that call says why.
 //
 // AND THE PARAGRAPH THAT USED TO SIT HERE NAMED SIX REMAINING SITES, TWO OF WHICH WERE WRONG. It
 // said the six "still hand-roll the same shape"; measured, only FOUR of them ever did — the four
@@ -88,34 +94,43 @@
 //     same round, and it is where `enabled` is shared. Its record is its own header, not this one.
 //
 // AND THE REST OF THE PANEL'S READERS WERE MEASURED TOO, so "still to migrate" is a list rather
-// than an impression. TWO OF THE FOUR ARE NOT ON THIS SEAM, and what stops them is the TRANSPORT
-// before it is the loop: `useSessions.ts` and `TerminalPane.tsx` read a TOOL through `callTool`,
-// which is a `POST /api/tools/{name}` carrying a JSON body and UNWRAPPING `result` (`lib/api.ts`
-// 103-114), while the one route this module can state is the one `refresh` builds for it —
-// `callApi(route)`, a GET with no init and no body (`refresh` below; `path` carries a route, or a
-// function that builds one, and nothing else). A path cannot express those reads.
+// than an impression. TWO OF THE FOUR ARE NOT ON THIS SEAM, AND THE TRANSPORT IS ONLY PART OF WHAT
+// STOPS THEM NOW: `useSessions.ts` and `TerminalPane.tsx` read a TOOL through `callTool`, which is a
+// `POST /api/tools/{name}` carrying a JSON body and UNWRAPPING `result` (`lib/api.ts` 103-114) —
+// while the one request this module builds for itself is `callApi(route)`, a GET with no init and no
+// body (`refresh` below; `path` carries a route, or a function that builds one, and nothing else).
+// `read` now states a request of any shape, which is what `ConnModal` needed, and it deliberately
+// does NOT state `callTool`: the module's refusal guard reads the envelope of what a read resolves,
+// and `result` has no `ok` for it to see (the measurement is in `read`'s doc). Those two are still
+// outside for the reason in the next paragraph, with their door as a second reason rather than the
+// only one.
 //
-// AND THEY ARE NOT ONE FOLD OF ONE VALUE EITHER, which is the half a `read` function would not
-// have fixed. `useSessions` folds ONE reply TWO ways: the event path adds, revives, syncs and
-// TOMBSTONES (`useSessions.ts:306-379`) while the 30 s sweep only adds (`:394-427`); and it retries
+// AND THEY ARE NOT ONE FOLD OF ONE VALUE EITHER, which is the half `read` does not fix. `useSessions`
+// folds ONE reply TWO ways: the event path adds, revives, syncs and TOMBSTONES
+// (`useSessions.ts:306-379`) while the 30 s sweep only adds (`:394-427`); and it retries
 // a failed read once after 1.2 s (`:287-304`), the round-245 fix for an AI-opened session that
 // never appeared — this module has one `reduce`, one cadence and no retry. `TerminalPane`'s read
 // (`:337-392`) is not a value read at all: it PAGES a cursor into xterm, decoding bytes and writing
 // them through `renderedRef`, so there is no `T` to hand over.
 //
-// THE OTHER TWO DID SEED EDITABLE STATE, and one of them is HERE now rather than beside this
-// module: `SettingsPage.tsx` reads `/api/settings` once and writes five editable fields from the
+// THE OTHER TWO DID SEED EDITABLE STATE, AND BOTH ARE HERE NOW — one of them with the option IT
+// needed: `SettingsPage.tsx` reads `/api/settings` once and writes five editable fields from the
 // answer, which is the shape `keepEdits` (in `DeviceReadOptions`) was added FOR. `ConnModal.tsx`
-// reads the saved-connection list through the same tool door (`ConnModal.tsx:32`, a POST with a
-// body), so the transport note above blocks it too — and its write-back feeds a PICKER's options,
-// which the fields are never written from: a pick is the operator's own act (`pickSaved`), so there
-// is no edit for a settle to clobber.
+// reads the saved-connection list through the same tool door (a POST with a body), which is what
+// `read` was added FOR — and its write-back feeds a PICKER's options, which the fields are never
+// written from: a pick is the operator's own act (`pickSaved`), so there is no edit for a settle to
+// clobber and it needs no `keepEdits`.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
 import type { ReadState } from "../lib/readState";
 
 export interface DeviceReadOptions<T> {
   /** The route to read. A function when the route carries a cursor that advances per read.
+   *
+   *  REQUIRED UNLESS `read` IS GIVEN, and `read` wins if a caller states both — exactly ONE door is
+   *  used, never two. A caller that states neither (both members are optional, so `tsc` cannot make
+   *  that state unrepresentable) gets a FAILED read rather than a fetch of `/undefined`; see the
+   *  read-time resolution in `refresh`.
    *
    *  DELETED AND RESTORED, deliberately, and the record is here so it is not deleted a third
    *  time. The first version accepted `string | (() => string)` for the cursor readers, but
@@ -126,13 +141,46 @@ export interface DeviceReadOptions<T> {
    *  (`since_ms` from its own cursor ref), and that cursor ADVANCES per read. A captured string
    *  would pin the first cursor forever and re-request the same window, so the function is
    *  resolved AT READ TIME, never at hook-call time. */
-  path: string | (() => string);
-  /** Called ONLY with a body the device actually sent — never with a refusal — and NEVER "pure" in
-   *  the strict sense, which this contract used to claim and the review caught: a cursor-carrying
-   *  reader (`useOperationRuns`) advances a caller-held ref from the reply it is folding, and the
-   *  module never granted that. Exactly two things are guaranteed about a `reduce`:
+  path?: string | (() => string);
+  /** THE CALLER'S OWN READ — the FETCH, for a reader whose request is not the GET this module
+   *  builds. When present it REPLACES the `callApi(path)` call inside `refresh`, init and body
+   *  included, and everything else behaves exactly as it does for a `path`: the refusal guard, the
+   *  fold, the cadence (and its floor), `enabled`, `resetKey`, `keepEdits`, `refresh`, and the
+   *  `reason` a failed settle reports.
    *
-   *    * it sees a body the device SENT (a refusal and a throw are the module's, not the fold's);
+   *  WHAT IT IS FOR. `path` states a route and nothing else — `refresh` builds `GET <route>` with no
+   *  init and no body. The panel reads through doors that are not that GET — `ConnModal`'s
+   *  saved-connection list is the TOOL route, a POST carrying a JSON body whose answer is
+   *  `{ok, result}` (`agent/src/web/mod.rs` `api_call_tool`) — and no route text can express the
+   *  request. `read` is that request, stated by the caller that knows it, and it is ADDED WITH ITS
+   *  CALLER (`ConnModal.tsx`), the rule the function form of `path` above records.
+   *
+   *  IT RESOLVES THE BODY THE DEVICE SENT — the same thing `callApi` would have resolved — and NOT
+   *  the folded value: the envelope check and the fold stay the module's, because that is what keeps
+   *  "a refusal is never folded" true for every door. THE CONSEQUENCE IS MEASURED AND WORTH STATING:
+   *  a read that unwraps its own door's envelope REMOVES what the guard reads, and the module then
+   *  sees no `ok: true` and reports a REFUSAL — so `callTool` cannot be handed over as a `read`. It
+   *  resolves `result`, whose lack of `ok` is indistinguishable from a refusal (`deviceRefused`
+   *  below), and every read through it would come back `"unreadable"` with its body never folded. A
+   *  tool reader states the POST itself and unwraps in its fold, which is what `ConnModal` does and
+   *  what its hand-written `.then` did before it.
+   *
+   *  IT DOES NOT MAKE EVERY OUTSIDE READER A CALLER, and it is not a way to state a second loop: the
+   *  two readers the header above names are still outside, and `read` does not touch what keeps them
+   *  there (`useSessions` folds one reply two ways and retries a failed read; `TerminalPane` pages a
+   *  cursor into xterm rather than folding a value).
+   *
+   *  RESOLVED AT READ TIME, like `path` and for the same reason: an inline `read` is a new function
+   *  on every render, and one captured when the hook was called would keep reading what the caller
+   *  held at mount. */
+  read?: () => Promise<unknown>;
+  /** Called ONLY with what the read actually answered — the device's body for a `path` reader, or
+   *  (with `read`) whatever that read resolved (see `read`) — and never with a refusal — and NEVER
+   *  "pure" in the strict sense, which this contract used to claim and the review caught: a
+   *  cursor-carrying reader (`useOperationRuns`) advances a caller-held ref from the reply it is
+   *  folding, and the module never granted that. Exactly two things are guaranteed about a `reduce`:
+   *
+   *    * it sees what the read ANSWERED (a refusal and a throw are the module's, not the fold's);
    *    * if it THROWS, the read is reported as `"unreadable"`, the last good value is kept, and the
    *      exception never reaches React's render — which is what lets a strict caller say "a body I
    *      cannot use is a FAILED read" (`useSessionArchive`, `DeviceLogsCard`) rather than folding it
@@ -288,6 +336,7 @@ function withEdits<T>(next: T, keep?: () => Partial<T> | undefined): T {
 export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   const {
     path,
+    read: ownRead,
     reduce,
     initial,
     everyMs,
@@ -315,6 +364,10 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   // `refresh` identity every render would re-arm the interval effect on every render — a
   // self-inflicted poll storm. The same ref is what makes a FUNCTION path work: it is called at
   // read time (below), so a caller's cursor ref is read per read instead of pinned at mount.
+  // The caller's own door, mirrored for the same reasons: an inline `read` is a new function on every
+  // render (its doc says so), and the door a read is built from must be the one the caller holds NOW.
+  const readRef = useRef(ownRead);
+  readRef.current = ownRead;
   const pathRef = useRef(path);
   pathRef.current = path;
   const reduceRef = useRef(reduce);
@@ -383,9 +436,22 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
     try {
       // RESOLVED HERE, not when the hook was called. A cursor-carrying caller (see `path`'s
       // doc) advances its ref between reads, and a route captured once would ask for the same
-      // window forever.
+      // window forever. The caller's OWN door is resolved first and for the same reason (see
+      // `read`): one of the two is the read, and a caller that stated both means `read`.
+      const own = readRef.current;
       const route = pathRef.current;
-      const body = await callApi(typeof route === "function" ? route() : route);
+      let body: unknown;
+      if (own) {
+        body = await own();
+      } else if (route !== undefined) {
+        body = await callApi(typeof route === "function" ? route() : route);
+      } else {
+        // NEITHER DOOR IS A CALLER'S BUG, AND IT FAILS AS A FAILED READ RATHER THAN AS A REQUEST:
+        // `callApi(undefined)` would fetch `/undefined` — traffic nobody asked for, at the device's
+        // expense — and both members are optional, so `tsc` cannot rule this out. The throw's own
+        // sentence rides out as `reason` like any other (see `thrownReason`).
+        throw new Error("useDeviceRead: a read needs a `path` or a `read`");
+      }
       if (!aliveRef.current || seq !== seqRef.current) return;
       // A REFUSAL IS NOT A BODY. `deviceRefused` (`lib/api.ts`) is the panel's one
       // predicate for "the device said no", and `reduce` is never shown a refusal: a

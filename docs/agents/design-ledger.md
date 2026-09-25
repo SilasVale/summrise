@@ -35,6 +35,31 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 78 — the read module learns the shape it was missing, and `callTool` cannot be the one to use it
+
+Round 73 measured the block precisely: the module states exactly ONE route (`callApi(route)`, a GET with no init and no body), which
+is what keeps every `callTool` reader outside it. This round added the missing shape — `read?: () => Promise<unknown>`, replacing the
+module's own fetch while the fold, `reason`, the cadence options and `keepEdits` behave exactly as before — and migrated `ConnModal`
+onto it, the one site whose block was purely the transport.
+
+**AND THE MIGRATION TURNED UP A CONTRACT FACT WORTH MORE THAN THE OPTION**: `callTool` CANNOT be handed over as `read`. The module's
+refusal guard runs on whatever `read` RESOLVES, and `callTool` returns `result` — which has no `ok` key — so `deviceRefused` would
+call every answer a refusal and the fold would never run. `ConnModal` therefore states its POST itself (the same bytes as before)
+and unwraps inside its fold, exactly as its old `.then` did. **The lesson is about where a guard runs**: a seam that validates the
+answer cannot accept a transport that has already unwrapped it, and the header now says so instead of implying that any door would
+do.
+
+**TWO DEVIATIONS, BOTH STATED RATHER THAN SMUGGLED**: `read` is typed `() => Promise<unknown>` because it replaces the FETCH, not the
+fold (a `Promise<T>` would force an identity fold or a cast on every caller); and a refusal or malformed answer now KEEPS the last
+list and reports `reason`, where the old code silently replaced it with an empty one. A kind switch re-reads through `refresh`
+rather than `resetKey`, because a reset would blank the dropdown for one round trip.
+
+**TESTS 882 → 890**: five for the module (including "read is used INSTEAD of the path — `callApi` is never called", a throwing
+`read` reported through `reason` rather than as a silent empty, the refusal never being folded, and neither door failing closed)
+and three for `ConnModal` (the same POST bytes, the kind filter, a pick pre-filling its values, and the old list surviving).
+`tsc --noEmit` clean; the committed bundle rebuilt (deterministic — the same md5 across rebuilds).
+
+
 **Round 77, one line**: the inventory's delete list (never executed) was walked, and its remaining items are blocked on §6.4 —
 an OUT-OF-REPO client — not on engineering. The measurement was re-taken to be sure: `GET /api/events` and `/api/events/poll` really have
 no in-repo client (the built panel's single `api/events` match is `api/events/term`, a different live route), so **deleting them is the
