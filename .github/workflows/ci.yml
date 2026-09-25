@@ -972,3 +972,37 @@ jobs:
           # binary this job never fetched — a fingerprint about the wrong tool. A failed install must fail.
           cargo install cargo-xwin --locked --version 0.23.0 --quiet
           cargo xwin --version 2>&1 | head -1
+      # CAN THE RUNNER REPRODUCE ITS OWN RELEASE ARTIFACT? (round 26.) Seven rounds of comparing this
+      # box against the runner eliminated every input either side can print — toolchain, command, paths,
+      # RUSTFLAGS, panel hash, strings, section geometry, metadata, environment — while 1,484 bytes stayed
+      # different. So the question moves HERE, where the difference lives: build the exe TWICE on this
+      # runner, from the same commit with the same command, and print both hashes. Two builds that match
+      # mean CI is self-consistent and the cross-machine diff needs a map file to name the symbol; two that
+      # differ mean the runner itself is nondeterministic, which is the whole answer and needs no map.
+      #
+      # It also prints the exe's own sha256, which is the number nobody had: the 1.2.468 release asset
+      # carries 8dc2396ab37eaf86… while the release box's build is 48d2773f4aaaf5f0…, and this line says
+      # which of the two the RUNNER produces — i.e. whether the asset matches the runner at all.
+      - name: Build the exe twice and compare the runner against itself
+        run: |
+          set -euo pipefail
+          ( cd agent/resources/panel-react && npm ci --include=optional && npm run build )
+          export RUSTFLAGS="--remap-path-prefix=${GITHUB_WORKSPACE}=/src --remap-path-prefix=${HOME}=/buildhome"
+          build() {
+            CARGO_TARGET_DIR="$1" cargo xwin build -p summrise-agent \
+              --target x86_64-pc-windows-msvc --release --features terminal,keyring --bin summrise-agent
+          }
+          echo "== build 1 =="; build /tmp/t1 >/dev/null
+          echo "== build 2 =="; build /tmp/t2 >/dev/null
+          A=/tmp/t1/x86_64-pc-windows-msvc/release/summrise-agent.exe
+          B=/tmp/t2/x86_64-pc-windows-msvc/release/summrise-agent.exe
+          ls -l "$A" "$B"
+          echo "== the runner's own sha256 (compare with the release asset's) =="
+          sha256sum "$A"
+          echo "== is this runner deterministic with itself? =="
+          if cmp -s "$A" "$B"; then
+            echo "IDENTICAL: two builds on this runner are byte-for-byte equal"
+          else
+            echo "DIFFERENT: this runner does not reproduce itself"
+            cmp -l "$A" "$B" | wc -l
+          fi
