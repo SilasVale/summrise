@@ -6100,6 +6100,37 @@ receipt for skipping it, and it is the third time this loop has paid for a subse
 **FIXED IN `2756bb74`, CI GREEN (10/11)** — with the full suite run this time: 751 / 0 (terminal,keyring), 688 / 0
 (default), 29 / 0 (core), `installer_integrity` 7 passed (6/1 before), fmt clean, clippy clean.
 
+## 2026-09-25 — the thirty-seventh exploration: shipping the batch, and the audit that finally said NO
+
+This round shipped rather than deepened, because four rounds were waiting: **1.2.468** carries the spawn policy reaching
+both command types and then every spawn that needed it (waivers 7 → 3 → 1), the tunnel repair's moved file map and its
+deleted device-name guess, the undigested install payload, the electron shell's one IPC door — and the release
+manifest's per-component `url`, which now has readers.
+
+The order was the runbook's: version bumped BEFORE the build (the exe's VERSIONINFO reads 1.2.468, checked in the binary
+with `strings -el`, because the resource strings are UTF-16 and a plain grep misses them), `--npm` for both channels,
+the smoke verified the LIVE CDN against the manifest, the release commit `82e504eb` waited for **its own** CI to go
+green before the tag (`v1.2.468`), `release.yml` succeeded, and the device went from `1.2.467` to
+`release: 1.2.468 · this CLI: 1.2.468 · latest: 1.2.468 (this device is current)`.
+
+**AND THE DUAL-BUILDER AUDIT REFUSED FOR THE FIRST TIME IN FOUR RELEASES.** The CDN's published tgz hashes
+`883cf653bc9cc869724810bcb746d7c6886ade74df1ec0dd3cafc0dcf2b573dd` and the GitHub release asset
+`summrise-agent-1.2.468.tgz` (6,726,905 bytes) hashes `69416c21917686cabf92ab962354a628390dc0dbc69e33fb57aae0b52a8dd687`.
+Different bytes, same version number — which is exactly the condition that check exists to catch (its own reason for
+existing is that CI once packaged a different artifact under one version, and the audit is why the tag must not move).
+The audit TOOL also stalled twice on the release host (`curl (28) Operation too slow`), so the verdict here comes from
+the API's own asset digest rather than a download — a strictly better instrument than the one that printed the
+mismatch, and worth remembering the next time the mirror is slow.
+
+**WHAT IS NOT IN DOUBT:** the CDN is authoritative and the device updated from it; the smoke verified the versioned and
+latest binaries' sha256 against the live manifest; npm published the same package. **WHAT IS NOT YET KNOWN is WHICH
+INPUT differs** — the candidates are the exe (a Rust build embeds things a source tree does not fully determine), the
+`bin/summrise.js` round 14 rebuilt, or the pack itself. That is round 38's first question, and it is a real P0-flavoured
+one rather than a tidy-up: a check that refuses is only useful if the refusal is chased.
+
+**NUMBERS:** live version **1.2.468**; the device reports itself current; the tag points at `82e504eb`, whose CI was
+green (10/11, the 11th skipped by design) BEFORE the tag.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
