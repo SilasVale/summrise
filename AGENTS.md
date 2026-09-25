@@ -175,18 +175,30 @@ TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
     THIS PARAGRAPH USED TO GIVE ARE BOTH WRONG HERE, which is why it went uninstalled for so long and why round 117
     pushed through a red gate with the hook run by hand and its exit code thrown away:**
 
-        ln -sf "$PWD/scripts/hooks/pre-commit" ~/.config/git/hooks/pre-commit     # DON'T
+        ln -sf "$PWD/scripts/hooks/pre-commit" ~/.config/git/hooks/pre-commit     # SAFE, and round 118 was WRONG about it
 
-    That path is GLOBAL and this box has ~20 repositories. The hook runs summrise's own emitters, so installing it
-    there would make every OTHER repo's commits fail on files that do not exist in them. And:
+    Round 118 wrote here that this would make every other repo's commits fail, because this box has ~20 repositories
+    and the hook runs summrise's own emitters. **IT WOULD NOT, AND THE HOOK SAYS SO ITSELF, twenty lines in** — its
+    first act is:
+
+        if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then exit 0; fi
+
+    with the reason spelled out above it: "a hook that blocked commits everywhere because it could not find a file
+    would be a far worse outcome than the slips it exists to prevent", and the header says it is "designed to be
+    symlinked into a global `core.hooksPath` (round 226)". **So the global install was always available, and the
+    three rounds that went by with the hook uninstalled were three rounds of a false objection** — which is the same
+    failure this ledger keeps recording: a claim about how a tool behaves, made without opening the tool. What
+    remains a real objection is only the SECOND command:
 
         git config core.hooksPath scripts/hooks                                   # DON'T either
 
     shadows the global directory — which is not empty: it holds the operator's `post-commit` (tokensave auto-sync),
     so this repo would silently stop syncing.
 
-    **WHAT IS ACTUALLY INSTALLED (round 118)**: a repo-local `.githooks/` holding BOTH links, and a repo-local path
-    that points at it:
+    **WHAT IS ACTUALLY INSTALLED (round 118, and it is still the better of the two)**: a repo-local `.githooks/`
+    holding BOTH links, and a repo-local path that points at it — better not because the global one is DANGEROUS but
+    because it keeps this repository's hook set explicit and self-contained, and because it does not depend on a file
+    in the operator's home directory staying where it is:
 
         mkdir -p .githooks
         ln -sf ../scripts/hooks/pre-commit .githooks/pre-commit
