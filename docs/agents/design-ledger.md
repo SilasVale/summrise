@@ -6762,6 +6762,39 @@ investigation: one entry will differ, and its NAME is the answer.
 **NUMBERS:** 1,484 differing bytes, 1,168 of them one delta of `-0x130`; both exes 17,637,376 bytes; 9/9 section headers
 identical; live **1.2.469**, device current, devices unaffected.
 
+## 2026-09-25 — the fifty-fifth exploration: 1,168 offsets that compensate for one 304-byte move
+
+Round 34 found that 1,168 of the 1,484 differing bytes are a single delta of `-304`. This round asked the structural
+question — WHERE those values are and where they point — and the answer rules out the obvious reading.
+
+**MEASURED:** the 1,168 entries sit in `.rdata`'s tail (838 in MB 15, 172 in MB 14, 158 in MB 16), and **every one of
+them points into MB 16** — a single region at the end of the image. And the test that would have confirmed "a block moved
+down 304 bytes" **FAILED: 0 of the first 400 entries find their target's content at the shifted address.** So these are
+not pointers to something that moved; the values themselves differ.
+
+**THAT LEAVES ONE READING, AND IT IS A COMPENSATING OFFSET**: if the BASE something is measured from moved by 304 bytes,
+then every stored offset measured from that base moves by `-304` while the EFFECTIVE address (`base + offset`) stays the
+same. 1,168 values changing by the same amount, pointing into one region, with the pointed-at content unchanged, is what
+that looks like from the outside — and it means round 34's "a region placed 304 bytes apart" was half right: **a REGION
+grew or shrank by 304 bytes, and the offsets below it were adjusted to keep their targets identical.**
+
+**WHAT GREW BY 304 BYTES IS THE ROUND-36 QUESTION, AND IT IS ANSWERABLE WITHOUT CI**: something above those offsets changed
+size by exactly `0x130`, with the section's total unchanged — which is the signature of ALIGNMENT PADDING around one
+contribution, not of content. A build whose `.rdata` contributions are laid out by the linker in the same order but with
+one contribution's alignment satisfied differently produces precisely this: same total, same strings, same section
+headers, a constant displacement of what follows, and a fixed-up table of offsets. The map file's segment list (`Start`
+per `.rdata$*` segment) is where that shows up as one line, and it can be produced by rebuilding LOCALLY with a plausible
+perturbation — a different `-C metadata` changed far too much (round 24) but a different ALIGNMENT or a single feature flag
+would be the right size.
+
+**AND THE HONEST SUMMARY OF TWENTY ROUNDS**: one check refused, and the work since has turned "1,484 anonymous bytes" into
+"one 304-byte displacement with 1,168 compensating offsets, in `.rdata`, with identical content and identical section
+geometry". That is a materially better position than a hash nobody can act on, and it has cost no wrong fix in the tree —
+but the cause is still NAMED-UNKNOWN, and this ledger says so rather than implying the search is closed.
+
+**NUMBERS:** 1,168 entries with delta `-0x130`; 0 of 400 targets found at the shifted address; entry sites 838/172/158
+across MB 15/14/16; all targets in MB 16; live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
