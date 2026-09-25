@@ -35,6 +35,15 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 104, one line**: the WHOLE device-targeted suite re-run with round 103's script — a regression check on `check()`
+and the summary line, which every section uses — gives **72/74 passed (2 skipped)**: `FAIL terminal session execute -- state=partial
+exit=null` and `FAIL mcp stdio click drives embedded view -- https://example.com/`, both of them the DOCUMENTED flake class (a
+slow command; "a click can land while the view is mid-navigation and silently do nothing", device-caught per the check's own
+comment) and neither of them in the code this round touched — the stdio click PASSED in the mcp-only run minutes earlier. So the
+third state and the new counting rule are regression-clean across all seven sections, and **74+2 is the honest size of the suite
+that had never once been executed**: 74 assertions that apply on this device, 2 that name the arm they cannot apply on.
+
+
 ### round 103 — the arm-aware check ships, and the mcp section reports 10/10 with two honest skips
 
 Rounds 100-102 established that the `mcp` section was asserting a CONTRACT THAT CANNOT HOLD on this device (http on the
