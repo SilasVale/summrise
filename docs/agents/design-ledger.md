@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 126, one line**: the whole suite re-run after `ci-command-table-check` gained its A2 direction (the scoped
+instruction file) — `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58)**, unchanged. The gate
+that grew is ONE OF THE FIFTY-EIGHT, so a four-gate spot check could not have said whether its new assertion contradicts some
+other instrument; the suite is what answers that, and the answer is no. **A gate added to a suite is a change to the suite**, which
+is why the round after adding one is spent running the thing it joined.
+
+
 ### round 125 — the scoped-file gate ships, with the half of the proof round 124 was missing
 
 Round 123 found that `agent/AGENTS.md` carried commands that are not CI's, and noticed why nothing caught it: **a scoped
