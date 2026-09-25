@@ -308,8 +308,11 @@ exports.psq = psq;
 // Best-effort + logged, never fatal. `sink` is a PS output pipe
 // (e.g. Write-Host, or the update log pipe). Single-quoted PS literals
 // only (npm audit #6) except the double quotes the .lnk Arguments path
-// needs — callers passing through -Command "..." must backslash-escape
-// them (see setup step 7); the update swap script runs from a file.
+// needs — those are LITERAL characters, because they sit inside
+// single-quoted PS strings, so NO caller escapes them: `setup` hands this
+// script to `ps()` as argv and the update swap runs it from a file. The
+// backslash-escape `setup` used to apply was deleted with that conversion
+// (see step 7), which is why this line no longer says "escape them".
 // exported: unit-tested in test/cli.test.mjs.
 function deskShortcutRepairPs(scriptsQ, deskDirQ, sink) {
     return [
@@ -1797,15 +1800,36 @@ const commands = {
         // 7. stage-brand: heal a stale desktop shortcut (a 2026-09-01 Summrise.lnk
         //    launches the RETIRED Tauri exe with the old embedded icon) + drop
         //    the retired orphans. Repair-only (helper checks link existence).
-        //    Backslash-escape the .lnk Arguments double quotes for -Command.
         console.log("setup: reconciling desktop shortcut (retired-exe repair)...");
-        // cmd-% residual: THE ONE SITE THIS ROUND DID NOT FIX, and it is not "safe" — both
-        // values are paths (SCRIPTS_DIR, DESK_DIR). It is left because the same line depends
-        // on the cmd-level `\"` escaping above, which is its own defect (cmd does not unescape
-        // `\"`: the quoted region ends at the first `"` and the call works by accident), and
-        // argv-ing this call means deleting that `.replace()` in the same change. Named rather
-        // than silently exempted: the pin allows exactly ONE such site and fails a second.
-        sh(`powershell -NoProfile -Command "${deskShortcutRepairPs((0, exports.psq)(SCRIPTS_DIR), (0, exports.psq)(DESK_DIR), "Write-Host").join("; ").replace(/"/g, '\\"')}"`);
+        // argv (`ps()`), because BOTH values are paths (SCRIPTS_DIR, DESK_DIR): cmd expands
+        // `%NAME%` inside a quoted region too (see `sh()`), so a `%` in the operator-chosen
+        // install dir would arrive at PowerShell as a variable REFERENCE rather than as data.
+        // This was the LAST acknowledged residual marker in this file, and the pin's cap is
+        // ZERO now — a site that keeps a cmd line has to prove its value cannot carry a `%`.
+        //
+        // A PATH WITH NO `%` OR `"` IS UNAFFECTED: the script PowerShell ends up parsing is the
+        // same text, now handed over directly instead of through cmd. A `"` IN ONE OF THE PATHS
+        // CHANGES SHAPE, and that is the point: cmd reads `"` as a quote TOGGLE, so under the old
+        // form it moved the quoted region (and the `.replace()` below rewrote the whole script
+        // around it); as argv it is data like any other character. (`"` is not a legal character
+        // in an NTFS name, so that one is the CLASS being closed rather than a reachable path — a
+        // `%` in a directory name is legal, and was the reachable member.)
+        //
+        // AND THE `.replace(/"/g, '\\"')` THAT USED TO BE ON THIS LINE IS DELETED AS DEAD, not
+        // merely redundant — it protected nothing and it rewrote the PAYLOAD. `\"` is not a cmd
+        // escape (cmd's is `^`), so under cmd's own rules it did not stop the quoted region
+        // ending at the first `"`; and the `.replace()` ran over the WHOLE joined script, so it
+        // also hit the two double quotes that live INSIDE `deskShortcutRepairPs`'s single-quoted
+        // PowerShell strings — the `.lnk` Arguments value. MEASURED against the builder: exactly
+        // those two characters changed, so the shortcut would have been handed
+        // `-File \"<path>\"` (a literal backslash PowerShell does not strip) had the escape
+        // survived the trip. WHAT LET IT SURVIVE IS REASONED, NOT MEASURED HERE (there is no
+        // cmd.exe on this box): node's CreateProcess quoting, cmd's `/s /c` verbatim tail and
+        // powershell.exe's own `\"` unescaping unwound each other — exactly the "works by
+        // accident" the deleted marker said about this line. With no shell in the path there is
+        // no re-parsing layer left to protect against: `ps()` hands PowerShell the script
+        // VERBATIM, the same way the update swap's `-File` path does.
+        ps(deskShortcutRepairPs((0, exports.psq)(SCRIPTS_DIR), (0, exports.psq)(DESK_DIR), "Write-Host").join("; "));
         // C1: write the registry single source of truth (InstallDir; DataDir
         // defaults to %ProgramData%\Summrise). Everything else reads it back.
         // `regOk` is collected here and summarised at the end of setup: best-effort, but the

@@ -1476,8 +1476,10 @@ function unquotedInterpolations(interps) {
 }
 
 // `/` starts a REGEX literal only where a value may begin; after one it is division.
-// The only one in the file is `.replace(/"/g, '\\"')` at `:1984`, and getting this
-// wrong would make the scan skip the rest of an interpolation.
+// The last real example was `.replace(/"/g, '\\"')` inside the desktop-shortcut site's
+// interpolation, which was deleted when that site became argv — so the real source no
+// longer exercises it and the fixture below keeps the shape alive. Getting this wrong
+// would make the scan skip the rest of an interpolation.
 function regexCanStartAfter(prev) {
   return prev === "" || "(,=:[!&|?{};+-*%^~<>".includes(prev);
 }
@@ -1746,16 +1748,26 @@ test("sh(): every interpolated value sits inside a double-quoted region of the c
   // THE EXTRACTOR IS CHECKED FIRST, because a scan that finds nothing looks exactly
   // like a scan that passes. The single-line `sh(\`…\`)` shape is pinned on a FIXTURE
   // now: its last real example was `rmdir /s /q "${DIR}"`, which round 33 moved to argv
-  // — the move IS the fix, not a gap in the extractor. The real-source probes name the
-  // multi-line sites that genuinely still build a cmd line. If a probe stops being
-  // found, fix THIS extractor rather than deleting the assertion.
+  // — the move IS the fix, not a gap in the extractor. The real-source probes name two
+  // sites that genuinely still build a cmd line. If a probe stops being found, fix THIS
+  // extractor rather than deleting the assertion.
   const sites = shTemplateSites(src);
-  for (const probe of ["deskShortcutRepairPs", "Remove-Item -Recurse -Force"]) {
+  for (const probe of ["Remove-Item -Recurse -Force", "Remove-Item -LiteralPath"]) {
     assert.ok(
       sites.some((s) => s.text.includes(probe)),
       `the sh() scan no longer finds the \`${probe}\` site — the extractor is broken, not the source`,
     );
   }
+  // …AND THE SITE THAT JUST LEFT IS PINNED AS GONE. The desktop-shortcut repair was the
+  // multi-line probe until it became argv. The `%` pin further down would also fail a revert,
+  // but only as an unproven `%`-claim on an interpolation — it cannot say that two
+  // operator-chosen PATHS went back onto a cmd line. This assertion says exactly that, at
+  // the site, so the next reader sees a revert rather than a new interpolation problem.
+  assert.ok(
+    !sites.some((s) => s.text.includes("deskShortcutRepairPs")),
+    "the desktop-shortcut repair must reach PowerShell as argv (`ps()`), not as a cmd string — " +
+      "if this fires, the site was reverted rather than the extractor being broken",
+  );
   const single = shTemplateSites('const a = sh(`rmdir /s /q "${DIR}"`);');
   assert.equal(
     single.length,
@@ -1829,8 +1841,9 @@ test("the cmd-quoting scan itself: quoted passes, unquoted fails, and `\"` in th
   assert.deepEqual(flags('`a ${x} " b ${y}"`'), ["${x}"]);
   // cmd has no single-quote rule: `'…'` is data it forwards, not a region.
   assert.deepEqual(flags("`powershell -Command 'Remove-Item ${x}'`"), ["${x}"]);
-  // The `:1984` shape: a `"` inside the JAVASCRIPT (a regex literal, then a JS string
-  // escape) is never seen by cmd, so it must not steer the region.
+  // The shape the desktop-shortcut site had until it became argv: a `"` inside the JAVASCRIPT
+  // (a regex literal, then a JS string escape) is never seen by cmd, so it must not steer
+  // the region. That site is gone, so this fixture is now the only thing holding the rule.
   assert.deepEqual(flags("`x \"${f(/\"/g, '\\\\\"')}\" y`"), []);
   // A nested template inside the expression is skipped, not mistaken for the end.
   assert.deepEqual(flags('`x "${`${a}`}" y`'), []);
@@ -1876,8 +1889,11 @@ test("the cmd-quoting scan itself: quoted passes, unquoted fails, and `\"` in th
 // value's provenance is not visible to a regex, so the claim is the only checkable thing —
 // AND THE CLAIMS ARE CHECKED. `literal` must resolve to a `for (const X of [ … ])` whose
 // elements are all string literals, `version` must resolve to package.json's own version
-// (re-read from disk in the test below), and `residual` is the acknowledged-and-unfixed
-// kind, capped at exactly ONE site so that it cannot become the way a NEW site passes.
+// (re-read from disk in the test below), and `residual` — the acknowledged-and-unfixed kind
+// that was capped at ONE site — is CLOSED AT ZERO: the last site to carry it (the
+// desktop-shortcut repair, which interpolated two paths AND backslash-escaped the script's
+// own double quotes) is argv now, so a marker of that kind is rejected wherever it sits,
+// which is what stops `residual` from becoming the way a NEW site passes.
 //
 // `%%` IS CHECKED TOO, because it is the fix a careful reader reaches for and the
 // measurement says it is the wrong one here: on a `/d /s /c` line the doubling is not
@@ -1924,7 +1940,6 @@ function packageVersionIdentifiers(src) {
 function cmdPercentOffenders(src, pkgVersion) {
   const lines = src.split("\n");
   const bad = [];
-  const residuals = [];
   const versionIds = packageVersionIdentifiers(src);
 
   // One site's interpolations. `where` carries the coordinates, so a failure names the
@@ -1932,7 +1947,15 @@ function cmdPercentOffenders(src, pkgVersion) {
   const check = (interps, marker, where) => {
     for (const x of interps) {
       const inner = x.text.slice(2, -1).trim();
-      if (marker && marker[1] === "residual") continue; // acknowledged; the cap holds it
+      if (marker && marker[1] === "residual") {
+        // RECOGNIZED AND REFUSED. The kind stays in the marker regex precisely so the
+        // failure can say what happened to it, rather than falling through to the generic
+        // "a value cmd can expand `%NAME%` in" message that would read as a new problem.
+        bad.push(
+          `${where}: expected NO \`cmd-% residual\` marker — the kind is CLOSED at zero (the last one, the desktop-shortcut repair, is argv now); pass the value as argv, or claim \`literal\`/\`version\` with a checkable reason`,
+        );
+        continue;
+      }
       if (marker && marker[1] === "literal") {
         const m = /^psq\((\w+)\)$/.exec(inner);
         if (m && literalLoopElements(src, m[1])) continue;
@@ -1972,7 +1995,6 @@ function cmdPercentOffenders(src, pkgVersion) {
     doubling(site.text, where);
     if (site.interps.length === 0) continue;
     if (marker) {
-      if (marker[1] === "residual") residuals.push(where);
       if (!String(marker[2] || "").trim())
         bad.push(`${where}: the cmd-% marker states no reason`);
     }
@@ -1989,7 +2011,6 @@ function cmdPercentOffenders(src, pkgVersion) {
     const interps = call.templates.flatMap((t) => t.interps);
     if (interps.length > 0) {
       if (marker) {
-        if (marker[1] === "residual") residuals.push(where);
         if (!String(marker[2] || "").trim())
           bad.push(`${where}: the cmd-% marker states no reason`);
       }
@@ -2008,12 +2029,19 @@ function cmdPercentOffenders(src, pkgVersion) {
     }
   }
 
-  // The acknowledged-and-unfixed kind is CAPPED. A second one has to be a deliberate edit
-  // HERE, which is the whole point: `residual` must not become the way a new site passes.
-  if (residuals.length !== 1)
-    bad.push(
-      `expected exactly ONE acknowledged \`cmd-% residual\` site (the desktop-shortcut repair, left alone because its cmd-level \`\\\"\` escaping is a separate defect), found ${residuals.length}: ${residuals.join(" | ") || "none"}`,
-    );
+  // The acknowledged-and-unfixed kind is CLOSED. The cap used to be ONE, which meant a real
+  // site could still buy silence with a marker; the last such site (the desktop-shortcut
+  // repair) became argv, so the honest cap is ZERO — and it is checked ABSOLUTELY, because
+  // the loop above only reads a marker that sits directly above a site it collects. This
+  // pass is file-wide: a marker is a claim about a site, and there is no longer a site it
+  // can be true of. Re-opening the kind has to be a deliberate edit HERE, which is the
+  // whole point: `residual` must not become the way a new site passes.
+  lines.forEach((t, i) => {
+    if (/cmd-%\s+residual/.test(t))
+      bad.push(
+        `src/summrise.ts:${i + 1}: expected NO \`cmd-% residual\` marker anywhere in this file — the cap is ZERO (the last such site, the desktop-shortcut repair, reaches PowerShell as argv now): ${t.trim()}`,
+      );
+  });
 
   return bad;
 }
@@ -2035,11 +2063,15 @@ test("sh()/shell: a value cmd can expand `%NAME%` in is argv or a PROVEN literal
   );
 
   // THE EXTRACTOR'S OWN CHECK FIRST — a scan that finds nothing looks exactly like a scan
-  // that passes. Both halves must still see something on the REAL source: the sh() half
-  // the site that keeps a cmd line, the shell half the one `%NAME%` reference.
+  // that passes. Both halves must still see something on the REAL source: the sh() half a
+  // site that keeps a cmd line, the shell half the one `%NAME%` reference. The `literal`
+  // site in setup's legacy-dir loop is the sh() probe now; the desktop-shortcut repair used
+  // to be the multi-line one until it became argv, and its disappearance is asserted rather
+  // than assumed (see the cmd-door test), because "the extractor stopped seeing it" and "the
+  // site left the cmd line" look identical from here.
   assert.ok(
-    shTemplateSites(src).some((s) => s.text.includes("deskShortcutRepairPs")),
-    "the sh() scan no longer finds the multi-line desktop-shortcut site — fix the extractor",
+    shTemplateSites(src).some((s) => s.text.includes("psq(legacy)")),
+    "the sh() scan no longer finds the legacy-dir `cmd-% literal` site — fix the extractor",
   );
   assert.ok(
     shellSpawnCalls(src).some((c) => c.call.includes("%SUMMRISE_NPM_PREFIX%")),
@@ -2054,8 +2086,30 @@ test("sh()/shell: a value cmd can expand `%NAME%` in is argv or a PROVEN literal
       '`["C:\\C:\\Program Files\\Summrise"]`). `%%` is NOT the escape either — on the same ' +
       "/d /s /c line `echo [100%%]` printed [100%%]. Pass the value as argv (`ps()`), or " +
       "state in a `cmd-% <kind>: <reason>` comment above the site why it cannot carry a " +
-      "`%` (kinds: literal, version, residual):\n  " +
+      "`%` (kinds: literal, version — `residual` is CLOSED at zero):\n  " +
       bad.join("\n  "),
+  );
+
+  // THE WIRING HALF, and it is not decoration: the source scan above is satisfied by any
+  // marker-free argv call, while the artifact a device runs is `bin/summrise.js`. The same
+  // gap shipped a `-Command` string for the desktop START script in 1.2.456 (pinned in its
+  // own test), so the converted site is pinned in the COMMITTED EMIT too: the argv call must
+  // be there, and no cmd string may be built around it. The two halves are stated apart on
+  // purpose — the file has ANOTHER `.replace(/"/g, …)` (the WMI swap launcher's own escaping,
+  // a different layer and not this change's business), so "the escape is gone from the emit"
+  // would be false as a whole-file claim and is true only of this site.
+  const built = fs.readFileSync(
+    new URL("../bin/summrise.js", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    built.includes("ps(deskShortcutRepairPs("),
+    "the committed emit must hand the desktop-shortcut repair to `ps()` as argv",
+  );
+  assert.ok(
+    !/sh\(`powershell[^`]*deskShortcutRepairPs/.test(built),
+    "the committed emit must not build a cmd string around the desktop-shortcut repair — " +
+      "that is the form whose `%NAME%` expansion and dead `\\\"` escaping this change removed",
   );
 });
 
@@ -2104,12 +2158,27 @@ test("the percent rule itself: an unmarked site fails, a false `literal` fails, 
     "a reference defined in the same call's env passes",
   );
 
-  // (e) The escape hatch is capped, so a source cannot buy silence with a leftover line.
+  // (e) The escape hatch is CLOSED, so a source cannot buy silence with a leftover line.
+  // Two placements, because the pin reads markers two ways: above a site it collects, and
+  // anywhere else in the file — a marker parked off-site would otherwise be invisible.
   assert.match(
     offenders(
       '// cmd-% residual: acknowledged and not repaired, with a reason long enough to read\nsh(`x "${DIR}"`);',
     ),
-    /expected exactly ONE/,
+    /expected NO `cmd-% residual` marker/,
+  );
+  assert.match(
+    offenders(
+      'const unrelated = 1;\n// cmd-% residual: parked away from any site, reason long enough\nsh("x");',
+    ),
+    /expected NO `cmd-% residual` marker anywhere in this file/,
+  );
+  // …and an OPEN kind still needs its reason: with nothing after the colon the marker does
+  // not match at all (the regex requires a non-space), so `literal` without a claim is not
+  // an exemption — the site fails the same way an unmarked one does.
+  assert.match(
+    offenders('// cmd-% literal:\nsh(`x "${DIR}"`);'),
+    /cmd expands %NAME% in a quoted value too/,
   );
 });
 
