@@ -35,6 +35,18 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 109, one line — THE NEW CEILING IS PROVEN TO BITE, ON ITS SECOND TRY**: round 107 gave `ledger-mutations.md` its own
+ceiling, and this round padded it to **461,649 B** — the gate exits 1 with "is 461649 bytes and the ceiling is 400000 — a table that
+outgrows its own file is the round-49 problem again"; restored to **92,048 B** it is ok again. **The first attempt was inconclusive and
+is worth keeping**: padding to 303,249 B produced exit 0, because 303 KB is UNDER the 400 KB ceiling — a mutation that does not cross
+the boundary proves nothing, and reading its exit 0 as "the gate is broken" would have been the same mistake as reading any other
+summary as the measurement. **AND THE ROW IS NOT YET IN THE TABLE — the attempt to add it was REVERTED BY ITS OWN GUARD, which is the honest
+ state to record**: the append script read the file's last line starting with a pipe, took it for a table row, counted TWO cells
+ where the table has more, and refused rather than writing a malformed row. So the bite is proven and the row is owed; what
+ the script protected against is exactly what a careless append would have produced, in the one file whose whole purpose is
+ to be read by whoever adds the next gate.documents the file that now holds it.**
+
+
 **Round 107, one line — THE SPLIT IS DONE, AND THE GATE CAUGHT MY OWN MISTAKE WHILE I DID IT**: the mutation table moved to
 `docs/agents/ledger-mutations.md` (**91,532 B**), taking its host from **396,139 → 304,606 B** and leaving both halves with real
 headroom; `ledger-budget-check.mjs` gained a third archive constant, a ceiling for it, and — because the first run FAILED with
