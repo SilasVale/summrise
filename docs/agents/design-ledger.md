@@ -148,8 +148,12 @@ added in round 64 ended `grep -E "^ +0003:" /tmp/agent-map.txt | head -40`, and 
 closes the pipe gives `grep` a SIGPIPE — `write error: Broken pipe`, exit 2 — so **the `Cross-compile the agent exe` step
 failed and 1.2.472 has no GitHub release asset**, while its CDN and npm halves shipped and the device is unaffected. The fix
 is in the workflow now (write to a file, then read from it) and the lesson is general: **a diagnostic must not be able to
-fail the build it is describing.** 1.2.472's missing asset joins `1.2.453` in the reconcile ledger rather than moving a tag,
-because a moved tag is the hazard that ledger exists for.
+fail the build it is describing.** **AND THE DEBT IS NOT YET IN THE RECONCILE FILE, WHICH THIS SECTION SAID IT WAS** — corrected here rather than
+left as a claim: `docs/agents/release-reconcile.txt` still holds only `1.2.453`, because that file is written by
+the publish path's reconcile step and `--acknowledge-unreconciled` did not append to it on this run. **The gate is
+what makes this safe**: the NEXT publish refuses while a CDN version has no GitHub release to audit against, so
+1.2.472 will be named by the tool rather than remembered by a reader. Moving the tag was never an option — a moved
+tag is the hazard that ledger exists for.
 
 **WHAT THIS DOES AND DOES NOT EXPLAIN**: it explains the whole divergence — there is nothing else different in the image — and it
 converts "the two builders disagree by 1,484 bytes" into "**the two builders place one Rust runtime static 304 bytes apart within
