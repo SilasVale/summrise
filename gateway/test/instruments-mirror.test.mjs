@@ -64,6 +64,21 @@ test("code viewer: the instruments mirror matches agent/scripts byte for byte", 
     `repository tells them to run. Re-sync with \`bash gateway/scripts/sync-code-viewer.sh\` and commit the mirror.`,
   );
 
+  // AND THE PUBLISHED COPY OF THE E2E SUITE, WHICH IS THE SAME SHAPE AND HAD NO GUARD EITHER (round 138).
+  // `index/public/summrise-agent/e2e.js` is the copy the DEVICE fetches — AGENTS.md's cadence hands a section to a real
+  // device through it — and it was copied BY HAND in rounds 103, 113 and 114. Three manual copies, no assertion. The
+  // panel's build output has exactly this shape and IS gated (`panel-sheet-freshness-check.mjs`); this pair was not.
+  const e2ePublished = join(GATEWAY, "..", "index/public/summrise-agent/e2e.js");
+  const e2eSource = join(SOURCE, "e2e/e2e.js");
+  assert.strictEqual(
+    readFileSync(e2ePublished, "utf8"),
+    readFileSync(e2eSource, "utf8"),
+    `index/public/summrise-agent/e2e.js is not the suite in agent/scripts/e2e/e2e.js — and that file is what the ` +
+    `device FETCHES to run a section against a real panel, so a stale copy measures a product that is not there. ` +
+    `Re-copy it (\`cp agent/scripts/e2e/e2e.js index/public/summrise-agent/e2e.js\`) and commit, the way rounds ` +
+    `103, 113 and 114 each did by hand.`,
+  );
+
   const differing = mirrored.filter(
     (rel) => readFileSync(join(MIRROR, rel), "utf8") !== readFileSync(join(SOURCE, rel), "utf8"),
   );

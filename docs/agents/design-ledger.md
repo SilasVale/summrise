@@ -35,6 +35,30 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 138 — the third unguarded copy, and this one I created myself three rounds into the e2e thread
+
+Round 137 closed the instruments mirror in both directions. The same question, asked once more, found a third copy of the same
+shape: **`index/public/summrise-agent/e2e.js` is the e2e suite the DEVICE fetches**, published to the CDN in round 85 so the cadence
+could hand a section to a real panel. It is a copy of `agent/scripts/e2e/e2e.js` — **and rounds 103, 113 and 114 each re-copied it
+BY HAND, with nothing asserting the two matched.**
+
+```
+currently: in sync
+1. clean:                  npm test exit=0   pass 922 / fail 0
+2. drifted published copy: npm test exit=1   "is not the suite in agent/scripts"
+3. restored:               npm test exit=0   pair byte-identical again
+```
+
+**AND THE PRECEDENT WAS ALREADY IN THE REPOSITORY**: the panel's build output (`resources/panel/panel.js`) has exactly this shape —
+generated, committed, embedded — and it IS gated, by `panel-sheet-freshness-check.mjs`. **The e2e pair was the same kind of artifact with
+none of the protection, and it was mine.**
+
+**THE THREAD'S SHAPE, IN FOUR ROUNDS, IS NOW COMPLETE AND WORTH STATING PLAINLY**: 133 found a mirror nobody guarded; 134 guarded one
+direction of it; 137 found the guard itself had the asymmetry; 138 found a THIRD copy that the first three rounds had not looked at
+because it does not live under `public/code/files/`. **Each round asked "what else has this shape" and each answer was one step further
+from where the last one stopped** — which is what a class looks like when it is being closed honestly rather than sampled.
+
+
 ### round 137 — the guard I wrote last round had the hole it was written to close, one direction over
 
 Round 134 wrote `instruments-mirror.test.mjs` and proved it both ways. **It checked only mirrored → source.** The gateway mirror's
