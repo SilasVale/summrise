@@ -6534,6 +6534,44 @@ will say whether the asset CI uploads is the artifact CI built.
 the table in AGENTS.md still matches the workflows it describes — 12 checks, all run by `ci.yml`, 5 steps declared
 not-per-end. Editing a workflow is editing a gate's own machinery, and both checks were run rather than assumed.
 
+## 2026-09-25 — the forty-ninth exploration: the log the failure dialog promises
+
+Nine rounds went to the dual-builder divergence; this one went back to the agent's own surface, to a defect a walker had
+measured two rounds before and nobody had implemented.
+
+**THE MEASURED STATE, and my brief for it was WRONG IN A USEFUL WAY:** I told the implementer that `Stop-Transcript`
+appeared NOWHERE in `summrise-online-setup.ps1`. It appeared ONCE — at `:444`, on the SUCCESS path — and the **twelve
+failure exits had none**. That is the worse shape of the two: the transcript is closed exactly when nobody needs it, and
+left open exactly when the file becomes the only evidence. The installer's own failure dialog
+(`summrise-setup.nsi:161`) sends the user to that file by name, so the script promised a log whose completeness nothing
+guaranteed.
+
+**ONE MECHANISM FOR ALL THIRTEEN EXITS NOW**: a `$script:TranscriptOn` flag armed where the transcript starts (itself
+inside `try {} catch {}`, because it can fail under a non-interactive host) and a `Stop-InstallLog` that is safe when
+nothing was started and CANNOT change an exit code — a failure to stop must never turn a successful install into a
+failed one. `try/finally` was considered and rejected **with the reason recorded**: PowerShell's own documentation
+promises `finally` for normal execution, `break`, `continue`, `return` and exceptions, and never names `exit`; with no
+pwsh on this box that arm is untestable, and wrapping `exit 0` would put the success code NSIS reads behind an
+unverified rule. Exit codes and user-facing strings are unchanged.
+
+**THE PIN, AND ITS HONEST LIMIT:** `every_exit_closes_the_install_log` strips comments and single-quoted strings first
+(the script WRITES a launcher containing `{ exit }`, so a naive scan would count it), then asserts one `Stop-Transcript`
+in total, the flag-and-catch guard, the flag armed after the start, and every exit preceded by the call — with a floor of
+ten judged against today's thirteen. It is textual by nature and says so in its own comment. **Mutation, verbatim:**
+removing the stop from the "拿不到 Node 版本列表" exit panics with
+`this exit is not preceded by Stop-InstallLog, so its transcript is left open — and the failure dialog sends the user to that log`.
+
+**AND A TRAP THE ROUND FELL INTO AND THEN PINNED.** The `edit` tool STRIPPED the file's UTF-8 BOM (HEAD `efbbbf` →
+`#Re`). Without it PowerShell 5.1 reads the file as ANSI and **all ~91 Chinese lines reach users as mojibake** — a
+customer-facing breakage invisible to every test this repo runs, introduced by the act of editing. It was restored, and
+`the_setup_script_keeps_its_utf8_bom` now pins the first three bytes, so the next round that edits this file finds out
+from a gate instead of from a user.
+
+**NUMBERS:** `installer_integrity` 8 → **9 tests**; 13 exits covered, 1 stop removed by mutation; `script-syntax` 27
+files parse; BOM `efbbbf` verified by `xxd`; fmt clean; clippy `-D warnings` clean. NOT VERIFIED HERE: no pwsh on this
+box, so the new construct is unexecuted — syntax checked by eye, by a brace/paren census against HEAD that accounts for
+exactly the edits (+2 braces, +1 paren, balanced), and by the pin.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

@@ -37,14 +37,41 @@ $NodeFloorMajor = 18
 
 function Say([string]$m) { Write-Host "[summrise-setup] $m" }
 
+# --- THE INSTALL LOG IS PART OF THE FAILURE REPORT: EVERY EXIT CLOSES IT FIRST ---
+# WHY (the incident, not the rule). When this script exits non-zero, summrise-setup.nsi:161
+# shows the user:
+#   安装失败（步骤退出码 $0）。
+#   看 $3\Summrise\logs\installer.log 找原因，修好后重跑安装包即可（幂等）。
+# The dialog names THIS transcript as the place to look, and the only reader the log ever
+# has is someone whose install has just failed. A transcript is appended progressively, so
+# an `exit` usually leaves a usable file — but "usually" is the whole defect: a log that
+# stops mid-line, or that is missing the very failure the dialog was shown for, is worse
+# than no log at all, because the dialog promised it.
+# ONE mechanism, called immediately before every exit below: Stop-InstallLog. There is no
+# other Stop-Transcript in this file, and agent/tests/installer_integrity.rs pins both
+# halves of that (the single definition, and one call per exit).
+$script:TranscriptOn = $false
+function Stop-InstallLog {
+  # SAFE WHEN NO TRANSCRIPT WAS STARTED, which is what the flag is for. Start-Transcript is
+  # wrapped in try/catch because it fails on a non-interactive host or an unwritable log
+  # path, and under $ErrorActionPreference = "Stop" a Stop-Transcript with nothing running
+  # would be a TERMINATING error. The flag stays $false until Start-Transcript returns, so
+  # the two exits above that call (admin / 64-bit) and any host where it threw take the
+  # no-op path. The catch is the second half of the same rule: closing the log may never
+  # change an exit code, and may never turn a successful install into a failed one.
+  try { if ($script:TranscriptOn) { Stop-Transcript | Out-Null } } catch { }
+}
+
 # --- admin 自检（NSIS 本来就要提权；手动跑脚本时给一句人话） ---
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   Write-Host "[summrise-setup] 需要管理员权限：请右键“以管理员身份运行”。"
+  Stop-InstallLog
   exit 3
 }
 if (-not [Environment]::Is64BitOperatingSystem) {
   Write-Host "[summrise-setup] 仅支持 64 位 Windows。"
+  Stop-InstallLog
   exit 3
 }
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -52,7 +79,9 @@ New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "etc") | Out-Nu
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "components") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "scripts") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
-try { Start-Transcript -Path (Join-Path $DataDir "logs\installer.log") -Append | Out-Null } catch { }
+# The flag is set AFTER the call, inside the same try, so it is $true only while a
+# transcript is really running — Stop-InstallLog must never stop a log that is not open.
+try { Start-Transcript -Path (Join-Path $DataDir "logs\installer.log") -Append | Out-Null; $script:TranscriptOn = $true } catch { }
 
 # round-124: SHA-256 verification for the CDN fallback (shipped beside this file
 # as lib\SummriseIntegrity.ps1; NSIS File + build-installer.sh both carry it).
@@ -108,11 +137,11 @@ if (-not $nodeExe) {
   foreach ($idx in @("https://nodejs.org/dist/index.json", "https://npmmirror.com/mirrors/node/index.json")) {
     try { $lts = (Invoke-RestMethod -Uri $idx -UseBasicParsing -TimeoutSec 30 | Where-Object { $_.lts } | Select-Object -First 1).version; if ($lts) { break } } catch { }
   }
-  if (-not $lts) { Write-Host "[summrise-setup] 拿不到 Node 版本列表（网络不通？），退出。"; exit 5 }
+  if (-not $lts) { Write-Host "[summrise-setup] 拿不到 Node 版本列表（网络不通？），退出。"; Stop-InstallLog; exit 5 }
   Say "最新 LTS Node $lts"
   $zip = Join-Path $env:TEMP "summrise-node.zip"
   $zipUrl = "https://nodejs.org/dist/$lts/node-$lts-win-x64.zip"
-  if (-not (Download-File $zipUrl $zip "Node $lts")) { Write-Host "[summrise-setup] Node 下载失败，退出。"; exit 5 }
+  if (-not (Download-File $zipUrl $zip "Node $lts")) { Write-Host "[summrise-setup] Node 下载失败，退出。"; Stop-InstallLog; exit 5 }
   if (Test-Path $NodeDir) { Remove-Item -Recurse -Force $NodeDir }
   Expand-Archive -Force -Path $zip -DestinationPath (Join-Path $InstallDir "components")
   Move-Item (Join-Path $InstallDir "components\node-$lts-win-x64") $NodeDir -Force
@@ -133,7 +162,7 @@ try {
 } catch { Say "写 Machine PATH 失败（继续，当前会话 PATH 已就绪）" }
 $env:Path = "$nodeBinDir;$NpmGlobal;$env:Path"
 $npmCmd = Join-Path $nodeBinDir "npm.cmd"
-if (-not (Test-Path $npmCmd)) { Write-Host "[summrise-setup] 找不到 npm.cmd（$nodeBinDir），退出。"; exit 5 }
+if (-not (Test-Path $npmCmd)) { Write-Host "[summrise-setup] 找不到 npm.cmd（$nodeBinDir），退出。"; Stop-InstallLog; exit 5 }
 
 # --- 2. npm 装 pinned 的 summrise-agent（这就是以后的更新通道） ---
 # 自包含安装包优先用内嵌 tgz（LocalTgz，NSIS 打包时 File 进去）——无网络、
@@ -160,10 +189,12 @@ if ($LocalTgz -and (Test-Path $LocalTgz)) {
   if (-not $LocalTgzSha256) {
     Write-Host "[summrise-setup] 自带安装包没有摘要（-LocalTgzSha256 为空），拒绝安装：没有摘要就无法校验载荷。"
     Write-Host "  （安装包应由 scripts/build-installer.sh 构建；手工跑请显式给 -LocalTgzSha256）"
+    Stop-InstallLog
     exit 7
   }
   if (-not (Test-FileSha256 -Path $tgz -Expected $LocalTgzSha256)) {
     Write-Host "[summrise-setup] 校验失败：自带 tgz 与安装包内记录的 sha256 不符，拒绝安装。"
+    Stop-InstallLog
     exit 7
   }
   Say "自带包 sha256 校验通过（$LocalTgzSha256）"
@@ -179,7 +210,7 @@ if ($LocalTgz -and (Test-Path $LocalTgz)) {
   # see the bundled branch above. Both arms check now.)
   $dl = Join-Path $env:TEMP "summrise-agent-$SummriseVersion.tgz"
   if (-not (Download-File $tgz $dl "summrise-agent $SummriseVersion")) {
-    Write-Host "[summrise-setup] 下载失败（$tgz），退出。"; exit 6
+    Write-Host "[summrise-setup] 下载失败（$tgz），退出。"; Stop-InstallLog; exit 6
   }
   $manifestUrl = "$CdnBase/api/version"
   # Kept for the component blocks below, which run on BOTH branches and need the same pins.
@@ -193,15 +224,16 @@ if ($LocalTgz -and (Test-Path $LocalTgz)) {
     Write-Host "[summrise-setup] 校验失败：下载的 tgz 与版本清单的 sha256 不符（或清单缺少该版本的摘要），拒绝安装。"
     Write-Host "  清单：$manifestUrl"
     Remove-Item $dl -ErrorAction SilentlyContinue
+    Stop-InstallLog
     exit 7
   }
   Say "sha256 校验通过（$expected）"
   $tgz = $dl
 }
 & $npmCmd install -g --prefix $NpmGlobal $tgz
-if ($LASTEXITCODE -ne 0) { Write-Host "[summrise-setup] npm 安装失败，退出。"; exit 6 }
+if ($LASTEXITCODE -ne 0) { Write-Host "[summrise-setup] npm 安装失败，退出。"; Stop-InstallLog; exit 6 }
 $summriseCmd = Join-Path $NpmGlobal "summrise.cmd"
-if (-not (Test-Path $summriseCmd)) { Write-Host "[summrise-setup] summrise.cmd 没生成，退出。"; exit 6 }
+if (-not (Test-Path $summriseCmd)) { Write-Host "[summrise-setup] summrise.cmd 没生成，退出。"; Stop-InstallLog; exit 6 }
 
 # THE MANIFEST IS READ HERE ON PURPOSE, not only on the CDN branch above (round 143).
 # These two components are staged by PRESENCE into the npm package dir, and
@@ -282,7 +314,7 @@ if ($RegKey) { $setupArgs += @("--reg-key", $RegKey) }
 if ($Tunnel) { $setupArgs += @("--tunnel", $Tunnel) }
 Say "运行 summrise setup ..."
 & $summriseCmd @setupArgs
-if ($LASTEXITCODE -ne 0) { Write-Host "[summrise-setup] summrise setup 失败，退出。"; exit 7 }
+if ($LASTEXITCODE -ne 0) { Write-Host "[summrise-setup] summrise setup 失败，退出。"; Stop-InstallLog; exit 7 }
 
 # --- 5. Electron（桌面壳二进制；主源=我们的 CDN，备源=npm；失败只告警） ---
 # Layout v2: the shell lives at components\summrise-desktop-electron.
@@ -441,5 +473,5 @@ $lines | ForEach-Object { Say $_ }
 if (($tgzSource -eq "bundled") -and $LocalTgz) {
   try { Remove-Item -Force -ErrorAction Stop $LocalTgz; Say "内嵌安装包已清理" } catch { Say "内嵌安装包清理跳过（不影响使用）" }
 }
-try { Stop-Transcript | Out-Null } catch { }
+Stop-InstallLog
 exit 0

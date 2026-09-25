@@ -402,3 +402,185 @@ fn the_portable_node_is_reused_before_it_is_downloaded() {
         "the reuse check must precede the delete"
     );
 }
+
+/// The line with its single-quoted spans blanked out (SAME BYTE LENGTH, so offsets still line up),
+/// because this script WRITES another script whose text contains `{ exit }` — that one is not this
+/// script's control flow. The limit, stated rather than implied: PowerShell escapes a quote inside
+/// a single-quoted string by doubling it (`''`), and a simple toggle does not know that, so such a
+/// span would flip the state early. No line carrying an `exit` here has a doubled quote in it, and
+/// a maintainer who writes one gets a failure with the line printed, never silence.
+fn unquoted(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut inside = false;
+    for ch in line.chars() {
+        if ch == '\'' {
+            inside = !inside;
+            out.push(' ');
+        } else if inside {
+            for _ in 0..ch.len_utf8() {
+                out.push(' ');
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// The byte index of the `exit` KEYWORD in a line, if it has one. Case-sensitive and word-bounded
+/// on purpose: `$LASTEXITCODE` sits on two of the exit lines and is not an exit, and neither is the
+/// `exits` of prose (the header comment is not a `#` line, so it survives `without_comments`).
+fn exit_keyword(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = line[from..].find("exit") {
+        let at = from + rel;
+        let before_ok = at == 0 || {
+            let c = bytes[at - 1];
+            !(c.is_ascii_alphanumeric() || c == b'_' || c == b'$')
+        };
+        let end = at + 4;
+        let after_ok = end >= bytes.len() || {
+            let c = bytes[end];
+            !(c.is_ascii_alphanumeric() || c == b'_')
+        };
+        if before_ok && after_ok {
+            return Some(at);
+        }
+        from = end;
+    }
+    None
+}
+
+/// THE INSTALL LOG IS PART OF THE FAILURE REPORT, SO EVERY EXIT CLOSES IT FIRST.
+///
+/// WHY. On any non-zero exit from the setup script, `summrise-setup.nsi` shows the user:
+///
+/// ```text
+/// 安装失败（步骤退出码 $0）。
+/// 看 $3\Summrise\logs\installer.log 找原因，修好后重跑安装包即可（幂等）。
+/// ```
+///
+/// The dialog names that transcript as the place to look, and the only reader the log ever has is
+/// someone whose install has just failed. A transcript is appended progressively, so an `exit`
+/// USUALLY leaves a usable file — "usually" is the whole defect, and this pin is what holds the fix:
+/// a log that stops mid-line, or that is missing the very failure the dialog was shown for, is worse
+/// than no log at all, because the dialog promised it.
+///
+/// THE SHAPE, and why it is not a `try/finally`. One `try { <whole body> } finally { … }` would
+/// cover future exits for free, and it is NOT what this file does, because the guarantee would rest
+/// on `exit` unwinding through `finally` — which the language spec does not say: §8.7 promises the
+/// finally block for "normal execution … `break`, `continue`, or `return` … or an exception being
+/// thrown out of the `try` statement" and never names `exit`, and about_Try_Catch_Finally adds only
+/// "an Exit keyword stops the script from within a Catch block". No pwsh runs on this box, so that
+/// arm is untestable here; and wrapping the trailing `exit 0` in it would put the SUCCESS code
+/// behind the same unverified rule, which NSIS reads (`$0 != 0` shows the failure dialog). So the
+/// stop is explicit at each exit, and this pin is what makes the explicitness checkable.
+///
+/// WHAT IS PINNED, honestly: that every `exit` is preceded by `Stop-InstallLog` — on its own line
+/// (`Stop-InstallLog; exit 7`) or on the line immediately above it. That is a TEXTUAL property, and
+/// for "a call before each exit site" it is the form the property actually has; it is judged on
+/// comment-stripped and single-quote-stripped code, so neither this prose nor the launcher text the
+/// script writes can satisfy it or trip it. Removing the call from ONE exit fails it — measured, not
+/// assumed.
+#[test]
+fn every_exit_closes_the_install_log() {
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let code = without_comments(&ps1, '#');
+
+    // ONE mechanism. A second `Stop-Transcript` beside an exit is a second path that nothing guards
+    // (and the guard is the whole point: it must be safe when no transcript was ever started).
+    let stops = code.matches("Stop-Transcript").count();
+    assert_eq!(
+        stops, 1,
+        "the transcript must be closed in exactly ONE place — Stop-InstallLog; found {stops} \
+         Stop-Transcript calls, so one of them is a second mechanism"
+    );
+
+    // ...and that one place is guarded TWICE: by the flag Start-Transcript sets only when it
+    // returned, and by a catch. Under `$ErrorActionPreference = "Stop"` a Stop-Transcript with no
+    // transcript running is a TERMINATING error, and closing a log may never change an exit code.
+    let def = code
+        .find("function Stop-InstallLog")
+        .expect("the installer must define the one stop");
+    let body_end = def
+        + code[def..]
+            .find("\n}")
+            .expect("the function body must close at column 0");
+    let body = &code[def..body_end];
+    assert!(
+        body.contains("Stop-Transcript"),
+        "Stop-InstallLog must be the function that stops it"
+    );
+    assert!(
+        body.contains("$script:TranscriptOn"),
+        "the stop must be GUARDED by the flag, or a host where Start-Transcript threw gets an \
+         error from Stop-Transcript instead of an exit code"
+    );
+    assert!(
+        body.contains("catch"),
+        "and it must be CAUGHT: under $ErrorActionPreference = \"Stop\" an unguarded failure to \
+         close the log would turn a successful install into a failed one"
+    );
+
+    // The flag is armed only after Start-Transcript returns, inside the same `try`: the two exits
+    // above that call (admin / 64-bit checks) and any host where it threw must take the no-op path.
+    let start = code
+        .find("Start-Transcript")
+        .expect("the installer must still start a transcript");
+    let armed = code
+        .find("$script:TranscriptOn = $true")
+        .expect("...and arm the guard flag only when it returned");
+    assert!(
+        start < armed,
+        "the flag must be set AFTER Start-Transcript ({start} < {armed}), never before"
+    );
+
+    // EVERY exit, one at a time. This is the assertion the fix is for.
+    let lines: Vec<String> = code.lines().map(unquoted).collect();
+    let mut judged = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let Some(at) = exit_keyword(line) else {
+            continue;
+        };
+        judged += 1;
+        let on_this_line = line.find("Stop-InstallLog").is_some_and(|s| s < at);
+        let on_the_line_above = lines[..i]
+            .iter()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .is_some_and(|l| l.contains("Stop-InstallLog"));
+        assert!(
+            on_this_line || on_the_line_above,
+            "this exit is not preceded by Stop-InstallLog, so its transcript is left open — and \
+             the failure dialog sends the user to that log: {}",
+            line.trim()
+        );
+    }
+    // A FLOOR, not a claim: the installer has 13 exit sites today and the number may grow. What
+    // must not happen is this scan judging nothing and passing because it looked at nothing.
+    assert!(
+        judged >= 10,
+        "expected the installer's exit paths to be judged; found {judged} — if the exits really \
+         moved elsewhere, this pin must be moved with them"
+    );
+}
+
+/// THE BOM IS LOAD-BEARING, and nothing else in the suite can see it.
+///
+/// PowerShell 5.1 decodes a `.ps1` with no byte-order mark as ANSI, and this file is UTF-8 carrying
+/// Chinese in every user-facing line — so a lost BOM shows the user mojibake instead of the
+/// installer's own messages. MEASURED, while writing the pin above: an editor that rewrote this
+/// file dropped the BOM silently, and the whole suite stayed green (the file still parses as UTF-8
+/// on this box, which is why the defect is invisible here). Same hazard the result file's comment
+/// records from the other end, where the completion page showed 鈥?… .
+#[test]
+fn the_setup_script_keeps_its_utf8_bom() {
+    let path = format!("{ROOT}/deploy/summrise-online-setup.ps1");
+    let bytes = fs::read(&path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    assert!(
+        bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
+        "deploy/summrise-online-setup.ps1 lost its UTF-8 BOM: PowerShell 5.1 would read its \
+         Chinese messages as ANSI bytes and show the user mojibake"
+    );
+}
