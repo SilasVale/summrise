@@ -6280,6 +6280,43 @@ agree by inspection.
 **NUMBERS:** 0 differing bytes between two path builds; 1,484 between the two release builds; three sizes now measured
 for the same source (17,637,376 release, 17,641,984 direct cargo); live **1.2.468**, device current, devices unaffected.
 
+## 2026-09-25 — the forty-second exploration: the same strings, different values
+
+Round 41 ended with one flag left (`-p summrise-agent`) and a test to run. The test ran, the flag is innocent, and the
+round found the SHAPE of the remaining difference instead.
+
+**THE LAST UNVERIFIED FINGERPRINT IS NOW VERIFIED.** Rounds 39-41 compared rustc, `lld-link`, cargo-xwin and the panel
+hash, but never MY OWN clang. It is `7cb5d097969e46eb669a3f834825e426e3661974dfa0749a3928923476891837` — byte-identical to
+the runner's `llvm18/bin/clang`. So all four tools match exactly: rustc `1.98.1 (48a229cea)`, clang `7cb5d097…`, lld
+`3001bd7d…`, cargo-xwin `0.23.0`.
+
+**THE COMMAND IS NOW IDENTICAL TOO, AND THE ARTIFACTS STILL DIFFER.** `release.yml`'s line was run VERBATIM on this box
+— `cargo xwin build -p summrise-agent --target x86_64-pc-windows-msvc --release --features terminal,keyring --bin
+summrise-agent` with `--remap-path-prefix=$ROOT=/src --remap-path-prefix=$HOME=/buildhome` — and after a forced rebuild
+(`touch src/lib.rs`, 25.75s of real compilation) the exe is still `48d2773f4aaaf5f0…` against CI's `8dc2396ab37eaf86…`,
+**1,484 bytes apart**. Note what that run also proves: **the local build is DETERMINISTIC** — two runs, same hash — so
+this is not local nondeterminism.
+
+**AND THE DIFFERENCE IS NOT CONTENT.** A wide string scan of both binaries' `.rdata` finds the SAME strings, in the same
+order, and the set difference is **empty in both directions** — `strings only in LOCAL: []`, `strings only in CI: []`.
+So the 1,184 differing `.rdata` bytes are not text at all; they sit around the panic-location tables (`src/main.rs:711`,
+`:719`, `:777`, `:558` …), which in Rust are `(ptr, len, line, col)` entries.
+
+**THAT NAMES THE MECHANISM AS A LAYOUT SHIFT**, and it explains everything the last four rounds measured: identical
+strings (nothing was renamed), identical tools (nothing was recompiled differently), tiny scattered 1-2 byte differences
+in `.rdata`/`.data`/`.text`/`.reloc` (addresses and relocations moving), and byte-identical output across two paths (the
+layout does not depend on where the tree sits). A fingerprint comparison CANNOT see this class of difference, which is
+why four rounds of comparing tools kept coming back clean.
+
+**ROUND 43'S TEST IS THEREFORE AN INSTRUMENT, NOT A HYPOTHESIS**: build both sides with the linker's `/MAP` (or
+`/MAP:…, /MAPINFO:EXPORTS`) and diff the section/segment table. That names the section that moved and by how much — one
+file each, and it is the only remaining way to see layout. If the maps agree and the images still differ, the next
+candidate is the *object-file order* passed to the linker, which is the one input neither builder prints.
+
+**NUMBERS:** 1,484 differing bytes (`.rdata` 1,184, `.data` 152, `.text` 132, `.reloc` 12, headers 4); 0 differing
+strings; 0 differing bytes between two build paths; 4 of 4 tool fingerprints identical; local build deterministic across
+two runs. Live version **1.2.468**, device current, devices unaffected.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
