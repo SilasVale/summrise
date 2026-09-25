@@ -53,6 +53,30 @@ error page. **IT IS COMMITTED LIKE THE PANEL BUILD AND THE PROBE ARE**, for the 
 Assets uploads the directory but HONOURS `.gitignore`, so an ignored-or-untracked file is silently absent from the deploy —
 the failure mode where the URL works today and 404s after the next clean checkout.
 
+### round 87 — THE CADENCE PRODUCED ITS FIRST VERDICT, AND IT IS A FAILURE
+
+The corrected cadence ran for the first time, end to end, on the device: the script came over the CDN (round 86), the token was
+found where it lives (`D:\Summrise\etc\config.yaml`, `device_token`, 64 chars — **read into a variable and never printed**, because
+a token in the audit trail is a token in the record), and the `panel` section ran against the live panel:
+
+```
+PASS panel ai write  -- state=partial
+FAIL panel xterm shows ai output  -- marker=PANEL-VIS-179036981456
+
+== 1/2 passed ==
+```
+
+**AN INSTRUMENT THAT RAN NOWHERE FOR ITS WHOLE LIFE FOUND A REAL DEFECT ON ITS FIRST EXECUTION.** The first check writes through the
+panel and sees the write land; the second asks whether the AI's own output actually appears in the terminal view, and the marker it
+planted (`PANEL-VIS-179036981456`) is not there. That is the panel not SHOWING what the agent produced — the exact class the section
+exists to catch, and it sits in the area rounds 73 and 78 touched (the read seam `SettingsPage` and `ConnModal` migrated onto).
+
+**WHAT THIS ROUND DOES NOT CLAIM**: it does not say those rounds CAUSED it. The check has never run before, so there is no
+before-picture to compare against — which is precisely the cost of an instrument that nothing ran, and precisely why the cadence
+was worth building. The next round's first question is whether the marker is missing because of a regression or because the check
+never passed: `git stash`-free, that is answered by running the same section against an older release, and the answer decides
+whether this is a fix or a baseline.
+
 **AND THE TRANSPORT IS NOW VERIFIED FROM THE DEVICE, NOT ONLY FROM HERE (round 86)**: the device ran
 `Invoke-WebRequest -Uri https://agent.saisi.online/summrise-agent/e2e.js -OutFile D:\Summrise\e2e.js` and the file landed at
 **54,783 bytes** — the source's exact size, on the far side, over an OUTBOUND GET, with no listener opened on either machine.
