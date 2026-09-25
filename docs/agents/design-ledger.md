@@ -35,6 +35,11 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 55, one line**: the CLI cells re-measured after the round-54 shell work — `summrise.ts` 3,790 → **3,880** lines and
+`cli.test.mjs` 2,617 → **2,891** (eight argv migrations, the comments that record the measurement, and a pin that checks quoting
+is not enough); `agent/src` re-run and unchanged at 54,823. A count that did not move is evidence too.
+
+
 ### round 54 — a quoted value is not a safe value, and my suggested fix was wrong
 
 Round 32 fixed the CLI's shell door and named what it left open: cmd expands `%NAME%` **even inside double quotes**, so a
