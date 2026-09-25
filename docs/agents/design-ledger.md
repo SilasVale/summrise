@@ -35,6 +35,15 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 123, one line**: round 122 raised the obvious follow-up — are there OTHER scoped instruction files with the same
+gap? — and the audit answers it in one command: `git ls-files | grep -E "(^|/)(AGENTS|CLAUDE|CONTEXT)\.md$"` finds **exactly
+TWO**, `AGENTS.md` (24,834 B) and `agent/AGENTS.md` (5,658 B), and both now carry the rules round 122 added (WAIT 2/2, do-not-push
+2/1, `-- --check` 1/2). **So the fix covered the whole set rather than one sample of it**, which is the difference between repairing a
+file and closing a class. Note also what makes the root table trustworthy where the agent file was not: `ci-command-table-check`
+already held the root's per-directory commands against what CI actually runs, so the root was gated and the agent file was not —
+**a scoped instruction file inherits none of its parent's gates.**
+
+
 **Round 121, one line**: the whole suite re-run after NINE rounds of change (107-120: the mutation table moved to its own
 archive, a ceiling was added for it and proven, five pointers corrected, the inventory cell re-measured, the e2e script's terminal
 predicate fixed, the pre-commit hook installed and proven to refuse) — `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not
