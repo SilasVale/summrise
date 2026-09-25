@@ -6726,6 +6726,42 @@ remaining candidates are all in the map-file work already specified.
 CLI suite 62 tests, `installer_integrity` 10; 57 gate commands green (56 ok, 0 failed, 1 not runnable); the dual-builder
 divergence still unexplained after ten rounds and now measurable in one command.
 
+## 2026-09-25 — the fifty-fourth exploration: the difference is ONE displacement of 304 bytes
+
+Round 33 gave the investigation its first same-version pair of BINARIES. This round analysed them, and the pattern is the
+sharpest result nineteen rounds have produced.
+
+**THE ASSET'S HASH MATCHES WHAT `release.yml` PRINTED** (`acaa899e35586fa0…`), which matters twice: the instrument round
+27 placed is reporting the artifact that actually shipped, and the pair under analysis is real on both sides.
+
+**AND 1,168 OF THE 1,484 DIFFERING BYTES ARE THE SAME DELTA:**
+
+| window | most common delta (CI − this box) | count |
+|---|---|---|
+| 32-bit | **`-304`** (`-0x130`) | **1,168** |
+| 64-bit | `-304` | 742 |
+| per-byte XOR | `0x01` ×614, `0x30` ×584 | — |
+
+So the images are not "different in 1,484 places". **They are one region placed 304 bytes apart, with 1,168 references
+into it agreeing on the displacement** — and because rounds 43/44 measured the section headers as IDENTICAL (same sizes,
+same addresses), nothing moved at the section level: something moved INSIDE `.rdata`, and the code and tables that point
+at it all differ by exactly the same amount.
+
+**WHY THIS IS THE SHARPEST RESULT SO FAR**: it converts "1,484 scattered bytes" into a single measurable property — a
+304-byte displacement — and it explains every earlier observation at once. Values differing by a little, not a hash
+(round 45). Identical strings, because the strings themselves did not move (round 42). Identical section sizes, because
+the region moved within `.rdata` rather than between sections (round 43). Tiny scatter, because a pointer table's entries
+are 4 bytes each and there are many of them.
+
+**ROUND 35 IS NOW A COMPARISON OF TWO NUMBERS RATHER THAN A SEARCH**: the local map file (`/tmp/agent-map.txt`, produced
+in round 44 with `-C link-arg=/MAP`) lists EVERY segment with its `Start` and `Length` — `.text`, `.text$mn`,
+`.rdata$00`, `.rdata$T`, `.rdata$r`, `.CRT$XCA` … — and the same map from CI (the two-line `/MAP` change already
+specified for `release.yml`) names the segment whose `Start` differs by `0x130`. That is a table diff, not an
+investigation: one entry will differ, and its NAME is the answer.
+
+**NUMBERS:** 1,484 differing bytes, 1,168 of them one delta of `-0x130`; both exes 17,637,376 bytes; 9/9 section headers
+identical; live **1.2.469**, device current, devices unaffected.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
