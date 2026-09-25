@@ -4257,10 +4257,13 @@ file. Neutering the new branch fails the gate's own fixture, so the table bites 
 carried a sentence that this change made false, and both were corrected in the same commit — a comment that
 contradicts the code is the one thing this repo treats as a violation everywhere.
 
-## Two lookup tables live in `docs/agents/ledger-appendix.md`
+## Two lookup tables live in `docs/agents/ledger-mutations.md` and `docs/agents/ledger-appendix.md`
 
 `Looking for one thing` (the sweep's duplicates) and `Which mutation must fail which gate` (the gate
 table, one row per proven mutation) were 59% of this file — 302 KB and 91 KB of 665 KB — and both are
-TABLES rather than narrative. They moved to `docs/agents/ledger-appendix.md`, which
+TABLES rather than narrative. They moved to `docs/agents/ledger-appendix.md`, whose "Which mutation must fail which gate"
+half then moved AGAIN to `docs/agents/ledger-mutations.md` (round 107) when the appendix reached 396,139 B of its 400,000 —
+3,861 bytes, fewer than two mutation rows, in the table rounds APPEND to. Each archive carries its own ceiling in
+`ledger-budget-check.mjs`, and the index above resolves a title against all three. The other half, which
 `ledger-budget-check.mjs` now caps alongside this file; a reader who wants a gate's mutation opens that
 file, and a reader who wants a round's story reads on here.

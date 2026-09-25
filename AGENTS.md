@@ -99,7 +99,8 @@ rule above is "do not push while CI is running" and not just "wait before releas
 `stub-surface-check` and `ci-command-table-check` came later, `session-carry-detect-check` later
 still, `device-version-rule-check` after that, and `workflow-shell-check` most recently). Each
 carries the mutation that must fail it, and each was
-written because the rule it holds had ALREADY cost a real defect. They live in `docs/agents/ledger-appendix.md` —
+written because the rule it holds had ALREADY cost a real defect. The MUTATION TABLE lives in
+`docs/agents/ledger-mutations.md` (it moved there in round 107, when its old host had fewer than two rows of headroom) —
 section "Which mutation must fail which gate" (moved there in round 49 with the other lookup table, so
 neither can eat the ledger) — rather than in this table (`inventory.md` §12 names the INSTRUMENTS and their
 verdicts, not the mutations), because THIS is the file that gets truncated when it grows — the rule below,
@@ -115,7 +116,7 @@ A gate that cannot fail is worse than no gate, and the only way to know is to br
 guards and watch what happens. Every gate below was audited that way (rounds 65-68) — none of them is
 assumed:
 
-**THE TABLE THAT WAS HERE LIVES IN THE APPENDIX NOW** — `docs/agents/ledger-appendix.md`, section
+**THE TABLE THAT WAS HERE LIVES IN ITS OWN ARCHIVE NOW** — `docs/agents/ledger-mutations.md`, section
 "Which mutation must fail which gate" (it was 91 KB of the ledger's 665 KB; the ledger keeps the rounds). It ran to 37 rows and 31 KB, which is 68% of this file: the
 truncation this section warns about, applied to itself. `scripts/test/gate-mutations-check.mjs` automates
 the mutations that can be automated and runs them on every push; the ledger holds the rest.
