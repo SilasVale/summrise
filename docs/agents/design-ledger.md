@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 57, one line**: the panel cells re-measured after the round-56 ratchet work — panel SPA 42,718 → **42,843**
+lines (223 files, 20 hooks) and the committed bundle 662,473 B, because `panel.js` is embedded with `include_str!` and is part
+of the diff rather than a by-product. TWO rounds now await a release: the CLI shell hardening (round 54) and this ratchet
+(round 56) — both device-affecting, both on `main`.
+
+
 ### round 56 — the ratchet had a gap, and one site was passing through it
 
 The inventory measured this in §5.4 and it stayed open: `sessionFacts.test.ts` is a ratchet that forbids a component from reading
