@@ -1481,7 +1481,18 @@ function svc(action) {
     // RETURN the status. It used to be discarded, which is why `stop` printed "stopped"
     // and exited 0 for a missing task or an access-denied, and why `start`/`restart` were
     // silent either way. `autostart` already checks; this is the same pattern.
-    return sh(`schtasks /${action} /TN ${TASK}`, { stdio: "inherit" });
+    //
+    // argv, NOT an `sh()` command string: both `${action}` and `${TASK}` used to be
+    // interpolated UNQUOTED into a line cmd.exe parses, which is the door the `psArgv()`
+    // incident comment above describes — a value carrying a space, `&`, `|`, `>` or `<`
+    // is re-parsed as an OPERATOR before schtasks ever sees it, and `TASK` is a
+    // literal only until somebody makes the task name configurable.
+    // schtasks needs no shell feature (no pipe, no `&&`, no redirection) and `/Query`
+    // below already spawns it this way, so the door closes with no behaviour change:
+    // the same program receives the same argv.
+    return (0, child_process_1.spawnSync)("schtasks", [`/${action}`, "/TN", TASK], {
+        stdio: "inherit",
+    });
 }
 /**
  * The scheduled task's State (`Running`, `Ready`, `Disabled`, …) or **null when it could not be read**.
@@ -1915,12 +1926,18 @@ const commands = {
             });
             const pre = pfx.status === 0 ? String(pfx.stdout || "").trim() : "";
             if (selfVer && pre) {
+                // `shell: true` is REQUIRED here (npm on Windows is a `.cmd` shim, which a bare
+                // spawnSync cannot execute) — and that shell JOINS THIS ARGV INTO ONE cmd.exe
+                // LINE, the shape the `processRunning` comment above records for the tasklist
+                // filter. `pre` is a PATH (npm's global prefix), so it is DOUBLE-QUOTED for the
+                // cmd layer: unquoted, a prefix like `C:\Program Files\nodejs` was split at its
+                // space and npm installed the CLI somewhere else while reporting success.
                 const inst = (0, child_process_1.spawnSync)("npm", [
                     "i",
                     "-g",
-                    `summrise-agent@${selfVer}`,
+                    `"summrise-agent@${selfVer}"`,
                     "--prefix",
-                    pre,
+                    `"${pre}"`,
                     "--registry=https://registry.npmjs.org/",
                     "--no-audit",
                     "--no-fund",

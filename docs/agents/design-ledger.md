@@ -6654,6 +6654,42 @@ mojibake.
 and clippy clean. NOT VERIFIED HERE: no pwsh on this box, so `Get-AgentPort` is unexecuted — syntax by eye, and the pin
 holds the rule rather than the behaviour.
 
+## 2026-09-25 — the fifty-second exploration: the shell door, audited rather than feared
+
+Round 12's walker flagged `sh()` (`spawnSync(cmd, { shell: true })`) as the same class as a defect the CLI already documents,
+"but the two path interpolations are double-quoted". This round audited every call site instead of trusting that sentence,
+and the count in my brief was wrong in the way these counts usually are: I said 11 `sh()` sites, measured by
+`grep -cF 'sh(\`'` — **eight of those matches were `.push(\``**, not spawns. The real number is **41 call sites, 13 of
+which interpolate**, on 11 lines that pass `shell: true` at all.
+
+**THE RULE THE FILE ITSELF STATES** (`:150-155`, and again at `:1636`): with a shell in front, a value is DATA only inside
+a cmd double-quoted region; anything else can be re-parsed as an OPERATOR. The file learned this the expensive way — its own
+comment records `"` being a quote TOGGLE in cmd and `\"` not being an escape there — and the fix for that incident was to
+stop using the shell.
+
+**TWO SITES WERE GENUINELY UNQUOTED, AND BOTH ARE FIXED**: the `svc` task verb and name were interpolated into a shell
+string and now go through argv (`spawnSync("schtasks", ["/" + action, "/TN", TASK])` — no pipe, no `&&`, no redirect, and
+the file already does argv elsewhere at `:2751`); and the npm-install line passed npm's **global prefix — a PATH, which
+contains spaces on Windows — unquoted**, now `"--prefix", \`"${pre}"\``. Everything else is KEPT WITH A REASON, one row per
+site: already double-quoted (the file's own convention), a literal, or a value already escaped by `psq`. **A site reviewed
+and left alone is a result, not an omission**, and the audit writes them down as such.
+
+**AND THE PIN IS THE PART THAT OUTLIVES THE ROUND**: three tests in `cli.test.mjs` assert that every `${}` in an
+`sh(\`…\`)` site — and in any `spawn` that passes `shell: true` — sits inside a double-quoted region, and that a bare
+non-literal argv element of such a spawn is an unquoted value. The extractor is anchor-asserted, fixture-proved, and
+THROWS on a site it cannot read rather than passing silently. **Mutations, verbatim**: unquoting `${DIR}` in
+`rmdir /s /q` fails with ``src/summrise.ts:3540: ${DIR} in `rmdir /s /q ${DIR}…` ("…re-parsed as an OPERATOR")``, and
+replacing the npm `"--prefix", \`"${pre}"\`` pair with a bare `pre` fails with `:2190: argv element pre`.
+
+**TWO RESIDUALS ARE NAMED RATHER THAN CLOSED**, both of which only dropping the shell would fix: cmd expands `%…%`
+even INSIDE double quotes, and `:1984`'s `.replace(/"/g, '\\"')` is not a cmd escape. The round did not rewrite shipped
+installer paths it cannot exercise on this box, and says so — which is the honest shape of a hardening pass with no
+Windows device in reach.
+
+**NUMBERS:** the CLI suite 59 → **62 tests**, all pass; `bin/summrise.js` recompiled with the package's tsc 5.9.3 and
+`cmp`-verified against a fresh compile (the pack-chain gate's own check); 41 call sites audited, 2 fixed, 11 documented as
+kept-with-reason, 2 residuals named.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

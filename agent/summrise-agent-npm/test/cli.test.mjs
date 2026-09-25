@@ -1449,6 +1449,396 @@ test("psArgv: every ps() script is passed as argv, and ps() never shells out", (
   assert.ok(!/shell:\s*true/.test(m[1]), "ps() must not use a shell");
 });
 
+// ── The OTHER half of that door: `sh()` builds ONE STRING, and cmd.exe parses it ──
+//
+// Same incident as `psArgv` above, and the reason this round exists: `"` is a quote
+// TOGGLE at the cmd layer and `\"` is not an escape there, so a quoted region ends
+// early and the next `&`, `|`, `>`, `<`, `^` becomes an OPERATOR. `ps()` was fixed by
+// passing argv; `sh()` still hands a STRING to `cmd.exe /d /s /c`, so an interpolated
+// value is DATA only while cmd cannot see an operator in it — and the interesting
+// value is a PATH (the default install dir is `C:\Program Files\Summrise`, which
+// carries a space), which is why several sites already double-quote and why the
+// `-File "${reg}"` comment records that an unquoted path is wrong.
+//
+// The rule the scan holds is cmd's own: an interpolated value must sit INSIDE a
+// double-quoted region. Single quotes mean nothing to cmd — `'…'` is data it forwards
+// — so the PowerShell sites are safe only because the whole `-Command` script is
+// double-quoted. The same rule covers `shell: true` spawns that are not `sh()`,
+// because that shell JOINS THE ARGV INTO ONE cmd.exe STRING (the comment at `:1636`
+// records the tasklist filter that was split at its spaces and always answered "no").
+//
+// Structural, because the alternative is running cmd.exe with a hostile path on a
+// Windows box and reading what arrives. The helpers are pure, and the test at the end
+// proves each rule bites on a fixture — a scan that finds nothing otherwise looks
+// exactly like a scan that passes.
+function unquotedInterpolations(interps) {
+  return interps.filter((x) => !x.quoted).map((x) => x.text);
+}
+
+// `/` starts a REGEX literal only where a value may begin; after one it is division.
+// The only one in the file is `.replace(/"/g, '\\"')` at `:1984`, and getting this
+// wrong would make the scan skip the rest of an interpolation.
+function regexCanStartAfter(prev) {
+  return prev === "" || "(,=:[!&|?{};+-*%^~<>".includes(prev);
+}
+
+function skipString(src, i, quote) {
+  i += 1;
+  while (i < src.length) {
+    if (src[i] === "\\") i += 2;
+    else if (src[i] === quote) return i + 1;
+    else i += 1;
+  }
+  throw new Error(`unterminated ${quote} string`);
+}
+
+function skipRegex(src, i) {
+  i += 1;
+  let inClass = false;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\") i += 2;
+    else if (c === "[") (inClass = true), (i += 1);
+    else if (c === "]") (inClass = false), (i += 1);
+    else if (c === "/" && !inClass) {
+      i += 1;
+      while (/[a-z]/i.test(src[i] || "")) i += 1;
+      return i;
+    } else if (c === "\n") throw new Error("unterminated regex literal");
+    else i += 1;
+  }
+  throw new Error("unterminated regex literal");
+}
+
+// Skip ONE JavaScript chunk from src[i]: a string, comment, regex literal, a nested
+// template, or a single character. Returns the position after it.
+function skipChunk(src, i, prev) {
+  const c = src[i];
+  if (c === "/" && src[i + 1] === "/") {
+    const n = src.indexOf("\n", i);
+    return n < 0 ? src.length : n + 1;
+  }
+  if (c === "/" && src[i + 1] === "*") {
+    const n = src.indexOf("*/", i);
+    if (n < 0) throw new Error("unterminated block comment");
+    return n + 2;
+  }
+  if (c === "/" && regexCanStartAfter(prev)) return skipRegex(src, i);
+  if (c === "'" || c === '"') return skipString(src, i, c);
+  if (c === "`") return scanTemplate(src, i).end + 1;
+  return i + 1;
+}
+
+// The offset of the bracket that closes the one at src[open]. UNREADABLE input
+// THROWS rather than returning a guess: a scan that silently gives up on a site is
+// how a pin stops biting without anybody noticing.
+function closingBracket(src, open) {
+  const stack = [src[open]];
+  let prev = "";
+  let i = open + 1;
+  while (i < src.length) {
+    const c = src[i];
+    const next = skipChunk(src, i, prev);
+    if (next !== i + 1) {
+      prev = c;
+      i = next;
+      continue;
+    }
+    if (c === "{" || c === "(" || c === "[") stack.push(c);
+    else if (c === "}" || c === ")" || c === "]") {
+      stack.pop();
+      if (stack.length === 0) return i;
+    }
+    if (!/\s/.test(c)) prev = c;
+    i += 1;
+  }
+  throw new Error(`unbalanced brackets from offset ${open}`);
+}
+
+// Walk a template literal from its opening backtick: where it ENDS, and the cmd-level
+// double-quote state at every `${…}` in it.
+function scanTemplate(src, start) {
+  const interps = [];
+  let quoted = false;
+  let i = start + 1;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\") {
+      i += 2;
+      continue;
+    }
+    if (c === "`") return { end: i, interps };
+    if (c === '"') {
+      quoted = !quoted;
+      i += 1;
+      continue;
+    }
+    if (c === "$" && src[i + 1] === "{") {
+      const end = closingBracket(src, i + 1);
+      interps.push({ text: src.slice(i, end + 1), quoted });
+      i = end + 1;
+      continue;
+    }
+    i += 1;
+  }
+  throw new Error(`unterminated template literal opened at offset ${start}`);
+}
+
+// Split on the commas that are NOT inside brackets, strings, templates, comments or
+// regex literals — the argument list of a call, or the elements of an argv array.
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  let prev = "";
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    const next = skipChunk(text, i, prev);
+    if (next !== i + 1) {
+      prev = c;
+      i = next;
+      continue;
+    }
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") depth -= 1;
+    else if (c === "," && depth === 0) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+      prev = c;
+      i += 1;
+      continue;
+    }
+    if (!/\s/.test(c)) prev = c;
+    i += 1;
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+// A bare string literal carries no value, so the shell cannot re-parse anything out of
+// it. Anything ELSE in a shell-parsed argv is a value whose quoting this scan cannot
+// see — which is the shape `--prefix <npm prefix>` shipped in: a PATH element joined
+// unquoted into the cmd line, split at its spaces.
+function isPlainLiteral(text) {
+  const t = String(text).trim();
+  const q = t[0];
+  if (q !== '"' && q !== "'") return false;
+  return skipString(t, 0, q) === t.length;
+}
+
+function unquotedArgvValues(elements) {
+  return elements
+    .map((e) => String(e).trim())
+    .filter((e) => e !== "" && !isPlainLiteral(e) && e[0] !== "`");
+}
+
+function argvElements(call) {
+  const args = splitTopLevel(call.slice(1, -1));
+  if (args.length < 2) return [];
+  const arr = args[1].trim();
+  if (arr[0] !== "[") return []; // the sh() helper passes `cmd`, not an array
+  return splitTopLevel(arr.slice(1, -1))
+    .map((e) => e.trim())
+    .filter((e) => e !== "");
+}
+
+// Every `sh(` call whose argument is a template literal. `sh("literal")` cannot
+// interpolate anything. The SOURCE is what is scanned: CI recompiles it and `cmp`s the
+// result against `bin/summrise.js`, so the two cannot drift.
+function shTemplateSites(src) {
+  const sites = [];
+  const re = /(^|[^A-Za-z0-9_$.])sh\(\s*`/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const tick = src.indexOf("`", m.index);
+    const scan = scanTemplate(src, tick);
+    sites.push({
+      line: src.slice(0, m.index).split("\n").length,
+      text: src.slice(tick + 1, scan.end),
+      interps: scan.interps,
+    });
+    re.lastIndex = scan.end + 1;
+  }
+  return sites;
+}
+
+// Every spawnSync(…) whose options carry `shell: true`, with the template literals in
+// it and (when the argument list is an array) its argv elements.
+function shellSpawnCalls(src) {
+  const out = [];
+  const re = /spawnSync\(/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const open = m.index + m[0].length - 1;
+    const close = closingBracket(src, open);
+    const call = src.slice(open, close + 1);
+    re.lastIndex = close;
+    if (!/\bshell:\s*true\b/.test(call)) continue;
+    const templates = templateLiteralsIn(call);
+    out.push({
+      line: src.slice(0, m.index).split("\n").length,
+      call,
+      templates,
+      argv: argvElements(call),
+    });
+  }
+  return out;
+}
+
+function templateLiteralsIn(text) {
+  const out = [];
+  let prev = "";
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === "`") {
+      const scan = scanTemplate(text, i);
+      out.push({ text: text.slice(i + 1, scan.end), interps: scan.interps });
+      prev = c;
+      i = scan.end + 1;
+      continue;
+    }
+    const next = skipChunk(text, i, prev);
+    if (next !== i + 1) {
+      prev = c;
+      i = next;
+      continue;
+    }
+    if (!/\s/.test(c)) prev = c;
+    i += 1;
+  }
+  return out;
+}
+
+function cmdDoorOffenders(src) {
+  const bad = [];
+  for (const site of shTemplateSites(src)) {
+    for (const text of unquotedInterpolations(site.interps)) {
+      bad.push(
+        `src/summrise.ts:${site.line}: ${text} in \`${site.text.slice(0, 60).replace(/\s+/g, " ")}…\``,
+      );
+    }
+  }
+  for (const call of shellSpawnCalls(src)) {
+    for (const value of unquotedArgvValues(call.argv)) {
+      bad.push(
+        `src/summrise.ts:${call.line}: argv element ${value} (shell-parsed, not quoted)`,
+      );
+    }
+    for (const t of call.templates) {
+      for (const text of unquotedInterpolations(t.interps)) {
+        bad.push(
+          `src/summrise.ts:${call.line}: ${text} in \`${t.text.slice(0, 60).replace(/\s+/g, " ")}…\``,
+        );
+      }
+    }
+  }
+  return bad;
+}
+
+test("sh(): every interpolated value sits inside a double-quoted region of the cmd line", () => {
+  const src = fs.readFileSync(
+    new URL("../src/summrise.ts", import.meta.url),
+    "utf8",
+  );
+
+  // THE EXTRACTOR IS CHECKED FIRST, because a scan that finds nothing looks exactly
+  // like a scan that passes. One site of each syntactic shape is named — the
+  // single-line `sh(\`…\`)` form and the multi-line `sh(\n  \`…\`)` form. If either
+  // stops being found, fix THIS extractor rather than deleting the assertion.
+  const sites = shTemplateSites(src);
+  for (const probe of ["rmdir /s /q", "Expand-Archive"]) {
+    assert.ok(
+      sites.some((s) => s.text.includes(probe)),
+      `the sh() scan no longer finds the \`${probe}\` site — the extractor is broken, not the source`,
+    );
+  }
+  assert.ok(
+    sites.filter((s) => s.interps.length > 0).length >= 8,
+    `expected the sh() sites to interpolate several values, found ${sites.length} sites — fix the extractor`,
+  );
+
+  const bad = cmdDoorOffenders(src);
+  assert.ok(
+    bad.length === 0,
+    "an interpolated value outside double quotes is handed to cmd.exe, which re-parses " +
+      "it as an OPERATOR — this is the `psArgv` incident (`>` became a redirection and " +
+      "the receipt lost its target version). Quote the value for the cmd layer, or pass " +
+      "it as argv:\n  " +
+      bad.join("\n  "),
+  );
+});
+
+test("shell: true: an interpolated argv value is quoted for the cmd layer too", () => {
+  const src = fs.readFileSync(
+    new URL("../src/summrise.ts", import.meta.url),
+    "utf8",
+  );
+
+  // The extractor's own check: these two calls are the reason the rule exists. The
+  // first is `npm`, whose `.cmd` shim NEEDS the shell; the second is the `-File` spawn
+  // the device measured (`cmd splits a command on &`).
+  const calls = shellSpawnCalls(src);
+  for (const probe of ['"npm"', "-File"]) {
+    assert.ok(
+      calls.some((c) => c.call.includes(probe)),
+      `the shell:true scan no longer finds the \`${probe}\` spawn — fix the extractor`,
+    );
+  }
+
+  const bad = [];
+  for (const call of calls) {
+    for (const value of unquotedArgvValues(call.argv)) {
+      bad.push(`src/summrise.ts:${call.line}: argv element ${value}`);
+    }
+  }
+  assert.ok(
+    bad.length === 0,
+    "`shell: true` JOINS THE ARGV INTO ONE cmd.exe STRING (the `:1636` tasklist filter " +
+      "was split at its spaces and always answered \"no\"), so a bare argv element is a " +
+      "value the shell parses with nothing quoting it — write it as a double-quoted " +
+      "template (`\"${value}\"`) or as a literal:\n  " +
+      bad.join("\n  "),
+  );
+});
+
+test("the cmd-quoting scan itself: quoted passes, unquoted fails, and `\"` in the code is not a cmd quote", () => {
+  const flags = (tpl) => unquotedInterpolations(scanTemplate(tpl, 0).interps);
+
+  assert.deepEqual(flags('`rmdir /s /q "${DIR}"`'), []);
+  assert.deepEqual(flags("`rmdir /s /q ${DIR}`"), ["${DIR}"]);
+  // Only the region BEFORE an interpolation matters: an opening quote later is not
+  // quoting it, and an interpolated value must not be able to close a region early.
+  assert.deepEqual(flags('`a ${x} " b ${y}"`'), ["${x}"]);
+  // cmd has no single-quote rule: `'…'` is data it forwards, not a region.
+  assert.deepEqual(flags("`powershell -Command 'Remove-Item ${x}'`"), ["${x}"]);
+  // The `:1984` shape: a `"` inside the JAVASCRIPT (a regex literal, then a JS string
+  // escape) is never seen by cmd, so it must not steer the region.
+  assert.deepEqual(flags("`x \"${f(/\"/g, '\\\\\"')}\" y`"), []);
+  // A nested template inside the expression is skipped, not mistaken for the end.
+  assert.deepEqual(flags('`x "${`${a}`}" y`'), []);
+  // And a site the scan CANNOT read fails loudly instead of passing silently.
+  assert.throws(() => flags("`x ${a`"), /unterminated template literal/);
+  assert.throws(() => flags("`x ${a.replace('}`"), /unterminated ' string/);
+
+  // The argv half, on the shape that shipped: a bare identifier is a value.
+  const [synthetic] = shellSpawnCalls(
+    'spawnSync("npm", ["i", "-g", pre], { shell: true });',
+  );
+  assert.deepEqual(synthetic.argv, ['"i"', '"-g"', "pre"]);
+  assert.deepEqual(unquotedArgvValues(synthetic.argv), ["pre"]);
+  const [quoted] = shellSpawnCalls(
+    'spawnSync("npm", ["i", "-g", `"${pre}"`], { shell: true });',
+  );
+  assert.deepEqual(unquotedArgvValues(quoted.argv), []);
+  // A spawn with NO shell is not this door, and is not collected.
+  assert.deepEqual(
+    shellSpawnCalls('spawnSync("reg", ["query", pre], { encoding: "utf8" });'),
+    [],
+  );
+});
+
 // THE INGRESS ADDRESS AND THE LISTEN ADDRESS ARE CHOSEN IN TWO LANGUAGES, SO
 // NOTHING IN EITHER ONE CAN SEE THE OTHER. They disagreed: this CLI wrote
 // `http://127.0.0.2:<port>` into etc\tunnel.yml while the agent's own
