@@ -35,6 +35,29 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 134 — the unguarded mirror gets its guard, and both directions are proven by exit code
+
+Round 133 found nine mirrored instruments under `gateway/public/code/files/instruments/` with **no test referencing them at all**,
+while the gateway mirror beside them had one. This round wrote that test — `gateway/test/instruments-mirror.test.mjs` — and proved it
+the way rounds 124-125 insisted a gate must be proved:
+
+```
+1. clean tree:          npm test exit=0   pass 922 · fail 0     (921 -> 922: one new test)
+2. mutated instrument:  npm test exit=1   "…serves instrument code that nobody runs…"
+3. restored:            npm test exit=0
+```
+
+**AND THE SHAPE WAS DE-RISKED BEFORE IT WAS WRITTEN, WHICH IS WHAT ROUND 124 COST.** The gateway mirror needs the sync script's
+redaction rules — three of them, keyed to `src/...` paths — so a naive copy of that test would have had to re-implement them and might
+have failed on a clean tree (the mistake that made round 124 revert its own gate). The measurement first: every mirrored instrument is
+**byte-identical to its source**, including the two that carry a production host (`console-design-sweep.mjs` 1, `landing-design-sweep.mjs`
+3). **No redaction applies to instruments, so the guard is a plain byte comparison** and the test needs none of that machinery.
+
+**AND THE EXIT CODES WERE READ THIS TIME, NOT THE OUTPUT** — three runs, three codes, which is the shape round 129 wrote into
+AGENTS.md after rounds 117 and 128 each lost a red suite to a discarded status. **A lesson from three rounds ago is now just how the
+command is written**, which is the only kind of learning this ledger counts.
+
+
 ### round 133 — an unguarded mirror, found by asking the question round 128 taught
 
 Round 128 learned that `gateway/src` has a TRACKED MIRROR in the Source Viewer, kept in sync by `sync-code-viewer.sh` and guarded by
