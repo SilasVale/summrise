@@ -309,7 +309,14 @@ async function sectionPanel() {
   //    the visible xterm follows the ACTIVE tab
   const railClick = await evalInSpa(200, "(function(){ var bs = document.querySelectorAll('button, [role=button], [class*=rail] > *'); for (var i=0;i<bs.length;i++){ var el = bs[i]; var t = (el.getAttribute('aria-label')||el.title||el.textContent||'').trim(); if (t === 'Terminal' || t.indexOf('Terminal') === 0 && t.length < 12) { el.click(); return 'clicked'; } } return 'no-rail'; })()");
   await sleep(1500);
-  const tabClick = await evalInSpa(205, "(function(){ var ts = document.querySelectorAll('[role=tab]'); if (!ts.length) return 'no-tabs'; ts[ts.length - 1].click(); return 'clicked-last'; })()");
+  // SCOPED TO THE SESSION STRIP. `role=tab` is ALSO the view switch's (Terminal / Trajectory / Path), and the
+  // unscoped `querySelectorAll('[role=tab]')` + `[length-1]` therefore clicked the **Path PAGE**, navigated the
+  // SPA away from the terminal, and left no `.term-host` to read — so the marker could never be found, six reads
+  // over twelve seconds, by construction. Measured on the device (round 89, panel-spa-probe.js): the tab strip is
+  // powershell|powershell 2|powershell 3|Terminal|Trajectory|Path. The panel's OWN test file names this trap:
+  // `DesktopShell.test.tsx` scopes its queries to `.dtab[role="tab"]` and says in a comment that `role=tab` is
+  // also the view switch's. The e2e suite was the one place that had not been told.
+  const tabClick = await evalInSpa(205, "(function(){ var ts = document.querySelectorAll('.dtab[role=tab]'); if (!ts.length) return 'no-tabs'; ts[ts.length - 1].click(); return 'clicked-last-session'; })()");
   await sleep(2500);
   // 4. read the visible xterm's text (round-264 method: visible .term-host
   //    .xterm-rows spans — hidden hosts exist per session)

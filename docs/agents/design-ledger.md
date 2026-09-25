@@ -71,6 +71,33 @@ panel and sees the write land; the second asks whether the AI's own output actua
 planted (`PANEL-VIS-179036981456`) is not there. That is the panel not SHOWING what the agent produced — the exact class the section
 exists to catch, and it sits in the area rounds 73 and 78 touched (the read seam `SettingsPage` and `ConnModal` migrated onto).
 
+### round 90 — the selector was the whole bug: the panel section passes on the device, 2/2
+
+Round 89's probe said the check clicked the last `[role=tab]` — the `Path` VIEW-SWITCH tab — instead of the newest session. This
+round scoped the selector to the session strip and re-ran it on the device:
+
+```
+PASS panel ai write  -- state=partial
+PASS panel xterm shows ai output  -- marker=PANEL-VIS-179037089927
+
+== 2/2 passed ==
+```
+
+**AND THE PANEL'S OWN TEST FILE HAD ALREADY WRITTEN THE WARNING DOWN.** `DesktopShell.test.tsx` scopes its queries to
+`.dtab[role="tab"]` and says in a comment that `role=tab` is ALSO the view switch's. The e2e suite was the one place that had not
+been told — so the same trap the panel's tests were written to avoid sat in the instrument that measures the panel. **A warning
+that lives only beside the code it protects does not reach the code that tests it.**
+
+**WHAT THIS SETTLES, AND WHAT IT LEAVES SETTLED FOREVER**: the panel was never broken; rounds 73 and 78 caused no regression
+(the marker now appears in the live xterm); and the `panel` section has a PASSING baseline for the first time in its life, which
+is the thing every future round needs in order to read a failure as a change rather than as the status quo.
+
+**THE WHOLE ARC, IN FIVE ROUNDS, IS THE ARGUMENT FOR THE CADENCE**: 82 wrote a cadence for seven sections nothing ran → 83
+FOLLOWED it and found the sentence unexecutable → 84-86 gave it a transport and proved it from the device → 87 its first verdict
+was a FAILURE → 88 the failure was stable → 89 a probe showed the CHECK was broken, not the product → **90 the fix, verified
+2/2 on the device.** An instrument nobody runs does not just fail to find defects; **it accumulates its own**, and this one had
+been carrying a broken selector for as long as it had existed.
+
 ### round 89 — THE PROBE ANSWERS IT: THE CHECK IS BROKEN, THE PANEL IS NOT
 
 The SPA probe (built this round, on the transport round 85 created) prints one JSON verdict, and it ends the question round 87
