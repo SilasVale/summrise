@@ -62,9 +62,16 @@ pub(super) fn tool_terminal_env() -> ToolDef {
                 let dir = crate::paths::install_dir();
                 let node = crate::paths::playwright_dir().join("node.exe");
                 let node_ver = if node.exists() {
+                    // The bundled node.exe is a console-subsystem binary: ask
+                    // for the no-console flag (`spawn::hidden`) even for a
+                    // version probe, which is exactly the site that used to
+                    // flash a window under `summrise run`.
+                    let mut probe = tokio::process::Command::new(&node);
+                    probe.arg("--version");
+                    crate::spawn::hidden(&mut probe);
                     tokio::time::timeout(
                         std::time::Duration::from_secs(4),
-                        tokio::process::Command::new(&node).arg("--version").output(),
+                        probe.output(),
                     ).await
                     .ok()
                     .and_then(|o| o.ok())
@@ -328,49 +335,18 @@ const KILL_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 /// forever — the call returns with whatever output arrived instead.
 const KILL_REAP: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Signal a whole process TREE, not just the direct child (round-55).
-///
-/// The local shell is spawned with `process_group(0)` on Unix, so the child's
-/// pid IS its group id and a NEGATIVE pid targets every process in it. That
-/// matters because the commands this guards are things like `make` and the
-/// installer: killing only the shell left the real work running orphaned on
-/// the device (round-54). Windows has no process groups here, so `taskkill
-/// /T` walks the child tree instead.
-///
-/// `force = false` is the graceful signal (SIGTERM / plain `taskkill /T`:
-/// SIGKILL straight away left databases and build caches half-written);
-/// `force = true` is the last resort (SIGKILL / `/F`).
-///
-/// Both platform arms live here rather than inline at each call site, so the
-/// policy is stated ONCE. Note the arms are never compiled together — Linux
-/// tests exercise the Unix one and `cargo xwin` the Windows one — which is
-/// exactly why a single owner beats four inline copies.
-async fn signal_tree(pid: u32, force: bool) {
-    let pid = pid.to_string();
-    #[cfg(unix)]
-    {
-        // SIGTERM -15 / SIGKILL -9, addressed to the process GROUP.
-        let sig = if force { "-9" } else { "-15" };
-        let _ = tokio::process::Command::new("kill")
-            .args([sig, "--", &format!("-{pid}")])
-            .output()
-            .await;
-    }
-    #[cfg(windows)]
-    {
-        let mut args: Vec<&str> = vec!["/T", "/PID", pid.as_str()];
-        if force {
-            args.insert(0, "/F");
-        }
-        let _ = tokio::process::Command::new("taskkill")
-            .args(&args)
-            .output()
-            .await;
-    }
-    // Platforms with neither arm: nothing to signal.
-    #[cfg(not(any(unix, windows)))]
-    let _ = (pid, force);
-}
+// The kill this file used to own — `signal_tree`, round-55: the local shell is
+// spawned with `process_group(0)` on Unix, so the child's pid IS its group id
+// and a NEGATIVE pid targets every process in it, which matters because the
+// commands this guards are things like `make` and the installer (round-54:
+// killing only the shell left the real work running orphaned on the device);
+// Windows has no process groups here, so `taskkill /T` walks the child tree
+// instead. All of that now lives in `crate::spawn::kill_tree`, with the
+// graceful-vs-forced split, because `playwright`'s stop and the user-facing
+// `system_process_kill` make the same promise and the copies had drifted. The
+// call sites below say `spawn::kill_tree`; the only thing that is LOCAL to them
+// is the `process_group(0)` on the spawn — a pid that leads no group has no
+// tree to take.
 
 /// Poll until the child exits or `patience` elapses; true when it exited.
 ///
@@ -490,9 +466,13 @@ async fn execute_local(
     // timeout can kill the WHOLE tree — shell AND descendants.
     // Without this a timed-out `make` / `agent_update`
     // installer kept running orphaned on the device after
-    // only the direct child died (round-54).
+    // only the direct child died (round-54). `spawn::kill_tree`
+    // is what reads this group back (negative pid).
     #[cfg(unix)]
     cmd.process_group(0);
+    // cmd/sh are console-subsystem binaries: the no-console rule, and the flag
+    // it names, live in `spawn::hidden`.
+    crate::spawn::hidden(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| DeviceError::Internal {
         message: format!("spawn failed: {e}"),
     })?;
@@ -626,16 +606,17 @@ async fn execute_local(
     }
 
     if timed_out {
-        // Graceful → forced → bounded reap (policy in signal_tree /
-        // wait_for_exit). Only signal a child that is still running: a
-        // command that already exited must not have its pid reused.
+        // Graceful → forced → bounded reap (policy and both platform arms in
+        // `spawn::kill_tree`; `wait_for_exit` below is this file's). Only signal
+        // a child that is still running: a command that already exited must not
+        // have its pid reused.
         if child.try_wait().map(|s| s.is_none()).unwrap_or(false) {
             if let Some(pid) = pid {
-                signal_tree(pid, false).await;
+                let _ = crate::spawn::kill_tree(pid, false).await;
             }
             if !wait_for_exit(&mut child, KILL_GRACE).await {
                 if let Some(pid) = pid {
-                    signal_tree(pid, true).await;
+                    let _ = crate::spawn::kill_tree(pid, true).await;
                 }
                 // Bounded re-await: return with the partial output either way.
                 let _ = wait_for_exit(&mut child, KILL_REAP).await;
@@ -1520,8 +1501,7 @@ pub(super) fn tool_execute(ctx: &super::ctx::ToolCtx) -> ToolDef {
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_append, find_prompt_marker, poll_output_chunk, signal_tree, tail_append,
-        wait_for_exit,
+        bounded_append, find_prompt_marker, poll_output_chunk, tail_append, wait_for_exit,
     };
     use crate::plugins::terminal::SessionBuf;
     use crate::plugins::terminal::SessionStore;
@@ -1787,12 +1767,14 @@ mod tests {
         assert!(!truncated, "exactly max is not an overflow");
     }
 
-    // ── kill-tree policy (signal_tree / wait_for_exit) ───────
+    // ── kill-tree policy (spawn::kill_tree / wait_for_exit) ───────
     //
     // These drive REAL processes. They are the only coverage of the round-55
     // contract ("a timeout kills the tree, not just the shell") — previously
     // the whole policy was inline in execute_local and untested, with the
-    // Unix and Windows arms never compiled together.
+    // Unix and Windows arms never compiled together. The Unix arm lives in
+    // `crate::spawn` now; these tests are what proves it still takes the GROUP
+    // a `process_group(0)` spawn site hands it.
 
     /// Spawn a local shell exactly like `execute_local` does — same shell,
     /// same `process_group(0)` on Unix, so the test exercises the real
@@ -1810,6 +1792,8 @@ mod tests {
             .stderr(std::process::Stdio::null());
         #[cfg(unix)]
         cmd.process_group(0);
+        // Same no-console ask as the production spawn this mirrors.
+        crate::spawn::hidden(&mut cmd);
         cmd.spawn().expect("spawn test shell")
     }
 
@@ -1852,7 +1836,7 @@ mod tests {
         // Let the background grandchild actually start before signalling.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-        signal_tree(pid, true).await;
+        let _ = crate::spawn::kill_tree(pid, true).await;
 
         assert!(
             wait_for_exit(&mut child, std::time::Duration::from_secs(10)).await,
@@ -1902,7 +1886,7 @@ mod tests {
         let pid = child.id().expect("child pid");
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        signal_tree(pid, false).await;
+        let _ = crate::spawn::kill_tree(pid, false).await;
 
         assert!(
             wait_for_exit(&mut child, std::time::Duration::from_secs(10)).await,
@@ -1918,8 +1902,8 @@ mod tests {
         let mut child = spawn_shell("exit 0");
         let pid = child.id().expect("child pid");
         assert!(wait_for_exit(&mut child, std::time::Duration::from_secs(10)).await);
-        signal_tree(pid, false).await;
-        signal_tree(pid, true).await;
+        let _ = crate::spawn::kill_tree(pid, false).await;
+        let _ = crate::spawn::kill_tree(pid, true).await;
     }
 
     /// THE GATE SITS BEFORE THE SHELL WRITE — and that ordering IS the safety

@@ -17,24 +17,10 @@ use summrise_agent_core::{recover_guard, DeviceError};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::oneshot;
 
-/// round-143: CREATE_NO_WINDOW — node.exe is a console-subsystem binary; when
-/// the agent (or the swap's powershell/taskkill helpers) spawns it without
-/// this flag and the parent has an interactive console, Windows allocates a
-/// visible cmd window. 0x08000000 = CREATE_NO_WINDOW. Harmless when the
-/// parent has no console (session-0 service) and prevents the flash under
-/// `summrise run` / dev consoles. We apply it through `std::os::windows::process
-/// ::CommandExt::creation_flags` on the inner std Command (tokio Command
-/// doesn't expose it directly, but its `as_std_mut` gives us the same
-/// underlying handle).
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-#[cfg(windows)]
-fn no_window(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
-    use std::os::windows::process::CommandExt as _;
-    cmd.as_std_mut().creation_flags(CREATE_NO_WINDOW);
-    cmd
-}
+// round-143's CREATE_NO_WINDOW flag and its `no_window` helper used to live
+// here; the flag, the RULE for when a spawn site wants it, and the kill doors
+// moved to `crate::spawn` (this module was one of two places that declared it,
+// and it applied it through a helper the rest of the crate could not see).
 
 /// Fixed port for the bundled playwright-mcp — matches the mcp_client
 /// plugin's DEFAULT_URL (http://127.0.0.1:9229/mcp).
@@ -281,10 +267,9 @@ async fn reap_leftovers() {
     );
     let mut cmd = tokio::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-Command", script]);
-    #[cfg(windows)]
-    {
-        let _ = no_window(&mut cmd);
-    }
+    // powershell is a console-subsystem binary — the no-console rule (and the
+    // flag it names) lives in `crate::spawn::hidden`.
+    crate::spawn::hidden(&mut cmd);
     let _ = cmd.output().await;
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 }
@@ -433,10 +418,10 @@ impl PlaywrightManager {
         let port = MCP_PORT;
         let node = resolve_node()?;
         let entry = bundled_mcp_entry()?;
-        // Build the Command as a single owned expression so we can apply
-        // CREATE_NO_WINDOW (round-143) before .spawn() — chained builder
-        // methods return &mut Self, so the chain must end on .spawn() (owned
-        // Result) unless we break it into a stmt.
+        // Build the Command as a single owned expression so we can apply the
+        // no-console flag (round-143; `crate::spawn::hidden`) before .spawn() —
+        // chained builder methods return &mut Self, so the chain must end on
+        // .spawn() (owned Result) unless we break it into a stmt.
         let mut child = tokio::process::Command::new(&node);
         child.arg(&entry).arg("--port").arg(port.to_string());
         // ONE-BROWSER FIX: same attach-or-fork decision as the stdio spawn —
@@ -486,11 +471,9 @@ impl PlaywrightManager {
             // reads the last 500 chars into the error message. Nulled stderr
             // made every "did not become healthy" undiagnosable.
             .stderr(Stdio::piped());
-        // round-143: CREATE_NO_WINDOW so node.exe doesn't flash a console.
-        #[cfg(windows)]
-        {
-            let _ = no_window(&mut child);
-        }
+        // round-143: node.exe is a console-subsystem binary — ask for the
+        // no-console flag (`crate::spawn`) so it doesn't flash a console.
+        crate::spawn::hidden(&mut child);
         let mut child = child.spawn().map_err(|e| DeviceError::Internal {
             message: format!("spawn playwright-mcp: {e}"),
         })?;
@@ -529,26 +512,24 @@ impl PlaywrightManager {
         Ok(serde_json::json!({ "status": "started", "port": port }))
     }
 
-    /// Kill the running instance: taskkill /T kills the whole tree on
-    /// Windows (node forks Edge — killing only the parent would orphan it);
-    /// plain kill on unix (dev). The instance is taken under the lock and
-    /// killed WITHOUT holding it (clippy await_holding_lock).
+    /// Kill the running instance: the TREE, not just node.exe (node forks Edge —
+    /// killing only the parent would orphan it); `spawn::kill_tree` owns the
+    /// platform switch that used to be spelled out here. The instance is taken
+    /// under the lock and killed WITHOUT holding it (clippy await_holding_lock).
     pub async fn stop(&self) -> Result<serde_json::Value, DeviceError> {
         let m = recover_guard(&self.inner).take();
         if let Some(m) = m {
-            #[cfg(windows)]
-            {
-                let mut cmd = tokio::process::Command::new("taskkill");
-                cmd.args(["/T", "/F", "/PID", &m.child.id().unwrap_or(0).to_string()]);
-                let _ = no_window(&mut cmd);
-                let _ = cmd.output().await;
+            // A child that already exited has no pid to name; the door refuses
+            // pid 0 rather than turning "no pid" into "the caller's own group".
+            if let Some(pid) = m.child.id() {
+                let _ = crate::spawn::kill_tree(pid, true).await;
             }
             #[cfg(not(windows))]
             {
-                // SIGKILL needs &mut Child; the Windows branch above only
-                // reads id(), so `mut` lives here, not on the binding.
+                // `wait()` needs &mut Child; the Windows arm above only reads
+                // id(), so `mut` lives here, not on the binding (an outer `mut`
+                // is an unused_mut warning on the Windows build).
                 let mut m = m;
-                let _ = m.child.kill().await;
                 let _ = m.child.wait().await; // reap (round-128: zombie-free)
             }
         }

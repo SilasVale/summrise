@@ -5795,6 +5795,51 @@ command — `summrise status` — that no gate in this repository runs. Two rele
 release-per-round needs; the standard is not the cadence, it is that a device-affecting change ends with the device
 saying so.
 
+## 2026-09-25 — the thirty-first exploration: three ways to kill a tree, and the tool a person calls
+
+The Windows spawn policy was restated at every site that spawned, and one restatement was wrong:
+
+| site | spelling | why it mattered |
+|---|---|---|
+| `playwright/manager.rs` | `taskkill /T /F /PID` | its own comment says why: "node forks Edge — killing only the parent would orphan it" |
+| `terminal/tools/exec.rs` | `/T [/F] /PID` | graceful without `/F`; the tree flag is the point |
+| **`system/tools.rs` — `system_process_kill`** | `/PID /F` — **no `/T`** | **the user-facing tool**, whose description promises to return "what was killed", leaving every child running |
+
+And `CREATE_NO_WINDOW (0x0800_0000)` was declared twice — once with a helper and a paragraph of reasoning
+(`playwright/manager.rs`), once inline (`mcp_client/tools.rs`) — applied at some spawn sites and not others, with no
+rule a reader could apply to the next one. None of it was assertable off Windows, which is why it drifted.
+
+`spawn.rs` owns the policy now: `hidden(&mut Command)`, **defined on every platform** (a no-op off Windows) so a Linux
+test can see the ask; `kill_tree(pid, force)`; `kill_by_name(name, force)` kept SEPARATE because the blast radius
+differs (a name matches several processes and `/T` would take each one's tree — that call states its choice). The
+Windows argument shapes are pure functions (`taskkill_args`, `taskkill_name_args`) so the flags are pinned on any
+platform: that seam is what makes this round's defect testable at all, and without it the flag would drift again.
+
+**MUTATION:** removing `/T` from the production argument builder fails
+`taskkill_arguments_always_carry_the_tree_flag` with `left: ["/PID","4242"] right: ["/T","/PID","4242"]`. Two more
+were run by the implementer: the pid arm bypassing the door, and deleting a `hidden(` ask.
+
+**THE SURVEY IS PART OF THE RESULT**, because "apply the rule" needed one: eleven tokio spawn sites were decided —
+four `node.exe` sites, `powershell`, `cmd`/`sh` (two), and `tasklist`/`ps`/`ping` now ask; the unix helpers inside
+`attempt` and a test's `kill -0` probe need nothing. **AND ONE GAP IS NAMED RATHER THAN HIDDEN:** `hidden` is
+tokio-typed, so the `std::process::Command` sites (`winmain`'s self-heal, `paths`' icacls, `main`'s fix-tunnel, one
+`web` tasklist) have no way to ask, and `tunnel.rs`/`winmain.rs`'s nine spawns were left untouched as out of scope.
+That is a real remainder, not a completed sweep.
+
+**INCIDENTALS, DISCLOSED:** the kill tool's name arm now reports `{"name":…}` (the unix per-pid list moved into the
+door), a non-matching NAME on Windows now truthfully says "no process matched" instead of blaming missing tools,
+`kill_tree` REFUSES pid 0 (on unix it means the caller's own process group — an `unwrap_or(0)` that would have
+signalled the caller's group is gone), and a pid wider than `u32` is rejected rather than truncated.
+
+**NUMBERS:** agent lib tests 732 → **742** (terminal,keyring) and 669 → **679** (default); `cargo xwin check` clean in
+both configurations — which caught a Windows-only `unused_mut` the change introduced, the compiler doing the job the
+Linux clippy run cannot.
+
+**AND THE RELEASE PLAN IS WRITTEN DOWN SO IT IS NOT FORGOTTEN:** 1.2.466 shipped round 8 alone; this round's kill fix
+is device-affecting but modest, so it joins the NEXT release rather than forcing one per round. The standard recorded
+in the previous section stands — a device-affecting change ends with the device saying so — and batching is how that
+stays affordable.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

@@ -525,13 +525,19 @@ fn tool_process_list() -> ToolDef {
         move |params: Value| {
             async move {
                 let filter = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-                let mut out = tokio::process::Command::new("tasklist")
-                    .args(["/FO", "CSV", "/NH"])
-                    .output()
-                    .await;
+                // tasklist is a console-subsystem binary on Windows (the rule,
+                // and the flag it names, live in `spawn::hidden`); `ps` is the
+                // Unix fallback, where the same ask is a no-op.
+                let mut tasklist = tokio::process::Command::new("tasklist");
+                tasklist.args(["/FO", "CSV", "/NH"]);
+                crate::spawn::hidden(&mut tasklist);
+                let mut out = tasklist.output().await;
                 if out.is_err() {
                     // tasklist is Windows-only; fall back to ps for Unix.
-                    out = tokio::process::Command::new("ps").args(["-eo", "pid,comm,rss"]).output().await;
+                    let mut ps = tokio::process::Command::new("ps");
+                    ps.args(["-eo", "pid,comm,rss"]);
+                    crate::spawn::hidden(&mut ps);
+                    out = ps.output().await;
                 }
                 let out = match out {
                     Ok(o) if o.status.success() => o,
@@ -596,68 +602,54 @@ fn tool_process_kill() -> ToolDef {
                 }
                 let mut killed: Vec<Value> = Vec::new();
                 if let Some(pid) = pid {
-                    let r = tokio::process::Command::new("taskkill")
-                        .args(["/PID", &pid.to_string(), "/F"])
-                        .output()
-                        .await;
-                    let ok = matches!(&r, Ok(o) if o.status.success());
-                    if !ok {
-                        let r2 = tokio::process::Command::new("kill").arg("-9").arg(pid.to_string()).output().await;
-                        let ok2 = matches!(&r2, Ok(o) if o.status.success());
-                        if !ok2 {
-                            return Ok(to_value_or_empty(tool_error(format!("kill {pid} failed (taskkill and kill both failed)"))));
-                        }
+                    // THE PID ARM TAKES THE TREE. It used to run `taskkill /PID
+                    // <pid> /F` — no `/T` — while the other two doors
+                    // (playwright's stop, terminal_execute's timeout) already
+                    // took it; a child that outlives its parent is not in the
+                    // "what was killed" this tool's description promises, and
+                    // the description was the only thing that said otherwise.
+                    // `spawn::kill_tree` owns the arguments now, and
+                    // `spawn::taskkill_args` pins the `/T` on every platform —
+                    // this defect lived for exactly as long as that shape was
+                    // inline and unobservable off Windows.
+                    let Ok(pid32) = u32::try_from(pid) else {
+                        // Truncating instead would aim the kill at whatever
+                        // process the low 32 bits happen to name.
+                        return Ok(to_value_or_empty(tool_error(format!(
+                            "kill {pid} failed: pid does not fit a process id"
+                        ))));
+                    };
+                    if let Err(e) = crate::spawn::kill_tree(pid32, true).await {
+                        return Ok(to_value_or_empty(tool_error(format!("kill {pid} failed: {e}"))));
                     }
                     killed.push(json!({"pid": pid}));
                 }
                 if !name.is_empty() {
-                    let r = tokio::process::Command::new("taskkill")
-                        .args(["/IM", &name, "/F"])
-                        .output()
-                        .await;
-                    if matches!(&r, Ok(o) if o.status.success()) {
-                        killed.push(json!({"name": name}));
-                    } else {
-                        // THE FALLBACK MUST COVER THE SPAWN ERROR TOO, and the
-                        // pid branch above already does (`!ok` catches both a
-                        // failed taskkill and one that could not start). This is
-                        // the same rule applied to its TWIN, and it was not:
-                        // `if let Ok(o) = &r` entered only when taskkill RAN, so
-                        // where it cannot be spawned at all — any non-Windows
-                        // host — `killed` stayed empty and the tool answered
-                        // "no process matched <name>". That is not a failure to
-                        // act; it is a FALSE STATEMENT ABOUT THE PROCESS TABLE,
-                        // made from a command that never ran.
-                        match tokio::process::Command::new("pgrep")
-                            .arg("-f")
-                            .arg(&name)
-                            .output()
-                            .await
-                        {
-                            Ok(o) => {
-                                let text = String::from_utf8_lossy(&o.stdout).to_string();
-                                for line in text.lines() {
-                                    if let Ok(p) = line.trim().parse::<u64>() {
-                                        let _ =
-                                            tokio::process::Command::new("kill")
-                                                .arg("-9")
-                                                .arg(p.to_string())
-                                                .output()
-                                                .await;
-                                        killed.push(json!({"pid": p, "name": name}));
-                                    }
-                                }
-                            }
-                            // NEITHER TOOL EXISTS. Say that, rather than letting
-                            // the empty `killed` fall through to "no process
-                            // matched" — the same false claim in a smaller dose.
-                            Err(e) => {
-                                return Ok(to_value_or_empty(tool_error(format!(
-                                    "cannot kill by name on this device: neither \
-                                     taskkill nor pgrep is available ({e})"
-                                ))))
-                            }
+                    // THE NAME ARM CHOOSES THE OTHER DOOR, and says so: a name
+                    // can match several processes, so a tree flag here would take
+                    // EACH match's whole tree — a blast radius nobody asked for.
+                    // `spawn::kill_by_name` is that door (`/IM` and no `/T` on
+                    // Windows; `pgrep -f` plus a DIRECT signal on unix), and it
+                    // is deliberately not `kill_tree`.
+                    match crate::spawn::kill_by_name(&name, true).await {
+                        Ok(()) => killed.push(json!({"name": name})),
+                        // THE SPAWN ERROR MUST NOT READ AS "NOTHING MATCHED".
+                        // `if let Ok(o) = &r` used to enter only when taskkill
+                        // RAN, so where it cannot be spawned at all — any
+                        // non-Windows host — `killed` stayed empty and the tool
+                        // answered "no process matched <name>". That is not a
+                        // failure to act; it is a FALSE STATEMENT ABOUT THE
+                        // PROCESS TABLE, made from a command that never ran.
+                        // `kill_by_name` reports exactly that case as `NotFound`;
+                        // any other error means the tool RAN, so the answer below
+                        // ("nothing matched") is the true one.
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            return Ok(to_value_or_empty(tool_error(format!(
+                                "cannot kill by name on this device: neither \
+                                 taskkill nor pgrep is available ({e})"
+                            ))))
                         }
+                        Err(_) => {}
                     }
                 }
                 if killed.is_empty() {
@@ -727,6 +719,9 @@ fn tool_net_test() -> ToolDef {
                 } else {
                     cmd.args(["-c", "1", "-W", &timeout_secs.to_string(), &host]);
                 }
+                // ping.exe is a console-subsystem binary — the no-console rule
+                // lives in `spawn::hidden`.
+                crate::spawn::hidden(&mut cmd);
                 let ping = match tokio::time::timeout(
                     std::time::Duration::from_secs(timeout_secs + 2),
                     cmd.output(),
@@ -1252,8 +1247,15 @@ mod file_tool_tests {
     /// — any non-Windows host — nothing looked, `killed` stayed empty, and the
     /// operator was told "no process matched <name>". That is not a failure to
     /// act: it is a FALSE STATEMENT ABOUT THE PROCESS TABLE, manufactured from a
-    /// command that never ran. The pid branch above never had this bug, so it is
-    /// the twin rule applied to one branch and not the other.
+    /// command that never ran.
+    ///
+    /// THE SHAPE MOVED, SO THE PIN MOVED WITH IT. The rule — a matcher that
+    /// cannot be spawned is reported as such, never as "nothing matched" — is now
+    /// owned by `spawn::kill_by_name`, so this pin reads BOTH halves: the call
+    /// site must ASK that door and keep its "cannot kill by name" answer, and the
+    /// door must keep a non-Windows matcher and must PROPAGATE the spawn error's
+    /// KIND (that kind is what tells "no matcher exists" from "nothing matched").
+    /// Pinning only the call site would let the rule be deleted from under it.
     ///
     /// WHY THIS IS A STRUCTURAL PIN AND NOT A BEHAVIOURAL TEST. Provoking "no
     /// matcher exists" means emptying `PATH` — process-global state, in a suite
@@ -1262,10 +1264,9 @@ mod file_tool_tests {
     /// TESTS, because the lock only excludes the tests that also take it and the
     /// terminal tests spawn shells. This is the third time this log has recorded
     /// process-global state colliding with parallel tests; the fix is not a wider
-    /// lock but not reaching for the global at all.
-    ///
-    /// So the pin is on the SHAPE that was wrong: the fallback must not be gated
-    /// on `taskkill` having run.
+    /// lock but not reaching for the global at all. (`spawn`'s own
+    /// `a_missing_kill_tool_is_reported_as_not_found` covers the propagation
+    /// behaviourally, with a program name that cannot exist instead of a PATH.)
     #[test]
     fn kill_by_name_falls_back_even_when_taskkill_cannot_be_spawned() {
         // Scope the window to THIS tool: from `fn tool_process_kill` to the next
@@ -1275,10 +1276,10 @@ mod file_tool_tests {
         // source. A window that is not bounded by what it is about is a window
         // that reports on something else.
         // THE TEST MODULE IS STRIPPED FIRST. `include_str!` reads this file whole,
-        // and the assertion below QUOTES the string it forbids — so without this
-        // the pin finds its own failure message and reports a defect in code that
-        // is correct. A check that reads its own text is a check that will always
-        // find what it is looking for.
+        // and the assertions below QUOTE strings the code must contain — so
+        // without this the pin finds its own failure message and reports a defect
+        // in code that is correct. A check that reads its own text is a check
+        // that will always find what it is looking for.
         let whole = include_str!("tools.rs");
         let src = whole.split("#[cfg(test)]").next().unwrap_or(whole);
         let start = src
@@ -1288,24 +1289,42 @@ mod file_tool_tests {
         let end = tail.find("\nfn tool_").unwrap_or(tail.len());
         let region = &tail[..end];
         assert!(
-            region.contains("pgrep"),
-            "the name branch must try a non-Windows matcher"
+            region.contains("crate::spawn::kill_by_name"),
+            "the name branch must ask the door that owns the name kill — the \
+             matcher and its spawn-error rule are not this file's to restate"
         );
-        // PIN THE CORRECT CONSTRUCT, NOT THE ABSENCE OF THE WRONG ONE. My first
-        // version asserted `!region.contains("if let Ok(o) = &r")` — and FAILED
-        // AGAINST THE FIXED SOURCE, because the explanatory comment three lines
-        // above the fix quotes that expression while describing it. A check that
-        // reads prose cannot tell a description of a defect from the defect.
         assert!(
-            region.contains("if matches!(&r, Ok(o) if o.status.success()) {"),
-            "the name branch must take the fallback when `taskkill` fails OR \
-             cannot be spawned — the `matches!` gate is what does that. The pid \
-             branch above has always had it; this is the twin."
+            region.contains("ErrorKind::NotFound"),
+            "and when NO matcher exists it must say the kill could not be \
+             attempted, rather than falling through to the same false claim"
         );
         assert!(
             region.contains("cannot kill by name"),
-            "and when NO matcher exists it must say the kill could not be \
-             attempted, rather than falling through to the same false claim"
+            "the honest message must survive the move to the shared door"
+        );
+
+        // THE DOOR'S OWN HALF, bounded the same way: from `kill_by_name` to the
+        // test-only module. (`spawn.rs` also carries a `#[cfg(test)]` STATEMENT
+        // inside `kill_tree`, so the cut is made at the test MODULE.)
+        let door_src = include_str!("../../spawn.rs");
+        let door = door_src
+            .split("\npub(crate) mod test_records")
+            .next()
+            .unwrap_or(door_src);
+        let start = door
+            .find("pub async fn kill_by_name")
+            .expect("spawn::kill_by_name");
+        let door = &door[start..];
+        assert!(
+            door.contains("pgrep"),
+            "the name door must try a non-Windows matcher"
+        );
+        assert!(
+            door.contains("io::Error::new(e.kind()"),
+            "a matcher that cannot be SPAWNED must keep its error KIND: that \
+             kind is the whole difference between \"no matcher here\" (NotFound, \
+             and the caller says the kill could not be attempted) and \
+             \"nothing matched\""
         );
     }
 
@@ -1462,5 +1481,105 @@ mod file_tool_tests {
             "{out}"
         );
         std::fs::remove_file(&path).ok();
+    }
+}
+
+#[cfg(test)]
+mod process_tool_tests {
+    //! The kill door the AI actually calls. Its PID arm is the one that shipped
+    //! `taskkill /PID … /F` with no `/T` — while two other doors took the tree —
+    //! so what has to be true here is not "a process died" but "the TREE door was
+    //! the one asked".
+    use super::*;
+    use serde_json::json;
+
+    fn kill_tool() -> ToolDef {
+        build()
+            .into_iter()
+            .find(|t| t.name == "system_process_kill")
+            .expect("system_process_kill is registered")
+    }
+
+    async fn run(tool: &ToolDef, params: serde_json::Value) -> serde_json::Value {
+        tool.handler
+            .call(params)
+            .await
+            .unwrap_or_else(|e| tool_error(e.to_string()))
+    }
+
+    /// THE PID ARM ASKS FOR THE TREE — checked through the CALL PATH, not by
+    /// reading the source.
+    ///
+    /// The Windows arguments are pinned where they can be pinned on any platform
+    /// (`spawn::tests::taskkill_arguments_always_carry_the_tree_flag`); what a
+    /// pure function cannot show is whether this arm ever reaches that door. It
+    /// did not, for the life of the defect: it built `["/PID", pid, "/F"]` by
+    /// hand and no test could see the difference off Windows. So the door records
+    /// its requests under `cfg(test)` and this test asserts that killing a real
+    /// child through the TOOL arrived as a `kill_tree` request — a rewrite back to
+    /// a raw `taskkill`/`kill` fails here even though the child would still die.
+    ///
+    /// The child is one this test spawned (`sleep`, unix-only test), so the kill
+    /// has no target but the test's own process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pid_arm_kills_the_tree_through_the_shared_door() {
+        let mut child = tokio::process::Command::new("sleep")
+            .arg("30")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id().expect("sleep pid");
+
+        let out = run(&kill_tool(), json!({ "pid": pid })).await;
+
+        assert!(
+            crate::spawn::test_records::saw_tree_request(pid, true),
+            "the pid arm must kill through spawn::kill_tree (the tree door), \
+             not through taskkill/kill spelled out at the call site: {out}"
+        );
+        assert_eq!(out["ok"], json!(true), "the kill must be reported: {out}");
+
+        // And the process is really gone — the record above says the door was
+        // asked; this says the ask landed.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut exited = false;
+        while std::time::Instant::now() < deadline {
+            if child.try_wait().expect("try_wait").is_some() {
+                exited = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(exited, "pid {pid} survived the pid arm's kill");
+    }
+
+    /// A KILL THAT CANNOT BE ATTEMPTED IS NOT REPORTED AS ONE THAT HAPPENED.
+    ///
+    /// `pid 0` is the one target the shared door refuses before it spawns
+    /// anything (on unix it would mean "the caller's own process group"), so the
+    /// arm must hand back an error envelope — never a silent success — and it does
+    /// so without signalling anything, which is why this case can be tested on any
+    /// host.
+    #[tokio::test]
+    async fn pid_arm_reports_a_kill_it_could_not_attempt() {
+        let out = run(&kill_tool(), json!({ "pid": 0 })).await;
+        assert_eq!(out["ok"], json!(false), "{out}");
+        assert!(
+            out["error"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("kill 0 failed"),
+            "the honest failure message must survive: {out}"
+        );
+    }
+
+    /// The NAME arm states its own choice — no tree — and the choice is pinned
+    /// where the arguments are built (`spawn::taskkill_name_args`), because it is
+    /// the ABSENCE of a flag and no call-path assertion can see an absence.
+    #[test]
+    fn name_arm_uses_the_no_tree_door() {
+        let args = crate::spawn::taskkill_name_args("summrise-no-such-process.exe", true);
+        assert!(!args.iter().any(|a| a == "/T"), "{args:?}");
     }
 }

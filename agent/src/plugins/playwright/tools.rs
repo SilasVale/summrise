@@ -199,6 +199,12 @@ fn tool_browser_run_script() -> ToolDef {
                             .env("SUMMRISE_RUN_ID", run_stem.clone())
                             .stdout(std::process::Stdio::piped())
                             .stderr(std::process::Stdio::piped());
+                        // node.exe is a console-subsystem binary, so this spawn
+                        // site wants the no-console flag like every other spawn of
+                        // it — the rule, and the flag it names, are in
+                        // `crate::spawn::hidden`. THIS SITE WAS MISSING THE ASK,
+                        // which the rule written down there is what exposes.
+                        crate::spawn::hidden(&mut cmd);
                         let output = cmd.output().await;
                         output
                     },

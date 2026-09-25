@@ -222,6 +222,10 @@ pub mod paths;
 pub mod plugins;
 pub mod runstate;
 pub mod session_log;
+/// ONE OWNER FOR THE SPAWN POLICY — the no-console flag (and the rule for when a
+/// spawn site wants it) plus the two kill doors, so a call site asks instead of
+/// restating. Internal-only: it is device process hygiene, not a wire surface.
+pub(crate) mod spawn;
 pub mod state;
 /// Internal-only (no embedding consumer): byte-budget text clipping, shared by
 /// the plugins + the audit trail (SOLID R105).

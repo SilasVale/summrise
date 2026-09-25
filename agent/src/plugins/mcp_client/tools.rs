@@ -696,13 +696,13 @@ async fn spawn_stdio_server() -> Result<(McpSession, Vec<(String, String)>), Dev
             cmd.arg(a);
         }
     }
-    #[cfg(windows)]
-    {
-        // tokio::process::Command exposes creation_flags directly (it wraps
-        // std's CommandExt) — no explicit import needed.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    // node.exe is a console-subsystem binary, so this spawn site wants the
+    // no-console flag. It used to declare CREATE_NO_WINDOW inline here — the
+    // second of the crate's two declarations — while its twin in the playwright
+    // manager applied its own copy. The flag, the RULE for when a spawn site
+    // wants it, and why it must be DEFINED off Windows all live in
+    // `crate::spawn::hidden`.
+    crate::spawn::hidden(&mut cmd);
 
     // rmcp stdio transport: TokioChildProcess drives the child's stdio.
     let transport = rmcp::transport::child_process::TokioChildProcess::new(
