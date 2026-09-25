@@ -192,6 +192,47 @@ vacuously (the stale URL already satisfied its predicate) · and there are **zer
 story. **The product defect is precise: after a transport switch the http session cannot find the embedded-view tab, and it proceeds
 on a blank one instead of failing the call.**
 
+### round 100 — THE TEST ANSWERS IT IN ONE LINE: THE 9229 INSTANCE RUNS `--headless`
+
+Round 99's distinguishing test, run on the device:
+
+```
+  Id ProcessName StartTime
+4812 node        2026/9/26 4:36:58          <- exactly ONE playwright-mcp, no stale second instance
+
+LocalAddress LocalPort OwningProcess
+127.0.0.1          9333          4248       <- the desktop CDP
+127.0.0.1          9229          4812       <- playwright-mcp
+
+4812: node ... @playwright\mcp\cli.js --port 9229 --headless --browser chromium --o...
+```
+
+**THE STALE-INSTANCE HYPOTHESIS IS REFUTED — there is exactly one instance and it owns the port.** And the command line answers
+the question instead: **the 9229 server was started `--headless`, so it drives its OWN chromium with no view at all.**
+
+**SO THE WHOLE MECHANISM IS ORDINARY AND COMPLETE**:
+
+- the **stdio** transport spawns and owns its own playwright-mcp child — a browser the desktop view can attach to — so its
+  navigate moves the embedded view, and it passes;
+- the **http** transport talks to the long-running 9229 instance, which is **headless and separate**: its tab list is one
+  `about:blank` because that is what a headless browser has, `[select]` cannot find the embedded-view tab because that tab
+  belongs to a DIFFERENT browser, and every call it makes succeeds — on a chromium nobody is looking at.
+
+**THE CHECK WAS NEVER MEASURING THE PRODUCT; IT WAS MEASURING A HEADLESS BROWSER'S INABILITY TO BE THE EMBEDDED VIEW.** `mcp http
+drives embedded view` cannot pass on a device whose 9229 runs `--headless`, and no amount of polling, retrying or self-healing
+would have changed that — which is what ten rounds of increasingly specific theories failed to notice, and what one
+`Get-CimInstance Win32_Process` printed on the first try.
+
+**TEN ROUNDS, ONE LINE.** Round 91 called it four failures; 92 two kinds of failure; 93 flake; 94 corrected 93; 95 made it
+deterministic; 96 blamed session reaping; 97 read the code that would have implemented the blame; 98 read the log and found no
+reaping at all; 99 named the stale-instance hazard and wrote the test; 100 ran it. **Every one of those rounds after the first
+was reasoning about an instrument, and the answer was in the environment the instrument was pointed at.** The rule this thread
+earns, in its plainest form: **before explaining what a measurement means, confirm what it was measuring.**
+
+**WHAT TO DO ABOUT IT IS NOW A DESIGN QUESTION, NOT A MYSTERY**: either the `mcp http` arm of the e2e section asserts something
+that only holds when 9229 is launched with a view, or the device should not run 9229 headless, or the section should assert the
+headless arm's real contract (that it drives ITS browser) and leave the embedded view to stdio. All three are decidable now.
+
 **AND THE FALLBACK IS SILENT BY CONSTRUCTION (round 99)** — the whole branch is:
 
 ```rust
