@@ -35,6 +35,31 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 120 — the hook is PROVEN TO REFUSE, which is what round 118 owed it
+
+Round 118 installed the pre-commit hook and proved it RUNS (an empty commit, exit 0). Its own paragraph carries the rule that
+demands more — **"PROVE THE MUTATION, NOT THE HOOK"** — because a hook that runs is not a hook that stops anything. So: a syntax
+error appended to a payload module, and the hook run by hand:
+
+```
+mutated  (agent/scripts/lib/sweep/panel-run.cjs):  hook exit=1
+   "The emitted scripts are how the device runs every design check. Fix the emitter, then commit —
+    or use --no-verify if you know the failure is unrelated, and say so in the commit."
+restored:                                          hook exit=0   (tree clean)
+```
+
+**THE FIRST ATTEMPT PROVED NOTHING, AND THAT IS THE ROUND'S SECOND LESSON.** It planted the error into
+`agent/scripts/lib/sweep/*.mjs` — and the payloads are **`.cjs`**. The glob matched no file, `F` was empty, and both the "mutated"
+and the "restored" run therefore executed against an UNMUTATED tree and both exited 0. **A test whose mutation never landed looks
+exactly like a test that passed** — the same shape as round 109 (a padding that did not cross the ceiling) and round 113 (a flake
+that was deterministic). It is recorded here rather than quietly re-run, and the row in the mutation table carries it too.
+
+**SO THE MECHANISM CHAIN IS NOW COMPLETE AND EACH LINK IS PROVEN**: round 117 pushed through a red gate because the hook was run by
+hand and its answer discarded; round 118 installed it so it runs itself, and proved only that it RUNS; round 119 corrected a false
+objection to the global install by opening the file; round 120 proves it REFUSES. **The habit is now a mechanism, and the mechanism
+is a measured one.**
+
+
 **Round 117 (cont.) — AND I PUSHED A COMMIT WHOSE GATE HAD FAILED, IN THREE SEPARATE WAYS.** `production-host-check` refused the
 new §5.8 cell because it carried a production URL into `docs/agents/inventory.md`, a file not on that gate's declared list — and the
 commit went out anyway, because: (1) my command chained the gates and the commit with `;` rather than `&&`, so a red gate did not stop
