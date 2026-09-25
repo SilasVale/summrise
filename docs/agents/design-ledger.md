@@ -156,6 +156,28 @@ one-experiment question rather than a speculation:
    restored) — so the view ends at the PREVIOUS url and the call still reports `ok`, because the RESTORE succeeded;
 2. the retry never happens within the phase, and the view stays wherever the reap caught it.
 
+**AND THE CODE SETTLES THE ORDERING — THE RESTORE RUNS FIRST, THE RETRY AFTER (round 97).** Two lines decide it:
+
+```rust
+/// Self-heal: drop the stale mcp-session-id → re-handshake → use last_url to …   (tools.rs:1089)
+diag_log(&format!("[restore] navigating back to {url}"));                          //   :1118
+// A failed restore-navigation is not fatal: the original call retries             //   :1119
+```
+
+So of round 96's two candidates, it is the FIRST: **heal-and-restore navigates the browser BACK, and only then does the original
+call run again.** Which means the observed end state — the view at the PREVIOUS url while the call reports `ok` — is not a
+give-up path. **The restore succeeded, and the retry that followed it did not move the view.** That is a stronger and stranger
+statement than "the navigate is a no-op": the transport can drive the browser backwards and apparently not forwards, on a session
+it has just re-handshaked.
+
+**AND THE INSTRUMENT FOR THE NEXT STEP IS ALREADY ON THE DEVICE, PUT THERE BY ROUND 137 FOR EXACTLY THIS.** The header says:
+"round-137 added timestamps and `[heal]`/`[restore]` markers — before that [the log was unreadable]". The http transport writes
+`[rpc] method=… id=… sid=… http=<status> body_head=…` for every round trip plus a `[restore] navigating back to <url>` line
+whenever it heals. **So the next round does not need a hypothesis, a probe or a code change: it needs one e2e run and the device's
+own diagnostic lines, which will print the exact sequence — whether the retry happened, what status it got, and which url the
+restore chose.** Six rounds have now been spent reasoning about a mechanism the product logs on every call; reading that log is
+the shortest path left, and it is the one instrument nobody has looked at.
+
 **EITHER WAY THE OBSERVED URL IS THE SIGNATURE OF THE DESIGN**: `https://example.com/inner-click-test` is not a random stale page;
 it is the `last_url` the http session inherited and dutifully restored. **The check is measuring a transport's documented recovery
 behaviour and calling it a navigation.**
