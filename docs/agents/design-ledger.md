@@ -35,6 +35,17 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 105, one line — A BUDGET ABOUT TO BITE, WITH ITS NUMBERS**: measured rather than assumed,
+`docs/agents/design-ledger.md` is **341,144 B of 400,000** (~11 rounds of headroom at the current ~5 KB/round), but
+`docs/agents/ledger-appendix.md` is **396,139 B of 400,000 — 3,861 B of headroom**, and its "Which mutation must fail which
+gate" table is the thing rounds APPEND to whenever a gate earns a mutation. So the next few gate additions will trip
+`ledger-budget-check` on an otherwise-good commit, and the fix is the one round 49 already established rather than a raised
+ceiling: **move the mutations table into its own file** (a third archive, with its own ceiling and its own delimited index
+markers) and teach the gate to look there. **Relaxing the ceiling is not on the table** — a budget that is raised whenever it
+binds is not a budget, and this ledger has spent the whole session insisting on that difference. Recorded here because the
+number, not the intention, is what makes it actionable: 3,861 bytes is fewer than two mutation rows.
+
+
 **Round 104, one line**: the WHOLE device-targeted suite re-run with round 103's script — a regression check on `check()`
 and the summary line, which every section uses — gives **72/74 passed (2 skipped)**: `FAIL terminal session execute -- state=partial
 exit=null` and `FAIL mcp stdio click drives embedded view -- https://example.com/`, both of them the DOCUMENTED flake class (a
