@@ -35,6 +35,36 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 133 — an unguarded mirror, found by asking the question round 128 taught
+
+Round 128 learned that `gateway/src` has a TRACKED MIRROR in the Source Viewer, kept in sync by `sync-code-viewer.sh` and guarded by
+`code-viewer-mirror.test.mjs` — the gate that caught an un-synced comment edit. This round asked the obvious follow-up: **what else is
+mirrored, and is any of it unguarded?**
+
+**TWO MIRRORS EXIST**: `gateway/public/code/files/summrise-gate/` (the gateway source, 54 files) and
+`gateway/public/code/files/instruments/` (nine agent scripts). Both were checked against their sources:
+
+```
+panel-design-sweep.mjs in sync   console-design-sweep.mjs in sync   lib/contrast-probe.mjs in sync
+lib/sweep-bundle.mjs   in sync   lib/design-sweep.mjs     in sync   panel-render-audit.mjs  in sync
+harness-boot-check.mjs in sync   live-panel-probe.mjs    in sync   landing-design-sweep.mjs in sync
+```
+
+**AND `index/public/summrise-agent/e2e.js` — the CDN copy created in round 85 — matches `agent/scripts/e2e/e2e.js` byte for byte**, so the
+pair this session created is in sync too. Nothing is stale.
+
+**BUT THE SECOND MIRROR IS GUARDED BY NOTHING.** `grep -rln "files/instruments" gateway/test/` returns no file: the `summrise-gate`
+mirror has a test, the `instruments` mirror has only the script that writes it. **A drift there would be silent — and it holds the
+instruments AGENTS.md tells a reader to run against the device**, `live-panel-probe.mjs` among them, whose entire hand-over story is
+that the DEVICE fetches it from a URL. **An unguarded mirror of a published instrument is a viewer that can serve a script nobody
+ran, under a name everybody trusts.**
+
+**THE REPAIR IS THE ONE THAT ALREADY EXISTS, EXTENDED BY ONE FILE**: `code-viewer-mirror.test.mjs` asserts the gateway mirror matches;
+the same assertion over `files/instruments/` — comparing each mirrored file with `agent/scripts/<same path>` — is the whole change, and
+its mutation is a one-byte edit to a mirrored instrument. **It is specified rather than shipped because a gate needs both directions
+proven (rounds 124-125), and this round is out of budget before the proof could be run.**
+
+
 **Round 131, one line**: the whole suite re-run after the rounds that touched gateway SOURCE and its tracked mirror (128),
 added the pipe rule to AGENTS.md (129) and ran gateway's full four-check CI set (130) — `bash scripts/test/all-gates.bash` →
 **57 ok, 0 failed, 1 not runnable here (of 58)**, unchanged. Round 130 was the targeted check and this is the whole one; **the two are
