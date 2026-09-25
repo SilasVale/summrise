@@ -21,25 +21,29 @@ pub use tools::staged_leftovers;
 // private module — and the RULES stay here, beside the tool that executes them.
 pub use tools::update_status;
 
+use crate::state::ConfigHandle;
 use summrise_agent_core::ToolDef;
 
-/// Plugin struct — stateless; every tool closes over what it needs.
+/// Plugin struct — the tool reads the LIVE config at the point of use.
 pub struct UpdatePlugin {
-    /// Download-site apex; `None` = no update channel configured (saisi
-    /// decouple) — `agent_update` then returns an explicit error instead of
-    /// hitting a hardcoded host.
-    download_url: Option<String>,
+    /// ONE handle where this plugin used to take a single `download_url` clone frozen at boot — the same
+    /// clone the request path never had (`/api/update` reads the live snapshot), so a repointed channel made
+    /// the panel and the tool disagree. Download-site apex; `None` = no update channel configured (saisi
+    /// decouple) — `agent_update` then returns an explicit error instead of hitting a hardcoded host.
+    config: ConfigHandle,
 }
 
 impl UpdatePlugin {
-    pub fn new(download_url: Option<String>) -> Self {
-        Self { download_url }
+    /// ONE argument (`config`), and it is the live config rather than the `download_url` clone: the channel
+    /// is a setting an operator can change while the device is running.
+    pub fn new(config: ConfigHandle) -> Self {
+        Self { config }
     }
 }
 
 impl Default for UpdatePlugin {
     fn default() -> Self {
-        Self::new(None)
+        Self::new(ConfigHandle::default())
     }
 }
 
@@ -54,6 +58,6 @@ impl summrise_agent_core::Plugin for UpdatePlugin {
         "AI-pushed summrise-agent updates"
     }
     fn tools(&self) -> Vec<ToolDef> {
-        vec![tools::agent_update(self.download_url.clone())]
+        vec![tools::agent_update(self.config.clone())]
     }
 }

@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 
+use crate::state::ConfigHandle;
 use summrise_agent_core::{DeviceError, ToolDef};
 
 /// Pages viewable via page_view, keyed by a short name. Three sources:
@@ -136,12 +137,10 @@ fn redact_by_pattern(s: &str) -> String {
 /// Local pages: / (status), /panel/ (terminal panel HTML), /panel/panel.js,
 /// /panel/panel.css. Remote pages: the console (gateway) and download site
 /// (index worker) so production design is inspectable.
-pub fn page_view(
-    console_url: Option<String>,
-    download_url: Option<String>,
-    device_token: Option<String>,
-    local_port: u16,
-) -> ToolDef {
+///
+/// ONE argument (`config`) where this used to take four boot clones: the console base, the download site,
+/// the token to redact and the local port are read from the LIVE config at the point of use.
+pub fn page_view(config: ConfigHandle) -> ToolDef {
     ToolDef::new(
         "page_view",
         "View a Summrise page's design by fetching its HTML/CSS. \
@@ -170,9 +169,11 @@ pub fn page_view(
             "required": ["page"]
         }),
         move |params: Value| {
-            let console_url = console_url.clone();
-            let download_url = download_url.clone();
-            let device_token = device_token.clone();
+            // The HANDLE is cloned into the async block (an Arc clone, nothing more): the values it reads
+            // are read there, per call, so a settings change or a token rotation between two calls is
+            // visible to the second one. Cloning the handle out here — rather than moving it — keeps the
+            // outer closure `Fn`, which the tool registry requires.
+            let config = config.clone();
             async move {
                 // `page` is REQUIRED by the schema. Defaulting a missing or wrong-typed value to
                 // "panel" answered a question nobody asked with a page they did not name.
@@ -181,6 +182,7 @@ pub fn page_view(
                         message: "page is required — one of the names in the enum".into(),
                     }
                 })?;
+                let local_port = config.local_port();
                 let target = params
                     .get("target")
                     .and_then(|v| v.as_str())
@@ -196,27 +198,29 @@ pub fn page_view(
                     })?;
                 // saisi decouple: remote pages need the configured base; when
                 // unset, fail explicitly (never fall back to a hardcoded host).
+                // The base is read from the LIVE config HERE, where the URL is built — so a console the
+                // operator has just moved away from is not the console this call fetches.
                 let remote_url = match page {
                     "console-js" => {
-                        let base = console_url.as_deref().ok_or_else(|| DeviceError::Internal {
+                        let base = config.console_url().ok_or_else(|| DeviceError::Internal {
                         message: "console page requires platform.console_url (not configured — purely local install)".into(),
                     })?;
                         Some(format!("{}/app.js", base.trim_end_matches('/')))
                     }
                     "console" => {
-                        let base = console_url.as_deref().ok_or_else(|| DeviceError::Internal {
+                        let base = config.console_url().ok_or_else(|| DeviceError::Internal {
                         message: "console page requires platform.console_url (not configured — purely local install)".into(),
                     })?;
                         Some(base.trim_end_matches('/').to_string())
                     }
                     "console-css" => {
-                        let base = console_url.as_deref().ok_or_else(|| DeviceError::Internal {
+                        let base = config.console_url().ok_or_else(|| DeviceError::Internal {
                         message: "console page requires platform.console_url (not configured — purely local install)".into(),
                     })?;
                         Some(format!("{}/style.css", base.trim_end_matches('/')))
                     }
                     "download" => {
-                        let base = download_url.as_deref().ok_or_else(|| DeviceError::Internal {
+                        let base = config.download_url().ok_or_else(|| DeviceError::Internal {
                         message: "download page requires platform.download_url (not configured — purely local install)".into(),
                     })?;
                         Some(base.trim_end_matches('/').to_string())
@@ -289,7 +293,11 @@ pub fn page_view(
                 // Redact the device token before returning: the panel HTML embeds it
                 // (window.__PANEL_TOKEN__ = "<token>"), and a design review must never see it —
                 // a leaked review output is device control. BY VALUE: see `redact_secrets`.
-                let (redacted, redactions) = redact_secrets(&body, device_token.as_deref());
+                // THE TOKEN IS READ HERE, after the fetch: what must be scrubbed is the value the device
+                // holds NOW. A clone taken at boot holds the PREVIOUS secret, so a rotation leaves it
+                // redacting nothing — and `redactions: 0` is a success report, not a failure.
+                let (redacted, redactions) =
+                    redact_secrets(&body, config.device_token().as_deref());
                 // char-boundary-safe truncation: slicing a String at a fixed byte
                 // index PANICS when it lands inside a multi-byte UTF-8 char.
                 let text = if truncated {
@@ -320,6 +328,26 @@ mod design_tests {
     //! the schema enum still advertised the round-262-deleted extension
     //! pages (every one a guaranteed "unknown page" error).
     use super::*;
+    use crate::state::AppState;
+    use summrise_agent_core::Config;
+
+    /// A handle over a LIVE config of this test's own: nothing else holds this lock, so the values are
+    /// whatever the test sets them to. (`ConfigHandle::new` is crate-private — in production the only way
+    /// to obtain a handle is `AppState::config_handle()`, which is the point: a handle always reads a config
+    /// that something can still change.)
+    fn handle_of(
+        console_url: Option<&str>,
+        download_url: Option<&str>,
+        token: Option<&str>,
+        port: u16,
+    ) -> ConfigHandle {
+        let mut cfg = Config::default();
+        cfg.platform.console_url = console_url.map(str::to_string);
+        cfg.platform.download_url = download_url.map(str::to_string);
+        cfg.server.device_token = token.map(str::to_string);
+        cfg.server.port = port;
+        ConfigHandle::new(std::sync::Arc::new(std::sync::RwLock::new(cfg)))
+    }
 
     #[test]
     fn parse_target_allows_loopback_only() {
@@ -406,7 +434,7 @@ mod design_tests {
         // Schema enum parity: every advertised page must resolve (and every
         // resolvable page must be advertised) — the round-262 deletion left
         // 10 dead enum entries that always errored.
-        let def = page_view(None, None, None, 18080);
+        let def = page_view(handle_of(None, None, None, 18080));
         let enums: Vec<String> = def.input_schema["properties"]["page"]["enum"]
             .as_array()
             .unwrap()
@@ -454,7 +482,7 @@ mod design_tests {
             let _ = sock.write_all(&body_bytes).await;
         });
 
-        let def = page_view(None, None, Some("tok123".into()), 18080);
+        let def = page_view(handle_of(None, None, Some("tok123"), 18080));
         let out = def
             .handler
             .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
@@ -491,8 +519,88 @@ mod design_tests {
     }
 
     #[tokio::test]
+    async fn the_redactor_follows_a_token_rotated_after_boot() {
+        // The registry used to hand DesignPlugin a CLONE of `device_token` taken once at boot, so rotating
+        // the token left the redactor keyed on the OLD value: a payload carrying the NEW one came back with
+        // the live secret intact AND `redactions: 0` — a redactor that silently stopped redacting, reporting
+        // success. The rotation below is the one `web/mod.rs`'s
+        // `token_rotation_takes_effect_on_api_and_mcp_gate` performs (snapshot → update_config), and the tool
+        // asked is the one the REGISTRY publishes — so this pins the whole seam (the handle `state.rs` builds
+        // for `build_registry`, and the plugin that reads it), not only `page_view`.
+        let mut cfg = Config::default();
+        cfg.server.device_token = Some("boot-token".into());
+        let st = AppState::new(cfg);
+        let tool = st
+            .plugin_registry
+            .find_tool("page_view")
+            .expect("the registry must publish page_view");
+
+        let mut cfg = st.config_snapshot();
+        cfg.server.device_token = Some("rotated-token".into());
+        st.update_config(cfg, false).unwrap();
+
+        // The panel HTML as the agent actually injects it — carrying the ROTATED value.
+        let port = stub(
+            "HTTP/1.1 200 OK",
+            String::new(),
+            br#"<script>window.__PANEL_TOKEN__="rotated-token";</script>"#.to_vec(),
+        )
+        .await;
+        let out = tool
+            .handler
+            .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
+            .await
+            .unwrap();
+        assert_eq!(
+            out["redactions"], 1,
+            "the NEW token must be redacted: {out}"
+        );
+        assert!(
+            !out["content"].as_str().unwrap().contains("rotated-token"),
+            "the live secret leaked: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn page_view_follows_a_console_url_changed_through_the_settings_path() {
+        // PUT /api/settings merges onto `config_snapshot()` and writes it back through `update_config` —
+        // exactly the two steps below — while /api/settings GET reads the new value back from the same
+        // snapshot. A plugin holding a boot clone kept fetching the console the operator had moved AWAY
+        // from: here that is a dead port, so the call fails outright instead of silently reading the old
+        // console. Port 1 is used as the dead one: nothing can listen there.
+        let mut cfg = Config::default();
+        cfg.platform.console_url = Some("http://127.0.0.1:1".into());
+        let st = AppState::new(cfg);
+        let tool = st
+            .plugin_registry
+            .find_tool("page_view")
+            .expect("the registry must publish page_view");
+
+        let port = stub(
+            "HTTP/1.1 200 OK",
+            String::new(),
+            b"<html>the new console</html>".to_vec(),
+        )
+        .await;
+        let mut cfg = st.config_snapshot();
+        cfg.platform.console_url = Some(format!("http://127.0.0.1:{port}"));
+        st.update_config(cfg, false).unwrap();
+
+        let out = tool
+            .handler
+            .call(serde_json::json!({ "page": "console" }))
+            .await
+            .unwrap();
+        assert_eq!(out["url"], format!("http://127.0.0.1:{port}"));
+        assert!(
+            out["content"].as_str().unwrap().contains("the new console"),
+            "the OLD console was fetched: {out}"
+        );
+    }
+
+    #[tokio::test]
     async fn page_view_unknown_page_and_remote_without_config_fail_closed() {
-        let def = page_view(None, None, None, 18080);
+        let def = page_view(handle_of(None, None, None, 18080));
         let err = def
             .handler
             .call(serde_json::json!({ "page": "nope" }))
@@ -550,7 +658,7 @@ mod design_tests {
             b"<html>nope</html>".to_vec(),
         )
         .await;
-        let def = page_view(None, None, None, 18080);
+        let def = page_view(handle_of(None, None, None, 18080));
         let err = def
             .handler
             .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
@@ -584,7 +692,7 @@ mod design_tests {
             Vec::new(),
         )
         .await;
-        let def = page_view(None, None, None, 18080);
+        let def = page_view(handle_of(None, None, None, 18080));
         let err = def
             .handler
             .call(serde_json::json!({ "page": "panel-js", "target": format!("127.0.0.1:{port}") }))
@@ -601,7 +709,7 @@ mod design_tests {
 
     #[tokio::test]
     async fn a_missing_page_is_refused_rather_than_defaulted() {
-        let def = page_view(None, None, None, 18080);
+        let def = page_view(handle_of(None, None, None, 18080));
         let err = def
             .handler
             .call(serde_json::json!({ "page": 3 }))

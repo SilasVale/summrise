@@ -1,5 +1,7 @@
 //! Tool builders for the update plugin.
 
+use crate::state::ConfigHandle;
+
 use base64::Engine as _;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256, Sha512};
@@ -905,7 +907,11 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
 /// answers "upgrading" before the process dies and the MCP session reconnects
 /// on the new build. `force: true` reinstalls the current version (repairs a
 /// broken install).
-pub fn agent_update(download_url: Option<String>) -> ToolDef {
+///
+/// ONE argument (`config`) where this used to take the `download_url` clone itself: the channel is read from
+/// the live config inside the call, so `PUT /api/settings` reaches the tool the same way it reaches
+/// `/api/update`.
+pub fn agent_update(config: ConfigHandle) -> ToolDef {
     ToolDef::new(
         "agent_update",
         "Check the release server for a newer summrise-agent and install it on this device. \
@@ -923,11 +929,19 @@ pub fn agent_update(download_url: Option<String>) -> ToolDef {
             }
         }),
         move |params: Value| {
-            let version_url = download_url.as_deref().map(version_url);
-            // (host-pin guard below needs the site URL too — clone OUTSIDE
-            // the async block, else the outer closure becomes FnOnce)
-            let dl_site = download_url.clone();
+            // The HANDLE is cloned OUTSIDE the async block (an Arc clone, nothing more — the old code cloned
+            // the URL here for the same Fn/FnOnce reason: moving a captured value into the async block would
+            // make the outer closure FnOnce, which the tool registry does not accept). The CHANNEL is read
+            // INSIDE, once per call: a boot copy of the URL is what this replaces.
+            let config = config.clone();
             async move {
+                // ONE read for the WHOLE call, on purpose: `version_url` is the manifest this call fetches
+                // and `dl_site` is the host the download is pinned to, so they must be the same channel even
+                // if `PUT /api/settings` repoints it while the fetch is in flight.
+                let download_url = config.download_url();
+                let version_url = download_url.as_deref().map(version_url);
+                let dl_site = download_url;
+
                 let force = params
                     .get("force")
                     .and_then(|v| v.as_bool())

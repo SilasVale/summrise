@@ -5732,6 +5732,49 @@ THE LESSON WORTH KEEPING is not the runbook, which worked as written. It is that
 never answered "does the device have this"**, and the answer took one command to find out. A round's evidence should
 include the question the release answers, or the loop can stay green and deliver nothing.
 
+## 2026-09-25 — the thirtieth exploration: a plugin held a photograph of the config
+
+This codebase states its posture in one line — "the in-process `RwLock` IS the live config" — and the request path
+honours it: the MCP token gate re-reads the token per call, with a comment saying so ("a runtime token rotation takes
+effect on /mcp immediately"). The REGISTRY, built once at startup, handed two plugins a **clone** of the values they
+needed. A plugin with a photograph acts on a device that no longer exists.
+
+**MEASURED:** `state.rs` built `RegistryDeps` from `config.platform.download_url.clone()`,
+`console_url.clone()`, `server.device_token.clone()` and `server.port` — and `build_registry` passed them to
+`UpdatePlugin` (the channel URL) and `DesignPlugin` (console, download base, token, port). Meanwhile
+`PUT /api/settings` writes `platform.console_url` through `update_config` and `/api/status` reads it back from the
+LIVE snapshot, so the two halves of one setting disagreed the moment an operator changed it.
+
+**THE HALF THAT MATTERS IS THE TOKEN, and the mutation shows why.** `DesignPlugin`'s token is used to REDACT that
+value out of the panel HTML it fetches — a redactor keyed on a stale secret returns the live one. Handing
+`build_registry` a boot snapshot again fails both new tests, and the failure prints the leak verbatim:
+
+```
+{"content":"<script>window.__PANEL_TOKEN__=\"rotated-token\";</script>", "redactions":0, …}
+```
+
+`ConfigHandle(Arc<RwLock<Config>>)` is the fix, with exactly FOUR accessors — `console_url`, `download_url`,
+`device_token`, `local_port` — because a plugin should get the live facts it needs and not the whole config, and the
+lock stays inside the handle. `AppState.config` is an `Arc<RwLock<Config>>` now (the three direct lock sites are
+unchanged in number and all in `state.rs`), the handle is built BEFORE the registry over that same lock, and the two
+plugins read at the POINT OF USE: the port before `parse_target`, the console base where the URL is built, the token
+immediately before the redaction. `ConfigHandle::new` is `pub(crate)` on purpose — a public constructor taking a
+`Config` would mint exactly the boot snapshot the type exists to replace.
+
+**WHY A HANDLE AND NOT THE STATE:** the registry is a FIELD of `AppState`, so a plugin cannot hold the state that owns
+it; that is a cycle, and Rust would make someone break it with a `Weak` and an `upgrade()` at every use. The config is
+the part that actually varies, so the config is the part that is shared.
+
+**AND THE FIRST VERSION OF THE TESTS PASSED UNDER THE MUTATION.** They constructed the plugin directly, so they never
+touched the registry — the place where the snapshot was taken. Rewritten to ask the tool the REGISTRY publishes, they
+fail on the mutation and pass on the fix. That is the round's method in one sentence: a test that pins a rule has to
+cross the seam the rule lives at, which is the same lesson as the route-contract gate and the read-module migrations.
+
+**NUMBERS:** agent lib tests 730 → **732** (terminal,keyring) and 667 → **669** (default); `DesignPlugin::new` and
+`UpdatePlugin::new` take ONE argument where they took four and one respectively; no production path rotates the token today, so the
+redaction half was LATENT and the `console_url` half was reachable — which is the wrong order to fix them in, because
+the latent one is the leak.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

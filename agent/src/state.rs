@@ -19,6 +19,88 @@ use anyhow::Context;
 use summrise_agent_core::events::{AppEventBus, EventBus};
 use summrise_agent_core::Config;
 
+/// A LIVE READ OF THE CONFIG — not a copy of it taken at boot.
+///
+/// WHY THIS TYPE EXISTS: the registry used to hand each plugin a CLONE of the values it needed, once, while
+/// the request path reads the live config per call (see the token gate's "a runtime token rotation takes
+/// effect on /mcp immediately"). A plugin holding the clone acts on a device that no longer exists — and for
+/// the token that is the direction that matters, because a redactor keyed on a stale secret returns the live
+/// one.
+///
+/// FOUR ACCESSORS, NOT THE WHOLE CONFIG: a plugin gets exactly the live facts it needs, and the lock stays
+/// inside the handle. Every read takes the lock with the SAME poison-tolerant posture `config_snapshot`
+/// uses (`unwrap_or_else(|p| p.into_inner())`) — a panicked writer never takes a plugin down, and a second
+/// recovery convention would be a second thing to keep in step.
+#[derive(Clone)]
+pub struct ConfigHandle(std::sync::Arc<std::sync::RwLock<Config>>);
+
+impl ConfigHandle {
+    /// Wrap the LIVE config lock. The constructor is crate-private on purpose: the one thing that owns the
+    /// live config is `AppState`, so the honest way to obtain a handle is `AppState::config_handle()` — a
+    /// public constructor taking a `Config` would let a caller mint exactly the boot snapshot this type
+    /// exists to replace.
+    pub(crate) fn new(config: std::sync::Arc<std::sync::RwLock<Config>>) -> Self {
+        Self(config)
+    }
+
+    /// Console base; `None` = no console configured (saisi decouple) — `page_view` then errors explicitly
+    /// instead of a hardcoded host. LIVE because `PUT /api/settings` writes this through `update_config`
+    /// while `/api/status` reads it back from the same snapshot: a boot clone made the two halves of one
+    /// setting disagree the moment an operator changed it.
+    pub fn console_url(&self) -> Option<String> {
+        self.0
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .platform
+            .console_url
+            .clone()
+    }
+
+    /// Download-site apex; `None` = no update channel configured (saisi decouple) — `agent_update` and
+    /// `page_view(page="download")` then fail explicitly rather than reaching for a hardcoded host. LIVE for
+    /// the same reason as `console_url`: a repointed channel is one `PUT /api/settings` away, and
+    /// `/api/update` already reports the new value from the live snapshot.
+    pub fn download_url(&self) -> Option<String> {
+        self.0
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .platform
+            .download_url
+            .clone()
+    }
+
+    /// The device's own token, read where the redaction happens. `page_view` fetches the panel HTML, which
+    /// the agent ALREADY injected this token into, so the redactor needs the VALUE; after a rotation a clone
+    /// holds the WRONG value and **redacts nothing** — a redactor that silently stops redacting reports
+    /// success.
+    pub fn device_token(&self) -> Option<String> {
+        self.0
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .server
+            .device_token
+            .clone()
+    }
+
+    /// The port this agent actually listens on. Read per call because it is the same live `server.port` the
+    /// HTTP surface binds: the tool used to default to a hardcoded 18080, which on a custom-port install
+    /// reads a STRANGER'S service and presents it as the panel.
+    pub fn local_port(&self) -> u16 {
+        self.0.read().unwrap_or_else(|p| p.into_inner()).server.port
+    }
+}
+
+impl Default for ConfigHandle {
+    /// An EMPTY live config — the no-console/no-token arm, for a plugin built with no state wired
+    /// (`Default`) or a test that wants the unconfigured posture. NOT a boot snapshot: nothing else holds
+    /// this lock, so there is no second value to go stale against.
+    fn default() -> Self {
+        Self(std::sync::Arc::new(std::sync::RwLock::new(
+            Config::default(),
+        )))
+    }
+}
+
 pub struct AppState {
     /// THE RELAY'S OWN STATE (round 207): whether one is configured, when it last answered, and why it last failed. It lives
     /// here because `/api/status` reports it — an operator who configured a relay must be able to see whether their agent is
@@ -38,7 +120,11 @@ pub struct AppState {
     /// config_path). The old plain `Config` field was an immutable boot
     /// snapshot, so PUT /api/settings + gateway-connect mutations were
     /// invisible in-process until restart.
-    pub config: std::sync::RwLock<Config>,
+    ///
+    /// `Arc` because the registry no longer receives clones of individual values: plugins hold a
+    /// [`ConfigHandle`] over THIS lock, so a runtime change reaches them too (round-A4's one source of truth
+    /// was only true of the request path while the plugins kept boot copies).
+    pub config: Arc<std::sync::RwLock<Config>>,
     /// Process start time — /api/status exposes uptime_secs for health
     /// diagnosis (a low uptime after an update/crash is a red flag; stage-n).
     pub started_at: std::time::Instant,
@@ -70,12 +156,10 @@ struct RegistryDeps {
     event_bus: Arc<AppEventBus>,
     buffer_limit: Arc<std::sync::atomic::AtomicUsize>,
     playwright: Arc<PlaywrightManager>,
-    download_url: Option<String>,
-    console_url: Option<String>,
-    /// The device token `page_view` must redact BY VALUE (it fetches the panel HTML, which the
-    /// agent has already injected the token into), and the port it must default to.
-    device_token: Option<String>,
-    local_port: u16,
+    /// The LIVE config, handed to the plugins that need runtime-changeable values. One handle replaces the
+    /// four boot clones that used to sit here (`download_url`, `console_url`, `device_token`, `local_port`);
+    /// see [`ConfigHandle`] for why a clone was the wrong shape.
+    config: ConfigHandle,
     memory: Arc<MemoryStore>,
 }
 
@@ -87,16 +171,11 @@ fn build_registry(deps: &RegistryDeps) -> PluginRegistry {
         deps.event_bus.clone() as Arc<dyn EventBus>,
         deps.buffer_limit.clone(),
     )));
-    registry.register(Box::new(UpdatePlugin::new(deps.download_url.clone())));
+    registry.register(Box::new(UpdatePlugin::new(deps.config.clone())));
     registry.register(Box::new(McpClientPlugin::new(
         deps.event_bus.clone() as Arc<dyn EventBus>
     )));
-    registry.register(Box::new(DesignPlugin::new(
-        deps.console_url.clone(),
-        deps.download_url.clone(),
-        deps.device_token.clone(),
-        deps.local_port,
-    )));
+    registry.register(Box::new(DesignPlugin::new(deps.config.clone())));
     registry.register(Box::new(PlaywrightPlugin::new(deps.playwright.clone())));
     registry.register(Box::new(MemoryPlugin::new(deps.memory.clone())));
     registry.register(Box::new(SystemPlugin));
@@ -136,16 +215,17 @@ impl AppState {
         // round-163: runner start/stop pushes `playwright-changed` over the
         // SSE bus — the panel dropped its 5s status poll for this event.
         playwright.set_bus(event_bus.clone());
+        // THE HANDLE IS BUILT BEFORE THE REGISTRY, over the same lock this state stores: the plugins read
+        // the live config per call, so a PUT /api/settings that lands after boot reaches them too.
+        let config = Arc::new(std::sync::RwLock::new(config));
+        let config_handle = ConfigHandle::new(config.clone());
         let plugin_registry = build_registry(&RegistryDeps {
             terminal_mgr: terminal_mgr.clone(),
             serial_pool: serial_pool.clone(),
             event_bus: event_bus.clone(),
             buffer_limit: terminal_buf_bytes.clone(),
             playwright: playwright.clone(),
-            download_url: config.platform.download_url.clone(),
-            console_url: config.platform.console_url.clone(),
-            device_token: config.server.device_token.clone(),
-            local_port: config.server.port,
+            config: config_handle,
             memory: memory.clone(),
         });
 
@@ -155,7 +235,7 @@ impl AppState {
             terminal_mgr,
             event_bus,
             plugin_registry,
-            config: std::sync::RwLock::new(config),
+            config,
             started_at,
             config_path: std::sync::Arc::new(std::sync::Mutex::new(None)),
             terminal_buf_bytes,
@@ -170,6 +250,12 @@ impl AppState {
     pub fn config_snapshot(&self) -> Config {
         let cfg = self.config.read().unwrap_or_else(|p| p.into_inner());
         cfg.clone()
+    }
+
+    /// A handle over the LIVE config, for code that must read a value at the point of use instead of
+    /// holding a clone (plugins registered in `build_registry`; see [`ConfigHandle`]).
+    pub fn config_handle(&self) -> ConfigHandle {
+        ConfigHandle::new(self.config.clone())
     }
 
     /// Write-through config update: swap the in-process value and — when
