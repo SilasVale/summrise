@@ -199,6 +199,14 @@ jobs:
           # by 0x130 -- and that line's NAME is the answer this investigation has been circling.
           echo "== map segment table (compare Start/Length against the release box's map) =="
           sed -n '1,40p' /tmp/agent-map.txt
+          # THE .data SYMBOL LIST, because the segment table cannot answer the question round 61 left: ONE static
+          # (`rustc::__rust_panic_type_info`) sits at .data+0x130 here and .data+0x000 in CI's build, and the 1,168
+          # bytes that differ between the two images are nothing but the references to it. The map ALREADY names
+          # the object file each symbol came from (`…-cgu.NN.rcgu.o`), so this listing is the whole comparison: the
+          # CGU hash in those names, and the ORDER the linker laid them down in. Printed here so the next release
+          # answers "which object file moved" with a text diff instead of another round of hypotheses.
+          echo "== .data symbols, in link order (compare against the release box's map: same CGU hashes? same order?) =="
+          grep -E "^ +0003:" /tmp/agent-map.txt | head -40
       - name: Pack the npm artifact
         working-directory: agent
         run: |
