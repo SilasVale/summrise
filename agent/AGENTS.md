@@ -15,12 +15,21 @@ Exe lands in `target/x86_64-pc-windows-msvc/release/summrise-agent.exe`.
 
 ```bash
 cd resources/panel-react && npm test             # panel (vitest)
-cargo test                                       # agent
-cargo test --features terminal,keyring           # agent incl. PTY/SSH/serial
-cargo clippy --all-targets -- -D warnings        # also with --features terminal,keyring
-cargo fmt --all
+cargo fmt --all -- --check                       # --check, because CI never runs the MUTATING form
+cargo clippy -p summrise-agent --all-targets -- -D warnings
+cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings
+cargo clippy -p summrise-agent-core --all-targets -- -D warnings
+cargo test -p summrise-agent
+cargo test -p summrise-agent --features terminal,keyring
+cargo test -p summrise-agent-core
 cd ../gateway && npm test                        # gateway (own prettier gate)
 ```
+
+**THESE ARE CI'S COMMANDS, NOT CONVENIENT ONES — and this file used to give the convenient ones.** It said
+`cargo test` and `cargo clippy --all-targets` with no `-p`, which is a SUBSET of what CI runs (it never built
+`summrise-agent-core`), and `cargo fmt --all`, which is the MUTATING form while CI runs `-- --check`. The root
+AGENTS.md records where that class of gap has already bitten: `gateway/ui` passed a local `tsc --noEmit` carrying
+six type errors, because the `ui` job runs `npm run build` instead. **A command that edits your tree is not a check.**
 
 Green tests are the bar for a release.
 
@@ -33,7 +42,18 @@ cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise
 # 2. publish (pack + manifest + prune + deploy + smoke; it does NOT commit):
 ./scripts/publish-release.sh 1.2.N --npm
 # 3. ONE commit that includes summrise-agent-npm/package.json and index/public/summrise-agent/version.json
-git push origin main          # CI green on the pushed commit
+git push origin main
+#    AND NOW **WAIT** FOR THAT COMMIT'S CI TO GO GREEN BEFORE TAGGING ANYTHING. The SHA must be a pushed,
+#    CI-green commit, and THE TAG MUST NOT MOVE ONTO DIFFERENT CONTENT — a moved tag demotes the release to a
+#    DRAFT (invisible to the audit's GET /releases/tags/<tag>) and makes CI package a different artifact under
+#    the same version number. release.yml's gate is FAIL-CLOSED on silence: zero check-runs means CI has not
+#    reported yet (or never will) — WAIT, never pass. All three were paid for on 1.2.453; the transcripts are in
+#    the ledger.
+#
+#    AND DO NOT PUSH ANYTHING WHILE A RELEASE COMMIT'S CI IS RUNNING. A push supersedes the run, GitHub cancels
+#    it, and the tag then has no green CI to point at. That cost three runs in this repository (twice on
+#    2026-09-23, once in round 45) — the cancellation is reported as `conclusion: failure`, INDISTINGUISHABLE
+#    FROM A REAL FAILURE in a count. Release, then resume.
 # 4. tag through the API (git push of tags times out here) — this triggers release.yml:
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
