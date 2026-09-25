@@ -3322,6 +3322,14 @@ generates launcher scripts. The scanner now treats it as code (its `(` joins the
 the file's rules, `$(` nests, `$name`/`${name}` stay opaque); an 8-row fixture table runs inside the gate; and the
 header is true again — what remains is `$( … )` inside a double-quoted HERE-STRING, plus everything semantic.
 
+**AND THE SAME HOLE ONE FORM FURTHER (round 51)**: the header's next item was a `$( … )` inside a DOUBLE-QUOTED
+HERE-STRING — which PowerShell expands exactly as it expands a double-quoted string, while `@' … '@` expands
+NOTHING and its braces are data (the installer writes JSON manifests into single-quoted here-strings, so a scanner
+that treated both alike would fail on correct code). The two expandable forms now share ONE body scanner and differ
+in a single rule — where each ends — with 13 fixtures covering both; a 24-snippet differential against the old
+scanner changed exactly one verdict, the intended one, and the real file fails with four findings and exit 1 where
+the HEAD gate exits 0.
+
 **THE PROOF THAT MAKES IT CLOSED RATHER THAN DOCUMENTED**: appending `"$(Write-Host { )"` to `fix-tunnel.ps1` makes
 the gate fail with three findings and **exit 1**, while the HEAD version of the gate exits **0** on that same mutated
 file. Neutering the new branch fails the gate's own fixture, so the table bites too. AGENTS.md and the inventory each
