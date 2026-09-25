@@ -6944,6 +6944,40 @@ was right to refuse counts; it had not noticed that "newest" is a count with the
 **NUMBERS:** 58 gate commands, 57 ok, 0 failed, 1 not runnable here (was 57/56/0/1 before round 39's gate); the inventory
 cell updated for the superlative only; live **1.2.469**, device current.
 
+## 2026-09-25 — the sixty-first exploration: why the last waiver cannot be deleted
+
+Rounds 9-11 took the spawn gate's waiver list from seven entries to one and predicted the end state — zero — as the tidy
+conclusion. This round tried to reach it and the gate's own instrument said no. **The negative result is the round.**
+
+**THE HYPOTHESIS**: `spawn.rs` appears in BOTH of the gate's lists — in `SITES` (it asks) and in `EXEMPT` (the last
+waiver). If it asks, the waiver is dead weight, and deleting it would empty the list.
+
+**THE TEST, AND WHY IT NEEDED `--nocapture`**: the gate prints an "an exemption nothing needs is weight; prune it or say
+why it stays" note for every entry it did not need — and `eprintln!` from a PASSING test is captured, so the first run
+showed nothing and proved nothing. With `--nocapture`: **no note**, i.e. `exempt_needed` contains `spawn.rs`, i.e. the
+waiver IS still needed.
+
+**WHICH SPAWN NEEDS IT, NAMED**: not the Windows ones. `tasklist` at `:389` asks on the very next line (`hidden(&mut cmd)`
+at `:391`), and the `taskkill` spawns ask through `attempt`. The un-asking console spawns in this file are the **unix-only
+helpers** — `kill` at `:254`/`:262`, `pgrep` at `:401`, and one more in a test — which the scan's program class counts the
+same way it counts `tasklist`, because **the scan reads TEXT and does not know about `#[cfg(unix)]`**. Round 10's survey
+called those "no ask needed: unix has no window"; the scan cannot tell, so the file that implements the rule is the file
+that must waive it.
+
+**SO THE LIST CANNOT REACH ZERO WITHOUT TEACHING THE SCAN ONE MORE THING**, and that is the next round's candidate, now
+named rather than guessed: either the scan skips spawns inside `#[cfg(unix)]` regions (it already tracks string and
+comment state, so a `cfg` region is one more piece of state), or the program class stops counting `kill`/`pgrep` — which
+would be wrong, since a unix helper IS a console program and the rule's point is the window. The first is the honest fix;
+the second would make the class a lie to save an exemption.
+
+**AND A SMALL LESSON ABOUT INSTRUMENTS, PAID FOR HERE**: the first run of this round's test LOOKED like proof that the
+waiver was unused, because a captured `eprintln!` prints nothing. **An instrument whose output is captured by default is
+an instrument that reports success when it says nothing** — and the fix is a flag, not a rewrite, which is why it is worth
+writing down that `cargo test … -- --nocapture` is how this gate is read.
+
+**NUMBERS:** `spawn.rs` in both lists, verified; the exemption needed, verified by the absence of a note under
+`--nocapture`; the un-asking spawns named by line; the waiver list stays at ONE for a reason that is now written down.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
