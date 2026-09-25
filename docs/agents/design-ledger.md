@@ -35,6 +35,11 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 79, one line**: the panel cell re-measured after round 78 (the `read` option and `ConnModal`'s migration; suite 890),
+AND **1.2.474 IS OWED** — that round changed the panel, which is embedded in the exe the device serves, so it is device-affecting.
+Stating it here is what got the previous three batches shipped (rounds 54+56 → 1.2.471, round 65 → 1.2.472, round 73 → 1.2.473).
+
+
 ### round 78 — the read module learns the shape it was missing, and `callTool` cannot be the one to use it
 
 Round 73 measured the block precisely: the module states exactly ONE route (`callApi(route)`, a GET with no init and no body), which
