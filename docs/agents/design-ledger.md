@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 117, one line**: the inventory's §5.8 cell still read "**nothing else runs them either — no schedule, no documented
+manual cadence**", which stopped being true in round 82 and was disproved by every round since: it now records the cadence, the CDN
+transport, the **73/74 (2 skipped)** baseline across all seven sections, the **two real defects** the runs found and fixed, the vacuous
+check and the SKIP state the suite gained — and the one remaining failure as **bounded to full-suite load** rather than "sometimes".
+**A cell that is stale in the flattering direction is still stale**, and this one was hiding a dozen rounds of work.
+
+
 **Round 116, one line — THE SUITE'S CURRENT BASELINE, AFTER ALL THREE FIXES**: the whole device suite gives
 **73/74 passed (2 skipped)** — up from round 104's 72/74 — with the terminal check passing (`state=partial exit=null` reported in
 its line), the panel's two checks passing, and the http arm's two visibility checks SKIPPED by name of arm. **The one remaining
