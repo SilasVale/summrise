@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 84, one line**: end-of-session state verified by command — tree clean and `main == origin/main`; CDN and npm both
+**1.2.474**; ledger **301,320 B** of 400,000 and its appendix **396,139 B** under the same gate; AGENTS.md **22,524 B** of 48,000;
+both instruction gates green; the reconcile ledger still holding the historical 1.2.453 (1.2.472's missing asset is named by the
+NEXT publish, not by this file).
+
+
 ### round 83 — the cadence written last round could not be followed, and running it is what proved that
 
 Round 82 closed the inventory's §5.8 gap by giving the seven device-targeted e2e sections a documented cadence. Round 83
