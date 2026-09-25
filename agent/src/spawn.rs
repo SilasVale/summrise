@@ -40,13 +40,23 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 ///
 /// * **A spawn of a console-subsystem binary from a process that may have a
 ///   console WANTS the flag.** That is `node.exe` (bundled playwright, the
-///   playwright stdio server, the AI script runner), `powershell`, `taskkill`,
-///   `cmd`/`sh` (terminal_execute's local mode), `tasklist`, `ping`.
+///   playwright stdio server, the AI script runner), `powershell`, `tar`
+///   (bsdtar ships with Windows 10 1803+ as `C:\Windows\System32\tar.exe`, and
+///   the update path extracts the npm tgz with it), `taskkill`, `tasklist`,
+///   `ping`, `where`, `sc.exe`, `schtasks`, `reg`, `icacls`, `cloudflared.exe`
+///   (the tunnel binary), and `cmd`/`sh` (terminal_execute's local mode, spawned
+///   through the `shell` variable).
 /// * **A spawn of something with no console window of its own — or one already
-///   covered — does not.** Unix-only helpers (`kill`, `pgrep`, `ps`) are in this
-///   class and the flag is a no-op for them anyway, so asking there costs
-///   nothing; what the rule forbids is the other direction, a site that launches
-///   a console binary from the agent and never asks.
+///   covered — does not.** Unix-only helpers (`kill`, `pgrep`) are in this class
+///   and the flag is a no-op for them anyway, so asking there costs nothing;
+///   what the rule forbids is the other direction, a site that launches a
+///   console binary from the agent and never asks.
+///
+/// THE CLASS IS DATA, NOT PROSE: `console_subsystem_spawn_sites_ask_for_the_flag`
+/// holds the two bullets as `CONSOLE_PROGRAMS` and scans every `.rs` file under
+/// `src/`, so a new spawn site of one of these programs is caught whether or not
+/// its file was already on a list. The two have to agree: adding a program to
+/// the rule means adding it to that class.
 ///
 /// A site that does want it asks by CALL, on every platform — `hidden` is defined
 /// on every platform (a no-op off Windows) precisely so a Linux-run test can
@@ -218,6 +228,42 @@ async fn unix_kill_tree(pid: u32, force: bool) -> io::Result<()> {
     attempt("kill", &mut direct).await
 }
 
+/// WHAT A NAME KILL DID — the three answers a caller must not flatten.
+///
+/// This door used to answer `io::Result<()>`: `Ok` meant "something was killed"
+/// while every per-pid result was discarded (`let _ = attempt(…)`), so a signal
+/// that FAILED was reported as a kill — against the tool's own promise ("Returns
+/// what was killed"). The optimism was inherited from the call site this door
+/// replaced, which pushed the pid after issuing the kill without reading the
+/// result. It stops here: what the facility SAID is what the caller reports.
+///
+/// `Err(kind == NotFound)` still means the kill could not be ATTEMPTED at all
+/// (neither `taskkill` nor `pgrep` exists here, so nothing ran). These are the
+/// answers of a facility that DID run.
+#[derive(Debug)]
+pub enum NameKill {
+    /// Every match was killed. `pids` are the pids a signal was DELIVERED to,
+    /// and it is EMPTY where the platform answers in aggregate: `taskkill /IM`
+    /// reports that the name was killed and never which pids, so a Windows
+    /// caller reports the NAME rather than ids nobody saw.
+    Killed { pids: Vec<u32> },
+    /// The kill RAN and the name matched NOTHING. A different statement from
+    /// `Err(NotFound)` ("nothing could run") and from [`NameKill::Refused`]
+    /// ("something matched and would not die").
+    NoMatch,
+    /// A match EXISTED and the kill was REFUSED — "Access is denied", or the pid
+    /// went away between the match and the signal. `killed` carries the pids
+    /// that WERE signalled, so a partial outcome is reported as partial instead
+    /// of being rounded to either extreme; `refused` the ones that were not.
+    /// Where the platform reports no pids at all (`taskkill /IM`), the caller
+    /// names the name it asked for.
+    Refused {
+        killed: Vec<u32>,
+        refused: Vec<u32>,
+        why: String,
+    },
+}
+
 /// Kill every process with a NAME.
 ///
 /// Kept separate from [`kill_tree`] because the blast radius differs and a caller
@@ -226,13 +272,13 @@ async fn unix_kill_tree(pid: u32, force: bool) -> io::Result<()> {
 /// carries no `/T`) — on unix it uses the same shape the caller used to build by
 /// hand: `pgrep -f <name>`, then a DIRECT signal to each match.
 ///
-/// The result distinguishes what the caller must distinguish: `Ok(())` means the
-/// name kill RAN and had something to kill; `Err(NotFound)` means there is no
-/// name-kill facility here at all (neither `taskkill` nor `pgrep`) and the caller
-/// must say the kill could not be ATTEMPTED. Any other `Err` means it ran and
-/// matched nothing, or refused — the caller reports that as "nothing matched",
-/// which is what it is.
-pub async fn kill_by_name(name: &str, force: bool) -> io::Result<()> {
+/// The result distinguishes what the caller must distinguish — see [`NameKill`]
+/// for the three answers a run can give, and `Err(NotFound)` for the one case
+/// where nothing ran at all. Any OTHER `Err` means the question could not be
+/// answered (a helper that would not spawn, or Windows' `taskkill` failing where
+/// `tasklist` could not say whether the name is still there): the caller reports
+/// that as the failure it is, never as "nothing matched".
+pub async fn kill_by_name(name: &str, force: bool) -> io::Result<NameKill> {
     #[cfg(windows)]
     return windows_kill_by_name(name, force).await;
     #[cfg(unix)]
@@ -245,14 +291,77 @@ pub async fn kill_by_name(name: &str, force: bool) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-async fn windows_kill_by_name(name: &str, force: bool) -> io::Result<()> {
+async fn windows_kill_by_name(name: &str, force: bool) -> io::Result<NameKill> {
     let mut cmd = tokio::process::Command::new("taskkill");
     cmd.args(taskkill_name_args(name, force));
-    attempt("taskkill", &mut cmd).await
+    match attempt("taskkill", &mut cmd).await {
+        Ok(()) => Ok(NameKill::Killed { pids: Vec::new() }),
+        // WHICH FAILURE THIS IS CANNOT BE READ OFF taskkill's TEXT: "not found"
+        // and "Access is denied" arrive the same way, and the text is LOCALIZED
+        // — matching English out of stderr is a guess that breaks on the first
+        // non-English device. So ask the PROCESS TABLE instead: a name
+        // `tasklist` can still see was REFUSED, not absent. If `tasklist` itself
+        // cannot run, the question stays open and that is what `Err` says.
+        Err(e) => match tasklist_matches_name(name).await {
+            Ok(true) => Ok(NameKill::Refused {
+                killed: Vec::new(),
+                refused: Vec::new(),
+                why: e.to_string(),
+            }),
+            Ok(false) => Ok(NameKill::NoMatch),
+            Err(_) => Err(e),
+        },
+    }
+}
+
+/// The `tasklist` query behind [`windows_kill_by_name`]'s disambiguation, as
+/// arguments.
+///
+/// `IMAGENAME eq` is the filter's own syntax (not localized), and `CSV` + `/NH`
+/// is its machine-readable form: no header, one quoted row per match, and an
+/// INFO line instead of rows when nothing matches. Pure, so the shape is pinned
+/// on every platform — the same seam [`taskkill_args`] gives the kill flags.
+#[cfg(any(windows, test))]
+pub(crate) fn tasklist_query_args(name: &str) -> Vec<String> {
+    vec![
+        "/FI".to_string(),
+        format!("IMAGENAME eq {name}"),
+        "/NH".to_string(),
+        "/FO".to_string(),
+        "CSV".to_string(),
+    ]
+}
+
+/// Did that `tasklist` output name this program? The IMAGE NAME is the first CSV
+/// column, and the "no tasks are running" INFO line has no columns at all, so it
+/// names nothing here.
+#[cfg(any(windows, test))]
+pub(crate) fn tasklist_saw_name(stdout: &str, name: &str) -> bool {
+    stdout.lines().any(|line| {
+        line.split(',')
+            .next()
+            .map(|first| first.trim().trim_matches('"').eq_ignore_ascii_case(name))
+            .unwrap_or(false)
+    })
+}
+
+/// Ask the process table whether `name` is still there — see
+/// [`tasklist_query_args`]. The exit status is not the answer (tasklist exits 0
+/// with its INFO line when nothing matches); the ROWS are.
+#[cfg(windows)]
+async fn tasklist_matches_name(name: &str) -> io::Result<bool> {
+    let mut cmd = tokio::process::Command::new("tasklist");
+    cmd.args(tasklist_query_args(name));
+    hidden(&mut cmd);
+    let out = cmd.output().await?;
+    Ok(tasklist_saw_name(
+        &String::from_utf8_lossy(&out.stdout),
+        name,
+    ))
 }
 
 #[cfg(unix)]
-async fn unix_kill_by_name(name: &str, force: bool) -> io::Result<()> {
+async fn unix_kill_by_name(name: &str, force: bool) -> io::Result<NameKill> {
     let mut pgrep = tokio::process::Command::new("pgrep");
     pgrep.args(["-f", name]);
     let out = pgrep
@@ -265,21 +374,69 @@ async fn unix_kill_by_name(name: &str, force: bool) -> io::Result<()> {
         .collect();
     if pids.is_empty() {
         // NOT NotFound: `pgrep` ran and the answer is "nothing matched", which is
-        // a different statement from "this device cannot kill by name".
-        return Err(io::Error::other(format!("no process matched name={name}")));
+        // a different statement from "this device cannot kill by name" — and a
+        // different one again from "a match existed and the signal was refused".
+        return Ok(NameKill::NoMatch);
     }
     let sig = if force { "-9" } else { "-15" };
+    let mut results: Vec<(u32, io::Result<()>)> = Vec::with_capacity(pids.len());
     for pid in pids {
+        // TEST-ONLY: a refusal forced by the test seam. A real EPERM cannot be
+        // produced by a suite that may run as root — the only reliable target is
+        // a process the test does not own, and killing other people's processes
+        // is not a test's call — so the refusal is injected exactly where a real
+        // one would land and the REPORT is what gets asserted.
+        #[cfg(test)]
+        if test_records::signal_is_refused(pid) {
+            results.push((
+                pid,
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "kill: Operation not permitted (refusal forced by the test seam)",
+                )),
+            ));
+            continue;
+        }
         let mut kill = tokio::process::Command::new("kill");
         kill.args([sig, "--", &pid.to_string()]);
-        // Best-effort, and no tree: a match that could not be signalled is still
-        // reported as killed. That optimism is inherited, not invented — the
-        // call site this moved from pushed the pid after issuing the kill without
-        // reading the result — and it is stated here so the next reader does not
-        // mistake it for a guarantee.
-        let _ = attempt("kill", &mut kill).await;
+        // NO TREE, and the per-pid result is KEPT: a match that could not be
+        // signalled is exactly the fact this door used to throw away, and the
+        // caller cannot report honest work from a result nobody read.
+        results.push((pid, attempt("kill", &mut kill).await));
     }
-    Ok(())
+    Ok(classify_name_kill(results))
+}
+
+/// TURN PER-PID RESULTS INTO THE ONE ANSWER THE CALLER REPORTS.
+///
+/// Pure and platform-independent so the three answers are pinned wherever
+/// `cargo test` runs, not only where `pgrep`/`kill` exist — the same reason
+/// [`taskkill_args`] is a function instead of an inline chain.
+#[cfg(any(unix, test))]
+fn classify_name_kill(results: Vec<(u32, io::Result<()>)>) -> NameKill {
+    let mut killed: Vec<u32> = Vec::new();
+    let mut refused: Vec<u32> = Vec::new();
+    let mut why = String::new();
+    for (pid, result) in results {
+        match result {
+            Ok(()) => killed.push(pid),
+            Err(e) => {
+                refused.push(pid);
+                if why.is_empty() {
+                    why = e.to_string();
+                }
+            }
+        }
+    }
+    if refused.is_empty() {
+        NameKill::Killed { pids: killed }
+    } else {
+        NameKill::Refused {
+            killed,
+            refused,
+            why,
+        }
+    }
 }
 
 /// TEST-ONLY: what [`kill_tree`] was asked to do.
@@ -309,6 +466,34 @@ pub(crate) mod test_records {
         TREE_REQUESTS
             .lock()
             .map(|requests| requests.iter().any(|&(p, f)| p == pid && f == force))
+            .unwrap_or(false)
+    }
+
+    static SIGNAL_REFUSALS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+    /// Force [`super::kill_by_name`]'s unix arm to report pid `pid` as REFUSED.
+    ///
+    /// The same seam shape as [`tree_requested_note`], for the same reason: the
+    /// fact under test is one no other arrangement can produce here. A refused
+    /// signal is a real thing ("Access is denied" on Windows, EPERM on unix) but
+    /// a suite that may run as ROOT cannot produce one safely — the only
+    /// dependable EPERM target is a process the test does not own, and killing
+    /// other people's processes is not a test's call. So the refusal is injected
+    /// where a real one lands, and what the tests assert is the REPORT.
+    #[cfg(unix)]
+    pub(crate) fn refuse_signal_for(pid: u32) {
+        if let Ok(mut refusals) = SIGNAL_REFUSALS.lock() {
+            refusals.push(pid);
+        }
+    }
+
+    /// Was a refusal FORCED for `pid`? Compiled only where the unix arm is, since
+    /// that arm is the only reader.
+    #[cfg(unix)]
+    pub(crate) fn signal_is_refused(pid: u32) -> bool {
+        SIGNAL_REFUSALS
+            .lock()
+            .map(|refusals| refusals.contains(&pid))
             .unwrap_or(false)
     }
 }
@@ -418,7 +603,73 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::NotFound, "{err}");
     }
 
-    /// THE RULE'S OTHER HALF: THE SITES MUST ASK.
+    /// THE THREE ANSWERS A NAME KILL CAN GIVE, as data.
+    ///
+    /// The door used to discard every per-pid result, so "signalled" and
+    /// "refused" were the same answer and both were reported as kills. Pinned
+    /// here on every platform: a partial outcome must stay partial (the pid that
+    /// WAS signalled is still reported), and a refusal must carry the tool's own
+    /// words rather than being rounded to "nothing matched".
+    #[test]
+    fn a_name_kill_separates_what_died_from_what_would_not() {
+        let killed = classify_name_kill(vec![(11, Ok(())), (12, Ok(()))]);
+        assert!(
+            matches!(&killed, NameKill::Killed { pids } if pids == &[11, 12]),
+            "both signalled pids must be reported: {killed:?}"
+        );
+
+        let refused = classify_name_kill(vec![
+            (11, Ok(())),
+            (
+                12,
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "kill: Operation not permitted",
+                )),
+            ),
+        ]);
+        match refused {
+            NameKill::Refused {
+                killed,
+                refused,
+                why,
+            } => {
+                assert_eq!(killed, vec![11], "a partial kill must report its success");
+                assert_eq!(refused, vec![12], "and the pid that would not die");
+                assert!(why.contains("Operation not permitted"), "{why}");
+            }
+            other => panic!("a refused signal must be reported as a refusal: {other:?}"),
+        }
+    }
+
+    /// THE WINDOWS DISAMBIGUATOR'S TWO HALVES, pinned where they can be pinned:
+    /// the filter as written, and the reading of `tasklist`'s rows. The CSV rows
+    /// matter — the "no tasks are running" INFO line has no columns and must name
+    /// nothing, or a Windows name kill would call every absent name a refusal.
+    #[test]
+    fn tasklist_rows_name_the_program_and_its_info_line_does_not() {
+        assert_eq!(
+            tasklist_query_args("node.exe"),
+            vec!["/FI", "IMAGENAME eq node.exe", "/NH", "/FO", "CSV"]
+        );
+        let rows = "\"node.exe\",\"4242\",\"Console\",\"1\",\"12,345 K\"\r\n";
+        assert!(tasklist_saw_name(rows, "node.exe"), "{rows:?}");
+        assert!(
+            tasklist_saw_name(rows, "NODE.EXE"),
+            "image names are case-insensitive: {rows:?}"
+        );
+        assert!(!tasklist_saw_name(rows, "other.exe"), "{rows:?}");
+        assert!(
+            !tasklist_saw_name(
+                "INFO: No tasks are running which match the specified criteria.\r\n",
+                "node.exe"
+            ),
+            "the INFO line is not a row"
+        );
+    }
+
+    /// THE RULE'S OTHER HALF: THE SITES MUST ASK — AND A FILE NOBODY LISTED IS
+    /// STILL CAUGHT.
     ///
     /// `hidden` being defined on every platform is what makes this checkable at
     /// all — the flag itself cannot be observed on Linux and has no getter on
@@ -427,55 +678,235 @@ mod tests {
     /// suite, which is how `system_process_kill`'s pid arm and the AI script
     /// runner both came to spawn a console binary without it.
     ///
-    /// The scan is over the files this policy was applied to. `spawn.rs` is not
-    /// among them: it is where the flag is APPLIED (in `hidden` itself and in
-    /// `attempt`, through which every kill command runs), not a caller. The
-    /// program class is the rule's first class — a console-subsystem binary
-    /// launched from a process that may have a console — and it is listed rather
-    /// than inferred, so a new spawn site of one of these programs is caught by
-    /// the ask being absent from its file's next spawn gap.
+    /// THE SCAN WALKS THE WHOLE TREE, because the first version of this gate
+    /// held `SITES` and iterated over IT: a file that was not on the list was
+    /// unguarded BY CONSTRUCTION, and the suite stayed green while
+    /// `plugins/update/tools.rs` spawned `powershell` (and `tar`, both
+    /// console-subsystem) with no ask at all. So the floor is now per SITE and
+    /// over every `.rs` file under `src/`: a console-subsystem spawn either
+    /// ASKS — and then its file must be in `SITES`, and the ask is counted —
+    /// or its file must be named in `EXEMPT` with a reason. A console spawn in
+    /// a file that is in neither list fails, whether that file is new or was
+    /// simply never visited.
+    ///
+    /// `EXEMPT` follows the sweep's exemption idiom: every entry carries its
+    /// reason, and the entries this run did NOT need are printed (a list like
+    /// this is weight the moment it stops being read, and a renamed file is
+    /// exactly what a silent waiver hides).
     #[test]
     fn console_subsystem_spawn_sites_ask_for_the_flag() {
-        // The program expression as it is WRITTEN at the spawn site.
-        const CONSOLE_PROGRAMS: &[&str] =
-            &["&node", "shell", "powershell", "tasklist", "ping", "ps"];
+        // THE PROGRAM CLASS, as the program expression is WRITTEN at the spawn
+        // site: the rule's first bullet in `hidden`'s doc comment, which the two
+        // lists have to agree with. Two spellings that need the mapping said out
+        // loud — `&node` is the node.exe PathBuf every playwright site holds, and
+        // `&cf` is the cloudflared.exe PathBuf the tunnel sites hold — because a
+        // class written in spellings is only as good as the reader's ability to
+        // recognise them. `ps` is here because the list always carried it (a unix
+        // helper, so asking costs nothing and the site already does).
+        const CONSOLE_PROGRAMS: &[&str] = &[
+            "&node",
+            "node",
+            "shell",
+            "cmd",
+            "sh",
+            "powershell",
+            "taskkill",
+            "tasklist",
+            "ping",
+            "tar",
+            "where",
+            "sc.exe",
+            "schtasks",
+            "reg",
+            "icacls",
+            "&cf",
+            "ps",
+        ];
+        /// Files where a console-subsystem spawn's ASK is counted: every spawn
+        /// that DOES ask (`hidden(&mut …)` in its gap — the gap for one spawn runs
+        /// to the NEXT one, because the ask is its own statement after the builder
+        /// chain) must live in one of these, and each listed file must have at
+        /// least one such ask, because a scan that matches nothing passes for the
+        /// wrong reason.
         const SITES: &[&str] = &[
+            "spawn.rs",
             "plugins/playwright/manager.rs",
             "plugins/playwright/tools.rs",
             "plugins/mcp_client/tools.rs",
             "plugins/terminal/tools/exec.rs",
             "plugins/system/tools.rs",
+            "plugins/update/tools.rs",
         ];
-        const SPAWN: &str = "tokio::process::Command::new(";
-        for file in SITES {
-            let path = format!("{}/src/{file}", env!("CARGO_MANIFEST_DIR"));
-            let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        /// Files where a console-subsystem spawn does NOT ask, each with the reason
+        /// it cannot (or deliberately does not). The `std::process::Command` sites
+        /// cannot ask at all — `hidden` is tokio-typed, which is the whole reason
+        /// this list exists. A file may be in BOTH lists, and that means both
+        /// things at once: `plugins/playwright/manager.rs` asks for its
+        /// node/powershell spawns and cannot for its `where` probe, and `spawn.rs`
+        /// asks for the `tasklist` that disambiguates a name kill while its
+        /// taskkill/kill/pgrep spawns are covered one call deeper, by `attempt`.
+        const EXEMPT: &[(&str, &str)] = &[
+            (
+                "spawn.rs",
+                "the applier, not a caller: `hidden` is applied inside this module (in `hidden` \
+                 itself and in `attempt`, through which taskkill/kill/pgrep run)",
+            ),
+            (
+                "plugins/playwright/manager.rs",
+                "`where node` is std::process::Command in a sync fallback — `hidden` is \
+                 tokio-typed, so it cannot ask; the tokio spawns in this file do ask",
+            ),
+            (
+                "paths.rs",
+                "`reg query` and `icacls` are std::process::Command (and sync) — no way to ask",
+            ),
+            (
+                "web/mod.rs",
+                "the cloudflared `tasklist` probe is std::process::Command inside \
+                 spawn_blocking — no way to ask",
+            ),
+            (
+                "main.rs",
+                "the fix-tunnel `powershell` is std::process::Command on a pre-async startup \
+                 path — no way to ask",
+            ),
+            (
+                "winmain.rs",
+                "self-heal's `powershell`/`sc.exe`/`schtasks` are std::process::Command, and its \
+                 supervised `cloudflared` spawn is outside the round that wrote the rule \
+                 (named as a remainder in the ledger, not hidden)",
+            ),
+            (
+                "tunnel.rs",
+                "the `cloudflared` CLI spawns are outside the round that wrote the rule (named \
+                 as a remainder in the ledger, not hidden)",
+            ),
+        ];
+        const SPAWN: &str = "Command::new(";
+        // THE ASK, as a call rather than a word: `hidden(&mut …)` is the shape
+        // every site uses, and requiring it is what keeps a mention of the name
+        // in prose — or an unrelated `…_hidden()` test function further down the
+        // file — from counting as an ask for a site that never made one.
+        const ASK: &str = "hidden(&mut ";
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files: Vec<String> = Vec::new();
+        collect_rs_files(&root.join("src"), &root.join("src"), &mut files);
+        files.sort();
+        assert!(
+            files.len() > 20,
+            "the scan found {} source files — a walk that sees almost nothing cannot \
+             guard anything",
+            files.len()
+        );
+
+        let mut counted: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        let mut exempt_needed: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        let mut unlisted: Vec<String> = Vec::new();
+        for file in &files {
+            let path = root.join("src").join(file);
+            let src =
+                std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+            let in_sites = SITES.contains(&file.as_str());
+            let exempt = EXEMPT.iter().find(|(f, _)| f == file);
             let mut from = 0;
-            let mut checked = 0;
             while let Some(at) = src[from..].find(SPAWN) {
                 let at = from + at;
-                // The gap for one spawn runs to the NEXT one: `hidden` is applied
-                // to the command as its own statement, after the builder chain.
-                let after = &src[at + SPAWN.len()..];
-                let program = after[..after.find(')').expect("the program expression ends")]
-                    .trim()
-                    .trim_matches('"');
-                let next = after.find(SPAWN).unwrap_or(after.len());
-                if CONSOLE_PROGRAMS.contains(&program) {
-                    assert!(
-                        after[..next].contains("hidden("),
-                        "{file}: the spawn of `{program}` never asks `spawn::hidden` for the \
-                         no-console flag — the rule that says it must is in src/spawn.rs"
-                    );
-                    checked += 1;
-                }
                 from = at + SPAWN.len();
+                // This needle is a string literal in THIS test; skip its own
+                // occurrence rather than reading the source that holds it.
+                if src[..at].ends_with('"') {
+                    continue;
+                }
+                let after = &src[at + SPAWN.len()..];
+                let next = after.find(SPAWN).unwrap_or(after.len());
+                // The program expression, as written. One line at every site —
+                // the guard is what keeps this scanner from reading prose (the
+                // needle's own literal, a comment) as a spawn site, and a
+                // wrapped expression would be skipped rather than misread.
+                let Some(end) = after.find(')') else { continue };
+                let program = after[..end].trim().trim_matches('"');
+                if program.is_empty()
+                    || program.len() > 40
+                    || program.contains('\n')
+                    || program.contains(';')
+                    || !CONSOLE_PROGRAMS.contains(&program)
+                {
+                    continue;
+                }
+                if after[..next].contains(ASK) {
+                    assert!(
+                        in_sites,
+                        "{file}: the spawn of `{program}` asks `spawn::hidden` for the no-console \
+                         flag, so the file belongs in SITES — the rule is in src/spawn.rs"
+                    );
+                    *counted.entry(file.clone()).or_default() += 1;
+                    continue;
+                }
+                match exempt {
+                    Some((_, reason)) => {
+                        assert!(
+                            !reason.trim().is_empty(),
+                            "{file}: an exemption must carry its reason"
+                        );
+                        exempt_needed.insert(file.as_str());
+                    }
+                    None => unlisted.push(format!("{file}: `{program}`")),
+                }
             }
+        }
+        assert!(
+            unlisted.is_empty(),
+            "console-subsystem spawn(s) in files that are neither in SITES (asking \
+             `spawn::hidden`) nor named in EXEMPT with a reason — a file nobody listed used to \
+             be unguarded by construction, which is how `plugins/update/tools.rs` spawned \
+             powershell with no ask: {unlisted:?}"
+        );
+        for file in SITES {
+            let asks = counted.get(*file).copied().unwrap_or(0);
             assert!(
-                checked > 0,
-                "{file}: no console-subsystem spawn site was found — a scan that matches \
-                 nothing passes for the wrong reason"
+                asks > 0,
+                "{file}: no console-subsystem spawn site ASKED for the flag — a scan that \
+                 matches nothing passes for the wrong reason"
             );
+        }
+        // The exemption list's own weight, printed the way the design sweep prints
+        // its unused waivers: an entry this run did not need is either a gate for a
+        // state that is currently absent or a stale path, and only a reader can
+        // tell which.
+        let unused: Vec<&str> = EXEMPT
+            .iter()
+            .map(|(f, _)| *f)
+            .filter(|f| !exempt_needed.contains(f))
+            .collect();
+        if !unused.is_empty() {
+            eprintln!(
+                "note: {} of {} spawn-exemption entries matched no un-asking console-subsystem \
+                 spawn in this scan — an exemption nothing needs is weight; prune it or say why \
+                 it stays: {unused:?}",
+                unused.len(),
+                EXEMPT.len()
+            );
+        }
+    }
+
+    /// Every `.rs` file under `base`, as a path relative to `base` with `/`
+    /// separators — what "the scan can see" means, and the shape `SITES` and
+    /// `EXEMPT` are written in. Walked rather than listed, because the defect the
+    /// floor above exists for was a FILE nobody had added to a list.
+    fn collect_rs_files(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rs_files(&path, base, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                if let Ok(rel) = path.strip_prefix(base) {
+                    out.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
         }
     }
 

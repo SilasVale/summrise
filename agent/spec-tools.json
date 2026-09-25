@@ -503,7 +503,7 @@
     ]
   },
   {
-    "description": "Kill a process on THIS device (the agent host) by PID or by name (kills all matching). Use system_process_list first to find the target. Returns what was killed. Uses taskkill on Windows and kill/pgrep elsewhere; if a kill cannot be ATTEMPTED at all it says so rather than reporting that nothing matched.",
+    "description": "Kill a process on THIS device (the agent host) by PID or by name (kills all matching). Use system_process_list first to find the target. Returns what was killed. A PID kill takes the TREE: the pid and everything it started, so kill a launcher and its workers go with it. A name kill reports what it actually signalled (the pids on unix, the name where the platform reports no ids), and a match the signal could not reach is reported as a REFUSAL rather than as a kill. Uses taskkill on Windows and kill/pgrep elsewhere; if a kill cannot be ATTEMPTED at all it says so rather than reporting that nothing matched.",
     "name": "system_process_kill",
     "param_types": {
       "name": "string",

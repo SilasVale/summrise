@@ -582,10 +582,20 @@ fn tool_process_list() -> ToolDef {
     )
 }
 
+/// The pids of one kill outcome, as the report spells them. A list, not a count:
+/// "pid 4242" is what a reader can act on, and the door reports at most the
+/// matches of one name.
+fn pids_text(pids: &[u32]) -> String {
+    pids.iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn tool_process_kill() -> ToolDef {
     ToolDef::new(
         "system_process_kill",
-        "Kill a process on THIS device (the agent host) by PID or by name (kills all matching). Use system_process_list first to find the target. Returns what was killed. Uses taskkill on Windows and kill/pgrep elsewhere; if a kill cannot be ATTEMPTED at all it says so rather than reporting that nothing matched.",
+        "Kill a process on THIS device (the agent host) by PID or by name (kills all matching). Use system_process_list first to find the target. Returns what was killed. A PID kill takes the TREE: the pid and everything it started, so kill a launcher and its workers go with it. A name kill reports what it actually signalled (the pids on unix, the name where the platform reports no ids), and a match the signal could not reach is reported as a REFUSAL rather than as a kill. Uses taskkill on Windows and kill/pgrep elsewhere; if a kill cannot be ATTEMPTED at all it says so rather than reporting that nothing matched.",
         json!({
             "type": "object",
             "properties": {
@@ -632,7 +642,47 @@ fn tool_process_kill() -> ToolDef {
                     // Windows; `pgrep -f` plus a DIRECT signal on unix), and it
                     // is deliberately not `kill_tree`.
                     match crate::spawn::kill_by_name(&name, true).await {
-                        Ok(()) => killed.push(json!({"name": name})),
+                        // WHAT WAS ACTUALLY SIGNALLED, not what was attempted.
+                        // The door reports the pids a signal was DELIVERED to;
+                        // an EMPTY list means the platform answered in aggregate
+                        // (`taskkill /IM` names no pids), and the NAME is the
+                        // honest report there — never an id nobody saw.
+                        Ok(crate::spawn::NameKill::Killed { pids }) => {
+                            if pids.is_empty() {
+                                killed.push(json!({"name": name}));
+                            }
+                            for pid in pids {
+                                killed.push(json!({"pid": pid}));
+                            }
+                        }
+                        // The kill RAN and nothing matched. The message below
+                        // ("no process matched <name>") is the true one here.
+                        Ok(crate::spawn::NameKill::NoMatch) => {}
+                        // A MATCH THAT WOULD NOT DIE IS NOT "NOTHING MATCHED".
+                        // "Access is denied" reached this arm as an error too, and
+                        // `Err(_) => {}` answered "no process matched <name>" —
+                        // a false statement about the process table. It gets its
+                        // own answer, and a partial outcome (some signalled, some
+                        // refused) states both halves.
+                        Ok(crate::spawn::NameKill::Refused {
+                            killed: signalled,
+                            refused,
+                            why,
+                        }) => {
+                            let target = if refused.is_empty() {
+                                format!("name={name}")
+                            } else {
+                                pids_text(&refused)
+                            };
+                            let partial = if signalled.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" (pid(s) {} were signalled first)", pids_text(&signalled))
+                            };
+                            return Ok(to_value_or_empty(tool_error(format!(
+                                "kill by name matched {target} but the kill was REFUSED{partial}: {why}"
+                            ))));
+                        }
                         // THE SPAWN ERROR MUST NOT READ AS "NOTHING MATCHED".
                         // `if let Ok(o) = &r` used to enter only when taskkill
                         // RAN, so where it cannot be spawned at all — any
@@ -640,16 +690,23 @@ fn tool_process_kill() -> ToolDef {
                         // answered "no process matched <name>". That is not a
                         // failure to act; it is a FALSE STATEMENT ABOUT THE
                         // PROCESS TABLE, made from a command that never ran.
-                        // `kill_by_name` reports exactly that case as `NotFound`;
-                        // any other error means the tool RAN, so the answer below
-                        // ("nothing matched") is the true one.
+                        // `kill_by_name` reports exactly that case as `NotFound`.
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                             return Ok(to_value_or_empty(tool_error(format!(
                                 "cannot kill by name on this device: neither \
                                  taskkill nor pgrep is available ({e})"
                             ))))
                         }
-                        Err(_) => {}
+                        // THE QUESTION COULD NOT BE ANSWERED — the door's helper
+                        // would not spawn, or Windows' taskkill failed where
+                        // `tasklist` could not say whether the name is still
+                        // there. Reported as the failure it is; which is neither
+                        // "nothing matched" nor "the kill was refused".
+                        Err(e) => {
+                            return Ok(to_value_or_empty(tool_error(format!(
+                                "kill by name failed: {e}"
+                            ))))
+                        }
                     }
                 }
                 if killed.is_empty() {
@@ -1581,5 +1638,132 @@ mod process_tool_tests {
     fn name_arm_uses_the_no_tree_door() {
         let args = crate::spawn::taskkill_name_args("summrise-no-such-process.exe", true);
         assert!(!args.iter().any(|a| a == "/T"), "{args:?}");
+    }
+
+    /// A STRAY WHOSE COMMAND LINE CARRIES A TOKEN ONLY THIS TEST USES.
+    ///
+    /// `pgrep -f` matches the full command line, so the token is what makes the
+    /// name unambiguous: nothing else on the host — no other test, no leftover
+    /// from an earlier run, whose token carries a different process id — can
+    /// match it. The loop body is a one-second `sleep`, so killing this shell
+    /// (or leaving it behind) orphans nothing that lingers.
+    #[cfg(unix)]
+    fn spawn_token_stray(token: &str) -> tokio::process::Child {
+        let mut stray = tokio::process::Command::new("sh");
+        stray.args(["-c", &format!("while :; do sleep 1; done # {token}")]);
+        // `sh` is in the no-console rule's class (src/spawn.rs). The flag is a
+        // no-op on unix; the ask is here so this helper is not the site that
+        // teaches the next reader the class can be skipped.
+        crate::spawn::hidden(&mut stray);
+        stray
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn the token-carrying shell")
+    }
+
+    /// The token for one test: the process id is in it so a stray left behind by
+    /// an earlier RUN cannot match today's pattern.
+    #[cfg(unix)]
+    fn unique_token(kind: &str) -> String {
+        format!("summrise-kill-{kind}-{}", std::process::id())
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_exit(child: &mut tokio::process::Child) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            if child.try_wait().expect("try_wait").is_some() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    /// THE FIRST OF THE THREE ANSWERS: a pid that WAS signalled is the pid
+    /// reported — not the name, and not a claim.
+    ///
+    /// The old name arm pushed `{"name": …}` after issuing the kill without
+    /// reading the result, so the body said "killed" for a signal that may never
+    /// have landed. This drives the TOOL against a real stray and asserts the
+    /// pid, then that the pid is really gone.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn name_arm_reports_the_pid_it_signalled() {
+        let token = unique_token("signalled");
+        let mut stray = spawn_token_stray(&token);
+        let pid = stray.id().expect("the stray has a pid");
+
+        let out = run(&kill_tool(), json!({ "name": token })).await;
+
+        assert_eq!(out["ok"], json!(true), "{out}");
+        assert!(
+            out["killed"]
+                .as_array()
+                .expect("killed is a list")
+                .iter()
+                .any(|k| k["pid"] == json!(pid)),
+            "a signalled pid must be reported as a pid — the name is not what a \
+             caller can act on, and it is not evidence that anything was signalled: {out}"
+        );
+        assert!(
+            wait_for_exit(&mut stray).await,
+            "pid {pid} was reported as killed and is still running"
+        );
+    }
+
+    /// THE SECOND ANSWER: a match that would NOT die is a REFUSAL, and says so.
+    ///
+    /// The refusal is forced at the door (see `spawn::test_records`) because a
+    /// real EPERM needs a process this test does not own — and killing other
+    /// people's processes is not a test's call, in a suite that may run as root.
+    /// What is asserted is the REPORT: the pid that matched, the word REFUSED,
+    /// and the one thing it must never say — "no process matched", which is the
+    /// false statement about the process table this arm used to make.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn name_arm_reports_a_refused_kill_as_a_refusal() {
+        let token = unique_token("refused");
+        let mut stray = spawn_token_stray(&token);
+        let pid = stray.id().expect("the stray has a pid");
+        crate::spawn::test_records::refuse_signal_for(pid);
+
+        let out = run(&kill_tool(), json!({ "name": token })).await;
+
+        assert_eq!(out["ok"], json!(false), "{out}");
+        let err = out["error"].as_str().unwrap_or_default();
+        assert!(
+            err.contains(&pid.to_string()),
+            "the pid that matched and would not die must be named: {out}"
+        );
+        assert!(
+            err.contains("REFUSED"),
+            "a refused kill is its own fact, not a kill: {out}"
+        );
+        assert!(
+            !err.contains("no process matched"),
+            "a match EXISTED — \"nothing matched\" is the false statement this arm \
+             used to answer with: {out}"
+        );
+        // The refusal is a report, so the stray is still there; the test cleans
+        // up the child IT spawned.
+        stray.kill().await.ok();
+        let _ = stray.wait().await;
+    }
+
+    /// THE THIRD ANSWER: a name that matched nothing still says exactly that.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn name_arm_says_nothing_matched_when_nothing_did() {
+        let out = run(&kill_tool(), json!({ "name": unique_token("absent") })).await;
+        assert_eq!(out["ok"], json!(false), "{out}");
+        assert!(
+            out["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("no process matched"),
+            "the no-match answer must survive the two above: {out}"
+        );
     }
 }

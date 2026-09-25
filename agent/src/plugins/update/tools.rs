@@ -697,13 +697,14 @@ async fn update_from_tgz(installer: &std::path::Path, bytes: &[u8], release_vers
         if std::fs::create_dir_all(&extract).is_err() {
             return false;
         }
-        let out = Command::new("tar")
-            .args(["-xzf"])
-            .arg(installer)
-            .arg("-C")
-            .arg(&extract)
-            .output()
-            .await;
+        // `tar` is a console-subsystem binary too (bsdtar, Windows 10 1803+), so
+        // it is in the no-console rule's first class and asks for the flag like
+        // every other site — the rule lives in src/spawn.rs, and this ask is the
+        // one the whole-tree scan in that module's tests counts.
+        let mut tar = Command::new("tar");
+        tar.args(["-xzf"]).arg(installer).arg("-C").arg(&extract);
+        crate::spawn::hidden(&mut tar);
+        let out = tar.output().await;
         match out {
             Ok(o) if o.status.success() => {}
             _ => {
@@ -850,10 +851,14 @@ Remove-Item -Force -ErrorAction SilentlyContinue "{busy_ps}""#,
             "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine='{}'}} | ConvertTo-Json -Compress",
             inner.replace('\'', "''"),
         );
-        let r = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &wmi])
-            .output()
-            .await;
+        // powershell is a console-subsystem binary, so this handoff asks for the
+        // no-console flag. It went without one while the rule named powershell
+        // FIRST — a spawn site in a file the scan never visited (the rule and the
+        // scan are in src/spawn.rs; the whole-tree floor there is what caught it).
+        let mut handoff = Command::new("powershell");
+        handoff.args(["-NoProfile", "-Command", &wmi]);
+        crate::spawn::hidden(&mut handoff);
+        let r = handoff.output().await;
         // Plugin audit MED (CLI round-217 lesson, Rust twin): powershell's
         // own exit code is NOT the WMI result — Win32_Process.Create reports
         // via ReturnValue; a rejected handoff (9/21) used to print success

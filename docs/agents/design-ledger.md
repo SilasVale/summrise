@@ -5840,6 +5840,43 @@ is device-affecting but modest, so it joins the NEXT release rather than forcing
 in the previous section stands — a device-affecting change ends with the device saying so — and batching is how that
 stays affordable.
 
+### The review, and the gate that passed for the wrong reason (same round)
+
+Both axes ran against the commit, and the sharpest finding was structural: **the new gate could not see the very class
+of site the round existed to fix.** `console_subsystem_spawn_sites_ask_for_the_flag` held a `SITES` allow-list, so a
+file that was NOT on the list was unguarded BY CONSTRUCTION — and `plugins/update/tools.rs` spawned `powershell`
+(through a tokio `Command`, with no `hidden(` anywhere in the file) while the rule the round had just written named
+`powershell` in its first class. It was not covered by either excuse the ledger gave for the remaining sites: it is not
+a `std::process::Command` site, and it is not `tunnel.rs`/`winmain.rs`.
+
+The gate now WALKS every `.rs` under `src/`: a site that asks must have its file on the list (asks counted, at least
+one), and a site that does not ask must have its file on an EXEMPT list **with a reason** — the repo's own waiver
+idiom, including printing the exemptions that matched nothing. Two mutations prove it: a new unlisted file spawning
+`powershell` fails with `["gate_floor_probe.rs: \`powershell\`"]`, and removing the new ask fails with
+`["plugins/update/tools.rs: \`powershell\`"]`.
+
+**AND THE RULE GAINED THE NAMES IT WAS MISSING**, because "apply the rule to the next one" needs an answer: `tar`
+(bsdtar, Windows 10 1803+) needed the flag too, and the class now names `where`, `sc.exe`, `schtasks`, `reg`, `icacls`
+and `cloudflared.exe` beside the original list.
+
+**THE TOOL COULD REPORT A KILL IT DID NOT DELIVER.** `system_process_kill`'s description promises "Returns what was
+killed"; its unix NAME arm discarded every per-pid result and pushed only `{"name":…}`, so a failed signal was
+reported as a kill — and the old code had returned a per-pid list. It reports the signalled pids again, and a
+REFUSED match is now its own outcome ("matched … but the kill was REFUSED: …") rather than being flattened into "no
+process matched", which is what `Err(_) => {}` did to an "Access is denied". On Windows the two are told apart with a
+`tasklist` query rather than by matching English stderr — the locale-independent way, and the reason that arm needed a
+pure argument builder of its own.
+
+**AND ONE NUMBER OF MINE DID NOT RECONCILE, which the review caught**: the section above says "eleven tokio spawn
+sites were decided" and attributes the remainder to "`tunnel.rs`/`winmain.rs`'s nine spawns" — measured, `tunnel.rs`
+holds five tokio spawns and `winmain.rs` one (its other five are `std::process::Command`, counted elsewhere). The
+survey's CONCLUSION was right and its number was not, which is the cell this ledger warns about: a count that nothing
+re-derives drifts the moment a round touches the code around it.
+
+**DISCLOSED REMAINDERS:** the seven exemptions record `tunnel.rs`/`winmain.rs`'s cloudflared spawns and the std-toolkit
+sites rather than fixing them (no behaviour change was in scope); a Windows name-kill may now spawn `tasklist` once per
+call; and a call carrying BOTH a pid and a name now surfaces the name refusal as an error instead of the pid success.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
