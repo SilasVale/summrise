@@ -6920,6 +6920,30 @@ and the pattern is the same each time: **the instrument was written to look at t
 non-bite recorded in AGENTS.md; live **1.2.469**, device current. NOT COVERED, and said in the file: `$()` inside a
 double-quoted string, and anything semantic — this is SHAPE, and the PowerShell is still never executed here.
 
+## 2026-09-25 — the sixtieth exploration: the cell that said which gate was newest
+
+Round 39 added a gate, so this round ran `all-gates.bash` to see what the totals did — **57 ok, 0 failed, 1 not runnable
+here (of 58 gate commands)**, up from 56/0/1 of 57 — and then looked for the cell that claim invalidates.
+
+**THE COUNT CELLS NEEDED NO EDIT, AND THAT IS A CORRECTION EARLIER ROUNDS MADE ON PURPOSE**: the inventory's "all four
+surfaces' gates and suites" cell says in as many words that it carries NO COUNTS, because it once read "panel 806/103 +
+gateway 917/0" and went stale twice in the one cell that quoted numbers. So the arithmetic this round measured has no
+home in that file, by design — and the round that would have "updated" it would have re-introduced the drift.
+
+**WHAT DID NEED EDITING WAS A SUPERLATIVE**: the same cell named `proxy-timeout-parity-check.mjs` as "the newest NAMED
+gate", and that is a claim a new gate invalidates. It now names `powershell-structure-check.mjs` with its measurement —
+7 `.ps1` files, no `pwsh` on this box, `script-syntax.bash` not covering them, and **both halves of its proof** (the bite
+and the NON-bite) — and keeps the older gate's story after it, because the reason that cell names gates at all is that
+each one arrived because a rule had already cost a defect.
+
+**THE LESSON, WHICH IS THE SAME ONE THIS FILE KEEPS TEACHING**: a number and a superlative are both claims, and they go
+stale in different ways. A number drifts by one command not being re-run; a superlative goes stale the moment anyone
+does the thing it calls newest — silently, because "the newest X" reads as true no matter how old it is. The inventory
+was right to refuse counts; it had not noticed that "newest" is a count with the arithmetic hidden.
+
+**NUMBERS:** 58 gate commands, 57 ok, 0 failed, 1 not runnable here (was 57/56/0/1 before round 39's gate); the inventory
+cell updated for the superlative only; live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
