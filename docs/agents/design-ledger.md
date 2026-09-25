@@ -5775,6 +5775,26 @@ cross the seam the rule lives at, which is the same lesson as the route-contract
 redaction half was LATENT and the `console_url` half was reachable — which is the wrong order to fix them in, because
 the latent one is the leak.
 
+### 1.2.466 SHIPPED THE SAME DAY, AND THAT IS THE NEW STANDARD
+
+The round above is device-affecting — after it, a `PUT /api/settings` that moves `console_url` reaches the tool that
+fetches the console, and a token rotation reaches the redactor — so it was released rather than left on `main`:
+
+- version bumped BEFORE the build (the exe's VERSIONINFO reads 1.2.466, checked with `strings -el`, because the
+  resource strings are UTF-16 and a plain `grep` misses them), `./scripts/build.sh agent` green, then
+  pack/stage/prune/deploy/smoke and npm `latest`.
+- release commit `fa395727`, **its CI green before the tag** (10/11, the 11th skipped by design); tag `v1.2.466`;
+  `release.yml` success; **`--audit-only 1.2.466` → CDN == GitHub asset byte-for-byte** (`6c1e1169334c0a25…`).
+- and the device: `release: 1.2.465, this CLI: 1.2.466, … BEHIND by 1 release` before, then `summrise update`
+  (which takes the agent-hosted PTY with it, as documented) and after it **`release: 1.2.466 · this CLI: 1.2.466 ·
+  latest: 1.2.466 (this device is current)`**.
+
+WHY THIS IS WRITTEN DOWN RATHER THAN ASSUMED: the previous section's lesson was that twenty-nine rounds of green
+gates never answered "does the device have this". The answer is part of the round's evidence now, and it took one
+command — `summrise status` — that no gate in this repository runs. Two releases in two rounds is more churn than a
+release-per-round needs; the standard is not the cadence, it is that a device-affecting change ends with the device
+saying so.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
