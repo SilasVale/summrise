@@ -35,6 +35,27 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 83 — the cadence written last round could not be followed, and running it is what proved that
+
+Round 82 closed the inventory's §5.8 gap by giving the seven device-targeted e2e sections a documented cadence. Round 83
+FOLLOWED that cadence — the panel's wiring had changed twice — and the device answered:
+
+```
+Cannot find module 'D:\Summrise\agent\scripts\e2e\e2e.js'
+```
+
+**Because that is a REPOSITORY path, and an installed device has the PRODUCT, not the repo.** The script's own header says
+what it needs — `node e2e.js --token <agent-token> [--base http://127.0.0.1:18080]` — and CI runs it against an agent it
+launches itself, which is a third shape again. So the corrected cadence names the TRANSFER (the one `live-panel-probe.mjs`
+already uses: emit to the CDN's public dir and let the device fetch it, or `system_file_download`) and the two arguments
+the device supplies.
+
+**THE LESSON IS THE ONE THIS FILE KEEPS RELEARNING, IN ITS PUREST FORM YET**: an instruction that reads as actionable and
+is not is worse than no instruction, because the next reader spends a round discovering that. It took one command to find
+out — *follow your own rule once* — and the rule had been written one round earlier by the same loop that then failed to
+run it. **A cadence is a claim about the world, and claims about the world are testable.**
+
+
 **Round 82, one line**: the inventory's last open instrument gap (§5.8 — seven e2e sections that CI cannot run because
 they need a device) was closed the only way it can be: **a documented cadence in AGENTS.md**, naming the sections, the command
 (`node agent/scripts/e2e/e2e.js --only <section>`), and the trigger — the paths whose change makes a section the thing to run.

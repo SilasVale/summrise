@@ -71,9 +71,16 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 declares nine sections and CI runs two of them (`--only governance,runs`); the other seven — terminal, file, workflow,
 panel, mcp, evidence, browser — need a real device, so no schedule and no CI job can carry them. The inventory measured
 that gap (§5.8) and the missing half was a CADENCE: a section that nothing runs and nobody is told to run is a section
-that rots silently. So: after changing a terminal backend, a file-relay path, a workflow step, the panel's wiring, the
-MCP surface, the evidence drawer or the browser/playwright door, run its section against the device by hand —
-`node agent/scripts/e2e/e2e.js --only <section>` — and say in the commit what it reported. It is the only instrument in
+that rots silently. **AND THE FIRST VERSION OF THIS SENTENCE WAS FALSE — FOLLOWING IT IS WHAT PROVED IT.** It said to run
+`node agent/scripts/e2e/e2e.js --only <section>` ON THE DEVICE, and the device answered
+`Cannot find module 'D:\Summrise\agent\scripts\e2e\e2e.js'`: that is a REPOSITORY path, and an installed device has the
+product, not the repo. The script's own header says what it needs — `node e2e.js --token <agent-token> [--base
+http://127.0.0.1:18080]`, and CI runs it against an agent it launches itself. So the cadence is: after changing a
+terminal backend, a file-relay path, a workflow step, the panel's wiring, the MCP surface, the evidence drawer or the
+browser/playwright door, GET THE SCRIPT ONTO THE DEVICE the way `live-panel-probe.mjs` is handed over (emit to the CDN's
+public dir, let the device fetch it, or `system_file_download`), then run its section there with the device's own
+`--token` and `--base`, and say in the commit what it reported. It is the only instrument in this repository that
+exercises those paths end to end, and the one instrument no gate can remind you about. It is the only instrument in
 this repository that exercises those paths end to end, and it is the one instrument no gate can remind you about.
 
 **AND A CANCELLED JOB IS REPORTED AS A FAILURE — THE COUNT IS A SUMMARY, THE LOG IS THE MEASUREMENT.**
