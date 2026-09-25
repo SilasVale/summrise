@@ -35,6 +35,11 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 80, one line**: **1.2.474 shipped** the panel read-seam change (device-affecting: the panel is embedded in the
+exe) — tag `9150f240`, CI green before the tag, release.yml success, npm and the CDN updated, the device to follow. The debt
+unchanged: 1.2.472 has no GitHub release asset, and the next publish is what names it.
+
+
 **Round 79, one line**: the panel cell re-measured after round 78 (the `read` option and `ConnModal`'s migration; suite 890),
 AND **1.2.474 IS OWED** — that round changed the panel, which is embedded in the exe the device serves, so it is device-affecting.
 Stating it here is what got the previous three batches shipped (rounds 54+56 → 1.2.471, round 65 → 1.2.472, round 73 → 1.2.473).
