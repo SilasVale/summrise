@@ -97,13 +97,21 @@ pub(crate) fn supervise_tunnel() {
                 }
                 warned_absent = false;
                 let my_gen = summrise_agent::tunnel_ctl::generation();
-                match tokio::process::Command::new(&cf)
+                // `cloudflared.exe` is a console-subsystem binary, so this
+                // supervised spawn asks for the no-console flag before spending
+                // the child (the rule lives in `spawn::hidden`). The command is
+                // built in the open rather than as a chain because the ask has
+                // to be its own statement INSIDE the spawn site's gap for the
+                // whole-tree gate to see it — `main.rs` and `tunnel.rs` took
+                // the same shape.
+                let mut cf_cmd = tokio::process::Command::new(&cf);
+                cf_cmd
                     .args(["tunnel", "--config"])
                     .arg(&cfg)
                     .arg("run")
-                    .kill_on_drop(true)
-                    .spawn()
-                {
+                    .kill_on_drop(true);
+                summrise_agent::spawn::hidden(&mut cf_cmd);
+                match cf_cmd.spawn() {
                     Ok(mut child) => {
                         log_line("cloudflared tunnel: launched from install dir (supervised)");
                         let started = Instant::now();

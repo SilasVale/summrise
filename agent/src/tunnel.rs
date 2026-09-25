@@ -238,10 +238,20 @@ pub(crate) async fn provision_tunnel(
     //    — under the SYSTEM service that is systemprofile, and `tunnel login
     //    --token` may not write it there reliably. After login, ensure the
     //    credentials exist: copy from a real user profile if missing.
-    let login = tokio::process::Command::new(&cf)
-        .args(["tunnel", "login", "--token", cf_token])
-        .output()
-        .await;
+    // `cloudflared.exe` is a console-subsystem binary — the no-console rule,
+    // and the flag it names, live in `crate::spawn::hidden`. EVERY site in this
+    // file asks (login, list, create, list again, route dns).
+    //
+    // THE COMMAND IS BUILT IN THE OPEN RATHER THAN AS A CHAIN, which is the
+    // ask's requirement and not a style choice: the whole-tree gate that counts
+    // these asks (`spawn::console_subsystem_spawn_sites_ask_for_the_flag`)
+    // reads the gap between one spawn expression and the NEXT, so an ask placed
+    // after the last `.arg(...)` of a chain falls outside the gap it belongs to.
+    // `main.rs`'s fix-tunnel site took the same shape for the same reason.
+    let mut login_cmd = tokio::process::Command::new(&cf);
+    login_cmd.args(["tunnel", "login", "--token", cf_token]);
+    crate::spawn::hidden(&mut login_cmd);
+    let login = login_cmd.output().await;
     let login_ok = login.map(|o| o.status.success()).unwrap_or(false);
     if !login_ok {
         return "cloudflared login failed".to_string();
@@ -252,19 +262,19 @@ pub(crate) async fn provision_tunnel(
     //    `tunnel list` output; `tunnel create` prints the full ID on success,
     //    so if the list parse fails (table truncation etc.) grab it from the
     //    create output directly.
-    let list = tokio::process::Command::new(&cf)
-        .args(["tunnel", "list"])
-        .output()
-        .await;
+    let mut list_cmd = tokio::process::Command::new(&cf);
+    list_cmd.args(["tunnel", "list"]);
+    crate::spawn::hidden(&mut list_cmd); // same no-console ask as the login spawn above
+    let list = list_cmd.output().await;
     let list_text = list
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
     let mut tunnel_id = find_tunnel_id_by_name(&list_text, &tunnel_name);
     if tunnel_id.is_none() {
-        let created = tokio::process::Command::new(&cf)
-            .args(["tunnel", "create", &tunnel_name])
-            .output()
-            .await;
+        let mut create_cmd = tokio::process::Command::new(&cf);
+        create_cmd.args(["tunnel", "create", &tunnel_name]);
+        crate::spawn::hidden(&mut create_cmd); // same no-console ask as the login spawn above
+        let created = create_cmd.output().await;
         let (created_text, created_err) = match created {
             Ok(o) => (
                 String::from_utf8_lossy(&o.stdout).to_string(),
@@ -274,10 +284,10 @@ pub(crate) async fn provision_tunnel(
         };
         tunnel_id = parse_tunnel_id(&created_text).or_else(|| parse_tunnel_id(&created_err));
         if tunnel_id.is_none() {
-            let list2 = tokio::process::Command::new(&cf)
-                .args(["tunnel", "list"])
-                .output()
-                .await;
+            let mut list2_cmd = tokio::process::Command::new(&cf);
+            list2_cmd.args(["tunnel", "list"]);
+            crate::spawn::hidden(&mut list2_cmd); // same no-console ask as the login spawn above
+            let list2 = list2_cmd.output().await;
             let list2_text = list2
                 .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
                 .unwrap_or_default();
@@ -295,10 +305,10 @@ pub(crate) async fn provision_tunnel(
         return diag;
     };
     // 3. DNS route (best-effort)
-    let _ = tokio::process::Command::new(&cf)
-        .args(["tunnel", "route", "dns", &tunnel_name, &hostname])
-        .output()
-        .await;
+    let mut route_cmd = tokio::process::Command::new(&cf);
+    route_cmd.args(["tunnel", "route", "dns", &tunnel_name, &hostname]);
+    crate::spawn::hidden(&mut route_cmd); // same no-console ask as the login spawn above
+    let _ = route_cmd.output().await;
     // 3b. Update the tunnel's REMOTE config via the Cloudflare API — cloudflared
     //     prefers the remote config when one exists, and a stale remote (old
     //     127.0.0.2 ingress) would override the local tunnel.yml. Point the

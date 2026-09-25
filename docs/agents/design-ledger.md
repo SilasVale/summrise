@@ -5926,6 +5926,36 @@ npm `latest`; release commit `1045fd94` **CI-green before the tag** (10/11); tag
 **`--audit-only 1.2.467` → CDN == GitHub asset byte-for-byte** (`8cf82c77241c7944…`); and the device:
 `release: 1.2.467 · this CLI: 1.2.467 · latest: 1.2.467 (this device is current)`.
 
+## 2026-09-25 — the thirty-third exploration: the last two waivers both said "next round"
+
+Round 32 left three entries on the spawn gate's `EXEMPT` list, each with a reason. One is the applier itself. The other
+two said the same thing in as many words — *"outside the round that wrote the rule (named as a remainder in the ledger)"*
+— which is a reason for a ROUND, not for a rule. `tunnel.rs` spawned the `cloudflared` CLI five times and `winmain.rs`
+its supervised `cloudflared` once, all tokio commands, all reachable by `hidden`, and `cloudflared.exe` was already
+named in the rule's program class.
+
+Six asks later, **`EXEMPT` is down to ONE entry** — `spawn.rs`, the applier, whose own `tasklist` runs one call deeper
+through `attempt`. `SITES` gained `tunnel.rs`; `winmain.rs` was already listed and now counts seven asks (six
+`hidden_std` + one `hidden`).
+
+**THE SHAPE MATTERED, NOT JUST THE FLAG.** Five of the tunnel sites were CHAINS
+(`Command::new(&cf).arg(…).output().await`), and an ask appended to a chain sits outside the gap the gate scans — so
+those sites were restructured to `let mut c = …; c.args(…); hidden(&mut c); … c.output().await`, the shape `main.rs`
+used last round (whose comment records why). A rule that is only satisfied by one statement shape is worth knowing
+about: the gate's `SITES` counts are what caught it, and the mutation — deleting the route-dns ask — fails with
+`["tunnel.rs: \`&cf\`"]`.
+
+**AND THE LIST IS NOW SMALL ENOUGH TO READ.** Three entries with three reasons was a place work could hide; one entry
+that is the applier is a statement about the tree. That is this round's value: not the six calls, but that the waiver
+list stops being a to-do list.
+
+**NOT RELEASED, DELIBERATELY:** `hidden` is a no-op off Windows and only suppresses a console window a session-0
+service never had, so this round changes no device-visible behaviour. It joins the next release rather than forcing
+one — the standard from round 30 is about device-AFFECTING changes, and this flag is not one.
+
+**NUMBERS:** agent lib tests hold at **751** (the round adds none; it removes two waiver entries and the assertion that
+named them), fmt clean, clippy clean in both configurations, `cargo xwin check` clean.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

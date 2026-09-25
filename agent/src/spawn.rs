@@ -784,22 +784,23 @@ mod tests {
         }
     }
 
-    /// THE WAIVER LIST IS SHORT ENOUGH TO READ — AND IT IS ASSERTED, NOT TRUSTED.
+    /// THE WAIVER LIST IS DOWN TO THE APPLIER ITSELF — AND IT IS ASSERTED, NOT
+    /// TRUSTED.
     ///
     /// Every entry that used to be here for the BLOCKING command type is gone,
     /// because the reason those entries gave ("`hidden` is tokio-typed, so it
     /// cannot ask") stopped being true the moment `hidden_std` existed: a waiver
     /// whose only justification is a type boundary is not a decision, it is a hole
     /// in the rule, and leaving one behind would read as a site that still cannot
-    /// ask. What remains is three files, each with a reason that a reader can check
+    /// ask. The two `cloudflared` entries that remained after that — named as a
+    /// remainder rather than as a site that could not ask — are gone too: both
+    /// are TOKIO spawns, which `hidden` reaches, so the only thing excusing them
+    /// was scope. What is left is one file, and its reason a reader can check
     /// against the source:
     ///
     /// * `spawn.rs` — the applier itself, not a caller: `hidden`/`hidden_std` are
     ///   called inside it, and its taskkill/kill/pgrep spawns are covered one call
     ///   deeper, by `attempt`.
-    /// * `winmain.rs` — only its SUPERVISED `cloudflared` (a tokio command, the
-    ///   spawn round's named remainder; its `std` self-heal spawns now ask).
-    /// * `tunnel.rs` — the `cloudflared` CLI spawns, the same remainder.
     ///
     /// THE `assert_eq!` IS THE EXACT LIST rather than a `contains`, because the
     /// failure being guarded against is an entry ADDED BACK: a new waiver for a
@@ -813,10 +814,10 @@ mod tests {
         let names: Vec<&str> = EXEMPT.iter().map(|(file, _)| *file).collect();
         assert_eq!(
             names,
-            vec!["spawn.rs", "winmain.rs", "tunnel.rs"],
-            "the no-console rule now reaches BOTH command types (`hidden` and `hidden_std`), so \
-             the only files that may still waive the ask are the applier itself and the two \
-             whose `cloudflared` tokio spawns the spawn round left as a named remainder"
+            vec!["spawn.rs"],
+            "the no-console rule reaches BOTH command types (`hidden` and `hidden_std`), so the \
+             `cloudflared` spawns that were waived for scope now ask — the applier itself is the \
+             only file that may still waive the ask"
         );
         for (file, reason) in EXEMPT {
             assert!(
@@ -961,6 +962,13 @@ mod tests {
     /// `tasklist` probe) and `winmain.rs` (self-heal's `powershell`,
     /// `sc.exe` ×2, `schtasks` ×2). They were in `EXEMPT` because they could
     /// not ask; now they do.
+    ///
+    /// `tunnel.rs` arrived last, and it is the round that closed the REMAINDER
+    /// rather than a type boundary: its five `cloudflared` CLI spawns (login,
+    /// list, create, list again, route dns) were waived for scope alone, and
+    /// `winmain.rs`'s supervised `cloudflared` with them — both TOKIO commands,
+    /// which `hidden` reaches. Each was restructured out of a builder chain so
+    /// its ask is its own statement, the shape `main.rs` already used.
     const SITES: &[&str] = &[
         "spawn.rs",
         "plugins/playwright/manager.rs",
@@ -973,31 +981,23 @@ mod tests {
         "paths.rs",
         "web/mod.rs",
         "winmain.rs",
+        "tunnel.rs",
     ];
     /// Files where a console-subsystem spawn does NOT ask, each with the reason
     /// it cannot (or deliberately does not). A file may be in BOTH lists, and that
-    /// means both things at once: `winmain.rs` asks for its self-heal `std` spawns
-    /// while its supervised `cloudflared` spawn (tokio) is untouched, and
-    /// `spawn.rs` asks for the `tasklist` that disambiguates a name kill while its
-    /// taskkill/kill/pgrep spawns are covered one call deeper, by `attempt`.
-    const EXEMPT: &[(&str, &str)] = &[
-        (
-            "spawn.rs",
-            "the applier, not a caller: `hidden`/`hidden_std` are called inside this module (in \
-             those two functions and in `attempt`, through which taskkill/kill/pgrep run)",
-        ),
-        (
-            "winmain.rs",
-            "the SUPERVISED `cloudflared` spawn is a tokio command left outside the round that \
-             wrote the rule (named as a remainder in the ledger, not hidden); this file's \
-             `std::process::Command` spawns now ask through `hidden_std`",
-        ),
-        (
-            "tunnel.rs",
-            "the `cloudflared` CLI spawns are outside the round that wrote the rule (named \
-             as a remainder in the ledger, not hidden)",
-        ),
-    ];
+    /// means both things at once: `spawn.rs` asks for the `tasklist` that
+    /// disambiguates a name kill while its taskkill/kill/pgrep spawns are covered
+    /// one call deeper, by `attempt`.
+    ///
+    /// IT IS ONE ENTRY, and the two `cloudflared` waivers that stood beside it
+    /// were DELETED rather than reworded: `hidden` reaches the tokio commands in
+    /// both files, so "outside the round that wrote the rule" was a statement
+    /// about scope, never about the site's ability to ask.
+    const EXEMPT: &[(&str, &str)] = &[(
+        "spawn.rs",
+        "the applier, not a caller: `hidden`/`hidden_std` are called inside this module (in \
+         those two functions and in `attempt`, through which taskkill/kill/pgrep run)",
+    )];
     const SPAWN: &str = "Command::new(";
     // THE ASKS, as CALLS rather than words — ONE PER ENTRY POINT in `hidden`'s
     // module, and BOTH have to count: `hidden(&mut …)` for a tokio command,
