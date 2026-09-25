@@ -35,6 +35,30 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 59 — the shift hypothesis is dead, and my own framing was wrong
+
+Rounds 34-35 read the divergence as "one region placed 304 bytes apart, with 1,168 stored offsets compensating". This round
+tested the obvious consequence of that reading — if a region moved, the FILES should match when one is shifted — and the
+reading is WRONG:
+
+| alignment | sampled bytes that match |
+|---|---|
+| unshifted | **2,519,418 / 2,519,625 (99.99%)** |
+| CI shifted by +304 | 9.35% |
+| CI shifted by −304 | 9.39% |
+
+**THE TWO IMAGES ARE IDENTICAL EXCEPT FOR 1,484 SCATTERED BYTES.** Nothing moved: 1,168 four-byte VALUES differ by exactly
+`-0x130` while every other byte in a 17.6 MB file agrees — including the bytes at the addresses those values point to, which is
+why round 35's "target content did not move" test found zero hits: there was no move to find. A constant delta in stored values
+with no positional change is a table whose ENTRIES were recomputed, not a region that shifted — and the honest statement is that
+the earlier sections said "displacement" where the measurement supports only "1,168 values, each 0x130 smaller in CI".
+
+**THE INSTRUMENT THAT WOULD NAME IT IS UNCHANGED AND UNUSED**: the map's per-object contribution list (`/MAPINFO`), which the
+segment table cannot show because it lists `$`-named segments rather than the anonymous `.rdata` contributions inside them. That
+is a two-line change to `release.yml` and a diff of one release log — and after this round it is the ONLY remaining step, because
+the positional hypothesis it was going to be used to confirm is now excluded.
+
+
 **Rounds 56-58, one line each**: round 56 closed the panel ratchet's gap (command facts) and round 57 re-measured the
 cells it moved; round 58 SHIPPED both device-affecting rounds as **1.2.471** — tag `ca956aa0`, release.yml success, the CDN
 smoke green, and the device reporting `release: 1.2.471 · this CLI: 1.2.471 · this device is current`. The dual-builder audit
