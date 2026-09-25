@@ -35,6 +35,11 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 72, one line**: the full suite re-run after rounds 68-71 (which touched `spawn.rs`) — `bash scripts/test/all-gates.bash`
+→ **57 ok, 0 failed, 1 not runnable here (of 58 gate commands)**, the same totals as before them. Rounds that edit a GATE and the
+scan behind it earn the whole suite rather than the checks next to them, and the verdict is unchanged.
+
+
 **Round 71, one line**: the Rust cells re-measured after round 70 — `agent/src` and `spawn.rs` both grew (the fixtures for the
 third cfg spelling), while `EXEMPT` stayed at zero; the subdirectory cells were re-run and say so. A round whose output is a
 measurement writes one line here rather than a section.
