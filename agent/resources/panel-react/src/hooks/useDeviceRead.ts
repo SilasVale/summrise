@@ -54,7 +54,11 @@
 //   * migrated with the two options named above, which exist because they needed them:
 //     `useCommandEvents` (one session's audit trail) and `usePlugins` (TWO reads — a once-gated spec
 //     plus a status — migrated separately in the same round, and the reason `enabled` is a caller's
-//     word for "there is nothing to read yet" rather than a route nobody may build).
+//     word for "there is nothing to read yet" rather than a route nobody may build);
+//   * migrated with the option that exists because IT needed it: `SettingsPage` — one `/api/settings`
+//     read whose value SEEDS five editable fields, where `keepEdits` is what stops a late answer
+//     from writing over what the operator has typed (the option's own doc has the shape, and why
+//     withholding the settle would have been the wrong instrument for it).
 //
 // AND THE PARAGRAPH THAT USED TO SIT HERE NAMED SIX REMAINING SITES, TWO OF WHICH WERE WRONG. It
 // said the six "still hand-roll the same shape"; measured, only FOUR of them ever did — the four
@@ -84,10 +88,28 @@
 //     same round, and it is where `enabled` is shared. Its record is its own header, not this one.
 //
 // AND THE REST OF THE PANEL'S READERS WERE MEASURED TOO, so "still to migrate" is a list rather
-// than an impression: `useSessions.ts` and `TerminalPane.tsx` read a TOOL through `callTool`, not a
-// route through `callApi`, so this seam does not describe them; `SettingsPage.tsx` and
-// `ConnModal.tsx` read once to SEED EDITABLE state (a form, a picker's saved list) and report a
-// failure in their own status line, so there is no single folded value to hand over.
+// than an impression. TWO OF THE FOUR ARE NOT ON THIS SEAM, and what stops them is the TRANSPORT
+// before it is the loop: `useSessions.ts` and `TerminalPane.tsx` read a TOOL through `callTool`,
+// which is a `POST /api/tools/{name}` carrying a JSON body and UNWRAPPING `result` (`lib/api.ts`
+// 103-114), while the one route this module can state is the one `refresh` builds for it —
+// `callApi(route)`, a GET with no init and no body (`refresh` below; `path` carries a route, or a
+// function that builds one, and nothing else). A path cannot express those reads.
+//
+// AND THEY ARE NOT ONE FOLD OF ONE VALUE EITHER, which is the half a `read` function would not
+// have fixed. `useSessions` folds ONE reply TWO ways: the event path adds, revives, syncs and
+// TOMBSTONES (`useSessions.ts:306-379`) while the 30 s sweep only adds (`:394-427`); and it retries
+// a failed read once after 1.2 s (`:287-304`), the round-245 fix for an AI-opened session that
+// never appeared — this module has one `reduce`, one cadence and no retry. `TerminalPane`'s read
+// (`:337-392`) is not a value read at all: it PAGES a cursor into xterm, decoding bytes and writing
+// them through `renderedRef`, so there is no `T` to hand over.
+//
+// THE OTHER TWO DID SEED EDITABLE STATE, and one of them is HERE now rather than beside this
+// module: `SettingsPage.tsx` reads `/api/settings` once and writes five editable fields from the
+// answer, which is the shape `keepEdits` (in `DeviceReadOptions`) was added FOR. `ConnModal.tsx`
+// reads the saved-connection list through the same tool door (`ConnModal.tsx:32`, a POST with a
+// body), so the transport note above blocks it too — and its write-back feeds a PICKER's options,
+// which the fields are never written from: a pick is the operator's own act (`pickSaved`), so there
+// is no edit for a settle to clobber.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
 import type { ReadState } from "../lib/readState";
@@ -158,6 +180,41 @@ export interface DeviceReadOptions<T> {
    *  unchanged and stops — a caller cannot hang the panel, but it can make it re-render forever, and
    *  a session id is the value this was built for. */
   resetKey?: unknown;
+  /** THE CALLER'S EDITS IN FLIGHT, PUT BACK OVER THE ANSWER A SETTLE WOULD WRITE.
+   *
+   *  A read whose value is a SEED for editable fields has one failure mode no other reader here
+   *  has: its write-back is an ASSIGNMENT into a form the operator may already be typing in. The
+   *  fields are on screen, with the caller's defaults in them, from the first frame; the answer can
+   *  arrive seconds later (a relay, or a device busy in a child process — `/api/settings` shells
+   *  out to `tasklist` for its tunnel state), and what was typed in the meantime is what the reply
+   *  used to overwrite.
+   *
+   *  SO THE EDITS WIN, RATHER THAN THE ANSWER BEING HELD BACK — and the difference is worth the
+   *  paragraph, because "suppress the write-back while the form is dirty" is the shape this option
+   *  was first expected to have, and for the caller it was added for it is the WRONG instrument.
+   *  That caller's one settle carries FIVE independent fields (`SettingsPage.tsx`), so withholding
+   *  the settle would leave the fields the operator had NOT touched showing the page's own defaults
+   *  — and `agent/tests/fixtures/settings.json` names what that costs: every field this page reads
+   *  falls back to a default, so the next Save persists a value the page could no longer read.
+   *  Merging loses nothing: the fields nobody has typed into take the device's values, and the ones
+   *  that were typed keep what is in them.
+   *
+   *  CONSULTED AT SETTLE TIME AND AFTER THE FOLD, not before it: the fold's own job (parsing the
+   *  device's answer, and advancing a cursor ref) still happens, and the caller answers as it is at
+   *  that moment — an operator who types between two settles has their newest text in the value the
+   *  next settle writes. A `Partial` with no keys is NO edits, so a caller that computes one lazily
+   *  does not get a new value identity for nothing. `T` is a record of independent fields here —
+   *  the shape of a form, which is the only shape this option is for; a `Partial` of anything else
+   *  is the caller's mistake, and not something this module can detect.
+   *
+   *  IT IS NOT A FAILURE PATH, and changes nothing about one: a refusal and a throw write no value
+   *  to begin with, so `read` and `reason` report them as they always did and the last good value
+   *  stands. An edits source that THROWS is a failed read on the same terms as a fold that throws
+   *  (the catch below), because it runs in the same settle.
+   *
+   *  ADDED WITH ITS CALLER (`SettingsPage.tsx`), the rule the function form of `path` and the two
+   *  options above record. */
+  keepEdits?: () => Partial<T> | undefined;
 }
 
 export interface DeviceRead<T> {
@@ -215,6 +272,19 @@ function thrownReason(e: unknown): string {
   return "";
 }
 
+/** THE EDITS, OVER THE ANSWER — see `keepEdits` for why this is a merge rather than a veto.
+ *  TOTAL by construction, and it returns the fold's OWN value back when there is nothing to merge:
+ *  no source, no edits, and an EMPTY `Partial` are all "the caller has typed nothing", and a caller
+ *  that computes `{}` lazily must not be handed a new identity for it (the render-skipping rule
+ *  `useSessions`' wire-field comparison states for its own poll). The casts are the price of one
+ *  generic module: `T` is only known to be the caller's record at the call site that has a form. */
+function withEdits<T>(next: T, keep?: () => Partial<T> | undefined): T {
+  if (!keep) return next;
+  const edits = keep();
+  if (!edits || Object.keys(edits as object).length === 0) return next;
+  return Object.assign({}, next as object, edits as object) as unknown as T;
+}
+
 export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   const {
     path,
@@ -224,6 +294,7 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
     floorMs = DEFAULT_FLOOR_MS,
     enabled = true,
     resetKey,
+    keepEdits,
   } = opts;
   const [data, setData] = useState<T>(initial);
   const [read, setRead] = useState<ReadState>("reading");
@@ -248,6 +319,11 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
   pathRef.current = path;
   const reduceRef = useRef(reduce);
   reduceRef.current = reduce;
+  // The edits source the same way, for the same reason: its answer is only meaningful AT SETTLE
+  // TIME, and it must be what the caller holds NOW — a form's edits are made between two reads, not
+  // before the hook was called (see `keepEdits`).
+  const keepEditsRef = useRef(keepEdits);
+  keepEditsRef.current = keepEdits;
   // ONLY THE NEWEST READ MAY WRITE. Two overlapping reads — a mount read plus a refresh, or
   // a focus-driven refresh landing on top of the interval's — must not let the slower one
   // land last and rewind the value. The rule was first written down in `useSessionArchive`
@@ -323,7 +399,11 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
         return;
       }
       const fold = reduceRef.current;
-      const next = fold(dataRef.current, body);
+      // THE EDITS COME BACK OVER THE ANSWER, in the same settle that sets the value: a form the
+      // operator is typing in must not be written over, and the merge is the MODULE's so that no
+      // form-seeding caller has to remember the rule (see `keepEdits`). The fold still runs FIRST,
+      // so a cursor-carrying caller's cursor advances on the read it just made.
+      const next = withEdits(fold(dataRef.current, body), keepEditsRef.current);
       dataRef.current = next;
       setData(next);
       // A SUCCESS CLEARS THE REASON IN THE SAME SETTLE THAT SETS THE VALUE, which is what lets a caller

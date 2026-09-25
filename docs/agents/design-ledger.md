@@ -35,6 +35,32 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 73 — the read seam takes the shape it was missing, and the group that cannot move is now measured
+
+Two groups were left outside `useDeviceRead` when it landed: readers that go through `callTool` (`useSessions`, the terminal pane), and
+reads that SEED EDITABLE FORM STATE (`SettingsPage`, `ConnModal`). This round took the second, and turned the first from "deferred"
+into a measured blocker:
+
+- the module states exactly ONE route — `callApi(route)` in `refresh`, a GET with no init and no body — while `callTool` POSTs a JSON
+  body and unwraps `result`, so `path` cannot express a tool read at all;
+- even given a `read` function, `useSessions` folds one reply TWO ways (an event path that tombstones, a 30 s sweep that only adds)
+  and retries a failure after 1.2 s — the module has one `reduce`, one cadence, no retry;
+- the terminal pane's read is not a value read: it pages a cursor into xterm, so there is no `T` to hand over.
+
+**AND THE FORM READ GOT THE OPTION IT NEEDED, NOT A HOOK BESIDE IT**: `keepEdits?: () => Partial<T> | undefined` — at settle time,
+AFTER the fold, the caller's in-flight edits are merged back over the device's answer. **The round chose merge over "suppress the
+write-back while dirty", and the reason is measured**: one settle carries FIVE independent fields, so withholding it would leave the
+untouched ones showing the page's own defaults — the silent-write risk the settings fixture names. `SettingsPage` now reads through
+the module (same single GET at mount, no cadence, same failure sentence), and one field deliberately stays a direct call because it
+decides a write-side key wipe that an edit must not override.
+
+**FIVE NEW TESTS, INCLUDING THE ONE THAT MAKES IT REAL**: type into a field, let a late read land, assert the typed value survives —
+plus a field emptied to `""`, an untouched field taking the device's value, the race, edits read at settle time, `{}` meaning no
+edits, and a throwing source reported as a failed read. Panel suite **877 → 882**, `tsc --noEmit` clean, `panel.js` regenerated
+(it is embedded with `include_str!`, so the bundle is part of the diff). The module's header now carries the group-1 blockers with
+LINE NUMBERS rather than the word "deferred", which is the difference between a queue and a decision.
+
+
 **Round 72, one line**: the full suite re-run after rounds 68-71 (which touched `spawn.rs`) — `bash scripts/test/all-gates.bash`
 → **57 ok, 0 failed, 1 not runnable here (of 58 gate commands)**, the same totals as before them. Rounds that edit a GATE and the
 scan behind it earn the whole suite rather than the checks next to them, and the verdict is unchanged.

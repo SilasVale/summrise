@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { callApi, getToken } from "../lib/api";
+import { useDeviceRead } from "../hooks/useDeviceRead";
 import { ConnectCard } from "./ConnectCard";
 import { DeviceLogsCard } from "./DeviceLogsCard";
 import { RestartHistoryCard } from "./RestartHistoryCard";
@@ -40,6 +41,55 @@ function UpdateSection({ runningRelease }: { runningRelease?: string }) {
  *  to print, and that sentence differs only for these. */
 function isLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
+/** WHAT THE DEVICE'S SETTINGS READ PUTS INTO THIS PAGE'S FIELDS — the five editable values it seeds,
+ *  as the inputs render them.
+ *
+ *  `gwStatus` IS THE ONE THAT IS NOT JUST A COPY OF THE BODY: the device has a gateway sentence to
+ *  say only when a console is configured (`console_url`), so `null` here means "this reply did not
+ *  mention a gateway" — which is NOT the same as "there is none". The card also carries the connect
+ *  flow's own words ("connecting…", "registered", the re-read's warning), and a reply with nothing
+ *  to say must not wipe one. */
+interface SettingsSeed {
+  bufferMb: string;
+  gwUrl: string;
+  gwStatus: string | null;
+  memEntries: string;
+  memBytesMb: string;
+  memRetention: string;
+}
+
+/** THE VALUES THE FIELDS SHOW BEFORE THE DEVICE ANSWERS — byte-for-byte the defaults this page's
+ *  `useState` calls carried, because they are also what an operator sees if the read fails. */
+const SETTINGS_DEFAULTS: SettingsSeed = {
+  bufferMb: "8",
+  gwUrl: "",
+  gwStatus: null,
+  memEntries: "10000",
+  memBytesMb: "64",
+  memRetention: "",
+};
+
+/** THE DEVICE'S ANSWER AS THE FIELDS TAKE IT. Each field is written ONLY when the body carries it,
+ *  and the value in hand (`previous`) is the floor — the rule the hand-rolled `.then` used to state
+ *  one `if (typeof … === "number")` at a time, kept because a body that carries none of them (an
+ *  older agent, a proxy's error page) has always left the fields alone rather than blanking them. */
+function seedSettings(previous: SettingsSeed, body: unknown): SettingsSeed {
+  const j = body as Record<string, unknown> | null | undefined;
+  const next = { ...previous };
+  if (j && typeof j.buffer_mb === "number") next.bufferMb = String(j.buffer_mb);
+  if (j && typeof j.console_url === "string" && j.console_url) {
+    next.gwUrl = j.console_url;
+    // Persisted gateway state — show it, don't blank the card.
+    const parts = ["connected"];
+    if (j.tunnel_configured) parts.push(j.tunnel_running ? "tunnel: running" : "tunnel: configured");
+    next.gwStatus = parts.join(" · ");
+  }
+  if (j && typeof j.memory_max_entries === "number") next.memEntries = String(j.memory_max_entries);
+  if (j && typeof j.memory_max_bytes_mb === "number") next.memBytesMb = String(j.memory_max_bytes_mb);
+  if (j && typeof j.memory_retention_days === "number") next.memRetention = String(j.memory_retention_days);
+  return next;
 }
 
 export function SettingsPage({
@@ -91,14 +141,14 @@ export function SettingsPage({
 }) {
   const [revealed, setRevealed] = useState(false);
   const token = getToken();
-  const [bufferMb, setBufferMb] = useState("8");
+  const [bufferMb, setBufferMb] = useState(SETTINGS_DEFAULTS.bufferMb);
   const [status, setStatus] = useState("");
 
   // Memory capacity card (round-358: server-wired since round-357, editable
   // here — previously config.yaml-only). Retention "" = keep forever.
-  const [memEntries, setMemEntries] = useState("10000");
-  const [memBytesMb, setMemBytesMb] = useState("64");
-  const [memRetention, setMemRetention] = useState("");
+  const [memEntries, setMemEntries] = useState(SETTINGS_DEFAULTS.memEntries);
+  const [memBytesMb, setMemBytesMb] = useState(SETTINGS_DEFAULTS.memBytesMb);
+  const [memRetention, setMemRetention] = useState(SETTINGS_DEFAULTS.memRetention);
   const [memStatus, setMemStatus] = useState("");
   const { busy: memBusy, ack: memAck, run: runMem } = useAck();
 
@@ -130,10 +180,10 @@ export function SettingsPage({
   }
 
   // Gateway card state
-  const [gwUrl, setGwUrl] = useState("");
+  const [gwUrl, setGwUrl] = useState(SETTINGS_DEFAULTS.gwUrl);
   const [gwKey, setGwKey] = useState("");
   const [gwTunnel, setGwTunnel] = useState(false);
-  const [gwStatus, setGwStatus] = useState("");
+  const [gwStatus, setGwStatus] = useState(SETTINGS_DEFAULTS.gwStatus ?? "");
   // FOUR CONTROLS SHARE THIS ONE (the confirm, its Cancel, the trigger, and the Connect that owns the label).
   // Unlike GoalBar and PathView, the label was never WRONG here: only `connectGateway` sets this flag, so
   // "Connecting…" could only appear while a connect was actually in flight. What the hook adds is that the flag
@@ -145,23 +195,55 @@ export function SettingsPage({
   // (MemoryPage): first click arms, second executes. Cancel disarms.
   const [gwConfirm, setGwConfirm] = useState(false);
 
+  /** WHAT THE OPERATOR HAS TYPED INTO THE SEEDED FIELDS, where the read can see it. Every one of
+   *  the five fields below records its edits here, and `keepEdits` puts them back over the device's
+   *  answer at settle time — which is the difference between this read and the hand-rolled one it
+   *  replaces (see the read's own comment). The registration key and the tunnel checkbox are NOT
+   *  here: the answer never writes them, so there is nothing for it to clobber. */
+  const editsRef = useRef<Partial<SettingsSeed>>({});
+  /** RECORD AN EDIT AND SHOW IT — one helper, because a field that forgot to record would be a
+   *  field the device's answer may silently replace, and five hand-written handlers is how one of
+   *  them gets forgotten. */
+  const edited =
+    (field: keyof SettingsSeed, set: (v: string) => void) =>
+    (e: ChangeEvent<HTMLInputElement>) => {
+      editsRef.current[field] = e.target.value;
+      set(e.target.value);
+    };
+
+  // THE MOUNT READ IS `useDeviceRead`'s (see its header): one GET of `/api/settings`, the refusal
+  // guard, the unmount guard and the ordering guard. No `everyMs` — these fields are editable, so a
+  // cadence would be a poll nobody asked for writing into a form.
+  //
+  // AND THE ANSWER COMES BACK OVER THE EDITS, which is why the read belongs on this seam. The
+  // fields are editable from the first frame (carrying the defaults above), this route can take
+  // seconds to answer (it shells out to `tasklist` for the tunnel state, and a relay adds more),
+  // and the hand-rolled `.then` wrote every field it carried — so a value typed in the meantime was
+  // silently replaced by the device's. `keepEdits` carries what was typed back OVER the answer,
+  // which is also why the fields nobody has touched still take the device's values: the settle is
+  // merged, never withheld.
+  const { data: seed, read } = useDeviceRead<SettingsSeed>({
+    path: "/api/settings",
+    initial: SETTINGS_DEFAULTS,
+    reduce: seedSettings,
+    keepEdits: () => editsRef.current,
+  });
+  // THE SEED LANDS IN THE FIVE FIELDS — all of them, unconditionally, because the value ALREADY
+  // carries the operator's edits: assigning a field they typed in writes their own text back. The
+  // gateway sentence is the one exception, `null` meaning the reply had nothing to say about it.
   useEffect(() => {
-    callApi("/api/settings")
-      .then((j: any) => {
-        if (j && typeof j.buffer_mb === "number") setBufferMb(String(j.buffer_mb));
-        if (j && typeof j.console_url === "string" && j.console_url) {
-          setGwUrl(j.console_url);
-          // Persisted gateway state — show it, don't blank the card.
-          const parts = ["connected"];
-          if (j.tunnel_configured) parts.push(j.tunnel_running ? "tunnel: running" : "tunnel: configured");
-          setGwStatus(parts.join(" · "));
-        }
-        if (j && typeof j.memory_max_entries === "number") setMemEntries(String(j.memory_max_entries));
-        if (j && typeof j.memory_max_bytes_mb === "number") setMemBytesMb(String(j.memory_max_bytes_mb));
-        if (j && typeof j.memory_retention_days === "number") setMemRetention(String(j.memory_retention_days));
-      })
-      .catch(() => setStatus("read failed"));
-  }, []);
+    setBufferMb(seed.bufferMb);
+    setGwUrl(seed.gwUrl);
+    if (seed.gwStatus !== null) setGwStatus(seed.gwStatus);
+    setMemEntries(seed.memEntries);
+    setMemBytesMb(seed.memBytesMb);
+    setMemRetention(seed.memRetention);
+  }, [seed]);
+  // A FAILED READ SAYS SO, in the sentence this page has always used for it. The module keeps the
+  // fields on a failure (that rule is its own), so the sentence is all that is left to state here.
+  useEffect(() => {
+    if (read === "unreadable") setStatus("read failed");
+  }, [read]);
 
   const { busy: saveBusy, ack: saveAck, run: runSave } = useAck();
   async function save() {
@@ -241,6 +323,12 @@ export function SettingsPage({
   // while the device is actually bound; re-sending burns a dead key. On ANY
   // failure with a key typed, re-read settings: a bound console_url means
   // "do not retry" — clear the field and say so.
+  //
+  // AND THIS READ STAYS A DIRECT `callApi`, deliberately — it is NOT a seed. Its answer decides a
+  // WRITE-side question (whether to wipe a spent key) and it writes its two fields by hand, so
+  // folding it into the module's `refresh` would run it through `keepEdits`, where the key the
+  // operator typed is an edit that wins — and the wipe this function exists to perform could then
+  // never happen. The module owns the read that SEEDS this page's form, not this one.
   async function gwFailure(prefix: string, msg: string) {
     if (!gwKey.trim()) { setGwStatus(msg || prefix); return; }
     try {
@@ -343,7 +431,7 @@ export function SettingsPage({
                rule, and a class that matches no rule is a name a reader has to check (round 250). */
             placeholder="Gateway URL (e.g. https://gateway.example.com)"
             value={gwUrl}
-            onChange={(e) => setGwUrl(e.target.value)}
+            onChange={edited("gwUrl", setGwUrl)}
             aria-label="Gateway URL"
           />
           <input
@@ -393,7 +481,7 @@ export function SettingsPage({
             max={64}
             step={1}
             value={bufferMb}
-            onChange={(e) => setBufferMb(e.target.value)}
+            onChange={edited("bufferMb", setBufferMb)}
             aria-label="Session buffer MiB"
           />
           <button className="btn btn-ghost btn-mini" onClick={save} disabled={saveBusy} {...saveAck("save")}>Save</button>
@@ -436,7 +524,7 @@ export function SettingsPage({
             min={1}
             step={1}
             value={memEntries}
-            onChange={(e) => setMemEntries(e.target.value)}
+            onChange={edited("memEntries", setMemEntries)}
             aria-label="Memory max entries"
           />
           <input
@@ -445,7 +533,7 @@ export function SettingsPage({
             min={1}
             step={1}
             value={memBytesMb}
-            onChange={(e) => setMemBytesMb(e.target.value)}
+            onChange={edited("memBytesMb", setMemBytesMb)}
             aria-label="Memory max MiB"
           />
           <input
@@ -454,7 +542,7 @@ export function SettingsPage({
             min={1}
             step={1}
             value={memRetention}
-            onChange={(e) => setMemRetention(e.target.value)}
+            onChange={edited("memRetention", setMemRetention)}
             placeholder="retention days (empty = forever)"
             aria-label="Memory retention days"
           />

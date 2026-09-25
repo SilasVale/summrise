@@ -3,7 +3,7 @@
 // input blocks the PUT with a hint.
 import { expectOneH1, expectNoSkippedLevel } from "../../test-utils/outline";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SettingsPage } from "../SettingsPage";
 import { callApi } from "../../lib/api";
 
@@ -107,6 +107,83 @@ describe("SettingsPage memory card", () => {
     const { container } = render(<SettingsPage />);
     expectOneH1(container, "Settings");
     expectNoSkippedLevel(container);
+  });
+});
+
+
+// ── THE EDIT THAT SURVIVES THE ANSWER ───────────────────────────────────────────────────────────────────────────────────
+// The fields are editable from the FIRST frame (they hold the page's defaults), and `/api/settings` is not instant: it
+// shells out to `tasklist` for the tunnel state, and a relay adds seconds on top. The hand-rolled read wrote every field
+// the reply carried, so an operator who typed while the read was in flight watched the device's value replace their own.
+// The read now goes through `useDeviceRead`, and `keepEdits` carries what was typed back OVER the answer — which is also
+// why the fields nobody touched still take the device's values (the settle is merged, never withheld).
+describe("SettingsPage — the edits the answer must not overwrite", () => {
+  /** Answer `GET /api/settings` by hand, so the test owns the order: type first, answer second. */
+  function deferSettings() {
+    let answer!: (body: unknown) => void;
+    const pending = new Promise((res) => {
+      answer = res;
+    });
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET")) return pending;
+      return { ok: true };
+    });
+    return { answer, pending };
+  }
+  const valueOf = (label: string) =>
+    (screen.getByLabelText(label) as HTMLInputElement).value;
+
+  it("types into a field, lets the read land, and the typed value survives", async () => {
+    const { answer, pending } = deferSettings();
+    render(<SettingsPage />);
+    // THE OPERATOR TYPES BEFORE THE DEVICE ANSWERS. 16 against a device that says 8 (and a default
+    // of 8), so nothing but the operator's own text can produce it. The retention field is typed
+    // into and then CLEARED — "" means keep forever, and it is the falsy value that a
+    // truthiness-guarded write loses. (Typed first because a controlled input whose value does not
+    // change fires no `onChange` at all, so clearing an already-empty field is not an edit.)
+    fireEvent.change(screen.getByLabelText("Session buffer MiB"), {
+      target: { value: "16" },
+    });
+    fireEvent.change(screen.getByLabelText("Memory retention days"), {
+      target: { value: "7" },
+    });
+    fireEvent.change(screen.getByLabelText("Memory retention days"), {
+      target: { value: "" },
+    });
+    expect(valueOf("Session buffer MiB")).toBe("16");
+
+    await act(async () => {
+      answer(SETTINGS);
+      await pending;
+    });
+
+    expect(
+      valueOf("Session buffer MiB"),
+      "the typed value survived the answer",
+    ).toBe("16");
+    expect(
+      valueOf("Memory retention days"),
+      "and so did the field the operator EMPTIED",
+    ).toBe("");
+    expect(
+      valueOf("Memory max entries"),
+      "while a field nobody touched still took the device's value",
+    ).toBe("50");
+  });
+
+  it("says the read failed, in the sentence it always used, and keeps the defaults", async () => {
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET"))
+        throw new Error("HTTP 502");
+      return { ok: true };
+    });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByText("read failed")).toBeTruthy());
+    expect(
+      valueOf("Session buffer MiB"),
+      "a failed read does not blank the form",
+    ).toBe("8");
+    expect(valueOf("Memory max entries")).toBe("10000");
   });
 });
 

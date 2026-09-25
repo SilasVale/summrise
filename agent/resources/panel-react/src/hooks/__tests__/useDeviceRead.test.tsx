@@ -631,3 +631,120 @@ describe("useDeviceRead — the reason a settle failed", () => {
     ).toBe("");
   });
 });
+
+// `keepEdits` — THE ONE WRITE-BACK THAT IS AN ASSIGNMENT INTO A FORM. Every other reader here hands
+// its value to a surface that renders it; a form-seeding read hands it to fields the operator may
+// already be typing in, and the answer can arrive seconds later (a relay, a device busy in a child
+// process). Added with `SettingsPage`, the caller that had the defect: its five fields were written
+// from the answer one `if` at a time, so whatever was typed while the read was in flight was
+// silently replaced by the device's value.
+describe("useDeviceRead — the edits a settle must not overwrite", () => {
+  interface Form {
+    host: string;
+    port: string;
+  }
+  const EMPTY_FORM: Form = { host: "", port: "" };
+  /** The caller's fold for these cases: the DEVICE's words, and nothing else carried through — a
+   *  fold that kept `previous` would hide the merge this suite is about. */
+  const foldForm = (_previous: Form, body: unknown): Form => ({
+    host: String((body as { host?: unknown }).host ?? ""),
+    port: String((body as { port?: unknown }).port ?? ""),
+  });
+  const readForm = (keepEdits: () => Partial<Form> | undefined) =>
+    renderRead<Form>({
+      path: "/api/form",
+      reduce: foldForm,
+      initial: EMPTY_FORM,
+      keepEdits,
+    });
+
+  it("puts the caller's edits back over the answer, and takes the fields they have not touched", async () => {
+    // THE RACE, IN ORDER: the fields exist with the caller's defaults in them, the operator types
+    // into one, and only THEN does the reply land.
+    const pending = deferred();
+    mockCallApi.mockReturnValueOnce(pending.promise);
+    const edits: Partial<Form> = {};
+    const { result } = readForm(() => edits);
+    edits.host = "what.i.typed";
+    await settle(pending, { ok: true, host: "device.example.com", port: "22" });
+
+    expect(
+      result.current.data,
+      "the field that was typed in kept what was in it",
+    ).toEqual({ host: "what.i.typed", port: "22" });
+    expect(
+      result.current.data.port,
+      "and the field nobody touched still took the device's value — the settle is MERGED, not withheld",
+    ).toBe("22");
+    expect(
+      result.current.read,
+      "and it is still a read that ANSWERED — the value is merged, never held back",
+    ).toBe("ok");
+  });
+
+  it("reads the edits at settle time, so a field stops being an edit when the caller drops it", async () => {
+    const edits: Partial<Form> = { host: "typed" };
+    mockCallApi.mockResolvedValue({
+      ok: true,
+      host: "device.example.com",
+      port: "22",
+    });
+    const { result } = readForm(() => edits);
+    await flush();
+    expect(result.current.data).toEqual({ host: "typed", port: "22" });
+
+    // THE EDITS ARE READ NOW, NOT CAPTURED WITH THE HOOK: an operator who typed between two reads
+    // has their NEWEST text in the value the next settle writes.
+    edits.host = "typed again";
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.data).toEqual({ host: "typed again", port: "22" });
+
+    // AND NOTHING IS PINNED FOREVER: a field the caller no longer holds an edit for takes the
+    // device's value on the next settle, which is what makes the merge a rule and not a freeze.
+    delete edits.host;
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.data).toEqual({
+      host: "device.example.com",
+      port: "22",
+    });
+  });
+
+  it("treats an empty edits object as no edits, and an edits source that throws as a failed read", async () => {
+    // `{}` IS NOT AN EDIT — the rule this panel states for an empty string, applied to a partial: a
+    // caller that computes one lazily must not be handed a new value identity for nothing.
+    mockCallApi.mockResolvedValue({ ok: true });
+    const identity = renderRead<Form>({
+      path: "/api/form",
+      reduce: (previous) => previous,
+      initial: EMPTY_FORM,
+      keepEdits: () => ({}),
+    });
+    await flush();
+    expect(identity.result.current.data, "{} is not an edit").toBe(EMPTY_FORM);
+
+    // AND IT RUNS INSIDE THE SETTLE, so a source that throws is the same class of failure as a fold
+    // that throws: the read is `unreadable`, the value in hand stands, and `refresh` never rejects.
+    const boom = vi.fn((): Partial<Form> => {
+      throw new Error("the form is gone");
+    });
+    mockCallApi.mockResolvedValue({ ok: true, host: "device.example.com" });
+    const failed = renderRead<Form>({
+      path: "/api/form",
+      reduce: foldForm,
+      initial: EMPTY_FORM,
+      keepEdits: boom,
+    });
+    await flush();
+    expect(boom).toHaveBeenCalled();
+    expect(failed.result.current.read).toBe("unreadable");
+    expect(failed.result.current.reason).toBe("the form is gone");
+    expect(
+      failed.result.current.data,
+      "a failed settle keeps the value in hand",
+    ).toBe(EMPTY_FORM);
+  });
+});
