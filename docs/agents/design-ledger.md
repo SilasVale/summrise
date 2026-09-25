@@ -35,6 +35,35 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 56 — the ratchet had a gap, and one site was passing through it
+
+The inventory measured this in §5.4 and it stayed open: `sessionFacts.test.ts` is a ratchet that forbids a component from reading
+four SESSION fields directly, and **command facts were not on the list** — `exitCode`, `reason`, `ended`. So an inline
+`row.exitCode === 0 ? …` walked past the guard whose whole purpose is to keep ONE owner for "how did this command end".
+
+**WHAT IT NOW FORBIDS**, in the ratchet's own idiom (one map, one exemption list, no new mechanism): a `.tsx` that COMPARES a
+command fact against a value — `exitCode`, `exit_code`, `reason`, `ended`, `lastExitCode`. **Presence tests and printing stay
+legal**, because the file already argues that a blanket ban "would forbid display to catch derivation"; the two extra keys are the
+same question under its other names, and all five hit zero sites today.
+
+**ONE SITE WAS FLAGGED**: `ActivityPage.tsx:98`'s inline `row.exitCode === 0 ? "zero" : "nonzero"`, now
+`stateFromEnd(true, row.exitCode, null).state === "ok" ? …`. The output is IDENTICAL — under the `!= null` guard above it, the
+exit-code branch is the only reachable one — and two existing ActivityPage tests already pinned both outcomes, so the change is
+covered rather than assumed. **And defect 5.1's private deriver is NOT reachable any more**: `TrajectoryView`'s `roundState` and
+`eventDotState` both call `cardState`/`stateFromEnd`, which is what the earlier round recorded as fixed.
+
+**BOTH HALVES PROVEN, VERBATIM FROM THE RATCHET**: a planted `group.rows[0]?.exitCode === 0` in `RunStrip.tsx` fails with
+"…That mapping has ONE owner (stateFromEnd in lib/path.ts), and a second copy is how one backgrounded command came to wear `bg`
+in its round marker and `warn` in its own event row", naming the file, the line and the fix; a planted
+`card.reason === "backgrounded"` fails on `reason`. Both reverted. The panel suite is **877 tests, 110 files, all passing**, and
+`tsc --noEmit` is clean.
+
+**AND THE ROUND HAD TO REMEMBER THE BUNDLE**: `panel.js` is committed and embedded with `include_str!`, so the source change
+required `npm run build` before the commit — the built artifact is part of the diff, not a by-product, and `build.rs` gates the
+build on its freshness. The ratchet also carries what it CANNOT see, in its own header: text rather than code (`const c =
+row.exitCode; c === 0`), `.ts` files (where the owners live), and the scope of its scan.
+
+
 **Round 55, one line**: the CLI cells re-measured after the round-54 shell work — `summrise.ts` 3,790 → **3,880** lines and
 `cli.test.mjs` 2,617 → **2,891** (eight argv migrations, the comments that record the measurement, and a pin that checks quoting
 is not enough); `agent/src` re-run and unchanged at 54,823. A count that did not move is evidence too.

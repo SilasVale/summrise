@@ -30,6 +30,7 @@
 //   * a run with no records says so in one quiet line instead of drawing an
 //     empty list that reads as a broken feature.
 import { useMemo } from "react";
+import { stateFromEnd } from "../lib/path";
 import { operationRows, type ActivityRow } from "../lib/runs";
 import { useOperationRuns } from "../hooks/useOperationRuns";
 import { fmtDuration } from "./CommandCard";
@@ -91,11 +92,21 @@ function RowBody({ row }: { row: ActivityRow }) {
               of this element, not a word in its place. The shape channel (see
               the stylesheet) carries the zero/not-zero difference as well as the
               ink, because this panel has already shipped a state pair that
-              differed by one channel only. */}
+              differed by one channel only.
+
+              ZERO-OR-NOT IS NOT THIS FILE'S DECISION. `stateFromEnd` (lib/path.ts) is the ONE derivation of how a
+              command ended — the same call the command card, the details panel, the path summary and the
+              trajectory's dot make — and `ok` is its word for an exit of zero. This chip used to compare the code
+              itself (`row.exitCode === 0 ? "zero" : "nonzero"`), which is that derivation's exit-code branch
+              written a second time; the ratchet in lib/sessionFacts.test.ts now fails on that shape, and it is what
+              pointed here. `ended` is passed `true` because a recorded exit code IS an ending, and `reason` is
+              `null` because an ActivityRow carries the record's raw `status` word, not the reason this derivation
+              reads — under the guard below only the exit-code branch is reachable, and it never looks at `reason`.
+              The attribute's own vocabulary is unchanged: "zero"/"nonzero" is what the stylesheet keys on. */}
           {row.exitCode != null && (
             <span
               className="activity-row-exit"
-              data-exit={row.exitCode === 0 ? "zero" : "nonzero"}
+              data-exit={stateFromEnd(true, row.exitCode, null).state === "ok" ? "zero" : "nonzero"}
             >
               exit {row.exitCode}
             </span>
