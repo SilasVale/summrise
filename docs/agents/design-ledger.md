@@ -6690,6 +6690,42 @@ Windows device in reach.
 `cmp`-verified against a fresh compile (the pack-chain gate's own check); 41 call sites audited, 2 fixed, 11 documented as
 kept-with-reason, 2 residuals named.
 
+## 2026-09-25 — the fifty-third exploration: 1.2.469 ships, and the instrument finally prints the number
+
+**WHAT SHIPPED** (three fixes since 1.2.468, each measured before it was made): the installer's transcript now closes on
+all thirteen exits instead of only the success one, while its failure dialog names that log; the installer's port parse
+is scoped to the top-level `server:` section like its two TypeScript siblings, instead of taking the first `port:`
+anywhere in the file and writing it into `install-panel-url.txt`; and the CLI's shell door was audited across 41 call
+sites, with two genuinely unquoted values (the `svc` task verb/name, and npm's global prefix — a PATH) now going through
+argv and quoting, pinned by three tests with two proven mutations.
+
+Published the runbook's way: version bumped BEFORE the build (VERSIONINFO reads 1.2.469 in the binary), `--npm` for both
+channels, the smoke verified the LIVE CDN, release commit `2cb63da8` **CI-green before the tag** (10/11), tag `v1.2.469`,
+`release.yml` success.
+
+**AND THE INSTRUMENT ROUND 27 PLACED FINALLY PRINTED THE NUMBER NOBODY HAD.** `release.yml` now ends its build step with
+`sha256sum` of the exe, and for 1.2.469 the two builders are, for the first time, comparable at the EXE rather than
+through a tarball:
+
+| builder | exe sha256 |
+|---|---|
+| CI (`release.yml`'s log) | `acaa899e35586fa06f8d709fde26c10ea4449841bbba27353827a5185d2c18af` |
+| the release box | `8fc05081d407e03286e7ae83ce894c6ee7e2a1ad4a2fb46f082e467b015e6e77` |
+
+**Different — so the divergence is in the BINARY, not in the packaging.** That is worth more than it looks: ten rounds
+compared tarballs and inferred; this pair is the artifact itself, printed by the build that made it, and it removes the
+last way the difference could have been an artifact of packing (file order, mtimes, the tgz's own metadata). Nine
+hypotheses eliminated, and now two fixed points — one per builder — that round 54 can compare a `/MAP` build against
+without downloading anything.
+
+**THE AUDIT STILL REFUSES**, and correctly: `--audit-only 1.2.469` reports the mismatch and keeps the CDN authoritative,
+which is where devices update from. The device is unaffected; the flag is a builder-vs-builder disagreement whose
+remaining candidates are all in the map-file work already specified.
+
+**NUMBERS:** live version **1.2.469**; tag `v1.2.469` at `2cb63da8`; CI's exe `acaa899e…` vs this box's `8fc05081…`;
+CLI suite 62 tests, `installer_integrity` 10; 57 gate commands green (56 ok, 0 failed, 1 not runnable); the dual-builder
+divergence still unexplained after ten rounds and now measurable in one command.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
