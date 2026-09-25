@@ -7012,6 +7012,31 @@ fmt clean; clippy clean; `cargo xwin check` exit 0. **AND THE PROGRESSION IS COM
 waiver list **7 → 3 → 1 → 0**, each step with a mutation that would fail without it — which is the only reason to believe
 the last one is real rather than a list that was emptied by loosening the rule.
 
+## 2026-09-25 — the sixty-third exploration: what a gate that reads source text costs
+
+Round 42 taught the spawn gate's scan to read `#[cfg(unix)]` regions so the waiver list could reach zero. This round
+measured what that did to the numbers the inventory carries — and the answer is one file.
+
+**`agent/src` 54,340 → 54,823: +483 lines, ALL of it `spawn.rs`** (`wc -l < agent/src/spawn.rs` → **1,627**). The
+neighbouring cells were re-run and did NOT move — `plugins` 18,574, `tools` 7,827, `web` 9,671 — which is what makes the
+attribution exact rather than assumed: a change to one file at the crate root cannot move a subdirectory's count, and
+three subdirectories agreeing with their previous readings is the evidence.
+
+**AND THAT IS THE INTERESTING PART OF THE CELL**: a gate that reads source TEXT costs source LINES. The scan now carries
+its own state machine — line starts, comments, single- and double-quoted strings, char literals, raw strings, brace depth
+per gated item, `;`-terminated brace-less items, and a fail-closed rule when an extent cannot be determined — and every
+one of those rules is a line in the file whose spawns it guards. **The waiver list went to zero and the file that
+implements the rule became the largest it has ever been**; both are true, and the inventory cell is where a reader can see
+the trade rather than only the verdict.
+
+**IT ALSO SETTLES A QUESTION THE TABLE HAS NEVER ANSWERED**: the sub-counters (`plugins`, `tools`, `web`) do not sum to
+the total, and nobody had written down why. They do not sum because the total counts the crate root too — `spawn.rs` at
+1,627 lines, `state.rs`, `paths.rs`, `main.rs` and the rest — and this round is the first where a single root file's growth
+is large enough to make that visible at a glance.
+
+**NUMBERS:** `agent/src` 54,340 → **54,823** (+483, all `spawn.rs`); `spawn.rs` **1,627** lines; `plugins` 18,574, `tools`
+7,827, `web` 9,671 re-verified unchanged; the tree at `9152fae6`; live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
