@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 112, one line**: the inventory's docs cell said the ledger "is over 4,600" lines, and `wc -l` now reads **4,286**
+— because round 107 moved 91 KB of table out of it. **The cell was true when written and false the moment I split the file**, which is
+the drift that cell exists to warn about, so it now names all THREE archives with their counts and the command that produces them.
+A size in prose is a measurement with a date, not a property of the file.
+
+
 **Round 111, one line**: the WHOLE suite re-run after the rounds that moved 91 KB of table between archives and added a
 ceiling for the third one — `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58)**, the same totals
 as before them. Rounds 107-110 had only been checked against the three DOC gates, which is the subset next to the change; the
