@@ -3314,6 +3314,20 @@ hypothesis.
 **NUMBERS:** 8 map rows compared, 8 identical; 1,484 differing bytes; 1,168 of them one delta of `-0x130`; live
 **1.2.470**, tag `v1.2.470` at `00b7f34d`, release.yml success, device current.
 
+### round 50 — a gate's documented hole, closed and proven closed
+
+`powershell-structure-check` (round 39) listed what it could not see, and one item was a `$( … )` **subexpression
+inside a double-quoted string** — real code, with its own braces, and exactly what the installer writes when it
+generates launcher scripts. The scanner now treats it as code (its `(` joins the same stack, the body is scanned with
+the file's rules, `$(` nests, `$name`/`${name}` stay opaque); an 8-row fixture table runs inside the gate; and the
+header is true again — what remains is `$( … )` inside a double-quoted HERE-STRING, plus everything semantic.
+
+**THE PROOF THAT MAKES IT CLOSED RATHER THAN DOCUMENTED**: appending `"$(Write-Host { )"` to `fix-tunnel.ps1` makes
+the gate fail with three findings and **exit 1**, while the HEAD version of the gate exits **0** on that same mutated
+file. Neutering the new branch fails the gate's own fixture, so the table bites too. AGENTS.md and the inventory each
+carried a sentence that this change made false, and both were corrected in the same commit — a comment that
+contradicts the code is the one thing this repo treats as a violation everywhere.
+
 ## Two lookup tables live in `docs/agents/ledger-appendix.md`
 
 `Looking for one thing` (the sweep's duplicates) and `Which mutation must fail which gate` (the gate
