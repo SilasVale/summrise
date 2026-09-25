@@ -35,6 +35,16 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 106, one line**: the appendix split is now MECHANICAL rather than exploratory — `ledger-budget-check.mjs` declares its
+archives as plain constants at the top (`const ARCHIVE`, `const APPENDIX`, `ARCHIVE_CEILING = 400_000`, `ARCHIVE_FLOOR_APX =
+100_000`) and then applies the ceiling and the index-marker rules to each, so the third archive is: a
+`docs/agents/ledger-mutations.md` holding the `## Which mutation must fail which gate` section, a `const MUTATIONS` beside the
+other two, one more line in whatever list applies the ceiling, and the same for `numbered-claims-check.mjs`'s `docs` array
+(which is where "the number in the ledger is the number a command produced" is enforced). **Naming the constants here is the point
+of the line**: the next round executes the split instead of re-reading the gate to discover its shape, which is what this round
+spent itself doing.
+
+
 **Round 105, one line — A BUDGET ABOUT TO BITE, WITH ITS NUMBERS**: measured rather than assumed,
 `docs/agents/design-ledger.md` is **341,144 B of 400,000** (~11 rounds of headroom at the current ~5 KB/round), but
 `docs/agents/ledger-appendix.md` is **396,139 B of 400,000 — 3,861 B of headroom**, and its "Which mutation must fail which
