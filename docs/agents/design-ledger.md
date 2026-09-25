@@ -6382,6 +6382,40 @@ because it would mean the difference is introduced AFTER the link map is written
 **NUMBERS:** one 40 MB map from a 48.46s build; 756 public symbols parsed in section `0002`; the target offset lands in
 the 0x4030-byte gap between two of them; the map's own header confirms Repro mode; live **1.2.468**, device current.
 
+## 2026-09-25 — the forty-fifth exploration: the differing values differ by a little, not a lot
+
+The map could not name the region without static symbols (round 44), so this round looked at the VALUES instead — the
+cheapest instrument left, and it produced the sharpest characterisation of the divergence so far.
+
+**THE PER-BYTE XOR PATTERN IS DOMINATED BY TWO SMALL NUMBERS:**
+
+| per-byte XOR | occurrences |
+|---|---|
+| `0x01` | 614 |
+| `0x30` | 584 |
+| `0x20` | 70 |
+| `0x60` | 35 |
+| `0xe0` | 28 |
+
+and the 8-byte windows around the differing offsets differ in ONE NIBBLE: `0x03fa8001016ab315` → `0x03fa8001016ad315`
+is **+0x20**; another pair is **+0x2000**.
+
+**THAT IS THE SIGNATURE OF OFFSETS AND SIZES MOVING A LITTLE.** Not a hash (a hash changes every bit), not different
+content (the strings are identical), not a different compiler (all four fingerprints match) — a value that is *almost*
+the same, differing by 0x20 here and 0x2000 there. Combined with round 43's finding that the SECTION SIZES are identical
+to the byte, the reading is: **symbols sit a few bytes away from where they sit in the other image, inside sections
+whose total size did not change.** Something is ordering, or folding, entries differently — and because the totals are
+equal, whatever moved moved within a section rather than between them.
+
+**AND THE TWO REMAINING CANDIDATES ARE BOTH ABOUT ORDER, NOT CONTENT**: identical-code folding (the linker choosing a
+different representative for byte-identical functions) or symbol ordering where names carry a path-derived component.
+Round 46 can distinguish them without CI: diff the map's `.rdata` symbol list against itself after a LOCAL rebuild with
+a deliberately different `-C metadata` — if local-vs-local starts producing the same tiny deltas, the mechanism is
+reproduced on one box, and a mechanism that can be reproduced locally can be fixed locally.
+
+**NUMBERS:** 1,484 differing bytes; XOR 0x01 ×614, 0x30 ×584; observed deltas +0x20 and +0x2000; 9/9 section headers
+identical in SIZE and ADDRESS, which is what forces the "within a section" reading; live **1.2.468**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
