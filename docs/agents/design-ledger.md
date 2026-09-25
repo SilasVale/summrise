@@ -76,6 +76,27 @@ ref was found and handed to the tool. **What is unproven is only the last link: 
 it".** A check that finds its target and then sees nothing move is a very different object from a check that cannot find its
 target, and the suite already says which one this is.
 
+**AND THE INSTRUMENT ALREADY COMPUTES THE NEXT MEASUREMENT — MY OWN FILTER THREW IT AWAY (round 93).** The click check is not
+naive: it INJECTS a same-origin link into the embedded view (`document.body.innerHTML = '<a id=e2e href=/inner-click-test …>'`),
+snapshots, finds that link's ref, clicks it through `browser_click`, and polls up to fifteen seconds for the view to reach
+`inner-click-test` or `iana.org`. When the view does not follow, it prints
+
+```
+  [triage] click missed; geometry: …
+```
+— and the comment says why: "a physical click that misses for viewport reasons looks identical to a broken click path; log
+viewport + link rect so the next failure is instantly triaged instead of needing a CDP probe round-trip."
+
+**THE ROUND-91 COMMAND RAN `Select-String -Pattern '^(PASS|FAIL|== )'`, AND THAT LINE BEGINS WITH TWO SPACES.** So the one piece
+of evidence written FOR this exact failure was filtered out by the very command that provoked it, and two rounds then reasoned
+about a click they could have measured. The fix is not a probe: it is re-running the same section WITHOUT the pattern filter and
+reading the geometry the instrument was already told to print.
+
+**AND THAT IS THE SAME LESSON AS THE PANEL SELECTOR, ONE LAYER UP**: round 90 learned that a warning living beside the code it
+protects does not reach the code that tests it. This round learns that **a diagnostic living in the output does not reach a reader
+who filters for verdicts.** Grepping a test run for PASS/FAIL is reading the summary; the triage line is the measurement, and it
+is indented precisely because it is not a verdict.
+
 **WHAT THIS ROUND DOES NOT CLAIM**: it does not say the MCP click is broken in the product. The panel round is the cautionary
 tale from fifteen minutes earlier — a check that had been wrong since the day it was written — and these four have exactly the
 same standing: never executed, therefore never baselined. **They are now known: 45 passing checks that had never run, and four
