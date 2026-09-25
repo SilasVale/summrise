@@ -192,6 +192,35 @@ vacuously (the stale URL already satisfied its predicate) · and there are **zer
 story. **The product defect is precise: after a transport switch the http session cannot find the embedded-view tab, and it proceeds
 on a blank one instead of failing the call.**
 
+**AND THE FALLBACK IS SILENT BY CONSTRUCTION (round 99)** — the whole branch is:
+
+```rust
+    } else {
+        diag_log("[select] no embedded-view tab found after retries — leaving default selection");
+    }
+    Ok(())
+```
+
+The function returns `Ok(())` either way, so **a transport that cannot find the embedded view behaves exactly like one that found
+it** — every later call succeeds against whatever the default selection happens to be. That is the fail-open shape this repository
+treats as a defect everywhere else, and here it is load-bearing: the blank tab is not an error path, it is the DESIGN.
+
+**AND THE EVIDENCE POINTS AT THE HAZARD `DEFAULT_URL` ALREADY WARNS ABOUT.** The log read a tab list of exactly
+`0: (current) [](about:blank)` — one blank page, which is what a playwright-mcp instance looks like **before it has driven
+anything**, and the http phase drives nothing because it selected that blank tab. The constant's own comment says:
+
+```rust
+/// round-118: 127.0.0.1, not "localhost" — localhost resolves to [::1] first
+/// on Windows, so a client could latch onto a stale instance instead of the
+/// one the task actually hosts.
+```
+
+So the hypothesis the log supports is: **the http transport attached to an instance that is not the one hosting the embedded view**
+— a stale or second playwright-mcp — and every observation follows, including why stdio (which spawns and owns its child) works.
+**The distinguishing test is one command on the device**: what is listening on 9229, and how many playwright-mcp processes exist.
+One is correct; two is the defect. That is written here so the next round measures it instead of arguing it — which is what the
+last six rounds should have done with the log.
+
 **AND THE LESSON IS THE ONE THIS THREAD HAS NOW LEARNED FOUR TIMES, EACH TIME ONE LAYER DEEPER**: round 90 — a warning beside the
 code does not reach the code that tests it; round 93 — a diagnostic in the output does not reach a reader filtering for verdicts;
 round 97 — a mechanism the product logs does not reach a reader who reasons first; round 98 — **and the log itself does not reach a
