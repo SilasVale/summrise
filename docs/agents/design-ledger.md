@@ -6863,6 +6863,30 @@ a round and returns the same answer.
 divergence was never "fixed" by editing what the check compares; and no Windows-only path (the installer's PowerShell,
 the electron shell) was claimed to be exercised — each such round says "unexecuted here" and pins the RULE instead.
 
+## 2026-09-25 — the fifty-eighth exploration: the cell round 32 moved, and a number it never carried
+
+The standing objective requires a round that changes a counted number to update the cell. Round 32 changed the CLI, and
+round 29's cell had already been re-measured once — so this round ran the commands again rather than assuming a 17-line fix
+left the count alone.
+
+**IT DID NOT**: `wc -l < agent/summrise-agent-npm/src/summrise.ts` → **3,790** (was 3,773 at `14c76409`), and the cell now
+also carries a number it never had — `wc -l < agent/summrise-agent-npm/test/cli.test.mjs` → **2,617**. That second number
+is the interesting one: **the CLI's test file is now more than half the size of the file it tests**, which is what the
+shell-door round actually produced — 17 lines of fix and 390 lines of pin, because the pin had to strip comments and
+single-quoted strings, prove itself against a fixture, and throw on a site it cannot read rather than pass silently.
+
+**THE OTHER TWO CELLS WERE RE-RUN AND DID NOT MOVE**, and say so rather than being edited: `agent/src` reads **54,340**
+and the panel SPA reads **42,718** — the same numbers round 29 recorded, which is the evidence that rounds 30-37 were
+documentation, CI instrumentation and investigation rather than code.
+
+**AND THE HABIT THIS ROUND IS REALLY ABOUT**: every cell in this table has drifted at least once, and the drift has always
+had the same shape — a number copied forward while the command that produced it was not re-run. The CLI cell is the one
+that drifted twice, so it now carries two readings and two commands, and the second command counts something the cell's
+first version did not know existed.
+
+**NUMBERS:** CLI 3,773 → **3,790**; its test file **2,617** (new to the cell); `agent/src` 54,340 and panel 42,718
+re-verified unchanged; the tree at `957f0279`; live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
