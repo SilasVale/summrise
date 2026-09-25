@@ -24,6 +24,9 @@ const ARCHIVE = "docs/agents/design-ledger.md";
 // index at the top of the archive still NAMES their sections, so a title resolves against
 // EITHER file — and a ceiling on each is what stops either growing back into the other.
 const APPENDIX = "docs/agents/ledger-appendix.md";
+// THE MUTATION TABLE IS ITS OWN ARCHIVE NOW (round 107): it is what rounds APPEND to, its host had 3,861 bytes of
+// headroom, and a ceiling per file is what stops either half growing back into the other.
+const MUTATIONS = "docs/agents/ledger-mutations.md";
 const ARCHIVE_CEILING = 400_000;
 const ARCHIVE_FLOOR_APX = 100_000;
 // The harness truncates at 65,536 and NAME it here, so the number in the failure is the real one.
@@ -69,9 +72,15 @@ const idxEnd = archive.indexOf("<!-- ledger-index:end -->");
 if (idxStart < 0 || idxEnd < 0) failures.push(`${ARCHIVE} has no ledger-index markers — the index is delimited rather than guessed, and the check cannot read it without them`);
 const index = idxStart >= 0 && idxEnd > idxStart ? archive.slice(idxStart, idxEnd) : "";
 const appendix = existsSync(join(ROOT, APPENDIX)) ? readFileSync(join(ROOT, APPENDIX), "utf8") : "";
+const mutations = existsSync(join(ROOT, MUTATIONS)) ? readFileSync(join(ROOT, MUTATIONS), "utf8") : "";
+if (!mutations) failures.push(`${MUTATIONS} does not exist — the mutation table was DELETED rather than moved`);
+else if (Buffer.byteLength(mutations, "utf8") > ARCHIVE_CEILING) failures.push(`${MUTATIONS} is ${Buffer.byteLength(mutations, "utf8")} bytes and the ceiling is ${ARCHIVE_CEILING} — a table that outgrows its own file is the round-49 problem again`);
 if (!appendix) failures.push(`${APPENDIX} does not exist — the lookup tables were DELETED rather than moved`);
 else if (Buffer.byteLength(appendix, "utf8") < ARCHIVE_FLOOR_APX) failures.push(`${APPENDIX} is under ${ARCHIVE_FLOOR_APX} bytes — the tables were pruned rather than moved`);
-const headings = [...(archive + "\n" + appendix).matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
+// A TITLE RESOLVES ACROSS ALL THREE ARCHIVES (round 107): the index at the top of the ledger names sections wherever
+// they now live, and this check is what turns "a pointer nobody tests" into a failure. It caught this round's OWN split —
+// the index named a section that had just moved into the third file, which is the gate doing exactly its job.
+const headings = [...(archive + "\n" + appendix + "\n" + mutations).matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
 const named = [...index.matchAll(/`([^`]+)`/g)]
   .map((m) => m[1])
   .filter((s) => /^[A-Z0-9"]/.test(s) && s.length > 18);

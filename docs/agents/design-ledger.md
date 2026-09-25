@@ -35,6 +35,15 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 107, one line — THE SPLIT IS DONE, AND THE GATE CAUGHT MY OWN MISTAKE WHILE I DID IT**: the mutation table moved to
+`docs/agents/ledger-mutations.md` (**91,532 B**), taking its host from **396,139 → 304,606 B** and leaving both halves with real
+headroom; `ledger-budget-check.mjs` gained a third archive constant, a ceiling for it, and — because the first run FAILED with
+"the ledger index names 1 section(s) that do not exist: THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST" — the
+index resolver at `:80` now reads all three files instead of two. **That failure is the round's best evidence**: the gate refused a
+commit whose index pointed at a section that had just moved, which is precisely the "pruning must mean MOVED, not deleted" rule it
+was written for, and it fired on the round that was doing the moving.
+
+
 **Round 106, one line**: the appendix split is now MECHANICAL rather than exploratory — `ledger-budget-check.mjs` declares its
 archives as plain constants at the top (`const ARCHIVE`, `const APPENDIX`, `ARCHIVE_CEILING = 400_000`, `ARCHIVE_FLOOR_APX =
 100_000`) and then applies the ceiling and the index-marker rules to each, so the third archive is: a
