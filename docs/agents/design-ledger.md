@@ -35,6 +35,38 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 103 — the arm-aware check ships, and the mcp section reports 10/10 with two honest skips
+
+Rounds 100-102 established that the `mcp` section was asserting a CONTRACT THAT CANNOT HOLD on this device (http on the
+private-headless fork) and specified the fix. This round implemented and verified it:
+
+```
+PASS mcp stdio connect · navigate ok · drives embedded view (/mcp-autoselect-…) · SPA intact
+PASS mcp stdio click learn-more (ref=f2e7) · click drives embedded view (/inner-click-test)
+PASS mcp http  connect · navigate ok · SPA intact · click learn-more (ref=f1e7)
+SKIP mcp http  drives embedded view  -- private-headless arm (9229 launched without a desktop view): the tool drove its own browser
+SKIP mcp http  click drives embedded view  -- private-headless arm: the click drove the browser the tool owns, which no embedded view shows
+
+== 10/10 passed == (2 skipped)
+```
+
+**THREE CHANGES, EACH ONE THE ANSWER TO A ROUND OF THIS THREAD**: `skip(name, reason)` gives the suite the third state it never
+had, so an arm that cannot apply here no longer has to choose between lying (PASS) and inventing a defect (FAIL) — which is what
+it did for eleven rounds; the summary EXCLUDES skips from both numbers (`pass: null` is neither, and counting it as either is the
+failure mode this thread kept finding); and the arm is decided ONCE per transport, because only http can be on the private fork —
+stdio spawns and owns its own child, which is why its two visibility checks still assert hard and still pass.
+
+**THE SUITE STILL TESTS VISIBILITY — IT JUST NO LONGER PRETENDS TO.** The embedded view is asserted, hard, through the transport
+that can reach it; the private arm asserts the contract that is actually true of it. **And the number is now honest in a way it
+never was: `10/10 (2 skipped)` says exactly how much of the section ran on this device and how much did not apply.**
+
+**WHAT THIS THREAD COST AND BOUGHT, IN ONE PLACE**: twelve rounds to turn `1/2` into `2/2` (the panel selector, round 90) and
+`11/12` into `10/10 (2 skipped)` (the arm, round 103) — from a suite in which NOTHING had ever been executed. Two defects fixed
+(a selector that clicked a navigation tab, a contract asserted without its precondition), one diagnostic rescued from a filter
+(round 93), one log finally read (round 98), and one habit named in four successive forms: **an instrument nobody runs does not
+merely fail to find defects — it accumulates its own.**
+
+
 **Round 102, one line**: the fix round 101 named is now specified rather than described — `check()` at `e2e.js:115` takes
 `(name, cond, detail)` and has **no skip concept**, while the summary line is computed from the results array; so the change is:
 (1) let a result carry `pass: null` with a reason and print `SKIP <name> -- <reason>`; (2) exclude `null` results from BOTH numbers
