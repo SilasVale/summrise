@@ -76,6 +76,38 @@ ref was found and handed to the tool. **What is unproven is only the last link: 
 it".** A check that finds its target and then sees nothing move is a very different object from a check that cannot find its
 target, and the suite already says which one this is.
 
+### round 93 (cont.) — THE RE-RUN CORRECTS ROUNDS 91 AND 92: three of the four were FLAKE, and the survivor is a RACE
+
+The same `mcp` section, run again with nothing changed in the code:
+
+```
+PASS mcp stdio connect · navigate ok · drives embedded view (/mcp-autoselect-…) · SPA intact
+PASS mcp stdio click learn-more (ref=f2e7) · click drives embedded view (/inner-click-test)
+PASS mcp http  connect · navigate ok · SPA intact
+FAIL mcp http  drives embedded view  -- https://example.com/inner-click-test
+PASS mcp http  click learn-more (ref=f1e7) · click drives embedded view (/inner-click-test)
+
+== 11/12 passed ==
+```
+
+**11/12, WHERE ROUND 91 SAW FOUR FAILURES IN THE SAME SECTION.** Three of them were TRANSIENT — and the check's own comments had
+already said so ("under contention … a click can land while the view is mid-navigation and silently do nothing (device-caught)";
+"the external Learn more link's cross-origin redirect chain flakes under load"). **Two rounds then reasoned about those numbers as
+if they were a baseline**: round 91 called the cluster "four failures in one section" and round 92 split them into "two different
+failures". Both statements were true OF THAT RUN and neither was true of the INSTRUMENT, which is the difference this ledger keeps
+insisting on.
+
+**AND THE SURVIVOR IS A RACE, VISIBLE IN ITS OWN EVIDENCE**: the check requires the view to be at the marker URL, and the failure
+reads `https://example.com/inner-click-test` — **the URL the PREVIOUS transport's run left there.** The check looks at the view
+before its own navigation has committed. The click check in the same function polls fifteen times over fifteen seconds for exactly
+this reason; the navigate check does not poll at all. **That asymmetry is the bug, and it is one more instance of this round's
+theme: the instrument's own code names what it needs.**
+
+**THE CORRECTION IS THE ROUND'S RESULT**: a first execution gives a BASELINE only for checks that are deterministic, and this
+section says in its comments that it is not. The honest record of round 91 is therefore not "45/49" but **"45/49 on a run whose
+failures were largely timing"**, and the honest next step is to make the navigate check wait the way the click check does — not to
+diagnose a product defect that three re-runs have now declined to reproduce.
+
 **AND THE INSTRUMENT ALREADY COMPUTES THE NEXT MEASUREMENT — MY OWN FILTER THREW IT AWAY (round 93).** The click check is not
 naive: it INJECTS a same-origin link into the embedded view (`document.body.innerHTML = '<a id=e2e href=/inner-click-test …>'`),
 snapshots, finds that link's ref, clicks it through `browser_click`, and polls up to fifteen seconds for the view to reach
