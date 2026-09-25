@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 131, one line**: the whole suite re-run after the rounds that touched gateway SOURCE and its tracked mirror (128),
+added the pipe rule to AGENTS.md (129) and ran gateway's full four-check CI set (130) — `bash scripts/test/all-gates.bash` →
+**57 ok, 0 failed, 1 not runnable here (of 58)**, unchanged. Round 130 was the targeted check and this is the whole one; **the two are
+not substitutes**: a directory's four checks answer "did I run what was aimed at my change", and the suite answers "does anything else
+disagree with it" — which is the question a mirror re-sync can raise, because the mirror is a second copy of the same source.
+
+
 **Round 130, one line — THE TWO CHECKS I SKIPPED WERE THE TWO AIMED AT MY CHANGE**: round 128 edited
 `gateway/src/plugins/translate.ts` and verified it with `npx tsc --noEmit` and `npm test`. CI runs FOUR checks in that directory
 (`npm run typecheck · test · lint · format:check`), and this round ran all four by exit code:
