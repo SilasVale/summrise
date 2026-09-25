@@ -7037,6 +7037,37 @@ is large enough to make that visible at a glance.
 **NUMBERS:** `agent/src` 54,340 → **54,823** (+483, all `spawn.rs`); `spawn.rs` **1,627** lines; `plugins` 18,574, `tools`
 7,827, `web` 9,671 re-verified unchanged; the tree at `9152fae6`; live **1.2.469**, device current.
 
+## 2026-09-25 — the sixty-fourth exploration: a walker's list, discharged
+
+Round 12's explorer walked `agent/deploy/` and the CLI and raised four candidates. This round checked each one against
+the tree rather than against memory, and **all four are closed** — which is worth recording as a milestone, because a
+walker's list is the one artifact this loop produces that can be quietly forgotten.
+
+| round 12's candidate | closed by | verified now |
+|---|---|---|
+| the manifest's per-component `url` is published and read by nobody | round 14 | `componentFetchUrl` ×3 in the CLI, `Get-ComponentUrl` ×1 in the integrity library |
+| the installer reads the first `port:` ANYWHERE, not the one in `server:` | round 31 | `Get-AgentPort` ×2 — the scoped scanner and its call |
+| `Start-Transcript` is never closed on the failure paths whose dialog names that log | round 28 | `Stop-InstallLog` ×16 — one mechanism at every exit |
+| the `sh()` shell door, where a value can be re-parsed as an OPERATOR | round 32 | 11 `shell: true` lines audited; the pin's vocabulary ×16 in `cli.test.mjs` |
+
+**THE FOUR ROUNDS TOOK ELEVEN WEEKS OF ROUNDS APART** — 12 measured them, 14, 28, 31 and 32 implemented them, and nothing
+in between re-read the list. That is the failure mode this entry exists to prevent, and the reason the ledger (not a
+scratch file) is where a walker's output belongs: **a candidate that is written down in the durable record can be
+discharged later; one that lives in a session cannot.**
+
+**AND THE LIST WAS NOT A WISHLIST**: three of the four were defects rather than tidy-ups — a device name invented when the
+file could not be found, a log whose completeness the installer's own error dialog promised, and a shell door that had
+already cost this CLI one incident before the round that audited it. The fourth (the unread `url`) was a promise the code
+did not keep, and closing it produced the publish-time drift refusal as a side effect.
+
+**WHAT REMAINS FROM THAT WALKER: NOTHING.** Its rejected candidates stay rejected with their reasons (the `Start-Transcript`
+flush claim it could not verify became this loop's round 28; the `sh()` door it deferred became round 32), and the two it
+judged latent are now one implemented (the port) and one still latent by construction (`target_os = "linux"` spellings the
+spawn scan does not read — fail-closed, and named in round 42's section).
+
+**NUMBERS:** four of four candidates verified closed by grep at `7840859b`; CI on HEAD running at the time of the check
+(0/11 completed); live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
