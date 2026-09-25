@@ -186,8 +186,19 @@ jobs:
           # alone make the exes differ; both sides map to the same placeholders.
           # Workspace FIRST — it lives under $HOME, so the more specific prefix
           # must win.
-          export RUSTFLAGS="--remap-path-prefix=${GITHUB_WORKSPACE}=/src --remap-path-prefix=${HOME}=/buildhome"
+          # THE MAP FILE (round 36), because after twenty rounds of elimination the divergence is known
+          # to be a 304-byte displacement inside .rdata with 1,168 stored offsets compensating for it --
+          # and a map's SEGMENT TABLE is the one instrument that names which .rdata$* contribution moved.
+          # /MAP only writes a side file; it does not change the image, so the hash printed below stays
+          # the artifact's own. The release box builds with the same flag (see round 44's ledger section),
+          # so the two tables can be diffed line by line instead of inferred from a byte offset.
+          export RUSTFLAGS="--remap-path-prefix=${GITHUB_WORKSPACE}=/src --remap-path-prefix=${HOME}=/buildhome -C link-arg=/MAP:/tmp/agent-map.txt"
           cargo xwin build -p summrise-agent --target x86_64-pc-windows-msvc --release --features terminal,keyring --bin summrise-agent
+          # THE SEGMENT TABLE IS THE POINT: every .text$*/.rdata$* contribution with its Start and Length.
+          # Whoever compares this against the release box's map is looking for ONE line whose Start differs
+          # by 0x130 -- and that line's NAME is the answer this investigation has been circling.
+          echo "== map segment table (compare Start/Length against the release box's map) =="
+          sed -n '1,40p' /tmp/agent-map.txt
       - name: Pack the npm artifact
         working-directory: agent
         run: |

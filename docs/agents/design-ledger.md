@@ -6795,6 +6795,33 @@ but the cause is still NAMED-UNKNOWN, and this ledger says so rather than implyi
 **NUMBERS:** 1,168 entries with delta `-0x130`; 0 of 400 targets found at the shifted address; entry sites 838/172/158
 across MB 15/14/16; all targets in MB 16; live **1.2.469**, device current.
 
+## 2026-09-25 — the fifty-sixth exploration: the instrument that names the segment is now where the difference is
+
+Round 35 ended with a question answerable by comparing two map files and a plan to get the second one. This round placed
+it: `release.yml`'s build step now passes `-C link-arg=/MAP:/tmp/agent-map.txt` **in the same `RUSTFLAGS` the release box
+uses**, and prints the map's **segment table** — every `.text$*` / `.rdata$*` contribution with its `Start` and `Length`.
+
+**WHY THE SEGMENT TABLE IS THE RIGHT INSTRUMENT, in one sentence**: the divergence is now known to be a 304-byte
+displacement inside `.rdata` with 1,168 stored offsets compensating for it, the section headers are identical, and a map's
+segment list is the only place a moved contribution can be SEEN rather than inferred from a byte offset. Whoever puts the
+runner's table beside the release box's is looking for one line whose `Start` differs by `0x130` — and **that line's name
+is the answer this investigation has been circling for twenty rounds.**
+
+**AND `/MAP` IS SAFE TO ADD, which was checked rather than assumed**: it writes a side file and does not change the
+image, so the `sha256sum` printed two lines below it remains the artifact's own hash — the number round 33 finally had.
+Both workflow gates were run after the edit: `workflow-shell-check` (113 run blocks parse) and `ci-command-table-check`
+(the AGENTS.md table still matches the workflows it describes, 12 checks, 5 declared not-per-end).
+
+**WHAT THIS ROUND DELIBERATELY DID NOT DO**: it did not chase the cause further on this box. Twenty rounds have
+established that the local side is exhausted — paths, environment, metadata, toolchain, command line all measured equal —
+so a twenty-first local hypothesis would cost a round and prove nothing. **The next release's log will carry the table,
+and the round after it is a diff of two text files.** That is a better position to hand over than another eliminated
+guess, and it is the honest stopping point for this session's work on the flag.
+
+**NUMBERS:** one link-arg added to `release.yml`'s `RUSTFLAGS` (the same two remaps stay); the map's first 40 lines printed
+in the release log; 113 run blocks parse; the AGENTS.md command table still matches. Live **1.2.469**, device current,
+devices unaffected.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
