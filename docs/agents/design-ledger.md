@@ -6449,6 +6449,38 @@ is here so it does not have to be rediscovered.
 **NUMBERS:** 15,695,849 bytes moved by `-C metadata` (+4,608 bytes of size) against 1,484 bytes for the real divergence;
 9/9 section headers identical in the real case and DIFFERENT here; live **1.2.468**, device current.
 
+## 2026-09-25 — the forty-seventh exploration: the environment is eliminated, so the investigation moves to CI
+
+Round 46 ended with one class left that no fingerprint can see: the environment. This round tested it and it is OUT.
+
+**THE MIRROR-IMAGE EXPERIMENT, RUN:** a full-environment build (47.94s, canonical `RUSTFLAGS`) and a build under
+`env -i` carrying only `HOME`, `USER`, `PATH`, `TERM` and the same `RUSTFLAGS` (26.22s, the bin crate plus link)
+produce **byte-identical output: 0 differing bytes, same size**. The local box is not merely deterministic (round 42) —
+it is **environment-insensitive** for this build.
+
+**THAT EXHAUSTS THE LOCAL SIDE.** Everything this box can vary has now been varied and proven irrelevant, each by
+measurement rather than argument: the toolchain (rustc/clang/lld/cargo-xwin all byte-identical to the runner's), the
+command line and `RUSTFLAGS`, the build directory (two paths, 0 bytes), the panel bundle (identical hash at an identical
+offset), the strings (set difference empty), the section geometry (9/9 identical headers), `-C metadata` (moves 15.7M
+bytes — wrong scale entirely), and now the environment (0 bytes). **The local half of this question is answered: nothing
+here causes it.**
+
+**SO THE NEXT INSTRUMENT HAS TO RUN ON THE RUNNER**, and the change is small and already specified in two earlier
+rounds: `release.yml` gains `-C link-arg=/MAP` (and `/MAPINFO` so statics are named) and a SECOND build of the same
+commit, so the runner can be compared against ITSELF. Two builds on one runner with identical inputs either match — in
+which case the difference is introduced somewhere that only exists across machines and the map diff from CI against this
+box's map names the symbol — or they do not, in which case CI has local nondeterminism and that is the whole answer.
+Either way the round after this one reads a NAME or a REPRODUCTION, not another eliminated hypothesis.
+
+**AND THE HONEST SUMMARY OF SEVEN ROUNDS**: one check refused, and the work since has been a systematic elimination that
+has not yet named the cause. What it HAS produced is a list of everything the divergence is not, each item measured, and
+a precisely specified next instrument that runs where the difference lives. That is slower than a lucky guess and it
+does not leave a wrong "fix" in the tree.
+
+**NUMBERS:** 0 differing bytes full-env vs scrubbed-env; 7 hypotheses eliminated (toolchain, panel, paths, embedded
+paths, build time, metadata, environment); 1,484 bytes still unexplained between the two builders; live **1.2.468**,
+device current, devices unaffected throughout.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
