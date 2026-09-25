@@ -150,10 +150,20 @@ TGZ_SRC="index/public/summrise-agent/summrise-agent-$VER.tgz"
 [[ -f "$TGZ_SRC" ]] || { echo "::error::missing $TGZ_SRC — pack+stage the tgz first (publish-release.sh does this before the installer)" >&2; exit 1; }
 cp "$TGZ_SRC" "$STAGE/summrise-agent-$VER.tgz"
 TGZ_SIZE=$(stat -c %s "$STAGE/summrise-agent-$VER.tgz")
-echo "bundled tgz: summrise-agent-$VER.tgz ($TGZ_SIZE bytes)"
+# THE DIGEST OF THE PAYLOAD WE EMBED, computed here because this is the only place it
+# is known: NSIS carries it into the installer and summrise-online-setup.ps1 checks the
+# file against it before npm installs it. The bundled arm was EXEMPT because the payload
+# was called "code signed" — a property this build does not provide: SUMMRISE_SIGN_CRT
+# and SUMMRISE_SIGN_KEY are set by nothing (10 references, all in this file, none in
+# .github/workflows and none at the two callers), so sign_exe prints "code signing
+# skipped" and returns 0 in every automated build. That arm runs with NO network, so it
+# has no /api/version manifest to consult either; without this number it installs a
+# tarball nothing has hashed.
+TGZ_SHA256=$(sha256sum "$STAGE/summrise-agent-$VER.tgz" | cut -d' ' -f1)
+echo "bundled tgz: summrise-agent-$VER.tgz ($TGZ_SIZE bytes, sha256 $TGZ_SHA256)"
 
 echo "== compile =="
-( cd "$STAGE" && "$MAKENSIS" "-DSUMMRISE_VERSION=$VER" "-DSUMMRISE_CDN=$CDN_BASE" summrise-setup.nsi )
+( cd "$STAGE" && "$MAKENSIS" "-DSUMMRISE_VERSION=$VER" "-DSUMMRISE_CDN=$CDN_BASE" "-DSUMMRISE_TGZ_SHA256=$TGZ_SHA256" summrise-setup.nsi )
 EXE="$STAGE/SummriseAgent-Setup-$VER.exe"
 [[ -f "$EXE" ]] || { echo "::error::makensis produced no exe" >&2; exit 1; }
 # Sign BEFORE the size proof + staging so every downstream hash

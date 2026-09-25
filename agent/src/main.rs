@@ -286,7 +286,31 @@ fn main() {
             fix.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
                 .arg(&fix_script);
             summrise_agent::spawn::hidden_std(&mut fix);
-            let _ = fix.spawn();
+            // THE CHILD IS OBSERVED, NOT DISCARDED. `let _ = fix.spawn()` dropped the
+            // handle, so "repaired the tunnel", "nothing needed repairing" and "died
+            // before it touched anything" were the same event in startup.log: none. The
+            // script now also REFUSES to run when the device has no hostname (exit 1)
+            // instead of repairing against a guessed one, and that refusal is exactly
+            // the outcome an operator has to be able to see.
+            //
+            // ONE detached thread waits for it, so startup is NOT blocked on a script
+            // that may sit in `cloudflared tunnel route dns` for a minute. Its exit
+            // code is the only part that reliably reaches this log — the script's own
+            // explanation goes to stdout (a console under `summrise run`, nowhere under
+            // the SCM service) and to <InstallDir>\etc\fix-tunnel.log. 0 means it ran
+            // to the end, which (it is idempotent) also covers "nothing to repair".
+            match fix.spawn() {
+                Ok(mut child) => {
+                    std::thread::spawn(move || match child.wait() {
+                        Ok(status) => match status.code() {
+                            Some(code) => log_line(&format!("fix-tunnel.ps1 exit code: {code}")),
+                            None => log_line("fix-tunnel.ps1 ended without an exit code"),
+                        },
+                        Err(e) => log_line(&format!("fix-tunnel.ps1 could not be waited on: {e}")),
+                    });
+                }
+                Err(e) => log_line(&format!("fix-tunnel.ps1 did not start: {e}")),
+            }
         }
     }
 

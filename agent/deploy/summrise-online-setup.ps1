@@ -15,6 +15,9 @@
     -ResultFile 安装结果回执（NSIS 完成页读取）
     -LocalTgz   可选：自带 tgz 路径（自包含安装包内嵌，优先用它，免下载）
     -ResultFile 安装结果回执（NSIS 完成页读取）
+    -LocalTgzSha256  Optional: sha256 of the bundled tgz. scripts/build-installer.sh
+                computes it with sha256sum and NSIS passes it through; a missing or
+                mismatching digest REFUSES the install.
 #>
 param(
   [string]$InstallDir = "C:\Program Files\Summrise",
@@ -24,7 +27,8 @@ param(
   [string]$Tunnel = "",
   [string]$ResultFile = "",
   [string]$DataDir = (Join-Path $env:ProgramData "Summrise"),
-  [string]$LocalTgz = ""
+  [string]$LocalTgz = "",
+  [string]$LocalTgzSha256 = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -139,15 +143,40 @@ $tgzSource = "cdn"
 if ($LocalTgz -and (Test-Path $LocalTgz)) {
   $tgz = $LocalTgz
   $manifestJson = ""
-$tgzSource = "bundled"
+  $tgzSource = "bundled"
   Say "使用自带安装包 $SummriseVersion（免下载）..."
+  # THE BUNDLED PAYLOAD IS DIGEST-CHECKED TOO, and the exemption it used to carry was
+  # false. It said this tgz "comes from the signed installer itself" — but nothing signs
+  # it: every reference to SUMMRISE_SIGN_CRT / SUMMRISE_SIGN_KEY is inside
+  # scripts/build-installer.sh, none in .github/workflows and none at either caller, so
+  # sign_exe takes its "code signing skipped" branch and returns 0 in every automated
+  # build. This arm also runs with NO network, which is its whole point, so there is no
+  # /api/version manifest to fall back on: without the digest from the build, the bytes
+  # npm installs are whatever is on disk at that path. scripts/build-installer.sh
+  # computes it with sha256sum, carries it into NSIS (-DSUMMRISE_TGZ_SHA256) and NSIS
+  # passes it here as -LocalTgzSha256; a missing digest is a REFUSAL, not a pass, on the
+  # same rule the CDN arm's Get-ManifestSha256 already carries ("no digest" never means
+  # "nothing to check").
+  if (-not $LocalTgzSha256) {
+    Write-Host "[summrise-setup] 自带安装包没有摘要（-LocalTgzSha256 为空），拒绝安装：没有摘要就无法校验载荷。"
+    Write-Host "  （安装包应由 scripts/build-installer.sh 构建；手工跑请显式给 -LocalTgzSha256）"
+    exit 7
+  }
+  if (-not (Test-FileSha256 -Path $tgz -Expected $LocalTgzSha256)) {
+    Write-Host "[summrise-setup] 校验失败：自带 tgz 与安装包内记录的 sha256 不符，拒绝安装。"
+    exit 7
+  }
+  Say "自带包 sha256 校验通过（$LocalTgzSha256）"
 } else {
   if ($LocalTgz) { Say "自带包缺失（$LocalTgz），回退 CDN 下载..." }
   Say "安装 summrise-agent $SummriseVersion ..."
 
   # 校验后才装（round-124）。这条路从网络取的是**要执行的代码**，而 /api/version
   # 本来就带正确摘要，其它消费者（agent_update）也一律拒绝未校验的字节；这里以前
-  # 什么都没查就交给 npm。自带包那条路不需要查（它来自已签名的安装包本身）。
+  # 什么都没查就交给 npm。
+  # (The old second half of this comment — "the bundled path needs no check, it comes from
+  # the signed installer itself" — WAS WRONG and is deleted: nothing signs that installer,
+  # see the bundled branch above. Both arms check now.)
   $dl = Join-Path $env:TEMP "summrise-agent-$SummriseVersion.tgz"
   if (-not (Download-File $tgz $dl "summrise-agent $SummriseVersion")) {
     Write-Host "[summrise-setup] 下载失败（$tgz），退出。"; exit 6

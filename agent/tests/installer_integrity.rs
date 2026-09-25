@@ -15,6 +15,11 @@
 //! A pin that only reads text is weak evidence, and it is what is available for
 //! a script that cannot execute here. It is still strictly stronger than the
 //! previous state, where NOTHING checked either the logic or the wiring.
+//!
+//! THE SECOND PAYLOAD was in that previous state until now: the tgz NSIS EMBEDS
+//! carried no digest at all, exempt on a "code signed" premise the build does not
+//! provide. `the_bundled_payload_is_verified_not_exempted` pins the three links
+//! that carry its digest from build to check.
 
 use std::fs;
 
@@ -25,40 +30,141 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"))
 }
 
+/// The .ps1/.nsi text with its COMMENT LINES removed (`#` for PowerShell, `;` for NSIS).
+///
+/// EVERY ordering pin below runs on this, because a scan that reads comments can be
+/// satisfied by prose. The two sibling tests above lost a round each to exactly that
+/// (`find("Abort")` matched the comment that NAMED the Abort), and this one lost one
+/// too: the first version scoped the CDN arm with `find("$tgzSource = \"cdn\"")`, which
+/// sits ABOVE the if/else and so swallowed the bundled branch — and the bundled branch's
+/// own explanatory comment mentions "/api/version", which made `manifest < verify` pass
+/// while measuring the wrong arm. Whole-line comments only: a trailing comment after
+/// code is not stripped, and that is the limit of this filter, stated rather than
+/// implied.
+fn without_comments(text: &str, marker: char) -> String {
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with(marker))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The CDN fallback must verify the download against the version manifest before
 /// npm is allowed to install it — and the check must be wired in, not merely
 /// present in a library nobody calls.
 #[test]
 fn the_cdn_fallback_verifies_before_it_installs() {
     let ps1 = read("deploy/summrise-online-setup.ps1");
-    let dotted = ps1
+    let code = without_comments(&ps1, '#');
+    let dotted = code
         .find(". (Join-Path $PSScriptRoot")
         .expect("the installer must dot-source its integrity lib");
-    let manifest = ps1
-        .find("/api/version")
-        .expect("...must read the version manifest");
-    let verify = ps1
-        .find("Test-FileSha256")
-        .expect("...must call the verifier");
-    let install = ps1
+    let install = code
         .rfind("install -g --prefix $NpmGlobal $tgz")
         .expect("the npm install call must still be there");
+    // SCOPE EVERY LOOKUP TO THE ARM UNDER TEST. Both arms verify now, and the BUNDLED
+    // arm comes first in the file, so an unscoped `find("Test-FileSha256")` measures the
+    // wrong branch. The CDN arm is entered at its own download line ($dl) — the marker
+    // `$tgzSource = "cdn"` is the DEFAULT set before the if/else and does not delimit it —
+    // and it ends at the single npm install both arms share, so the indices below are
+    // relative to that span and cannot be satisfied by the other branch.
+    let cdn_start = code
+        .find("$dl = Join-Path $env:TEMP")
+        .expect("the CDN arm must still download to a temp file");
+    let cdn = &code[cdn_start..install];
+    let manifest = cdn
+        .find("/api/version")
+        .expect("...must read the version manifest");
+    let verify = cdn
+        .find("Test-FileSha256")
+        .expect("...must call the verifier");
     assert!(
-        dotted < manifest && manifest < verify && verify < install,
+        dotted < cdn_start && manifest < verify,
         "order is the guarantee: dot-source ({dotted}) -> manifest ({manifest}) -> \
          verify ({verify}) -> install ({install})"
     );
     // ...and a bad verdict must actually stop the run.
-    let refusal = ps1
+    let refusal = cdn
         .find("拒绝安装")
         .expect("a failed verification must refuse, not warn");
-    assert!(verify < refusal && refusal < install);
-    // The bundled payload is exempt BY DESIGN (it arrives inside the signed
-    // installer); if that ever stops being true, this test should be rewritten
-    // rather than silently widened.
+    assert!(verify < refusal);
+}
+
+/// THE BUNDLED PAYLOAD IS VERIFIED TOO — the exemption is gone, and its premise was
+/// false. It read "the bundled tgz needs no check: it arrives inside the SIGNED
+/// installer", but nothing signs that installer: every reference to
+/// `SUMMRISE_SIGN_CRT` / `SUMMRISE_SIGN_KEY` is inside scripts/build-installer.sh —
+/// none in `.github/workflows`, none at either caller — so `sign_exe` prints
+/// "code signing skipped" and returns 0 in every automated build. The bundled arm is
+/// also the arm that runs with NO network, so it has no `/api/version` manifest to fall
+/// back on: the digest from the build is the only check those bytes can get.
+///
+/// Three links carry it, and a break in any ONE leaves the check armed with "" — which
+/// is why "no digest" must be a refusal rather than a pass. All three are pinned here,
+/// because a check that reads `""` looks exactly like a check that passed.
+#[test]
+fn the_bundled_payload_is_verified_not_exempted() {
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let code = without_comments(&ps1, '#');
+    let nsi = without_comments(&read("deploy/summrise-setup.nsi"), ';');
+    let build = read("../scripts/build-installer.sh");
+
+    // 1. The BUILD computes the digest of the tgz it embeds, before it invokes NSIS...
+    let computed = build
+        .find("TGZ_SHA256=$(sha256sum \"$STAGE/summrise-agent-$VER.tgz\"")
+        .expect("build-installer.sh must sha256sum the tgz it embeds");
+    let passed = build
+        .find("-DSUMMRISE_TGZ_SHA256=$TGZ_SHA256")
+        .expect("...and hand that digest to makensis");
     assert!(
-        ps1.contains("$tgzSource = \"bundled\"") && ps1.contains("$tgzSource = \"cdn\""),
-        "the two payload paths must stay distinguishable"
+        computed < passed,
+        "the digest must be computed BEFORE NSIS runs (computed={computed}, passed={passed})"
+    );
+
+    // 2. NSIS declares it — with an empty default, so a caller that does not pass one
+    //    gets a refusal rather than a silent pass — and passes it on the run line.
+    assert!(
+        nsi.contains("!ifndef SUMMRISE_TGZ_SHA256"),
+        "the NSIS script must declare the digest it interpolates"
+    );
+    let run = nsi
+        .lines()
+        .find(|l| l.contains("nsExec::ExecToLog") && l.contains("summrise-online-setup.ps1"))
+        .expect("the setup script must still run");
+    assert!(
+        run.contains("-LocalTgzSha256 \"${SUMMRISE_TGZ_SHA256}\""),
+        "the run line must carry the digest to the script: {run}"
+    );
+
+    // 3. The SCRIPT takes that parameter and checks the bundled file with it, inside the
+    //    bundled branch — the span from its own marker to the shared npm install, so the
+    //    CDN arm's check cannot satisfy this, and (comments being stripped above) neither
+    //    can a sentence describing the check.
+    assert!(
+        code.contains("[string]$LocalTgzSha256"),
+        "the installer must accept the digest NSIS passes"
+    );
+    let bundled = code
+        .find("$tgzSource = \"bundled\"")
+        .expect("the two payload paths must stay distinguishable");
+    // The span ENDS at the other arm's first line, not at the shared npm install: the
+    // install sits AFTER the if/else, so `[bundled..install]` would swallow the CDN arm
+    // and its own Test-FileSha256 call. MEASURED — that is how the first version of this
+    // pin passed against a bundled arm whose check had been deleted (mutation: the
+    // Test-FileSha256 call replaced by a bare Test-Path).
+    let cdn_start = code
+        .find("$dl = Join-Path $env:TEMP")
+        .expect("the CDN arm must still download to a temp file");
+    assert!(
+        bundled < cdn_start,
+        "the bundled arm must precede the CDN arm"
+    );
+    let arm = &code[bundled..cdn_start];
+    let check = arm
+        .find("Test-FileSha256")
+        .expect("the bundled arm must digest-check the payload it is about to install");
+    assert!(
+        arm[check..].contains("exit "),
+        "and the check must EXIT before npm is handed the file, not warn"
     );
 }
 

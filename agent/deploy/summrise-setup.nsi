@@ -20,6 +20,14 @@ ${StrRep}
 !ifndef SUMMRISE_CDN
   !define SUMMRISE_CDN "https://agent.saisi.online"
 !endif
+; The sha256 of the bundled tgz, computed by scripts/build-installer.sh and checked by
+; summrise-online-setup.ps1 BEFORE npm is handed the file. Defaults to empty when a
+; caller does not pass it, and the script REFUSES an empty digest rather than installing
+; on trust (fail-closed: the bytes it would install are code, and this arm has no
+; manifest to fall back on).
+!ifndef SUMMRISE_TGZ_SHA256
+  !define SUMMRISE_TGZ_SHA256 ""
+!endif
 
 Name "Summrise Agent ${SUMMRISE_VERSION}"
 OutFile "SummriseAgent-Setup-${SUMMRISE_VERSION}.exe"
@@ -147,7 +155,7 @@ Section "Install" SEC01
   WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "NoModify" 1
   WriteRegDWORD HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SummriseAgent" "NoRepair" 1
 
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\summrise-online-setup.ps1" -InstallDir "$INSTDIR" -SummriseVersion "${SUMMRISE_VERSION}" -CdnBase "${SUMMRISE_CDN}" -ResultFile "$3\Summrise\logs\install-result.txt" -LocalTgz "$INSTDIR\scripts\summrise-agent-${SUMMRISE_VERSION}.tgz"'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\scripts\summrise-online-setup.ps1" -InstallDir "$INSTDIR" -SummriseVersion "${SUMMRISE_VERSION}" -CdnBase "${SUMMRISE_CDN}" -ResultFile "$3\Summrise\logs\install-result.txt" -LocalTgz "$INSTDIR\scripts\summrise-agent-${SUMMRISE_VERSION}.tgz" -LocalTgzSha256 "${SUMMRISE_TGZ_SHA256}"'
   Pop $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP "安装失败（步骤退出码 $0）。$\r$\n看 $3\Summrise\logs\installer.log 找原因，修好后重跑安装包即可（幂等）。"

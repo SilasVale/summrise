@@ -5956,6 +5956,54 @@ one — the standard from round 30 is about device-AFFECTING changes, and this f
 **NUMBERS:** agent lib tests hold at **751** (the round adds none; it removes two waiver entries and the assertion that
 named them), fmt clean, clippy clean in both configurations, `cargo xwin check` clean.
 
+## 2026-09-25 — the thirty-fourth exploration: the installer that repairs tunnels looked for files that moved
+
+The first pass over `agent/deploy/` — the code that runs as administrator on a customer's machine — and it found two
+defects rather than tidiness.
+
+**A FILE MAP THAT MOVED, READ BY A SCRIPT THAT HALF-KNEW.** v2 keeps the device's identity in `<install>\etc\`:
+`paths::hostname_file()` = `etc\summrise-agent.hostname`, `paths::tunnel_file()` = `etc\tunnel.yml`, and the CLI's
+migration table moves them there. `fix-tunnel.ps1` checked three PRE-v2 absolute roots (`C:\summrise-agent`,
+`D:\summrise-command`, `D:\summrise-agent`), then fell back to the LITERAL `d1.agent.saisi.online`. On any v2 install
+the hostname was therefore never found and the script ran `cloudflared tunnel route dns summrise-agent-d1 …` — for
+whatever device it happened to be on. On a half-migrated install (which `migration_pending` explicitly tolerates)
+`<install>\tunnel.yml` exists while the hostname is still the literal, so a NON-d1 device's tunnel config was rewritten
+to d1's tunnel UUID: the exact failure the script's own comment says it exists to prevent.
+
+**AND THE SCRIPT ALREADY KNEW BETTER, TWENTY LINES LOWER**: `$installDir = Split-Path -Parent $PSScriptRoot` was
+computed and used for `components\cloudflared.exe`, new-first and legacy-second, with a comment recording that it
+consulted `paths.rs` for THAT path. The two lines that identify the DEVICE were not consulted. The fix is the pattern
+already in the file: `etc\` first, the legacy roots kept for a pre-v2 install, and **the literal deleted** — an absent
+hostname now refuses and exits, naming every path it tried, because a guessed device name points another machine's
+hostname at this device's tunnel, which is worse than not repairing anything. The log moved under `<install>` and can
+no longer abort the run it is logging, and `main.rs` waits on the child in a detached thread so "repaired", "did
+nothing" and "died" are three facts instead of none.
+
+**THE ONE PAYLOAD NOTHING VERIFIED WAS EXEMPT ON A PROPERTY THE BUILD DOES NOT PROVIDE.** `-LocalTgz` — the tgz npm
+installs globally as the CLI — was the only path in the install chain with no digest check (the CDN arm and all three
+components verify), exempted because the payload is "code signed"). Measured: `SUMMRISE_SIGN_CRT`/`SUMMRISE_SIGN_KEY`
+appear in ten places, **all inside `build-installer.sh`**, none in `.github/workflows`, none at either caller — so
+`sign_exe` prints "code signing skipped" and returns 0 in every automated build, and three comments asserted a
+signature nothing produced. The digest now travels the same road `TGZ_SIZE` already did (shell → `!define` → the NSIS
+run line → `Test-FileSha256`, which the script already dot-sourced), and the bundled arm REFUSES an empty digest rather
+than installing unverified. **Proven, not assumed:** real `makensis` compiles the edited `.nsi` and `-PPO` shows the
+interpolated digest (and `""` without `-D`); four mutations each fail the new test — the run line losing the digest,
+the check becoming a `Test-Path`, the check warning instead of exiting, and `makensis -D` being dropped.
+
+**AND ONE HONEST GAP IN THE INSTRUMENTS, FOUND BY NEEDING ONE**: `script-syntax.bash` walks `git ls-files '*.sh'
+'*.bash'` — 27 files — and does NOT cover `.ps1`. This round's PowerShell was therefore checked by eye, by the
+installer compiling, and by the source pins in `installer_integrity`; a Windows parser is the missing instrument and is
+named here rather than implied.
+
+**ONE DELIBERATE DEVIATION FROM "ALL-ENGLISH"**: the four new user-facing lines in `summrise-online-setup.ps1` are in
+Chinese, matching the file's **91 existing** Chinese lines. The instruction is that modifications are English; this
+artifact's audience reads Chinese, and an English sentence among ninety-one Chinese ones would be worse for the person
+running it. Disclosed rather than silent, and reversible in one edit if the rule is meant literally.
+
+**NUMBERS:** agent lib tests hold at **751**; `installer_integrity` 5 → 7 tests; `script-syntax` 27 files parse;
+`cargo xwin check` clean (the Windows target compiles `main.rs`'s new thread). Nothing was run on a Windows device —
+the strongest evidence available here is that makensis builds the installer and the source pins hold.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
