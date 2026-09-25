@@ -6515,6 +6515,25 @@ time; push first, then dispatch — and the ledger says so now instead of leavin
 **NUMBERS:** 1 step added, 1 fix, 2 dispatches, 2 failures (one diagnosed, one not); 8 hypotheses about the original
 1,484 bytes still eliminated and none confirmed; live **1.2.468**, device current, devices unaffected.
 
+### THE INSTRUMENT IS REVERTED, AND REPLACED BY ONE LINE WHERE THE WIRING WORKS (same round)
+
+Round 26's build-twice step failed twice and this round found where, by reading the job's whole log instead of grepping
+it: **the log ENDS right after the `rust-toolchain` action** — before `setup-node`, before the LLVM restore, before the
+comparison step. So the step never ran at all, and the instrument was broken by its own SETUP rather than by the question
+it asked. That is a different failure from the one round 26 fixed (the `npm ci` usage error), and it is the one that
+matters: a step that never executes proves nothing about anything.
+
+**A BROKEN ON-DEMAND JOB IS WORSE THAN NO JOB**, so it is reverted (`ci.yml` back to the four steps it had) and the
+instrument is replaced by **one line in the pipeline whose cargo-xwin wiring already works end to end**: `release.yml`
+now prints `sha256sum` of the exe it built, immediately before copying it into the package. That is the number nobody
+had — the audit could only ever compare TARBALLS, never the runner's build output itself — and the next release's log
+will say whether the asset CI uploads is the artifact CI built.
+
+**AND THE PACKAGING GATE CAUGHT NOTHING BECAUSE THERE WAS NOTHING TO CATCH, WHICH IS THE POINT OF RUNNING IT**:
+`workflow-shell-check` passes with 113 run blocks (one fewer than with my step), and `ci-command-table-check` confirms
+the table in AGENTS.md still matches the workflows it describes — 12 checks, all run by `ci.yml`, 5 steps declared
+not-per-end. Editing a workflow is editing a gate's own machinery, and both checks were run rather than assumed.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
