@@ -35,6 +35,17 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 124, one line — I BUILT THE GATE ROUND 123 ASKED FOR AND REVERTED IT, BECAUSE IT FAILED ON A CLEAN TREE**: the change was
+ten lines in `ci-command-table-check.mjs`, extending its DOC → CI direction to `agent/AGENTS.md`, and it BITES exactly as intended
+(mutating one command into `cargo test --workspace --all-features` produced "agent/AGENTS.md names `…` and NO step in ci.yml runs
+it"). **BUT IT ALSO REFUSED THE UNMUTATED TREE**, naming `cargo fmt --all -- --check                       # --check, because CI never
+runs the MUTATING form` — because my extractor keeps each line's TRAILING COMMENT, and a command with an inline `#` note is not the
+string CI contains. **A gate that fails on a clean tree is worse than no gate**: it would block every commit until somebody weakened
+it, which is how gates get weakened. So it is reverted rather than shipped with a fix I could not verify in the same step, and the
+specified repair is TWO clauses: strip `#`-comments (and trailing whitespace) before matching, and then prove BOTH directions — the
+mutation must fail AND the clean tree must pass. **The bite alone is half a proof**; this round is the half that was missing.
+
+
 **Round 123, one line**: round 122 raised the obvious follow-up — are there OTHER scoped instruction files with the same
 gap? — and the audit answers it in one command: `git ls-files | grep -E "(^|/)(AGENTS|CLAUDE|CONTEXT)\.md$"` finds **exactly
 TWO**, `AGENTS.md` (24,834 B) and `agent/AGENTS.md` (5,658 B), and both now carry the rules round 122 added (WAIT 2/2, do-not-push
