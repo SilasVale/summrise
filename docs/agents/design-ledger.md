@@ -6131,6 +6131,37 @@ one rather than a tidy-up: a check that refuses is only useful if the refusal is
 **NUMBERS:** live version **1.2.468**; the device reports itself current; the tag points at `82e504eb`, whose CI was
 green (10/11, the 11th skipped by design) BEFORE the tag.
 
+## 2026-09-25 — the thirty-eighth exploration: two builders, one version, 1,484 different bytes
+
+Round 37 shipped 1.2.468 and left one refusal unexplained. This round chased it, and the refusal is now a measurement
+rather than a hash nobody can act on.
+
+**WHICH FILE:** the two tarballs were downloaded and extracted (CDN `883cf653…`, 6,726,938 bytes; GitHub asset
+`69416c21…`, 6,726,905) and compared file by file. Every file is byte-identical — the CLI, the desktop sources,
+`package.json`, the README — **except `package/summrise-agent.exe`**. Note that the audit TOOL was right, and that its
+own `curl (28) Operation too slow` stall was a second, separate problem: comparing the API's asset digest against the
+CDN manifest is a better instrument than the download it replaces, and the two hashes it printed were correct.
+
+**HOW MUCH:** both exes are **17,637,376 bytes**; **1,484 bytes differ**, from `0x15a59` to `0x10d1b22`.
+
+**WHICH IS A SYMPTOM:** the first four differing bytes are at `0x80`–`0x83`, the COFF header timestamp (CI `36292644`,
+local `525246945`) — and under `/Brepro` that field is **derived from the output**, so it MOVED BECAUSE the output moved.
+It is the one difference that cannot be the cause.
+
+**WHAT IS RULED OUT, each with evidence:** a missing pin (`build.rs` already emits `/Brepro` + `/DEBUG:NONE` for the
+MSVC target, and its own comment records an earlier incident of this shape); a surviving debug directory (neither exe
+carries a PDB path or an RSDS GUID); and a differing panel bundle (the committed `resources/panel` FNV is
+`8cfdb9eb1a81e03f`, and no 16-hex string differs between the two exes, so the embedded bundle hash did not move).
+
+**WHAT ROUND 39 STARTS WITH:** ~1,480 bytes SCATTERED through a 17 MB image rather than concentrated in one section,
+which is the signature of embedded CONTENT that differs by environment. The first candidate is `file!()` paths in panic
+messages — this box builds under `/home/zhengsaisi`, the runner under `/home/runner/work` — and the byte-level detail to
+settle it is one dump of the differing regions. A check that refuses is only useful if the refusal is chased; this round
+moved it from a hash to an offset list.
+
+**NUMBERS:** 1,484 differing bytes of 17,637,376; one differing file of nine in the package; the live version stays
+**1.2.468** and devices are unaffected — the CDN is authoritative and the device reports itself current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
