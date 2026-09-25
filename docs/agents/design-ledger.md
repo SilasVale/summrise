@@ -6416,6 +6416,39 @@ reproduced on one box, and a mechanism that can be reproduced locally can be fix
 **NUMBERS:** 1,484 differing bytes; XOR 0x01 ×614, 0x30 ×584; observed deltas +0x20 and +0x2000; 9/9 section headers
 identical in SIZE and ADDRESS, which is what forces the "within a section" reading; live **1.2.468**, device current.
 
+## 2026-09-25 — the forty-sixth exploration: metadata is eliminated, so it is the environment
+
+Round 45 proposed reproducing the mechanism on one box by rebuilding with a deliberately different `-C metadata` and
+diffing the map's symbol list. The rebuild ran (48.21s); the map diff was unnecessary because the BINARY answered
+first — and the answer is "not this".
+
+**A CONTROLLED LOCAL EXPERIMENT, AND ITS RESULT IN ONE LINE:** `-C metadata=probe24` on an otherwise identical build
+changed **15,695,849 bytes** and the file SIZE (17,637,376 → 17,641,984). The divergence under investigation is
+**1,484 bytes with IDENTICAL size and 9/9 identical section headers**. Those are not the same phenomenon, and a
+mechanism that moves fifteen million bytes cannot be the one moving fifteen hundred. **Metadata is eliminated** — by
+its own signature, not by argument.
+
+**WHAT THAT LEAVES IS SHORT ENOUGH TO WRITE DOWN.** Everything about the SOURCE and the TOOLS is equal (six rounds of
+measurement: rustc, clang, lld, cargo-xwin, command, RUSTFLAGS, paths, panel hash, strings, section geometry). Metadata
+changes too much. What is left is the class the fingerprints cannot see: **the ENVIRONMENT the build runs in** — an env
+var, a locale, a host, or a dependency's build-script probe — producing a handful of values that differ by a little
+(+0x20, +0x2000) at fixed offsets with no structural change.
+
+**ROUND 47'S TEST IS THE MIRROR IMAGE OF THIS ONE, AND IT IS CHEAP**: this round proved a LOCAL build is deterministic
+(two runs, one hash — round 42), so a third build under a **scrubbed environment** (`env -i` with only PATH/HOME/CARGO_*)
+can be compared against a full-environment build. Same source, same tools, same command, ONE variable. If the tiny
+deltas appear, the environment is the cause and a bisect names it; if the binary is identical, the environment is
+eliminated too and the answer must lie in something the local box does not have at all — which would itself say where to
+look next.
+
+**AND A NOTE FOR WHOEVER READS THE TARGET DIRECTORY NEXT:** the release exe in `agent/target/…/release/` is now the
+`-C metadata=probe24` build. It is not committed, the version resource still reads 1.2.468, and the next
+`./scripts/build.sh agent` overwrites it — but a later round measuring that file should rebuild first, and that sentence
+is here so it does not have to be rediscovered.
+
+**NUMBERS:** 15,695,849 bytes moved by `-C metadata` (+4,608 bytes of size) against 1,484 bytes for the real divergence;
+9/9 section headers identical in the real case and DIFFERENT here; live **1.2.468**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
