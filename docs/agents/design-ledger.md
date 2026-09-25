@@ -81,6 +81,15 @@ codegen units (`cgu.08`, `cgu.13`), 24 bytes apart, starting at `0003:00000028`.
 static, so it lands at offset 0 instead of `0x130` — and every reference to it moves by the same 304 bytes, which is exactly the
 1,168 values this investigation has been chasing since round 34.
 
+**AND THE FIRST CANDIDATE FOR "WHY THE ORDER DIFFERS" IS ALREADY DEAD (round 62)**: CI's rust-toolchain action sets
+`CARGO_INCREMENTAL=0` explicitly (its step is even named "Disable incremental compilation"), while this box leaves the variable
+UNSET — a difference in the build environment that no earlier round had checked. Tested the only honest way, by building the
+SAME version twice and comparing MY OWN two builds: `CARGO_INCREMENTAL` unset vs `=0` produce **0 differing bytes**, which is
+what cargo's own rule predicts (a release profile is non-incremental unless the variable overrides it). So the variable is not
+the cause, and the first version of this test was WRONG in a way worth recording: it compared a 1.2.471 build against CI's
+1.2.470 asset and read 634,076 differing bytes — a number about the VERSION, not about the variable. **A cross-version
+comparison is not a measurement of a build flag**; the same-version pair is, and it was one command away.
+
 **WHAT THIS DOES AND DOES NOT EXPLAIN**: it explains the whole divergence — there is nothing else different in the image — and it
 converts "the two builders disagree by 1,484 bytes" into "**the two builders place one Rust runtime static 304 bytes apart within
 `.data`**", which is a property of the `/Brepro`-reproducible link whose *cause* is the ordering of codegen-unit contributions
