@@ -198,6 +198,13 @@ jobs:
             echo "::error::tag ${GITHUB_REF_NAME} != package.json version ${VER} — the release commit must bump package.json first"
             exit 1
           fi
+          # THE RUNNER'S OWN EXE HASH (round 27). Eight rounds eliminated every input either builder can
+          # print -- toolchain, command, RUSTFLAGS, paths, panel hash, strings, section geometry, metadata,
+          # environment -- while 1,484 bytes stayed different between them, and the one number nobody had was
+          # the hash CI ACTUALLY BUILT (the audit could only compare tarballs). Printed here, in the pipeline
+          # whose cargo-xwin wiring already works end to end, so the next release's log says whether the asset
+          # CI uploads is the artifact CI built, and lets the release box compare against it directly.
+          sha256sum target/x86_64-pc-windows-msvc/release/summrise-agent.exe
           cp target/x86_64-pc-windows-msvc/release/summrise-agent.exe summrise-agent-npm/summrise-agent.exe
           # round-298 lesson: bin/summrise.js is a COMMITTED tsc artifact; a
           # stale copy (source changed, build not re-run) would ship the
