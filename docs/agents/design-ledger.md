@@ -53,6 +53,14 @@ why round 35's "target content did not move" test found zero hits: there was no 
 with no positional change is a table whose ENTRIES were recomputed, not a region that shifted — and the honest statement is that
 the earlier sections said "displacement" where the measurement supports only "1,168 values, each 0x130 smaller in CI".
 
+**AND TWO MORE STRUCTURAL READINGS WERE TESTED AND DIED THE SAME DAY**: if 1,168 values are each `0x130` smaller with no
+positional change, the natural readings are "they reference a table whose records are 304 bytes apart" or "there is a 304-byte
+stride in `.rdata`". Measured: **0 of 500 pairs** find their target content at the record `0x130` earlier, and a self-similarity
+sweep over a 512 KB `.rdata` window at strides 304/608/152/8/16/24/32 finds nothing above noise (5, 3, 3, 9, 12, 22, 11 eight-byte
+blocks out of 128). So the values have **no local structure at that stride** — they are simply values that differ, and the
+empirical statement stays exactly as round 59 left it: **1,168 four-byte values in `.rdata`, each `0x130` smaller in CI, every
+other byte of a 17.6 MB image identical.**
+
 **THE INSTRUMENT THAT WOULD NAME IT IS UNCHANGED AND UNUSED**: the map's per-object contribution list (`/MAPINFO`), which the
 segment table cannot show because it lists `$`-named segments rather than the anonymous `.rdata` contributions inside them. That
 is a two-line change to `release.yml` and a diff of one release log — and after this round it is the ONLY remaining step, because
