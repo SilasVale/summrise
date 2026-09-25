@@ -5914,6 +5914,18 @@ clippy run cannot see these call sites at all.
 
 **NUMBERS:** agent lib tests 747 → **751** (terminal,keyring) and 684 → **688** (default); spawn tests 9 → 13.
 
+### 1.2.467 SHIPPED, CARRYING BOTH ROUNDS
+
+Round 31's plan said its kill fix joins the next release rather than forcing one per round, and this is that release:
+**the tree kill a user-facing tool was not doing, and the no-console rule that now reaches both command types** (so
+the service installer, the ACL hardening and the tunnel repair ask for the flag instead of sitting on a waiver list).
+The gate that guards the rule was fixed in the same stretch — it used to pass for the wrong reason.
+
+Bumped before the build (the exe's VERSIONINFO reads 1.2.467), dry-run gates passed, pack/stage/prune/deploy/smoke and
+npm `latest`; release commit `1045fd94` **CI-green before the tag** (10/11); tag `v1.2.467`; `release.yml` success;
+**`--audit-only 1.2.467` → CDN == GitHub asset byte-for-byte** (`8cf82c77241c7944…`); and the device:
+`release: 1.2.467 · this CLI: 1.2.467 · latest: 1.2.467 (this device is current)`.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
