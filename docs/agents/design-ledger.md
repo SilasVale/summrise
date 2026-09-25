@@ -7094,6 +7094,28 @@ measurement** — which is the reporter-table lesson of AGENTS.md, one level up.
 **NUMBERS:** `9152fae6` reported 5/11 failed (all cancelled); `1f4a9517` ran **10/11 with zero failures**, the 11th
 skipped by design; the tree at HEAD unchanged; live **1.2.469**, device current.
 
+## 2026-09-25 — the sixty-sixth exploration: the symptom, where the rule lives
+
+Round 45 spent a round diagnosing five red jobs that were never red: `check-runs` reports a CANCELLED job with
+`conclusion: failure`, and a count cannot tell it from a real one. The rule was already in AGENTS.md — *"do not push
+anything while a commit's CI is running"* — and **the symptom was not**, which is the part a reader needs when the count
+is red and the tree looks fine.
+
+It is now written beside the reporter-table lesson, because it is the same lesson one level up: **the count is a summary,
+the log is the measurement.** A cancelled job ends in cleanup (`Terminate orphan process: pid (…) (cargo)`) with NO error
+text, no `error[E…]`, no `FAILED` — and a log with no error in it is evidence rather than noise. The rule's own sentence
+is sharpened to *"wait before the NEXT COMMIT"*, not just "wait before releasing", because that is the version three
+occurrences have now paid for.
+
+**AND THE PLACEMENT IS THE POINT OF THE ROUND.** The ledger is where a measurement goes; AGENTS.md is where a reader
+looks BEFORE acting. This fact changes what someone does in the two minutes after a red count — open one log, look for a
+termination — so it belongs in the instruction file, and the ledger records only why. That division is the one this
+project states about itself ("if a sentence does not change what you would DO, it belongs in the ledger"), applied here
+to a sentence that does.
+
+**NUMBERS:** AGENTS.md 19,573 → **20,317 B** of the 48,000-byte enforced ceiling (headroom 27,683); `ledger-budget-check`
+and `numbered-claims-check` both green; the tree at `a21f88e6`; live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
