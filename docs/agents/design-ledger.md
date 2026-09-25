@@ -35,6 +35,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 136, one line**: the whole suite re-run after the rounds that found the SECOND mirror unguarded (133), wrote its guard
+and proved it both ways (134), and checked the new file against all four of gateway's CI checks before being asked (135) —
+`bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58)**, unchanged. The count of gate COMMANDS is the
+same because the new guard lives inside `gateway npm test`, which CI already runs: **a test added to a suite is invisible in this
+number by design**, and the number that moved is the suite's own — gateway went from 921 to **922** tests.
+
+
 **Round 135, one line — THE CHECK WAS MADE BEFORE IT WAS DEMANDED, WHICH IS THE FIRST TIME IN THIS THREAD**: round 134 added
 a NEW file, `gateway/test/instruments-mirror.test.mjs`, and verified it with `npm test` alone — while CI runs FOUR checks in that
 directory and two of them (`lint`, `format:check`) are the ones that object to a new `.mjs`. Rounds 128 and 130 both learned this
