@@ -6481,6 +6481,40 @@ does not leave a wrong "fix" in the tree.
 paths, build time, metadata, environment); 1,484 bytes still unexplained between the two builders; live **1.2.468**,
 device current, devices unaffected throughout.
 
+## 2026-09-25 — the forty-eighth exploration: the instrument moved to CI, and it is not wired yet
+
+Round 47 said the next instrument must run where the difference lives. This round built it — and it does not run yet,
+for reasons that are themselves the round's result.
+
+**WHAT WAS BUILT AND COMMITTED** (`97fd1d72`): the on-demand `toolchain fingerprint` job in `ci.yml` now builds the exe
+TWICE from the same commit with `release.yml`'s own command and `RUSTFLAGS`, prints both sizes, prints the runner's own
+exe sha256 — the number nobody had, to compare against the 1.2.468 asset's `8dc2396ab37eaf86…` and this box's
+`48d2773f4aaaf5f0…` — and says whether the two builds are byte-for-byte equal. That job is the right home: its stated
+purpose is already this question, it costs nothing per push, and it does not touch the release pipeline.
+
+**IT FAILED TWICE, AND THE SECOND FAILURE IS NOT DIAGNOSED.** The first (`36113456022`) died at
+`npm ci --include=optional`, which printed its USAGE: the fingerprint job never declared a node version, so the bare
+runner's npm rejected a flag `release.yml` passes successfully with `actions/setup-node@v4` pinned to 24. That is
+fixed (`f4f07203`, node 24 added with the reason in the step's own comment) — and it is a small, sharp illustration of
+this whole investigation's lesson: a job that does not choose its toolchain compares against a toolchain it did not
+choose. The second run (`36115257918`) failed too, and **the log retrieved from here shows the step's script echoed and
+the post-job cleanup, with no error text in the window** — so the cause is NOT established and this section does not
+invent one. The hypothesis worth testing first is visible in the job's own body: it PRINTS fingerprints, and it does
+not WIRE cargo-xwin to the LLVM the way `release.yml` does (the `~/.cache/cargo-xwin` symlinks, the libtinfo5 compat
+`LD_LIBRARY_PATH`), so a build in that job may simply lack the linker it expects.
+
+**SO ROUND 49 HAS TWO HONEST PATHS, AND THE SECOND IS PROBABLY RIGHT**: finish the wiring in the fingerprint job, or
+move the comparison INTO the release pipeline, where every piece of that wiring already exists and is already exercised
+— building the exe twice there and printing both hashes as part of a release. The second duplicates less and runs in the
+environment the artifact actually comes from, which is the only environment whose self-consistency matters.
+
+**AND THE ROUND'S OWN MISTAKE, RECORDED BECAUSE IT COST A RUN**: the first dispatch was sent BEFORE the push carrying
+the new step, so it ran the old workflow and proved nothing about the change. An on-demand job reads the ref at dispatch
+time; push first, then dispatch — and the ledger says so now instead of leaving it to be rediscovered.
+
+**NUMBERS:** 1 step added, 1 fix, 2 dispatches, 2 failures (one diagnosed, one not); 8 hypotheses about the original
+1,484 bytes still eliminated and none confirmed; live **1.2.468**, device current, devices unaffected.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
