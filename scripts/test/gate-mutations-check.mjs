@@ -323,6 +323,11 @@ const CASES = [
   },
   {
     gate: "scripts/test/release-lib.bash",
+    // THE FILE IS THE ROUTE TABLE'S OWN SOURCE, and the field is required: the row was added WITHOUT it, so the
+    // runner resolved `${ROOT}/undefined` and the gate died on its own harness in CI — a case that cannot run is
+    // worse than a case that fails, because the failure names the harness and not the rule. (Local runs could not
+    // catch it: this check refuses a dirty tree, which is exactly the state a round is in when it adds a row.)
+    file: "index/src/index.js",
     // THE ROUTE MOVES, THE COPIES DO NOT (2026-09-25). The measured state this pairs with: version.json published
     // a `url` per boxed component BESIDE its sha256, every consumer read the DIGEST, and the url was read by
     // NOBODY — while the same CDN path was retyped in index/components.json, the online installer, the npm CLI and

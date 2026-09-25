@@ -261,11 +261,20 @@ fn every_prestaged_component_is_verified() {
     // AND THE VERIFICATION MUST NOT SIT INSIDE THE DOWNLOAD GUARD: a file already on
     // disk — including one staged by the installer from before this check existed —
     // would never be looked at, which is the population this change is for.
+    // THE ANCHOR IS THE DOWNLOAD ITSELF, NOT THE URL IT USES. It used to pin the literal
+    // `summrise-playwright.zip" -OutFile`, which was the hardcoded path; the URL now comes from the
+    // release manifest (`Get-ComponentUrl … -Name "playwright"`), so that literal is gone and the
+    // assertion failed for a reason that has nothing to do with what it protects — that the PIN CHECK
+    // follows the download and still runs when the file is already on disk. Anchor on the playwright
+    // `-OutFile` write instead, whatever expression supplies the Uri.
     let download = ps1
-        .find("summrise-playwright.zip\" -OutFile")
+        .find("-OutFile $pwDest")
         .expect("the playwright download must still be there");
+    // AND THE VERDICT ANCHORS ON THE CHECK, NOT ON THE NAME: `-Name "playwright"` now appears INSIDE the
+    // download's own `Get-ComponentUrl` call as well, so anchoring the verdict on the name would make the
+    // two anchors the same occurrence and the ordering assertion vacuous (it failed exactly that way).
     let verdict = ps1
-        .find("-Name \"playwright\"")
+        .find("Get-ComponentSha256 -ManifestJson $manifestJson -Name \"playwright\"")
         .expect("the playwright pin check");
     assert!(
         download < verdict,
