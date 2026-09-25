@@ -6004,6 +6004,44 @@ running it. Disclosed rather than silent, and reversible in one edit if the rule
 `cargo xwin check` clean (the Windows target compiles `main.rs`'s new thread). Nothing was run on a Windows device —
 the strongest evidence available here is that makensis builds the installer and the source pins hold.
 
+## 2026-09-25 — the thirty-fifth exploration: thirteen doors, thirteen copies of one lock
+
+The electron shell's IPC surface, measured: **13** `ipcMain.handle` calls, each re-checking the frame it came from (14
+`frameOk` uses — 13 guards plus the definition), with the refusal in **two shapes** — 7 handlers answered
+`{ ok: false, error: "forbidden frame" }` and the rest a bare `{ ok: false }`, so the SPA could not tell a forbidden
+frame from a dead view. `sanitizeBrowserUrl` was restated at 3 load doors.
+
+**AND THE INSTRUMENT THAT COULD HAVE CAUGHT IT CANNOT SEE THE FILE**: `main.ts` imports electron, so
+`test/embedded-bridge.test.mjs` parses `preload.ts` as TEXT by its own admission — a fourteenth handler that forgot the
+check would have been silent. That is what made this a round rather than a tidy-up: of all the restated guards this
+loop has removed, this was the only one behind an import no test can cross.
+
+`ipcHandle(channel, fn)` is the one door now: `ipcMain.handle` appears **exactly once** in the file, the check is applied
+once, a forbidden frame never reaches an implementation, and the refusal has ONE shape — the one 7 handlers already
+promised and the SPA already reads. `loadTarget(raw)` is the single `sanitizeBrowserUrl` call site for the 3 doors (and
+the scheme rationale moved into it, with pointers left behind; a dead `safe &&` at the window-open site went with it).
+
+**AND THE COUNT IS THE GATE.** A source check in the shell's own `node --test` suite asserts that `ipcMain.handle`
+appears once, that `frameOk` has one definition and one call, that the refusal text is stated once, and that preload's
+`invoke` channels equal the registered ones (13 == 13). Mutations, verbatim from the same assertion: a planted second
+`ipcMain.handle` fails with *"main.ts must call ipcMain.handle exactly ONCE (found 2) — a handler registered outside the
+door does its own frame check, or none, silently"*, and a direct `sanitizeBrowserUrl` call fails the same way. The pin
+is a SOURCE check because that is the only kind available here — and the round says so rather than pretending the file
+is importable.
+
+**THE EMIT WAS REBUILT, AND ITS FRESHNESS CHECKED TWICE**: `npm run build` rewrote `src/main.js` in both copies (the
+shell's and the npm package's), `preload.js`/`url-policy.js`/`bin/summrise.js` byte-unchanged, and the CI freshness
+gate was replicated with its own flags (`--typeRoots ./node_modules/@types --outDir … --noCheck`) before the copies
+were compared.
+
+**NUMBERS:** the shell's suite 11 → **14 tests** (all pass), `tsc --noEmit` clean, the CLI package 57/57.
+
+**AND THE RELEASE PLAN, WHICH IS NOW THREE ROUNDS DEEP:** 1.2.467 shipped rounds 9-10. Rounds 11 (a Windows no-console
+flag), 12 (the installer's file map and the undigested payload) and 13 (the desktop shell's IPC door) are
+device-ADJACENT rather than device-behavioural — the installer matters at install and repair time, the flag only on
+Windows with a console, the desktop shell only to the electron app. They batch into 1.2.468, and the standard stands:
+a device-affecting change ends with the device saying so.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

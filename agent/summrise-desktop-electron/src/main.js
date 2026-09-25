@@ -165,6 +165,32 @@ function probeImage(p) {
 function frameOk(e) {
     return (0, url_policy_1.frameUrlOk)(e.senderFrame?.url || "");
 }
+// THE ONE REFUSAL a forbidden frame gets. It used to have TWO shapes — seven
+// handlers answered this one and the rest answered a bare `{ ok: false }`,
+// which the SPA cannot tell apart from a dead view (`j?.ok` is falsy either
+// way, and only this shape carries the reason). The preload's `invoke` callers
+// were written against THIS shape, so every handler answers it now.
+const FORBIDDEN_FRAME = Object.freeze({
+    ok: false,
+    error: "forbidden frame",
+});
+// THE ONE IPC DOOR: `ipcMain.handle` is called HERE and nowhere else, so the
+// frame check above is applied ONCE per channel and no handler can forget it.
+// A fourteenth handler that re-checked (or skipped) the frame was SILENT:
+// main.ts imports electron, so no node suite can import it and notice — the
+// pin is a SOURCE check instead (test/ipc-door.test.mjs counts the call sites).
+//
+// Handlers get the invoke ARGUMENTS only: every one of them used the event for
+// nothing but the frame check. The refusal is decided before the handler runs,
+// so a forbidden frame never reaches the implementation (no schtasks spawn, no
+// browser window, no loadURL).
+function ipcHandle(channel, fn) {
+    electron_1.ipcMain.handle(channel, (e, ...args) => {
+        if (!frameOk(e))
+            return FORBIDDEN_FRAME;
+        return fn(...args);
+    });
+}
 // P1: CDP port for AI (playwright) to drive Summrise's own pages — the SAME
 // Electron window the user watches. Summrise's playwright-mcp connects via
 // connectOverCDP("http://127.0.0.1:9333") and drives this window's pages.
@@ -365,11 +391,30 @@ function buildMenu() {
     return electron_1.Menu.buildFromTemplate(template);
 }
 // --- Browser-session control: shared core (used by both IPC and HTTP) ---
-/** Only http/https/about:blank targets are allowed — file:// and other
- *  schemes would hand the AI a local-file read primitive via the shared
- *  CDP endpoint (stage-n hardening). */
+/** THE ONE LOAD DOOR (stage-n hardening): every raw URL this shell is asked to
+ *  load — a browser-session window, the embedded real-render view, a
+ *  window.open() from a page inside it — is decided HERE and nowhere else.
+ *
+ *  Only http/https/about:blank survive; file:// and every other scheme
+ *  collapse to "about:blank", because a loadable file:// would hand the AI a
+ *  local-file read primitive via the shared CDP endpoint (:9333).
+ *
+ *  The DECISION itself is url-policy.sanitizeBrowserUrl() — pure, and
+ *  unit-tested in test/url-policy.test.mjs, since main.ts imports electron and
+ *  no node suite can import it. This function is that predicate's ONE call site
+ *  in the shell (test/ipc-door.test.mjs pins the count), so a fourth load site
+ *  cannot quietly reach for a weaker policy of its own.
+ *
+ *  Callers keep their own about:blank semantics: browserOpen() opens a blank
+ *  window, embeddedNavigate() loads it, and the embedded view's window-open
+ *  handler REFUSES it (an external link must not blank the page being read). */
+function loadTarget(raw) {
+    return (0, url_policy_1.sanitizeBrowserUrl)(raw);
+}
+/** Open a browser-session window on a decided load target (loadTarget() is the
+ *  ONE load door — the scheme policy lives there). */
 function browserOpen(url) {
-    const target = (0, url_policy_1.sanitizeBrowserUrl)(url);
+    const target = loadTarget(url);
     // stage-n: reuse an existing window on the same URL instead of stacking
     // duplicates (AI-driven browsing opens/closes sessions repeatedly); focus
     // the existing window. Match against the window's INITIAL target (stored
@@ -433,9 +478,9 @@ function browserList() {
     const list = [...browserSessions.entries()].map(([id, bw]) => ({ id, url: bw.webContents.getURL() }));
     return { ok: true, sessions: list, cdp: `http://127.0.0.1:${CDP_PORT}` };
 }
-electron_1.ipcMain.handle("browser-session:open", (e, url) => frameOk(e) ? browserOpen(url) : { ok: false, error: "forbidden frame" });
-electron_1.ipcMain.handle("browser-session:close", (e, id) => frameOk(e) ? browserClose(id) : { ok: false, error: "forbidden frame" });
-electron_1.ipcMain.handle("browser-session:list", (e) => frameOk(e) ? browserList() : { ok: false, error: "forbidden frame" });
+ipcHandle("browser-session:open", (url) => browserOpen(url));
+ipcHandle("browser-session:close", (id) => browserClose(id));
+ipcHandle("browser-session:list", () => browserList());
 // ── Embedded real-render browser view (round-246) ──────────────────────────
 // The SPA's Browser page used to show the BRIDGE's headless-chromium as a
 // JPEG screencast (lossy q60-92 frames over a websocket) — never as sharp as
@@ -473,12 +518,13 @@ function embeddedViewEnsure() {
     // window) were DENIED, so clicking them did nothing. The embedded view is
     // a single-tab browser: intercept window.open and navigate the SAME view
     // to the requested URL instead (the address bar follows via the nav
-    // events). Only http/https/data/about are honored — anything else
-    // (javascript:, file:, chrome:) is dropped like the url-policy requires.
+    // events). The scheme allow-list is loadTarget()'s (the ONE load door):
+    // anything it refuses (javascript:, file:, chrome:) must NOT blank the page
+    // the user is reading, so a refused target is dropped here instead.
     view.webContents.setWindowOpenHandler(({ url }) => {
-        const safe = (0, url_policy_1.sanitizeBrowserUrl)(url);
-        if (safe && safe !== "about:blank") {
-            embeddedNavigate(safe);
+        const target = loadTarget(url);
+        if (target !== "about:blank") {
+            embeddedNavigate(target);
         }
         return { action: "deny" };
     });
@@ -519,7 +565,9 @@ function embeddedViewPlace(bounds) {
     win.contentView.addChildView(view);
 }
 function embeddedNavigate(raw) {
-    const url = (0, url_policy_1.sanitizeBrowserUrl)(raw);
+    // Every raw URL the SPA/AI hands the embedded view is decided by the ONE
+    // load door before it reaches loadURL.
+    const url = loadTarget(raw);
     const view = embeddedViewEnsure();
     embeddedUrl = url;
     view.webContents.loadURL(url).catch(() => { });
@@ -621,6 +669,8 @@ function embeddedRecover() {
     const view = embeddedViewEnsure();
     if (!view || view.webContents.isDestroyed())
         return { ok: false };
+    // Already decided by loadTarget() when embeddedUrl was set (the ONE load
+    // door) — recovery re-loads that decision, it does not re-open the policy.
     const url = embeddedUrl && embeddedUrl !== "about:blank" ? embeddedUrl : "https://www.bing.com";
     view.webContents.loadURL(url).catch(() => { });
     // Re-show if the SPA slot is live (bounds were placed before the crash).
@@ -631,16 +681,14 @@ function embeddedRecover() {
     }
     return { ok: true };
 }
-electron_1.ipcMain.handle("embedded-browser:recover", (e) => frameOk(e) ? embeddedRecover() : { ok: false });
-electron_1.ipcMain.handle("embedded-browser:navigate", (e, url) => frameOk(e) ? embeddedNavigate(String(url || "")) : { ok: false, error: "forbidden frame" });
-electron_1.ipcMain.handle("embedded-browser:back", (e) => frameOk(e) ? embeddedGo(-1) : { ok: false });
-electron_1.ipcMain.handle("embedded-browser:fwd", (e) => frameOk(e) ? embeddedGo(1) : { ok: false });
-electron_1.ipcMain.handle("embedded-browser:reload", (e) => frameOk(e) ? embeddedReload() : { ok: false });
+ipcHandle("embedded-browser:recover", () => embeddedRecover());
+ipcHandle("embedded-browser:navigate", (url) => embeddedNavigate(String(url || "")));
+ipcHandle("embedded-browser:back", () => embeddedGo(-1));
+ipcHandle("embedded-browser:fwd", () => embeddedGo(1));
+ipcHandle("embedded-browser:reload", () => embeddedReload());
 /** round-251: zoom the REAL embedded view (webContents.setZoomFactor — the
  *  native browser zooms, not a CSS scale). factor: 0.5-3.0. */
-electron_1.ipcMain.handle("embedded-browser:zoom", (e, factor) => {
-    if (!frameOk(e))
-        return { ok: false };
+ipcHandle("embedded-browser:zoom", (factor) => {
     const view = embeddedView;
     if (!view || view.webContents.isDestroyed())
         return { ok: false };
@@ -653,13 +701,11 @@ electron_1.ipcMain.handle("embedded-browser:zoom", (e, factor) => {
         return { ok: false };
     }
 });
-electron_1.ipcMain.handle("embedded-browser:place", (e, bounds) => {
-    if (!frameOk(e))
-        return { ok: false };
+ipcHandle("embedded-browser:place", (bounds) => {
     embeddedViewPlace(bounds);
     return { ok: true };
 });
-electron_1.ipcMain.handle("embedded-browser:state", (e) => frameOk(e) ? embeddedState() : { ok: false, error: "forbidden frame" });
+ipcHandle("embedded-browser:state", () => embeddedState());
 // Desktop-app settings (auto-launch) — the Settings page toggles this. We
 // manage a per-user scheduled task ("SummriseDesktop", onlogon) instead of
 // Electron's setLoginItemSettings: in dev mode (electron .) the login-item
@@ -752,10 +798,10 @@ async function autoLaunchTaskSet(enabled) {
         return { ok: false, error: String(e) };
     }
 }
-electron_1.ipcMain.handle("desktop:get-auto-launch", async (e) => frameOk(e) ? { ok: true, enabled: await autoLaunchTaskExists() } : { ok: false, error: "forbidden frame" });
+ipcHandle("desktop:get-auto-launch", async () => ({ ok: true, enabled: await autoLaunchTaskExists() }));
 // The auto-launch pair is the PERSISTENCE primitive (onlogon schtasks in an
 // admin context) — it absolutely cannot be reachable from a foreign frame.
-electron_1.ipcMain.handle("desktop:set-auto-launch", async (e, enabled) => frameOk(e) ? autoLaunchTaskSet(!!enabled) : { ok: false, error: "forbidden frame" });
+ipcHandle("desktop:set-auto-launch", async (enabled) => autoLaunchTaskSet(!!enabled));
 // --- Agent lifecycle (stage-m: Rust owns it; the shell only probes/triggers) ---
 // review #2 (HIGH): a raw TCP connect only proves the PORT is held — an
 // agent that is wedged (deadlock / OOM-parked) but still listening keeps the
