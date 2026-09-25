@@ -6240,6 +6240,46 @@ this one should not still be reading 1,484 anonymous bytes.
 **NUMBERS:** 1,484 differing bytes of 17,637,376; 665 regions, 0 textual, in five sections; live version **1.2.468**,
 device current, devices unaffected.
 
+## 2026-09-25 — the forty-first exploration: the path hypothesis is dead, and the difference is one flag
+
+Round 40 predicted that the build DIRECTORY was the one unaligned input. This round ran the decisive test and the
+prediction is **WRONG** — which is worth more than the prediction was.
+
+**THE TEST, DONE PROPERLY THIS TIME.** The same tree (extracted twice from the same commit) was built under
+`/tmp/pa/summrise` and `/tmp/pb/zzz-different-name` — 17-character and 28-character path roots — with **distinct
+`CARGO_TARGET_DIR`s** and the Windows target. The two exes are **byte-identical: 0 differing bytes**. So the Rust build
+is path-independent here, and the "cargo's package id contains the path" reasoning, while true of the package id, does
+not reach the artifact.
+
+**AND THE PREVIOUS ATTEMPT'S FAILURE IS NOW EXPLAINED**, because it was mine and not the build's: round 40's two "builds"
+ran WITHOUT `--target x86_64-pc-windows-msvc`, so cargo compiled for the HOST — `target/release/` with no `.exe` at the
+end of it, which is why nothing was found to compare. An experiment that measures the wrong artifact reports
+successfully and means nothing; the ledger records it because the next person will reach for the same command.
+
+**AND THE REMAP ROUND 40 WENT LOOKING FOR ALREADY EXISTS ON BOTH SIDES.** `scripts/build.sh` exports
+`--remap-path-prefix=$ROOT=/src --remap-path-prefix=$HOME=/buildhome` with a comment naming this exact problem ("the
+local box and the CI runner sit at different home/workspace paths, and those embedded strings alone make the two exes
+differ — the dual-builder audit's whole problem"), and `release.yml` passes the same two placeholders to `/src` and
+`/buildhome`. The two builders are already aligned on this axis. **Which is the round's real lesson: three rounds of
+hypotheses have now been killed by measurement, and each one had looked certain from the diff alone.**
+
+**WHAT IS LEFT IS THE INVOCATION, AND IT DIFFERS BY EXACTLY ONE FLAG:**
+
+| | command |
+|---|---|
+| `scripts/build.sh` | `cargo xwin build --target X --release --features terminal,keyring --bin summrise-agent` |
+| `release.yml` | `cargo xwin build -p summrise-agent --target X --release --features terminal,keyring --bin summrise-agent` |
+
+`-p summrise-agent` is the only difference — and the evidence that an invocation difference DOES change the artifact is
+this round's own third build: run directly with `cargo xwin build --release --target … --features terminal,keyring`
+(no `-p`, no remap) it produced **17,641,984** bytes against the release exes' **17,637,376** — a 4,608-byte spread from
+invocation alone. So round 42's test is exact and cheap: build with the CI command VERBATIM on this box and compare
+against the CI exe. If it matches, the fix is one shared invocation (a script both sides call) rather than two that
+agree by inspection.
+
+**NUMBERS:** 0 differing bytes between two path builds; 1,484 between the two release builds; three sizes now measured
+for the same source (17,637,376 release, 17,641,984 direct cargo); live **1.2.468**, device current, devices unaffected.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
