@@ -144,6 +144,34 @@ function apiPost(pathname, body) {
   }
 }
 
+// ── `sh()` IS `cmd.exe /d /s /c "<string>"`, AND DOUBLE QUOTES DO NOT STOP `%` ──
+//
+// Quoting a value stops cmd from reading `&`, `|`, `>` and `^` as OPERATORS (that is
+// the `psArgv` incident below). It does NOT stop PERCENT EXPANSION: cmd expands
+// `%NAME%` inside a quoted region exactly as it does outside one, so an interpolated
+// PATH that contains a `%` is still a variable reference rather than data. `%` is
+// legal in an NTFS name, and the install/data dirs here are chosen by the operator,
+// so this is reachable rather than theoretical.
+//
+// MEASURED on d1 (2026-09-25) through this exact `spawnSync(cmd, {shell:true})` path;
+// each arrow is the child's own stdout:
+//   `echo [%CMDCMDLINE%]`                 -> [C:\WINDOWS\system32\cmd.exe /d /s /c "echo [%CMDCMDLINE%]"]
+//   `echo ["C:\%ProgramFiles%\Summrise"]` -> ["C:\C:\Program Files\Summrise"]   (rewritten)
+//   shell  `powershell ... "Write-Output '%ProgramFiles%'"` -> C:\Program Files  (value lost)
+//   argv   `powershell ...  Write-Output '%ProgramFiles%'`  -> %ProgramFiles%    (verbatim)
+//
+// AND THE BATCH-FILE ESCAPE IS THE WRONG FIX: cmd's `%%` -> `%` rule belongs to batch
+// FILES. On a `/d /s /c` command line that same measurement prints `[100%%]` for
+// `echo [100%%]` — the doubling is NOT collapsed, so "escaping" a value with `%%`
+// would put a DOUBLED sign into the path, which is worse than the defect. What
+// remains is argv (no cmd in the path at all — `ps()` below hands PowerShell its
+// script directly) or a value that provably cannot contain `%`. A site that keeps a
+// cmd line anyway says which of those it is in a `cmd-% <kind>: <reason>` comment,
+// and test/cli.test.mjs fails any interpolating site that does not.
+//
+// `rmdir`, `taskkill`, `sc`, `schtasks` and `reg` cannot take argv (the first is a
+// cmd BUILTIN — there is no rmdir.exe), so a path handed to one of those must reach
+// cmd as a `%NAME%` reference rather than as text.
 function sh(cmd, opts = {}) {
   return spawnSync(cmd, { shell: true, stdio: "inherit", ...opts });
 }
@@ -1086,8 +1114,10 @@ export function ensureElectron(): string | null {
   );
   if (!zip) return null;
   fs.mkdirSync(dist, { recursive: true });
-  sh(
-    `powershell -NoProfile -Command "Expand-Archive -Force -Path '${psq(zip)}' -DestinationPath '${psq(dist)}'"`,
+  // argv via `ps()`, not a cmd string: BOTH values are paths, and cmd expands `%NAME%`
+  // even inside the double quotes the old form carried (see `sh()`).
+  ps(
+    `Expand-Archive -Force -Path '${psq(zip)}' -DestinationPath '${psq(dist)}'`,
   );
   if (!fs.existsSync(path.join(dist, "electron.exe"))) return null;
   try {
@@ -1948,20 +1978,23 @@ const commands = {
       "SummriseAgent",
       "update-busy",
     );
-    sh(
-      `powershell -NoProfile -Command "Remove-Item -Force -ErrorAction SilentlyContinue '${psq(BUSY)}'"`,
-    );
+    // `ps()` (argv) rather than `sh()`: BUSY is a PATH under %ProgramData%, and cmd
+    // expands `%NAME%` in a value even when the value is quoted (see `sh()`).
+    ps(`Remove-Item -Force -ErrorAction SilentlyContinue '${psq(BUSY)}'`);
     // 5. Refresh the BOXED playwright bundle: delete the old tree first so a
     //    removed package/version never leaves stale files behind.
     //    round-163: kill the runner/bridge node processes FIRST — a running
     //    node.exe holds its image file locked, the Remove-Item/Expand-Archive
     //    pair silently skipped it, and the device was left with a playwright
     //    dir WITHOUT node.exe (bridge could never spawn again; observed d1).
-    sh(
-      `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*${psq(DIR)}*playwright*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
+    // argv (`ps()`), because DIR is the install dir: an operator-chosen PATH, so cmd
+    // could find a `%NAME%` in it — and this script's `|` and `{ }` are only data
+    // because no shell parses the line at all.
+    ps(
+      `Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*${psq(DIR)}*playwright*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
     );
-    sh(
-      `powershell -NoProfile -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '${psq(PW_DIR)}'"`,
+    ps(
+      `Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '${psq(PW_DIR)}'`,
     );
     // 6. Legacy install dirs from retired installers (C:\summrise-agent /
     //    D:\summrise-agent). If the registry now points at a DIFFERENT dir and a
@@ -1971,6 +2004,9 @@ const commands = {
     for (const legacy of ["C:\\summrise-agent", "D:\\summrise-agent"]) {
       if (legacy !== DIR && fs.existsSync(legacy)) {
         console.log("setup: removing legacy install dir", legacy);
+        // cmd-% literal: `legacy` is one of the two STRING LITERALS in the array on the
+        // `for` line above, so this value cannot carry a `%` — reviewed, left on the cmd
+        // line (the pin re-reads that array and checks it is literals all the way down).
         sh(
           `powershell -NoProfile -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '${psq(legacy)}'"`,
         );
@@ -1981,6 +2017,12 @@ const commands = {
     //    the retired orphans. Repair-only (helper checks link existence).
     //    Backslash-escape the .lnk Arguments double quotes for -Command.
     console.log("setup: reconciling desktop shortcut (retired-exe repair)...");
+    // cmd-% residual: THE ONE SITE THIS ROUND DID NOT FIX, and it is not "safe" — both
+    // values are paths (SCRIPTS_DIR, DESK_DIR). It is left because the same line depends
+    // on the cmd-level `\"` escaping above, which is its own defect (cmd does not unescape
+    // `\"`: the quoted region ends at the first `"` and the call works by accident), and
+    // argv-ing this call means deleting that `.replace()` in the same change. Named rather
+    // than silently exempted: the pin allows exactly ONE such site and fails a second.
     sh(
       `powershell -NoProfile -Command "${deskShortcutRepairPs(psq(SCRIPTS_DIR), psq(DESK_DIR), "Write-Host").join("; ").replace(/"/g, '\\"')}"`,
     );
@@ -2056,16 +2098,18 @@ const commands = {
     if (PW_ZIP) {
       const pwDir = PW_DIR;
       fs.mkdirSync(pwDir, { recursive: true });
-      sh(
-        `powershell -NoProfile -Command "Expand-Archive -Force -Path '${psq(PW_ZIP)}' -DestinationPath '${psq(COMPONENTS_DIR)}'"`,
+      // argv (`ps()`): PW_ZIP and COMPONENTS_DIR are paths, and cmd expands `%NAME%`
+      // inside quotes (see `sh()`).
+      ps(
+        `Expand-Archive -Force -Path '${psq(PW_ZIP)}' -DestinationPath '${psq(COMPONENTS_DIR)}'`,
       );
       // round-163: the whole point of the bundle is node.exe — VERIFY it
       // landed (a silently-missing copy killed the bridge forever on d1).
       // One retry, then fail loudly: a half-staged bundle is worse than none.
       if (!fs.existsSync(path.join(pwDir, "node.exe"))) {
         console.log("setup: node.exe missing after expand -- retrying once");
-        sh(
-          `powershell -NoProfile -Command "Expand-Archive -Force -Path '${psq(PW_ZIP)}' -DestinationPath '${psq(COMPONENTS_DIR)}'"`,
+        ps(
+          `Expand-Archive -Force -Path '${psq(PW_ZIP)}' -DestinationPath '${psq(COMPONENTS_DIR)}'`,
         );
       }
       // "node_modules verified" was in the message while only node.exe was checked —
@@ -2187,6 +2231,23 @@ const commands = {
         // filter. `pre` is a PATH (npm's global prefix), so it is DOUBLE-QUOTED for the
         // cmd layer: unquoted, a prefix like `C:\Program Files\nodejs` was split at its
         // space and npm installed the CLI somewhere else while reporting success.
+        //
+        // QUOTING IS NOT ENOUGH FOR `pre`, because cmd expands `%NAME%` inside quotes —
+        // so the path does not appear in this command line at all. `%SUMMRISE_NPM_PREFIX%`
+        // does, and the value travels in the environment below. MEASURED on d1, through
+        // npm.cmd ITSELF (the target here is a `.cmd` BATCH shim, and a batch file re-parses
+        // its own arguments, so the /c line was not the only parser to clear):
+        //   `npm config get prefix --prefix "%SUMMRISE_PROBE2%"`          -> C:\%ProgramFiles%\Summrise
+        //   `npm config get prefix --prefix "C:\%ProgramFiles%\Summrise"` -> C:\C:\Program Files\Summrise
+        // The reference is expanded ONCE and what it produced is not re-scanned, so a prefix
+        // literally named `C:\%ProgramFiles%\Summrise` arrives as exactly that, while the raw
+        // interpolation of the same value does not; the quotes still hold an `&` inside one
+        // argument. The pin requires every `%NAME%` on a cmd line to be defined in the same
+        // call's `env`.
+        //
+        // cmd-% version: `${selfVer}` is package.json's own version — a semver, read from
+        // the file the tests read too, so it cannot carry a `%` (and it must be quoted for
+        // the cmd layer regardless, or npm reads an empty spec).
         const inst = spawnSync(
           "npm",
           [
@@ -2194,12 +2255,17 @@ const commands = {
             "-g",
             `"summrise-agent@${selfVer}"`,
             "--prefix",
-            `"${pre}"`,
+            `"%SUMMRISE_NPM_PREFIX%"`,
             "--registry=https://registry.npmjs.org/",
             "--no-audit",
             "--no-fund",
           ],
-          { encoding: "utf8", shell: true, timeout: 300000 },
+          {
+            encoding: "utf8",
+            shell: true,
+            timeout: 300000,
+            env: { ...process.env, SUMMRISE_NPM_PREFIX: pre },
+          },
         );
         console.log(
           inst.status === 0
@@ -2229,14 +2295,18 @@ const commands = {
       // regardless". Worse, the `catch` below could not fire for this — `sh()` RETURNS, it does not
       // throw — so the only thing it ever caught was `writeFileSync`.
       //
-      // ONE CALL, and its status is READ. DOUBLE quotes in the command: a cmd-layer argument, because the
-      // single-quoted version this shipped with reached PowerShell with the quotes included and died on
-      // the device with "unsupported path format" for a path that was perfectly valid.
+      // ONE CALL, and its status is READ. The path is an ARGV ELEMENT now, and that is the fix for
+      // both quoting attempts that came before it: the single-quoted version this shipped with
+      // reached PowerShell with the quotes INCLUDED and died on the device with "unsupported path
+      // format" for a path that was perfectly valid, and the double-quoted version that replaced it
+      // still handed a PATH to cmd — where `%NAME%` expands inside the quotes (see `sh()`). argv
+      // needs no quotes at all: PowerShell receives the path verbatim.
       //
       // A WARNING, NOT FATAL, unlike the agent task: headless installs have no SummriseDesktop, and the
       // registration script itself exits quietly when electron is already alive.
-      const reg302 = sh(
-        `powershell -NoProfile -ExecutionPolicy Bypass -File "${reg}"`,
+      const reg302 = spawnSync(
+        "powershell",
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", reg],
         { stdio: "pipe" },
       );
       if (reg302 && reg302.status === 0) {
@@ -2540,13 +2610,17 @@ const commands = {
     // The register script is WRITTEN here (a machine that never ran setup still gets a working
     // task, from the same builder setup uses) but NOT run: desktop-start.ps1 runs it only when
     // the task is genuinely missing.
-    // ONE STRING, NOT an args array. With `shell: true` Node concatenates the arguments and warns
-    // about it (DEP0190: "the arguments are not escaped, only concatenated") — a warning the
-    // operator saw on the device the first time this command worked. The path is double-quoted,
-    // which is what -File accepts at the cmd layer; nothing here needs an argument list.
+    // ARGV, NO SHELL — the path is the reason. `shell: true` JOINS an args array into one cmd.exe
+    // line and warns about it (DEP0190: "the arguments are not escaped, only concatenated" — the
+    // warning the operator saw on the device the first time this command worked), and that line is
+    // then re-parsed a second time: `%NAME%` expands even inside the double quotes the old
+    // one-string form carried (see `sh()`), and this path lives under the install dir, which the
+    // operator chooses. Passed as argv, the path reaches PowerShell VERBATIM as one element and
+    // DEP0190 goes with the shell instead of being worked around.
     const r = spawnSync(
-      `powershell -NoProfile -ExecutionPolicy Bypass -File "${start}"`,
-      { encoding: "utf8", shell: true },
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", start],
+      { encoding: "utf8" },
     );
     const out = String(r.stdout || "").trim();
     if (out.endsWith("already-running")) {
@@ -3536,8 +3610,17 @@ const commands = {
     sh(
       "reg delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\EventLog\\Application\\Cloudflared /f 2>NUL",
     );
-    // program dir + registry
-    sh(`rmdir /s /q "${DIR}"`);
+    // program dir + registry.
+    //
+    // NOT `rmdir /s /q "<DIR>"`: `rmdir` is a cmd BUILTIN — there is no rmdir.exe to hand argv
+    // to — so a PATH given to it is text that cmd re-parses, and `%NAME%` expands even inside
+    // those quotes (see `sh()`). DIR is the install dir, i.e. operator-chosen. `ps()` runs the
+    // same deletion (Remove-Item -Recurse -Force, the form the legacy loop below already uses
+    // because it also copes with locked/read-only files) with the path as argv. The VERIFY below
+    // is what decides, which is why silence on failure is acceptable here.
+    ps(
+      `Remove-Item -LiteralPath '${psq(DIR)}' -Recurse -Force -ErrorAction SilentlyContinue`,
+    );
     // Legacy install dirs from retired installers (C:\summrise-agent /
     // D:\summrise-agent) — uninstall must leave NO residue anywhere.
     for (const legacy of ["C:\\summrise-agent", "D:\\summrise-agent"]) {
@@ -3545,6 +3628,9 @@ const commands = {
         console.log("uninstall: removing legacy install dir", legacy);
         // PowerShell Remove-Item -Recurse -Force handles locked/read-only
         // files better than rmdir; retry once after a short wait.
+        //
+        // cmd-% literal: `legacy` is one of the two STRING LITERALS in the array on the `for`
+        // line above, so this value cannot carry a `%` — the pin re-reads that array.
         sh(
           `powershell -NoProfile -Command "Remove-Item -LiteralPath '${psq(legacy)}' -Recurse -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '${psq(legacy)}' -Recurse -Force -ErrorAction SilentlyContinue"`,
         );
@@ -3592,8 +3678,12 @@ const commands = {
       console.log("uninstall: program dir + registry removed");
     }
     if (purge) {
-      sh(`rmdir /s /q "${DATA}"`);
-      // A failed rmdir used to print "data dir purged" anyway.
+      // Same as the program dir above: `rmdir` is a builtin, so its path would be text cmd
+      // re-parses (`%NAME%` expands inside quotes), and DATA is a path the operator can remap.
+      ps(
+        `Remove-Item -LiteralPath '${psq(DATA)}' -Recurse -Force -ErrorAction SilentlyContinue`,
+      );
+      // A failed removal used to print "data dir purged" anyway.
       if (fs.existsSync(DATA)) {
         console.error(
           `uninstall: FAILED to purge the data dir -- ${DATA} is still present`,

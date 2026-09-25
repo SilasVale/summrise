@@ -1744,19 +1744,32 @@ test("sh(): every interpolated value sits inside a double-quoted region of the c
   );
 
   // THE EXTRACTOR IS CHECKED FIRST, because a scan that finds nothing looks exactly
-  // like a scan that passes. One site of each syntactic shape is named — the
-  // single-line `sh(\`…\`)` form and the multi-line `sh(\n  \`…\`)` form. If either
-  // stops being found, fix THIS extractor rather than deleting the assertion.
+  // like a scan that passes. The single-line `sh(\`…\`)` shape is pinned on a FIXTURE
+  // now: its last real example was `rmdir /s /q "${DIR}"`, which round 33 moved to argv
+  // — the move IS the fix, not a gap in the extractor. The real-source probes name the
+  // multi-line sites that genuinely still build a cmd line. If a probe stops being
+  // found, fix THIS extractor rather than deleting the assertion.
   const sites = shTemplateSites(src);
-  for (const probe of ["rmdir /s /q", "Expand-Archive"]) {
+  for (const probe of ["deskShortcutRepairPs", "Remove-Item -Recurse -Force"]) {
     assert.ok(
       sites.some((s) => s.text.includes(probe)),
       `the sh() scan no longer finds the \`${probe}\` site — the extractor is broken, not the source`,
     );
   }
+  const single = shTemplateSites('const a = sh(`rmdir /s /q "${DIR}"`);');
+  assert.equal(
+    single.length,
+    1,
+    "the sh() extractor no longer sees a single-line template site",
+  );
+  assert.equal(
+    single[0].interps.length,
+    1,
+    "the sh() extractor no longer sees that site's interpolation",
+  );
   assert.ok(
-    sites.filter((s) => s.interps.length > 0).length >= 8,
-    `expected the sh() sites to interpolate several values, found ${sites.length} sites — fix the extractor`,
+    sites.filter((s) => s.interps.length > 0).length >= 1,
+    `expected the sh() scan to still find an interpolating site, found ${sites.length} template sites — fix the extractor`,
   );
 
   const bad = cmdDoorOffenders(src);
@@ -1776,16 +1789,19 @@ test("shell: true: an interpolated argv value is quoted for the cmd layer too", 
     "utf8",
   );
 
-  // The extractor's own check: these two calls are the reason the rule exists. The
-  // first is `npm`, whose `.cmd` shim NEEDS the shell; the second is the `-File` spawn
-  // the device measured (`cmd splits a command on &`).
+  // The extractor's own check. `npm` is the call whose `.cmd` shim NEEDS the shell, and it
+  // is the last one that still spawns a cmd line with values in it: the `-File` spawn this
+  // list used to name (`cmd splits a command on &`) is argv now, the same treatment the
+  // percent door below gets. The `sh()` helper's own spawnSync is the second call seen.
   const calls = shellSpawnCalls(src);
-  for (const probe of ['"npm"', "-File"]) {
-    assert.ok(
-      calls.some((c) => c.call.includes(probe)),
-      `the shell:true scan no longer finds the \`${probe}\` spawn — fix the extractor`,
-    );
-  }
+  assert.ok(
+    calls.some((c) => c.call.includes('"npm"')),
+    "the shell:true scan no longer finds the `npm` spawn — fix the extractor",
+  );
+  assert.ok(
+    calls.length >= 2,
+    `the shell:true scan found ${calls.length} call(s) — it should at least see sh()'s own spawnSync and npm's, so the extractor is broken`,
+  );
 
   const bad = [];
   for (const call of calls) {
@@ -1836,6 +1852,264 @@ test("the cmd-quoting scan itself: quoted passes, unquoted fails, and `\"` in th
   assert.deepEqual(
     shellSpawnCalls('spawnSync("reg", ["query", pre], { encoding: "utf8" });'),
     [],
+  );
+});
+
+// ── THE HALF ROUND 32 LEFT OPEN: A QUOTED VALUE IS NOT A SAFE VALUE ──
+//
+// The scan above proves an interpolated value sits INSIDE a double-quoted region of the
+// cmd line. That stops `&`, `|`, `>` and `^` from becoming OPERATORS. It does NOT stop
+// PERCENT EXPANSION: cmd expands `%NAME%` inside a quoted region exactly as it does
+// outside one, so a quoted PATH is still a variable reference rather than data.
+//
+// MEASURED on d1 (2026-09-25) through the `spawnSync(cmd, {shell:true})` path this file
+// uses; each arrow is the child's own stdout:
+//   `echo [%CMDCMDLINE%]`                 -> [C:\WINDOWS\system32\cmd.exe /d /s /c "echo [%CMDCMDLINE%]"]
+//   `echo ["C:\%ProgramFiles%\Summrise"]` -> ["C:\C:\Program Files\Summrise"]
+//   `echo [100%%]`                        -> [100%%]   <- NOT collapsed: `%%` is a batch-FILE rule
+//   `echo [%NO_SUCH_VAR%]`                -> [%NO_SUCH_VAR%]   <- undefined => passed through as TEXT
+//
+// Two fixes exist and this scan knows both. ARGV (the `ps()`/`psArgv` family) leaves no
+// cmd layer at all — such a site stops being an `sh()` site and there is nothing here to
+// scan. A value that STAYS on a cmd line must be one that provably cannot carry a `%`, and
+// the site has to say so in a `cmd-% <kind>: <reason>` comment immediately above it: a
+// value's provenance is not visible to a regex, so the claim is the only checkable thing —
+// AND THE CLAIMS ARE CHECKED. `literal` must resolve to a `for (const X of [ … ])` whose
+// elements are all string literals, `version` must resolve to package.json's own version
+// (re-read from disk in the test below), and `residual` is the acknowledged-and-unfixed
+// kind, capped at exactly ONE site so that it cannot become the way a NEW site passes.
+//
+// `%%` IS CHECKED TOO, because it is the fix a careful reader reaches for and the
+// measurement says it is the wrong one here: on a `/d /s /c` line the doubling is not
+// collapsed, so "escaping" a value that way puts a DOUBLED sign into the path.
+const CMD_PCT_MARKER = /cmd-%\s+(literal|version|residual)\s*:\s*(\S.*)/;
+
+// The `//` lines immediately above a 1-based statement line. Contiguous on purpose: a
+// marker parked anywhere else in the file is not a statement about THIS site.
+function commentBlockAbove(lines, line) {
+  const out = [];
+  for (let i = line - 2; i >= 0; i -= 1) {
+    const t = String(lines[i]).trim();
+    if (!t.startsWith("//")) break;
+    out.unshift(t);
+  }
+  return out.join(" ");
+}
+
+// The elements of `for (const NAME of [ … ])`, or null. This is what makes a `literal`
+// claim checkable: the array is re-read, and anything that is not a plain string literal
+// (an identifier, a call, a template) fails the claim that named it.
+function literalLoopElements(src, name) {
+  const m = new RegExp(`for \\(const ${name} of \\[([^\\]]*)\\]\\)`).exec(src);
+  if (!m) return null;
+  const els = splitTopLevel(m[1])
+    .map((e) => e.trim())
+    .filter((e) => e !== "");
+  return els.length > 0 && els.every(isPlainLiteral) ? els : null;
+}
+
+// The identifiers the source binds to package.json's own version (there are several —
+// `v`, `selfVer`, `pkgVer`, …), or an empty set — the anchor of the `version` claim, so
+// the claim is about THIS file's version rather than about a name someone chose.
+function packageVersionIdentifiers(src) {
+  const out = new Set();
+  const re = /const (\w+) = String\(require\("\.\.\/package\.json"\)\.version/g;
+  let m;
+  while ((m = re.exec(src))) out.add(m[1]);
+  return out;
+}
+
+// Every interpolated value that reaches a cmd line without a reason this scan can check
+// for believing it is `%`-free. `pkgVersion` is package.json's version, for `version`.
+function cmdPercentOffenders(src, pkgVersion) {
+  const lines = src.split("\n");
+  const bad = [];
+  const residuals = [];
+  const versionIds = packageVersionIdentifiers(src);
+
+  // One site's interpolations. `where` carries the coordinates, so a failure names the
+  // line to open rather than describing the rule again.
+  const check = (interps, marker, where) => {
+    for (const x of interps) {
+      const inner = x.text.slice(2, -1).trim();
+      if (marker && marker[1] === "residual") continue; // acknowledged; the cap holds it
+      if (marker && marker[1] === "literal") {
+        const m = /^psq\((\w+)\)$/.exec(inner);
+        if (m && literalLoopElements(src, m[1])) continue;
+        bad.push(
+          `${where}: ${x.text} is claimed \`literal\` but is not \`psq(<name>)\` over a for-of whose elements are all string literals`,
+        );
+        continue;
+      }
+      if (marker && marker[1] === "version") {
+        if (
+          versionIds.has(inner) &&
+          /^\d+\.\d+\.\d+$/.test(String(pkgVersion || ""))
+        )
+          continue;
+        bad.push(
+          `${where}: ${x.text} is claimed \`version\` but is not package.json's version (${versionIds.size ? `bound versions: ${[...versionIds].join(", ")}` : "no such binding in the source"})`,
+        );
+        continue;
+      }
+      bad.push(
+        `${where}: ${x.text} — cmd expands %NAME% in a quoted value too (measured on d1)`,
+      );
+    }
+  };
+
+  // Every `%%` in text a cmd line will carry. One message, because there is one reason.
+  const doubling = (text, where) => {
+    if (text.includes("%%"))
+      bad.push(
+        `${where}: this cmd text doubles a percent sign — measured on d1, \`echo [100%%]\` prints [100%%] on a /d /s /c line, so a value "escaped" this way arrives DOUBLED`,
+      );
+  };
+
+  for (const site of shTemplateSites(src)) {
+    const where = `src/summrise.ts:${site.line}: \`${site.text.slice(0, 46).replace(/\s+/g, " ")}…\``;
+    const marker = CMD_PCT_MARKER.exec(commentBlockAbove(lines, site.line));
+    doubling(site.text, where);
+    if (site.interps.length === 0) continue;
+    if (marker) {
+      if (marker[1] === "residual") residuals.push(where);
+      if (!String(marker[2] || "").trim())
+        bad.push(`${where}: the cmd-% marker states no reason`);
+    }
+    check(site.interps, marker, where);
+  }
+
+  for (const call of shellSpawnCalls(src)) {
+    const where = `src/summrise.ts:${call.line}: spawnSync(…, { shell: true })`;
+    const marker = CMD_PCT_MARKER.exec(commentBlockAbove(lines, call.line));
+    for (const t of call.templates) doubling(t.text, where);
+    for (const e of call.argv) doubling(e, where);
+    // `call.templates` already includes the template literals INSIDE the argv array —
+    // that is where npm's version goes, and where a `"${path}"` used to.
+    const interps = call.templates.flatMap((t) => t.interps);
+    if (interps.length > 0) {
+      if (marker) {
+        if (marker[1] === "residual") residuals.push(where);
+        if (!String(marker[2] || "").trim())
+          bad.push(`${where}: the cmd-% marker states no reason`);
+      }
+      check(interps, marker, where);
+    }
+    // A `%NAME%` is only a reference when the variable EXISTS: an undefined one is passed
+    // through as the literal text (measured above), so the programme would receive the
+    // reference itself.
+    for (const name of new Set(
+      [...call.call.matchAll(/%([A-Za-z_][A-Za-z0-9_]*)%/g)].map((m) => m[1]),
+    )) {
+      if (!new RegExp(`\\b${name}\\s*:`).test(call.call))
+        bad.push(
+          `${where}: %${name}% is not defined in this call's env — an undefined %NAME% is passed through as TEXT (measured), so the value would BE the reference`,
+        );
+    }
+  }
+
+  // The acknowledged-and-unfixed kind is CAPPED. A second one has to be a deliberate edit
+  // HERE, which is the whole point: `residual` must not become the way a new site passes.
+  if (residuals.length !== 1)
+    bad.push(
+      `expected exactly ONE acknowledged \`cmd-% residual\` site (the desktop-shortcut repair, left alone because its cmd-level \`\\\"\` escaping is a separate defect), found ${residuals.length}: ${residuals.join(" | ") || "none"}`,
+    );
+
+  return bad;
+}
+
+test("sh()/shell: a value cmd can expand `%NAME%` in is argv or a PROVEN literal, never merely quoted", () => {
+  const src = fs.readFileSync(
+    new URL("../src/summrise.ts", import.meta.url),
+    "utf8",
+  );
+  const pkg = JSON.parse(
+    fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  // The `version` claim is a claim about a SEMVER, and it is checked against the file npm
+  // itself reads — a version that grew a `%` would fail here rather than pass by name.
+  assert.match(
+    String(pkg.version),
+    /^\d+\.\d+\.\d+$/,
+    "package.json's version must be a plain semver for the `cmd-% version:` claim to hold",
+  );
+
+  // THE EXTRACTOR'S OWN CHECK FIRST — a scan that finds nothing looks exactly like a scan
+  // that passes. Both halves must still see something on the REAL source: the sh() half
+  // the site that keeps a cmd line, the shell half the one `%NAME%` reference.
+  assert.ok(
+    shTemplateSites(src).some((s) => s.text.includes("deskShortcutRepairPs")),
+    "the sh() scan no longer finds the multi-line desktop-shortcut site — fix the extractor",
+  );
+  assert.ok(
+    shellSpawnCalls(src).some((c) => c.call.includes("%SUMMRISE_NPM_PREFIX%")),
+    "the shell:true scan no longer finds npm's `%NAME%` reference — fix the extractor",
+  );
+
+  const bad = cmdPercentOffenders(src, pkg.version);
+  assert.ok(
+    bad.length === 0,
+    "a value interpolated into a cmd line can carry a `%`, and quoting does NOT stop cmd " +
+      "from expanding it (measured on d1: `echo [\"C:\\%ProgramFiles%\\Summrise\"]` printed " +
+      '`["C:\\C:\\Program Files\\Summrise"]`). `%%` is NOT the escape either — on the same ' +
+      "/d /s /c line `echo [100%%]` printed [100%%]. Pass the value as argv (`ps()`), or " +
+      "state in a `cmd-% <kind>: <reason>` comment above the site why it cannot carry a " +
+      "`%` (kinds: literal, version, residual):\n  " +
+      bad.join("\n  "),
+  );
+});
+
+test("the percent rule itself: an unmarked site fails, a false `literal` fails, `%%` fails, an undefined %NAME% is text", () => {
+  const PKG = "1.2.3";
+  const marker =
+    "// cmd-% literal: the array on the `for` line below is string literals only";
+  const offenders = (src) => cmdPercentOffenders(src, PKG).join("\n");
+
+  // (a) THE SHAPE THIS RULE EXISTS TO STOP: a new site that quotes its value and says
+  // nothing. The round-32 scan above PASSES it (the value is inside double quotes), so
+  // this one is the only thing standing between a path and percent expansion.
+  const quoted = 'sh(`powershell -Command "Remove-Item -Force ${DIR}"`);';
+  assert.deepEqual(
+    unquotedInterpolations(shTemplateSites(quoted)[0].interps),
+    [],
+    "fixture: this value IS inside a double-quoted region",
+  );
+  assert.match(offenders(quoted), /cmd expands %NAME% in a quoted value too/);
+
+  // (b) `literal` is a CLAIM about where the value comes from, and a wrong claim fails.
+  const lit = `${marker}\nfor (const legacy of ["C:\\\\a", "D:\\\\b"]) { sh(\`x "\${psq(legacy)}"\`); }`;
+  assert.ok(
+    !offenders(lit).includes("${psq(legacy)}"),
+    "a for-of over plain string literals is a reviewed value",
+  );
+  const notLit = `${marker}\nfor (const legacy of [DIR]) { sh(\`x "\${psq(legacy)}"\`); }`;
+  assert.match(offenders(notLit), /claimed `literal` but is not/);
+
+  // (c) `%%` is what a careful reader reaches for; the device says it does not collapse.
+  assert.match(
+    offenders('sh(`echo [100%%] "${DIR}"`);'),
+    /prints \[100%%\] on a \/d \/s \/c line/,
+  );
+
+  // (d) A `%NAME%` reference needs its variable to EXIST in that call's env, because an
+  // undefined one is handed to the programme as the reference itself.
+  assert.match(
+    offenders('spawnSync("npm", ["i", `"%SUMMRISE_PFX%"`], { shell: true });'),
+    /%SUMMRISE_PFX% is not defined in this call's env/,
+  );
+  assert.ok(
+    !offenders(
+      'spawnSync("npm", ["i", `"%SUMMRISE_PFX%"`], { shell: true, env: { SUMMRISE_PFX: p } });',
+    ).includes("SUMMRISE_PFX"),
+    "a reference defined in the same call's env passes",
+  );
+
+  // (e) The escape hatch is capped, so a source cannot buy silence with a leftover line.
+  assert.match(
+    offenders(
+      '// cmd-% residual: acknowledged and not repaired, with a reason long enough to read\nsh(`x "${DIR}"`);',
+    ),
+    /expected exactly ONE/,
   );
 });
 

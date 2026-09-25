@@ -35,6 +35,31 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 54 — a quoted value is not a safe value, and my suggested fix was wrong
+
+Round 32 fixed the CLI's shell door and named what it left open: cmd expands `%NAME%` **even inside double quotes**, so a
+path interpolation can be re-parsed as a variable reference. This round closed it — and the fix I proposed in the brief
+was **disproved before it was applied**: `%%` does NOT collapse on a `cmd /d /s /c "…"` line (that is a batch-FILE rule),
+so escaping by doubling would have put a DOUBLED sign into a real path. Measured on the device, through the exact
+`spawnSync(cmd, { shell: true })` path: `echo [100%%]` → `[100%%]`; `echo "C:\%ProgramFiles%\Summrise"` →
+`C:\C:\Program Files\Summrise`; argv → `%ProgramFiles%` untouched; and an undefined `%NAME%` passes through as text.
+
+**WHAT THE SITES NEEDED INSTEAD WAS argv**, in eight places, including two `rmdir /s /q "${DIR}"` calls that had to become
+`Remove-Item -LiteralPath` because rmdir is a cmd BUILTIN with no executable to point argv at. Where the shell genuinely
+cannot go — npm is a `.cmd` batch shim and re-parses its own arguments — the value moved into the ENVIRONMENT and the
+command line references `%SUMMRISE_NPM_PREFIX%`, which was measured through npm.cmd itself. Two categories stay with a
+checked reason (a literal, a semver re-read from package.json), and exactly ONE residual is allowed and capped.
+
+**THE PIN NOW KNOWS THAT QUOTING IS NOT ENOUGH**: every interpolating `sh()`/shell site must be argv or carry a
+`cmd-% <kind>: reason` comment whose kind is CHECKED against the value, `%%` in cmd text is rejected, and every
+`%NAME%` must be defined in that call's `env`. It bites where round 32's pin passed: reverting one site to the quoted
+form fails with "cmd expands %NAME% in a quoted value too (measured on d1)". CLI tests 62 → **64**; the emit was rebuilt
+and `cmp`-verified against a fresh compile.
+
+**AND THE ROUND'S REAL LESSON IS ABOUT BRIEFS, NOT SHELLS**: a fix proposed from the outside, however plausible, is a
+hypothesis until the mechanism is measured — and this one was measured on the machine whose cmd.exe actually runs it.
+
+
 **Verified after the three gate edits of rounds 49-52** (the ledger split, the two check patches and the PowerShell
 scanner extension): `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58 gate commands)**, the
 same totals as before them — editing a gate is editing the thing that guards everything else, so it is the one change
