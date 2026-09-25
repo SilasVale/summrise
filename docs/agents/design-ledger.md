@@ -6074,6 +6074,32 @@ the drift that file itself warns about in the cell above it. Corrected.
 this box, so the installer's new call sites and the 15 new `.ps1` checks are unexecuted — CI's fail-closed pwsh step is
 what runs them, and that is stated rather than implied.
 
+### CI WENT RED ON ROUND 36, AND BOTH FAILURES WERE THE ROUND'S OWN
+
+Committed, pushed, and then two of eleven jobs failed on `80979e69`:
+
+1. **`agent (cargo test)`** — `every_prestaged_component_is_verified` asserted the installer still contained the LITERAL
+   `summrise-playwright.zip" -OutFile`. That literal WAS the hardcoded path, and the round's whole point was that the
+   address now comes from the manifest — so the assertion failed for a reason that has nothing to do with what it
+   protects. What it protects is that the PIN CHECK follows the download and still runs for a file staged by an
+   earlier run. Re-anchored on the download's own write (`-OutFile $pwDest`) and on the check itself
+   (`Get-ComponentSha256 … -Name "playwright"`), **not** on `-Name "playwright"` — which now appears inside the
+   download's own `Get-ComponentUrl` call, and anchoring there made the two anchors the same occurrence and the
+   ordering assertion VACUOUS. Measured, not guessed: the first re-anchor failed exactly that way.
+2. **`pack-chain`** — the mutation row this round added to `gate-mutations-check.mjs` had no `file:` field, so the
+   runner resolved `${ROOT}/undefined` and the gate died on its own harness. A case that cannot run is worse than a
+   case that fails, because the failure names the harness and not the rule. **And it cannot be caught locally by
+   construction**: that check REFUSES A DIRTY TREE, which is exactly the state a round is in when it adds a row — so
+   a new row's first execution is in CI, and that belongs in the cost of adding one.
+
+**WHAT WAS NOT RUN, AND SHOULD HAVE BEEN**: the round verified `npm test`, `release-lib` and `publish-release.bash`
+after the change and never ran `cargo test -p summrise-agent` — the command CI runs for that job, and the one that
+would have caught #1 in eleven seconds. AGENTS.md already says "run the command the other end runs"; this is the
+receipt for skipping it, and it is the third time this loop has paid for a subset instead of the command.
+
+**FIXED IN `2756bb74`, CI GREEN (10/11)** — with the full suite run this time: 751 / 0 (terminal,keyring), 688 / 0
+(default), 29 / 0 (core), `installer_integrity` 7 passed (6/1 before), fmt clean, clippy clean.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
