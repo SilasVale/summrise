@@ -6196,6 +6196,50 @@ progress on a P0-flavoured check.
 **AND ONE THING THE ROUND DID NOT DO:** it did not "fix" the audit by relaxing it. A check that refuses is only useful
 if the refusal is chased; chasing it this far took one dispatch and one hash comparison.
 
+## 2026-09-25 — the fortieth exploration: every tool is aligned, the path is not
+
+Round 39 established that the two builders use identical compilers. This round removed the next two candidates by
+measurement and named the mechanism by section.
+
+**THE PANEL IS NOT THE CAUSE.** The embedded `PANEL_BUNDLE_HASH` is `8cfdb9eb1a81e03f` at the SAME offset (`0xd21e8e`) in
+both exes, and all six 16-hex tokens in each binary are identical. That was the strongest remaining candidate and it is
+gone.
+
+**AND EMBEDDED PATHS ARE NOT THE CAUSE EITHER**: of the 665 differing regions, **zero** has printable-ASCII context, so
+the round-38 guess (`file!()` paths) is dead too. No build-time constant is embedded anywhere — every
+`SystemTime::now()` in the source is a runtime use, and VERSIONINFO reads 1.2.468 on both sides.
+
+**WHAT REPLACED THEM IS A SECTION TABLE**, and it is the round's result:
+
+| section | differing bytes |
+|---|---|
+| HEADERS | 4 (the `/Brepro` timestamp — DERIVED, therefore a symptom) |
+| `.text` | 132 |
+| **`.rdata`** | **1,184** |
+| **`.data`** | **152** |
+| `.reloc` | 12 |
+
+**Data-heavy, tiny per region, scattered.** That is the signature of symbol-hash drift, not of codegen and not of embedded
+content — and it points at the one input on this build that NOBODY has aligned. `release.yml` mirrors `cargo-xwin`'s
+layout, pins `cargo-xwin 0.23.0`, restores the same LLVM tarball, and says why in a comment: *"so both builders invoke the
+same binaries"*. They do — and the fingerprints now prove it. What no comment mentions is the **directory**: this box
+builds at `/home/zhengsaisi/summrise`, the runner at `/home/runner/work/summrise/summrise`. Cargo's package id for a path
+package contains that path, it feeds `-C metadata`, and `-C metadata` is in every mangled symbol name — which is exactly
+where `.rdata` (names), `.data` (statics/vtables), `.text` (references) and `.reloc` (addresses) would each move a little.
+
+**THE DECISIVE TEST, AND THE WAY THE FIRST ATTEMPT AT IT FAILED:** build the same tree at two paths with distinct
+`CARGO_TARGET_DIR`s and compare by section. Round 18's first attempt was inconclusive for a mundane reason worth writing
+down — the two builds shared a target directory, so the "two" artifacts were one artifact, and the comparison had nothing
+to compare. That is the experiment round 41 runs, with the variable it needs set explicitly.
+
+**AND THE FIX HAS TWO SHAPES, both honest:** give both builders ONE path (CI already has a fixed one; the release box
+would adopt it), or make the audit compare something path-independent and SAY SO in its own message rather than reporting
+a mismatch it cannot explain. The first is truer to the check's purpose; the second is smaller. Either way the round after
+this one should not still be reading 1,484 anonymous bytes.
+
+**NUMBERS:** 1,484 differing bytes of 17,637,376; 665 regions, 0 textual, in five sections; live version **1.2.468**,
+device current, devices unaffected.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
