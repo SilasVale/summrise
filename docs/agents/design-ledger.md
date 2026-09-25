@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Verified after the three gate edits of rounds 49-52** (the ledger split, the two check patches and the PowerShell
+scanner extension): `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58 gate commands)**, the
+same totals as before them — editing a gate is editing the thing that guards everything else, so it is the one change
+that gets the whole suite run rather than the checks next to it. One line, not a section, per the policy above.
+
+
 
 ## 2026-09-23 — the release pipeline audited its own author (1.2.453 → 1.2.455)
 
