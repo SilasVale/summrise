@@ -7068,6 +7068,32 @@ spawn scan does not read — fail-closed, and named in round 42's section).
 **NUMBERS:** four of four candidates verified closed by grep at `7840859b`; CI on HEAD running at the time of the check
 (0/11 completed); live **1.2.469**, device current.
 
+## 2026-09-25 — the sixty-fifth exploration: five red jobs that were never red
+
+This round set out to verify round 42's scan in CI and found `9152fae6` reporting **5 of 11 jobs failed** — pack-chain,
+panel, design, agent (cargo test + clippy + fmt) and agent (xwin check). A gate change breaking the panel suite and the
+npm artifact gates at once would be a strange failure, and it was not one.
+
+**THE DIAGNOSIS, IN TWO MEASUREMENTS.** The failing job's log ends with *cleanup* — `Terminate orphan process: pid (3548)
+(cargo)`, `pid (3873) (summrise_agent-…)` — and contains **no error text, no `error[E…]`, no `FAILED`**. And HEAD
+(`1f4a9517`) — the same tree plus two documentation commits — ran to **10/11 with zero failures**. So the five jobs were
+**cancelled, not failed**: I pushed round 43 and round 44 while round 42's run was in flight, GitHub superseded the run,
+and a cancelled in-progress job is reported as a failure.
+
+**IT IS THE SAME TRAP THIS LEDGER RECORDS TWICE FROM 2026-09-23 AND ONCE FROM ROUND 30** — "do not push anything while a
+commit's CI is running" — and the third time it bit, the cost was a round spent diagnosing a red that was never there.
+**The rule is not "wait before releasing"; it is "wait before the NEXT COMMIT", and this loop has now paid for it three
+times.** What made the diagnosis cheap is the same thing that makes every diagnosis in this file cheap: the log had no
+error in it, and a log with no error is evidence rather than noise.
+
+**AND ONE THING WAS LEARNED ABOUT THE INSTRUMENT RATHER THAN THE CODE**: `check-runs` reports a cancelled job with
+`conclusion: failure`, indistinguishable at a glance from a genuine one. A reader who looks only at counts sees five
+failures; a reader who opens ONE log sees a termination and no error. **The count is a summary; the log is the
+measurement** — which is the reporter-table lesson of AGENTS.md, one level up.
+
+**NUMBERS:** `9152fae6` reported 5/11 failed (all cancelled); `1f4a9517` ran **10/11 with zero failures**, the 11th
+skipped by design; the tree at HEAD unchanged; live **1.2.469**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
