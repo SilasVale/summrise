@@ -53,6 +53,32 @@ for (const cmd of claimed) {
   }
 }
 
+// ── A2. AND THE SCOPED INSTRUCTION FILE'S COMMANDS, because it inherits NONE of the root's gates (round 124).
+// `agent/AGENTS.md` is the hottest file in this repository (792 commits when this was written) and it was carrying
+// `cargo test` / `cargo clippy --all-targets` with no `-p` -- a SUBSET of what CI runs -- and `cargo fmt --all`, the
+// MUTATING form, while CI runs `-- --check`. Nothing was checking it, because a scoped instruction file is read by
+// whoever works in that scope, which is exactly when a wrong command costs most.
+//
+// AND THE FIRST VERSION OF THIS BLOCK FAILED ON A CLEAN TREE, which is worse than no gate: it blocked every commit until
+// somebody weakened it. The cause is the line below that strips a TRAILING COMMENT -- `cargo fmt --all -- --check   # note`
+// is not the string CI contains, and the extractor kept the note. **The bite alone is half a proof; the clean tree passing
+// is the other half** (rounds 124 and 109 are the two halves of that lesson).
+const agentAgents = readFileSync(`${ROOT}/agent/AGENTS.md`, "utf8");
+const scoped = new Set(
+  [...agentAgents.matchAll(/^([a-z][^\n`]*)$/gm)]
+    .map((m) => m[1].replace(/\s+#.*$/, "").trim())
+    .filter((c) => IS_A_CHECK.test(c)),
+);
+for (const raw of scoped) {
+  const bare = raw.replace(/^cd [^&]+&&\s*/, "").trim();
+  if (!ci.includes(bare) && !ci.includes(raw)) {
+    findings.push(
+      `agent/AGENTS.md names \`${raw}\` and NO step in ci.yml runs it — a scoped instruction file inherits none of its ` +
+        `parent's gates (round 123), which is how the hottest file in the repository came to promise a different check`,
+    );
+  }
+}
+
 // ── B. every check-shaped step must be named in AGENTS.md or declared
 const steps = [...ci.matchAll(/^\s+(?:- )?run: (.+)$/gm)].map((m) => m[1].trim());
 const blocks = [...ci.matchAll(/run: \|\n((?:\s{10,}.*\n)+)/g)].flatMap((m) =>

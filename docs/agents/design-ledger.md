@@ -35,6 +35,29 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 125 — the scoped-file gate ships, with the half of the proof round 124 was missing
+
+Round 123 found that `agent/AGENTS.md` carried commands that are not CI's, and noticed why nothing caught it: **a scoped
+instruction file inherits none of its parent's gates.** Round 124 built the gate, watched it bite, and REVERTED it because it also
+refused a clean tree — its extractor kept each line's trailing `#` comment, so `cargo fmt --all -- --check   # note` never matched
+the string CI contains. This round ships the repaired version and proves BOTH directions:
+
+```
+1. clean tree (must pass): ok
+2. mutated  (`cargo test --workspace --all-features`): exit non-zero, naming exactly that command
+3. restored (must pass):   ok
+```
+
+`ci-command-table-check.mjs` direction A2 now reads the scoped file, strips comments and trailing whitespace before matching, and
+checks each of its check-shaped commands against the workflow — the same assertion the root table has had since round 151, applied
+to the file that had none. **The mutation row records both halves**, because the interesting failure here was not the bite: it was
+a gate that would have blocked every commit until somebody weakened it, which is how gates get weakened.
+
+**AND THE CLASS IS NOW CLOSED RATHER THAN SAMPLED**: round 122 repaired the file, round 123 proved the set is exactly two files,
+rounds 124-125 gave the second one the gate the first one already had. Four rounds for a file nobody had read, which is what
+"the hottest file in the repository" should have cost somebody a hundred rounds ago.
+
+
 **Round 124, one line — I BUILT THE GATE ROUND 123 ASKED FOR AND REVERTED IT, BECAUSE IT FAILED ON A CLEAN TREE**: the change was
 ten lines in `ci-command-table-check.mjs`, extending its DOC → CI direction to `agent/AGENTS.md`, and it BITES exactly as intended
 (mutating one command into `cargo test --workspace --all-features` produced "agent/AGENTS.md names `…` and NO step in ci.yml runs
