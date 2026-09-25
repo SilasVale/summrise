@@ -35,6 +35,17 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 102, one line**: the fix round 101 named is now specified rather than described — `check()` at `e2e.js:115` takes
+`(name, cond, detail)` and has **no skip concept**, while the summary line is computed from the results array; so the change is:
+(1) let a result carry `pass: null` with a reason and print `SKIP <name> -- <reason>`; (2) exclude `null` results from BOTH numbers
+on the `== N/M passed ==` line, so a skipped arm cannot silently become a pass; (3) in the `mcp` section, decide the arm ONCE per
+transport — the private-headless arm is the one where the tool drives its own browser, and the observed tab list (`about:blank`, no
+embedded-view tab) is the in-band signal for it — and assert the arm's real contract: on ATTACH, "the embedded view followed"; on
+PRIVATE, that the call drove the browser it owns, with the visibility check SKIPPED and its reason naming the arm. **The counting
+rule matters more than the printing rule**: this suite's numbers are read by humans as a baseline, and a skip that counts as a pass
+would be the third instrument in this thread to report success for something that did not happen.
+
+
 ### round 91 — the six sections that had never run: 45/49, and the failures cluster in ONE place
 
 Round 90 proved the panel section had been broken for its entire life by a selector nobody had ever executed. So this round ran
