@@ -156,6 +156,47 @@ one-experiment question rather than a speculation:
    restored) — so the view ends at the PREVIOUS url and the call still reports `ok`, because the RESTORE succeeded;
 2. the retry never happens within the phase, and the view stays wherever the reap caught it.
 
+### round 98 — THE LOG ANSWERS IT, AND THE ANSWER IS `[select]`: THE SESSION NEVER DIED
+
+Round 97 said the shortest path was the transport's own diagnostic lines. They are at
+`C:\ProgramData\Summrise\logs\mcp_diag.log`, and the tail after one e2e http phase reads:
+
+```
+[rpc] method=notifications/initialized id=None sid=d501bd72-… http=202
+[rpc] method=tools/list id=Some(2) sid=d501bd72-… http=200
+[select] auto-selecting the embedded-view tab (desktop CDP attached)
+[rpc] method=tools/call id=Some(3) … http=200
+[select] initial tab list text: ### Result
+- 0: (current) [](about:blank)
+[select] retry 1/4 — tab list not ready yet
+[select] retry 2/4 — tab list not ready yet
+[select] retry 3/4 — tab list not ready yet
+[select] retry 4/4 — tab list not ready yet
+[select] no embedded-view tab found after retries — leaving default selection
+```
+
+**NOT ONE `[heal]`, NOT ONE `[restore]`, NOT ONE 404: the session was ALIVE for the whole phase** (`sid=d501bd72-…`, every call
+`http=200`). The round-137 reaping theorem — the mechanism rounds 96 and 97 built their explanations on — **never fired.** Two rounds
+of increasingly careful reasoning about session death were reasoning about an event that did not happen, and the file that
+disproved it had been sitting on the device since the first run.
+
+**THE ACTUAL MECHANISM IS THE TAB SELECTION, AND THE TRANSPORT SAYS SO IN WORDS**: it tries to attach to the tab the desktop CDP is
+driving, reads a tab list containing only `0: (current) [](about:blank)`, retries four times, and then **"leaving default
+selection"**. So every subsequent call — navigate, snapshot, click — operates on a BLANK TAB THAT NOTHING IS WATCHING, returns
+`ok` because it genuinely succeeded there, and the embedded view is never touched. **The view keeps whatever the PREVIOUS transport
+left on it, which is exactly the URL three runs showed.**
+
+**EVERY OBSERVATION FINALLY FITS, INCLUDING THE ONES THAT CONTRADICTED MY THEORIES**: navigate looks like a no-op while reporting ok
+(it navigated another tab) · the view stays at the stdio phase's `/inner-click-test` (untouched) · the http CLICK check passes
+vacuously (the stale URL already satisfied its predicate) · and there are **zero heal lines**, which is what killed the reaping
+story. **The product defect is precise: after a transport switch the http session cannot find the embedded-view tab, and it proceeds
+on a blank one instead of failing the call.**
+
+**AND THE LESSON IS THE ONE THIS THREAD HAS NOW LEARNED FOUR TIMES, EACH TIME ONE LAYER DEEPER**: round 90 — a warning beside the
+code does not reach the code that tests it; round 93 — a diagnostic in the output does not reach a reader filtering for verdicts;
+round 97 — a mechanism the product logs does not reach a reader who reasons first; round 98 — **and the log itself does not reach a
+reader who has already decided what it will say.** Six rounds of inference lost to one `Get-Content -Tail 20`.
+
 **AND THE CODE SETTLES THE ORDERING — THE RESTORE RUNS FIRST, THE RETRY AFTER (round 97).** Two lines decide it:
 
 ```rust
