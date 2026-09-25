@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 111, one line**: the WHOLE suite re-run after the rounds that moved 91 KB of table between archives and added a
+ceiling for the third one — `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58)**, the same totals
+as before them. Rounds 107-110 had only been checked against the three DOC gates, which is the subset next to the change; the
+whole suite is what a round that edits a gate and rewrites three archives owes.
+
+
 **Round 109, one line — THE NEW CEILING IS PROVEN TO BITE, ON ITS SECOND TRY**: round 107 gave `ledger-mutations.md` its own
 ceiling, and this round padded it to **461,649 B** — the gate exits 1 with "is 461649 bytes and the ceiling is 400000 — a table that
 outgrows its own file is the round-49 problem again"; restored to **92,048 B** it is ok again. **The first attempt was inconclusive and
