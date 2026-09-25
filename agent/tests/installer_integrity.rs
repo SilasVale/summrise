@@ -566,6 +566,107 @@ fn every_exit_closes_the_install_log() {
     );
 }
 
+/// ONE SETTING, THREE READERS, ONE RULE — and the installer was the one that did not follow it.
+///
+/// The agent's HTTP port is read in three places: `summrise-agent-npm/src/summrise.ts` and
+/// `summrise-desktop-electron/src/url-policy.ts` (both `parseAgentPort`, both "the first `port:`
+/// inside the top-level `server:` section; nothing when absent/invalid") and this installer, whose
+/// receipt writes the URL the finish page offers. The installer took the first `port:` ANYWHERE:
+///
+/// ```text
+/// Select-String -Path ... -Pattern "^\s*port:\s*(\d+)" | Select-Object -First 1
+/// ```
+///
+/// `agent/config.yaml` has exactly ONE `port:` today, so all three readers agree — which is the
+/// whole reason this is worth pinning NOW rather than after the config grows a second one: they
+/// would then disagree silently, and the reader that would disagree is the one that hands a person
+/// a URL to click (`install-panel-url.txt`). The parse is a named function now (`Get-AgentPort`),
+/// so the scoping can be read and this pin can point at it — and what it must fail on is a
+/// whole-file first match coming back. NO POWERSHELL RUNS ON THIS BOX, so this reads text: the
+/// same limit the rest of this file states, and the reason the ORDER assertions below are the
+/// strongest evidence available here.
+#[test]
+fn the_installer_scopes_the_port_to_the_server_section() {
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let code = without_comments(&ps1, '#');
+
+    // 1. THE NAIVE SCAN MUST NOT COME BACK. Whole-line comments are stripped first, so the comment
+    //    that NAMES the old one-liner (kept — it is the why) can neither satisfy nor trip this.
+    let offenders: Vec<&str> = code
+        .lines()
+        .filter(|l| l.contains("Select-String") && l.contains("port"))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "the installer must not go back to a whole-file `Select-String` port scan — the first \
+         `port:` ANYWHERE in the file is not the rule the two TS readers follow. Offending \
+         line(s): {offenders:#?}"
+    );
+
+    // 2. THE RULE, in the function: section anchor, then section guard, then the port pattern — in
+    //    that ORDER, because a port pattern matched before the guard is the old whole-file
+    //    behaviour with extra steps.
+    let fstart = code
+        .find("function Get-AgentPort(")
+        .expect("the port parse must stay a named function this pin can point at");
+    let fend = fstart
+        + code[fstart..]
+            .find("\n}\n")
+            .expect("the function must still end with a closing brace at column 0")
+        + 3;
+    let body = &code[fstart..fend];
+    let opens = body
+        .find("^server")
+        .expect("the function must recognise the top-level `server:` line");
+    let guard = body
+        .find("-not $inServer")
+        .expect("and must skip every line until it is inside that section");
+    let port = body
+        .find("^\\s*port")
+        .expect("and must match `port:` only there");
+    assert!(
+        opens < guard && guard < port,
+        "the scoping must be WIRED, not merely present: server-anchor={opens}, \
+         section-guard={guard}, port-pattern={port} — expected anchor < guard < pattern"
+    );
+
+    // 3. THE WIRING: the function is called, its result feeds `$port`, and the 18080 default is
+    //    still assigned BEFORE the call, so an absent/unreadable config leaves it in place. That
+    //    default is the same 18080 both TS readers fall back to — this fix invents no new one.
+    let call = code
+        .find("$p = Get-AgentPort ")
+        .expect("the receipt must call the scoped parse, not an inline scan");
+    let default = code
+        .find("$port = \"18080\"")
+        .expect("the canonical default must stay");
+    assert!(
+        fstart < call && default < call,
+        "the default must be set BEFORE the parse (default={default}, call={call}) and the \
+         function defined before it is used (definition={fstart})"
+    );
+    let url = code
+        .find("install-panel-url.txt")
+        .expect("the port still has to reach the URL the finish page offers");
+    assert!(
+        call < url,
+        "the parsed port must feed install-panel-url.txt (call={call}, url={url})"
+    );
+
+    // 4. AND THE OTHER TWO READERS must still state the rule this one now follows; without this
+    //    the pin measures agreement with a rule that may no longer exist on their side.
+    for sibling in [
+        "summrise-agent-npm/src/summrise.ts",
+        "summrise-desktop-electron/src/url-policy.ts",
+    ] {
+        let text = read(sibling);
+        assert!(
+            text.contains("parseAgentPort") && text.contains("^server\\s*:"),
+            "{sibling} is one of the three readers of this one setting and must still scope the \
+             parse to the top-level `server:` section"
+        );
+    }
+}
+
 /// THE BOM IS LOAD-BEARING, and nothing else in the suite can see it.
 ///
 /// PowerShell 5.1 decodes a `.ps1` with no byte-order mark as ANSI, and this file is UTF-8 carrying

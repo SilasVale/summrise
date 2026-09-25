@@ -6613,6 +6613,47 @@ tree that differs by one documentation file. **The rule is the one already writt
 pushing the next one** — and the fact that this loop broke it again, two rounds after recording it, is why the note is
 here rather than in the commit that fixed it.
 
+## 2026-09-25 — the fifty-first exploration: one setting, three readers, and the one that disagreed
+
+Round 12's walker measured this and left it as "latent by construction"; this round implemented it, because the reason it
+was latent is the reason it was worth fixing.
+
+**THE MEASURED STATE:** the agent's HTTP port has three readers, and the rule is stated in two of them —
+`summrise.ts`'s `parseAgentPort` and `url-policy.ts`'s walk the YAML tracking `let inServer`, taking the first `port:`
+**inside the top-level `server:` section**, and the second one's comment says exactly that. The installer
+(`summrise-online-setup.ps1:450`) did not scope at all: `Select-String -Pattern "^\s*port:\s*(\d+)" | Select-Object
+-First 1` is the first `port:` **anywhere in the file** — and its value is written into `install-panel-url.txt`, which a
+person then clicks.
+
+**`agent/config.yaml` has exactly one `port:` today, so all three agree** — and that is the point rather than a reason to
+wait: the divergence would appear the day a config grows a second `port:` (a plugin block, a commented example), and the
+reader that would be wrong is the one that hands a human a URL. Two readers following a documented rule and a third
+following a convenient one is the shape this loop keeps finding; here the third is in the installer, where a mistake is
+delivered to a customer's desktop shortcut.
+
+**THE FIX IS A SMALL LINE-SCANNER, AND IT LIFTS THE PARSE INTO A NAMED FUNCTION**: `Get-AgentPort` tracks the top-level
+section the way both TS readers do — a column-0 line opens or closes it, `-cmatch` because both TS regexes are
+case-sensitive, the first valid `port:` inside `server:` wins, and anything out of range returns nothing rather than a
+number. **NO NEW DEFAULT WAS INVENTED**: the `$port = "18080"` that was already assigned before the parse stands for an
+unreadable file, a missing section or an invalid value — the same fallback both TS callers use. Exit codes and
+user-facing strings unchanged.
+
+**PIN AND MUTATIONS, VERBATIM**: `the_installer_scopes_the_port_to_the_server_section` fails on a `Select-String`+port
+line, on the guard's ordering, on a missing call, on the default moving after the call, on the
+parse→`install-panel-url.txt` link, and on either TS sibling losing `^server\s*:`. Restoring the naive one-liner
+byte-for-byte panics with *"the installer must not go back to a whole-file `Select-String` port scan — the first `port:`
+ANYWHERE in the file is not the rule the two TS readers follow"*; deleting the guard panics with *"and must skip every
+line until it is inside that section"*. Both reverted, file byte-identical by `cmp`.
+
+**AND THE BOM TRAP FIRED AGAIN, WHICH IS WHY ROUND 28 PINNED IT**: the `edit` tool stripped `efbbbf` again (measured
+`235265`), and the round caught it because round 28's `the_setup_script_keeps_its_utf8_bom` exists — a gate written one
+round earlier doing exactly the job it was written for, on a file whose 91 Chinese lines would otherwise reach users as
+mojibake.
+
+**NUMBERS:** `installer_integrity` 9 → **10 tests**; BOM `efbbbf` verified by `xxd`; `script-syntax` 27 files parse; fmt
+and clippy clean. NOT VERIFIED HERE: no pwsh on this box, so `Get-AgentPort` is unexecuted — syntax by eye, and the pin
+holds the rule rather than the behaviour.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

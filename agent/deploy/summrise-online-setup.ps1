@@ -102,6 +102,44 @@ function Download-File([string]$url, [string]$dest, [string]$what) {
   return $false
 }
 
+# The agent's HTTP port out of its etc\config.yaml, by the SAME rule as the other two
+# readers of that one setting — summrise-agent-npm/src/summrise.ts and
+# summrise-desktop-electron/src/url-policy.ts, both named parseAgentPort: the FIRST
+# `port:` inside the TOP-LEVEL `server:` section, and NOTHING when the section or the
+# key is absent or the value is not a port (both callers then keep their 18080 default,
+# which is what the caller below keeps too — no new default is invented here).
+#
+# WHY IT IS A SCOPED SCAN, and not the one-liner it replaced. That one-liner was a
+# whole-file `Select-String -Pattern "^\s*port:" | Select-Object -First 1`, i.e. the
+# first `port:` ANYWHERE in the file. agent/config.yaml has exactly one `port:` today,
+# so all three readers agree and nothing is visibly broken — which is the reason to fix
+# it NOW: the day the file grows a second `port:` (another section, a commented
+# example) the readers would disagree silently, and the one that would disagree is the
+# one that hands a person a URL to click (install-panel-url.txt, read by the NSIS
+# finish page). PowerShell has no YAML parser here on purpose, so this is the same line
+# scan the two TS readers do, kept to their shape:
+#   * column 0 opens the section when the line is `server:` and closes it otherwise —
+#     including a column-0 COMMENT, which is what the TS `/^\S/.test(line)` does;
+#   * a blank line is not a column-0 line, so it does not close the section;
+#   * `-cmatch` throughout: YAML keys are case-sensitive, and so are both TS regexes;
+#   * the first line inside the section that is exactly `port: <digits>` (optional
+#     quotes, optional trailing comment) wins, and an out-of-range value counts as
+#     absent — again the TS rule.
+function Get-AgentPort([string]$yamlText) {
+  $inServer = $false
+  foreach ($raw in ($yamlText -split '\r?\n')) {
+    $line = $raw -creplace '\s+$', ''
+    if ($line -cmatch '^\S') { $inServer = $line -cmatch '^server\s*:' }
+    if (-not $inServer) { continue }
+    if ($line -cmatch '^\s*port\s*:\s*"?(\d{1,5})"?\s*(#.*)?$') {
+      $n = [int]$Matches[1]
+      if ($n -gt 0 -and $n -lt 65536) { return $n }
+      return $null
+    }
+  }
+  return $null
+}
+
 # --- 1. Node：复用现有的，版本太旧或缺失才装便携版 ---
 # Layout v2: portable node lives at components\node.
 $NodeDir = Join-Path $InstallDir "components\node"
@@ -446,8 +484,11 @@ try {
 
 # --- 8. 回执（NSIS 完成页读这个；绝不写 token） ---
 # Layout v2: config in etc\, receipt in DataDir\logs\.
+# The default is the same 18080 both TS readers fall back to, and it is kept when the
+# config is unreadable, or has no top-level `server:` section, or no valid `port:` in
+# it — absent is a state, not a crash.
 $port = "18080"
-try { $p = Select-String -Path (Join-Path $InstallDir "etc\config.yaml") -Pattern "^\s*port:\s*(\d+)" | Select-Object -First 1; if ($p -and $p.Matches.Groups[1].Value) { $port = $p.Matches.Groups[1].Value } } catch { }
+try { $p = Get-AgentPort (Get-Content -Raw -Encoding UTF8 -Path (Join-Path $InstallDir "etc\config.yaml")); if ($p) { $port = "$p" } } catch { }
 $lines = @(
   "DONE Summrise Agent $SummriseVersion 安装完成",
   "面板： http://127.0.0.1:$port/desktop/",
