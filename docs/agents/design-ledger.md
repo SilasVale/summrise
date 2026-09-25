@@ -64,6 +64,18 @@ to `https://example.com/mcp-autoselect-…`, the SPA stays intact, and the CLICK
 whether the CLICK DROVE THE VIEW reports **`https://example.com/`**, the un-navigated URL, over BOTH transports (stdio and http).
 **So the break is not the transport and not the SPA: it is the path from "a click was performed" to "the view followed it".**
 
+**AND THE CHECK'S OWN CODE SPLITS THE FOUR INTO TWO DIFFERENT FAILURES (round 92)**, which is what makes the next step a
+diagnosis rather than a guess. Line 372 asks one question — `embedded.url.includes(marker)`, i.e. DID THE VIEW MOVE TO THE URL WE
+NAVIGATED TO — and it is the check that distinguishes the transports: **stdio passes it** (the view really did reach
+`/mcp-autoselect-…`) and **http fails it** (the view stayed at `https://example.com/`, the PREVIOUS url). Line 438 asks a
+different one — did the CLICK drive the view — and it fails for BOTH.
+
+**SO THE TWO FAILURES ARE NOT THE SAME FAILURE**: one transport does not move the view on NAVIGATE, and neither transport moves
+it on CLICK. And in both cases the click itself SUCCEEDED — `click learn-more` passes with `ref=f3e2 want=inner-click-test`, so a
+ref was found and handed to the tool. **What is unproven is only the last link: "a click was performed" → "the view followed
+it".** A check that finds its target and then sees nothing move is a very different object from a check that cannot find its
+target, and the suite already says which one this is.
+
 **WHAT THIS ROUND DOES NOT CLAIM**: it does not say the MCP click is broken in the product. The panel round is the cautionary
 tale from fifteen minutes earlier — a check that had been wrong since the day it was written — and these four have exactly the
 same standing: never executed, therefore never baselined. **They are now known: 45 passing checks that had never run, and four
