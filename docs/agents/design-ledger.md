@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 77, one line**: the inventory's delete list (never executed) was walked, and its remaining items are blocked on §6.4 —
+an OUT-OF-REPO client — not on engineering. The measurement was re-taken to be sure: `GET /api/events` and `/api/events/poll` really have
+no in-repo client (the built panel's single `api/events` match is `api/events/term`, a different live route), so **deleting them is the
+operator's call**, and the cell now says so with the distinction rather than a bare count.
+
+
 **Round 75, one line**: **1.2.473 shipped** the panel read-seam change (device-affecting: the panel is embedded in the
 exe) — tag `7accb877`, CI green before the tag, npm and the CDN both updated, the device to follow. This is also the first
 release whose `release.yml` ran with round 67's SIGPIPE fix, so its log carries the `.data` symbol listing intact.
