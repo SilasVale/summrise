@@ -735,11 +735,12 @@ mod tests {
     ///
     /// AND IT KNOWS WHICH CODE THE PLATFORM THIS RULE EXISTS FOR NEVER COMPILES
     /// ([`DEAD_ON_WINDOWS`]): the rule is about a WINDOWS console window, so a
-    /// spawn inside a `#[cfg(unix)]` / `#[cfg(not(windows))]` item is not a
-    /// console-subsystem spawn for it. The scan reads TEXT and cannot evaluate a
-    /// cfg predicate, so it reads the two spellings that are wholly dead on
-    /// Windows and FAILS CLOSED on every other shape — a region whose extent it
-    /// cannot work out leaves its spawns LIVE, where the gate still sees them.
+    /// spawn inside a `#[cfg(unix)]`, `#[cfg(not(windows))]` or
+    /// `#[cfg(target_os = "linux")]` item is not a console-subsystem spawn for
+    /// it. The scan reads TEXT and cannot evaluate a cfg predicate, so it reads
+    /// the spellings [`DEAD_ON_WINDOWS`] names as wholly dead on Windows and
+    /// FAILS CLOSED on every other shape — a region whose extent it cannot work
+    /// out leaves its spawns LIVE, where the gate still sees them.
     ///
     /// `EXEMPT` follows the sweep's exemption idiom: every entry carries its
     /// reason, and the entries this run did NOT need are printed (a list like
@@ -826,7 +827,8 @@ mod tests {
             "the waiver list ENDS AT ZERO: every console-subsystem spawn in this tree either \
              ASKS (`hidden(&mut …)`, `hidden_std(&mut …)`, or — in this file — hands its \
              command to `attempt`) or is not compiled on the platform this rule exists for \
-             (`#[cfg(unix)]` / `#[cfg(not(windows))]`), so an entry here is a site that can \
+             (`#[cfg(unix)]` / `#[cfg(not(windows))]` / `#[cfg(target_os = \"linux\")]`), so an \
+             entry here is a site that can \
              ask and does not: {EXEMPT:?}"
         );
         // THE SECOND HALF RE-WALKS THE REAL TREE, and it asks the only question
@@ -918,10 +920,11 @@ mod tests {
     /// CONSOLE-SUBSYSTEM SPAWN — and the END of the region is part of the claim.
     ///
     /// The rule is about a Windows console window, and this scan reads TEXT: it
-    /// cannot evaluate a cfg predicate, so it reads the two spellings that are
-    /// wholly dead on Windows and nothing else. What is pinned here, on sources
-    /// this test owns, is the pair of facts the real tree depends on — the
-    /// spawns inside such an item are not counted, and a spawn AFTER the item
+    /// cannot evaluate a cfg predicate, so it reads the three spellings that are
+    /// wholly dead on Windows — `#[cfg(unix)]`, `#[cfg(not(windows))]` and
+    /// `#[cfg(target_os = "linux")]` — and nothing else. What is pinned here, on
+    /// sources this test owns, is the pair of facts the real tree depends on —
+    /// the spawns inside such an item are not counted, and a spawn AFTER the item
     /// still is — plus the fail-closed direction the reader must not lose.
     #[test]
     fn a_spawn_a_windows_build_does_not_compile_is_not_a_console_spawn() {
@@ -950,6 +953,42 @@ mod tests {
             scan.unlisted,
             vec!["after.rs: `powershell`".to_string()],
             "a spawn after the region must still be caught"
+        );
+
+        // `target_os = "linux"` IS THE SAME CLASS, and the spelling a future
+        // author is most likely to reach for. The SAME body under three
+        // attributes, so the spelling is the only thing that changes between the
+        // verdicts: dead under the linux spelling (no Windows build compiles it),
+        // LIVE under `cfg(windows)` — where the spawn of the same program must
+        // ask — and live again AFTER the linux item, which is the half a region
+        // reader gets wrong by running on.
+        let linux = dead.replace("#[cfg(unix)]", "#[cfg(target_os = \"linux\")]");
+        let scan = scan_console_spawn_sites(&[("linux.rs".to_string(), linux.clone())], &[], &[]);
+        assert!(
+            scan.unlisted.is_empty(),
+            "a spawn in a `#[cfg(target_os = \"linux\")]` item is not compiled on Windows \
+             either, so it cannot open a window there: {:?}",
+            scan.unlisted
+        );
+
+        let windows = dead.replace("#[cfg(unix)]", "#[cfg(windows)]");
+        let scan = scan_console_spawn_sites(&[("windows.rs".to_string(), windows)], &[], &[]);
+        assert_eq!(
+            scan.unlisted,
+            vec!["windows.rs: `kill`".to_string()],
+            "the SAME spawn under `#[cfg(windows)]` IS compiled on the platform the rule is \
+             for, so it must ask — the spelling is the only difference"
+        );
+
+        let after_linux = format!(
+            "{linux}\nfn live() {{\n    let mut c = std::process::Command::new(\"powershell\");\n    let _ = c.output();\n}}\n"
+        );
+        let scan =
+            scan_console_spawn_sites(&[("after_linux.rs".to_string(), after_linux)], &[], &[]);
+        assert_eq!(
+            scan.unlisted,
+            vec!["after_linux.rs: `powershell`".to_string()],
+            "the region ENDS where its item does: a spawn after it is a console spawn again"
         );
 
         // The `not(windows)` spelling, and a BRACE-LESS item: an attribute on a
@@ -992,7 +1031,7 @@ mod tests {
                 "live.rs: `taskkill`".to_string(),
                 "live.rs: `ping`".to_string()
             ],
-            "only the two spellings that are wholly dead on Windows are regions"
+            "neither spelling here is dead on Windows — each keeps its item in a Windows build"
         );
 
         // AND AN ASK INSIDE A DEAD REGION DOES NOT COVER A LIVE SITE: reading an
@@ -1334,22 +1373,49 @@ mod tests {
         scan
     }
 
-    /// THE CFG SPELLINGS THIS SCAN READS, and they are the two this tree uses to
-    /// mean "not Windows": `#[cfg(unix)]` and `#[cfg(not(windows))]`. Matched at
-    /// the START OF A LINE — which is how an attribute is written, and what
-    /// keeps the tree's two PROSE mentions of the spelling (`atomic.rs` and
-    /// `tools/ssh.rs` write it inside `//!`/`///` comments) from opening a
-    /// region.
+    /// THE CFG SPELLINGS THIS SCAN READS, and they are the three this tree uses
+    /// to mean "not Windows": `#[cfg(unix)]`, `#[cfg(not(windows))]` and
+    /// `#[cfg(target_os = "linux")]`. Matched at the START OF A LINE — which is
+    /// how an attribute is written, and what keeps the tree's two PROSE mentions
+    /// of the spelling (`atomic.rs` and `tools/ssh.rs` write it inside `//!`/
+    /// `///` comments) from opening a region.
     ///
-    /// IT IS NOT A COMPLETE SET OF "NOT WINDOWS" AND DOES NOT TRY TO BE:
-    /// `#[cfg(target_os = "linux")]`, `#[cfg(not(any(unix, windows)))]` and a
-    /// spelling written with spaces all leave their spawns LIVE, which is the
-    /// FAIL-CLOSED direction — a spawn counted where Windows compiles nothing
-    /// costs a false FAIL that a reader can see and answer, never a false pass.
-    /// For the same reason `#[cfg(test)]`, `#[cfg(any(unix, test))]` and
-    /// `#[cfg(windows)]` are NOT regions: each keeps its item in some Windows
-    /// build, so a spawn inside one must still ask.
-    const DEAD_ON_WINDOWS: &[&str] = &["#[cfg(unix)]", "#[cfg(not(windows))]"];
+    /// `target_os = "linux"` JOINED THEM because it is the same CLASS — an item
+    /// no Windows build compiles — and because it is the spelling a future
+    /// author is most likely to reach for when they mean "on this box": the
+    /// tree's one use of it (`paths.rs`'s cross-device rename test) is code the
+    /// LINUX build compiles and RUNS, so a spawn written under it later would
+    /// have been a false FAIL on live code rather than a site anyone answers.
+    ///
+    /// IT IS NOT A COMPLETE SET OF "NOT WINDOWS" AND DOES NOT TRY TO BE, AND THE
+    /// ONE SPELLING LEFT OUT IS LEFT OUT FOR A REASON THAT IS NOT "IT MIGHT BE
+    /// LIVE". `#[cfg(not(any(unix, windows)))]` IS dead on Windows as well —
+    /// measured, `rustc --print cfg --target x86_64-pc-windows-msvc` lists
+    /// `windows` and not `unix`, so `any(unix, windows)` holds and the negation
+    /// does not — and this tree's two uses of it are the exhaustive-fallback
+    /// arms of `kill_tree`/`kill_by_name` (`return Err(Unsupported)`). So
+    /// reading it would not be WRONG; it would be POINTLESS, which is the
+    /// smaller claim and the one this scan keeps: that predicate is false on the
+    /// unix box `cargo test` runs on too, so NO build this repository makes
+    /// compiles such an item at all — the region can hold no spawn that runs
+    /// anywhere, and the fail-closed default already answers one with the
+    /// cheapest demand in the rule (an ask, a no-op off Windows). A spelling
+    /// whose items are dead in every build here buys the gate nothing; the three
+    /// above are spellings whose items the Linux run compiles.
+    ///
+    /// A SPELLING WRITTEN WITH SPACES (`#[cfg( unix )]`) IS NOT ONE OF THEM, and
+    /// neither is any other shape this scan does not match literally: every one
+    /// of them leaves its spawns LIVE, which is the FAIL-CLOSED direction — a
+    /// spawn counted where Windows compiles nothing costs a false FAIL that a
+    /// reader can see and answer, never a false pass. For the same reason
+    /// `#[cfg(test)]`, `#[cfg(any(unix, test))]` and `#[cfg(windows)]` are NOT
+    /// regions: each keeps its item in some Windows build, so a spawn inside one
+    /// must still ask.
+    const DEAD_ON_WINDOWS: &[&str] = &[
+        "#[cfg(unix)]",
+        "#[cfg(not(windows))]",
+        "#[cfg(target_os = \"linux\")]",
+    ];
 
     /// The byte ranges of `src` that no Windows build compiles, as
     /// `(start, end)`: the attribute and the item it gates.
