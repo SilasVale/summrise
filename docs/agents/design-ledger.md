@@ -35,6 +35,45 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 91 — the six sections that had never run: 45/49, and the failures cluster in ONE place
+
+Round 90 proved the panel section had been broken for its entire life by a selector nobody had ever executed. So this round ran
+THE OTHER SIX that have never run — `terminal`, `file`, `workflow`, `mcp`, `evidence`, `browser` — on the device, over the same
+transport:
+
+```
+PASS terminal read unknown evicted · terminal history retains closed
+PASS file upload 2 pages · stat · single-read download · list contains upload · stat missing ok:false · text write · text read
+PASS workflow process_list · local execute · file_write · file_stat · memory_save · memory_search · memory_list · memory_update
+     · memory_search updated · memory_export · memory_delete verified
+PASS mcp stdio connect · navigate ok · drives embedded view (https://example.com/mcp-autoselect-…)
+PASS mcp stdio SPA intact (targets=2) · click learn-more (ref=f3e2 want=inner-click-test)
+FAIL mcp stdio click drives embedded view  -- https://example.com/
+PASS mcp http connect · navigate ok · SPA intact · click learn-more
+FAIL mcp http drives embedded view         -- https://example.com/
+FAIL mcp http click drives embedded view   -- https://example.com/
+PASS evidence screenshot saved · pwshots lists it
+PASS browser pwinfo bundled · run_script fail path · drives view · SPA bar sync · focus-trap bar follows
+
+== 45/49 passed ==
+```
+
+**FORTY-FIVE OF FORTY-NINE PASS, AND THE FOUR FAILURES (three of them inside the captured window) ARE ALL IN ONE SECTION.** What
+passes around them is the informative part: the MCP transport CONNECTS, `navigate` WORKS and the embedded view really does move
+to `https://example.com/mcp-autoselect-…`, the SPA stays intact, and the CLICK finds a ref and reports it — but the check that asks
+whether the CLICK DROVE THE VIEW reports **`https://example.com/`**, the un-navigated URL, over BOTH transports (stdio and http).
+**So the break is not the transport and not the SPA: it is the path from "a click was performed" to "the view followed it".**
+
+**WHAT THIS ROUND DOES NOT CLAIM**: it does not say the MCP click is broken in the product. The panel round is the cautionary
+tale from fifteen minutes earlier — a check that had been wrong since the day it was written — and these four have exactly the
+same standing: never executed, therefore never baselined. **They are now known: 45 passing checks that had never run, and four
+failing ones that had never run either**, which is a far better position than 49 unknowns.
+
+**AND THE ESTIMATE WAS RIGHT, WHICH IS THE POINT**: round 90 said an instrument nobody runs accumulates its own defects. One
+round later, running the other six produced four failures in one of them. The panel selector was not bad luck; it was the
+expected state of anything never executed.
+
+
 ### round 85 — the cadence gets its transport, and the transport is the one the repo already uses
 
 Round 83 corrected the e2e cadence to "get the script onto the device, then run its section there with the device's own
