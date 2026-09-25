@@ -97,7 +97,29 @@ if they were a baseline**: round 91 called the cluster "four failures in one sec
 failures". Both statements were true OF THAT RUN and neither was true of the INSTRUMENT, which is the difference this ledger keeps
 insisting on.
 
-**AND THE SURVIVOR IS A RACE, VISIBLE IN ITS OWN EVIDENCE**: the check requires the view to be at the marker URL, and the failure
+**AND THAT DIAGNOSIS WAS WRONG — THE POLL IS ALREADY THERE (round 94).** Reading the block above the failing check:
+
+```js
+// Poll (not fixed sleep) for the navigate to become visible on CDP: after
+// a transport switch the view can still show the previous probe's page
+// for several seconds (device-caught: http probe kept seeing the stdio
+// probe's iana.org landing past the old fixed 6s sleep). Same predicate,
+// more time — mirrors the click poll below.
+for (let i = 0; i < 15; i++) { await sleep(1000); ... if (embedded.url.includes(marker)) break; }
+```
+
+**FIFTEEN POLLS OF ONE SECOND — the asymmetry round 93 named does not exist**, and the comment describes the failing
+observation almost word for word: "the http probe kept seeing the stdio probe's iana.org landing past the old fixed 6s sleep",
+where this run saw the stdio probe's `/inner-click-test` landing. So the mitigation was written, it was IN the code, and it was
+not enough — **the honest statement is that the http transport's navigation did not become visible within fifteen seconds after a
+transport switch, which is a longer stall than the fix assumed, not a missing poll.**
+
+**TWO ROUNDS, TWO SELF-CORRECTIONS, BOTH BY READING THE CODE**: round 93 corrected rounds 91-92 (flake read as a baseline) and
+round 94 corrects round 93 (a missing poll that was present). Neither correction came from more reasoning about the numbers; both
+came from opening the file. **The ledger's rule that "the count is a summary, the log is the measurement" has a third clause this
+episode earns: the CODE is the instrument, and a claim about how a check behaves is a claim about a file.**
+
+**AND THE SURVIVOR IS [still] A RACE-LIKE STALL**: the check requires the view to be at the marker URL, and the failure
 reads `https://example.com/inner-click-test` — **the URL the PREVIOUS transport's run left there.** The check looks at the view
 before its own navigation has committed. The click check in the same function polls fifteen times over fifteen seconds for exactly
 this reason; the navigate check does not poll at all. **That asymmetry is the bug, and it is one more instance of this round's
