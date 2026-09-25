@@ -6347,6 +6347,41 @@ the remaining search space small enough to name: a linker-produced map, and what
 **NUMBERS:** 9 of 9 section headers identical; 0 symbols in the shipped exe; 1,484 differing bytes at fixed offsets;
 5 rounds of hypotheses eliminated by measurement (toolchain, panel, paths, embedded paths, build time, section layout).
 
+## 2026-09-25 — the forty-fourth exploration: the map works, and it says "Repro mode"
+
+Round 43 asked for the linker's map. This round built it: `-C link-arg=/MAP:/tmp/agent-map.txt` on the local build,
+48.46s of real compilation, a **40 MB map** — and only the LOCAL map is needed to name an offset, because round 43 also
+proved the two images have IDENTICAL section geometry, so the symbol at a given RVA is the same symbol on both sides.
+
+**WHAT THE MAP SETTLED BEFORE IT NAMED ANYTHING:**
+
+```
+ Timestamp is 00000000 (Repro mode)
+ Preferred load address is 0000000140000000
+ 0001:00000000 00b408ccH .text     CODE
+ 0002:00000000 0028e028H .rdata    DATA
+```
+
+`/Brepro` is ACTIVE and the linker says so in as many words — "Repro mode" — which retroactively explains the COFF
+timestamp field: it is a hash-derived value in both images, i.e. round 38's "symptom, not the cause" is confirmed by the
+tool that produces it. And the section table in the map agrees with the section table in the two PE headers (round 43),
+so the geometry is settled from two independent directions.
+
+**AND IT TOLD US WHAT IT CANNOT NAME.** The first differing `.rdata` offset is `0xb82f18` = `0002:00005f18`. The map's
+public list puts `__real@7ff8000000000000` at `0002:00001ee8` and the next public at `0002:0000e8d0` — so the offset
+falls in the INTERIOR between public symbols, and a default `/MAP` lists publics, not statics. That interior is exactly
+where the strings scan (round 42) had already put the panic-location tables (`src/main.rs:711`, `:719`, `:777`). Two
+instruments, one neighbourhood.
+
+**ROUND 45 IS THEREFORE ONE FLAG WIDER, AND STILL TWO LINES OF CHANGE**: `/MAPINFO:...` (or the per-object listing the
+map can carry) makes statics visible, and the same link-arg goes into `release.yml` so CI's map can be diffed against
+this one symbol by symbol. That diff is the thing that ends the investigation: it either names the value that differs
+(a hash, a path, an ID) or shows that the maps are identical while the images are not — which would itself be the answer,
+because it would mean the difference is introduced AFTER the link map is written.
+
+**NUMBERS:** one 40 MB map from a 48.46s build; 756 public symbols parsed in section `0002`; the target offset lands in
+the 0x4030-byte gap between two of them; the map's own header confirms Repro mode; live **1.2.468**, device current.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
