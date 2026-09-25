@@ -134,6 +134,32 @@ success condition a stale value already meets reports success for a click that d
 selector (round 90) and the discarded triage line (round 93), one level deeper: there the instrument measured the wrong thing, here
 it measures the right thing against a value that was already true.
 
+**AND THE PRODUCT ITSELF DOCUMENTS THE MECHANISM — IT IS THE HTTP TRANSPORT'S DESIGNED SELF-HEAL (round 96).**
+`agent/src/plugins/mcp_client/tools.rs` opens with a measured theorem from round 137:
+
+```
+//! round-137 measured theorem (d1 real-device probe, 2026-08-25):
+//! playwright-mcp 0.0.79's Streamable HTTP session is unconditionally reaped
+//! ~4 s after each tools/call response completes ("Session not found").
+```
+
+and then states the only correct client shape: give up keepalive, accept that "every call may hit a dead session", and
+**"re-handshake + navigate the page back to last_url (restore context), then retry the original call."** `last_url` is tracked
+bidirectionally, and its own doc says the restored session "lands on a fresh blank page" without it.
+
+**SO THE HTTP TRANSPORT IS BUILT TO NAVIGATE THE BROWSER BACKWARDS, BY DESIGN, ON EVERY SESSION DEATH — AND ITS SESSIONS DIE
+EVERY ~4 SECONDS.** The e2e http phase does: connect, navigate to the marker, then POLL FOR FIFTEEN SECONDS. Its session is
+guaranteed to be reaped inside that window. Two orderings then produce exactly what three runs showed, and telling them apart is a
+one-experiment question rather than a speculation:
+
+1. the restore-navigate runs LAST (restore lands after the retry, or the retry itself dies and the handler gives up having already
+   restored) — so the view ends at the PREVIOUS url and the call still reports `ok`, because the RESTORE succeeded;
+2. the retry never happens within the phase, and the view stays wherever the reap caught it.
+
+**EITHER WAY THE OBSERVED URL IS THE SIGNATURE OF THE DESIGN**: `https://example.com/inner-click-test` is not a random stale page;
+it is the `last_url` the http session inherited and dutifully restored. **The check is measuring a transport's documented recovery
+behaviour and calling it a navigation.**
+
 **WHAT THE THREE RUNS ESTABLISH, STATED SO IT CAN BE ATTACKED**: with `--only mcp` on this device, the http transport's
 `browser_navigate` reports `ok` and the embedded view does not move — reproducibly, three times, with the leftover URL as the
 evidence — while the stdio transport moves it and the http CLICK does move it (its own pass, however vacuous, came after a real
