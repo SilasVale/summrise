@@ -192,6 +192,21 @@ the cause, and the first version of this test was WRONG in a way worth recording
 1.2.470 asset and read 634,076 differing bytes — a number about the VERSION, not about the variable. **A cross-version
 comparison is not a measurement of a build flag**; the same-version pair is, and it was one command away.
 
+**AND THE INSTRUMENT'S SECOND CLEAN RUN CONFIRMS IT AS A STABLE PROPERTY (round 76)**, which matters because a
+one-off measurement explains an incident and a repeated one explains a build. 1.2.473's release log — the first whose
+`release.yml` completed the `.data` listing, after round 67 fixed the SIGPIPE that killed 1.2.472's — prints:
+
+```
+CI 1.2.473   .data+0x000  __rust_panic_type_info  ...  45d6daa740c90b90-cgu.00.rcgu.o
+this box     .data+0x130  __rust_panic_type_info  ...  45d6daa740c90b90-cgu.13.rcgu.o
+```
+
+**Same crate hash on both sides, same symbol, a different codegen unit — and the same answer two releases running.** So it
+is not flake and not a one-round artefact: each build environment assigns this runtime item to a different unit, and the
+1,168 values that differ between the two artifacts are nothing but the references to where it landed. The audit will keep
+refusing for as long as that is true, and it should: **the CDN is authoritative for devices, and a builder-vs-builder
+disagreement that is fully understood is still a disagreement.**
+
 ### THE ANSWER, COMPLETE: THE SAME CGU HASH, A DIFFERENT CODEGEN UNIT (round 67)
 
 The instrument rounds 61-64 placed printed CI's `.data` symbol list during the 1.2.472 release — and the log carried the
