@@ -6822,6 +6822,47 @@ guess, and it is the honest stopping point for this session's work on the flag.
 in the release log; 113 run blocks parse; the AGENTS.md command table still matches. Live **1.2.469**, device current,
 devices unaffected.
 
+## 2026-09-25 — the fifty-seventh exploration: the handover, written while the state is fresh
+
+This session ran thirty-seven rounds. This section is the handover: what is verified, what is open, and the exact next
+command — written now, because a state described from memory a week later is a state described wrongly.
+
+**VERIFIED AT THIS MOMENT** (`1e78e0b6`, working tree clean, everything pushed):
+
+| | |
+|---|---|
+| live version | **1.2.469** (CDN manifest and the device agree; npm `latest` = 1.2.469, `alpha` still the historical 1.2.453) |
+| device d1 | `release: 1.2.469 · this CLI: 1.2.469 · latest: 1.2.469 (this device is current)` |
+| releases this session | 1.2.465, 1.2.466, 1.2.467, 1.2.468, 1.2.469 — each tagged on a CI-green commit, each audited after its tag |
+| reconcile ledger | ONE entry: `1.2.453`, which cannot be settled (its release never existed and tagging that old commit is the tag-move hazard) |
+| full gate suite | 56 ok, 0 failed, 1 not runnable here (of 57) — run in full in round 30 |
+| test growth | agent lib 730 → 751 (terminal,keyring); `installer_integrity` 5 → 10; CLI package 57 → 62 |
+
+**THE ONE OPEN THREAD, AND IT IS ONE COMMAND AWAY FROM ITS ANSWER.** The dual-builder audit refuses because the two
+builders' exes differ; twenty rounds reduced that to a measurable property:
+
+- **1,484 differing bytes**, of which **1,168 are a single delta of `-304` (`-0x130`)**.
+- The entries sit in `.rdata`'s tail and **all point into MB 16**, where the content did **not** move — so they are
+  compensating offsets, not pointers to something displaced.
+- **9/9 PE section headers are identical** in size and address, so the move is INSIDE `.rdata`.
+- Every tool, path, command, environment, metadata value and embedded panel hash has been measured EQUAL (rounds 17-25).
+
+**THE NEXT STEP IS A DIFF OF TWO TEXT FILES, AND THE FIRST IS ALREADY ON DISK**: `/tmp/agent-map.txt` is this box's map
+(`-C link-arg=/MAP`, round 22), whose segment table lists every `.text$*`/`.rdata$*` contribution with its `Start` and
+`Length`. `release.yml` now builds with the same flag and prints the first 40 lines (round 36), so **the next release's
+log carries the runner's table**. Put the two beside each other and find the line whose `Start` differs by `0x130`:
+that line's NAME is the cause. If the tables are identical, the difference is introduced after the link — which is
+itself the answer, and would point at the packer rather than the builder.
+
+**WHAT NOT TO REDO**: the eleven hypotheses this session eliminated, each with its measurement recorded in its own
+section — toolchain (rounds 17/20), panel bundle (18), build paths (19), embedded paths (18), build time (18), section
+layout (21), `-C metadata` (24), environment (25), and the tarball-vs-binary question (33). Re-running any of them costs
+a round and returns the same answer.
+
+**AND WHAT THE SESSION DID NOT DO, SO IT IS NOT ASSUMED LATER**: the audit was never relaxed to make itself pass; the
+divergence was never "fixed" by editing what the check compares; and no Windows-only path (the installer's PowerShell,
+the electron shell) was claimed to be exercised — each such round says "unexecuted here" and pins the RULE instead.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
