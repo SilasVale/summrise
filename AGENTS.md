@@ -160,6 +160,25 @@ agreed, and they are history — the ledger holds the incidents.) What the hook 
 assembly of all five artifacts in under a second: a payload module that does not parse, a require the assembler cannot
 resolve, or an emitter that was renamed or deleted fails at the commit instead of in the design job.
 
+**AND DO NOT PUT A COMMAND WHOSE STATUS YOU NEED ON THE LEFT OF A PIPE — IT HAS NOW COST TWO PUSHES.**
+"A pipeline exits with its LAST command's status" is ordinary shell knowledge, and this repository has now paid for it
+twice in one session, both times by landing a red suite on `main`:
+
+  * round 117 — `bash scripts/hooks/pre-commit >/dev/null 2>&1` ran the hook and THREW THE EXIT CODE AWAY, so a failing
+    `production-host-check` rode out with the commit;
+  * round 128 — `npm test 2>&1 | grep … | head -2` let a FAILING gateway suite pass, because `set -e` saw `head` succeed.
+    The gate that caught it was `code-viewer-mirror.test.mjs`, refusing a mirror that no longer matched the source.
+
+The rule this file already carries — READ THE EXIT CODE, NOT THE OUTPUT — was not disobeyed either time. It was
+PRESERVED and then destroyed one step later. So the operating form is narrower than the slogan:
+
+```bash
+npm test >/tmp/out 2>&1 || { echo FAILED; exit 1; }     # status kept
+grep -E 'pass|fail' /tmp/out                            # output read afterwards
+```
+
+**Redirect, check, THEN filter.** A pipe is for reading output; it is not a way to keep a status.
+
 **IT IS INSTALLED NOW (round 118), AND BOTH COMMANDS THIS PARAGRAPH USED TO PRESCRIBE WERE WRONG ON THIS BOX.** Round 93's commit carried a backtick in a comment,
 the probe module stopped PARSING, and five of the ten CI jobs went red (ui, panel, gateway, design, pack-chain —
 everything that imports it). The hook refuses that commit in under a second, and so does
