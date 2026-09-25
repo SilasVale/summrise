@@ -35,6 +35,35 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 127 — a candidate LOOKED like duplication and the measurement says it is not, which is worth a round
+
+`index/src/index.js` is the second-highest untouched source file in the corrected hotspot list (200 commits), the CDN worker that
+serves every release, and it holds three component routes in a row — `:211` `cloudflared.exe` (68 lines), `:279`
+`electron-win32-x64.zip` (39), `:318` `summrise-playwright.zip` (40). Three blocks of the same SYNTAX shape in one file is the
+textbook deepening candidate, and this repository has made exactly that move before (round 272: all five sweep payloads into
+modules assembled by one bundler).
+
+**SO THE SHAPES WERE COMPARED, BY NORMALISING AWAY STRING LITERALS AND IDENTIFIERS — AND THE NORMALISATION DELETED THE ANSWER.**
+What the three blocks actually carry is three DIFFERENT failure modes, each recorded in the comment that the comparison stripped:
+
+- `:211` — "PINNED, NOT `latest`": this id is a versioned GitHub artifact fetched on demand through the installer, and the reason
+  is in eight lines above the code;
+- `:279` — "A ZERO-BYTE OBJECT IS NOT A BUNDLE. Measured …: an absent id gave 502 …, an EMPTY one gave 200 with …": a guard that
+  exists because an empty object once shipped as a valid download;
+- `:318` — "IT IS AN EXECUTED ARTIFACT AT A MUTABLE KEY (round-99 F2)": a cache header that was deliberately set to `max-age=86400`
+  with NO etag, with the paragraph explaining what that costs.
+
+**THREE BLOCKS THAT LOOK ALIKE AND RECORD THREE UNRELATED INVARIANTS ARE NOT DUPLICATION.** Collapsing them would put a pinned-
+artifact rule, a zero-byte guard and a cache-policy decision behind one code path — and this repository's whole method is that
+each of those rules was paid for by a measured defect. **A refactor that merges them saves forty lines and makes three rules
+unfindable**, which is the trade the delete-the-comment test refuses.
+
+**AND THE METHOD LESSON IS THE SESSION'S OLDEST ONE, IN A NEW COSTUME**: to compare the three blocks I removed their comments,
+and the comments were the content. **Normalising away the prose is how a codebase looks like it has duplication it does not
+have** — and the same move in the other direction (reading the shapes WITHOUT the prose) is how a rule gets deleted by someone
+who never saw it.
+
+
 **Round 126, one line**: the whole suite re-run after `ci-command-table-check` gained its A2 direction (the scoped
 instruction file) — `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58)**, unchanged. The gate
 that grew is ONE OF THE FIFTY-EIGHT, so a four-gate spot check could not have said whether its new assertion contradicts some
