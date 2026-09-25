@@ -71,6 +71,43 @@ panel and sees the write land; the second asks whether the AI's own output actua
 planted (`PANEL-VIS-179036981456`) is not there. That is the panel not SHOWING what the agent produced — the exact class the section
 exists to catch, and it sits in the area rounds 73 and 78 touched (the read seam `SettingsPage` and `ConnModal` migrated onto).
 
+### round 89 — THE PROBE ANSWERS IT: THE CHECK IS BROKEN, THE PANEL IS NOT
+
+The SPA probe (built this round, on the transport round 85 created) prints one JSON verdict, and it ends the question round 87
+opened:
+
+```json
+{
+  "spaTarget":    "http://127.0.0.1:18080/desktop/",
+  "tabs":         6,
+  "tabText":      "powershell|powershell 2|powershell 3|Terminal|Trajectory|Path",
+  "activeTab":    "powershell",
+  "visibleXterm": "NO_VISIBLE_TERM_HOST",
+  "diagnosis":    "C: no visible term-host (nothing rendered to read)"
+}
+```
+
+**THE TAB LIST MIXES SESSIONS AND PAGES.** `powershell`, `powershell 2` and `powershell 3` are sessions; `Terminal`, `Trajectory`
+and `Path` are NAVIGATION tabs — and the e2e check clicks `ts[ts.length - 1]`, THE LAST `[role=tab]`, on the assumption that the
+newest session is last. **It is not: the last one is `Path`.** So the section clicks the Path PAGE, the SPA navigates away from
+the terminal, no `.term-host` is rendered at all, and the marker can never be found — six reads over twelve seconds, by
+construction, forever.
+
+**SO THE ANSWER TO "REGRESSION OR NEVER PASSED?" IS NEITHER OF THE TWO THE EARLIER ROUNDS OFFERED**: it is a broken CHECK. It
+would only ever pass in a tab layout whose last element happened to be a session, which this panel does not produce. **The panel
+never failed to show the AI's output here; nothing was ever asked to show it.** Rounds 87 and 88 were right to refuse to blame
+the read-seam rounds without a before-picture — and the picture, when it came, pointed at the instrument.
+
+**AND THE METHOD LESSON IS THE ONE THIS REPO KEEPS TEACHING**: the first version of this probe was a PowerShell `node -e`
+one-liner, PowerShell stripped the inner double quotes, and node died on `fetch(http://127.0.0.1:9333/json/list)`. **A probe
+belongs in a FILE** — the same rule AGENTS.md already carries for the 38 KB panel probe, which is why this one is now published
+at `https://agent.saisi.online/summrise-agent/panel-spa-probe.js` and fetched by the device like `e2e.js` is. A measurement
+instrument that only exists inside a shell one-liner is a measurement instrument that keeps breaking on quoting.
+
+**THE FIX IS IN `e2e.js`, NOT IN THE PANEL**: the section must select the newest SESSION tab (by its name, or by scoping the query
+to the session list) rather than the last tab of any kind. That is the next round's change, and it is a one-line selection plus
+a test of the selection itself.
+
 **AND THE FAILURE IS STABLE, WHICH NARROWS IT CONSIDERABLY (round 88).** Run twice more, with a fresh marker each time:
 
 ```
