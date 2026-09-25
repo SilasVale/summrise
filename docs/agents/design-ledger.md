@@ -35,10 +35,9 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
-**Round 66, one line**: round 65 closed the CLI's last shell residual (cap zero), which is DEVICE-AFFECTING -- the CLI
-is what the device runs `summrise update` with -- so **1.2.472 is owed**. Nothing else has changed since 1.2.471: rounds 59-64
-were the dual-builder investigation (one instrument placed in `release.yml`, no product change), and the device is current on
-1.2.471. Stating it here rather than remembering it is what got the last batch (rounds 54 + 56) into 1.2.471.
+**Rounds 66-67, one line each**: 1.2.472 SHIPPED the CLI's last shell residual — tag `664c5a25`, release.yml success, the
+CDN smoke green. The dual-builder audit still refuses (the known single-static divergence), and the NEXT release is the one whose
+log carries the `.data` symbol list with the CGU hashes and the link order — the instrument rounds 61-64 set up.
 
 
 ### round 65 — the last shell residual, and the escape that protected nothing
