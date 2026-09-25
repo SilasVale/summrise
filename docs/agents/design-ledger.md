@@ -6317,6 +6317,36 @@ candidate is the *object-file order* passed to the linker, which is the one inpu
 strings; 0 differing bytes between two build paths; 4 of 4 tool fingerprints identical; local build deterministic across
 two runs. Live version **1.2.468**, device current, devices unaffected.
 
+## 2026-09-25 — the forty-third exploration: no shift, no symbols, and therefore one instrument left
+
+Round 42 concluded that addresses had moved. This round measured the section table itself — and they have NOT.
+
+**ALL NINE SECTION HEADERS ARE IDENTICAL** between the local and CI builds: `.text` at `0x1000` (12,039,014), `.rdata`
+at `0xb7d000` (4,913,644), `.data`, `.pdata`, `.gfids`, `.tls`, `_RDATA`, `.rsrc`, `.reloc` at `0x10d0000` (38,540) —
+same virtual addresses, same virtual sizes, same raw sizes and pointers. So there is NO section-level layout shift, and
+round 42's phrase was too strong: what the data shows is **same-offset, same-width VALUE changes**, not things moving.
+
+**AND THE SHIPPED ARTIFACT CANNOT SAY WHICH SYMBOL OWNS THEM.** `llvm-objdump --syms` on the release exe prints an
+EMPTY symbol table — the binary is stripped as a release artifact should be. So the 1,484 differing offsets cannot be
+attributed from the artifact at all, and no amount of comparing two stripped binaries will name them. That is a fact
+about the instrument, not about the bug, and it is the most useful thing this round produced.
+
+**ROUND 44'S CHANGE IS THEREFORE TWO LINES AND A DIFF**: build BOTH sides with the linker's `/MAP` (one more
+`-C link-arg=/MAP:…` in `build.sh` and in `release.yml`), then diff the maps. A map file carries exactly what the
+stripped binary lost — symbol names with their addresses — so the first differing `.rdata` offset (`0xb82f18`, inside a
+region around the panic-location tables) becomes a NAME, and a name is something a round can act on. The maps also
+settle round 42's other candidate (object-file order) the moment they are laid side by side.
+
+**WHAT THE LAST FIVE ROUNDS HAVE ESTABLISHED, in one place**, because the list is now long enough to be worth reading as
+a whole: identical rustc (`1.98.1 (48a229cea)`), identical clang (`7cb5d097…`), identical lld (`3001bd7d…`), identical
+cargo-xwin (`0.23.0`), identical command line and `RUSTFLAGS`, byte-identical output across two different build paths,
+deterministic local builds, identical embedded `PANEL_BUNDLE_HASH`, identical strings in both binaries, and identical
+section headers. Everything comparable is equal; 1,484 bytes differ in place. **The value of that list is that it makes
+the remaining search space small enough to name: a linker-produced map, and whatever it says about one symbol.**
+
+**NUMBERS:** 9 of 9 section headers identical; 0 symbols in the shipped exe; 1,484 differing bytes at fixed offsets;
+5 rounds of hypotheses eliminated by measurement (toolchain, panel, paths, embedded paths, build time, section layout).
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
