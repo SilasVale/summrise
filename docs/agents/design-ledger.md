@@ -40,11 +40,10 @@ ceiling, and this round padded it to **461,649 B** — the gate exits 1 with "is
 outgrows its own file is the round-49 problem again"; restored to **92,048 B** it is ok again. **The first attempt was inconclusive and
 is worth keeping**: padding to 303,249 B produced exit 0, because 303 KB is UNDER the 400 KB ceiling — a mutation that does not cross
 the boundary proves nothing, and reading its exit 0 as "the gate is broken" would have been the same mistake as reading any other
-summary as the measurement. **AND THE ROW IS NOT YET IN THE TABLE — the attempt to add it was REVERTED BY ITS OWN GUARD, which is the honest
- state to record**: the append script read the file's last line starting with a pipe, took it for a table row, counted TWO cells
- where the table has more, and refused rather than writing a malformed row. So the bite is proven and the row is owed; what
- the script protected against is exactly what a careless append would have produced, in the one file whose whole purpose is
- to be read by whoever adds the next gate.documents the file that now holds it.**
+summary as the measurement. **AND THE ROW IS IN THE TABLE NOW (round 110)**, appended with the format the file actually uses — it is THREE columns
+(`| gate | mutation that must fail it | result |`), and round 109's script had counted two because the line it grabbed sat inside a
+CODE BLOCK rather than in the table. So the owed row is paid, and the reason it was owed is itself the entry's value: **the file's
+format was read off a code block, and refusing to write was the right outcome of getting that wrong.**
 
 
 **Round 107, one line — THE SPLIT IS DONE, AND THE GATE CAUGHT MY OWN MISTAKE WHILE I DID IT**: the mutation table moved to
