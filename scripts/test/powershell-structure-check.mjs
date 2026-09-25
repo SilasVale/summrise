@@ -10,12 +10,16 @@
 // second.
 //
 // WHAT IT IS: a structural scan, NOT a parser. It answers ONE question — do `{}`, `()` and `[]` balance OUTSIDE
-// single-quoted strings, double-quoted strings, here-strings and comments. The stripping is what makes it correct
-// rather than a false alarm: the installer WRITES launcher scripts whose bodies contain braces (`'… { exit }; …'`,
+// single-quoted strings, here-strings and comments, and INSIDE every `$( … )` subexpression a double-quoted string
+// carries. That last region is the one this check used to document as a hole about itself, and it is the region
+// that matters most here: the launcher lines this installer WRITES are built out of `"… $(Get-Thing) …"`, and a
+// `$( … )` is CODE with its own braces and parens, not text. The stripping is what makes it correct rather than a
+// false alarm: the installer writes launcher scripts whose bodies contain braces (`'… { exit }; …'`,
 // summrise-online-setup.ps1:443), and the integrity tests carry JSON in single-quoted strings
 // (`'{"version":"1.2.364"}'`), so a naive count fails on correct code. What it therefore cannot see is listed at
-// the bottom of this file. `installer_integrity.rs` keeps its own pins; this is a DIFFERENT instrument — syntax
-// SHAPE, not wiring — and neither weakens nor duplicates the other.
+// the bottom of this file, and the snippets it is judged by are the `SELF_TEST` table below — a scanner whose skip
+// rules were never themselves tested is the instrument this suite trusts least. `installer_integrity.rs` keeps its
+// own pins; this is a DIFFERENT instrument — syntax SHAPE, not wiring — and neither weakens nor duplicates the other.
 //
 // Run: node scripts/test/powershell-structure-check.mjs
 import { readdirSync, readFileSync } from "node:fs";
@@ -43,8 +47,9 @@ function ps1Files(dir) {
   return out.sort();
 }
 
-/** One left-to-right pass, skipping whole the five things that make a bracket not-code: `#` comments, `<# … #>`
- *  comments, here-strings, single-quoted strings and double-quoted strings. Returns the problems found, each
+/** One left-to-right pass, skipping whole the things that make a bracket not-code: `#` comments, `<# … #>`
+ *  comments, here-strings, single-quoted strings and double-quoted strings — EXCEPT that a `$( … )` inside a
+ *  double-quoted string is code, and is scanned as such (see `doubleQuoted`). Returns the problems found, each
  *  naming the line it starts on. */
 function scan(src, file) {
   const problems = [];
@@ -58,110 +63,183 @@ function scan(src, file) {
   };
   const fail = (at, why) => problems.push(`${file}:${at} — ${why}`);
 
-  while (i < n) {
-    const c = src[i];
+  /** A SINGLE-QUOTED STRING: `''` is an escaped quote, and everything else is literal — INCLUDING braces, which
+   *  is how the installer writes launcher scripts and how the integrity tests carry JSON manifests. Returns false
+   *  when it is never closed. */
+  function singleQuoted() {
     const at = line;
-
-    // A COMMENT IS NOT CODE: `#` to end of line, and `<# … #>` — which the installer's own header (line 2) uses.
-    if (c === "<" && src[i + 1] === "#") {
-      const end = src.indexOf("#>", i + 2);
-      if (end < 0) {
-        fail(at, "`<#` opens a block comment that is never closed with `#>`, so `pwsh` would reject the file");
-        return problems;
+    let j = i + 1;
+    let closed = false;
+    while (j < n) {
+      if (src[j] === "'") {
+        if (src[j + 1] === "'") { j += 2; continue; } // an escaped quote, still inside
+        closed = true;
+        break;
       }
-      skipTo(end + 2);
-      continue;
+      j++;
     }
-    if (c === "#") {
-      const end = src.indexOf("\n", i);
-      skipTo(end < 0 ? n : end);
-      continue;
+    if (!closed) {
+      fail(at, "a single-quoted string is never closed — `pwsh` would reject the file");
+      return false;
     }
-
-    // A HERE-STRING IS NOT CODE EITHER: `@'` / `@"`, opened at the end of a line and closed by `'@` / `"@` at the
-    // START of one (PowerShell 5.1's rule, and these scripts are `#Requires -Version 5.1`). Its body is raw text —
-    // an installer writing a config puts exactly that in one — and a body holding an odd number of quotes would
-    // otherwise desynchronize every line below it.
-    if (c === "@" && (src[i + 1] === "'" || src[i + 1] === '"') && /^[^\S\n]*\r?\n/.test(src.slice(i + 2))) {
-      const q = src[i + 1];
-      const end = src.indexOf(`\n${q}@`, i + 2);
-      if (end < 0) {
-        fail(at, `\`@${q}\` opens a here-string that is never closed by \`${q}@\` at the start of a line`);
-        return problems;
-      }
-      skipTo(end + 3);
-      continue;
-    }
-
-    // A SINGLE-QUOTED STRING: `''` is an escaped quote, and everything else is literal — INCLUDING braces, which
-    // is how the installer writes launcher scripts and how the integrity tests carry JSON manifests.
-    if (c === "'") {
-      let j = i + 1;
-      let closed = false;
-      while (j < n) {
-        if (src[j] === "'") {
-          if (src[j + 1] === "'") { j += 2; continue; } // an escaped quote, still inside
-          closed = true;
-          break;
-        }
-        j++;
-      }
-      if (!closed) {
-        fail(at, "a single-quoted string is never closed — `pwsh` would reject the file");
-        return problems;
-      }
-      skipTo(j + 1);
-      continue;
-    }
-
-    // A DOUBLE-QUOTED STRING: a backtick escapes the NEXT character (`` `" `` is a literal quote, which the
-    // integrity tests use to carry JSON) and `""` is an escaped quote.
-    if (c === '"') {
-      let j = i + 1;
-      let closed = false;
-      while (j < n) {
-        if (src[j] === "`") { j += 2; continue; } // the backtick escapes whatever follows
-        if (src[j] === '"') {
-          if (src[j + 1] === '"') { j += 2; continue; } // an escaped quote, still inside
-          closed = true;
-          break;
-        }
-        j++;
-      }
-      if (!closed) {
-        fail(at, "a double-quoted string is never closed — `pwsh` would reject the file");
-        return problems;
-      }
-      skipTo(j + 1);
-      continue;
-    }
-
-    // OUTSIDE a string a backtick escapes the next character too: `` `{ `` is a literal brace, not a group, and a
-    // backtick at the end of a line is a continuation.
-    if (c === "`") {
-      skipTo(Math.min(i + 2, n));
-      continue;
-    }
-
-    if (OPEN[c]) {
-      stack.push({ ch: c, line: at });
-      i++;
-      continue;
-    }
-    if (CLOSE[c]) {
-      const top = stack.pop();
-      if (!top) fail(at, `\`${c}\` closes nothing — there is one closer too many`);
-      else if (top.ch !== CLOSE[c]) fail(at, `\`${c}\` closes the \`${top.ch}\` opened at line ${top.line}`);
-      i++;
-      continue;
-    }
-
-    if (c === "\n") line++;
-    i++;
+    skipTo(j + 1);
+    return true;
   }
+
+  /** A DOUBLE-QUOTED STRING: a backtick escapes the NEXT character (`` `" `` is a literal quote, which the
+   *  integrity tests use to carry JSON) and `""` is an escaped quote.
+   *
+   *  `$( … )` INSIDE IT IS NOT TEXT. PowerShell evaluates it, so its braces and parens belong to the file's
+   *  structure exactly like brackets outside the string — and a launcher line is where they are written. The
+   *  subexpression's `(` joins the SAME stack, its body is scanned as code, and it ends at the `)` that closes it;
+   *  a `$( … )` inside that body nests the same way. A plain `$name` — and `${name}`, whose braces are part of the
+   *  NAME, not a group — is a variable reference and stays opaque. */
+  function doubleQuoted() {
+    const at = line;
+    skipTo(i + 1); // the opening quote
+    while (i < n) {
+      const c = src[i];
+      if (c === "`") { skipTo(Math.min(i + 2, n)); continue; } // the backtick escapes whatever follows
+      if (c === '"') {
+        if (src[i + 1] === '"') { skipTo(i + 2); continue; } // an escaped quote, still inside
+        i++;
+        return true;
+      }
+      if (c === "$" && src[i + 1] === "(") {
+        stack.push({ ch: "(", line });
+        skipTo(i + 2);
+        if (!code(stack.length)) return false; // the subexpression, ended by the `)` closing this `(`
+        continue;
+      }
+      if (c === "\n") line++;
+      i++;
+    }
+    fail(at, "a double-quoted string is never closed — `pwsh` would reject the file");
+    return false;
+  }
+
+  /** CODE — outside every string, and inside a `$( … )` subexpression. `subDepth` is the stack depth at which the
+   *  subexpression's own `(` was pushed, or null outside one: a `)` arriving at that depth ends the subexpression
+   *  and hands control back to the string that opened it. Returns false when a string or comment ran away, which
+   *  stops the scan — `fail` has already recorded why. */
+  function code(subDepth) {
+    while (i < n) {
+      const c = src[i];
+      const at = line;
+
+      // A COMMENT IS NOT CODE: `#` to end of line, and `<# … #>` — which the installer's own header (line 2) uses.
+      if (c === "<" && src[i + 1] === "#") {
+        const end = src.indexOf("#>", i + 2);
+        if (end < 0) {
+          fail(at, "`<#` opens a block comment that is never closed with `#>`, so `pwsh` would reject the file");
+          return false;
+        }
+        skipTo(end + 2);
+        continue;
+      }
+      if (c === "#") {
+        const end = src.indexOf("\n", i);
+        skipTo(end < 0 ? n : end);
+        continue;
+      }
+
+      // A HERE-STRING IS NOT CODE EITHER: `@'` / `@"`, opened at the end of a line and closed by `'@` / `"@` at the
+      // START of one (PowerShell 5.1's rule, and these scripts are `#Requires -Version 5.1`). Its body is raw text —
+      // an installer writing a config puts exactly that in one — and a body holding an odd number of quotes would
+      // otherwise desynchronize every line below it.
+      if (c === "@" && (src[i + 1] === "'" || src[i + 1] === '"') && /^[^\S\n]*\r?\n/.test(src.slice(i + 2))) {
+        const q = src[i + 1];
+        const end = src.indexOf(`\n${q}@`, i + 2);
+        if (end < 0) {
+          fail(at, `\`@${q}\` opens a here-string that is never closed by \`${q}@\` at the start of a line`);
+          return false;
+        }
+        skipTo(end + 3);
+        continue;
+      }
+
+      if (c === "'") { if (!singleQuoted()) return false; continue; }
+      if (c === '"') { if (!doubleQuoted()) return false; continue; }
+
+      // OUTSIDE a string a backtick escapes the next character too: `` `{ `` is a literal brace, not a group, and a
+      // backtick at the end of a line is a continuation.
+      if (c === "`") {
+        skipTo(Math.min(i + 2, n));
+        continue;
+      }
+
+      if (OPEN[c]) {
+        stack.push({ ch: c, line: at });
+        i++;
+        continue;
+      }
+      if (CLOSE[c]) {
+        // THE SUBEXPRESSION ENDS HERE: its own `(` is on top, so it is consumed and the string resumes.
+        if (c === ")" && stack.length === subDepth) {
+          stack.pop();
+          i++;
+          return true;
+        }
+        const top = stack.pop();
+        if (!top) fail(at, `\`${c}\` closes nothing — there is one closer too many`);
+        else if (top.ch !== CLOSE[c]) fail(at, `\`${c}\` closes the \`${top.ch}\` opened at line ${top.line}`);
+        i++;
+        continue;
+      }
+
+      if (c === "\n") line++;
+      i++;
+    }
+    return true;
+  }
+
+  code(null);
 
   for (const o of stack) fail(o.line, `\`${o.ch}\` is opened here and never closed — \`pwsh\` would reject the file`);
   return problems;
+}
+
+// ── THE SCANNER'S OWN FIXTURES. pwsh is not installed here, so these snippets are the only place the rules above
+// are stated as VERDICTS — and the instrument had never been tested, only its subject. A skip rule one character
+// too greedy reports "balanced" over precisely the edit this check exists to catch. The two rows that carry the
+// weight are the first two: the SAME brace must FAIL inside a `$( … )` and PASS inside a single-quoted string,
+// because the installer writes launcher scripts and JSON manifests that hold braces, and a scanner that cannot tell
+// those apart fails correct code and gets reverted within a week.
+const SELF_TEST = [
+  ["a `{` opened inside a `$( … )` in a double-quoted string", '"$(Get-X { )"', false],
+  ["braces that are TEXT — the JSON the integrity tests carry in `'…'`", '\'{"a":1}\'', true],
+  ["`${name}` is a variable NAME, not a group", '"${name}"', true],
+  ["a balanced `$( … )` carrying a group", '"$(Get-X -A { 1 })"', true],
+  ["a `$( … )` nested inside another one", '"$(Get-X -A "$(Get-Y)")"', true],
+  ["a backtick still escapes inside the string: `` `$( `` is literal", '"`$(Get-X { )"', true],
+  ["a `)` inside a single-quoted string does not end the subexpression", '"$(Get-X -A \')\')"', true],
+  ["a `#` comment's braces are not code", "# { and (\n( )\n", true],
+];
+
+let fixtureFailures = 0;
+// A TABLE THAT LOST ITS ROWS IS NOT A TABLE THAT PASSED — the same rule as `FLOOR` above, for the instrument
+// rather than the subject: the four verdicts this check is defined by are the minimum, and an empty table would
+// otherwise print "0 scanner fixture(s) agree" and exit 0.
+if (SELF_TEST.length < 4) {
+  console.error(`FAIL powershell-structure: only ${SELF_TEST.length} scanner fixture(s) — the table has been emptied, so nothing states what the skip rules mean any more`);
+  process.exit(1);
+}
+for (const [what, snippet, clean] of SELF_TEST) {
+  const got = scan(snippet, "<fixture>");
+  if ((got.length === 0) !== clean) {
+    fixtureFailures++;
+    console.error(
+      `FAIL powershell-structure self-test: ${what} — expected ${clean ? "PASS" : "FAIL"}, got ` +
+        `${clean ? "FAIL" : "PASS"}${got.length ? ` (${got.join("; ")})` : ""}`,
+    );
+  }
+}
+if (fixtureFailures) {
+  console.error(
+    `FAIL powershell-structure: ${fixtureFailures} of ${SELF_TEST.length} fixture(s) disagree — the scanner no longer\n` +
+      `follows the rules this file states, so its verdict on the deploy .ps1 files proves nothing.`,
+  );
+  process.exit(1);
 }
 
 const problems = [];
@@ -204,12 +282,15 @@ if (checked < FLOOR) {
   process.exit(1);
 }
 console.log(
-  `powershell-structure: ${checked} .ps1 file(s) under ${DIR} balance {} () [] outside single-quoted strings, double-quoted\n` +
-    `strings, here-strings and comments.`,
+  `powershell-structure: ${checked} .ps1 file(s) under ${DIR} balance {} () [] outside single-quoted strings, here-strings\n` +
+    `and comments — and inside the \`$( … )\` subexpressions a double-quoted string carries. ${SELF_TEST.length} scanner fixture(s) agree.`,
 );
 
-// WHAT THIS CANNOT SEE, so the next reader does not mistake it for a parser: a `$( … )` subexpression INSIDE a
-// double-quoted string (its brackets are skipped with the string, which is safe for valid PowerShell because the
-// subexpression must close before the string does, and blind to an invalid one); anything semantic — a misspelled
-// cmdlet, a wrong parameter, a missing `param` block; and whether the file would RUN. `pwsh` answers those, and it
-// is not installed here, which is the whole reason this check exists at the level it does.
+// WHAT THIS CANNOT SEE, so the next reader does not mistake it for a parser: a `$( … )` inside a double-quoted
+// HERE-STRING (`@" … "@`), whose body is still skipped whole — `pwsh` evaluates those too, the deploy files carry
+// none today, and a here-string is where the installer puts text it does NOT want interpolated, so the two
+// mistakes are not symmetric. A `$( … )` in a plain double-quoted string is OFF this list now: it is scanned by
+// `doubleQuoted`, its brackets counted on the same stack as the file's own, and the `SELF_TEST` table above fails
+// if that stops being true. What also remains invisible is anything semantic — a misspelled cmdlet, a wrong
+// parameter, a missing `param` block; and whether the file would RUN. `pwsh` answers those, and it is not installed
+// here, which is the whole reason this check exists at the level it does.

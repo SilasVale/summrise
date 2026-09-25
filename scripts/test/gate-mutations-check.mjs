@@ -355,6 +355,21 @@ const CASES = [
       '    Write-Host "!! cloudflared not found at $installDir\\components\\cloudflared.exe nor $installDir\\tools\\cloudflared.exe"\n' +
       "    exit 1\n",
   },
+
+  {
+    gate: "scripts/test/powershell-structure-check.mjs",
+    // THE OTHER HALF OF THE SAME GATE, over a DIFFERENT code path: the case above deletes a brace the scanner already
+    // saw in code, while this one hides a brace where it used to be blind — inside a `$( … )` in a double-quoted
+    // string, which is the shape the installer WRITES its launcher lines with. MEASURED, not assumed: with this line
+    // in place the gate exited 0 before the change (the whole string was skipped as text, so the `{` and the `)`
+    // around it were invisible to it) and exits 1 now, reporting the `)` that closes the `{`. The unit half is the
+    // `SELF_TEST` table inside the gate; this is the end-to-end half, on a real deploy file. The single-quoted
+    // non-bite described above still stands and is a different rule: braces in `'…'` are TEXT and must PASS.
+    file: "agent/deploy/fix-tunnel.ps1",
+    why: "a `{` opened inside a `$( … )` subexpression of a double-quoted string and closed by its `)` — the one edit a string-opaque scanner cannot see",
+    from: "    sc.exe start cloudflared 2>$null | Out-Null\n",
+    to: '    sc.exe start cloudflared 2>$null | Out-Null\n"$(Write-Host { )"\n',
+  },
 ];
 
 const run = (cmd, args) => {
