@@ -233,6 +233,29 @@ earns, in its plainest form: **before explaining what a measurement means, confi
 that only holds when 9229 is launched with a view, or the device should not run 9229 headless, or the section should assert the
 headless arm's real contract (that it drives ITS browser) and leave the embedded view to stdio. All three are decidable now.
 
+**AND THE CODE SAYS THE `--headless` IS A FALLBACK, NOT A CONFIGURATION (round 101).** `tools.rs:507-513`:
+
+```rust
+/// ATTACH (panel screenshot sees everything); else private headless
+    None => vec!["--headless".into(), "--browser".into(), "chromium".into()],
+```
+
+with `:530` — "when up, else none (headless fork). Event-driven probe, 300 ms budget" — and `:683-685` — "playwright-mcp spawn
+launched its OWN headless browser — AI … loopback 9333; attach there when it is up. Private-headless stays" — plus two tests that
+assert the ATTACH arm does NOT carry `--headless`. **So the product probes for the desktop CDP and attaches when it is up; the
+`--headless` on this device is the ELSE branch, taken because the panel was not up when that long-running 9229 was launched.**
+
+**THAT COMPLETES THE PICTURE AND REASSIGNS THE BLAME ONE LAST TIME.** The http arm of the e2e section asserts "the embedded view
+followed", which is true only on the ATTACH arm; this device is on the private-headless arm, where the honest contract is "the tool
+drove its OWN browser". **The check is not wrong about the product — it is missing its precondition**, and the suite had no way to
+say so because nothing in it has ever run. The two facts that settle it are now both measured: the tab list is one `about:blank`
+(a private browser) and the process command line carries `--headless` (the else branch).
+
+**THE FIX IS THEREFORE THE ONE THE REPO'S OWN CULTURE PRESCRIBES**: make the check state the arm it is asserting — attach or
+private — and assert that arm's real contract, rather than asserting visibility unconditionally on a transport whose whole purpose
+is to work when there is no view. The `panel` section, which passes 2/2, is the section that genuinely tests visibility; the `mcp`
+section tests the MCP surface, and on a headless fork its click and navigate should be asserted against the browser it owns.
+
 **AND THE FALLBACK IS SILENT BY CONSTRUCTION (round 99)** — the whole branch is:
 
 ```rust
