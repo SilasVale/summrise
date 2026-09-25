@@ -6978,6 +6978,40 @@ writing down that `cargo test … -- --nocapture` is how this gate is read.
 **NUMBERS:** `spawn.rs` in both lists, verified; the exemption needed, verified by the absence of a note under
 `--nocapture`; the un-asking spawns named by line; the waiver list stays at ONE for a reason that is now written down.
 
+## 2026-09-25 — the sixty-second exploration: the waiver list reaches zero, and two of my premises did not survive the trip
+
+Round 41 named the honest fix — teach the scan about `#[cfg(unix)]` regions — and predicted the end state rounds 9-11
+aimed at. This round did it: **`EXEMPT` is now `&[]`**, the rule reaches every spawn in the tree, and the assertion that
+holds it checks emptiness by RE-WALKING the tree rather than by trusting the list.
+
+**`cfg_dead_ranges()` READS THE TWO SPELLINGS THIS TREE ACTUALLY USES** (`#[cfg(unix)]`, `#[cfg(not(windows))]`), at line
+start, with the gated item's extent taken from its braces counted outside comments, strings, char literals and raw
+strings. **AND IT FAILS CLOSED**: an extent it cannot determine yields no range, so the spawn stays LIVE and must ask.
+`target_os = "linux"` and `not(any(unix, windows))` are NOT read — also fail-closed, and no spawn sits in one today
+(measured, not assumed).
+
+**TWO OF MY PREMISES WERE WRONG, AND THE MEASUREMENT SAID SO.** I told the implementer that the program class carried
+`kill`/`pgrep` — it did not; only `hidden`'s prose named them. And I implied that deleting the last exemption would
+suffice — it did not: emptying the list failed with `["spawn.rs: \`taskkill\`", "spawn.rs: \`taskkill\`"]`, the two
+WINDOWS taskkill sites whose ask is one call deeper, inside `attempt`. So reaching zero honestly took two repairs the
+brief did not contain: `kill`/`pgrep` added to the class (a unix helper IS a console program; only the cfg REGION exempts
+it — round 41's rule, kept), and a THIRD ask spelling, `attempt(`, scoped to this file and to those three programs,
+because `attempt` is private here while `record_update_attempt(` exists elsewhere and must not count.
+
+**AND ONE MORE MEASURED DETAIL THAT WOULD HAVE BROKEN THE FIX**: the gap between a spawn and its ask is read in LIVE
+PIECES — dead text is SKIPPED, not stopped at — because `exec.rs` writes `#[cfg(unix)] cmd.process_group(0);` BETWEEN a
+spawn and its ask, and truncating the gap there failed the gate on a file that is correct.
+
+**FOUR MUTATIONS, ALL VERBATIM**: (a) an un-asking `ping` in `#[cfg(windows)] fn windows_kill_tree` fails with
+`["spawn.rs: \`ping\`"]`; (b) the same spawn inside `#[cfg(unix)]` PASSES — **the non-bite that is the whole point of the
+round**; (c) an un-asking `powershell` AFTER that region fails with `["spawn.rs: \`powershell\`"]`, so the region's END is
+respected; (d) an un-asking `kill` in live code fails with `["spawn.rs: \`kill\`"]`, so the class really counts it.
+
+**NUMBERS:** `EXEMPT` one entry → **zero**; spawn tests 7 → **15**; agent lib 751 → **753** (terminal,keyring), 0 failed;
+fmt clean; clippy clean; `cargo xwin check` exit 0. **AND THE PROGRESSION IS COMPLETE**: rounds 10 → 11 → 42 took the
+waiver list **7 → 3 → 1 → 0**, each step with a mutation that would fail without it — which is the only reason to believe
+the last one is real rather than a list that was emptied by loosening the rule.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

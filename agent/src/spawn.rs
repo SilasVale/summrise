@@ -725,16 +725,27 @@ mod tests {
     /// a file that is in neither list fails, whether that file is new or was
     /// simply never visited.
     ///
-    /// AND IT KNOWS BOTH ENTRY POINTS ([`ASKS`]): the round that gave the blocking
-    /// `std::process::Command` its own entry point moved four files from EXEMPT to
-    /// ASKING, and a scan that had learned only `hidden(&mut …)` would have read
-    /// every one of those sites as an unlisted console spawn — failing on the fix
-    /// rather than on the defect.
+    /// AND IT KNOWS ALL THREE ASK SPELLINGS ([`ASKS`], [`ATTEMPTED`]): the round
+    /// that gave the blocking `std::process::Command` its own entry point moved
+    /// four files from EXEMPT to ASKING, and a scan that had learned only
+    /// `hidden(&mut …)` would have read every one of those sites as an unlisted
+    /// console spawn — failing on the fix rather than on the defect. The third
+    /// is the one call DEEPER — a kill command handed to `attempt`, which
+    /// applies the flag inside itself — and it is readable only in this file.
+    ///
+    /// AND IT KNOWS WHICH CODE THE PLATFORM THIS RULE EXISTS FOR NEVER COMPILES
+    /// ([`DEAD_ON_WINDOWS`]): the rule is about a WINDOWS console window, so a
+    /// spawn inside a `#[cfg(unix)]` / `#[cfg(not(windows))]` item is not a
+    /// console-subsystem spawn for it. The scan reads TEXT and cannot evaluate a
+    /// cfg predicate, so it reads the two spellings that are wholly dead on
+    /// Windows and FAILS CLOSED on every other shape — a region whose extent it
+    /// cannot work out leaves its spawns LIVE, where the gate still sees them.
     ///
     /// `EXEMPT` follows the sweep's exemption idiom: every entry carries its
     /// reason, and the entries this run did NOT need are printed (a list like
     /// this is weight the moment it stops being read, and a renamed file is
-    /// exactly what a silent waiver hides). The entries that ARE needed are
+    /// exactly what a silent waiver hides). IT IS EMPTY NOW — the print is what
+    /// the next entry added back would meet first, and the emptiness itself is
     /// asserted by `the_console_spawn_exemptions_are_only_the_sites_that_cannot_ask`,
     /// because a print is not a gate.
     #[test]
@@ -784,58 +795,61 @@ mod tests {
         }
     }
 
-    /// THE WAIVER LIST IS DOWN TO THE APPLIER ITSELF — AND IT IS ASSERTED, NOT
-    /// TRUSTED.
+    /// THE WAIVER LIST ENDS AT ZERO — AND IT IS ASSERTED, NOT TRUSTED.
     ///
-    /// Every entry that used to be here for the BLOCKING command type is gone,
-    /// because the reason those entries gave ("`hidden` is tokio-typed, so it
-    /// cannot ask") stopped being true the moment `hidden_std` existed: a waiver
-    /// whose only justification is a type boundary is not a decision, it is a hole
-    /// in the rule, and leaving one behind would read as a site that still cannot
-    /// ask. The two `cloudflared` entries that remained after that — named as a
-    /// remainder rather than as a site that could not ask — are gone too: both
-    /// are TOKIO spawns, which `hidden` reaches, so the only thing excusing them
-    /// was scope. What is left is one file, and its reason a reader can check
-    /// against the source:
+    /// Every entry that used to be here is gone, and none of them was reworded
+    /// into a smaller list: the BLOCKING command type's waivers ("`hidden` is
+    /// tokio-typed, so it cannot ask") stopped being true the moment `hidden_std`
+    /// existed, because a waiver whose only justification is a type boundary is
+    /// not a decision, it is a hole in the rule. The two `cloudflared` entries —
+    /// named as a remainder rather than as a site that could not ask — were
+    /// TOKIO spawns, which `hidden` reaches, so the only thing excusing them was
+    /// scope. And the last one, this file itself, stood for the two `taskkill`
+    /// spawns whose ask is one call deeper, inside `attempt`: the scan could not
+    /// read that ask, and now it can ([`ATTEMPTED`]).
     ///
-    /// * `spawn.rs` — the applier itself, not a caller: `hidden`/`hidden_std` are
-    ///   called inside it, and its taskkill/kill/pgrep spawns are covered one call
-    ///   deeper, by `attempt`.
+    /// SO THE LIST IS EMPTY, WHICH IS WHAT "ONLY THE SITES THAT CANNOT ASK"
+    /// MEANS NOW THAT THERE ARE NONE. The name is kept because it is the
+    /// statement being asserted, and the `assert!` is what keeps the list empty:
+    /// the failure being guarded against is an entry ADDED BACK, and a new
+    /// waiver for a site that can ask must cost a test run rather than a line in
+    /// a list nobody re-reads.
     ///
-    /// THE `assert_eq!` IS THE EXACT LIST rather than a `contains`, because the
-    /// failure being guarded against is an entry ADDED BACK: a new waiver for a
-    /// site that can ask is exactly the drift this whole module exists to stop, and
-    /// it must cost a test run rather than a line in a list nobody re-reads. The
-    /// second half re-walks the real tree and requires every remaining entry to be
-    /// NEEDED, so an exemption that outlives its spawn fails here even though the
-    /// gate only prints it.
+    /// THE SECOND HALF RE-WALKS THE REAL TREE and requires that NOTHING there
+    /// needs a waiver either — an empty list beside an unlisted spawn would be a
+    /// list that stopped being read, which is the defect this module's floor
+    /// exists for.
     #[test]
     fn the_console_spawn_exemptions_are_only_the_sites_that_cannot_ask() {
-        let names: Vec<&str> = EXEMPT.iter().map(|(file, _)| *file).collect();
-        assert_eq!(
-            names,
-            vec!["spawn.rs"],
-            "the no-console rule reaches BOTH command types (`hidden` and `hidden_std`), so the \
-             `cloudflared` spawns that were waived for scope now ask — the applier itself is the \
-             only file that may still waive the ask"
+        assert!(
+            EXEMPT.is_empty(),
+            "the waiver list ENDS AT ZERO: every console-subsystem spawn in this tree either \
+             ASKS (`hidden(&mut …)`, `hidden_std(&mut …)`, or — in this file — hands its \
+             command to `attempt`) or is not compiled on the platform this rule exists for \
+             (`#[cfg(unix)]` / `#[cfg(not(windows))]`), so an entry here is a site that can \
+             ask and does not: {EXEMPT:?}"
         );
+        // THE SECOND HALF RE-WALKS THE REAL TREE, and it asks the only question
+        // that still has two answers: with the list empty, `exempt_needed`
+        // cannot be anything but empty (the waiver machinery is only reached
+        // through an entry), so what has to be shown is that no spawn in the
+        // tree is unlisted — an empty list beside an unlisted spawn would be a
+        // list that stopped being read.
+        let scan = scan_console_spawn_sites(&read_src_sources(), SITES, EXEMPT);
+        assert!(
+            scan.unlisted.is_empty(),
+            "a console-subsystem spawn with no ask and no waiver is exactly what this list \
+             used to hide: {:?}",
+            scan.unlisted
+        );
+        // Vacuous while the list is empty, and kept for the entry that is added
+        // back: an exemption must carry its reason.
         for (file, reason) in EXEMPT {
             assert!(
                 !reason.trim().is_empty(),
                 "{file}: an exemption must carry its reason"
             );
         }
-        let scan = scan_console_spawn_sites(&read_src_sources(), SITES, EXEMPT);
-        let needed: Vec<&str> = names
-            .iter()
-            .copied()
-            .filter(|file| scan.exempt_needed.contains(*file))
-            .collect();
-        assert_eq!(
-            needed, names,
-            "an exemption this scan did not need is weight rather than a waiver — the file it \
-             names has no un-asking console-subsystem spawn left, so prune it or say why it stays"
-        );
     }
 
     /// THE SECOND ENTRY POINT IS AN ASK — proved on a tree this test owns.
@@ -900,25 +914,170 @@ mod tests {
         let _ = scan_console_spawn_sites(&sources, &[], &[]);
     }
 
+    /// A SPAWN THE PLATFORM THIS RULE EXISTS FOR NEVER COMPILES IS NOT A
+    /// CONSOLE-SUBSYSTEM SPAWN — and the END of the region is part of the claim.
+    ///
+    /// The rule is about a Windows console window, and this scan reads TEXT: it
+    /// cannot evaluate a cfg predicate, so it reads the two spellings that are
+    /// wholly dead on Windows and nothing else. What is pinned here, on sources
+    /// this test owns, is the pair of facts the real tree depends on — the
+    /// spawns inside such an item are not counted, and a spawn AFTER the item
+    /// still is — plus the fail-closed direction the reader must not lose.
+    #[test]
+    fn a_spawn_a_windows_build_does_not_compile_is_not_a_console_spawn() {
+        let dead = concat!(
+            "#[cfg(unix)]\n",
+            "fn unix_helper() {\n",
+            "    let mut c = std::process::Command::new(\"kill\");\n",
+            "    let _ = c.output();\n",
+            "}\n",
+        );
+        let scan = scan_console_spawn_sites(&[("dead.rs".to_string(), dead.to_string())], &[], &[]);
+        assert!(
+            scan.unlisted.is_empty(),
+            "a spawn in a `#[cfg(unix)]` item is not compiled on Windows, so it cannot open a \
+             window there: {:?}",
+            scan.unlisted
+        );
+
+        // THE END IS RESPECTED: the same spawn AFTER the item is a console spawn
+        // again, which is the half a region reader gets wrong by running on.
+        let after = format!(
+            "{dead}\nfn live() {{\n    let mut c = std::process::Command::new(\"powershell\");\n    let _ = c.output();\n}}\n"
+        );
+        let scan = scan_console_spawn_sites(&[("after.rs".to_string(), after)], &[], &[]);
+        assert_eq!(
+            scan.unlisted,
+            vec!["after.rs: `powershell`".to_string()],
+            "a spawn after the region must still be caught"
+        );
+
+        // The `not(windows)` spelling, and a BRACE-LESS item: an attribute on a
+        // statement ends at its `;`, not at the next `{` in the file.
+        let statement = concat!(
+            "#[cfg(not(windows))]\n",
+            "cmd.process_group(0);\n",
+            "fn live() {\n",
+            "    let mut c = std::process::Command::new(\"tar\");\n",
+            "    let _ = c.output();\n",
+            "}\n",
+        );
+        let scan =
+            scan_console_spawn_sites(&[("stmt.rs".to_string(), statement.to_string())], &[], &[]);
+        assert_eq!(
+            scan.unlisted,
+            vec!["stmt.rs: `tar`".to_string()],
+            "a brace-less gated statement ends at its `;`"
+        );
+
+        // NOT DEAD, AND THEREFORE STILL COUNTED: `cfg(windows)` keeps its item on
+        // the platform the rule is for, and `cfg(any(unix, test))` keeps it in a
+        // Windows TEST build, so the scan fails closed on both.
+        let live = concat!(
+            "#[cfg(windows)]\n",
+            "fn windows_helper() {\n",
+            "    let mut c = std::process::Command::new(\"taskkill\");\n",
+            "    let _ = c.output();\n",
+            "}\n",
+            "#[cfg(any(unix, test))]\n",
+            "fn either_helper() {\n",
+            "    let mut c = std::process::Command::new(\"ping\");\n",
+            "    let _ = c.output();\n",
+            "}\n",
+        );
+        let scan = scan_console_spawn_sites(&[("live.rs".to_string(), live.to_string())], &[], &[]);
+        assert_eq!(
+            scan.unlisted,
+            vec![
+                "live.rs: `taskkill`".to_string(),
+                "live.rs: `ping`".to_string()
+            ],
+            "only the two spellings that are wholly dead on Windows are regions"
+        );
+
+        // AND AN ASK INSIDE A DEAD REGION DOES NOT COVER A LIVE SITE: reading an
+        // ask out of code Windows never compiles is the false pass this reader
+        // must not buy.
+        let borrowed = concat!(
+            "fn live() {\n",
+            "    let mut c = std::process::Command::new(\"powershell\");\n",
+            "}\n",
+            "#[cfg(unix)]\n",
+            "fn unix_helper(c: &mut Cmd) {\n",
+            "    hidden(&mut c);\n",
+            "}\n",
+        );
+        let scan = scan_console_spawn_sites(
+            &[("borrowed.rs".to_string(), borrowed.to_string())],
+            &[],
+            &[],
+        );
+        assert_eq!(
+            scan.unlisted,
+            vec!["borrowed.rs: `powershell`".to_string()],
+            "an ask written in code Windows does not compile is not an ask for a live site"
+        );
+    }
+
     /// THE ASK IS A CALL, NOT A WORD — for BOTH entry points, and the near-misses
     /// that must not count as one. A gate that accepted the name alone would pass
     /// on a site that only MENTIONS the flag in a comment, which is the state every
     /// one of these sites was in before the rule existed.
     #[test]
     fn both_entry_points_count_as_an_ask_and_prose_does_not() {
-        assert!(gap_asks_for_the_flag("crate::spawn::hidden(&mut cmd);"));
-        assert!(gap_asks_for_the_flag("crate::spawn::hidden_std(&mut cmd);"));
+        assert!(gap_asks_for_the_flag(
+            SELF,
+            "powershell",
+            "crate::spawn::hidden(&mut cmd);"
+        ));
+        assert!(gap_asks_for_the_flag(
+            SELF,
+            "powershell",
+            "crate::spawn::hidden_std(&mut cmd);"
+        ));
         assert!(
-            !gap_asks_for_the_flag("// `hidden` is tokio-typed, so this site cannot ask"),
+            !gap_asks_for_the_flag(
+                SELF,
+                "powershell",
+                "// `hidden` is tokio-typed, so this site cannot ask"
+            ),
             "a mention of the name in prose is not an ask"
         );
         assert!(
-            !gap_asks_for_the_flag("let flag = command_hidden();"),
+            !gap_asks_for_the_flag(SELF, "powershell", "let flag = command_hidden();"),
             "a lookalike call is not an ask"
         );
         assert!(
-            !gap_asks_for_the_flag("crate::spawn::hidden_std(cmd);"),
+            !gap_asks_for_the_flag(SELF, "powershell", "crate::spawn::hidden_std(cmd);"),
             "the ask passes `&mut`, which is what keeps a named call from counting"
+        );
+    }
+
+    /// THE THIRD SPELLING IS TRUE IN ONE FILE AND FOR ONE CLASS OF COMMAND, and
+    /// both halves of that are asserted here rather than assumed: `attempt` is
+    /// defined in this module and applies the flag inside itself, so a kill
+    /// command handed to it has asked — and nothing else has.
+    #[test]
+    fn the_attempt_spelling_counts_only_where_attempt_is_defined() {
+        let kill_gap = "attempt(\"taskkill\", &mut cmd).await";
+        assert!(
+            gap_asks_for_the_flag(SELF, "taskkill", kill_gap),
+            "the taskkill sites in this file ask through `attempt`"
+        );
+        assert!(
+            !gap_asks_for_the_flag("plugins/update/tools.rs", "taskkill", kill_gap),
+            "`attempt` is private to this file: elsewhere the name is another function \
+             (`record_update_attempt(`), and reading a name as an ask is the mistake the call \
+             shape exists to prevent"
+        );
+        assert!(
+            !gap_asks_for_the_flag(SELF, "powershell", kill_gap),
+            "`attempt` runs taskkill/kill/pgrep and nothing else, so a powershell spawn cannot \
+             be covered by a call that happens to sit in its gap"
+        );
+        assert!(
+            !gap_asks_for_the_flag(SELF, "taskkill", "attempting the kill"),
+            "the call shape is required here too"
         );
     }
 
@@ -930,6 +1089,15 @@ mod tests {
     // class written in spellings is only as good as the reader's ability to
     // recognise them. `ps` is here because the list always carried it (a unix
     // helper, so asking costs nothing and the site already does).
+    //
+    // `kill` AND `pgrep` ARE THE RULE'S SECOND BULLET, and they were missing
+    // from this list while `hidden` named them: the rule says they are in the
+    // class, and a class is data, so the data was the thing that was wrong.
+    // Adding them costs nothing and is the honest direction — a unix helper IS
+    // a console program, and the rule's point is the window. What keeps their
+    // four spawns from needing a waiver is not a smaller class but
+    // [`DEAD_ON_WINDOWS`]: every one of them sits in a `#[cfg(unix)]` item,
+    // which the platform this rule exists for never compiles.
     const CONSOLE_PROGRAMS: &[&str] = &[
         "&node",
         "node",
@@ -948,7 +1116,14 @@ mod tests {
         "icacls",
         "&cf",
         "ps",
+        "kill",
+        "pgrep",
     ];
+    /// The file this module is written in. One spelling of the path rather than
+    /// two, because [`SITES`] names it and [`ATTEMPTED`]'s spelling is readable
+    /// only here: [`attempt`] is defined in this file and is PRIVATE, so
+    /// `attempt(` anywhere else is a different function.
+    const SELF: &str = "spawn.rs";
     /// Files where a console-subsystem spawn's ASK is counted: every spawn
     /// that DOES ask (one of [`ASKS`] in its gap — the gap for one spawn runs
     /// to the NEXT one, because the ask is its own statement after the builder
@@ -970,7 +1145,7 @@ mod tests {
     /// which `hidden` reaches. Each was restructured out of a builder chain so
     /// its ask is its own statement, the shape `main.rs` already used.
     const SITES: &[&str] = &[
-        "spawn.rs",
+        SELF,
         "plugins/playwright/manager.rs",
         "plugins/playwright/tools.rs",
         "plugins/mcp_client/tools.rs",
@@ -984,20 +1159,20 @@ mod tests {
         "tunnel.rs",
     ];
     /// Files where a console-subsystem spawn does NOT ask, each with the reason
-    /// it cannot (or deliberately does not). A file may be in BOTH lists, and that
-    /// means both things at once: `spawn.rs` asks for the `tasklist` that
-    /// disambiguates a name kill while its taskkill/kill/pgrep spawns are covered
-    /// one call deeper, by `attempt`.
+    /// it cannot (or deliberately does not).
     ///
-    /// IT IS ONE ENTRY, and the two `cloudflared` waivers that stood beside it
-    /// were DELETED rather than reworded: `hidden` reaches the tokio commands in
-    /// both files, so "outside the round that wrote the rule" was a statement
-    /// about scope, never about the site's ability to ask.
-    const EXEMPT: &[(&str, &str)] = &[(
-        "spawn.rs",
-        "the applier, not a caller: `hidden`/`hidden_std` are called inside this module (in \
-         those two functions and in `attempt`, through which taskkill/kill/pgrep run)",
-    )];
+    /// IT IS EMPTY, WHICH IS THE END STATE THIS RULE WAS BUILT TOWARD — and the
+    /// entries that used to stand here are worth the lines it takes to say why
+    /// they are gone, because each was a hole rather than a decision. The
+    /// BLOCKING command type's waivers ("`hidden` is tokio-typed, so it cannot
+    /// ask") stopped being true the moment `hidden_std` existed. The two
+    /// `cloudflared` waivers were scope, never ability: `hidden` reaches the
+    /// tokio commands in both files. And the last one — this file, "the applier
+    /// itself" — stood for the `taskkill` sites whose ask is one call deeper,
+    /// inside [`attempt`], which the scan could not read and now can
+    /// ([`ATTEMPTED`]). So a new entry here is a site that CAN ask and does
+    /// not, which is the drift this whole module exists to stop.
+    const EXEMPT: &[(&str, &str)] = &[];
     const SPAWN: &str = "Command::new(";
     // THE ASKS, as CALLS rather than words — ONE PER ENTRY POINT in `hidden`'s
     // module, and BOTH have to count: `hidden(&mut …)` for a tokio command,
@@ -1006,11 +1181,61 @@ mod tests {
     // test function further down the file — from counting as an ask for a site
     // that never made one.
     const ASKS: &[&str] = &["hidden(&mut ", "hidden_std(&mut "];
+    /// THE THIRD SPELLING, AND THE ONLY ONE THAT IS ONE CALL DEEPER: the
+    /// commands [`attempt`] runs. `attempt` applies the flag INSIDE itself — its
+    /// doc says so and `attempt_applies_the_no_console_flag_and_runs_the_command`
+    /// asserts it — so a spawn of one of these that hands its command to
+    /// `attempt` HAS asked. This file's `taskkill` sites are the ones that do,
+    /// and the waiver that used to stand for them is gone because the scan can
+    /// now read the ask instead of waiving it.
+    ///
+    /// SCOPED TWICE, because the spelling is only true in one place: to [`SELF`],
+    /// where `attempt` is defined and private (elsewhere `attempt(` is another
+    /// function — `record_update_attempt(` in `plugins/update/tools.rs`), and to
+    /// the commands `attempt` actually runs, so a spawn of anything else cannot
+    /// be covered by a call that happens to sit in its gap.
+    const ATTEMPTED: &[&str] = &["taskkill", "kill", "pgrep"];
+    /// The call spelling of [`ATTEMPTED`]'s runner.
+    const ATTEMPT: &str = "attempt(";
 
-    /// Does the gap after one spawn site contain an ASK? The one place the two
+    /// Does the gap after one spawn site contain an ASK? The one place the
     /// spellings are read, so a test can pin them without a source tree.
-    fn gap_asks_for_the_flag(gap: &str) -> bool {
+    fn gap_asks_for_the_flag(file: &str, program: &str, gap: &str) -> bool {
         ASKS.iter().any(|ask| gap.contains(ask))
+            || (file == SELF && ATTEMPTED.contains(&program) && gap.contains(ATTEMPT))
+    }
+
+    /// The same question over the gap `from..to` — which runs to the NEXT spawn,
+    /// because the ask is its own statement after the builder chain — MINUS the
+    /// dead regions inside it.
+    ///
+    /// The regions are SKIPPED rather than stopped at, and both halves of that
+    /// are load-bearing: an ask written in code a Windows build does not compile
+    /// is not an ask for this site, and an ask that FOLLOWS such a region still
+    /// is — `plugins/terminal/tools/exec.rs` writes
+    /// `#[cfg(unix)] cmd.process_group(0);` between a spawn and its ask, so a
+    /// gap that ended at the region would read a site that asks as one that
+    /// never did.
+    fn live_gap_asks_for_the_flag(
+        src: &str,
+        dead: &[(usize, usize)],
+        file: &str,
+        program: &str,
+        from: usize,
+        to: usize,
+    ) -> bool {
+        let mut asked = false;
+        let mut cursor = from;
+        for (start, end) in dead {
+            if *end <= cursor || *start >= to {
+                continue;
+            }
+            if *start > cursor {
+                asked |= gap_asks_for_the_flag(file, program, &src[cursor..*start]);
+            }
+            cursor = (*end).min(to);
+        }
+        asked || gap_asks_for_the_flag(file, program, &src[cursor..to])
     }
 
     /// ONE SCAN, SO THE GATE AND THE GATE'S OWN TESTS REACH THE SAME VERDICT.
@@ -1038,6 +1263,12 @@ mod tests {
         for (file, src) in sources {
             let in_sites = sites.contains(&file.as_str());
             let exempt = exempt.iter().find(|(f, _)| f == file);
+            // WHERE A WINDOWS BUILD COMPILES NOTHING ([`DEAD_ON_WINDOWS`]): a
+            // spawn in one of these ranges cannot open a window on the platform
+            // this rule exists for, so it is not a console-subsystem spawn for
+            // the rule. Read once per file; an extent this scan cannot work out
+            // is NOT a range, so its spawns stay LIVE.
+            let dead = cfg_dead_ranges(src);
             let mut from = 0;
             while let Some(at) = src[from..].find(SPAWN) {
                 let at = from + at;
@@ -1045,6 +1276,9 @@ mod tests {
                 // This needle is a string literal in THIS file; skip its own
                 // occurrence rather than reading the source that holds it.
                 if src[..at].ends_with('"') {
+                    continue;
+                }
+                if in_dead_region(&dead, at) {
                     continue;
                 }
                 let after = &src[at + SPAWN.len()..];
@@ -1063,7 +1297,19 @@ mod tests {
                 {
                     continue;
                 }
-                if gap_asks_for_the_flag(&after[..next]) {
+                // THE GAP ENDS AT THE NEXT SPAWN, and the dead regions inside it
+                // are not part of it: an ask written in code a Windows build
+                // does not compile is not an ask for THIS site, and reading one
+                // out of dead text is the false pass this scan must not buy.
+                let gap_start = at + SPAWN.len();
+                if live_gap_asks_for_the_flag(
+                    src,
+                    &dead,
+                    file,
+                    program,
+                    gap_start,
+                    gap_start + next,
+                ) {
                     assert!(
                         in_sites,
                         "{file}: the spawn of `{program}` asks `spawn::hidden`/`spawn::hidden_std` \
@@ -1086,6 +1332,243 @@ mod tests {
             }
         }
         scan
+    }
+
+    /// THE CFG SPELLINGS THIS SCAN READS, and they are the two this tree uses to
+    /// mean "not Windows": `#[cfg(unix)]` and `#[cfg(not(windows))]`. Matched at
+    /// the START OF A LINE — which is how an attribute is written, and what
+    /// keeps the tree's two PROSE mentions of the spelling (`atomic.rs` and
+    /// `tools/ssh.rs` write it inside `//!`/`///` comments) from opening a
+    /// region.
+    ///
+    /// IT IS NOT A COMPLETE SET OF "NOT WINDOWS" AND DOES NOT TRY TO BE:
+    /// `#[cfg(target_os = "linux")]`, `#[cfg(not(any(unix, windows)))]` and a
+    /// spelling written with spaces all leave their spawns LIVE, which is the
+    /// FAIL-CLOSED direction — a spawn counted where Windows compiles nothing
+    /// costs a false FAIL that a reader can see and answer, never a false pass.
+    /// For the same reason `#[cfg(test)]`, `#[cfg(any(unix, test))]` and
+    /// `#[cfg(windows)]` are NOT regions: each keeps its item in some Windows
+    /// build, so a spawn inside one must still ask.
+    const DEAD_ON_WINDOWS: &[&str] = &["#[cfg(unix)]", "#[cfg(not(windows))]"];
+
+    /// The byte ranges of `src` that no Windows build compiles, as
+    /// `(start, end)`: the attribute and the item it gates.
+    ///
+    /// The extent is the item's braces, counted outside comments and literals —
+    /// the same reason `scripts/check/powershell-structure-check.mjs` counts
+    /// braces that way: a `}` inside a comment would end a region early and a
+    /// `{` inside one would extend it, and an extent read too LONG marks a
+    /// COMPILED spawn dead, which is the one mistake this scan cannot make.
+    fn cfg_dead_ranges(src: &str) -> Vec<(usize, usize)> {
+        let mut ranges = Vec::new();
+        let mut i = 0;
+        // True while nothing but whitespace has been seen since the last `\n`.
+        let mut at_line_start = true;
+        while i < src.len() {
+            if let Some(next) = non_code_end(src, i) {
+                at_line_start = src[i..next]
+                    .rfind('\n')
+                    .is_some_and(|n| src[i + n + 1..next].trim().is_empty());
+                i = next;
+                continue;
+            }
+            if at_line_start {
+                let region = DEAD_ON_WINDOWS
+                    .iter()
+                    .copied()
+                    .find(|attr| src[i..].starts_with(*attr))
+                    .and_then(|attr| gated_item_end(src, i + attr.len()));
+                if let Some(end) = region {
+                    // The whole item is one range: nothing inside it needs a
+                    // second look, and the walk resumes after it.
+                    ranges.push((i, end));
+                    i = end;
+                    at_line_start = false;
+                    continue;
+                }
+            }
+            let ch = src[i..].chars().next().expect("i is on a char boundary");
+            at_line_start = match ch {
+                '\n' => true,
+                c if c.is_whitespace() => at_line_start,
+                _ => false,
+            };
+            i += ch.len_utf8();
+        }
+        ranges
+    }
+
+    /// Is `at` inside one of `ranges`? Half-open, so a site on a region's
+    /// closing brace — the first byte after it — is not inside it.
+    fn in_dead_region(ranges: &[(usize, usize)], at: usize) -> bool {
+        ranges.iter().any(|(start, end)| at >= *start && at < *end)
+    }
+
+    /// The offset just past the ITEM an attribute at `from` gates, or `None`
+    /// when this scan cannot work out where that item ends.
+    ///
+    /// The shapes this tree writes: an item with a body (`fn`, `mod`, a bare
+    /// `#[cfg(unix)] { … }` block) ends where its braces balance, and a
+    /// brace-less statement (`#[cfg(unix)] cmd.process_group(0);`) ends at its
+    /// `;`. A `,` at the same nesting ends one too — a match arm, a struct
+    /// field, an enum variant — and that is what keeps a region from running
+    /// past its item and marking compiled code dead.
+    ///
+    /// WHAT IT CANNOT SEE: a `where` clause's commas sit at this nesting as
+    /// well, so such an item's region ends EARLY. That is the fail-closed
+    /// direction — its spawns stay LIVE and the gate says so — and no attribute
+    /// in this tree gates one. `None` is the same answer: an item that never
+    /// ends is not a region.
+    fn gated_item_end(src: &str, from: usize) -> Option<usize> {
+        let mut i = from;
+        // `(` and `[` opened since the attribute: a comma inside one of those
+        // is an argument or a signature, not the end of the item.
+        let mut nested = 0usize;
+        while i < src.len() {
+            if let Some(next) = non_code_end(src, i) {
+                i = next;
+                continue;
+            }
+            let ch = src[i..].chars().next()?;
+            match ch {
+                '(' | '[' => nested += 1,
+                ')' | ']' => nested = nested.saturating_sub(1),
+                '{' if nested == 0 => return balanced_brace_end(src, i),
+                ';' | ',' if nested == 0 => return Some(i + 1),
+                _ => {}
+            }
+            i += ch.len_utf8();
+        }
+        None
+    }
+
+    /// The offset just past the `}` closing the `{` at `open`, or `None` when it
+    /// never closes — a region with no end is not a region.
+    fn balanced_brace_end(src: &str, open: usize) -> Option<usize> {
+        let mut depth = 0usize;
+        let mut i = open;
+        while i < src.len() {
+            if let Some(next) = non_code_end(src, i) {
+                i = next;
+                continue;
+            }
+            let ch = src[i..].chars().next()?;
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        return Some(i + 1);
+                    }
+                }
+                _ => {}
+            }
+            i += ch.len_utf8();
+        }
+        None
+    }
+
+    /// The offset just past the comment or literal STARTING at `i`, or `None`
+    /// when `i` is code.
+    ///
+    /// A region's braces are counted through this, because the count is only as
+    /// good as what it refuses to look at: `format!("-{pid}")` is a string with
+    /// a brace in it, `// }` is prose, and an extent read too long marks a
+    /// compiled spawn dead. It reads what Rust writes here — line comments,
+    /// block comments (which NEST), raw strings, plain strings and char
+    /// literals.
+    ///
+    /// A LIFETIME IS CODE, not a char literal: `&'a str` would otherwise swallow
+    /// everything up to the next quote, so a quote is only entered when it
+    /// closes on the next character or on an escape.
+    fn non_code_end(src: &str, i: usize) -> Option<usize> {
+        let rest = &src[i..];
+        if rest.starts_with("//") {
+            return Some(i + rest.find('\n').map_or(rest.len(), |n| n + 1));
+        }
+        if rest.starts_with("/*") {
+            let mut depth = 0usize;
+            let mut j = i;
+            while j < src.len() {
+                if src[j..].starts_with("/*") {
+                    depth += 1;
+                    j += 2;
+                } else if src[j..].starts_with("*/") {
+                    depth -= 1;
+                    j += 2;
+                    if depth == 0 {
+                        return Some(j);
+                    }
+                } else {
+                    j += char_len(src, j);
+                }
+            }
+            // Unterminated: nothing after it is compiled either.
+            return Some(src.len());
+        }
+        if let Some(end) = raw_string_end(src, i) {
+            return Some(end);
+        }
+        if rest.starts_with('"') {
+            let mut j = i + 1;
+            while j < src.len() {
+                match src[j..].chars().next()? {
+                    '\\' => j += 1 + char_len(src, j + 1),
+                    '"' => return Some(j + 1),
+                    c => j += c.len_utf8(),
+                }
+            }
+            return Some(src.len());
+        }
+        char_literal_end(src, i)
+    }
+
+    /// The offset just past the RAW string starting at `i` (`r"…"`, `r#"…"#`,
+    /// `br##"…"##`), or `None` when `i` is not one.
+    ///
+    /// Its own reader because a raw string holds the delimiter AND braces:
+    /// `r#"{"a": 1}"#` is one literal, and the plain-string reader would end it
+    /// at the first inner quote and count the rest as code.
+    fn raw_string_end(src: &str, i: usize) -> Option<usize> {
+        let rest = src[i..]
+            .strip_prefix("br")
+            .or_else(|| src[i..].strip_prefix('r'))?;
+        let hashes = rest.len() - rest.trim_start_matches('#').len();
+        let body = rest[hashes..].strip_prefix('"')?;
+        let closer = format!("\"{}", "#".repeat(hashes));
+        let end = body.find(&closer)?;
+        // `i` + the prefix (`r`/`br`, the hashes, the opening quote) + the body
+        // up to the closer + the closer.
+        Some(i + (src[i..].len() - body.len()) + end + closer.len())
+    }
+
+    /// The offset just past the char literal starting at `i`, or `None` when `i`
+    /// is not one — which is what a lifetime looks like, since `'a` does not
+    /// close on the next character.
+    fn char_literal_end(src: &str, i: usize) -> Option<usize> {
+        let rest = src[i..].strip_prefix('\'')?;
+        let mut chars = rest.char_indices();
+        let (_, first) = chars.next()?;
+        let body = if first == '\\' {
+            let (at, escaped) = chars.next()?;
+            let mut body = at + escaped.len_utf8();
+            if escaped == 'u' {
+                // `\u{7f}`: the braces of a unicode escape are exactly what the
+                // count must not see, so the escape is skipped whole.
+                body += rest[body..].find('}')? + 1;
+            }
+            body
+        } else {
+            first.len_utf8()
+        };
+        rest[body..].strip_prefix('\'')?;
+        Some(i + 1 + body + 1)
+    }
+
+    /// The length in bytes of the character at `i`, so a walk over the text
+    /// never lands inside one.
+    fn char_len(src: &str, i: usize) -> usize {
+        src[i..].chars().next().map_or(1, char::len_utf8)
     }
 
     /// Every `.rs` file under `src/`, as `(path relative to src/, text)` — the
