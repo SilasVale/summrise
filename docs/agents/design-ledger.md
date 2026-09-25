@@ -37,9 +37,19 @@ opening title, then read forward; nothing below reorders them.
 
 **Round 114, one line**: round 113 named the fix, this round applied it — the terminal check now asserts the MARKER and
 REPORTS the state (`state=partial exit=null` is what this device produces for a PTY execute, measured twice in a row), instead of
-demanding a state name the device does not emit. **THE DEVICE VERIFICATION IS OWED and is written down as owed**: the corrected
-script is deployed (`CDN e2e.js 200 · 60,641 B`), and the run that would say `12/12` has not been made yet. The last three rounds
-have each been corrected by exactly that kind of run, so the next one owes it before anything else.
+demanding a state name the device does not emit. **AND THE OWED VERIFICATION IS PAID (round 115): `12/12 passed`, TWICE**, with the check reporting
+`PASS terminal session execute -- state=partial exit=null`:
+
+```
+run 1: == 12/12 passed ==   PASS terminal session execute  -- state=partial exit=null
+run 2: == 12/12 passed ==   PASS terminal session execute  -- state=partial exit=null
+```
+
+**So the predicate was the whole failure, and the fix is confirmed by the same instrument that found it.** Note what the passing
+line now CARRIES: `state=partial exit=null` is visible to whoever reads the run, where before it was the reason for a FAIL with no
+way to tell a wrong check from a wrong device. **A check that reports the shape it accepted is worth more than one that only says
+yes** — and that is the difference between the three rounds this took (104 read it as flake, 113 built machinery that fixed nothing
+and said so, 114 corrected the predicate, 115 paid for it).
 
 
 ### round 113 — I diagnosed a flake and built machinery, and the re-run says the PREDICATE is wrong
