@@ -45,6 +45,25 @@ test("code viewer: the instruments mirror matches agent/scripts byte for byte", 
     `not run. Re-sync with \`bash gateway/scripts/sync-code-viewer.sh\` and commit the mirror.`,
   );
 
+  // AND THE OTHER DIRECTION, WHICH THIS TEST WAS MISSING FOR ONE ROUND (round 137). `sync-code-viewer.sh` copies
+  // `agent/scripts/*.mjs` plus `lib/*.mjs` by GLOB, so a NEW instrument that is never re-synced would be absent from the
+  // Source Viewer while every file that IS there still matched -- this test passed and the viewer was quietly incomplete.
+  // The gateway mirror's test has checked its own `missing` direction since it was written; this one did not, and the
+  // asymmetry is the same one round 133 was about: a guard that looks only at what exists cannot see what is gone.
+  const expected = ["*.mjs", "lib/*.mjs"].flatMap((pattern) => {
+    const dir = join(SOURCE, dirname(pattern));
+    const suffix = pattern.slice(pattern.lastIndexOf("*") + 1);
+    return readdirSync(dir)
+      .filter((n) => n.endsWith(suffix))
+      .map((n) => (dirname(pattern) === "." ? n : join(dirname(pattern), n)));
+  });
+  const notMirrored = expected.filter((rel) => !mirrored.includes(rel));
+  assert.deepEqual(
+    notMirrored, [],
+    `agent/scripts holds instruments that the Source Viewer does not publish, so a reader cannot reach code this ` +
+    `repository tells them to run. Re-sync with \`bash gateway/scripts/sync-code-viewer.sh\` and commit the mirror.`,
+  );
+
   const differing = mirrored.filter(
     (rel) => readFileSync(join(MIRROR, rel), "utf8") !== readFileSync(join(SOURCE, rel), "utf8"),
   );

@@ -35,6 +35,28 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 137 — the guard I wrote last round had the hole it was written to close, one direction over
+
+Round 134 wrote `instruments-mirror.test.mjs` and proved it both ways. **It checked only mirrored → source.** The gateway mirror's
+test has checked THREE directions since it was written — `missing`, `extra`, `differing` — and this round asked why mine had two.
+
+**BECAUSE `sync-code-viewer.sh` COPIES BY GLOB** (`cp agent/scripts/*.mjs` plus `lib/*.mjs`, line 49-57). So the case that matters is
+not "a mirrored file drifted" — the script re-copies every match — but **"a NEW instrument was added and nobody re-synced"**. On the
+old test that case passed: every file that WAS in the mirror matched its source, so the assertion was satisfied **while the Source
+Viewer was quietly missing an instrument a reader is told to run.** The manifest cannot notice either: it walks the DESTINATION.
+
+```
+1. clean tree:                 npm test exit=0   pass 922 / fail 0
+2. unmirrored new instrument:  npm test exit=1   "holds instruments that the Source Viewer does not publish"
+3. restored:                   npm test exit=0
+```
+
+**AND THE SHAPE OF THIS MISTAKE IS THE ONE THIS THREAD KEEPS FINDING, NOW COMMITTED BY ME IN THE ROUND THAT WAS FIXING IT**: a guard
+that looks only at what exists cannot see what is GONE. Round 133 was about a mirror nobody guarded; round 134 guarded one direction
+of it; round 137 found that the guard itself had the asymmetry. **The gateway test had the answer in it the whole time** — three
+directions, written before the mistake — which is the argument for reading the neighbours of anything you are about to write.
+
+
 **Round 136, one line**: the whole suite re-run after the rounds that found the SECOND mirror unguarded (133), wrote its guard
 and proved it both ways (134), and checked the new file against all four of gateway's CI checks before being asked (135) —
 `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58)**, unchanged. The count of gate COMMANDS is the
