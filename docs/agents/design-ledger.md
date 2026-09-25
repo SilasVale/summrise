@@ -35,6 +35,23 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 130, one line — THE TWO CHECKS I SKIPPED WERE THE TWO AIMED AT MY CHANGE**: round 128 edited
+`gateway/src/plugins/translate.ts` and verified it with `npx tsc --noEmit` and `npm test`. CI runs FOUR checks in that directory
+(`npm run typecheck · test · lint · format:check`), and this round ran all four by exit code:
+
+```
+typecheck      exit=0  ok
+test           exit=0  ok
+lint           exit=0  ok
+format:check   exit=0  ok
+```
+
+**ALL FOUR PASS, SO ROUND 128 IS FULLY VERIFIED — AND THE TWO THAT WERE SKIPPED ARE NOT ARBITRARY.** A COMMENT change is precisely
+what `format:check` (prettier) and `lint` exist to notice: the first reformats prose in code, the second can object to it. Running
+half of a directory's check set and reporting the directory as verified is the same failure as rounds 122 and 125, one turn
+earlier in the chain: **the question is not "did I run a check" but "did I run the checks that were aimed at what I changed".**
+
+
 **Round 129, one line**: round 128's lesson is now in AGENTS.md's Committing section, where a committer acts, and in the
 narrower form the two payments earned: **redirect, check, THEN filter.** Both failures preserved the exit code correctly and then
 destroyed it one step later (117 with `>/dev/null 2>&1`, 128 with a pipe), so the rule as a slogan was never the missing piece —
