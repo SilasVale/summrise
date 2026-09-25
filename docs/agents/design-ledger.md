@@ -53,7 +53,16 @@ error page. **IT IS COMMITTED LIKE THE PANEL BUILD AND THE PROBE ARE**, for the 
 Assets uploads the directory but HONOURS `.gitignore`, so an ignored-or-untracked file is silently absent from the deploy —
 the failure mode where the URL works today and 404s after the next clean checkout.
 
-**WHAT IS STILL OPEN, STATED SO THE NEXT ROUND DOES NOT HAVE TO REDISCOVER IT**: the second half — running a section on the
+**AND THE TRANSPORT IS NOW VERIFIED FROM THE DEVICE, NOT ONLY FROM HERE (round 86)**: the device ran
+`Invoke-WebRequest -Uri https://agent.saisi.online/summrise-agent/e2e.js -OutFile D:\Summrise\e2e.js` and the file landed at
+**54,783 bytes** — the source's exact size, on the far side, over an OUTBOUND GET, with no listener opened on either machine.
+That is the shape the server rules require and the shape the previous two versions of this cadence lacked: a transfer the
+device initiates. **WHAT IS STILL OPEN** is now only the last step: the device has the script and has not yet been given the
+token and base to run a section with, so no VERDICT exists. The config listing under `D:\Summrise\data` returned no YAML,
+which is where the next round starts — the token's home is the one thing this round did not find, and it is written down here
+rather than left in a session that ends.
+
+**AND THE EARLIER NOTE, KEPT BECAUSE IT IS STILL TRUE**: the second half — running a section on the
 device against the live panel — has not been executed. The cadence now has a transport and a URL; what it does not yet have is
 a recorded VERDICT from the device, and that is the thing the cadence exists to produce.
 
