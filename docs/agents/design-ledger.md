@@ -35,6 +35,11 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 69, one line**: the two commits that closed the dual-builder thread (the `grep|head` fix in `release.yml` and the
+claim-correction) ran green in CI — **10/11 with no failures**, the 11th skipped by design — so the investigation ends with the tree
+verified rather than merely pushed. The one debt is unchanged and named by the gate: 1.2.472 has no GitHub release asset.
+
+
 **Round 68, one line**: end-of-session state verified rather than assumed — tree clean and `main == origin/main`; CDN **1.2.472**
 and npm `latest` **1.2.472** (alpha still the historical 1.2.453); the device current; ledger 289 KB of 400 KB and AGENTS.md 20.8 KB of
 48 KB. The ONE debt is 1.2.472's missing GitHub asset, and **it cannot be recovered without moving the tag**, which is the hazard the
