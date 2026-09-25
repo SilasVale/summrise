@@ -81,6 +81,16 @@ codegen units (`cgu.08`, `cgu.13`), 24 bytes apart, starting at `0003:00000028`.
 static, so it lands at offset 0 instead of `0x130` — and every reference to it moves by the same 304 bytes, which is exactly the
 1,168 values this investigation has been chasing since round 34.
 
+**AND THE COMPARISON TARGET IS NOW WRITTEN DOWN (round 63)**, because the next step needs two specific strings rather than
+another hypothesis. Measured on this box with `cargo xwin build -v`: the BIN crate is partitioned into **16 codegen units whose
+object files are named `summrise_agent.45d6daa740c90b90-cgu.00 … -cgu.15`** (the `45d6daa740c90b90` is the crate hash the
+compiler derives), the LIB crate has its own `summrise_agent.84e17ef914540501-cgu.*` set, and **the `.data` contributions that
+precede `__rust_panic_type_info` in this build come from the BIN crate's `cgu.08` and `cgu.13`** — i.e. the binary's own object
+files are laid down before that static here. **The next release's log needs TWO things to settle it**: the CGU hash in those
+object names, and the ORDER the linker received them in (`-v` on the build step, or the map's per-object list with
+`/MAPINFO`). If the hashes match and the order differs, the difference is in how cargo enumerated the objects; if the HASHES
+differ, one side compiled a different partitioning of the same source — which is a fact about the compiler, not about the code.
+
 **AND THE FIRST CANDIDATE FOR "WHY THE ORDER DIFFERS" IS ALREADY DEAD (round 62)**: CI's rust-toolchain action sets
 `CARGO_INCREMENTAL=0` explicitly (its step is even named "Disable incremental compilation"), while this box leaves the variable
 UNSET — a difference in the build environment that no earlier round had checked. Tested the only honest way, by building the
