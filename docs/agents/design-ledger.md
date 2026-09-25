@@ -35,6 +35,28 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 65 — the last shell residual, and the escape that protected nothing
+
+Round 54 closed the CLI's shell door and left exactly ONE site carrying a `cmd-% residual` marker, capped at one. This round
+converted it to argv and **the cap is now zero** — the pin refuses the token ANYWHERE in the file, so a marker parked off-site
+is no longer invisible (the old check only looked at call sites).
+
+**AND IT DELETED A `.replace(/"/g, '\\"')` THAT WAS BOTH DEAD AND CORRUPTING.** `\"` is not a cmd escape (cmd's is `^`), so it
+protected nothing — and it ran over the WHOLE joined script, so it also hit the two double quotes inside the generated
+PowerShell's single-quoted strings (the `.lnk` Arguments value): measured against the builder, exactly those two characters
+changed. **WHAT LET IT SURVIVE IS FLAGGED IN THE CODE AS REASONED, NOT MEASURED** — node's CreateProcess quoting, cmd's
+`/s /c` verbatim tail and powershell.exe's own `\"` unescaping compose to hide it, and there is no cmd.exe on this box to
+confirm the chain end to end. Saying which half is measured is the difference between a comment and a claim.
+
+**TWO MUTATIONS, VERBATIM**: turning one `literal` marker into a `residual` fails with "expected NO `cmd-% residual` marker —
+the kind is CLOSED at zero"; reverting the site to the quoted `sh()` form fails with "the desktop-shortcut repair must reach
+PowerShell as argv (`ps()`), not as a cmd string — if this fires, the site was reverted rather than the extractor being
+broken", plus the cap refusal. CLI tests stay **64 passing**; the emit was rebuilt and `cmp`-identical to a fresh compile.
+
+**AND THE COMMENTS THE CHANGE MADE FALSE WERE CORRECTED**: the helper's "callers must backslash-escape" doc, step 7's escape
+line, and two test references to the old line number — a comment that contradicts the code is the one thing this repo treats
+as a violation everywhere.
+
 ### round 59 — the shift hypothesis is dead, and my own framing was wrong
 
 Rounds 34-35 read the divergence as "one region placed 304 bytes apart, with 1,168 stored offsets compensating". This round
