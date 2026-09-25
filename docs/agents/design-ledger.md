@@ -35,6 +35,11 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 74, one line**: the panel cell re-measured after round 73 — 42,843 lines → the number above, with the committed
+bundle at its new size and the panel suite at 882 tests; the other cells were re-run and are unchanged. A round whose output is a
+measurement writes one line here rather than a section.
+
+
 ### round 73 — the read seam takes the shape it was missing, and the group that cannot move is now measured
 
 Two groups were left outside `useDeviceRead` when it landed: readers that go through `callTool` (`useSessions`, the terminal pane), and
