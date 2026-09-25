@@ -297,6 +297,14 @@ jobs:
       # 0x100 difference in where rust_panic landed)". The step below is a verbatim copy of the
       # release's, sharing its cache key, because the POINT is that both builders invoke the same
       # binaries — which is the reason the next step pins cargo-xwin.
+      # NODE IS SET UP HERE FOR THE SAME REASON release.yml DOES IT (round 26): the comparison step below
+      # builds the exe, which needs the panel, which needs npm. The FIRST version of that step omitted this
+      # and died on `npm ci --include=optional` printing its USAGE — i.e. the flag was rejected by whatever
+      # npm the bare runner carries, and a job that never declares its node version is comparing against a
+      # toolchain it did not choose. Pinned to 24 to match release.yml.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Restore the LLVM tarball (same cache key as release.yml)
         uses: actions/cache@v4
         with:
