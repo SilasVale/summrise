@@ -33,10 +33,13 @@ fn registry_value(name: &str) -> Option<String> {
     // winreg is not a dependency of summrise-agent-core; query via `reg query`
     // (always present on Windows) instead of pulling a crate into the core.
     use std::process::Command;
-    let out = Command::new("reg")
-        .args(["query", r"HKLM\SOFTWARE\Summrise\Agent", "/v", name])
-        .output()
-        .ok()?;
+    let mut reg = Command::new("reg");
+    reg.args(["query", r"HKLM\SOFTWARE\Summrise\Agent", "/v", name]);
+    // A probe, but still a console-subsystem binary spawned from a process that
+    // may have a console — the ask costs nothing and the rule does not have a
+    // "only a probe" exception (see `spawn::hidden`).
+    crate::spawn::hidden_std(&mut reg);
+    let out = reg.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -126,15 +129,18 @@ pub fn harden_file(path: &std::path::Path) -> Result<(), std::io::Error> {
         // files move between those two writer contexts; stripping
         // inheritance is what actually removes BUILTIN\Users' inherited RX
         // over C:\ProgramData\Summrise / the install dir.
-        let out = std::process::Command::new("icacls")
-            .args([
-                path.to_string_lossy().as_ref(),
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(R,W)",
-                "*S-1-5-32-544:(R,W)",
-            ])
-            .output()?;
+        let mut icacls = std::process::Command::new("icacls");
+        icacls.args([
+            path.to_string_lossy().as_ref(),
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(R,W)",
+            "*S-1-5-32-544:(R,W)",
+        ]);
+        // This runs outside the async runtime (a credential write), so the ask is
+        // the blocking type's — same flag, one rule (`spawn::hidden`).
+        crate::spawn::hidden_std(&mut icacls);
+        let out = icacls.output()?;
         if !out.status.success() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,

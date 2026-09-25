@@ -215,7 +215,13 @@ fn resolve_node() -> Result<PathBuf, DeviceError> {
     #[cfg(windows)]
     {
         use std::process::Command;
-        if let Ok(out) = Command::new("where").arg("node").output() {
+        let mut probe = Command::new("where");
+        probe.arg("node");
+        // `where.exe` is a console-subsystem binary and this fallback is SYNC
+        // (a blocking `std::process::Command`), so the ask is that type's entry
+        // point — same flag, same rule: see `crate::spawn::hidden`.
+        crate::spawn::hidden_std(&mut probe);
+        if let Ok(out) = probe.output() {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout);
                 if let Some(first) = text.lines().next() {

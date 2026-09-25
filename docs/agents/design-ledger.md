@@ -5877,6 +5877,43 @@ re-derives drifts the moment a round touches the code around it.
 sites rather than fixing them (no behaviour change was in scope); a Windows name-kill may now spawn `tasklist` once per
 call; and a call carrying BOTH a pid and a name now surfaces the name refusal as an error instead of the pid success.
 
+## 2026-09-25 — the thirty-second exploration: the rule reached half the spawns, because the flag had one type
+
+Round 31 gave the spawn policy one home and named its own remainder in as many words: `hidden` is tokio-typed, so the
+`std::process::Command` sites have **no way to ask**. Those sites are not hypothetical — they are the service installer
+(`winmain.rs`: `powershell`, `sc.exe` ×2, `schtasks` ×2), the registry/ACL hardening (`paths.rs`), the tunnel repair
+(`main.rs`) and a `tasklist` probe (`web/mod.rs`). The gate was honest about them: each file sat in `EXEMPT` **with a
+reason**. A waiver list is still the shape of a rule that stops at a type boundary.
+
+`hidden_std(&mut std::process::Command)` is the second entry point: the same flag, the same `#[cfg(windows)]` const
+(one declaration, two appliers), a no-op elsewhere, and its doc POINTS AT the rule rather than restating it. The rule
+now reaches both command types, and **the waiver list went 7 → 3** — the three that remain are real: `spawn.rs` (the
+applier), `tunnel.rs`, and `winmain.rs`'s ONE tokio `cloudflared` spawn (the rest of that file asks now).
+
+**AND THE GATE HAD TO LEARN THE SECOND SPELLING**, or every file fixed here would have moved from "exempt" to
+"unlisted console spawn" and failed: the scan counts `hidden(&mut ` **and** `hidden_std(&mut ` as an ask, and the scan
+itself became a pure seam (`scan_console_spawn_sites` over `(path, text)` pairs) so the gate and its tests share one
+verdict. Two mutations, verbatim from the same assertion: deleting the ask from `web/mod.rs` fails with
+`["web/mod.rs: \`tasklist\`"]`, and an unlisted new file spawning `powershell` fails with
+`["gate_floor_probe.rs: \`powershell\`"]`.
+
+**ONE SITE WAS DECIDED THAT THE ROUND DID NOT NAME**, and the reason is the round's own standard: `playwright/manager.rs`'s
+`where node` fallback was exempt with the reason "`hidden` is tokio-typed, so it cannot ask" — which this round made
+FALSE. Leaving it would have left a waiver whose stated reason no longer held, which is exactly the stale-exemption
+shape the list's own comment warns about. It asks now. And one site was decided the other way: `terminal/tools/exec.rs`'s
+`kill -0` probe is `#[cfg(unix)]`, `kill` is not a console program, and unix has no window — it needs nothing.
+
+**AND ONE VISIBILITY CHANGE IS DISCLOSED RATHER THAN SMUGGLED**: `main.rs`/`winmain.rs` are the BIN crate and cannot
+see a `pub(crate)` module, so `spawn` became `pub mod spawn` in `lib.rs`. It is a library surface now, not a wire
+surface, and the comment says so.
+
+**THE WINDOWS ARM WAS PROVEN COMPILED, not assumed**: `cargo xwin check` is green, and the implementer planted
+`.no_such_method()` after a `hidden_std` call in `winmain.rs` to watch it fail with
+`error[E0599] … &mut std::process::Command` / `could not compile … (bin "summrise-agent")`, then reverted. A Linux-only
+clippy run cannot see these call sites at all.
+
+**NUMBERS:** agent lib tests 747 → **751** (terminal,keyring) and 684 → **688** (default); spawn tests 9 → 13.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,

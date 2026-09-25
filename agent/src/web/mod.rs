@@ -2359,8 +2359,14 @@ async fn api_settings_get(state: &AppState) -> serde_json::Value {
     // workers. On non-Windows (dev/CI) tasklist doesn't exist and
     // this degrades to false, as before.
     let tunnel_running = tokio::task::spawn_blocking(|| {
-        std::process::Command::new("tasklist")
-            .args(["/FI", "IMAGENAME eq cloudflared.exe"])
+        let mut probe = std::process::Command::new("tasklist");
+        probe.args(["/FI", "IMAGENAME eq cloudflared.exe"]);
+        // `tasklist` is a console-subsystem binary; the probe's ANSWER does not
+        // depend on the flag, but the rule is about the window, not the answer
+        // (see `spawn::hidden`) — and this one runs on the blocking pool, where
+        // the command is the `std` type, so the ask is `hidden_std`.
+        crate::spawn::hidden_std(&mut probe);
+        probe
             .output()
             .map(|o| {
                 String::from_utf8_lossy(&o.stdout)

@@ -225,7 +225,11 @@ pub mod session_log;
 /// ONE OWNER FOR THE SPAWN POLICY — the no-console flag (and the rule for when a
 /// spawn site wants it) plus the two kill doors, so a call site asks instead of
 /// restating. Internal-only: it is device process hygiene, not a wire surface.
-pub(crate) mod spawn;
+/// `pub` rather than `pub(crate)` because the BINARY crate is a separate crate:
+/// `main.rs` and its `winmain` module hold `std::process::Command` spawns of
+/// console-subsystem programs, and the rule has to reach them through
+/// `spawn::hidden_std` instead of a second copy of the flag.
+pub mod spawn;
 pub mod state;
 /// Internal-only (no embedding consumer): byte-budget text clipping, shared by
 /// the plugins + the audit trail (SOLID R105).

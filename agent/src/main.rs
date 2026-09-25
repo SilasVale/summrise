@@ -279,10 +279,14 @@ fn main() {
 
         let fix_script = summrise_agent::paths::scripts_dir().join("fix-tunnel.ps1");
         if fix_script.exists() && !init_mode {
-            let _ = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(&fix_script)
-                .spawn();
+            // `powershell` is a console-subsystem binary and this runs on a
+            // PRE-ASYNC startup path — the blocking command type, so the ask is
+            // `hidden_std` (same flag, same rule; see `spawn::hidden`).
+            let mut fix = std::process::Command::new("powershell");
+            fix.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&fix_script);
+            summrise_agent::spawn::hidden_std(&mut fix);
+            let _ = fix.spawn();
         }
     }
 

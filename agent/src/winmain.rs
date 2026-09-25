@@ -327,6 +327,7 @@ pub(crate) fn self_heal() {
     run_bounded("self-heal: kill stale procs", {
         let mut c = std::process::Command::new("powershell");
         c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps]);
+        summrise_agent::spawn::hidden_std(&mut c);
         c
     });
 
@@ -334,22 +335,26 @@ pub(crate) fn self_heal() {
     run_bounded("self-heal: sc stop SummriseCommand", {
         let mut c = std::process::Command::new("sc.exe");
         c.args(["stop", "SummriseCommand"]);
+        summrise_agent::spawn::hidden_std(&mut c);
         c
     });
     run_bounded("self-heal: sc delete SummriseCommand", {
         let mut c = std::process::Command::new("sc.exe");
         c.args(["delete", "SummriseCommand"]);
+        summrise_agent::spawn::hidden_std(&mut c);
         c
     });
     for name in ["SummriseCommand", "SummriseCommandTray"] {
         run_bounded(&format!("self-heal: schtasks /End {name}"), {
             let mut c = std::process::Command::new("schtasks");
             c.args(["/End", "/TN", name]);
+            summrise_agent::spawn::hidden_std(&mut c);
             c
         });
         run_bounded(&format!("self-heal: schtasks /Delete {name}"), {
             let mut c = std::process::Command::new("schtasks");
             c.args(["/Delete", "/TN", name, "/F"]);
+            summrise_agent::spawn::hidden_std(&mut c);
             c
         });
     }
@@ -389,6 +394,7 @@ pub(crate) fn self_heal() {
             "-Command",
             &script,
         ]);
+        summrise_agent::spawn::hidden_std(&mut c);
         c
     });
 

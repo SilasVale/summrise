@@ -10,17 +10,26 @@
 //! neither arm of a `#[cfg(windows)]` block, and an unobservable policy is a
 //! policy nobody notices breaking.
 //!
-//! So the policy lives here, in three pieces: [`hidden`] (the flag and the RULE
-//! for when a spawn site wants it), [`kill_tree`] (a pid and its children) and
-//! [`kill_by_name`] (every process with a name, deliberately NOT a tree). Each
-//! has a pure argument builder next to it so the parts that are Windows-only at
-//! runtime are still pinned by a test on any platform.
+//! So the policy lives here, in three pieces: [`hidden`] and [`hidden_std`] (the
+//! flag and the RULE for when a spawn site wants it — ONE rule with ONE entry
+//! point per command type, because the sites do not share a type), [`kill_tree`]
+//! (a pid and its children) and [`kill_by_name`] (every process with a name,
+//! deliberately NOT a tree). Each has a pure argument builder next to it so the
+//! parts that are Windows-only at runtime are still pinned by a test on any
+//! platform.
 //!
-//! Internal-only: this is device process hygiene, not a wire surface.
+//! Internal-only: this is device process hygiene, not a wire surface. It is `pub`
+//! only because the BINARY crate (`main.rs` and its `winmain` module) is a
+//! separate crate, and its `std::process::Command` sites have to be able to ask
+//! the same question the async ones do.
 
 use std::io;
 
 /// `CREATE_NO_WINDOW` (0x0800_0000) — run the child with a console but no window.
+///
+/// ONE CONST FOR BOTH ENTRY POINTS ([`hidden`], [`hidden_std`]): they are the same
+/// policy applied to two command types, and a second copy of the number is exactly
+/// the drift this module exists to stop.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -65,12 +74,39 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// of what a gate can hold; if this function were `#[cfg(windows)]`, every call
 /// site would be `#[cfg(windows)]` too and no Linux test could see any of them.
 ///
+/// A site whose command is the BLOCKING `std::process::Command` asks through
+/// [`hidden_std`] instead — the same flag, the same rule, one entry point per
+/// command type.
+///
 /// Returns the command so a call site can chain.
 pub fn hidden(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
         cmd.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+/// THE SAME FLAG FOR A BLOCKING `Command`. `hidden` takes the tokio type because
+/// most of this agent's spawns are async; these are not — the service installer,
+/// the ACL hardening and the tunnel repair run before or outside the async
+/// runtime, and a rule that only reaches one command type is a rule half the spawn
+/// sites cannot follow.
+///
+/// THE RULE IS [`hidden`]'S, stated once there and deliberately not restated here:
+/// which programs are console-subsystem binaries, when a site wants the flag, and
+/// why the ask is a call rather than a comment are all that function's doc. The
+/// only difference between the two is the command type — same `#[cfg(windows)]`
+/// body, same [`CREATE_NO_WINDOW`], same no-op on every other platform, which is
+/// what lets a Linux test see this ask too.
+///
+/// Returns the command so a call site can chain.
+pub fn hidden_std(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        cmd.creation_flags(CREATE_NO_WINDOW);
     }
     cmd
 }
@@ -671,10 +707,10 @@ mod tests {
     /// THE RULE'S OTHER HALF: THE SITES MUST ASK — AND A FILE NOBODY LISTED IS
     /// STILL CAUGHT.
     ///
-    /// `hidden` being defined on every platform is what makes this checkable at
-    /// all — the flag itself cannot be observed on Linux and has no getter on
-    /// Windows either — so what is asserted is the ASK. It is the half that
-    /// drifts: a missing no-op is invisible to every behavioural test in this
+    /// `hidden` and `hidden_std` being defined on every platform is what makes
+    /// this checkable at all — the flag itself cannot be observed on Linux and has
+    /// no getter on Windows either — so what is asserted is the ASK. It is the half
+    /// that drifts: a missing no-op is invisible to every behavioural test in this
     /// suite, which is how `system_process_kill`'s pid arm and the AI script
     /// runner both came to spawn a console binary without it.
     ///
@@ -689,131 +725,324 @@ mod tests {
     /// a file that is in neither list fails, whether that file is new or was
     /// simply never visited.
     ///
+    /// AND IT KNOWS BOTH ENTRY POINTS ([`ASKS`]): the round that gave the blocking
+    /// `std::process::Command` its own entry point moved four files from EXEMPT to
+    /// ASKING, and a scan that had learned only `hidden(&mut …)` would have read
+    /// every one of those sites as an unlisted console spawn — failing on the fix
+    /// rather than on the defect.
+    ///
     /// `EXEMPT` follows the sweep's exemption idiom: every entry carries its
     /// reason, and the entries this run did NOT need are printed (a list like
     /// this is weight the moment it stops being read, and a renamed file is
-    /// exactly what a silent waiver hides).
+    /// exactly what a silent waiver hides). The entries that ARE needed are
+    /// asserted by `the_console_spawn_exemptions_are_only_the_sites_that_cannot_ask`,
+    /// because a print is not a gate.
     #[test]
     fn console_subsystem_spawn_sites_ask_for_the_flag() {
-        // THE PROGRAM CLASS, as the program expression is WRITTEN at the spawn
-        // site: the rule's first bullet in `hidden`'s doc comment, which the two
-        // lists have to agree with. Two spellings that need the mapping said out
-        // loud — `&node` is the node.exe PathBuf every playwright site holds, and
-        // `&cf` is the cloudflared.exe PathBuf the tunnel sites hold — because a
-        // class written in spellings is only as good as the reader's ability to
-        // recognise them. `ps` is here because the list always carried it (a unix
-        // helper, so asking costs nothing and the site already does).
-        const CONSOLE_PROGRAMS: &[&str] = &[
-            "&node",
-            "node",
-            "shell",
-            "cmd",
-            "sh",
-            "powershell",
-            "taskkill",
-            "tasklist",
-            "ping",
-            "tar",
-            "where",
-            "sc.exe",
-            "schtasks",
-            "reg",
-            "icacls",
-            "&cf",
-            "ps",
-        ];
-        /// Files where a console-subsystem spawn's ASK is counted: every spawn
-        /// that DOES ask (`hidden(&mut …)` in its gap — the gap for one spawn runs
-        /// to the NEXT one, because the ask is its own statement after the builder
-        /// chain) must live in one of these, and each listed file must have at
-        /// least one such ask, because a scan that matches nothing passes for the
-        /// wrong reason.
-        const SITES: &[&str] = &[
-            "spawn.rs",
-            "plugins/playwright/manager.rs",
-            "plugins/playwright/tools.rs",
-            "plugins/mcp_client/tools.rs",
-            "plugins/terminal/tools/exec.rs",
-            "plugins/system/tools.rs",
-            "plugins/update/tools.rs",
-        ];
-        /// Files where a console-subsystem spawn does NOT ask, each with the reason
-        /// it cannot (or deliberately does not). The `std::process::Command` sites
-        /// cannot ask at all — `hidden` is tokio-typed, which is the whole reason
-        /// this list exists. A file may be in BOTH lists, and that means both
-        /// things at once: `plugins/playwright/manager.rs` asks for its
-        /// node/powershell spawns and cannot for its `where` probe, and `spawn.rs`
-        /// asks for the `tasklist` that disambiguates a name kill while its
-        /// taskkill/kill/pgrep spawns are covered one call deeper, by `attempt`.
-        const EXEMPT: &[(&str, &str)] = &[
-            (
-                "spawn.rs",
-                "the applier, not a caller: `hidden` is applied inside this module (in `hidden` \
-                 itself and in `attempt`, through which taskkill/kill/pgrep run)",
-            ),
-            (
-                "plugins/playwright/manager.rs",
-                "`where node` is std::process::Command in a sync fallback — `hidden` is \
-                 tokio-typed, so it cannot ask; the tokio spawns in this file do ask",
-            ),
-            (
-                "paths.rs",
-                "`reg query` and `icacls` are std::process::Command (and sync) — no way to ask",
-            ),
-            (
-                "web/mod.rs",
-                "the cloudflared `tasklist` probe is std::process::Command inside \
-                 spawn_blocking — no way to ask",
-            ),
-            (
-                "main.rs",
-                "the fix-tunnel `powershell` is std::process::Command on a pre-async startup \
-                 path — no way to ask",
-            ),
-            (
-                "winmain.rs",
-                "self-heal's `powershell`/`sc.exe`/`schtasks` are std::process::Command, and its \
-                 supervised `cloudflared` spawn is outside the round that wrote the rule \
-                 (named as a remainder in the ledger, not hidden)",
-            ),
-            (
-                "tunnel.rs",
-                "the `cloudflared` CLI spawns are outside the round that wrote the rule (named \
-                 as a remainder in the ledger, not hidden)",
-            ),
-        ];
-        const SPAWN: &str = "Command::new(";
-        // THE ASK, as a call rather than a word: `hidden(&mut …)` is the shape
-        // every site uses, and requiring it is what keeps a mention of the name
-        // in prose — or an unrelated `…_hidden()` test function further down the
-        // file — from counting as an ask for a site that never made one.
-        const ASK: &str = "hidden(&mut ";
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut files: Vec<String> = Vec::new();
-        collect_rs_files(&root.join("src"), &root.join("src"), &mut files);
-        files.sort();
+        let sources = read_src_sources();
         assert!(
-            files.len() > 20,
+            sources.len() > 20,
             "the scan found {} source files — a walk that sees almost nothing cannot \
              guard anything",
-            files.len()
+            sources.len()
         );
 
-        let mut counted: std::collections::BTreeMap<String, usize> =
-            std::collections::BTreeMap::new();
-        let mut exempt_needed: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-        let mut unlisted: Vec<String> = Vec::new();
-        for file in &files {
-            let path = root.join("src").join(file);
-            let src =
-                std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
-            let in_sites = SITES.contains(&file.as_str());
-            let exempt = EXEMPT.iter().find(|(f, _)| f == file);
+        let scan = scan_console_spawn_sites(&sources, SITES, EXEMPT);
+        assert!(
+            scan.unlisted.is_empty(),
+            "console-subsystem spawn(s) in files that are neither in SITES (asking \
+             `spawn::hidden`/`spawn::hidden_std`) nor named in EXEMPT with a reason — a file \
+             nobody listed used to be unguarded by construction, which is how \
+             `plugins/update/tools.rs` spawned powershell with no ask: {:?}",
+            scan.unlisted
+        );
+        for file in SITES {
+            let asks = scan.counted.get(*file).copied().unwrap_or(0);
+            assert!(
+                asks > 0,
+                "{file}: no console-subsystem spawn site ASKED for the flag — a scan that \
+                 matches nothing passes for the wrong reason"
+            );
+        }
+        // The exemption list's own weight, printed the way the design sweep prints
+        // its unused waivers: an entry this run did not need is either a gate for a
+        // state that is currently absent or a stale path, and only a reader can
+        // tell which.
+        let unused: Vec<&str> = EXEMPT
+            .iter()
+            .map(|(f, _)| *f)
+            .filter(|f| !scan.exempt_needed.contains(*f))
+            .collect();
+        if !unused.is_empty() {
+            eprintln!(
+                "note: {} of {} spawn-exemption entries matched no un-asking console-subsystem \
+                 spawn in this scan — an exemption nothing needs is weight; prune it or say why \
+                 it stays: {unused:?}",
+                unused.len(),
+                EXEMPT.len()
+            );
+        }
+    }
+
+    /// THE WAIVER LIST IS SHORT ENOUGH TO READ — AND IT IS ASSERTED, NOT TRUSTED.
+    ///
+    /// Every entry that used to be here for the BLOCKING command type is gone,
+    /// because the reason those entries gave ("`hidden` is tokio-typed, so it
+    /// cannot ask") stopped being true the moment `hidden_std` existed: a waiver
+    /// whose only justification is a type boundary is not a decision, it is a hole
+    /// in the rule, and leaving one behind would read as a site that still cannot
+    /// ask. What remains is three files, each with a reason that a reader can check
+    /// against the source:
+    ///
+    /// * `spawn.rs` — the applier itself, not a caller: `hidden`/`hidden_std` are
+    ///   called inside it, and its taskkill/kill/pgrep spawns are covered one call
+    ///   deeper, by `attempt`.
+    /// * `winmain.rs` — only its SUPERVISED `cloudflared` (a tokio command, the
+    ///   spawn round's named remainder; its `std` self-heal spawns now ask).
+    /// * `tunnel.rs` — the `cloudflared` CLI spawns, the same remainder.
+    ///
+    /// THE `assert_eq!` IS THE EXACT LIST rather than a `contains`, because the
+    /// failure being guarded against is an entry ADDED BACK: a new waiver for a
+    /// site that can ask is exactly the drift this whole module exists to stop, and
+    /// it must cost a test run rather than a line in a list nobody re-reads. The
+    /// second half re-walks the real tree and requires every remaining entry to be
+    /// NEEDED, so an exemption that outlives its spawn fails here even though the
+    /// gate only prints it.
+    #[test]
+    fn the_console_spawn_exemptions_are_only_the_sites_that_cannot_ask() {
+        let names: Vec<&str> = EXEMPT.iter().map(|(file, _)| *file).collect();
+        assert_eq!(
+            names,
+            vec!["spawn.rs", "winmain.rs", "tunnel.rs"],
+            "the no-console rule now reaches BOTH command types (`hidden` and `hidden_std`), so \
+             the only files that may still waive the ask are the applier itself and the two \
+             whose `cloudflared` tokio spawns the spawn round left as a named remainder"
+        );
+        for (file, reason) in EXEMPT {
+            assert!(
+                !reason.trim().is_empty(),
+                "{file}: an exemption must carry its reason"
+            );
+        }
+        let scan = scan_console_spawn_sites(&read_src_sources(), SITES, EXEMPT);
+        let needed: Vec<&str> = names
+            .iter()
+            .copied()
+            .filter(|file| scan.exempt_needed.contains(*file))
+            .collect();
+        assert_eq!(
+            needed, names,
+            "an exemption this scan did not need is weight rather than a waiver — the file it \
+             names has no un-asking console-subsystem spawn left, so prune it or say why it stays"
+        );
+    }
+
+    /// THE SECOND ENTRY POINT IS AN ASK — proved on a tree this test owns.
+    ///
+    /// The gate's own mutations are run against the real tree (a `hidden_std` ask
+    /// deleted, an unlisted console spawn added); this is the same pair of facts on
+    /// two literal sources, so the scan's reading of `hidden_std` is pinned by an
+    /// assertion and not only by a mutation an implementer remembers to run. The
+    /// sources are text rather than files on purpose: the scan is a function of
+    /// text, and a test that writes files can leave them behind.
+    ///
+    /// The `Command::new(` inside these literals is invisible to the scan for the
+    /// same reason prose is: the program expression there reads as `\"powershell\"`,
+    /// which is not one of [`CONSOLE_PROGRAMS`].
+    #[test]
+    fn a_site_asking_through_hidden_std_satisfies_the_gate() {
+        let asking = concat!(
+            "fn probe() {\n",
+            "    let mut c = std::process::Command::new(\"powershell\");\n",
+            "    c.arg(\"-NoProfile\");\n",
+            "    crate::spawn::hidden_std(&mut c);\n",
+            "    let _ = c.output();\n",
+            "}\n",
+        );
+        let silent = asking.replace("    crate::spawn::hidden_std(&mut c);\n", "");
+        let sources = vec![
+            ("asks_via_std.rs".to_string(), asking.to_string()),
+            ("silent.rs".to_string(), silent),
+        ];
+        let scan = scan_console_spawn_sites(&sources, &["asks_via_std.rs"], &[]);
+        assert_eq!(
+            scan.counted.get("asks_via_std.rs").copied(),
+            Some(1),
+            "a spawn that asks through `hidden_std` must COUNT as an ask: {:?}",
+            scan.counted
+        );
+        assert_eq!(
+            scan.unlisted,
+            vec!["silent.rs: `powershell`".to_string()],
+            "the only unlisted spawn must be the one that never asked"
+        );
+    }
+
+    /// AND THE OTHER DIRECTION OF THE SAME RULE: a file whose spawn ASKS but which
+    /// nobody added to `SITES` is still a failure. The ask is what puts a file on
+    /// the list, so a file that asks and is not listed is a rule nobody can find
+    /// from the site — the same shape as the unlisted-spawn defect, one list over.
+    #[test]
+    #[should_panic(expected = "so the file belongs in SITES")]
+    fn a_file_that_asks_but_is_not_in_sites_fails() {
+        let sources = vec![(
+            "asks_but_unlisted.rs".to_string(),
+            concat!(
+                "fn probe() {\n",
+                "    let mut c = std::process::Command::new(\"powershell\");\n",
+                "    crate::spawn::hidden_std(&mut c);\n",
+                "    let _ = c.output();\n",
+                "}\n",
+            )
+            .to_string(),
+        )];
+        let _ = scan_console_spawn_sites(&sources, &[], &[]);
+    }
+
+    /// THE ASK IS A CALL, NOT A WORD — for BOTH entry points, and the near-misses
+    /// that must not count as one. A gate that accepted the name alone would pass
+    /// on a site that only MENTIONS the flag in a comment, which is the state every
+    /// one of these sites was in before the rule existed.
+    #[test]
+    fn both_entry_points_count_as_an_ask_and_prose_does_not() {
+        assert!(gap_asks_for_the_flag("crate::spawn::hidden(&mut cmd);"));
+        assert!(gap_asks_for_the_flag("crate::spawn::hidden_std(&mut cmd);"));
+        assert!(
+            !gap_asks_for_the_flag("// `hidden` is tokio-typed, so this site cannot ask"),
+            "a mention of the name in prose is not an ask"
+        );
+        assert!(
+            !gap_asks_for_the_flag("let flag = command_hidden();"),
+            "a lookalike call is not an ask"
+        );
+        assert!(
+            !gap_asks_for_the_flag("crate::spawn::hidden_std(cmd);"),
+            "the ask passes `&mut`, which is what keeps a named call from counting"
+        );
+    }
+
+    // THE PROGRAM CLASS, as the program expression is WRITTEN at the spawn
+    // site: the rule's first bullet in `hidden`'s doc comment, which the two
+    // lists have to agree with. Two spellings that need the mapping said out
+    // loud — `&node` is the node.exe PathBuf every playwright site holds, and
+    // `&cf` is the cloudflared.exe PathBuf the tunnel sites hold — because a
+    // class written in spellings is only as good as the reader's ability to
+    // recognise them. `ps` is here because the list always carried it (a unix
+    // helper, so asking costs nothing and the site already does).
+    const CONSOLE_PROGRAMS: &[&str] = &[
+        "&node",
+        "node",
+        "shell",
+        "cmd",
+        "sh",
+        "powershell",
+        "taskkill",
+        "tasklist",
+        "ping",
+        "tar",
+        "where",
+        "sc.exe",
+        "schtasks",
+        "reg",
+        "icacls",
+        "&cf",
+        "ps",
+    ];
+    /// Files where a console-subsystem spawn's ASK is counted: every spawn
+    /// that DOES ask (one of [`ASKS`] in its gap — the gap for one spawn runs
+    /// to the NEXT one, because the ask is its own statement after the builder
+    /// chain) must live in one of these, and each listed file must have at
+    /// least one such ask, because a scan that matches nothing passes for the
+    /// wrong reason.
+    ///
+    /// The four files at the end are the round that gave the blocking command
+    /// type its own entry point: `main.rs` (the fix-tunnel `powershell`),
+    /// `paths.rs` (`reg query`, `icacls`), `web/mod.rs` (the cloudflared
+    /// `tasklist` probe) and `winmain.rs` (self-heal's `powershell`,
+    /// `sc.exe` ×2, `schtasks` ×2). They were in `EXEMPT` because they could
+    /// not ask; now they do.
+    const SITES: &[&str] = &[
+        "spawn.rs",
+        "plugins/playwright/manager.rs",
+        "plugins/playwright/tools.rs",
+        "plugins/mcp_client/tools.rs",
+        "plugins/terminal/tools/exec.rs",
+        "plugins/system/tools.rs",
+        "plugins/update/tools.rs",
+        "main.rs",
+        "paths.rs",
+        "web/mod.rs",
+        "winmain.rs",
+    ];
+    /// Files where a console-subsystem spawn does NOT ask, each with the reason
+    /// it cannot (or deliberately does not). A file may be in BOTH lists, and that
+    /// means both things at once: `winmain.rs` asks for its self-heal `std` spawns
+    /// while its supervised `cloudflared` spawn (tokio) is untouched, and
+    /// `spawn.rs` asks for the `tasklist` that disambiguates a name kill while its
+    /// taskkill/kill/pgrep spawns are covered one call deeper, by `attempt`.
+    const EXEMPT: &[(&str, &str)] = &[
+        (
+            "spawn.rs",
+            "the applier, not a caller: `hidden`/`hidden_std` are called inside this module (in \
+             those two functions and in `attempt`, through which taskkill/kill/pgrep run)",
+        ),
+        (
+            "winmain.rs",
+            "the SUPERVISED `cloudflared` spawn is a tokio command left outside the round that \
+             wrote the rule (named as a remainder in the ledger, not hidden); this file's \
+             `std::process::Command` spawns now ask through `hidden_std`",
+        ),
+        (
+            "tunnel.rs",
+            "the `cloudflared` CLI spawns are outside the round that wrote the rule (named \
+             as a remainder in the ledger, not hidden)",
+        ),
+    ];
+    const SPAWN: &str = "Command::new(";
+    // THE ASKS, as CALLS rather than words — ONE PER ENTRY POINT in `hidden`'s
+    // module, and BOTH have to count: `hidden(&mut …)` for a tokio command,
+    // `hidden_std(&mut …)` for a blocking `std` one. Requiring the call shape is
+    // what keeps a mention of the name in prose — or an unrelated `…_hidden()`
+    // test function further down the file — from counting as an ask for a site
+    // that never made one.
+    const ASKS: &[&str] = &["hidden(&mut ", "hidden_std(&mut "];
+
+    /// Does the gap after one spawn site contain an ASK? The one place the two
+    /// spellings are read, so a test can pin them without a source tree.
+    fn gap_asks_for_the_flag(gap: &str) -> bool {
+        ASKS.iter().any(|ask| gap.contains(ask))
+    }
+
+    /// ONE SCAN, SO THE GATE AND THE GATE'S OWN TESTS REACH THE SAME VERDICT.
+    struct SpawnScan {
+        /// file → how many console-subsystem spawns ASKED.
+        counted: std::collections::BTreeMap<String, usize>,
+        /// exempt files whose waiver this scan actually NEEDED.
+        exempt_needed: std::collections::BTreeSet<String>,
+        /// `file: \`program\`` for a console spawn in neither list.
+        unlisted: Vec<String>,
+    }
+
+    /// Apply the rule to `sources` — `(path as SITES/EXEMPT write it, file text)`
+    /// pairs, so the scan is a function of TEXT and a test can hand it literals.
+    fn scan_console_spawn_sites(
+        sources: &[(String, String)],
+        sites: &[&str],
+        exempt: &[(&str, &str)],
+    ) -> SpawnScan {
+        let mut scan = SpawnScan {
+            counted: std::collections::BTreeMap::new(),
+            exempt_needed: std::collections::BTreeSet::new(),
+            unlisted: Vec::new(),
+        };
+        for (file, src) in sources {
+            let in_sites = sites.contains(&file.as_str());
+            let exempt = exempt.iter().find(|(f, _)| f == file);
             let mut from = 0;
             while let Some(at) = src[from..].find(SPAWN) {
                 let at = from + at;
                 from = at + SPAWN.len();
-                // This needle is a string literal in THIS test; skip its own
+                // This needle is a string literal in THIS file; skip its own
                 // occurrence rather than reading the source that holds it.
                 if src[..at].ends_with('"') {
                     continue;
@@ -834,13 +1063,14 @@ mod tests {
                 {
                     continue;
                 }
-                if after[..next].contains(ASK) {
+                if gap_asks_for_the_flag(&after[..next]) {
                     assert!(
                         in_sites,
-                        "{file}: the spawn of `{program}` asks `spawn::hidden` for the no-console \
-                         flag, so the file belongs in SITES — the rule is in src/spawn.rs"
+                        "{file}: the spawn of `{program}` asks `spawn::hidden`/`spawn::hidden_std` \
+                         for the no-console flag, so the file belongs in SITES — the rule is in \
+                         src/spawn.rs"
                     );
-                    *counted.entry(file.clone()).or_default() += 1;
+                    *scan.counted.entry(file.clone()).or_default() += 1;
                     continue;
                 }
                 match exempt {
@@ -849,45 +1079,33 @@ mod tests {
                             !reason.trim().is_empty(),
                             "{file}: an exemption must carry its reason"
                         );
-                        exempt_needed.insert(file.as_str());
+                        scan.exempt_needed.insert(file.clone());
                     }
-                    None => unlisted.push(format!("{file}: `{program}`")),
+                    None => scan.unlisted.push(format!("{file}: `{program}`")),
                 }
             }
         }
-        assert!(
-            unlisted.is_empty(),
-            "console-subsystem spawn(s) in files that are neither in SITES (asking \
-             `spawn::hidden`) nor named in EXEMPT with a reason — a file nobody listed used to \
-             be unguarded by construction, which is how `plugins/update/tools.rs` spawned \
-             powershell with no ask: {unlisted:?}"
-        );
-        for file in SITES {
-            let asks = counted.get(*file).copied().unwrap_or(0);
-            assert!(
-                asks > 0,
-                "{file}: no console-subsystem spawn site ASKED for the flag — a scan that \
-                 matches nothing passes for the wrong reason"
-            );
-        }
-        // The exemption list's own weight, printed the way the design sweep prints
-        // its unused waivers: an entry this run did not need is either a gate for a
-        // state that is currently absent or a stale path, and only a reader can
-        // tell which.
-        let unused: Vec<&str> = EXEMPT
-            .iter()
-            .map(|(f, _)| *f)
-            .filter(|f| !exempt_needed.contains(f))
-            .collect();
-        if !unused.is_empty() {
-            eprintln!(
-                "note: {} of {} spawn-exemption entries matched no un-asking console-subsystem \
-                 spawn in this scan — an exemption nothing needs is weight; prune it or say why \
-                 it stays: {unused:?}",
-                unused.len(),
-                EXEMPT.len()
-            );
-        }
+        scan
+    }
+
+    /// Every `.rs` file under `src/`, as `(path relative to src/, text)` — the
+    /// shape [`scan_console_spawn_sites`] reads, and the shape `SITES` and
+    /// `EXEMPT` are written in. Walked rather than listed, because the defect the
+    /// gate's floor exists for was a FILE nobody had added to a list.
+    fn read_src_sources() -> Vec<(String, String)> {
+        let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files: Vec<String> = Vec::new();
+        collect_rs_files(&src_dir, &src_dir, &mut files);
+        files.sort();
+        files
+            .into_iter()
+            .map(|file| {
+                let path = src_dir.join(&file);
+                let text =
+                    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+                (file, text)
+            })
+            .collect()
     }
 
     /// Every `.rs` file under `base`, as a path relative to `base` with `/`
