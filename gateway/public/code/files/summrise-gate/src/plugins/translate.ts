@@ -11,8 +11,15 @@
  *   POST /v1/messages         — Anthropic chat completions (impl: path.endsWith(VERIFY_PATH));
  *                               the /v1/messages prefix also covers POST /v1/messages/count_tokens
  *                               (impl: isCount branch — index.js dispatched it into the same handler)
- *   POST /v1/chat/completions — OpenAI-format entry (impl currently 404s any path other than
- *                               /v1/messages* /v1/models — identical to index.js behavior)
+ *   POST /v1/chat/completions — OpenAI-format entry. THE PARENTHESIS THAT USED TO BE HERE SAID THIS
+ *                               "currently 404s any path other than /v1/messages* /v1/models", WHICH
+ *                               DESCRIBED THE MATCHER AND READ AS A DEAD ENDPOINT — and round 128
+ *                               believed it, one grep away from recording a phantom defect. The route is
+ *                               LIVE: the dispatcher reaches `path.endsWith("/chat/completions")` in the
+ *                               shared arm (below), the bare alias is handled at the front door, and
+ *                               `frontdoor.test.mjs` pins it — "bare /chat/completions aliases to
+ *                               /v1/chat/completions transparently". A comment about a matcher's shape
+ *                               must not be written in the grammar of a behaviour.
  *
  * Every route dispatches through the copied handleGateway() wrapper, exactly
  * as index.js's fetch did (`if (!path.startsWith("/v1/")) ... else handleGateway(...)`).

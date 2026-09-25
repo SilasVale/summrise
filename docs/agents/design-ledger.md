@@ -35,6 +35,33 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 128 (cont.) — I PUSHED A RED GATEWAY SUITE, AND THE MASK WAS A PIPE AGAIN
+
+The comment correction above changed `gateway/src/plugins/translate.ts`, and `gateway npm test` went to **exit 1** — which I did not see,
+because the command I ran was:
+
+```
+cd gateway && npx tsc --noEmit | tail -2; npm test 2>&1 | grep -E "^. (pass|fail)" | head -2
+```
+
+**A PIPELINE EXITS WITH ITS LAST COMMAND'S STATUS**, so `set -e` saw `grep`/`head` succeeding and the failing suite passed by. That is
+round 117's failure (a check run, its answer discarded) in its second costume: there, `>/dev/null 2>&1` threw the exit code away; here,
+a pipe replaced it. **Both times the suite was red and the commit went out.**
+
+**AND THE GATE THAT CAUGHT IT IS THE ONE BUILT FOR THIS EXACT KIND OF EDIT.** `code-viewer-mirror.test.mjs` keeps a TRACKED mirror of
+`gateway/src/` in `gateway/public/code/files/summrise-gate/src`, re-synced by `gateway/scripts/sync-code-viewer.sh`, and its failure
+message names the stakes better than this ledger could: the viewer "serves code the worker does not run — **including descriptions that
+may state facts the device has since disproved**". A round that corrects a DESCRIPTION is precisely the round that must re-sync, and the
+gate said so while I was not listening.
+
+**FIXED AND VERIFIED BY EXIT CODE, NOT BY OUTPUT**: `sync-code-viewer.sh` exit 0 (54 files, 3 production hosts redacted), then
+`gateway npm test` **exit 0 — pass 921, fail 0**, then the four doc gates and the hook, each gated with `&&`.
+
+**THE HABIT TO KEEP IS NARROWER THAN THE RULE**: "read the exit code, not the output" has been in AGENTS.md all along, and the two
+failures here were not failures to read it — they were failures to PRESERVE it. So the rule earns a clause: **do not put a command
+whose status you need on the left of a pipe.**
+
+
 ### round 127 — a candidate LOOKED like duplication and the measurement says it is not, which is worth a round
 
 `index/src/index.js` is the second-highest untouched source file in the corrected hotspot list (200 commits), the CDN worker that
