@@ -67,6 +67,14 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 `exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
 "the suite did not run" and re-running it another way. The reporter table is what prevents that; the story is in the ledger.)
 
+**AND A CANCELLED JOB IS REPORTED AS A FAILURE — THE COUNT IS A SUMMARY, THE LOG IS THE MEASUREMENT.**
+Superseding a run (any push while it is in flight) leaves its in-progress jobs at `conclusion: failure` in
+`check-runs`, **indistinguishable from real ones in a count**: five of eleven read as failed and the tree was
+fine. The log tells them apart in one look — a cancelled job ends in cleanup (`Terminate orphan process: pid
+(…) (cargo)`) with NO error text, no `error[E…]`, no `FAILED`. Measured three times (twice on 2026-09-23, then
+rounds 30 and 45); the third time cost a round spent diagnosing a red that was never there, which is why the
+rule above is "do not push while CI is running" and not just "wait before releasing".
+
 ### Which gates have been PROVEN to bite
 
 **THE GATES THE STANDING OBJECTIVE ADDED ARE IN THE LEDGER, NOT HERE** (beginning with `contract-vocabulary-check`,
