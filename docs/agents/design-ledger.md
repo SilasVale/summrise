@@ -61,6 +61,33 @@ blocks out of 128). So the values have **no local structure at that stride** —
 empirical statement stays exactly as round 59 left it: **1,168 four-byte values in `.rdata`, each `0x130` smaller in CI, every
 other byte of a 17.6 MB image identical.**
 
+### THE ANSWER: ONE STATIC, `__rust_panic_type_info`, AND 1,168 REFERENCES TO IT (round 61)
+
+Round 60 left the statement "1,168 four-byte values in `.rdata`, each `0x130` smaller in CI, everything else identical". This
+round asked what those values ARE, and the answer took three measurements that each shrank the question:
+
+1. **They are all the SAME value pair.** Grouping the 1,168 differing 4-byte values by `(local, CI)` yields **exactly ONE
+   distinct pair** — local `0x102d130`, CI `0x102d000`, repeated 1,168 times. Not 1,168 facts; **one fact, 1,168 times**.
+2. **`0x102d000` IS `.data`'s start address** (the section table has `.data` at `0x102d000`, and its size and address are
+   identical in both builds). So the values are POINTERS TO A STATIC IN `.data`, and that static sits at **offset `0x130` in this
+   box's build and offset `0` in CI's**.
+3. **The map names it.** `grep "0003:" /tmp/agent-map.txt` (the local map from round 22, section `0003` = `.data`) lists
+   `0003:00000130  _RNvCs1njKG4L9aB3_7___rustc22___rust_panic_type_info` — **`rustc::__rust_panic_type_info`, a Rust runtime
+   static**, emitted from `summrise_agent…cgu.13.rcgu.o`.
+
+**SO THE DIVERGENCE IS ONE SYMBOL'S POSITION WITHIN `.data`, AND NOTHING ELSE.** The linker lays out `.data` contributions by
+object file, and the map shows what precedes it in THIS build: a run of `___CALLSITE` panic-location records from the agent's own
+codegen units (`cgu.08`, `cgu.13`), 24 bytes apart, starting at `0003:00000028`. In CI's build that block is not ahead of this
+static, so it lands at offset 0 instead of `0x130` — and every reference to it moves by the same 304 bytes, which is exactly the
+1,168 values this investigation has been chasing since round 34.
+
+**WHAT THIS DOES AND DOES NOT EXPLAIN**: it explains the whole divergence — there is nothing else different in the image — and it
+converts "the two builders disagree by 1,484 bytes" into "**the two builders place one Rust runtime static 304 bytes apart within
+`.data`**", which is a property of the `/Brepro`-reproducible link whose *cause* is the ordering of codegen-unit contributions
+ahead of it. It does NOT yet say WHY the order differs between the runner and this box; the instrument for that is the object
+list the linker received (`/MAPINFO` or a verbose link), which is the same two-line change the earlier rounds specified — but it
+is now a question about ONE object file's position rather than about an unnamed byte range.
+
 **THE INSTRUMENT THAT WOULD NAME IT IS UNCHANGED AND UNUSED**: the map's per-object contribution list (`/MAPINFO`), which the
 segment table cannot show because it lists `$`-named segments rather than the anonymous `.rdata` contributions inside them. That
 is a two-line change to `release.yml` and a diff of one release log — and after this round it is the ONLY remaining step, because
