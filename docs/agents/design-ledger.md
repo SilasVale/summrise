@@ -6599,6 +6599,20 @@ inferred from a green total.
 device current, devices unaffected by anything in this stretch except the installer fix that a future install will
 receive.
 
+### AND THIS ROUND WALKED INTO THE CANCELLATION TRAP IT HAD RECORDED
+
+Pushing the ledger commit for this round superseded the previous commit's CI run, and GitHub cancelled it: round 29's
+`7b3191c3` shows **9/11 with `design` `completed cancelled`**. That is the same trap AGENTS.md records twice from
+2026-09-23 and that round 15's release paid for — and it applies to ordinary commits too, not only releases: a push
+supersedes the run in flight, and the superseded commit is then left with a CI that never finished.
+
+**WHAT IT COSTS HERE IS SMALL AND SHOULD BE SAID PLAINLY**: no tag points at `7b3191c3`, nothing is released from it, and
+HEAD's own run covers the same tree plus one ledger edit. But a commit whose `design` job was cancelled is a commit
+whose design gates did not run, and the only reason that is acceptable is that the very next commit re-ran them over a
+tree that differs by one documentation file. **The rule is the one already written down: let a push's CI finish before
+pushing the next one** — and the fact that this loop broke it again, two rounds after recording it, is why the note is
+here rather than in the commit that fixed it.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
