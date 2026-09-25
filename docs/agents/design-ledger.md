@@ -6162,6 +6162,40 @@ moved it from a hash to an offset list.
 **NUMBERS:** 1,484 differing bytes of 17,637,376; one differing file of nine in the package; the live version stays
 **1.2.468** and devices are unaffected — the CDN is authoritative and the device reports itself current.
 
+## 2026-09-25 — the thirty-ninth exploration: the toolchain fingerprints MATCH, so the obvious answer is not the answer
+
+Round 38 left ~1,480 bytes scattered through a 17 MB exe with `file!()` paths as the first candidate. This round dumped
+the regions — and they are **MACHINE CODE, not data**: 665 tiny regions in the first section, differing by a byte or two
+each (`H..oj..H` → `H..j..H`, `H.=.g` → `H.=tg`). Embedded paths would have shown as ASCII; these are instructions. So
+the candidate was wrong and the question became "which compiler".
+
+**AND THE ANSWER IS: NOT THIS ONE.** The repo already HAS the instrument — an on-demand `toolchain fingerprint` job in
+`ci.yml`, with its own comment saying it exists for exactly this question ("is the runner's toolchain bit-identical to
+the release box's?"), and it restores the same 1 GB LLVM tarball `release.yml` uses. It had never been run for a
+release. Dispatched this round (HTTP 204) and compared against this box:
+
+| | runner | this box |
+|---|---|---|
+| rustc | `1.98.1 (48a229cea 2026-09-01)` | `1.98.1 (48a229cea 2026-09-01)` |
+| `lld-link` sha256 | `3001bd7d2f884a8bf590b4c39e20ba5c2210301ea53a6cec7c4dcfccbbfecc21` | `3001bd7d2f884a8b…` |
+| clang | `7cb5d097969e46eb…` from `llvm-18.1.8-official-ubuntu18.04` | the same tarball, unpacked at `~/llvm18` |
+| cargo-xwin | `0.23.0` | `0.23.0` |
+
+**Identical compiler, identical linker, identical rustc — and different machine code.** That is worth stating plainly
+because it removes the answer everyone reaches for first, and because the alternative (pinning the toolchain harder)
+would have been work on a thing that was already correct. The fingerprint values are recorded HERE for the first time,
+which is itself part of the fix: the job's whole purpose is to be compared against, and nothing was comparing.
+
+**WHAT REMAINS, NARROWED:** a small, CODE-only difference with matching compilers points at the build INPUTS rather
+than the tools — the embedded panel bundle (built by vite on each side and hashed into `PANEL_BUNDLE_HASH`) is the
+strongest remaining candidate, and it is a 16-hex string that can be read out of both binaries rather than inferred. If
+that is identical too, the next instrument is a per-section checksum of the two images, which turns 665 anonymous
+regions into a named one. The round ends with the search space smaller than it found it, which is the honest form of
+progress on a P0-flavoured check.
+
+**AND ONE THING THE ROUND DID NOT DO:** it did not "fix" the audit by relaxing it. A check that refuses is only useful
+if the refusal is chased; chasing it this far took one dispatch and one hash comparison.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
