@@ -6572,6 +6572,33 @@ files parse; BOM `efbbbf` verified by `xxd`; fmt clean; clippy `-D warnings` cle
 box, so the new construct is unexecuted — syntax checked by eye, by a brace/paren census against HEAD that accounts for
 exactly the edits (+2 braces, +1 paren, balanced), and by the pin.
 
+## 2026-09-25 — the fiftieth exploration: the whole suite, after twenty-one rounds of change
+
+This round did the verification the standing objective names and which the last twenty rounds had been doing in pieces:
+`bash scripts/test/all-gates.bash` over the entire tree at `7b3191c3`.
+
+**56 ok, 0 failed, 1 not runnable here (of 57 gate command(s) in `.github/workflows/ci.yml`)** — the same verdict the
+suite gave before this stretch of work began. Between the last full run and this one, twenty-one rounds changed the Rust
+agent (spawn policy, transfer landing, live-config handle, retention, routes-as-data), the panel's read module, the
+installer's file map and its transcript, the electron shell's IPC door, the release pipeline's component address, and
+two CI workflows. **Every one of the 57 gates still holds.**
+
+**WHY THIS IS A ROUND'S WORK RATHER THAN A FORMALITY**: the objective lists "the repo's own gates" as a verification
+step, and for twenty rounds the loop ran the gates it judged relevant — the three doc checks, the panel suite, `cargo
+test` in both configurations, `installer_integrity`, `script-syntax`, `workflow-shell-check`. That is a *chosen subset*,
+and round 15 already cost a red CI for exactly that reason: two pins were broken by a change whose author had run
+`npm test`, `release-lib` and `publish-release.bash` and not `cargo test -p summrise-agent`. This run is the answer to
+"did the subset miss anything", and the answer is no — but it is an answer that only exists because the full suite was
+run, once, deliberately.
+
+**AND THE ONE GATE THAT IS NOT RUNNABLE HERE IS NAMED, NOT GLOSSED**: the count has read 56/0/1 since before this
+stretch, and the 1 is the same gate every time — the reason it cannot run on this box is recorded where it lives, not
+inferred from a green total.
+
+**NUMBERS:** 57 gate commands, 56 ok, 0 failed, 1 not runnable here; the tree at `7b3191c3`; live version **1.2.468**,
+device current, devices unaffected by anything in this stretch except the installer fix that a future install will
+receive.
+
 ## Which mutation must fail which gate
 
 MOVED OUT OF `AGENTS.md` IN ROUND 187. It was 37 rows and 31 KB — **68% of the instruction file**,
