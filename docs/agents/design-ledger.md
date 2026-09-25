@@ -71,6 +71,26 @@ panel and sees the write land; the second asks whether the AI's own output actua
 planted (`PANEL-VIS-179036981456`) is not there. That is the panel not SHOWING what the agent produced — the exact class the section
 exists to catch, and it sits in the area rounds 73 and 78 touched (the read seam `SettingsPage` and `ConnModal` migrated onto).
 
+**AND THE FAILURE IS STABLE, WHICH NARROWS IT CONSIDERABLY (round 88).** Run twice more, with a fresh marker each time:
+
+```
+PASS panel ai write  -- state=partial
+FAIL panel xterm shows ai output  -- marker=PANEL-VIS-179037005890
+
+== 1/2 passed ==
+```
+
+The same two lines, twice. So this is not a flake to re-run away, and the check's own code says where it is NOT: it reads the
+desktop SPA over CDP at `127.0.0.1:9333`, and when no `/desktop/` target exists it reports `no desktop SPA target` — **a message
+this run never printed**, so the SPA was found, the rail's Terminal button was clicked, the LAST session tab was clicked, and the
+visible `.term-host .xterm-rows` was read SIX times over twelve seconds without the marker appearing. **The marker is written
+successfully through the API (check 1 passes) and never reaches the desktop SPA's terminal view.**
+
+**AND THIS CLASS HAS HISTORY**: the ledger already records `useSessions`'s 1.2-second retry as "round-245's fix for an AI-opened
+session that never appeared". Whether the SPA is missing the session entirely, failing to switch to it, or not receiving its
+stream is the next round's question — and it is a question with three distinguishable answers, each testable on the device that
+just produced this verdict twice.
+
 **WHAT THIS ROUND DOES NOT CLAIM**: it does not say those rounds CAUSED it. The check has never run before, so there is no
 before-picture to compare against — which is precisely the cost of an instrument that nothing ran, and precisely why the cadence
 was worth building. The next round's first question is whether the marker is missing because of a regression or because the check
