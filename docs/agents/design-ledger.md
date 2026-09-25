@@ -114,6 +114,32 @@ where this run saw the stdio probe's `/inner-click-test` landing. So the mitigat
 not enough — **the honest statement is that the http transport's navigation did not become visible within fifteen seconds after a
 transport switch, which is a longer stall than the fix assumed, not a missing poll.**
 
+**AND THE SAME SECTION RUN THREE TIMES GIVES THE SAME ANSWER — IT IS DETERMINISTIC, NOT A FLAKE (round 95).**
+
+```
+run 1: == 11/12 passed ==   FAIL mcp http drives embedded view  -- https://example.com/inner-click-test
+run 2: == 11/12 passed ==   FAIL mcp http drives embedded view  -- https://example.com/inner-click-test
+run 3: == 11/12 passed ==   FAIL mcp http drives embedded view  -- https://example.com/inner-click-test
+```
+
+Three for three, the same check, the same URL — **and that URL is the one the STDIO phase's click leaves the view at**, because
+`--only mcp` runs stdio first and http second. So the http phase's navigation never becomes visible, not "within fifteen seconds"
+and not at all: **the view is still exactly where the previous transport left it, every single time.** Round 94's statement is
+therefore true and stronger than it was written — this is a deterministic no-op, not a stall.
+
+**AND IT EXPOSES A SECOND DEFECT, IN A CHECK THAT CANNOT FAIL.** `mcp http click drives embedded view` PASSES in these runs, and
+it passes VACUOUSLY: its predicate is `url.includes('inner-click-test') || url.includes('iana.org')`, and the stale URL left by the
+stdio click is `https://example.com/inner-click-test` — so the predicate is satisfied BEFORE the http click happens. **A check whose
+success condition a stale value already meets reports success for a click that does nothing**, which is the same class as the panel
+selector (round 90) and the discarded triage line (round 93), one level deeper: there the instrument measured the wrong thing, here
+it measures the right thing against a value that was already true.
+
+**WHAT THE THREE RUNS ESTABLISH, STATED SO IT CAN BE ATTACKED**: with `--only mcp` on this device, the http transport's
+`browser_navigate` reports `ok` and the embedded view does not move — reproducibly, three times, with the leftover URL as the
+evidence — while the stdio transport moves it and the http CLICK does move it (its own pass, however vacuous, came after a real
+`browser_click` whose ref `f1e7` was found). **So the failure is specific to http NAVIGATE, not to the http transport as a whole**,
+and that is the smallest statement the evidence supports.
+
 **TWO ROUNDS, TWO SELF-CORRECTIONS, BOTH BY READING THE CODE**: round 93 corrected rounds 91-92 (flake read as a baseline) and
 round 94 corrects round 93 (a missing poll that was present). Neither correction came from more reasoning about the numbers; both
 came from opening the file. **The ledger's rule that "the count is a summary, the log is the measurement" has a third clause this
