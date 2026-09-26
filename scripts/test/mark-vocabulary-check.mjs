@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: stop the console's failure mark from being a diamond (`.dot.err` loses `rotate(45deg)`), or give the panel's `waiting` the `idle` ring
+// RESULT:   exit 1 both ways: ".dot.err means FAILURE and does not draw the diamond (transform: none) — the panel spells that state as a diamond", and for the panel "the panel's most urgent state draws \"ring\", not a diamond — the shape that means \"this wants you\" has moved" plus "the panel's four states share 1 silhouette(s)". It is the ONLY check that reads both surfaces at once — every other marks check is about one of them — and it reads the panel's vocabulary as DATA (`liveness.ts`) and the console's as PAINTED (its sheet, with the same signature rule `console-marks-check.mjs` uses). Measured 2026-09-18 (**FIVE panel states since round 97**): panel `waiting`=diamond `working`=solid-halo `failed`=triangle `idle`=ring `off`=dashed-ring; console 11 marks, 4 distinct shapes, agreeing on attention=diamond, absent=ring, fine=fill. The failed silhouette arrived only when the DEVICE learned to report the fact (round 96, `last_exit_code`), and it is deliberately NOT the diamond: the panel spends that on a QUESTION and the console spends it on FAILURE, so a fifth state reusing it would put two meanings on one shape in the same tab strip. Mutations: folding `failed` onto the diamond fails with "the shape it already uses for a QUESTION", and dropping the state fails the floor ("read 4 panel state(s), expected at least 5")
+
 // mark-vocabulary-check — ONE state, ONE silhouette, across BOTH surfaces.
 //
 // WHY THIS EXISTS. Each surface already checks its own marks: the panel's `statePalette.test.ts` reads its BUILT

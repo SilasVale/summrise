@@ -1,3 +1,10 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: make `last_update_attempt` return an empty object for a body it cannot use, or drop `at_ms` from the record
+// RESULT:   `cargo test --features terminal,keyring` fails: the record is what tells the panel whether an update STARTED, and an empty object renders as "never launched" — the panel refuses the same shapes again (`parseAttempt`), because the two ends drift independently
+
 //! Tool builders for the update plugin.
 
 use crate::state::ConfigHandle;

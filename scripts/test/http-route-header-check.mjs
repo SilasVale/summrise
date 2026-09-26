@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: name a route in the HTTP surface's header that no `Pattern` row resolves (e.g. add `GET /api/does-not-exist` to the `//! Routes:` list)
+// RESULT:   exit 1: "the header names 1 route(s) no Pattern row resolves - a reader is sent looking for something the device does not serve: /api/does-not-exist". Clean tree exits 0 (11 header routes vs 33 Exact + 5 Prefix). THE REVERSE IS DELIBERATELY NOT ASSERTED: the header is a SELECTION by design (round 147), so asserting it would make every new table row a header edit
+
 // http-route-header-check — EVERY ROUTE THE HEADER NAMES MUST EXIST IN THE TABLE IT POINTS AT.
 //
 // WHY THIS EXISTS (rounds 146-150). `agent/src/web/mod.rs` is 8,302 lines and the largest file in the agent. Its authority is

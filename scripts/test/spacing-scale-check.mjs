@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: add a spacing declaration with an off-scale literal (a planted `13px`), or an ON-scale one where a token exists (a planted `8px`)
+// RESULT:   exit 1 either way: "off-scale spacing rose from 299 to 300", or "on-scale literals rose from 0 to 1 — a value that HAS a token was written out by hand, which is how 234 of them accumulated unnoticed". A token use replaced by a literal fails the third count
+
 // spacing-scale-check.mjs — the panel's spacing is mostly AD-HOC, and it may not get worse.
 //
 // WHY THIS EXISTS (round 220). The objective names five axes — spacing, hierarchy, contrast, typography,

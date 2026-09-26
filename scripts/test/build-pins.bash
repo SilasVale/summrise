@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: bump rust-toolchain's channel alone
+# RESULT:   exit 1, names the workflow literal
+
 # build-pins.bash — the four build inputs that are HAND-COPIED, each with a
 # single source of truth and NOTHING comparing them (round 128).
 #

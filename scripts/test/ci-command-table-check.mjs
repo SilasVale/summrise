@@ -1,3 +1,10 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: name a command in `agent/AGENTS.md` that no step in `ci.yml` runs (e.g. swap `cargo test -p summrise-agent-core` for `cargo test --workspace --all-features`)
+// RESULT:   exit non-zero: "agent/AGENTS.md names `cargo test --workspace --all-features` and NO step in ci.yml runs it - a scoped instruction file inherits none of its parent's gates (round 123)" AND THE OTHER DIRECTION IS THE ONE THAT MATTERS HERE: the first version of this block REFUSED A CLEAN TREE because it kept each line's trailing `#` comment, so the command never matched CI's text -- a gate that fails on a clean tree blocks every commit until somebody weakens it (round 124). The shipped version strips the comment, and the proof is three runs: clean ok, mutated non-zero, restored ok
+
 // ci-command-table-check.mjs — THE TABLE THAT SAYS WHAT CI RUNS MUST MATCH WHAT CI RUNS.
 //
 // WHY THIS EXISTS (round 151 of the standing goal). AGENTS.md carries a table of "the exact commands, by working directory",

@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: give two console signal states the same silhouette (put `off` back to a plain circle), or put the failing ink back (`--text-faint` for `off`)
+// RESULT:   exit 1 either way: ".sig-dot.off draws the same shape as .sig-dot.ok (50%
+
 // console-marks-check.mjs — the console's state dots must differ in SHAPE, and every shape must be legible.
 //
 // WHY THIS EXISTS (round 11 of the standing goal). The console carried three `.sig-dot` states — ok, err, off —

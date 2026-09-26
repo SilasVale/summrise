@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: add an undeclared decorative animation (`.rail-brand { animation: logo-pulse 3s infinite }` on the built panel sheet), make a declared ENTRANCE run forever (`gs-in … infinite`), or delete an animation whose reason is still declared
+// RESULT:   exit 1 all three ways: "…animates (logo-pulse 3s ease-in-out infinite) and NO PURPOSE IS DECLARED — the chrome is still, and motion belongs to the state layer"; "…is declared ENTRANCE (the getting-started card arrives) and animates FOREVER — an entrance or an acknowledgement is a ONE-SHOT"; and "PURPOSES declares .new-menu and the sheet no longer animates it — a stale entry is a reason nobody is using". It is the gate for the objective's "the chrome neutral AND STILL": `motion-check` asks whether an animation is silenced under `prefers-reduced-motion`, which is a different question, so a decorative pulse would have been silenced for the users who ask for that and left running for everyone else. Measured 2026-09-18: 15 animations across both sheets — 8 STATE (may run forever, because the thing they describe has not stopped), 5 ENTRANCE, 2 ATTENTION. ITS FIRST VERSION CLASSIFIED BY SELECTOR NAME AND REPORTED FIVE DEFECTS THAT WERE NOT DEFECTS — `.mem-busy` and `.browser-ev-live` are state-bearing and the pattern could not see it, and the two `.flash` rules are attention states that decay; reading the markup settled it (`.browser-ai-dot` and `.browser-ev-live` render only while `aiActive` holds). The fourth time this session a probe reported a defect the real rule did not have, and the fix was the same: write the rule down instead of approximating it
+
 // chrome-stillness-check — THE CHROME IS NEUTRAL AND STILL, and this is what "still" means.
 //
 // The objective reserves colour AND motion to the state layer: "the chrome neutral and still, with colour and motion

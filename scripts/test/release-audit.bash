@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: stop recording mode drift
+# RESULT:   exit 1
+
 # release-audit.bash — regression tests for the P0 dual-builder verdict.
 #
 # WHY THIS FILE EXISTS. `release-audit.sh` decides whether the CDN and the GitHub

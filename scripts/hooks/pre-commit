@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: append a syntax error to a payload module under `agent/scripts/lib/sweep/` (e.g. `panel-run.cjs`)
+# RESULT:   exit 1: "The emitted scripts are how the device runs every design check. Fix the emitter, then commit - or use --no-verify if you know the failure is unrelated, and say so in the commit." THE FIRST ATTEMPT PROVED NOTHING: it planted into `agent/scripts/lib/sweep/*.mjs` and the payloads are `.cjs`, so both runs -- mutated and restored -- were on an UNMUTATED tree and both exited 0 (round 120, the same inconclusive-test shape round 109 recorded)
+
 # pre-commit — refuse a commit whose EMITTED scripts do not parse.
 #
 # WHY THIS EXISTS (round 225, REWRITTEN round 272). It used to guard a specific accident: each emitter built its
@@ -80,7 +87,7 @@ if ! bash scripts/hooks/main-only-by-merge; then
   fail=1
 fi
 
-# THE ARCHIVE-ONLY RULE WAS HERE, AND LANDING 4a DELETED IT ALONG WITH ITS SUBJECT. It refused a commit whose only staged
+# THE ARCHIVE-ONLY RULE WAS HERE, AND LANDINGS 4a-4b DELETED IT ALONG WITH ITS SUBJECT — every ledger archive is gone. It refused a commit whose only staged
 # change was `docs/agents/design-ledger.md`, because the loop had spent thirty rounds appending prose to it and the cheapest
 # possible commit had become the round's whole output. **The operator retired that process, and the two narrative archives
 # are gone** — so the rule now guards nothing. It is removed rather than kept "in case", because a rule whose subject no

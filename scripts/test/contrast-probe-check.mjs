@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: remove the probe's hex handling, or delete `svgRootPaints`'s `painted.has(...)` guard
+// RESULT:   exit 1 both ways: "both spellings must parse"; and the brand mark's `rgb(0,0,0)` — the INHERITED default on an SVG root whose shapes each declare their own paint — is reported as its colour again. Those rows were TEN of a red design job in round 94, and they pushed the one real defect in that run off the end of the report
+
 // contrast-probe-check.mjs — the contrast math, pinned.
 //
 // Four rounds of contrast sweeps used an ad-hoc snippet retyped each time, and it
