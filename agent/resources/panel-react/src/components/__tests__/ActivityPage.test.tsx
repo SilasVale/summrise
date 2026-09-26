@@ -361,8 +361,11 @@ describe("ActivityPage — (c) absence is rendered as ABSENCE", () => {
     );
     const { container } = await mount(<ActivityPage pollMs={60_000} />);
     expect(container.querySelector(".activity-rows")).toBeNull();
-    expect(container.querySelector(".activity-group-empty")!.textContent).toBe(
-      "No records carry this run id.",
+    // THE SENTENCE MOVED TO THE PAGE-LEVEL NOTE (2026-09-26): it is honest once and noise five times, which is what the
+    // operator said about it. The group states the FACT, the note above the list states the REASON, and both are pinned.
+    expect(container.querySelector(".activity-group-empty")!.textContent).toBe("no records");
+    expect(container.querySelector(".activity-empty-note")!.textContent).toContain(
+      "A record carries the run id only when something inside it did",
     );
   });
 

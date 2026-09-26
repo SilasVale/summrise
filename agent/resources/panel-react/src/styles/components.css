@@ -3526,6 +3526,10 @@
 .activity-group-unattributed { background: var(--surface-recessed); }
 .activity-group-head { padding: 0 var(--sp-4); }
 .activity-group-empty { margin: var(--sp-1) 0 0; padding: 0 var(--sp-4); font-size: var(--fs-xs); color: var(--muted); }
+/* THE REASON, STATED ONCE (2026-09-26). The sentence used to repeat inside every empty run group, and the operator's
+   words were exact: "it is honest on one row and noise on five". It sits above the list now, quieter than the groups it
+   explains and with a measure so it stays readable at 1440px. */
+.activity-empty-note { margin: 0 0 var(--sp-3); padding: 0 var(--sp-4); max-width: 66ch; font-size: var(--fs-xs); color: var(--muted); }
 
 .activity-rows { list-style: none; margin: var(--sp-1) 0 0; padding: 0 var(--sp-4); }
 .activity-row { padding: 5px 0 6px 10px; border-left: 2px solid var(--line); }
