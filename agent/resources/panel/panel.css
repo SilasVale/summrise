@@ -5575,6 +5575,12 @@ button.dtab-close:hover { opacity: 1; }
    or touch user can open it. That is a design decision and a component change, not another number in this media query,
    and it is why the spill is still 5-7 elements rather than fixed. */
 @media (max-width: 760px) {
+     **AND THE OTHER SURFACE HAS HAD THIS ALL ALONG (round 41 of the standing goal).** The question was whether the
+     console's clean 320px reflow (`0sc/0over/0sp/0cl` on all thirty of its rows) meant the same thing as the
+     panel's — and it does, for a reason worth naming: `gateway/ui/src/styles/globals.css` carries breakpoints at
+     1080, 980, 900, 768 and 560, each collapsing a multi-column grid to `1fr`, so the console has stacked since it
+     was written. **THE PANEL HAD NO WIDTH MEDIA QUERY AT ALL UNTIL ROUND 25** — the asymmetry was the whole defect,
+     and a reader comparing the two surfaces should know it was a missing rule rather than a different design. */
   /* ── WHERE THIS NUMBER COMES FROM, AND WHERE IT DOES NOT (round 40 of the standing goal) ─────────────────────
      It was the first value CHOSEN rather than derived, so both numbers are written down now.
      **THE ROW STOPS FITTING AT 505px**: `#icon-rail` is 52 and `#context-rail` 244 (both `flex: 0 0` above this
