@@ -35,6 +35,22 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 179, one line — THE WHOLE SUITE AFTER THE SKILLS GATE AND EIGHT DOCUMENTATION ROUNDS**: `skill-frontmatter-check` was wired into
+`ci.yml` in round 171 and extended in round 174, and rounds 172-178 then edited `AGENTS.md`, three archives and the mutation table. The last
+full run predated all of it:
+
+```
+bash scripts/test/all-gates.bash
+  -> 59 ok, 0 failed, 1 not runnable here (of 60 gate command(s) in .github/workflows/ci.yml)
+```
+
+**GREEN, AND THE NEW GATE IS COUNTED IN THE 59** — which is the end-to-end confirmation of round 171's wiring, since a gate file without its
+`ci.yml` line would not appear in that total at all (round 149 measured the extraction that decides it).
+
+**AND IT CONFIRMS ROUND 172'S COUNT AS WELL**: 60 is the number `all-gates.bash` extracts, one more than the 59 I had been carrying in every
+summary for twenty rounds — **so the stale count is now replaced by a measured one in the same breath as the certification that uses it.**
+
+
 ### round 178 — the status-inversion class is NOT in this repository, which is why no gate can catch it
 
 Round 177 ended on "a rule is only as available as the reader who has not yet needed it": the pre-commit hook documents the negated-status
