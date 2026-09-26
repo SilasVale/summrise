@@ -468,6 +468,16 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
   // zero while the information is still gone. 1.4.10 asks for no loss of information OR functionality, so both halves
   // are measured: `spilling` is content drawn on top of something, `clipped` is content that cannot be reached. A box
   // that can SCROLL is neither — `sideScrollers` covers it, because the reader can get to the content.
+  //
+  // WHAT IT FOUND FIRST, AND WHAT IS STILL OPEN (round 29 of the standing goal). At 320px it names
+  // `div.terminal xterm … 198<250` — the panel's terminal container holding a screen sized for 250px inside 198px,
+  // with `overflow: hidden`, so the right of the operator's own output cannot be reached. **THE OBVIOUS EXPLANATIONS
+  // ARE BOTH ALREADY RULED OUT**: the panel HAS a `FitAddon` (`TerminalPane.tsx` imports it, holds it in `fitRef`) and
+  // the refit path EXISTS and is CALLED (`fitRef.current?.fit()`), and `reflowOnResize: true` is set on the terminal.
+  // So the open question is not "is there a refit" but **"why did the fit not shrink the cols for a viewport-only
+  // change"** — and answering it needs a browser, which this checkout cannot launch (no chromium here; the device has
+  // one). The fix is NOT `overflow: auto` on xterm's container: a terminal that scrolls sideways is worse than one
+  // that refits, and xterm positions its screen absolutely inside that box.
   clipped: [...new Set([...document.querySelectorAll(root + ' *')]
     .filter((el) => {
       const st = getComputedStyle(el);
