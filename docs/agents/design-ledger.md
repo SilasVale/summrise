@@ -35,6 +35,18 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 153, one line — THE PANEL BUILD IS TWO ARTIFACTS, AND THREE GUARDS ALREADY KNEW**: round 139's inventory row named
+`agent/resources/panel/panel.js` as the guarded build output. `panel.css` sits beside it — 261,630 B, rebuilt in the SAME SECOND as the
+bundle, generated from `panel-react/src/styles/*.css` — and **three checks mention it** (`panel-sheet-freshness-check`,
+`state-colour-check`, `stylesheet-hygiene`). **So nothing was missing and no guard is owed**; what was wrong was the row's phrasing, and
+it now names both files.
+
+**AND THAT IS THE RIGHT WAY FOR A RECHECK TO END**: the question "did round 139 miss a fifth artifact?" was asked because 202 commits on
+a file NOT in the inventory is exactly the shape of an omission — and the answer, measured, is that the guard covers a build of two files
+and the row named one. **A row that is right but incomplete is a smaller error than a missing row, and both are worth the one command
+that tells them apart.**
+
+
 **Round 152, one line — THE GATE COUNT IS NOW 59, MEASURED RATHER THAN INFERRED**: round 151 added a gate to `ci.yml`, so the
 number the suite prints changed, and this round ran the whole thing to read it rather than adding one to the old one:
 

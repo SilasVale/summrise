@@ -649,7 +649,7 @@ would say so — that is the point of writing it this way.
 
 | generated and committed | size | what guards it |
 |---|---|---|
-| `agent/resources/panel/panel.js` | 663,487 B | `panel-sheet-freshness-check.mjs` |
+| `agent/resources/panel/panel.js` **and** `panel.css` | 663,487 B + 261,630 B | `panel-sheet-freshness-check.mjs` (both files — the row named only the JS until round 153, and the panel BUILD is two artifacts: `panel.css` comes from `panel-react/src/styles/*.css` and was rebuilt in the same second as the bundle) |
 | `agent/summrise-agent-npm/bin/summrise.js` | 198,635 B | the pack chain — `cmp` against a fresh compile |
 | `gateway/public/code/files/summrise-gate/` | 54 files | `code-viewer-mirror.test.mjs` (missing · extra · differing) |
 | `gateway/public/code/files/instruments/` | 9 files | `instruments-mirror.test.mjs` (both directions) |
