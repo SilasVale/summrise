@@ -481,6 +481,16 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       // FITTED — 29 columns at a 6.21px cell is 180px inside a 198px container — so the 250 belonged to xterm's
       // helper layer, not to the screen. A false positive here sends the next reader to fix a terminal that is fine.
       if (el.querySelector && el.querySelector('.xterm-helpers, .xterm-char-measure-element')) return false;
+      // A SCROLLING ANCESTOR ALREADY CONTAINS IT (round 36 of the standing goal) — the rule `overflowing` has had
+      // since round 23 and this list never did. Measured: giving `#context-rail` `overflow-x: auto` at the breakpoint
+      // removed the rail's OWN entry (`aside 61<140`) and left its CHILDREN (`div.side-header 60<140`,
+      // `div.side-row 48<54`), because a child is not itself a scroller. Content inside a scroll container is
+      // REACHABLE by scrolling, so it is not drawn on top of anything: counting it here reports a containment as a
+      // loss, which is the mirror of round 34's false positive on xterm's off-screen layers.
+      for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+        const ps = getComputedStyle(p).overflowX;
+        if (ps === 'auto' || ps === 'scroll' || ps === 'hidden' || ps === 'clip') return false;
+      }
       const r = el.getBoundingClientRect();
       return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
     })
