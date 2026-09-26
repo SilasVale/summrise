@@ -157,6 +157,8 @@ Append to `scripts/test/main-shape-check.mjs`:
 
 ```js
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 /** The whole decision, pure and testable: `main` must be reached by a merge, and nothing else is constrained. */
 export function verdict({ branch, parents }) {
@@ -171,7 +173,14 @@ export function verdict({ branch, parents }) {
   };
 }
 
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+// THE MODULE IS IMPORTABLE WITHOUT RUNNING THE CHECK. Anything a reader imports must not have side effects, or the only
+// way to test it is to copy it — which is how a decision function ends up with two versions that drift.
+//
+// THIS GUARD IS STRONGER THAN THIS PLAN'S FIRST VERSION, which compared basenames and would confuse two files of the same
+// name in different directories. That exact mistake is already recorded in this repository: `workflow-yaml-check.mjs`
+// printed its pass line and called `process.exit` when a reader imported it to test one function. Resolve the real path
+// and compare URLs instead.
+const isMain = process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url;
 
 if (isMain) {
   // 1. the fixture table first: a gate whose fixtures do not run is a gate nobody has proven
