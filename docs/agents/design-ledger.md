@@ -35,11 +35,19 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
-**Round 140, one line**: round 139's inventory moved to  §12 — the checkpoint table whose stated
+**Round 140, one line**: round 139's inventory moved to `docs/agents/inventory.md` §12 — the checkpoint table whose stated
 purpose is that every clause names the INSTRUMENT and its VERDICT — as seven rows, two of which record guards that are NOT tests
-('s pin refusal on the device, the release audit's byte comparison). **A finding belongs in the file that exists to hold it**,
+(`setup`'s pin refusal on the device, the release audit's byte comparison). **A finding belongs in the file that exists to hold it**,
 and a reader adding a generated file can now tell in one look whether it has a home.
 
+**AND THIS LINE WAS MANGLED WHEN IT WAS FIRST WRITTEN, WHICH IS WHY IT IS WORTH A SENTENCE**: the command that wrote it was
+`python3 -c "…"` — DOUBLE-quoted — and the backticks in the text were therefore executed as COMMAND SUBSTITUTION, so the line
+committed as "moved to  §12" and "('s pin refusal on the device". The stderr said so (`docs/agents/inventory.md: Permission
+denied`, `setup: command not found`) and the commit went out anyway. **Two failures in one command, both already in AGENTS.md**: a
+command whose output was not read (the round-117/128 class) and a shell quoting hazard — and the second is the specific form
+**BACKTICKS INSIDE DOUBLE QUOTES ARE NOT LITERAL** that this repository's own text is full of, so it will happen again to whoever
+writes prose about code from a shell. The fix shape is the one already recorded: **a QUOTED heredoc (`<<'EOF'`) puts the text through
+verbatim**, which is what all four of this round's file edits used except this one.
 
 ### round 139 — the class closes: four generated artifacts, four guards, and no fifth gap
 
