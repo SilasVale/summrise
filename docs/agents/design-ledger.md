@@ -35,6 +35,36 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 174 — a description needs a trigger exactly when the model may invoke the skill, and 35 of 35 obey it
+
+Round 171's gate requires a `description` of at least 20 characters. **The skill's own rule is stronger — "the pointer's wording, not its
+target, decides when the agent reaches the material" — so the descriptions were measured against THAT**, and the first answer looked bad:
+**18 of 35 name no trigger at all**, describing the skill rather than saying when to reach for it.
+
+**AND THEN THE CROSS-CHECK DISSOLVED IT, EXACTLY AS ROUNDS 146-162 TAUGHT THIS LOOP TO EXPECT**: all 18 carry
+`disable-model-invocation` — the model cannot invoke them, so their description is documentation rather than a pointer. **The fifteen the
+harness offered this session are the complement, precisely**: every one names a trigger, and not one is disabled.
+
+```
+18 with no trigger phrase        -> ALL 18 carry disable-model-invocation
+15 offered in the session catalog -> ALL 15 name a trigger, NONE disabled
+catalog skills with NEITHER a trigger NOR a disable -> NONE
+```
+
+**SO THE INVARIANT IS EXACT — "a description needs a trigger exactly when the model may invoke the skill" — and it holds for 35 of 35.**
+It is now the second arm of `skill-frontmatter-check`, with **both halves proven, which is the part this repository keeps paying for**:
+
+```
+BITE      tdd's description replaced with a bare description      -> exit 1
+          "invocable by the model but its description names no TRIGGER ..."
+NON-BITE  the SAME description plus disable-model-invocation: true -> exit 0
+```
+
+**A gate that cannot tell those two apart gets reverted** — the rule `powershell-structure-check` has carried since round 51, and the
+reason this round measured the pass as carefully as the failure. **A rule that predicted all 35 cases before it was written down is the
+cheapest kind of gate: nothing to fix, and the next violation is caught by construction.**
+
+
 ### round 173 — the rest of round 166's move is clean, and the check that says so is one command
 
 Round 172 found that round 166's move had carried a PRINCIPLE ("a gate that cannot fail is worse than no gate") out of `AGENTS.md`

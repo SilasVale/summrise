@@ -47,9 +47,22 @@ for (const dir of readdirSync(SKILLS).sort()) {
     problems.push(`${dir}: name: says "${name[1].trim()}" — the directory is what the catalog lists`);
   }
   const desc = /^description:\s*(.+)$/m.exec(fm);
+  const descText = desc ? desc[1].trim().replace(/^["']|["']$/g, "") : "";
   if (!desc) problems.push(`${dir}: frontmatter has no description — this is the pointer that decides when it fires`);
-  else if (desc[1].trim().replace(/^["']|["']$/g, "").length < 20) {
-    problems.push(`${dir}: description is ${desc[1].trim().length} chars — too short to trigger on`);
+  else if (descText.length < 20) {
+    problems.push(`${dir}: description is ${descText.length} chars — too short to trigger on`);
+  }
+  // A DESCRIPTION NEEDS A TRIGGER EXACTLY WHEN THE MODEL MAY INVOKE THE SKILL (round 174). Measured across all 35: the 18 whose
+  // description only DESCRIBES the skill all carry `disable-model-invocation`, and all 15 the harness offered this session name a
+  // trigger and carry none. So a skill that can be invoked BY THE MODEL must say WHEN to reach for it, and a disabled one need not.
+  else if (!/disable-model-invocation/.test(text.slice(0, 1500))) {
+    const trig = /\b(when|use this|use when|trigger|if you|asks?|wants?|mentions?|uses any)\b/i.test(descText);
+    if (!trig) {
+      problems.push(
+        `${dir}: invocable by the model but its description names no TRIGGER — it describes the skill instead of saying when to ` +
+        `reach for it (add a "Use when …" branch, or mark it disable-model-invocation)`,
+      );
+    }
   }
 }
 
