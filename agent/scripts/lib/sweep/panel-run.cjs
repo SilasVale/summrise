@@ -121,11 +121,17 @@ const TIMING = P.timing;
     SETTLE.asked += asked;
     const t0 = Date.now();
     try {
-      // A NAVIGATION DESTROYS THE OBSERVER, and that is correct: a new document must prove its own quiet.
+      // A NAVIGATION DESTROYS THE OBSERVER, and that is correct: a new document must prove its own quiet. INSTALLED
+      // ONCE PER DOCUMENT, not once per settle — two settles can share a document (one site follows a wait rather than
+      // a reload), and the first version created a second observer each time, which is a leak that also doubles the
+      // callbacks. Only the CLOCK is reset here; the console's payload, which navigates by hash and so keeps its
+      // document, is written the same way for the same reason.
       await page.evaluate(() => {
+        if (!window.__quietObs) {
+          window.__quietObs = new MutationObserver(() => { window.__quiet.last = Date.now(); });
+          window.__quietObs.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
+        }
         window.__quiet = { last: Date.now() };
-        const obs = new MutationObserver(() => { window.__quiet.last = Date.now(); });
-        obs.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
       });
       await page.waitForFunction((q) => !!window.__quiet && Date.now() - window.__quiet.last >= q, QUIET_MS, { timeout: asked });
     } catch (e) {
