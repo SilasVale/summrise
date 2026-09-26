@@ -443,6 +443,25 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       const r = el.getBoundingClientRect();
       return el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/)[0] : '') + ' right=' + Math.round(r.right) + ' w=' + Math.round(r.width);
     }))].slice(0, 8),
+  // WHAT SPILLS OUT OF ITS OWN BOX (round 27 of the standing goal). Round 25 gave the shell a 760px breakpoint so the
+  // document would reflow at 320px, and the rails SHRINK to 40px and 60px to make room. `#context-rail` has NO
+  // `overflow` declaration, so its default is `visible` and its content — session rows built for 244px — spills over
+  // the canvas instead of being clipped or scrolled. **NOTHING MEASURED THAT**: `overflowing` counts elements leaving
+  // the VIEWPORT, and spilled content stays inside it; `sideScrollers` counts elements that CAN scroll, and this one
+  // cannot. A box whose content is wider than the box, with no overflow of its own, is information drawn on top of
+  // something else — so it is named, with what it needs against what it was given.
+  spilling: [...new Set([...document.querySelectorAll(root + ' *')]
+    .filter((el) => {
+      const st = getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden') return false;
+      if (st.overflowX === 'auto' || st.overflowX === 'scroll' || st.overflowX === 'hidden' || st.overflowX === 'clip') return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
+    })
+    .map((el) => {
+      const r = el.getBoundingClientRect();
+      return el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/)[0] : '') + ' ' + Math.round(r.width) + '<' + el.scrollWidth;
+    }))].slice(0, 8),
 });
 }
 
@@ -1907,6 +1926,14 @@ export function judgeReport(report, opts = {}) {
     // which one it is (the panel's `#tabs` already carries `overflow-x: auto`, so the obvious guess was wrong).
     if (r.docScrollsSideways && (r.overflowing || []).length) {
       console.log(`note: the ${r.width}px overflow comes from — ${r.overflowing.join("; ")}`);
+    }
+    // AND WHAT SPILLS WITHOUT SCROLLING (round 27). Round 25's breakpoint shrank the rails to 40px and 60px so the
+    // document would reflow; `#context-rail` has no `overflow` of its own, so content built for 244px draws on top of
+    // the canvas instead. `overflowing` cannot see it (nothing leaves the viewport) and `sideScrollers` cannot either
+    // (it cannot scroll), so it is named here — a box whose content is wider than the box is information on top of
+    // something else, and 1.4.10 asks for no loss of information, not merely no sideways scroll.
+    if ((r.spilling || []).length) {
+      console.log(`note: content spilling out of its own box at ${r.width}px — ${r.spilling.join("; ")}`);
     }
   }
   const kept = [];
