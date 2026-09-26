@@ -35,6 +35,18 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 168 (cont.) — THE VERIFICATION OF THE FIX PRODUCED A FIFTH ARTEFACT, AND THE SAME CHECK CLEARED IT**: re-running the four
+probes after restoring the triggers gave `terminal backend 1`, `file-relay 1`, **`evidence drawer 0`** and `do not push while CI is
+running 0`. The second zero is CORRECT — that sentence lives in `ledger-mutations.md` now, which is where the block went and why the
+cross-reference was repointed. **The first zero is an artefact: the pointer writes "the evidence\n    drawer", wrapped across a line, and a
+grep for a two-word phrase finds nothing when the file breaks it.** `grep -c evidence` alone answers 1.
+
+**FIVE ARTEFACTS IN FOUR ROUNDS (146, 147, 161, 162, 166, 168), AND NOT ONE WAS A DEFECT.** They share one shape — an extractor asked for a
+form the file does not use: a route table's third comparison shape, a class inside a comment, a compound selector, a stem too short, a
+HEADING with backticks, a PHRASE across a line break. **The rule AGENTS.md carries says read the RULE, not the name; the file's own
+wrapping is the sixth thing it can hide behind, and a probe that spans a line is asking the file not to wrap.**
+
+
 ### round 168 — the pointer I wrote in round 167 had lost its TRIGGERS, which is a defect the skill names
 
 Round 167 moved two rules out of `## Test` and left a three-line pointer. The skill says exactly what that pointer has to do: "A pointer does
