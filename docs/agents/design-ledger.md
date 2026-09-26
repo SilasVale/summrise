@@ -35,6 +35,28 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 149, one line — THE GATE FOR ROUND 146'S CHECK IS THREE EDITS, AND THAT IS NOW MEASURED RATHER THAN ASSUMED**: the
+one-directional assertion is "every route the HTTP header NAMES must exist in the `Pattern` table" (the reverse is deliberately not
+asserted — round 147 made the header say `A SELECTION, NOT THE INVENTORY`). Adding it is NOT one file:
+
+```
+1. scripts/test/http-route-header-check.mjs      the check itself
+2. .github/workflows/ci.yml                      a line invoking it — because
+   scripts/test/all-gates.bash:50 extracts the gate list FROM ci.yml
+   (grep -ohE '(node|bash|python3) +scripts/test/…'), it does not discover files
+3. ci-command-table-check                        enforces that EVERY scripts/test file IS named in
+   ci.yml (its own comment at :53), so a file dropped in without the line fails that gate
+```
+
+**AND THE SIZES ARE WORTH THE LINE**: `ci.yml` names **52** gate commands and `scripts/test/` holds **48** `.mjs` files (the rest are
+`.bash` and `.py`). Those two numbers are why "just add a gate" is a three-place change in this repository — and why a round that
+dropped the file in without the other two would leave `ci-command-table-check` red, which is the mechanism working, not a nuisance.
+
+**IT IS SPECIFIED AND NOT BUILT**, deliberately: a gate needs BOTH directions proven (round 124 reverted one that failed on a clean
+tree), and this round has the mechanism and the sizes rather than the budget. **Two rounds, one candidate, and the second one starts
+from a measurement instead of a hypothesis** — which is the difference rounds 146-148 were about.
+
+
 **Round 148, one line — ROUND 147 IS VERIFIED AGAINST ALL SEVEN OF CI'S CARGO CHECKS, BY EXIT CODE**: a doc-comment change in
 `agent/src/web/mod.rs` still owes the whole set, because that file is compiled by every one of them. Round 147 ran three of the seven
 (`fmt --check`, `clippy --features terminal,keyring`, `xwin check`); this round ran the rest:
