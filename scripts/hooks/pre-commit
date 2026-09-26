@@ -80,31 +80,16 @@ if ! bash scripts/hooks/main-only-by-merge; then
   fail=1
 fi
 
-# A COMMIT THAT CHANGES ONLY AN ARCHIVE IS REFUSED (round 189; widened to all four archives in round 273). The archives record what
-# a round CHANGED; when a commit changes nothing but an archive, the round produced no change for it to record, and the cheapest
-# possible commit becomes the round's whole output. Measured before this rule existed: 18 of the last 30 commits touched
-# docs/agents/design-ledger.md and NOTHING else — and nothing objected, ever.
+# THE ARCHIVE-ONLY RULE WAS HERE, AND LANDING 4a DELETED IT ALONG WITH ITS SUBJECT. It refused a commit whose only staged
+# change was `docs/agents/design-ledger.md`, because the loop had spent thirty rounds appending prose to it and the cheapest
+# possible commit had become the round's whole output. **The operator retired that process, and the two narrative archives
+# are gone** — so the rule now guards nothing. It is removed rather than kept "in case", because a rule whose subject no
+# longer exists is a rule a reader has to work out is dead, and the exemption variable (`SUMMRISE_LEDGER_ONLY`) goes with
+# it so nobody sets a switch that does nothing.
 #
-# ROUND 273 WIDENED IT, AND CORRECTED THE SENTENCE THAT USED TO SIT HERE. It read "that file has no byte ceiling (457 KB) while its
-# two sibling archives are capped at 400,000". THE FIRST HALF IS FALSE: the ceiling existed all along, and the check that applies it
-# sat BELOW the only consumer of its result, so it could never fail — the gate printed `ok — … (457929 B of 400000)` and exited 0
-# with the ledger 57,929 bytes over. The second half is no longer true either: every archive now carries a FLOOR and a CEILING, and
-# there are four of them. Leaving the old one-file pattern would have made the NEW archive the new loophole, which is the same
-# failure this rule exists to close, one file over.
-#
-# THE EXEMPTION IS DELIBERATE AND VISIBLE, not silent: a correction to a wrong archive entry is a real thing to commit, so set
-#   SUMMRISE_LEDGER_ONLY=1 git commit ...
-# The variable is the record that a human chose it; there is no marker file to leave behind by accident.
-ARCHIVES='^docs/agents/(design-ledger|ledger-appendix|ledger-mutations|ledger-early-rounds)\.md$'
-staged_only=$(git diff --cached --name-only 2>/dev/null | grep -v '^$' || true)
-if [ -n "$staged_only" ] && [ "$(printf '%s\n' "$staged_only" | grep -vcE "$ARCHIVES")" = "0" ]; then
-  if [ "$SUMMRISE_LEDGER_ONLY" != "1" ]; then
-    echo "pre-commit: this commit changes ONLY ledger archives." >&2
-    echo "  An archive records what a round changed; a round that changed nothing has nothing to record." >&2
-    echo "  If this IS a correction to a wrong entry, say so deliberately:  SUMMRISE_LEDGER_ONLY=1 git commit ..." >&2
-    fail=1
-  fi
-fi
+# WHAT REPLACED IT, and it is a different kind of rule: `scripts/hooks/main-only-by-merge` below, and the CI gate beside it.
+# Work now reaches `main` through a branch, so there is no longer a cheap commit to refuse — there is no direct commit.
+
 # FIVE EMITTERS, AND NOW ALL FIVE ARE LISTED (round 272). The count in this comment has been wrong twice: it said four
 # while the landing and the live probe were checked only by CI, then said six after an extension emitter that no longer
 # exists was removed. The set is: panel, console, landing, the harness (`panel-render-audit.mjs`, whose success code in
