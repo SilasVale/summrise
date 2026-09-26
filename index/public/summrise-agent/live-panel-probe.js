@@ -163,7 +163,22 @@ const CONFIGS = P.configPaths;
     process.exit(1);
   }
   const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
-  const { page, close } = await acquireBrowser();
+  const { page, attached, close } = await acquireBrowser();
+  // ── THE OPERATOR'S SCREEN IS NOT A TEST FIXTURE (round 32 of the standing goal) ─────────────────────────────────
+  // This program NAVIGATES (`page.goto` below, once per density). `acquireBrowser()` attaches to the visible embedded
+  // view when the desktop app has one open, and that view is the SAME PAGE the operator is looking at — so running the
+  // documented probe with the desktop up drove their screen from under them, which is not a measurement anyone asked
+  // for. AGENTS.md already warns that navigating the attached view aborts (`net::ERR_ABORTED`); it does not say the
+  // navigation is THEIRS. The helper reports which arm it took, so this refuses rather than guesses: close the desktop
+  // view and the same command takes the private-headless arm and works.
+  if (attached) {
+    console.log(JSON.stringify({
+      error: 'the browser helper ATTACHED to the visible view, which is the operator\'s own screen, and this probe navigates',
+      fix: 'close the desktop app\'s browser view so the helper takes the private-headless arm, then re-run',
+    }));
+    await close();
+    process.exit(2);
+  }
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 120)));
   const out = { configAt: where, densities: {} };
