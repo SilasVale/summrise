@@ -31,7 +31,7 @@
 #   THEN A HUMAN — this is where the command ends. Commit the two tracked files, push, WAIT
 #   for CI to go green on that commit, tag through the API, let release.yml attach the
 #   asset, then `--audit-only <ver>` to settle the debt. Every one of those orderings was
-#   paid for by a failed release; the transcripts are in docs/agents/design-ledger.md.
+#   paid for by a failed release; the transcripts are in the commit messages, which is where a decision lives now.
 #      Every SOURCE-DERIVED file must match byte-for-byte; only summrise-agent.exe
 #      may differ, because the two builders do not share a toolchain (local
 #      rustc stable + hand-built llvm18 vs release.yml's floating stable +

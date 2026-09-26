@@ -155,7 +155,7 @@ x86_64-pc-windows-msvc --features terminal,keyring` exit 0 · npm package `npm t
 
 | Left alone | Why |
 |---|---|
-| `docs/agents/design-ledger.md`, `docs/agents/ideas.md` | Those rounds happened while the project was called Vale. Mechanically replacing the name would erase the fact, and a rewritten record is not a record. |
+| `docs/agents/ideas.md`, and the commit history before the rename | Those rounds happened while the project was called Vale. Mechanically replacing the name would erase the fact, and a rewritten record is not a record. (This row named `docs/agents/design-ledger.md` until landing 4a retired it; the rounds it cited are in `git log`.) |
 | `.superpowers/sdd/*.diff`, `task-7-report.md` | A diff is a diff *of a commit*: editing one changes its content while its hashes still point at the original. Rewriting cryptographically pinned history is corruption, not tidying. |
 | `agent/deploy/retired/*` | Retired installers, kept as the record of what was shipped. |
 | The ~60 published `*.tgz` in the repo | Their sha256 is recorded in the CDN manifest; renaming a file changes its identity and would break the audit forever. |
@@ -251,7 +251,7 @@ two releases that followed it.
 | **One known drift, recorded rather than papered over** | d1's `components\cloudflared.exe` is **cloudflared 2026.9.0**, sha256 `54705732…` — copied BY HAND from the old install during the migration, so it was never checked against anything. The route and the agent's own pin both say **2026.8.3**, `83e726ed…`, which is what a fresh install fetches and verifies. The agent verifies only what it DOWNLOADS, so the hand-copied binary keeps running. Either re-sync the device from the route (a downgrade) or move the pin deliberately — Rust pin, R2 object and `index/components.json` in ONE commit |
 
 **Two things this cycle found in production, both fixed and verified the same day** (the long form is
-in `docs/agents/design-ledger.md`): the rename's new worker had **no secrets** — so the relay's upload
+in the commit that made it): the rename's new worker had **no secrets** — so the relay's upload
 leg answered 401 to the gateway's real key for a day — and `summrise-playwright.zip` was in neither
 bucket, so that route had answered 502 for the same day. Neither was visible from inside: every device
 already had the components expanded locally.

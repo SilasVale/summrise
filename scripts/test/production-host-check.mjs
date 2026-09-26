@@ -49,8 +49,10 @@ const ALLOWED = [
   // `docs/agents/inventory.md` WAS HERE UNTIL ITS ONE MENTION WAS REWORDED (round 47). The entry is gone rather than
   // kept for a file that no longer needs it: an allowance that matches nothing is a stale debt, and the gate will say
   // so the moment the file mentions a host again. The list may only shrink — this is it shrinking.
-  ["docs/agents/design-ledger.md", "the long form's record of this decision"],
-  // THE FIRST TIME THIS LIST WENT UP, AND THE TWO GATES THAT FORCED IT (round 273). `ledger-budget-check.mjs` now ENFORCES a
+  // `docs/agents/design-ledger.md` AND `ledger-early-rounds.md` WERE HERE UNTIL LANDING 4a DELETED THEM, and this is
+  // the list SHRINKING — which is what its own rule demands. The round-narrative process they carried is retired; the
+  // mutation table and the appendix remain, and neither names a host.
+  // THE ONE TIME THIS LIST WENT UP, AND THE TWO GATES THAT FORCED IT (round 273) — IT HAS SINCE COME DOWN TWICE. `ledger-budget-check.mjs` now ENFORCES a
   // 400,000-byte ceiling that this ledger had crossed, so 134 KB of early rounds had to move somewhere; and THIS gate counts
   // FILES while the debt it tracks is really OCCURRENCES, so a file being SPLIT reads here as the debt growing. IT DID NOT
   // GROW, and the gate prints both numbers: **407 occurrences in 111 files before the split and 407 in 111 after it** — the
@@ -58,7 +60,6 @@ const ALLOWED = [
   // satisfy a ratchet, which is the tail wagging the dog, or to name the new file so that a WIDENED PREFIX covered it — which
   // is the same growth with the evidence hidden, and is exactly what this ratchet exists to prevent. So the constant below
   // goes up once, visibly, and the reason is written here rather than inferred.
-  ["docs/agents/ledger-early-rounds.md", "the SAME record, in the file the round-273 ceiling split moved it to"],
   // ── the agent's own runtime defaults and the config it ships with ──
   ["agent/config.yaml", "the embedded config a fresh install starts from: the update channel and console URL"],
   ["agent/src/bootstrap.rs", "the embedded-config default and the tests that pin what a fresh install gets"],
@@ -96,6 +97,10 @@ const ALLOWED = [
   ["agent/resources/panel-react/src", "panel fixtures and tests that render device rows"],
 ];
 
+// AND IT HAS NOW SHRUNK TWICE: 43 -> 41 in landing 4a, when the two ledger archives it had been raised for were DELETED.
+// The rule below is the one that made that a required edit rather than a tidy-up — a ratchet that only notices growth
+// would have let the list keep two allowances for files that no longer exist.
+//
 // THE LIST MAY ONLY SHRINK, AND THAT SENTENCE HAD NO GATE (round 155). It was written twice in this file and nothing enforced
 // it: adding an entry passed silently, which is a debt that could grow while the comment claimed otherwise. The ratchet is
 // the sentence made mechanical — it goes DOWN whenever an entry leaves, and UP only in a commit that says why, which is what
@@ -105,7 +110,7 @@ const ALLOWED = [
 // ledger's 400,000-byte ceiling, the ledger was over it, and the split that fixed that added a FILE — while the debt this
 // list tracks is OCCURRENCES. Two gates, one counting files and one counting bytes, and the ledger cannot satisfy both
 // without this constant moving.
-const MAX_ALLOWED = 43;
+const MAX_ALLOWED = 41;
 if (ALLOWED.length > MAX_ALLOWED) {
   console.error(
     `production-host: the declared list GREW to ${ALLOWED.length} from ${MAX_ALLOWED}. This list is a debt with owners, not ` +

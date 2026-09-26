@@ -48,7 +48,7 @@ The install dir is registry-first (`HKLM\SOFTWARE\Summrise\Agent\InstallDir`); a
 | `proxies/` | **Satellite proxies** | Cloudflare Worker + Oracle VPS (vrelay) | zen-go / zen-us AI egress + api-relay (`./scripts/build.sh proxies|api-relay`) |
 | `brand/` | **Brand assets** | static (satellite) | sunrise favicon / icon source (no build) |
 | `scripts/` | build/release | shell | unified build/publish entry (`build.sh`, `publish-release.sh`) |
-| `docs/` | docs | — | the operator's charter (`docs/CHARTER.md`), the agent inbox (`docs/agents/ideas.md`) and the round-by-round design ledger (`docs/agents/design-ledger.md`). The ADR and research trees this row used to name were pruned; the ledger carries what they recorded |
+| `docs/` | docs | — | the operator's charter (`docs/CHARTER.md`), the agent inbox (`docs/agents/ideas.md`) and the two reference tables (`docs/agents/ledger-mutations.md`, `docs/agents/ledger-appendix.md`). The ADR, research and ledger trees this row used to name were pruned or retired; **the commit messages carry what they recorded**, which is where a decision lives now |
 
 ## Build & deploy
 
@@ -67,7 +67,7 @@ The install dir is registry-first (`HKLM\SOFTWARE\Summrise\Agent\InstallDir`); a
 ./scripts/publish-release.sh 1.2.N
 ```
 
-See `AGENTS.md` (build, tests, the proven-gate table, release) and `agent/AGENTS.md` (the Rust-side guide). `gateway/DEVICE-INTEGRATION.md` is a superseded 2026-08 design, kept for the device/wire history; the desktop core's design notes were pruned, and `docs/agents/design-ledger.md` is where those decisions were re-measured.
+See `AGENTS.md` (build, tests, the proven-gate table, release) and `agent/AGENTS.md` (the Rust-side guide). `gateway/DEVICE-INTEGRATION.md` is a superseded 2026-08 design, kept for the device/wire history; and the desktop core's design notes were pruned. `CONTEXT.md` is the glossary; the decisions are in the commit that made them.
 
 ## Core design
 

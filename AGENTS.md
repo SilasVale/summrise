@@ -19,7 +19,7 @@ cargo xwin check --target x86_64-pc-windows-msvc --features terminal,keyring   #
 follow-up work.** After creating or renaming a worker: `wrangler secret list --name <worker>`
 must not be `[]`, and every object its routes read must be in the bucket it binds. The rename
 that skipped both left the file relay's upload leg answering 401 and the playwright route 502,
-invisible for a day. The measurements are in the ledger.
+invisible for a day. The measurements are in that commit's message, which is where a decision now lives.
 
 Panel-first: `panel.js` is embedded with `include_str!`, so a change under
 `agent/resources/panel-react/` needs `npm run build` there (or `build.sh agent`, which does it).
@@ -39,7 +39,7 @@ Green tests are the bar for a release.
 
 **AND RUN THE COMMAND THE OTHER END RUNS.** A local check that is not CI's check is not the same check —
 `gateway/ui` passed a local `tsc --noEmit` carrying six type errors, because the `ui` job runs `npm run build`
-instead. The story is in the ledger; the commands, by working directory:
+instead. The commands, by working directory:
 
 | where | CI runs | and NOT |
 |---|---|---|
@@ -65,7 +65,7 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 | `npx vitest run` in `panel-react/` | `Tests  N passed` |
 
 `exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
-"the suite did not run" and re-running it another way. The reporter table is what prevents that; the story is in the ledger.)
+"the suite did not run" and re-running it another way. The reporter table is what prevents that.)
 
 **TWO RULES ABOUT WHAT NOTHING RUNS — READ THEM BEFORE YOU TRUST A GREEN OR A RED.**
 Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROVEN to bite":
@@ -76,8 +76,6 @@ Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROV
   * **A CI job is red and you did not expect it to be** — a CANCELLED job (any push while a run is in flight) reports
     `conclusion: failure`, **indistinguishable from a real one in a count**; the rule is the log line that tells them apart.
 
-`docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45), and its index resolves a section title
-across all four archives it points at — so start there, never at a filename.
 
 **`main` ADVANCES ONLY BY MERGE** — four artifacts, and each one covers a way the others cannot:
 
@@ -108,6 +106,13 @@ bites and non-bites, and the rule about reading a RULE instead of a name.
 **Read it when you are about to TRUST a gate, when you are about to ADD one, and when a finding says something is unused and
 you are about to DELETE it.**
 
+**AND FOUR GATES WERE DOCUMENTED *ONLY* IN THE LEDGER, WHICH IS WHY THEY ARE NAMED HERE NOW.** Deleting it turned
+`numbered-claims-check` red with `proxy-cors-parity-check`, `proxy-timeout-parity-check`, `panel-mock-spread-check` and
+`custom-prop-check` — gates the census could not find anywhere an operator reads, because a round narrative was their only
+mention. That is the ledger's own recorded failure mode arriving from the other side (*"they were reachable ONLY through
+it"*), and the fix is the one this section already prescribes: **a gate is named where a person can find it, or it is a gate
+nobody can run by hand.**
+
 ## The vocabulary
 
 **`CONTEXT.md` at the root is this project's GLOSSARY** — the words that mean something specific here (device, session, run,
@@ -115,23 +120,31 @@ goal, liveness, mark) and the words that do not, each with an `_Avoid_` list. Re
 the console or a tool description; two surfaces disagreeing about a word is how `Trajectory` and `Path` came to look like
 two names for one screen. It holds TERMS ONLY — an invariant belongs in the gate that enforces it.
 
-## The design ledger
+## Where the long form lives
 
-THE LONG FORM LIVES IN `docs/agents/design-ledger.md` — one section per round: what was measured, what it cost, and
-what was learned. **IT IS ONE OF FOUR ARCHIVES, AND ITS INDEX IS THE ONLY ENTRY POINT YOU NEED**: the index resolves a
-section title across all four — `design-ledger.md` (the recent rounds and the exploration series),
-`ledger-early-rounds.md` (rounds 54-162), `ledger-appendix.md` (the lookup tables) and `ledger-mutations.md` (the gate
-table). (It lives there because an instruction file that cannot be read whole is worse than a short one; the split is
-round 67's, the fourth archive is round 273's — and that round exists because the ceiling meant to prevent the split
-from ever being needed had been sitting below the only consumer of its own result, so it could not fail.)
+**THERE IS NO LEDGER, AND THIS IS THE SECTION THAT USED TO DESCRIBE ONE.** Until landing 4a this file pointed at
+`docs/agents/design-ledger.md` — one `##` section per round, what was measured and what it cost — plus three sibling
+archives, 865 KB in all. **The operator retired that process**, because the loop's output had drifted into prose ABOUT the
+work rather than the work, and the measurement that settled it is stark: **18 of the last 30 commits touched the ledger and
+nothing else.**
 
-READ IT WHEN you are about to re-measure something, want the story behind a rule here, or wonder whether a failure has
-happened before. The numbers for contrast, silhouettes, the loud axis, idle repaint, the press passes and the wire
-contracts are all in there, with the mistakes that produced them.
+| where a thing goes now | what belongs there |
+|---|---|
+| **the commit message** | the measurement, the before/after, and the `VERIFIED:` line. This repository's commit bodies already carry them — they are the strongest artifact here, and they are now the record |
+| **`CONTEXT.md`** | a WORD and what it means. Terms only |
+| **`docs/agents/ledger-mutations.md`** | which mutation must break which gate. A reference table, not a journal — and landing 4b moves its rows into the gates they name |
+| **`docs/agents/ledger-appendix.md`** | prior findings, for "has this failed before?" |
+| **the gate itself** | any invariant that can be checked. If a sentence can be enforced, enforce it instead of writing it down |
 
-What stays HERE: how to build, how to test, which mutation each gate must fail, how to commit, how to release, and
-where the code lives. If a sentence does not change what you would DO, it belongs in the ledger — and a round that
-learned something new adds a section THERE, not here.
+**`scripts/test/docs-budget-check.mjs` IS THE GATE THAT HOLDS ALL OF THIS UP** — renamed in landing 4a from
+`ledger-budget-check`, because a gate called `ledger-budget-check` that no longer budgets a ledger is a name that lies. It
+enforces this file's 48,000-byte ceiling, refuses a narrative `###` section growing back into it, caps `CONTEXT.md` at 12,000
+bytes ("a glossary that grows into a rulebook has stopped being a glossary"), and keeps the two reference tables inside their
+own floors and ceilings.
+
+**AND THE RULE THAT REPLACED THE PROTOCOL IS THE ONE THIS FILE HAS ALWAYS CARRIED**: if a sentence does not change what you
+would DO, it does not belong in an instruction file — and it no longer has a ledger to hide in. What was 865 KB of narrative is now
+`git log`, which had it in more detail all along.
 
 ## Committing
 
@@ -139,7 +152,7 @@ learned something new adds a section THERE, not here.
 It used to guard the backtick-in-a-template-literal accident — **and that class is gone**: all five emitters now hand
 their payload to `agent/scripts/lib/sweep-bundle.mjs`, which resolves the payload's own requires and COMPILES what it
 returns. (The incident count was quoted as 52 here, 34 in the hook and 38 in the operator's inbox; the three never
-agreed, and they are history — the ledger holds the incidents.) What the hook still buys is the only end-to-end
+agreed, and they are history.) What the hook still buys is the only end-to-end
 assembly of all five artifacts in under a second: a payload module that does not parse, a require the assembler cannot
 resolve, or an emitter that was renamed or deleted fails at the commit instead of in the design job.
 
@@ -154,8 +167,7 @@ one records what is installed; what it never recorded is that the hook resolved 
 archive rule, nothing. **AND THE PROOF OFFERED FOR IT COULD NOT HAVE CAUGHT THAT**: "an empty commit and watching it run" — a commit
 that SUCCEEDS looks exactly like a hook that ran and passed. **The only proof of a check is watching it REFUSE something.**
 `scripts/test/hook-finds-its-repo.bash` now invokes the hook the way git does and fails if it takes the inert path; it caught the old
-form on the first run. The story of what the absence cost is in the ledger under
-"THE 46TH BACKTICK REACHED A COMMIT", and round 117's own push through a red gate is why it is no longer a habit.
+form on the first run.
 
 TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
 
@@ -295,7 +307,7 @@ git push origin main          # CI green on the pushed commit
 #    dual-builder audit then refuses — correctly. So: push, WAIT for that commit's CI to
 #    go green, then tag it; and if CI must go green again for an already-published
 #    version, put an EMPTY commit on the release commit (`git commit --allow-empty`) —
-#    the tree is unchanged, so the asset matches what shipped. Transcripts: the ledger.
+#    the tree is unchanged, so the asset matches what shipped.
 #    AND DO NOT PUSH ANYTHING WHILE A RELEASE COMMIT'S CI IS RUNNING. A push supersedes it,
 #    GitHub cancels the run, and the tag then has no green CI to point at — twice on
 #    2026-09-23 (94cb06fd and fe29a24d), both times because the next piece of work was
