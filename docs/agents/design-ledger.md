@@ -35,6 +35,44 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 176 — the candidate that needed a judgement gets one, and the judgement is DON'T PATCH A VENDORED FILE
+
+Round 175 left four skills the model may invoke and the router does not send a human to, and recorded that it needed "an opinion rather
+than a measurement". **The opinion is derivable from the router's own structure, so it was read rather than guessed:**
+
+```
+# Ask Matt
+## The main flow: idea → ship        the SPINE (idea to ship)
+## On-ramps                          entry points
+## Codebase health
+## Vocabulary underneath
+## Phase boundaries
+## Standalone                        skills used ALONE, outside the flow
+## Precondition                      "run BEFORE your first engineering flow to configure ..."
+```
+
+**AND THE FOUR SPLIT CLEANLY UNDER THAT MODEL:**
+
+| the skill | what the router's own sections say it is |
+|---|---|
+| `setup-pre-commit` | a **precondition** — the router's `## Precondition` literally reads "run before your first engineering flow to configure ..." and names exactly ONE skill while two more of that shape exist |
+| `git-guardrails-claude-code` | the same shape: hooks installed once, before work |
+| `migrate-to-shoehorn` | task-shaped — `## Standalone` territory, and the author is entitled to leave it out |
+| `scaffold-exercises` | task-shaped, same |
+
+**SO THERE IS A REAL OMISSION, AND IT IS TWO SKILLS UNDER A HEADING THAT ALREADY EXISTS FOR THEM.**
+
+**AND THE DECISION IS NOT TO MAKE THE EDIT, BECAUSE `.agents/skills/` IS NOT THIS REPOSITORY'S CONTENT**: it is a packaged third-party
+skill library — `setup-matt-pocock-skills` exists to "configure this repo for the engineering skills", and every skill carries its own
+`agents/openai.yaml` manifest, which is a portable pack rather than a local folder. **Patching a vendored file for a two-line improvement
+costs a divergence from upstream and a merge burden on every future sync**, and the finding belongs in the pack's own tracker where its
+author can weigh it.
+
+**THIS IS THE SAME SHAPE AS ROUND 144'S OWED DEPLOY AND ROUND 161'S FOUR CSS RULES: the round that ends without an edit is not the round
+that found nothing — it is the round that decided the edit was not its to make**, and wrote down why with enough evidence for the next
+reader to disagree.
+
+
 ### round 175 — the router and the catalog are two lists for two AUDIENCES, and their difference is the point
 
 `ask-matt` is 11,403 B and its description calls it "a router over the skills in this repo" — so a router names its targets, and a router
