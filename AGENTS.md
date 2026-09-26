@@ -67,29 +67,9 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 `exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
 "the suite did not run" and re-running it another way. The reporter table is what prevents that; the story is in the ledger.)
 
-**SEVEN OF THE NINE E2E SECTIONS RUN NOWHERE — SO RUN THEM WHEN YOU TOUCH WHAT THEY COVER.** `agent/scripts/e2e/e2e.js`
-declares nine sections and CI runs two of them (`--only governance,runs`); the other seven — terminal, file, workflow,
-panel, mcp, evidence, browser — need a real device, so no schedule and no CI job can carry them. The inventory measured
-that gap (§5.8) and the missing half was a CADENCE: a section that nothing runs and nobody is told to run is a section
-that rots silently. **AND THE FIRST VERSION OF THIS SENTENCE WAS FALSE — FOLLOWING IT IS WHAT PROVED IT.** It said to run
-`node agent/scripts/e2e/e2e.js --only <section>` ON THE DEVICE, and the device answered
-`Cannot find module 'D:\Summrise\agent\scripts\e2e\e2e.js'`: that is a REPOSITORY path, and an installed device has the
-product, not the repo. The script's own header says what it needs — `node e2e.js --token <agent-token> [--base
-http://127.0.0.1:18080]`, and CI runs it against an agent it launches itself. So the cadence is: after changing a
-terminal backend, a file-relay path, a workflow step, the panel's wiring, the MCP surface, the evidence drawer or the
-browser/playwright door, GET THE SCRIPT ONTO THE DEVICE the way `live-panel-probe.mjs` is handed over (emit to the CDN's
-public dir, let the device fetch it, or `system_file_download`), then run its section there with the device's own
-`--token` and `--base`, and say in the commit what it reported. It is the only instrument in this repository that
-exercises those paths end to end, and the one instrument no gate can remind you about. It is the only instrument in
-this repository that exercises those paths end to end, and it is the one instrument no gate can remind you about.
-
-**AND A CANCELLED JOB IS REPORTED AS A FAILURE — THE COUNT IS A SUMMARY, THE LOG IS THE MEASUREMENT.**
-Superseding a run (any push while it is in flight) leaves its in-progress jobs at `conclusion: failure` in
-`check-runs`, **indistinguishable from real ones in a count**: five of eleven read as failed and the tree was
-fine. The log tells them apart in one look — a cancelled job ends in cleanup (`Terminate orphan process: pid
-(…) (cargo)`) with NO error text, no `error[E…]`, no `FAILED`. Measured three times (twice on 2026-09-23, then
-rounds 30 and 45); the third time cost a round spent diagnosing a red that was never there, which is why the
-rule above is "do not push while CI is running" and not just "wait before releasing".
+**TWO RULES ABOUT WHAT NOTHING RUNS — the e2e sections that no schedule carries, and cancelled jobs that read as failures —
+are in `docs/agents/ledger-mutations.md`** under "Which gates have been PROVEN to bite": both are about how to READ a result
+rather than about running one here. `docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45).
 
 ### Which gates have been PROVEN to bite
 

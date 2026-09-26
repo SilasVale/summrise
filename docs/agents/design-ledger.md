@@ -35,6 +35,29 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 167 — the two rule paragraphs that name no gate leave `## Test`, and AGENTS.md is 21.7% smaller than round 165 found it
+
+Round 165 measured `## Test` as the largest section in `AGENTS.md` (10,250 B, ten bolded rules) and the clearest disclosure case — "the
+section a reader opens for ONE of them". Two of those rules name no `scripts/test/` gate, so `ci-command-table-check` does not reach them:
+**the e2e cadence** (seven of nine sections run nowhere) and **the cancelled-job rule** (a cancelled job reads as a failure). Both moved to
+`docs/agents/ledger-mutations.md`, with a pointer naming both and the ledger rounds that hold their stories.
+
+```
+round 165 measured : 30,110 B   (26,082 B of it REFERENCE = 87%)
+round 166 moved    :  5,067 B   the gates section, which said it belonged in the ledger
+round 167 moved    :  2,467 B   two rules about how to READ a result
+AGENTS.md now      : 23,559 B   a 21.7% reduction, with five gates green at every step
+```
+
+**AND THE DISCIPLINE THAT MADE IT SAFE IS THE ONE ROUND 145 WROTE DOWN**: each move ran its five affected gates **in the same command**, with
+an automatic revert on the first red — so a disclosure that broke `ci-command-table-check` (the gate that requires every `scripts/test/`
+command be NAMED in `AGENTS.md`, and the reason the CI table could not go) would have been undone before it could be committed. **None did.**
+
+**WHAT STAYS, AND WHY**: the commands, the per-directory CI table, the reporter table, and the four rule blocks that name a gate. **The test
+is the skill's own — "inline what every branch needs, and push behind a pointer what only some branches reach" — and it is visible in the
+result: what left is material a reader needs for ONE of the rules; what stayed is the material every one of them is reached through.**
+
+
 **Round 166 (cont.) — AND THE VERIFICATION OF THE MOVE PRODUCED A FOURTH ARTEFACT**: the check that the moved material arrived
 searched for `powershell-structure-check IS PROVEN` and reported **FALSE IN BOTH FILES**, which reads as content lost in the move. **The
 file spells it `**`powershell-structure-check` IS PROVEN BY THREE AUTOMATED BITES**` — with backticks around the gate name — and the probe
