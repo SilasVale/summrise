@@ -5545,6 +5545,23 @@ button.dtab-close:hover { opacity: 1; }
 }
 #conn-form button:hover { background: var(--accent-ink); }
 
+/* ── THE SHELL REFLOWS BELOW THIS WIDTH (round 25 of the standing goal) ──────────────────────────────────────────
+   320px IS THE VIEWPORT WCAG 1.4.10 NAMES (400% zoom on a 1280 viewport), and until this rule the panel could not
+   reach it: `#icon-rail` was `flex: 0 0 52px` and `#context-rail` `flex: 0 0 244px` — both FIXED — so a 320px viewport
+   left the canvas 24px for a top bar whose own minimum is the 189px view switch. 52 + 244 + 189 is exactly where the
+   reflow probe found the widening elements (right=497), and the sheet had NO width-based media query at all.
+
+   THE RAILS GIVE UP THE WIDTH, NOT THE TOP BAR. `.view-switch-btn` carries its own 2.5.8 note — the compact density
+   has no room for spacing, so the TARGET grows to the 24px minimum — which makes the top bar's ~189px load-bearing
+   for a criterion this suite enforces. Shrinking it to win the reflow would trade 1.4.10 for 2.5.8, so the rails
+   shrink instead: 40 + 60 leaves the canvas 220px at a 320px viewport, which is the 189px row plus its 20px of
+   padding with 11px to spare. Both keep `min-width: 0` so their own content clips rather than pushing the shell. */
+@media (max-width: 760px) {
+  #icon-rail { flex: 0 1 40px; min-width: 0; }
+  #context-rail { flex: 0 1 60px; min-width: 0; }
+  #canvas-top { padding: 6px 6px; }
+}
+
 
 /* ============ desktop.css ============ */
 /* ============================================================
