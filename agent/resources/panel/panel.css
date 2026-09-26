@@ -5560,7 +5560,20 @@ button.dtab-close:hover { opacity: 1; }
    AND THE TOP BAR'S PADDING IS DELIBERATELY NOT OVERRIDDEN HERE. The first version of this rule set `padding: 6px 6px`
    to buy eight more pixels, and `spacing-scale-check` refused it: the scale is [0,2,4,8,12,16,24], `padding` IS
    scanned, and two off-scale literals took the panel's count from 299 to 301 — a gate that exists so the panel's
-   spacing cannot drift one declaration at a time. The eleven pixels of slack are enough without it. */
+   spacing cannot drift one declaration at a time. The eleven pixels of slack are enough without it.
+
+   ── AND NO SHRINK CAN SATISFY BOTH CRITERIA — THE ARITHMETIC CLOSES IT (round 31 of the standing goal) ──────────
+   The reflow probe measures two kinds of loss now, and this rule trades one for the other rather than removing it.
+   Measured at 320px: the rail is 61px wide and its content needs 140 (`div.side-header 60<140`, `div.side-row 48<54`),
+   so it SPILLS — content drawn over the canvas. Widening the rail to 140 is the obvious cure and it does not fit:
+
+       40 (icon rail) + 140 (a rail that fits its content) + 189 (the top bar's 2.5.8 minimum) = 369 > 320
+
+   Forty-nine pixels over. So the shell cannot hold a usable context rail AND a 2.5.8-compliant top bar at a 320px
+   viewport, and shrinking anything further only chooses which of the two loses. **THE RAIL HAS TO LEAVE THE FLOW** — an
+   overlay or a drawer, which keeps its content reachable and its width intact, and which needs a control so a keyboard
+   or touch user can open it. That is a design decision and a component change, not another number in this media query,
+   and it is why the spill is still 5-7 elements rather than fixed. */
 @media (max-width: 760px) {
   #icon-rail { flex: 0 1 40px; min-width: 0; }
   #context-rail { flex: 0 1 60px; min-width: 0; }
