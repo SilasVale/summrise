@@ -1106,17 +1106,22 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    // ── THE TWO SETTLES IN THIS PASS STAY CLOCKS, AND THE REASON IS THE CHECK RATHER THAN THE PAGE ────────────────
-    // Every other settle in this file is covered by the equivalence this change was accepted on: one that fires early
-    // drops surfaces, names or a rail page, and the report's counts move. THIS pass's numbers are not in those counts —
-    // `MOTION` reads computed `transitionDuration` and `animationName`, so a page measured slightly too early reports
-    // FEWER animations, and nothing in `{rows, surfaces, names}` would say so. Until the motion axis has its own floor
-    // in the judge, a condition here would be a change nobody could falsify. The two clocks cost 2.4s and 3.2s.
-    await page.waitForTimeout(1600);
+    // ── THE LAST TWO CLOCKS IN THIS FILE, AND WHY THEY COULD NOT BE CONVERTED UNTIL NOW ───────────────────────────
+    // Every other settle is covered by an equivalence the counts can see: one that fires early drops surfaces, names
+    // or a rail page, and `{rows, surfaces, names}` moves. THIS pass's numbers are not in those three — `MOTION` reads
+    // computed `transitionDuration` and `animationName`, so a page measured slightly early reports FEWER animations and
+    // nothing in the counts would say so. That is what kept them clocks through three rounds of conversions.
+    //
+    // ROUND 10 GAVE EVERY AXIS ITS OWN LINE FOR EXACTLY THIS, and the motion numbers are `panel:13->0 desktop:11->0`.
+    // A settle that fires early moves them, so the change is falsifiable now — which is the whole test, and the reason
+    // the conversion waited for the instrument rather than the other way round. (The claim written here before, that
+    // the axis "has no floor in the judge", was WRONG: round 134 fails `normal === 0` with "the check found nothing to
+    // suppress". What was missing was the NUMBER a reader can compare, not the floor.)
+    await settle(1600);
     const normal = await page.evaluate(MOTION);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(1200);
+    await settle(1200);
     const reduced = await page.evaluate(MOTION);
     report.motion.push({
       density,
