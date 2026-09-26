@@ -151,6 +151,17 @@ function judge(file) {
     for (const u of t.distinct || []) {
       if (!u.passesBySpacing) findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
     }
+    // THE SECOND HALF, COUNTED HERE AND ENFORCED ON THE PANEL (round 19) — see console-design-sweep.mjs for the full
+    // reason. Three judges, one criterion, and only one of them was strengthened in round 17; the probe computes
+    // `passesByFullRule` for every sweep, so this report already carries the answer.
+    const wouldFail = (t.distinct || []).filter((u) => u.passesBySpacing && u.passesByFullRule === false);
+    if (wouldFail.length) {
+      const worst = wouldFail.slice().sort((a, b) => (a.gapToBox ?? 99) - (b.gapToBox ?? 99))[0];
+      console.log(
+        `note: target size (${t.page}): ${wouldFail.length} of ${(t.distinct || []).length} undersized target(s) pass on CENTRE distance alone — ` +
+          `worst ${worst.sel} is ${worst.w}x${worst.h} with its centre ${worst.gapToBox}px from ${worst.nearSel} (${worst.nearW}x${worst.nearH}).`,
+      );
+    }
   }
   const check = report.entryCheck || {};
   if (check.stale) findings.push(`the delivered entry is ${check.bytes} bytes / sha ${check.sha} but this sweep was emitted against ${check.expected && check.expected.bytes} / ${check.expected && check.expected.sha} — every measurement below is of a stale build`);

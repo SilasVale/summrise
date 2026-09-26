@@ -162,6 +162,21 @@ function judge(file) {
         findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
       }
     }
+    // ── THE SECOND HALF OF THE SPACING CLAUSE IS MEASURED HERE AND ENFORCED ON THE PANEL (round 19) ─────────────
+    // The criterion lives in THREE judges — panel, console, landing — and round 17 strengthened ONE of them:
+    // `passesBySpacing` is centre-to-centre, which is wrong against a LARGE neighbour, where the circle has to clear
+    // that neighbour's BOX. The probe has computed `passesByFullRule` and `insideSel` for every sweep since round 17,
+    // so this sweep's report already carries the answer and only its judge never looked. Counted before it is
+    // enforced, for the reason rounds 16-17 paid for twice: a criterion nobody has counted arrives as a surprise.
+    const wouldFail = (t.distinct || []).filter((u) => u.passesBySpacing && u.passesByFullRule === false);
+    if (wouldFail.length) {
+      const worst = wouldFail.slice().sort((a, b) => (a.gapToBox ?? 99) - (b.gapToBox ?? 99))[0];
+      console.log(
+        `note: target size (${t.page}): ${wouldFail.length} of ${(t.distinct || []).length} undersized target(s) pass on CENTRE distance alone — ` +
+          `worst ${worst.sel} is ${worst.w}x${worst.h} with its centre ${worst.gapToBox}px from ${worst.nearSel} (${worst.nearW}x${worst.nearH}). ` +
+          `The PANEL enforces this half; this sweep does not yet.`,
+      );
+    }
   }
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}${r.width ? "@" + r.width + "px" : ""} ${r.sel} "${String(r.text).slice(0, 24)}"`);
