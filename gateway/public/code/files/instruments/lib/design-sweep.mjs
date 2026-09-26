@@ -481,6 +481,7 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       // ONE OF THEM UNREACHABLE CONTENT**: the terminal measured `198<250` at 320px, and the grid behind it was
       // FITTED — 29 columns at a 6.21px cell is 180px inside a 198px container — so the 250 belonged to xterm's
       // helper layer, not to the screen. A false positive here sends the next reader to fix a terminal that is fine.
+      if (el.querySelector && el.querySelector('.xterm-helpers, .xterm-char-measure-element')) return false;
     })
     .map((el) => {
       const r = el.getBoundingClientRect();
@@ -536,7 +537,15 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
       // AND XTERM'S LAYERS ARE EXCLUDED HERE TOO, for the reason written on `spilling` above: they are off-screen by
       // design and hold no readable content, so calling one "content with no way to reach it" is the instrument lying.
+      //
+      // **AND SO IS THE CONTAINER THAT HOLDS THEM, WHICH THE FIRST VERSION MISSED** (measured: the exclusion landed and
+      // the terminal was STILL reported). The element named is `div.terminal xterm …` — the CONTAINER, not a helper —
+      // and `scrollWidth` on a box counts its overflowing DESCENDANTS, so the off-screen layer inside it inflated the
+      // container's own number to 250 while its visible content measured 180 in a 198 box. A false positive one level
+      // up is still a false positive: the grid was FITTED (29 columns × 6.21px), so nothing a reader can see is
+      // unreachable here.
       if (/xterm-helpers|xterm-char-measure-element/.test(el.className || '')) return false;
+      if (el.querySelector && el.querySelector('.xterm-helpers, .xterm-char-measure-element')) return false;
     })
     .map((el) => {
       const r = el.getBoundingClientRect();
