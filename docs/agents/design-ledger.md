@@ -64,6 +64,48 @@ and a comment*: an instruction that cannot be carried out as written is worse th
 that anchor, and the case's own comment predicted it in 2026-09-24: **an anchor that silently rots is a gate that silently stops
 being proven.** The second re-pair cost one line, because the first one wrote the reason down.
 
+**AND THEN THE PUSH CAME BACK `failure`, AND CI HAD BEEN DEAD FOR THIRTY-FIVE COMMITS.** The run had **zero jobs** and its
+`created_at` equalled its `updated_at` — a run that never started anything, which is not a red and has **no log to open**.
+Measured backwards until the answer was unambiguous:
+
+| commit | jobs | conclusion | started anything |
+|---|---|---|---|
+| `8ca63398` (the commit before) | **11** | **success** | yes |
+| `e92fbf32` | **0** | failure | **no** |
+| the ~35 commits after it | 0 | failure | no |
+
+**THE CAUSE WAS THREE LINES, WRITTEN BY THREE DIFFERENT ROUNDS.** `e92fbf32`, `7fd7a32e` and `2a492e1c` each added a gate to
+`ci.yml` with a commit message saying "the invocation, beside production-host-check" — and each wrote its command on the line
+BELOW that step's `run:` instead of starting a new `- name:` / `run:` pair:
+
+```
+      - name: production hosts are declared
+        run: node scripts/test/production-host-check.mjs
+        node scripts/test/http-route-header-check.mjs      <- no `run:` key; YAML gives up here
+        node scripts/test/skill-frontmatter-check.mjs
+        node scripts/test/agents-snippet-check.mjs
+```
+
+So the FILE stopped parsing, and GitHub's answer to every push was a zero-job failure. **Every round in that window believed
+it had a red CI, and a count cannot tell the two apart** — which is AGENTS.md's cancelled-job rule arriving in a form that
+rule does not cover: there is not even a job to open.
+
+**AND NOTHING HERE COULD SEE IT, WHICH IS THE PART THAT MATTERS.** `workflow-shell-check.mjs` owns "the workflows' shell
+parses" and its header says *"the extraction goes through the YAML PARSER rather than text-slicing"* — while its body is a
+hand-rolled `run:` regex whose own comment admits *"Using a real parser would be better"*. A line with no `run:` key is not a
+`run:` block, so all three orphans were skipped. `all-gates.bash` derives its gate list from the same file by regex and ran
+all 61 commands happily: **locally green, remotely dead.** The instrument read the file as TEXT; the other end reads it as
+YAML — *run the command the other end runs*, one level down.
+
+**THE GATE IS `scripts/test/workflow-yaml-check.mjs`, AND IT USES TWO INSTRUMENTS ON PURPOSE.** The authority is a real
+parser (`python3 -c "import yaml"`), because approximating a parser is what caused this; but a runner is not guaranteed to
+carry PyYAML, and a gate that refuses to run is a gate somebody deletes. So there is a portable structural fallback — and
+**it is differentially proven rather than asserted**: `--differential` replays every workflow revision in this repository's
+history through BOTH and reports every disagreement. Measured: **293 revisions across 148 commits, zero disagreements**, and
+the corpus includes the 35 broken ones, so the reject direction is exercised rather than assumed. On the real broken bytes
+the two instruments name **the same line**: the parser says `could not find expected ':'` at 663, the fallback says *"line 663
+is indented like the key above it and has no `:`"*. The fallback's limits are in its header, not left to be discovered.
+
 **Round 189 — one index line, and a MECHANISM rather than a promise**: measured before it, **18 of the last 30 commits touched
 `docs/agents/design-ledger.md` and nothing else** — and nothing objected, because this file has **no byte ceiling** (457 KB) while its two
 sibling archives are capped at 400,000. **[ROUND 273: THAT SENTENCE IS FALSE — the ceiling is `ARCHIVE_CEILING = 400_000` and the check

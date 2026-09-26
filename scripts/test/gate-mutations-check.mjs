@@ -408,6 +408,22 @@ const CASES = [
     from: "## What is in here\n",
     to: "## What is in here\n" + "x".repeat(90_000) + "\n",
   },
+
+  {
+    gate: "scripts/test/workflow-yaml-check.mjs",
+    // THE REAL DEFECT, REPLANTED — not an approximation of it. This is character-for-character what `e92fbf32` did to this
+    // file: a gate wired in as a command line under a previous step's `run:` instead of in its own `- name:`/`run:` pair.
+    // The consequence was not a red step, it was NO STEPS: GitHub answered every push for ~35 commits with a completed run
+    // carrying ZERO jobs and `conclusion: failure`, which has no log to open and is indistinguishable in a count from a
+    // real failure. `workflow-shell-check.mjs` cannot see this (it extracts `run:` blocks, and this line has no key) and
+    // `all-gates.bash` stayed green because it reads the same file by regex. Measured on the real broken bytes, this gate
+    // and the real YAML parser name the SAME line — the parser "could not find expected ':'" at 663, the fallback "line 663
+    // is indented like the key above it and has no ':'".
+    file: ".github/workflows/ci.yml",
+    why: "a gate wired in as an orphaned command line under the previous step's `run:`, which makes the whole workflow unparseable",
+    from: "        run: node scripts/test/production-host-check.mjs\n",
+    to: "        run: node scripts/test/production-host-check.mjs\n        node scripts/test/http-route-header-check.mjs\n",
+  },
 ];
 
 const run = (cmd, args) => {

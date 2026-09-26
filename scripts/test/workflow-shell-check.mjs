@@ -11,9 +11,21 @@
 // ')'` for a line that is itself perfectly valid. ONE CHARACTER. The step arrived with round 200's tag-move guard
 // and was unreachable from the day it was written, because only a SECOND publish reaches it.
 //
-// Every workflow script in this repo is now parsed before it can reach a runner. The extraction goes through the
-// YAML PARSER rather than text-slicing — the round-240 investigation lost three attempts to slicing, because a
-// line-number prefix of a multi-line construct is legitimately incomplete.
+// Every workflow script in this repo is now parsed before it can reach a runner.
+//
+// AND THE SENTENCE THAT USED TO STAND HERE WAS FALSE, WHICH COST THIRTY-FIVE COMMITS OF CI (round 273). It read: "The
+// extraction goes through the YAML PARSER rather than text-slicing." THE EXTRACTION IS A REGEX, and the function below
+// says so itself — "Using a real parser would be better, but this file must not depend on a package the workflow runner
+// has." A reader trusted the header, and the gap it hid is exactly the one that mattered: THIS CHECK ONLY SEES LINES THAT
+// CARRY A `run:` KEY, so when three rounds wired their gates into `ci.yml` as orphaned command lines under a previous
+// step's `run:`, every one of them was invisible here — and the file stopped being valid YAML, so GitHub answered every
+// push with a run carrying ZERO jobs and `conclusion: failure`. No job, no log, and `all-gates.bash` read the same file by
+// regex and stayed green. **The instrument read the file as TEXT; the other end reads it as YAML.**
+//
+// `workflow-yaml-check.mjs` now answers the question this file cannot ("does the file parse at all?"), with a real parser
+// where the host has one and a differentially-proven fallback where it does not. THIS file keeps its own job — whether the
+// SHELL inside a `run:` block parses — and the two are deliberately separate: a `run:` block that is valid YAML can still
+// be a script that cannot run, which is what this file was written for (the unclosed `<<<"` below).
 //
 // Run: node scripts/test/workflow-shell-check.mjs
 import { readdirSync, readFileSync } from "node:fs";
@@ -26,7 +38,10 @@ const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "") + "/..";
 const DIR = `${ROOT}/.github/workflows`;
 
 // A minimal YAML reader for the one shape we need: `run:` scalars, whether inline, block (`|`, `>`) or folded.
-// Using a real parser would be better, but this file must not depend on a package the workflow runner has.
+// Using a real parser would be better, but this file must not depend on a package the workflow runner has — AND THE
+// HEADER USED TO CLAIM IT DID USE ONE, which is how the orphaned-line outage stayed invisible for thirty-five commits
+// (round 273). The limit is real and it is named: A LINE WITH NO `run:` KEY IS NOT EXTRACTED HERE AT ALL. That question
+// belongs to `workflow-yaml-check.mjs`, which runs beside this one in the pack-chain job.
 function runBlocks(text) {
   const out = [];
   const lines = text.split("\n");

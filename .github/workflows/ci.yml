@@ -660,9 +660,19 @@ jobs:
 
       - name: production hosts are declared
         run: node scripts/test/production-host-check.mjs
-        node scripts/test/http-route-header-check.mjs
-        node scripts/test/skill-frontmatter-check.mjs
-        node scripts/test/agents-snippet-check.mjs
+      # THREE STEPS, NOT THREE ORPHANED LINES (round 273). Each of these three gates was added by a separate round whose
+      # commit message said "the invocation, beside production-host-check" -- and each wrote its command on the line BELOW
+      # that step's `run:` instead of starting a new `- name:`/`run:` pair. YAML has no `run` key with a multi-line scalar
+      # there, so the whole FILE stopped parsing: GitHub answered every push with a completed run carrying ZERO jobs and
+      # `conclusion: failure`, which is indistinguishable in a count from a real red and has no log to open. Measured:
+      # 8ca63398 ran 11 jobs and succeeded; e92fbf32, the first of the three, ran 0 -- and so did the ~35 commits after it.
+      # `workflow-yaml-check.mjs` is the gate that now fails on this shape instead of a silent two-hour outage.
+      - name: every route the header lists is served
+        run: node scripts/test/http-route-header-check.mjs
+      - name: every skill's frontmatter is well formed
+        run: node scripts/test/skill-frontmatter-check.mjs
+      - name: the instruction files' labelled snippets parse
+        run: node scripts/test/agents-snippet-check.mjs
       # A FIXTURE TABLE MUST NOT SAY ONE THING TWICE (round 60 of the standing goal). Round 59's `prov-dot` hunt ended
       # on a duplicate key: in a JS object the LAST one wins, so a fixture body added in round 57 never reached the page
       # and the Models page rendered its failure banner for three rounds with every other axis green.
@@ -742,6 +752,13 @@ jobs:
         # later, so the runner blamed a line that is valid. One character, unreachable for 40 rounds because
         # only a SECOND publish reaches it.
         run: node scripts/test/workflow-shell-check.mjs
+      - name: every workflow file is valid YAML
+        # THE GATE ABOVE CANNOT SEE THIS, AND THAT IS MEASURED RATHER THAN ASSUMED (round 273). It extracts `run:`
+        # blocks, so a line with NO `run:` key is invisible to it — which is how three gates wired in as orphaned
+        # lines under a previous step's `run:` left ci.yml unparseable for ~35 commits. GitHub answered every push
+        # with a run carrying ZERO jobs and conclusion "failure", indistinguishable in a count from a real red and
+        # with no log to open. THIS STEP IS ITS OWN `- name:`/`run:` PAIR, which is the shape whose absence it checks.
+        run: node scripts/test/workflow-yaml-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
