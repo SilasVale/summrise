@@ -158,7 +158,7 @@ describe("DesktopShell", () => {
     ]
       .filter((b) => b.getAttribute("aria-selected") === "true")
       .map((b) => b.textContent?.trim());
-    expect(selected).toEqual(["Trajectory"]);
+    expect(selected).toEqual(["Timeline"]);
   });
 
   it("shows the device state from sseState (and never a false IDLE)", () => {

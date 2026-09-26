@@ -240,7 +240,7 @@ export function TrajectoryView({
         </p>
       )}
       <div className="traj-header">
-        <span className="traj-title">Trajectory</span>
+        <span className="traj-title">Timeline</span>
         {/* WHAT THIS VIEW IS, WHERE IT IS READ (round 27 of the standing goal). The tab strip shows
             "Trajectory" and "Path" side by side and neither word says which is which: the difference lived in a
             `title` attribute, which needs a hover, a wait, and a mouse. An operator looking at this window asked
