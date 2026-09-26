@@ -491,6 +491,18 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
   // LAUNCH AND A VIEW IT CAN NAVIGATE**: the device's browser was ATTACHED (the operator's own view) when this ran, and
   // the script refused to navigate it — correctly. Re-run with the desktop view closed, or on a device whose view is
   // free, and the answer is one `setViewportSize` away.
+  //
+  // ── AND A FOURTH EXPLANATION IS GONE: THE REFIT MACHINERY IS ALREADY THOROUGH (round 33) ────────────────────────
+  // Read rather than assumed, because "add a ResizeObserver" is the obvious next guess and it is already there. The
+  // refit runs on: mount, THREE settle timers (50/250/600ms — "one 50ms refit can land mid-transition and freeze a
+  // narrow grid with no later trigger", device-caught), `window resize`, `visibilitychange`, and **a ResizeObserver on
+  // the container itself**, rAF-throttled so a drawer animation cannot flood the backend with resizes. The pane's own
+  // comment records the same defect being fixed once already ("browser resize left the canvas at its old grid — white
+  // space/clipped content until a tab switch").
+  //
+  // SO WHAT IS LEFT IS NARROWER THAN "THE FIT DOES NOT RUN": the refit is guarded by `session.active` and by
+  // `term.element.offsetParent === null` (a hidden pane correctly refuses), so the live suspects are an INACTIVE pane
+  // in the fixture and the harness's own initial grid — both of which a browser would settle in one measurement.
   clipped: [...new Set([...document.querySelectorAll(root + ' *')]
     .filter((el) => {
       const st = getComputedStyle(el);
