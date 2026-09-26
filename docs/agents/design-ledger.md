@@ -35,6 +35,36 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 172 — the four places, and the anchor that was not there
+
+Round 171 ended with a correction to its own title: adding a gate is **four** places, not three, because `numbered-claims-check` requires
+every gate the workflows invoke to be **written down** (61 of them). This round wrote that down where a reader adding a gate would meet it —
+and the first attempt taught something the write-up could not:
+
+```
+python3: AssertionError: the gates-section anchor was not found verbatim
+grep -n "worse than no gate" AGENTS.md        ->  NOTHING
+grep -c "worse than no gate" ledger-mutations.md  ->  5
+```
+
+**"A GATE THAT CANNOT FAIL IS WORSE THAN NO GATE" HAD MOVED TO THE ARCHIVE IN ROUND 166**, carried along by the block it sat in — so the
+four-place table was headed for the wrong file, and the failure said so. **ROUND 166'S MOVE WAS CHECKED FOR WHAT IT TOOK *OUT* AND NOT FOR
+WHAT IT TOOK *WITH* IT**, and three rounds later the cost surfaced as an assertion error in an unrelated round. **That is the same shape as
+round 143's positional promises and round 168's dangling "the rule above": a move is a claim about a neighbourhood.**
+
+**TWO EDITS, EACH WHERE ITS READER IS**:
+
+```
+AGENTS.md / the gates pointer   "Read it when you are about to TRUST a gate, when you are about to ADD one,
+                                 and when a finding says something is unused and you are about to DELETE it."
+ledger-mutations.md             the four-place table, beside the principle it serves
+```
+
+**THE POINTER GAINED ITS THIRD BRANCH, WHICH IS THE HALF THAT WAS ACTUALLY MISSING**: it had told a reader when to trust a gate and when to
+delete something a finding condemned — **and never when to ADD one, which is the moment the four-place table is needed.** A pointer that
+names two of its three branches fires on two of them.
+
+
 **Round 171 (cont.) — THE WIRING IS FOUR PLACES, NOT THREE, AND MY OWN VERIFICATION LOOP RAN BEFORE THE FIX**: the gate loop that
 check-certifies a new gate reported `numbered-claims-check FAIL` on this round, and the reason is a fourth requirement round 149 did
 not enumerate: **`numbered-claims-check` asserts that every gate the workflows invoke is NAMED in `AGENTS.md` or the ledger** (61 of

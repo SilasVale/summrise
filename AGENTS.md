@@ -83,7 +83,8 @@ Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROV
 **`docs/agents/ledger-mutations.md` holds this** — the mutation table, the per-gate bite proofs, the `powershell-structure-check`
 bites and non-bites, and the rule about reading a RULE instead of a name.
 
-**Read it when you are about to TRUST a gate, and when a finding says something is unused and you are about to DELETE it.**
+**Read it when you are about to TRUST a gate, when you are about to ADD one, and when a finding says something is unused and
+you are about to DELETE it.**
 
 ## The design ledger
 

@@ -886,6 +886,18 @@ that can be checked; the count is left to whoever wants to count.
 
 A gate that cannot fail is worse than no gate, and the only way to know is to break the thing it
 guards and watch what happens. Every gate below was audited that way (rounds 65-68) — none of them is
+
+**AND ADDING ONE IS FOUR PLACES, EACH WITH ITS OWN FAILURE — rounds 149 and 171 each paid for a different one:**
+
+| # | where | skip it and this happens |
+|---|---|---|
+| 1 | `scripts/test/<name>.mjs` | nothing runs |
+| 2 | a line in `.github/workflows/ci.yml` | **nothing runs**, because `all-gates.bash` EXTRACTS the list from `ci.yml` — it does not scan the directory |
+| 3 | declare it in `ci-command-table-check` with its reason | that gate goes red: it requires every `scripts/test/` file to be named in `ci.yml` |
+| 4 | name it in `AGENTS.md` or the ledger | `numbered-claims-check` goes red: it requires every gate the workflows invoke be WRITTEN DOWN where a reader can find it |
+
+**Prove BOTH directions before it ships** — the mutation that must fail it, and a clean tree that must pass. A gate that cannot fail
+is worse than no gate; one that fails on a good tree gets reverted, which is round 124's story.
 assumed:
 
 **THE TABLE THAT WAS HERE LIVES IN ITS OWN ARCHIVE NOW** — `docs/agents/ledger-mutations.md`, section
