@@ -727,17 +727,17 @@ else
 fi
 
 # AN EXEMPTION NOTHING NEEDED EITHER ANSWERS FOR ITSELF OR IS ASKED ABOUT (round 22). `ignore` entries are consulted
-# against FINDINGS (the hover path's dot, the reflow harness artifact), and this report produced one finding which the
-# reflow entry set aside — so that entry is used and must NOT be reported, while the hover one matched nothing and,
-# having a `dormant` declaration, must be reported AS DECLARED rather than as weight.
-# THE FIXTURE MIRRORS A REAL CLEAN RUN: a 320px reflow finding whose scrollers are all tab children, so the reflow
-# exemption IS used and the only unused entry is the hover-path guard, which declares itself dormant. (The first
-# version of this case judged a report with NO reflow row, where the reflow entry is legitimately unused and
-# undeclared — the judge was right to ask about it, and the fixture was wrong.)
+# against FINDINGS, and this report produces NONE — so the only entry left must be reported AS DECLARED rather than as
+# weight.
+# THE FIXTURE CHANGED IN ROUND 26, AND THE REASON IS THE POINT. It used to plant a 320px reflow finding whose scrollers
+# were all tab children, so the REFLOW exemption was the one the run USED and the hover-path guard was the unused one.
+# That exemption is DELETED now: rounds 22-25 measured its claim apart and then fixed the defect it covered (the shell
+# had no width breakpoint), so the same label that read `320:SCROLLS/0sc/8over` reads `320:ok/1sc/0over`. A planted
+# 320px reflow finding is therefore a REAL finding — which is what this case's first line now proves, and the axis loop
+# covers it. What is left to pin here is the dormant entry alone.
 python3 - "$TMP/clean.json" "$TMP/ignore-dormant.json" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
-r["reflow"] = [{"width": 320, "viewport": 320, "docScrollWidth": 506, "docScrollsSideways": True, "sideScrollers": ["div.tab-strip"]}]
 r["sse"] = [{"page": "Terminal", "opened": True, "fail": False}]
 json.dump(r, open(sys.argv[2], "w"))
 PY
