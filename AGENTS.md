@@ -114,6 +114,15 @@ mention. That is the ledger's own recorded failure mode arriving from the other 
 it"*), and the fix is the one this section already prescribes: **a gate is named where a person can find it, or it is a gate
 nobody can run by hand.**
 
+## Two languages, and which one goes where
+
+**THE REPOSITORY IS WRITTEN IN ENGLISH**: commit messages, code comments, `AGENTS.md`, `CONTEXT.md`, the specs and plans.
+That is a standing instruction from the operator (their inbox, row 7) and it is what every artifact here already does.
+
+**TALKING TO THE OPERATOR IS IN THE OPERATOR'S LANGUAGE — Chinese.** These are different things, and the instruction was
+read literally once as *"session language is English"*, which produced English replies to a Chinese question. The row in the
+inbox is annotated now; this paragraph is the version an agent reads before it answers.
+
 ## The vocabulary
 
 **`CONTEXT.md` at the root is this project's GLOSSARY** — the words that mean something specific here (device, session, run,
