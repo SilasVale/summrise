@@ -76,7 +76,7 @@ describe("TerminalWorkspace", () => {
     // a separate, controlled test below — which is how the component actually works.
     const p = props();
     render(<TerminalWorkspace {...p} />);
-    fireEvent.click(screen.getByText("Trajectory"));
+    fireEvent.click(screen.getByText("Timeline"));
     expect(p.onViewChange).toHaveBeenCalledWith("s1", "trajectory");
     fireEvent.click(screen.getByText("Terminal"));
     expect(p.onViewChange).toHaveBeenCalledWith("s1", "terminal");
@@ -170,7 +170,7 @@ describe("TerminalWorkspace", () => {
     const bar = container.querySelector(".desktop-term-bar");
     expect(bar).toBeTruthy();
     expect(bar!.querySelector(".desktop-view-switch")).toBeTruthy();
-    fireEvent.click(screen.getByText("Trajectory"));
+    fireEvent.click(screen.getByText("Timeline"));
     expect(onControlledViewChange).toHaveBeenCalledWith("s1", "trajectory");
   });
 

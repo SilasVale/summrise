@@ -101,8 +101,8 @@ describe("TabBar", () => {
     // live device. It now lives in the control bar TerminalWorkspace builds for both densities. If
     // someone adds it back to the row, this fails and points at why.
     render(<TabBar {...props()} />);
-    expect(screen.queryByText("Trajectory")).toBeNull();
-    expect(screen.queryByText("Path")).toBeNull();
+    expect(screen.queryByText("Timeline")).toBeNull();
+    expect(screen.queryByText("Steps")).toBeNull();
   });
 });
 

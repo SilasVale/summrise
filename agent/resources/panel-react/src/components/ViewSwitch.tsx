@@ -12,9 +12,17 @@
 // wiring are shared.
 import type { SessionView } from "./TabBar";
 
-/** Label + tooltip per view, in display order. The tooltips carry the meaning,
- *  because "Trajectory" and "Path" are not self-explanatory next to each other:
- *  one is the raw audit timeline, the other is the same work summarised. */
+/** Label + tooltip per view, in display order.
+ *
+ *  THE TWO LABELS WERE "Trajectory" AND "Path" UNTIL 2026-09-26, AND THE OPERATOR SAID SO TWICE — "Are these controls
+ *  duplicated? A lot of it I cannot understand" — because neither word says which is which; the difference lived in a
+ *  tooltip nobody hovers. **"Timeline" and "Steps" say it without hovering**: one is every event in order, the other is
+ *  the same work grouped into what it was trying to do. This is the rename the loop recommended and left to the operator,
+ *  who delegated it (`docs/agents/ideas.md` row 19).
+ *
+ *  THE INTERNAL NAMES KEEP THEIR SPELLING — `TrajectoryView`, `useTrajectory`, `lib/path.ts` — because they name the DATA
+ *  (the raw audit timeline, the derived path through it), and the labels name what a PERSON sees. Renaming the data to
+ *  match a button would be the tail wagging the dog. */
 const VIEW_LABELS: Array<{ id: SessionView; label: string; title: string }> = [
   {
     id: "terminal",
@@ -23,12 +31,12 @@ const VIEW_LABELS: Array<{ id: SessionView; label: string; title: string }> = [
   },
   {
     id: "trajectory",
-    label: "Trajectory",
+    label: "Timeline",
     title: "Raw audit timeline — every event, exactly as logged",
   },
   {
     id: "path",
-    label: "Path",
+    label: "Steps",
     title: "This session's work as steps, with a summary of how it went",
   },
 ];
