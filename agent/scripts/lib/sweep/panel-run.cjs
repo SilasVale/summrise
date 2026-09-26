@@ -1166,6 +1166,15 @@ const TIMING = P.timing;
   // "has no floor in the judge"; re-reading it, **the floor IS there** (round 134: `normal === 0` fails with "the check
   // found nothing to suppress"), so what was missing is not a floor but A NUMBER A READER CAN COMPARE. This is it, for
   // every axis, on one line — so the next change to any of them is falsifiable from the log instead of from trust.
+  //
+  // THE FIRST READING (run 36251363816) IS THE REFERENCE, and it is also the proof the line was needed: motion
+  // `panel:13->0 desktop:11->0` — the number round 6 could not see — hover `14i/0aa` and `11i/0aa`, focus `14p/14l/0m`
+  // on all eight renders, press `11of11`/`12of12` on the rail walks, `ack 16r/8a`, targets `32c/10u 29c/9u 27c/8u`,
+  // idle `1mut`/`7mut` per page (the live clock, exempt by name in CLOCKS), unstyled `1133c/0unread` in both densities,
+  // reflow `640:ok 320:SCROLLS`, `102open/4fail` SSE, node counts 430-438 / 337-349. FOUR of those are questions nobody
+  // could ask before — half the ack rows unacknowledged, ten undersized targets, a sideways-scrolling 320px document,
+  // and mutations while "idle" on every page — and each is either exempted by a named clause in the judge or is a
+  // finding that has been waiting for a reader.
   {
     const count = (a) => (report[a] || []).length;
     const axes = {
