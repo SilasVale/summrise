@@ -35,6 +35,26 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 148, one line — ROUND 147 IS VERIFIED AGAINST ALL SEVEN OF CI'S CARGO CHECKS, BY EXIT CODE**: a doc-comment change in
+`agent/src/web/mod.rs` still owes the whole set, because that file is compiled by every one of them. Round 147 ran three of the seven
+(`fmt --check`, `clippy --features terminal,keyring`, `xwin check`); this round ran the rest:
+
+```
+clippy -p summrise-agent-core --all-targets -- -D warnings   exit=0
+test   -p summrise-agent                                     exit=0   690 passed; 0 failed
+test   -p summrise-agent --features terminal,keyring          exit=0   753 passed; 0 failed
+test   -p summrise-agent-core                                exit=0    29 passed; 0 failed
+```
+
+**THE SUITE SIZES ARE THIS ROUND'S MEASUREMENT AND NOT A CELL'S**: the inventory's tests row says in so many words "EVERY SUITE PRINTS
+ITS OWN COUNT — run it. No counts are carried here on purpose", because a carried count drifts. **690 / 753 / 29 is what those three
+commands printed today**, and the command is the record.
+
+**AND THE ORDER OF THE TWO ROUNDS IS THE PATTERN, NOT AN ACCIDENT**: 147 ran the checks it could name from the change it had made, and
+this round ran the ones it had not. **Seven of seven, each by exit code, none inferred from output** — the shape AGENTS.md has carried
+since round 129 and which rounds 117 and 128 each paid for.
+
+
 ### round 147 — the header listed ten of thirty-eight routes, and the fix is to point at the table
 
 Round 146 specified this check and named its mechanism; this round ran it correctly. **The `Pattern` table holds 33 `Exact` rows and 5
