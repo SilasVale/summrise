@@ -1,21 +1,3 @@
-# The design ledger — the long form
-
-`AGENTS.md` holds the RULES. This file holds the ROUNDS: what was measured, what it cost, and what was learned on the
-way. It was split out in round 67 because AGENTS.md had grown past the workspace instruction budget (65,366 bytes) and
-the harness began TRUNCATING it — the tail, which is the Release and layout sections, was being dropped silently. The
-organising rule is that an instruction file has to stay small enough to be read whole; evidence does not.
-
-READ THIS WHEN: you are about to re-measure something (the numbers here may already exist), you want the story behind
-a rule in `AGENTS.md`, or you are wondering whether a failure you just saw has happened before. It has.
-
-The gate table — which mutation fails which gate — stayed in `AGENTS.md`, because it is the thing consulted most
-often. Everything below is in the order the rounds were WRITTEN, which is roughly chronological and NOT sorted by round number — the ordinals run 45 55 66 65 64 40 70 … because sections were added as they were learned. To find a round, grep for it; do not compute an offset. (This said "in round order, oldest first" until round 183, and the file has never been in that order.)
-
-**AND A ROUND NUMBER IS NOT A KEY.** The ledger carries **three numbering epochs**: an early run that climbed to
-103, a second that restarted at 15, and the newest sections numbered 265-272. So `round 73` names two unrelated
-sections, and a reader who greps it gets both with nothing to tell them apart. **Grep a title or a quoted phrase.**
-Every section title is unique; no round number is.
-
 ## What is in here
 
 THE FILE IS LAYERED BY ERA, and the eras are runs of sections in the order they were written. Find yours by its
@@ -34,6 +16,14 @@ opening title, then read forward; nothing below reorders them.
 | the subsystem explorations | one dated `##` section per architecture pass: the release pipeline, the desktop command, the tool layer, the HTTP surface, the CLI, the proxies, the landing, the installer, the core crate, and (the newest) the agent's control flow and one watch | `2026-09-23 — the release pipeline audited its own author` |
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
+
+**Round 188 — one index line, and a structural fix**: 33 round entries written since round ~140 had been landing INSIDE the
+archived `## Committing` section instead of becoming `## sections of their own — the objective says "one section per round", and the
+mechanism was mine: every entry is inserted before `<!-- ledger-index:end -->`, the index sits at the TOP of the file, and the first
+`##` heading below it was that archive. The section grew to **134,570 B, four times the 32 KB the objective allows**, and nothing
+objected because `ledger-budget-check.mjs` caps `AGENTS.md` (48,000) and the two appendices (400,000) and has **no per-section ceiling
+for this file at all**. Promoted to 33 `##` sections; the largest section is now 26,385 B. The missing ceiling is the next round's work.
+
 
 ### round 187 — the snippet gate, built in four places and proven in both directions
 
@@ -788,8 +778,7 @@ a list of incidents**, and the rule carries the two habits that would have caugh
 identifier) and, before deleting, find the commit that added the thing — `git log -S` twice showed a past round restoring what this loop
 was about to remove.
 
-
-### round 162 — round 161's four candidates dissolve under the rules themselves, and the extractor was wrong three ways
+## round 162 — round 161's four candidates dissolve under the rules themselves, and the extractor was wrong three ways
 
 Round 161 left four "rules nothing can apply" as a candidate and refused to delete them. That refusal was right, and **the count itself was
 wrong — in three different ways, all visible by reading the RULES rather than the names**:
@@ -818,8 +807,7 @@ direction, a route table’s third comparison shape, a comment, a compound selec
 THIS**: it dissolved eight of its own twelve in a second pass and then shipped the remaining four anyway. **The pause before deleting was
 right; the number attached to it was not, and a number is what the next reader acts on.**
 
-
-### round 161 — four stylesheet rules nothing can apply, found by a second pass that dissolved eight of twelve
+## round 161 — four stylesheet rules nothing can apply, found by a second pass that dissolved eight of twelve
 
 `agent/resources/panel-react/src/styles/` is 5,950 lines and defines **618 classes**; the built sheet is what **five gates** read (round 153),
 so a rule nothing can apply costs every one of them. The first pass — every `.class` in the sheets, grepped literally across the panel's
@@ -912,8 +900,7 @@ they pass its own test — **they change what a reader DOES on their next count.
 counts headers with rows, and `git tag` counts a clone that has not fetched the API-made tags. **All three were wrong in the direction
 of undercounting**, and the block names the command to use beside each.
 
-
-### round 156 — every number in the standard summary now has an authority and a round
+## round 156 — every number in the standard summary now has an authority and a round
 
 Rounds 153, 154 and 155 each corrected or re-measured a number this session had been carrying, and this round finished the sweep by
 checking the last one — **`device current`, which had not been read since round 80, seventy-six rounds earlier**:
@@ -941,8 +928,7 @@ step from the tool that actually produces the number, and each error was in the 
 gates read the file, 46 lines where 44 are rows, and zero releases where ten were shipped. **A summary line is a claim set, and this
 session now knows what each claim rests on** — which is the only state in which the line is worth writing at the top of every round.
 
-
-### round 155 — the release count was right, and it could not have been checked locally
+## round 155 — the release count was right, and it could not have been checked locally
 
 The standard summary of this session carries "10 releases (1.2.465 → 1.2.474)". Rounds 153 and 154 had each corrected a carried count, so
 this one was measured too — **against `git tag` first, which is the obvious tool and the wrong one**:
@@ -1016,8 +1002,7 @@ read from the tool that produces it.**
 (round 149 measured that enforcement), and the `ci.yml` line alone would have been a command with no check behind it. **Both, plus the
 declaration, is what makes the count go up by exactly one and nothing else change.**
 
-
-### round 151 — the route-header gate is BUILT, wired in three places, and proven in both directions
+## round 151 — the route-header gate is BUILT, wired in three places, and proven in both directions
 
 Rounds 146-150 specified this gate and measured what adding one costs. This round paid it:
 
@@ -1086,8 +1071,7 @@ commands printed today**, and the command is the record.
 this round ran the ones it had not. **Seven of seven, each by exit code, none inferred from output** — the shape AGENTS.md has carried
 since round 129 and which rounds 117 and 128 each paid for.
 
-
-### round 147 — the header listed ten of thirty-eight routes, and the fix is to point at the table
+## round 147 — the header listed ten of thirty-eight routes, and the fix is to point at the table
 
 Round 146 specified this check and named its mechanism; this round ran it correctly. **The `Pattern` table holds 33 `Exact` rows and 5
 `Prefix` rows. The header's `Routes:` list names TEN, and its framing sentence carries no qualifier — it reads as THE list.**
@@ -1105,8 +1089,7 @@ says what the list IS (`A SELECTION, NOT THE INVENTORY`), names the omission wit
 `Pattern` rows `route_of` resolves and a checker can enumerate. **A comment that says what it is cannot be wrong about what it is**,
 which is the cheapest fix available to a document that cannot afford to be exhaustive.
 
-
-### round 146 — I hypothesised an if-cascade with no route table, and the file already had one
+## round 146 — I hypothesised an if-cascade with no route table, and the file already had one
 
 `agent/src/web/mod.rs` is **8,302 lines** and the largest file in the agent, and its dispatch begins with `if path == "/api/browser/actions"`,
 `if path == "/api/operation"`, … so the first read looks like a cascade. The header also LISTS ten routes, which makes a
@@ -1207,7 +1190,7 @@ command whose output was not read (the round-117/128 class) and a shell quoting 
 writes prose about code from a shell. The fix shape is the one already recorded: **a QUOTED heredoc (`<<'EOF'`) puts the text through
 verbatim**, which is what all four of this round's file edits used except this one.
 
-### round 139 — the class closes: four generated artifacts, four guards, and no fifth gap
+## round 139 — the class closes: four generated artifacts, four guards, and no fifth gap
 
 Rounds 133-138 closed one shape — **generated, committed, unguarded** — by finding it three times. This round asked the question that
 ends a class rather than extending it: **what else in this repository is generated and committed?**
@@ -1228,8 +1211,7 @@ the release flow copies into the package is a LOCAL artifact, not a committed mi
 **The inventory is the deliverable here**: after six rounds of finding this shape one instance at a time, the answer to "what else"
 is now a list with four entries and four mechanisms, and a reader can tell in one look whether a new generated file has a home.
 
-
-### round 138 — the third unguarded copy, and this one I created myself three rounds into the e2e thread
+## round 138 — the third unguarded copy, and this one I created myself three rounds into the e2e thread
 
 Round 137 closed the instruments mirror in both directions. The same question, asked once more, found a third copy of the same
 shape: **`index/public/summrise-agent/e2e.js` is the e2e suite the DEVICE fetches**, published to the CDN in round 85 so the cadence
@@ -1252,8 +1234,7 @@ direction of it; 137 found the guard itself had the asymmetry; 138 found a THIRD
 because it does not live under `public/code/files/`. **Each round asked "what else has this shape" and each answer was one step further
 from where the last one stopped** — which is what a class looks like when it is being closed honestly rather than sampled.
 
-
-### round 137 — the guard I wrote last round had the hole it was written to close, one direction over
+## round 137 — the guard I wrote last round had the hole it was written to close, one direction over
 
 Round 134 wrote `instruments-mirror.test.mjs` and proved it both ways. **It checked only mirrored → source.** The gateway mirror's
 test has checked THREE directions since it was written — `missing`, `extra`, `differing` — and this round asked why mine had two.
@@ -1298,8 +1279,7 @@ format:check   exit=0  ok
 question "which checks are aimed at what I changed" was asked at the moment of the change rather than one round later, which is the
 difference between a rule this ledger has written down and a rule it has absorbed.
 
-
-### round 134 — the unguarded mirror gets its guard, and both directions are proven by exit code
+## round 134 — the unguarded mirror gets its guard, and both directions are proven by exit code
 
 Round 133 found nine mirrored instruments under `gateway/public/code/files/instruments/` with **no test referencing them at all**,
 while the gateway mirror beside them had one. This round wrote that test — `gateway/test/instruments-mirror.test.mjs` — and proved it
@@ -1321,8 +1301,7 @@ have failed on a clean tree (the mistake that made round 124 revert its own gate
 AGENTS.md after rounds 117 and 128 each lost a red suite to a discarded status. **A lesson from three rounds ago is now just how the
 command is written**, which is the only kind of learning this ledger counts.
 
-
-### round 133 — an unguarded mirror, found by asking the question round 128 taught
+## round 133 — an unguarded mirror, found by asking the question round 128 taught
 
 Round 128 learned that `gateway/src` has a TRACKED MIRROR in the Source Viewer, kept in sync by `sync-code-viewer.sh` and guarded by
 `code-viewer-mirror.test.mjs` — the gate that caught an un-synced comment edit. This round asked the obvious follow-up: **what else is
@@ -1381,8 +1360,7 @@ narrower form the two payments earned: **redirect, check, THEN filter.** Both fa
 destroyed it one step later (117 with `>/dev/null 2>&1`, 128 with a pipe), so the rule as a slogan was never the missing piece —
 **the missing piece was a shape to follow instead**, and it is written down with both incidents named.
 
-
-### round 128 (cont.) — I PUSHED A RED GATEWAY SUITE, AND THE MASK WAS A PIPE AGAIN
+## round 128 (cont.) — I PUSHED A RED GATEWAY SUITE, AND THE MASK WAS A PIPE AGAIN
 
 The comment correction above changed `gateway/src/plugins/translate.ts`, and `gateway npm test` went to **exit 1** — which I did not see,
 because the command I ran was:
@@ -1408,8 +1386,7 @@ gate said so while I was not listening.
 failures here were not failures to read it — they were failures to PRESERVE it. So the rule earns a clause: **do not put a command
 whose status you need on the left of a pipe.**
 
-
-### round 127 — a candidate LOOKED like duplication and the measurement says it is not, which is worth a round
+## round 127 — a candidate LOOKED like duplication and the measurement says it is not, which is worth a round
 
 `index/src/index.js` is the second-highest untouched source file in the corrected hotspot list (200 commits), the CDN worker that
 serves every release, and it holds three component routes in a row — `:211` `cloudflared.exe` (68 lines), `:279`
@@ -1444,8 +1421,7 @@ that grew is ONE OF THE FIFTY-EIGHT, so a four-gate spot check could not have sa
 other instrument; the suite is what answers that, and the answer is no. **A gate added to a suite is a change to the suite**, which
 is why the round after adding one is spent running the thing it joined.
 
-
-### round 125 — the scoped-file gate ships, with the half of the proof round 124 was missing
+## round 125 — the scoped-file gate ships, with the half of the proof round 124 was missing
 
 Round 123 found that `agent/AGENTS.md` carried commands that are not CI's, and noticed why nothing caught it: **a scoped
 instruction file inherits none of its parent's gates.** Round 124 built the gate, watched it bite, and REVERTED it because it also
@@ -1494,8 +1470,7 @@ predicate fixed, the pre-commit hook installed and proven to refuse) — `bash s
 runnable here (of 58)**, the same totals as round 111 and as every run before them. The last full-suite run predated the hook
 install, so this is also the first time the suite has run WITH a hook that fires on commit.
 
-
-### round 120 — the hook is PROVEN TO REFUSE, which is what round 118 owed it
+## round 120 — the hook is PROVEN TO REFUSE, which is what round 118 owed it
 
 Round 118 installed the pre-commit hook and proved it RUNS (an empty commit, exit 0). Its own paragraph carries the rule that
 demands more — **"PROVE THE MUTATION, NOT THE HOOK"** — because a hook that runs is not a hook that stops anything. So: a syntax
@@ -1565,8 +1540,7 @@ way to tell a wrong check from a wrong device. **A check that reports the shape 
 yes** — and that is the difference between the three rounds this took (104 read it as flake, 113 built machinery that fixed nothing
 and said so, 114 corrected the predicate, 115 paid for it).
 
-
-### round 113 — I diagnosed a flake and built machinery, and the re-run says the PREDICATE is wrong
+## round 113 — I diagnosed a flake and built machinery, and the re-run says the PREDICATE is wrong
 
 Round 104 saw `FAIL terminal session execute -- state=partial exit=null` once, called it the documented flake class, and this
 round acted on that reading: the check's `await sleep(2500)` — commented "let the shell boot (first-prompt gate)" — was a sleep
@@ -1659,8 +1633,7 @@ comment) and neither of them in the code this round touched — the stdio click 
 third state and the new counting rule are regression-clean across all seven sections, and **74+2 is the honest size of the suite
 that had never once been executed**: 74 assertions that apply on this device, 2 that name the arm they cannot apply on.
 
-
-### round 103 — the arm-aware check ships, and the mcp section reports 10/10 with two honest skips
+## round 103 — the arm-aware check ships, and the mcp section reports 10/10 with two honest skips
 
 Rounds 100-102 established that the `mcp` section was asserting a CONTRACT THAT CANNOT HOLD on this device (http on the
 private-headless fork) and specified the fix. This round implemented and verified it:
@@ -1702,8 +1675,7 @@ PRIVATE, that the call drove the browser it owns, with the visibility check SKIP
 rule matters more than the printing rule**: this suite's numbers are read by humans as a baseline, and a skip that counts as a pass
 would be the third instrument in this thread to report success for something that did not happen.
 
-
-### round 91 — the six sections that had never run: 45/49, and the failures cluster in ONE place
+## round 91 — the six sections that had never run: 45/49, and the failures cluster in ONE place
 
 Round 90 proved the panel section had been broken for its entire life by a selector nobody had ever executed. So this round ran
 THE OTHER SIX that have never run — `terminal`, `file`, `workflow`, `mcp`, `evidence`, `browser` — on the device, over the same
@@ -1744,7 +1716,7 @@ ref was found and handed to the tool. **What is unproven is only the last link: 
 it".** A check that finds its target and then sees nothing move is a very different object from a check that cannot find its
 target, and the suite already says which one this is.
 
-### round 93 (cont.) — THE RE-RUN CORRECTS ROUNDS 91 AND 92: three of the four were FLAKE, and the survivor is a RACE
+## round 93 (cont.) — THE RE-RUN CORRECTS ROUNDS 91 AND 92: three of the four were FLAKE, and the survivor is a RACE
 
 The same `mcp` section, run again with nothing changed in the code:
 
@@ -1824,7 +1796,7 @@ one-experiment question rather than a speculation:
    restored) — so the view ends at the PREVIOUS url and the call still reports `ok`, because the RESTORE succeeded;
 2. the retry never happens within the phase, and the view stays wherever the reap caught it.
 
-### round 98 — THE LOG ANSWERS IT, AND THE ANSWER IS `[select]`: THE SESSION NEVER DIED
+## round 98 — THE LOG ANSWERS IT, AND THE ANSWER IS `[select]`: THE SESSION NEVER DIED
 
 Round 97 said the shortest path was the transport's own diagnostic lines. They are at
 `C:\ProgramData\Summrise\logs\mcp_diag.log`, and the tail after one e2e http phase reads:
@@ -1860,7 +1832,7 @@ vacuously (the stale URL already satisfied its predicate) · and there are **zer
 story. **The product defect is precise: after a transport switch the http session cannot find the embedded-view tab, and it proceeds
 on a blank one instead of failing the call.**
 
-### round 100 — THE TEST ANSWERS IT IN ONE LINE: THE 9229 INSTANCE RUNS `--headless`
+## round 100 — THE TEST ANSWERS IT IN ONE LINE: THE 9229 INSTANCE RUNS `--headless`
 
 Round 99's distinguishing test, run on the device:
 
@@ -2036,8 +2008,7 @@ failing ones that had never run either**, which is a far better position than 49
 round later, running the other six produced four failures in one of them. The panel selector was not bad luck; it was the
 expected state of anything never executed.
 
-
-### round 85 — the cadence gets its transport, and the transport is the one the repo already uses
+## round 85 — the cadence gets its transport, and the transport is the one the repo already uses
 
 Round 83 corrected the e2e cadence to "get the script onto the device, then run its section there with the device's own
 token and base". This round built the first half of that — and found the second thing the wrong version had hidden:
@@ -2055,7 +2026,7 @@ error page. **IT IS COMMITTED LIKE THE PANEL BUILD AND THE PROBE ARE**, for the 
 Assets uploads the directory but HONOURS `.gitignore`, so an ignored-or-untracked file is silently absent from the deploy —
 the failure mode where the URL works today and 404s after the next clean checkout.
 
-### round 87 — THE CADENCE PRODUCED ITS FIRST VERDICT, AND IT IS A FAILURE
+## round 87 — THE CADENCE PRODUCED ITS FIRST VERDICT, AND IT IS A FAILURE
 
 The corrected cadence ran for the first time, end to end, on the device: the script came over the CDN (round 86), the token was
 found where it lives (`D:\Summrise\etc\config.yaml`, `device_token`, 64 chars — **read into a variable and never printed**, because
@@ -2073,7 +2044,7 @@ panel and sees the write land; the second asks whether the AI's own output actua
 planted (`PANEL-VIS-179036981456`) is not there. That is the panel not SHOWING what the agent produced — the exact class the section
 exists to catch, and it sits in the area rounds 73 and 78 touched (the read seam `SettingsPage` and `ConnModal` migrated onto).
 
-### round 90 — the selector was the whole bug: the panel section passes on the device, 2/2
+## round 90 — the selector was the whole bug: the panel section passes on the device, 2/2
 
 Round 89's probe said the check clicked the last `[role=tab]` — the `Path` VIEW-SWITCH tab — instead of the newest session. This
 round scoped the selector to the session strip and re-ran it on the device:
@@ -2100,7 +2071,7 @@ was a FAILURE → 88 the failure was stable → 89 a probe showed the CHECK was 
 2/2 on the device.** An instrument nobody runs does not just fail to find defects; **it accumulates its own**, and this one had
 been carrying a broken selector for as long as it had existed.
 
-### round 89 — THE PROBE ANSWERS IT: THE CHECK IS BROKEN, THE PANEL IS NOT
+## round 89 — THE PROBE ANSWERS IT: THE CHECK IS BROKEN, THE PANEL IS NOT
 
 The SPA probe (built this round, on the transport round 85 created) prints one JSON verdict, and it ends the question round 87
 opened:
@@ -2182,8 +2153,7 @@ a recorded VERDICT from the device, and that is the thing the cadence exists to 
 both instruction gates green; the reconcile ledger still holding the historical 1.2.453 (1.2.472's missing asset is named by the
 NEXT publish, not by this file).
 
-
-### round 83 — the cadence written last round could not be followed, and running it is what proved that
+## round 83 — the cadence written last round could not be followed, and running it is what proved that
 
 Round 82 closed the inventory's §5.8 gap by giving the seven device-targeted e2e sections a documented cadence. Round 83
 FOLLOWED that cadence — the panel's wiring had changed twice — and the device answered:
@@ -2226,8 +2196,7 @@ unchanged: 1.2.472 has no GitHub release asset, and the next publish is what nam
 AND **1.2.474 IS OWED** — that round changed the panel, which is embedded in the exe the device serves, so it is device-affecting.
 Stating it here is what got the previous three batches shipped (rounds 54+56 → 1.2.471, round 65 → 1.2.472, round 73 → 1.2.473).
 
-
-### round 78 — the read module learns the shape it was missing, and `callTool` cannot be the one to use it
+## round 78 — the read module learns the shape it was missing, and `callTool` cannot be the one to use it
 
 Round 73 measured the block precisely: the module states exactly ONE route (`callApi(route)`, a GET with no init and no body), which
 is what keeps every `callTool` reader outside it. This round added the missing shape — `read?: () => Promise<unknown>`, replacing the
@@ -2267,8 +2236,7 @@ release whose `release.yml` ran with round 67's SIGPIPE fix, so its log carries 
 bundle at its new size and the panel suite at 882 tests; the other cells were re-run and are unchanged. A round whose output is a
 measurement writes one line here rather than a section.
 
-
-### round 73 — the read seam takes the shape it was missing, and the group that cannot move is now measured
+## round 73 — the read seam takes the shape it was missing, and the group that cannot move is now measured
 
 Two groups were left outside `useDeviceRead` when it landed: readers that go through `callTool` (`useSessions`, the terminal pane), and
 reads that SEED EDITABLE FORM STATE (`SettingsPage`, `ConnModal`). This round took the second, and turned the first from "deferred"
@@ -2327,8 +2295,7 @@ reconcile ledger exists for — so the next publish is what will name it, not th
 CDN smoke green. The dual-builder audit still refuses (the known single-static divergence), and the NEXT release is the one whose
 log carries the `.data` symbol list with the CGU hashes and the link order — the instrument rounds 61-64 set up.
 
-
-### round 65 — the last shell residual, and the escape that protected nothing
+## round 65 — the last shell residual, and the escape that protected nothing
 
 Round 54 closed the CLI's shell door and left exactly ONE site carrying a `cmd-% residual` marker, capped at one. This round
 converted it to argv and **the cap is now zero** — the pin refuses the token ANYWHERE in the file, so a marker parked off-site
@@ -2350,7 +2317,7 @@ broken", plus the cap refusal. CLI tests stay **64 passing**; the emit was rebui
 line, and two test references to the old line number — a comment that contradicts the code is the one thing this repo treats
 as a violation everywhere.
 
-### round 59 — the shift hypothesis is dead, and my own framing was wrong
+## round 59 — the shift hypothesis is dead, and my own framing was wrong
 
 Rounds 34-35 read the divergence as "one region placed 304 bytes apart, with 1,168 stored offsets compensating". This round
 tested the obvious consequence of that reading — if a region moved, the FILES should match when one is shifted — and the
@@ -2476,8 +2443,7 @@ cells it moved; round 58 SHIPPED both device-affecting rounds as **1.2.471** —
 smoke green, and the device reporting `release: 1.2.471 · this CLI: 1.2.471 · this device is current`. The dual-builder audit
 still refuses (CI `74e29766…` vs this box) — the one open thread, whose next instrument is the map's `/MAPINFO` per-object list.
 
-
-### round 56 — the ratchet had a gap, and one site was passing through it
+## round 56 — the ratchet had a gap, and one site was passing through it
 
 The inventory measured this in §5.4 and it stayed open: `sessionFacts.test.ts` is a ratchet that forbids a component from reading
 four SESSION fields directly, and **command facts were not on the list** — `exitCode`, `reason`, `ended`. So an inline
@@ -2510,8 +2476,7 @@ row.exitCode; c === 0`), `.ts` files (where the owners live), and the scope of i
 `cli.test.mjs` 2,617 → **2,891** (eight argv migrations, the comments that record the measurement, and a pin that checks quoting
 is not enough); `agent/src` re-run and unchanged at 54,823. A count that did not move is evidence too.
 
-
-### round 54 — a quoted value is not a safe value, and my suggested fix was wrong
+## round 54 — a quoted value is not a safe value, and my suggested fix was wrong
 
 Round 32 fixed the CLI's shell door and named what it left open: cmd expands `%NAME%` **even inside double quotes**, so a
 path interpolation can be re-parsed as a variable reference. This round closed it — and the fix I proposed in the brief
@@ -2540,8 +2505,6 @@ hypothesis until the mechanism is measured — and this one was measured on the 
 scanner extension): `bash scripts/test/all-gates.bash` → **57 ok, 0 failed, 1 not runnable here (of 58 gate commands)**, the
 same totals as before them — editing a gate is editing the thing that guards everything else, so it is the one change
 that gets the whole suite run rather than the checks next to it. One line, not a section, per the policy above.
-
-
 
 ## 2026-09-23 — the release pipeline audited its own author (1.2.453 → 1.2.455)
 
