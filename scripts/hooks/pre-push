@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# pre-push — REFUSE A PUSH WHILE THIS REPOSITORY'S CI IS STILL RUNNING.
+#
+# WHY THIS IS A HOOK AND NOT A HABIT. A push SUPERSEDES an in-flight run: GitHub cancels it, and the cancellation arrives
+# as `conclusion: cancelled` — which a count cannot tell from a real failure, and which leaves the commit with NO green CI
+# to point at. The rule has been in AGENTS.md for months and this repository has paid for it four times; **three of those
+# were this loop, twice in three rounds.** A rule that has to be remembered is not a mechanism, so the check moved to the
+# one place a push cannot skip: here.
+#
+# THE CHECK ITSELF IS `scripts/hooks/ci-not-in-flight`, ITS OWN FILE, for the same reason `main-only-by-merge` is: a hook
+# that does network I/O needs to be provable on fixtures, and `scripts/test/ci-not-in-flight.bash` runs it against saved
+# API responses in both directions without touching the network.
+#
+# FAIL-OPEN, AND THE REASON IS MEASURED RATHER THAN ASSUMED. If the token is missing or the API cannot be reached, this
+# exits 0. Blocking a push because a MIRROR is flaky would be a worse failure than the one it prevents — and this
+# repository's git remote is a proxy that has been measured answering in 0s, 32s and >90s for the same request.
+set -uo pipefail
+# FIND THE REPOSITORY BY ASKING GIT, NOT BY READING `$0` — and this hook made the mistake it was written next to.
+# `core.hooksPath` is `.githooks`, so git invokes this as `.githooks/pre-push` and `dirname "$0"` is `.githooks` — where
+# `ci-not-in-flight` does NOT live. The first version did `exec bash "$here/ci-not-in-flight"` and died with "No such file
+# or directory" on a real push, which is the SAME defect `scripts/hooks/pre-commit` carried for months (see
+# `scripts/test/hook-finds-its-repo.bash`). The lesson is not "be careful": it is that a proof which greps for a call site
+# has not proven the call site RUNS.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
+if [ -z "$root" ]; then
+  root=$(cd "$(dirname "$(readlink -f "$0")")/../.." 2>/dev/null && pwd) || root=""
+fi
+[ -n "$root" ] || { echo "pre-push: cannot find the repository — failing OPEN" >&2; exit 0; }
+exec bash "$root/scripts/hooks/ci-not-in-flight"

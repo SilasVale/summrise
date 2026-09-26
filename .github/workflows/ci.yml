@@ -800,6 +800,14 @@ jobs:
         # A commit that succeeds looks exactly like a hook that ran and passed. This step invokes the hook the way GIT
         # does and asserts it does NOT take the inert path — the direction the old proof never looked in.
         run: bash scripts/test/hook-finds-its-repo.bash
+      - name: the push guard refuses while CI is running
+        # A PUSH SUPERSEDES AN IN-FLIGHT RUN: GitHub cancels it, and the cancellation is reported as `conclusion: cancelled`
+        # — which a count cannot tell from a real failure. The rule has been in AGENTS.md for months and this repository
+        # paid for it four times; THREE WERE THIS LOOP, twice in three rounds. So the check moved to the one place a push
+        # cannot skip: `scripts/hooks/pre-push`, which `scripts/test/ci-not-in-flight.bash` proves on saved API responses
+        # in both directions — including the FAIL-OPEN direction, because blocking a push over a flaky mirror is worse
+        # than the slip it prevents.
+        run: bash scripts/test/ci-not-in-flight.bash
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
