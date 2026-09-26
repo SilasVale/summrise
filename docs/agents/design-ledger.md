@@ -35,6 +35,36 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 178 — the status-inversion class is NOT in this repository, which is why no gate can catch it
+
+Round 177 ended on "a rule is only as available as the reader who has not yet needed it": the pre-commit hook documents the negated-status
+failure at line 51, and round 171 made it anyway in an untracked verification loop. **The obvious follow-up is a gate — and the answer is
+that a gate cannot reach this class.** The measurement, over all **28 tracked shell files**:
+
+```
+PATTERN 1  `if ! cmd; then rc=$?`      -> the ONLY hit is the hook's own COMMENT describing it. No live instance.
+PATTERN 2  `|| echo <default>`         -> 6 hits, ALL benign: `$(cmd || echo default)` picks a fallback VALUE inside a
+                                          command substitution, and one is a terminal-colour test. None judges a status.
+PATTERN 3  a gate whose status is piped -> 2 hits, both `$(grep … | head -1)` capturing a VALUE.
+```
+
+**THE REPOSITORY'S SHELL CODE IS CLEAN OF THE FAILURE, AND THE FAILURE STILL HAPPENED** — because it happened in a command that was never
+committed. **A gate reads the repository; an ad-hoc verification command is not in the repository**, so the class is a defect of the
+UNTESTED surface, and the only place a rule can live is where a reader will be holding the keyboard.
+
+**SO WHAT WAS ADDED IS THE WRONG SHAPE BY NAME, IN THE FILE THE READER HAS OPEN**: `AGENTS.md` already carried the correct form
+(`npm test >/tmp/out 2>&1 || { echo FAILED; exit 1; }`) — **and it is precisely the loop form that looks right and is wrong, so the rule
+now names it**:
+
+```bash
+if timeout 300 node "$g" >/dev/null 2>&1; then echo "ok   $g"; else echo "FAIL $g"; exit 1; fi
+```
+
+**`cmd && echo ok || echo FAIL` succeeds EITHER WAY — the `||` branch is what runs on failure — so `set -e` never fires.** That is the
+whole mechanism in one sentence, and it was not in this repository in that form until now. **Naming the failure is the lever the skill
+gives for exactly this: a reader who has the wrong shape in mind cannot be warned by a rule about the right one.**
+
+
 ### round 177 — the seventh phantom, and the failure my round-171 self had ALREADY been warned about by name
 
 A fresh traversal of `agent/scripts/panel-design-sweep.mjs` (673 lines, 103 commits, the last untouched hot file) turned up a count to

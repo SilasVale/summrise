@@ -181,6 +181,16 @@ grep -E 'pass|fail' /tmp/out                            # output read afterwards
 
 **Redirect, check, THEN filter.** A pipe is for reading output; it is not a way to keep a status.
 
+**AND THE LOOP FORM THAT LOOKS RIGHT IS THE ONE THAT FAILS — `cmd && echo ok || echo FAIL` THROWS THE STATUS AWAY.** The
+`||` branch is what runs when the command fails, so the LINE SUCCEEDS either way and `set -e` never fires; a suite can be red,
+print `FAIL`, and let the commit through. Round 171 did exactly this in a loop whose whole job was to keep statuses. **Keep the
+status by making the failure EXIT, not by printing:**
+
+```bash
+if timeout 300 node "$g" >/dev/null 2>&1; then echo "ok   $g"; else echo "FAIL $g"; exit 1; fi
+```
+
+
 **AND WHEN THE TEXT YOU ARE WRITING IS FULL OF BACKTICKS, PUT IT THROUGH A QUOTED HEREDOC — NOT `python3 -c "…"`.**
 The two failures above were about KEEPING a status; this one is about the TEXT surviving the shell that carries it. Round 140
 wrote a ledger line with `python3 -c "…"` — DOUBLE-quoted — and every backtick in that line was executed as COMMAND
