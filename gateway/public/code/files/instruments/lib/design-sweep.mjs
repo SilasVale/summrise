@@ -2034,11 +2034,23 @@ export function judgeReport(report, opts = {}) {
     // something else, and 1.4.10 asks for no loss of information, not merely no sideways scroll.
     if ((r.spilling || []).length) {
       console.log(`note: content spilling out of its own box at ${r.width}px — ${r.spilling.join("; ")}`);
+    // AND IT IS A FINDING NOW, NOT ONLY A NOTE (round 37 of the standing goal). These two were built as
+    // instruments — measure first, enforce when the number is known — and the number is now MEASURED as zero on
+    // both surfaces that have reflow rows: the panel reads `640:ok/1sc/0over/0sp/0cl` and `320:ok/2sc/0over/0sp/0cl`,
+    // and the console's thirty rows are all `0sp/0cl`. A note cannot fail CI, so until this line a regression that
+    // drew content over the canvas or hid it with no way to reach it would have been reported and PASSED.
+    findings.push(`reflow @${r.width}px: content is spilling out of its own box — ${r.spilling.join("; ")}`);
     }
     // AND WHAT CANNOT BE REACHED AT ALL (round 28): the same content, with `overflow: hidden` instead of a spill. Both
     // are loss; measuring only the first would make hiding the overflow look like a fix.
     if ((r.clipped || []).length) {
       console.log(`note: content clipped with no way to reach it at ${r.width}px — ${r.clipped.join("; ")}`);
+    // AND IT IS A FINDING NOW, NOT ONLY A NOTE (round 37 of the standing goal). These two were built as
+    // instruments — measure first, enforce when the number is known — and the number is now MEASURED as zero on
+    // both surfaces that have reflow rows: the panel reads `640:ok/1sc/0over/0sp/0cl` and `320:ok/2sc/0over/0sp/0cl`,
+    // and the console's thirty rows are all `0sp/0cl`. A note cannot fail CI, so until this line a regression that
+    // drew content over the canvas or hid it with no way to reach it would have been reported and PASSED.
+    findings.push(`reflow @${r.width}px: content is clipped with no way to reach it — ${r.clipped.join("; ")}`);
     }
     // AND THE GRID BEHIND IT, so the two remaining suspects for the terminal's clip are told apart by THIS RUN rather
     // than by another round of reading (round 34).
