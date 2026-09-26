@@ -35,6 +35,25 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 147 — the header listed ten of thirty-eight routes, and the fix is to point at the table
+
+Round 146 specified this check and named its mechanism; this round ran it correctly. **The `Pattern` table holds 33 `Exact` rows and 5
+`Prefix` rows. The header's `Routes:` list names TEN, and its framing sentence carries no qualifier — it reads as THE list.**
+**TWENTY-THREE TABLE ROUTES ARE ABSENT FROM IT**, and they are not trivia: `/api/settings`, `/api/monitors` and its three verbs,
+`/api/logs`, `/api/boots`, `/api/sessions`, `/api/vitals/history`, `/api/update`, `/api/run/mark-exit` — **most of what the panel
+calls.**
+
+**Two of my three candidate "missing" findings were AGAIN extraction artifacts** (the header writes `GET /panel, /panel/` and
+`POST …/start|stop`, and my regex took the comma and the pipe literally), so the documented→table direction is clean. **The
+table→documented direction is not**, and it is the same class as round 128: a header read as the truth sends a reader looking
+elsewhere for a route that exists.
+
+**THE FIX IS NOT TO COMPLETE THE LIST** — a hand-maintained 38-line comment drifts again, and this file has 8,302 lines that move. It
+says what the list IS (`A SELECTION, NOT THE INVENTORY`), names the omission with examples, and points at the authority: the
+`Pattern` rows `route_of` resolves and a checker can enumerate. **A comment that says what it is cannot be wrong about what it is**,
+which is the cheapest fix available to a document that cannot afford to be exhaustive.
+
+
 ### round 146 — I hypothesised an if-cascade with no route table, and the file already had one
 
 `agent/src/web/mod.rs` is **8,302 lines** and the largest file in the agent, and its dispatch begins with `if path == "/api/browser/actions"`,

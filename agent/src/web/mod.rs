@@ -3,7 +3,17 @@
 //! axum route handlers don't work on cross-compiled Windows. This uses the Tower
 //! layer directly — the same layer MCP's StreamableHttpService sits on.
 //!
-//! Routes:
+//! Routes — A SELECTION, NOT THE INVENTORY, AND THAT WAS WORTH SAYING OUT LOUD (round 147).
+//! This list said `Routes:` and then named TEN of the THIRTY-EIGHT patterns the dispatcher actually
+//! matches — `/api/settings`, `/api/monitors`, `/api/monitors/add|remove|probe`, `/api/logs`,
+//! `/api/boots`, `/api/sessions`, `/api/vitals/history`, `/api/update`, `/api/run/mark-exit` and a
+//! dozen more were absent. Round 128 already recorded what that costs: a header read as the truth
+//! sends a reader looking elsewhere for a route that exists, or "fixing" one that does not.
+//! **THE INVENTORY IS THE TABLE, NOT THIS COMMENT** — `Pattern::Exact` / `Pattern::Prefix` rows below,
+//! which `route_of` resolves and which a checker can enumerate. Keep this list as the handful a reader
+//! needs first, and add a row there.
+//!
+//! The highlights:
 //!   GET  /                   → minimal status page (no token needed)
 //!   GET  /panel, /panel/     → Apple-style terminal panel (token entered in
 //!                              the browser, saved to localStorage; no server
