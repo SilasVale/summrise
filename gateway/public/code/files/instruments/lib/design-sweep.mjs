@@ -404,6 +404,24 @@ return ({
 docScrollWidth: document.documentElement.scrollWidth,
 viewport: window.innerWidth,
 docScrollsSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+// WHAT GRID THE TERMINAL IS RENDERING (round 34 of the standing goal). The `clipped` measurement found
+// `div.terminal xterm ... 198<250` at 320px, and four explanations have been ruled out by reading (rounds 29-33): the
+// FitAddon exists, the refit is CALLED, it works at a normal width (measured on the device), and the machinery —
+// mount, three settle timers, window resize, visibilitychange and a rAF-throttled ResizeObserver on the container — is
+// already thorough. What is left is two suspects a browser settles in one look: the fit ran against a WIDER box than
+// the one it ended in, or it never ran for this pane. `cols` against the container's width tells them apart — a fitted
+// grid is cols x cellW close to the box, a stale one is not — and THIS SWEEP HAS A BROWSER, which is what the device
+// could not give while its view was attached to the operator's screen.
+term: (() => {
+  const rows = document.querySelector('.xterm-rows');
+  const first = rows && rows.children.length ? rows.children[0].getBoundingClientRect() : null;
+  const box = document.querySelector('.terminal') || document.querySelector('.xterm');
+  return rows ? {
+    cols: rows.children.length,
+    cellW: first ? Math.round(first.width / Math.max(1, rows.children.length) * 100) / 100 : null,
+    containerW: box ? Math.round(box.getBoundingClientRect().width) : null,
+  } : null;
+})(),
 sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
   .filter((el) => {
     const st = getComputedStyle(el);
@@ -1992,6 +2010,11 @@ export function judgeReport(report, opts = {}) {
     // are loss; measuring only the first would make hiding the overflow look like a fix.
     if ((r.clipped || []).length) {
       console.log(`note: content clipped with no way to reach it at ${r.width}px — ${r.clipped.join("; ")}`);
+    }
+    // AND THE GRID BEHIND IT, so the two remaining suspects for the terminal's clip are told apart by THIS RUN rather
+    // than by another round of reading (round 34).
+    if (r.term) {
+      console.log(`note: the terminal at ${r.width}px renders ${r.term.cols} column(s) in a ${r.term.containerW}px container (cell ${r.term.cellW}px)`);
     }
   }
   const kept = [];
