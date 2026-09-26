@@ -303,14 +303,14 @@
    or touch user can open it. That is a design decision and a component change, not another number in this media query,
    and it is why the spill is still 5-7 elements rather than fixed. */
 @media (max-width: 760px) {
-  #icon-rail { flex: 0 1 40px; min-width: 0; }
-  /* A REACHABLE SCROLLER, NOT A SPILL (round 35 of the standing goal). Measured at 320px: this rail is 61px wide and
-     its content needs 140 (`div.side-header 60<140`, `div.side-row 48<54`), so it drew OVER the canvas — the reflow
-     probe's `spilling` list named five elements, and content on top of something else is worse than content you have to
-     scroll to: the reader can reach a scroller and cannot reach an overlap. `overflow-x: auto` also makes the rail
-     itself the scroller, which the same probe reports as a toolbar-style one (a note, not a failure), and which removes
-     the five from `spilling` because a scrolling ancestor already clips them.
-     THE DRAWER IS STILL THE CURE — round 31's arithmetic proves no shrink fits (40 + 140 + 189 = 369 > 320), so the
-     rail has to leave the flow to be USABLE rather than merely reachable. This is containment, and it is labelled one. */
-  #context-rail { flex: 0 1 60px; min-width: 0; overflow-x: auto; }
+  /* THE SHELL STACKS, SO THE RAIL GETS ITS WIDTH BACK (round 39 of the standing goal). Round 25 shrank the rails to
+     make the document reflow and round 35 made the shrunken rail a scroller so nothing spilled — but round 31's
+     arithmetic says a 60px rail cannot hold its 140px of content (40 + 140 + 189 = 369 > 320), so the rail was
+     REACHABLE and not USABLE, and the drawer was named as the cure. **STACKING IS THE SAME CURE WITHOUT A CONTROL**:
+     at this width the row becomes a column, so the rail is a full-width strip above the canvas — 320px for content
+     that needs 140 — and the canvas keeps the full 320 for a top bar whose own minimum is 189. Nothing is unreachable,
+     nothing is drawn over anything, and no new control has to exist for a keyboard or touch user to find. */
+  #shell-main { flex-direction: column; }
+  #icon-rail { flex: 0 0 auto; flex-direction: row; justify-content: flex-start; }
+  #context-rail { flex: 0 0 auto; width: 100%; max-height: 40vh; overflow-y: auto; overflow-x: auto; }
 }
