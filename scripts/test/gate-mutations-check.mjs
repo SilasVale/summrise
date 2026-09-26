@@ -242,8 +242,8 @@ const CASES = [
   {
     gate: "scripts/test/production-host-check.mjs",
     file: "scripts/test/production-host-check.mjs",
-    why: "the declared list GROWS — the sentence 'the list may only shrink' had no gate until round 155. RE-PAIRED 2026-09-24: the ratchet went 41 -> 42 when relay/ was declared with its reason, and this pairing is what noticed — an anchor that silently rots is a gate that silently stops being proven",
-    from: "const MAX_ALLOWED = 42;",
+    why: "the declared list GROWS — the sentence 'the list may only shrink' had no gate until round 155. RE-PAIRED TWICE, AND THIS PAIRING IS WHAT NOTICED BOTH TIMES, which is the point of the sentence the first re-pair wrote down: 41 -> 42 when `relay/` was declared with its reason (2026-09-24), and 42 -> 43 in round 273 when the ledger's own ceiling split it into a second file and the same three URLs moved with the narrative (407 occurrences in 111 files before AND after — the debt did not grow, the declaration caught up). An anchor that silently rots is a gate that silently stops being proven; the second re-pair cost one line because the first one had written the reason down",
+    from: "const MAX_ALLOWED = 43;",
     to: "const MAX_ALLOWED = 9;",
   },
 
