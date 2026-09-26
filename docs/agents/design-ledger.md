@@ -35,6 +35,21 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 171 (cont.) — THE WIRING IS FOUR PLACES, NOT THREE, AND MY OWN VERIFICATION LOOP RAN BEFORE THE FIX**: the gate loop that
+check-certifies a new gate reported `numbered-claims-check FAIL` on this round, and the reason is a fourth requirement round 149 did
+not enumerate: **`numbered-claims-check` asserts that every gate the workflows invoke is NAMED in `AGENTS.md` or the ledger** (61 of
+them), so a new gate must also be *written down* somewhere a reader can find it.
+
+**IT PASSES ON THE PUSHED COMMIT** — `all 61 gate(s) the workflows invoke are named in AGENTS.md or the ledger` — because the ledger
+entry that names this gate was written moments AFTER the loop that checked it, and both landed in the same commit. **So the red was
+real, correctly reported, and gone by the time anything was pushed.**
+
+**AND THE LOOP ITSELF HID ITS OWN STATUS**: `timeout 300 node $g.mjs >/dev/null 2>&1 && echo ok || echo FAIL` **swallows the non-zero
+exit under `set -e`** — the `|| echo FAIL` branch makes the command succeed — which is the round-117/128 failure in the one command
+whose job is to keep statuses. The ordering is the deeper half: **a verification that runs BEFORE the thing it verifies is a report on
+the past, and this session has now made that mistake in a round whose entire subject was a gate.**
+
+
 ### round 171 — the skill-frontmatter gate, built in three places and proven in both directions
 
 Round 170 measured the gap (35 of 35 skills correct, nothing checking) and recorded the candidate rather than building it, because
