@@ -23,7 +23,35 @@
 # INSTALL (per clone, hooks are not versioned):
 #     ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
 set -uo pipefail
-cd "$(dirname "$0")/../.." 2>/dev/null || cd "$(git rev-parse --show-toplevel)"
+
+# FIND THIS HOOK'S OWN REPOSITORY — AND UNTIL 2026-09-26 THIS LINE FOUND THE WRONG ONE, WHICH MADE THE WHOLE FILE INERT.
+#
+# It used to be:   cd "$(dirname "$0")/../.." 2>/dev/null || cd "$(git rev-parse --show-toplevel)"
+#
+# `core.hooksPath` here is `.githooks`, so GIT INVOKES THIS AS `.githooks/pre-commit` and `$0` is that path — NOT the
+# symlink's target. `dirname` is therefore `.githooks`, and `.githooks/../..` is **/home/zhengsaisi, one level ABOVE the
+# repository**. The `cd` SUCCEEDED at the wrong place, so the `||` fallback never fired, the guard below found no
+# `agent/scripts/panel-design-sweep.mjs`, and the hook exited 0 on its fifth line. MEASURED with the hook instrumented
+# and a real `git commit`:
+#
+#     $0=.githooks/pre-commit   dirname=.githooks   pwd_before=/home/zhengsaisi/summrise
+#     pwd_after=/home/zhengsaisi   guard_file_present=no
+#
+# **SO NOTHING THIS FILE CHECKS HAS RUN — not the emitters, not the archive-only rule, not the main-only-by-merge rule —
+# for every commit since the hook was installed (round 118).** And the proof recorded for it in AGENTS.md ("proven by
+# making an empty commit and watching it run") could not have caught it: an empty commit that SUCCEEDS looks exactly like
+# a hook that ran and passed. The lesson is the one this repository keeps relearning — a check is only proven by watching
+# it REFUSE something, never by watching a commit go through.
+#
+# `git rev-parse --show-toplevel` answers the real question ("which repository am I in?") instead of the proxy one ("what
+# path was I invoked by?"), and it is correct in every repository — including the ones this hook must stay inert in, where
+# the guard below then does its job. The `readlink -f` arm keeps it working outside a work tree.
+HOOK_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || HOOK_ROOT=""
+if [ -z "$HOOK_ROOT" ]; then
+  HOOK_ROOT=$(cd "$(dirname "$(readlink -f "$0")")/../.." 2>/dev/null && pwd) || HOOK_ROOT=""
+fi
+[ -n "$HOOK_ROOT" ] || exit 0
+cd "$HOOK_ROOT" || exit 0
 
 # SAFE ANYWHERE, INCLUDING A SHARED HOOKS DIRECTORY. This file is designed to be symlinked into a global
 # `core.hooksPath` (round 226), where it runs for EVERY repository the operator owns. Its first job is
@@ -31,6 +59,10 @@ cd "$(dirname "$0")/../.." 2>/dev/null || cd "$(git rev-parse --show-toplevel)"
 # blocked commits everywhere because it could not find a file would be a far worse outcome than the slips it
 # exists to prevent. Exit 0 immediately.
 if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
+  # OBSERVABLE ON REQUEST, because this exit is the one that hid a completely inert hook for months. `SUMMRISE_HOOK_DEBUG=1`
+  # makes it say so; without the variable it stays silent, since it fires in every OTHER repository on this machine and a
+  # line of noise per commit there is its own defect. `scripts/test/hook-finds-its-repo.bash` is the caller that sets it.
+  [ -n "${SUMMRISE_HOOK_DEBUG:-}" ] && echo "pre-commit: not the Summrise repo (cwd=$PWD, \$0=$0) — inert, nothing checked" >&2
   exit 0
 fi
 
@@ -109,7 +141,11 @@ fi
 
 if [ "$fail" != "0" ]; then
   echo "" >&2
-  echo "The emitted scripts are how the device runs every design check. Fix the emitter, then commit —" >&2
-  echo "or use --no-verify if you know the failure is unrelated, and say so in the commit." >&2
+  echo "pre-commit: refused — one or more checks above said no, and THE MESSAGE THAT NAMED THE REASON IS ABOVE THIS ONE." >&2
+  echo "  This line used to blame the emitters unconditionally, which was true while they were the only check and became" >&2
+  echo "  a lie the moment a second rule was added: measured 2026-09-26, the main-only-by-merge rule refused a commit and" >&2
+  echo "  this text sent the reader to look at an emitter that was fine. A message that names the wrong cause is worse" >&2
+  echo "  than none, because the reader believes it." >&2
+  echo "  If the failure is unrelated to your change:  git commit --no-verify ...  and say so in the message." >&2
   exit 1
 fi

@@ -132,8 +132,14 @@ resolve, or an emitter that was renamed or deleted fails at the commit instead o
 the probe module stopped PARSING, and five of the ten CI jobs went red (ui, panel, gateway, design, pack-chain —
 everything that imports it). The hook refuses that commit in under a second, and so does
 `contrast-probe-check.mjs`, which CI runs at `ci.yml:506` — but nothing ran the hook, because `core.hooksPath` is
-global and both prescribed fixes for that were wrong here (below). **IT RUNS ITSELF NOW** — the paragraph after this
-one records what is installed and how it was proven; the story of what the absence cost is in the ledger under
+global and both prescribed fixes for that were wrong here (below). **IT IS INSTALLED — AND UNTIL 2026-09-26 IT RAN NOTHING.** The paragraph after this
+one records what is installed; what it never recorded is that the hook resolved its own repository from `$0`, which git sets to
+`.githooks/pre-commit` — one level ABOVE this repository — so the `cd` succeeded in the wrong place, the guard found no
+`agent/scripts/panel-design-sweep.mjs`, and it exited 0 on its fifth line **for every commit since round 118**. Not one emitter, not the
+archive rule, nothing. **AND THE PROOF OFFERED FOR IT COULD NOT HAVE CAUGHT THAT**: "an empty commit and watching it run" — a commit
+that SUCCEEDS looks exactly like a hook that ran and passed. **The only proof of a check is watching it REFUSE something.**
+`scripts/test/hook-finds-its-repo.bash` now invokes the hook the way git does and fails if it takes the inert path; it caught the old
+form on the first run. The story of what the absence cost is in the ledger under
 "THE 46TH BACKTICK REACHED A COMMIT", and round 117's own push through a red gate is why it is no longer a habit.
 
 TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:

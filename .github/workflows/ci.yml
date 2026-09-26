@@ -777,6 +777,17 @@ jobs:
         # test script nobody runs, and that gate said so by name — `actual: main-only-by-merge.bash, expected: none`. The
         # first version of this task created the proof and forgot the wiring; the repository's own gate caught it.
         run: bash scripts/test/main-only-by-merge.bash
+      - name: the pre-commit hook finds its own repository
+        # THE GUARD THAT HID AN INERT HOOK FOR MONTHS, and this is the only test that can see it. `core.hooksPath` is
+        # `.githooks`, so git invokes the hook as `.githooks/pre-commit` — and the hook's `cd "$(dirname "$0")/../.."`
+        # resolved that to /home/zhengsaisi, ONE LEVEL ABOVE THE REPO. The cd SUCCEEDED at the wrong place, the `||`
+        # fallback never fired, the guard found no panel-design-sweep.mjs, and the hook exited 0 on its fifth line:
+        # NOTHING IT CHECKS HAD RUN — no emitter, no archive rule — since it was installed.
+        #
+        # AND AGENTS.md's PROOF FOR IT COULD NOT HAVE CAUGHT IT: "proven by making an empty commit and watching it run".
+        # A commit that succeeds looks exactly like a hook that ran and passed. This step invokes the hook the way GIT
+        # does and asserts it does NOT take the inert path — the direction the old proof never looked in.
+        run: bash scripts/test/hook-finds-its-repo.bash
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
