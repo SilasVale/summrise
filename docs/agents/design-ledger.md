@@ -35,6 +35,25 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 158, one line — ALL FIVE `panel.css` GATES RUN IN CI, CHECKED RATHER THAN ASSUMED**: round 153 found that five gates read the
+committed panel sheet (`chrome-stillness`, `feedback`, `motion`, `state-colour`, `stylesheet-hygiene`). **A gate that reads a file but never
+runs is a gate whose verdict nobody has.** Each was checked for a `ci.yml` reference and a file in `scripts/test/`:
+
+```
+chrome-stillness        ci.yml:1   test-file:1
+feedback                ci.yml:3   test-file:1
+motion                  ci.yml:6   test-file:1
+state-colour            ci.yml:1   test-file:1
+stylesheet-hygiene      ci.yml:1   test-file:1
+panel-sheet-freshness   ci.yml:1   test-file:1     (the sixth, which watches the sheet itself)
+```
+
+**NO GAP.** The counts above one are substring hits (`motion` inside other words), not extra gates — the check was for ABSENCE, and there
+is none. **This is the shape a verification round should have: a question with two possible answers, asked with one command, and the
+answer written down either way.** The alternative — assuming five gates that mention a file also run — is exactly the class rounds
+146-151 spent six rounds on: a claim about a tool made without opening it.
+
+
 **Round 157, one line**: the three "convenient command vs authority" pairs from rounds 153-155 are now in AGENTS.md, because
 they pass its own test — **they change what a reader DOES on their next count.** `grep -l` counts files that mention a thing, `grep -c`
 counts headers with rows, and `git tag` counts a clone that has not fetched the API-made tags. **All three were wrong in the direction
