@@ -35,6 +35,34 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 170 — 35 skills, every one healthy, and NOTHING checks them
+
+A fresh traversal, on the artifact the `writing-for-agents` skill itself governs: **this repository ships 35 skills under
+`.agents/skills/` (100 tracked files)**, and the harness offered this session **fifteen** of them — which is the catalog being curated,
+not a fault: the objective disables the four tracker-bound ones by name (`to-spec`, `to-tickets`, `wayfinder`, `triage`) and
+`improve-codebase-architecture` says "disable-model-invocation" in its own description, which is why it is followed BY HAND.
+
+**THE INVARIANT THAT MATTERS IS FRONTMATTER, BECAUSE ITS FAILURE IS SILENT**: a skill whose `---` block is malformed, or whose
+`description` is missing, does not error — **it simply never appears in the agent's catalog**, and every later session works without it.
+That is the same shape as rounds 146-151 (a route the header never named) and round 134 (a mirror direction nobody checked): **the file is
+present, and the reader is never told**.
+
+```
+grep -rln "agents/skills|SKILL.md" scripts/test/*.mjs scripts/test/*.py gateway/test/*.mjs   ->  NO MATCHES
+
+frontmatter check over all of them:
+  SKILL.md files: 35 | problems: 0
+  (every one has a --- block, a name:, and a description of at least 20 characters)
+```
+
+**SO THE MEASUREMENT IS CLEAN AND THE GAP IS REAL**: 35 of 35 are correct today, and **no gate would notice the first one that is not**.
+**A candidate is recorded rather than built, for the reason round 149 measured to the byte**: adding a gate here is three coordinated
+edits (the file, a `ci.yml` line, and a declaration — `all-gates.bash` EXTRACTS the list from `ci.yml` and `ci-command-table-check`
+requires every `scripts/test/` file to be named there), and a gate dropped in without them turns the suite red. **The failure it would
+catch is silent, which is the strongest argument a gate can have**, and the 35 instances are its mutation surface: delete a `---`, and
+the count of catalog-visible skills drops with no other symptom.
+
+
 ### round 169 — the pointers traded bookkeeping for triggers, and the file got 121 B BIGGER
 
 The skill's relevance test — "does it still bear on what the document does?" — was run on the two pointers the disclosure rounds left behind.
