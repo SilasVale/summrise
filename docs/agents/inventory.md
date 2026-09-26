@@ -649,7 +649,7 @@ would say so — that is the point of writing it this way.
 
 | generated and committed | size | what guards it |
 |---|---|---|
-| `agent/resources/panel/panel.js` **and** `panel.css` | 663,487 B + 261,630 B | `panel-sheet-freshness-check.mjs` (both files — the row named only the JS until round 153, and the panel BUILD is two artifacts: `panel.css` comes from `panel-react/src/styles/*.css` and was rebuilt in the same second as the bundle) |
+| `agent/resources/panel/panel.js` **and** `panel.css` | 663,487 B + 261,630 B | `panel-sheet-freshness-check.mjs` (both files — the row named only the JS until round 153, and the panel BUILD is two artifacts: `panel.css` comes from `panel-react/src/styles/*.css` and was rebuilt in the same second as the bundle). **`panel.css` alone is read by FIVE gates** — `chrome-stillness`, `feedback`, `motion`, `state-colour` and `stylesheet-hygiene` — which is what `panel-sheet-freshness-check.mjs:75` says in its own message; round 153 first wrote "three" from a filename grep and the file corrected it, which is the difference between counting mentions and reading the count |
 | `agent/summrise-agent-npm/bin/summrise.js` | 198,635 B | the pack chain — `cmp` against a fresh compile |
 | `gateway/public/code/files/summrise-gate/` | 54 files | `code-viewer-mirror.test.mjs` (missing · extra · differing) |
 | `gateway/public/code/files/instruments/` | 9 files | `instruments-mirror.test.mjs` (both directions) |

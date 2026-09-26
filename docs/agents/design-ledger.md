@@ -37,8 +37,9 @@ opening title, then read forward; nothing below reorders them.
 
 **Round 153, one line — THE PANEL BUILD IS TWO ARTIFACTS, AND THREE GUARDS ALREADY KNEW**: round 139's inventory row named
 `agent/resources/panel/panel.js` as the guarded build output. `panel.css` sits beside it — 261,630 B, rebuilt in the SAME SECOND as the
-bundle, generated from `panel-react/src/styles/*.css` — and **three checks mention it** (`panel-sheet-freshness-check`,
-`state-colour-check`, `stylesheet-hygiene`). **So nothing was missing and no guard is owed**; what was wrong was the row's phrasing, and
+bundle, generated from `panel-react/src/styles/*.css` — and **FIVE checks read it** — `chrome-stillness`, `feedback`, `motion`, `state-colour`,
+`stylesheet-hygiene` — **which `panel-sheet-freshness-check.mjs:75` states in its own message.** The first version of this line said
+"three" because a `grep -l` found three FILENAMES; the count was in the file all along, one line of its output away. **So nothing was missing and no guard is owed**; what was wrong was the row's phrasing, and
 it now names both files.
 
 **AND THAT IS THE RIGHT WAY FOR A RECHECK TO END**: the question "did round 139 miss a fifth artifact?" was asked because 202 commits on
