@@ -1,3 +1,16 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: append a byte to a mirrored instrument (`agent/scripts/live-panel-probe.mjs`) without re-syncing `gateway/public/code/files/instruments/`
+// RESULT:   exit 1: "gateway/public/code/files/instruments is out of date, so the Source Viewer serves instrument code that nobody runs - including the probe AGENTS.md tells a reader to point at a device. Re-sync with `bash gateway/scripts/sync-code-viewer.sh` and commit the mirror." BOTH DIRECTIONS RUN BY EXIT CODE: clean exit 0 (pass 922), mutated exit 1, restored exit 0
+//
+// MUTATION: add a NEW instrument to `agent/scripts/` and never re-sync the mirror (e.g. `touch agent/scripts/newprobe.mjs`)
+// RESULT:   exit 1: "agent/scripts holds instruments that the Source Viewer does not publish, so a reader cannot reach code this repository tells them to run. Re-sync with `bash gateway/scripts/sync-code-viewer.sh` and commit the mirror." THE FIRST VERSION OF THIS TEST CHECKED ONLY mirrored -> source, so a new unmirrored instrument passed while the viewer was quietly incomplete; the gateway mirror's test had checked its own `missing` direction since it was written
+//
+// MUTATION: edit `agent/scripts/e2e/e2e.js` and forget to re-copy it to `index/public/summrise-agent/e2e.js`
+// RESULT:   exit 1: "index/public/summrise-agent/e2e.js is not the suite in agent/scripts/e2e/e2e.js - and that file is what the device FETCHES to run a section against a real panel, so a stale copy measures a product that is not there." THE PAIR WAS COPIED BY HAND IN ROUNDS 103, 113 AND 114 WITH NO ASSERTION; it is the same shape as the panel build output, which IS gated (panel-sheet-freshness-check)
+
 // instruments-mirror.test.mjs — THE SOURCE VIEWER'S SECOND MIRROR MUST MATCH ITS SOURCE.
 //
 // WHY THIS EXISTS (round 134). Round 128 learned that `gateway/src` has a TRACKED MIRROR under

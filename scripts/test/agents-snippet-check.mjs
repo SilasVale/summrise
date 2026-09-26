@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: break any LABELLED code block in `AGENTS.md` or `agent/AGENTS.md` — e.g. drop a `}` from the `npm test >/tmp/out 2>&1
+// RESULT:   
+
 // agents-snippet-check — EVERY LABELLED CODE BLOCK IN AGENTS.md MUST PARSE.
 //
 // WHY THIS EXISTS (round 186). Round 183 failed on a snippet AGENTS.md TOLD THE READER TO RUN — the instruction was fine and the invocation

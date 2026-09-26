@@ -1,3 +1,10 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: make the zero-selection guard exit 0
+// RESULT:   exit 1, "reported success having run nothing"
+
 // `--only` MUST NOT BE ABLE TO SELECT NOTHING AND REPORT SUCCESS.
 //
 // The e2e suite is a CI gate: the workflow runs

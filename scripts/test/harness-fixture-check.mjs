@@ -1,3 +1,13 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: change the harness fixture's session-count default from 3, or stop `?exitfail=1`/`?exitok=1` from setting `last_exit_code`
+// RESULT:   exit 1, and its own self-test fails first if the pattern goes stale. The second pair is round 96's rule: A STATE WITH NO SURFACE CANNOT BE MEASURED — every seed reports no exit code, so without a flag the chip has no rendered surface anywhere, and the mutations are "the failure flag stopped setting the code" and "exit ZERO stopped being expressible". **AND THE `/api/boots` ENVELOPE (round 99)**: the stub omitted `ok: true`, which the hook requires, so the Restarts card rendered "The device did not answer" on eight surfaces while the device answered perfectly — a fixture whose failure mode is a FALSE CLAIM, not an empty card. Mutation: strip the envelope from the emitted stub — and, since round 101, WIDEN THE ARCHIVE STUB BACK to `u.indexOf('/api/sessions') >= 0`, which shadows the per-session stub below it (the audit trail) and makes the Trajectory and Path views read an empty archive as if it were the trail. Also since round 100 the envelope is STRUCTURAL (`J()` merges `ok: true` into every object body that does not bring its own, so a fixture cannot forget it), with its own mutation in the same gate: remove the merge
+//
+// MUTATION: stop applying the delay (`SLOW ? p.then(SLOWLY) : p` → `p`)
+// RESULT:   exit 1 — the fixture must be able to make every reply slow, or a control whose feedback waits for the network is indistinguishable from one that answers on the event
+
 // THE HARNESS FIXTURES HAVE A CONTRACT, and until round 150 nothing checked it.
 //
 // The panel's live session list was a FIXED THREE — hardcoded, with no way to ask for another number — so

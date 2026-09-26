@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: plant an ORPHANED `*/` outside any comment (round 97), or the round-87 shapes (a comment holding a rule-like selector line, or declaration-shaped prose)
+// RESULT:   exit 1: "ORPHANED '*/' outside any comment — the browser reads it as a parse error and drops rules until the next '}'". The walk finds `/*` and takes the NEXT `*/`, so a stray close used to be skipped as ordinary text while the BROWSER discarded everything up to the next `}` — one stray close silently deleted a large region of the panel's sheet (marks lost their size, session rows lost `display: flex`) and every gate stayed green. The clause checks the GAPS between the comment spans, which is exactly where the walk cannot look
+
 // stylesheet-hygiene.mjs — a comment in a stylesheet must not look like code.
 //
 // WHY THIS EXISTS (round 87). The console's sheet carried this:

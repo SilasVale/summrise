@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: read the press baseline BEFORE the hover (put `const hovered = await styleOf(sel);` back above `page.mouse.move`), or add `width` to `pressDelta`'s key list
+// RESULT:   exit 1 both ways: "the baseline is read BEFORE the hover (move@…, hovered@…) — that is the resting anchor this check exists for", and "layout properties are not a press response". It pins the rule as a pure function AND the wiring in all three EMITTED artifacts, because a probe measured against rest calls every hover a press — that is how the landing's theme toggle passed for as long as it existed. The first version of the wiring assertion checked only "hovered before down" and PASSED the mutation (round 95). **AND IT REACHES EVERY CONTROL A PAGE RENDERS (round 15)**: it scrolls an element into view only when it is not
+
 // press-anchor-check.mjs — a press must be measured against the HOVER, not against rest.
 //
 // WHY THIS EXISTS (round 95). `pressPass` is the only instrument that can see whether a press reaches the screen:

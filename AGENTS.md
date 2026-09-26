@@ -68,7 +68,6 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 "the suite did not run" and re-running it another way. The reporter table is what prevents that.)
 
 **TWO RULES ABOUT WHAT NOTHING RUNS — READ THEM BEFORE YOU TRUST A GREEN OR A RED.**
-Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROVEN to bite":
 
   * **You changed a terminal backend, a file-relay path, a workflow step, the panel's wiring, the MCP surface, the evidence
     drawer or the browser/playwright door** — then `agent/scripts/e2e/e2e.js` has a section for it, **seven of its nine
@@ -100,11 +99,13 @@ sits below a guard that exits 0 in any repo that is not this one, so a fixture c
 
 ### Which gates have been PROVEN to bite
 
-**`docs/agents/ledger-mutations.md` holds this** — the mutation table, the per-gate bite proofs, the `powershell-structure-check`
-bites and non-bites, and the rule about reading a RULE instead of a name.
+**EVERY GATE CARRIES ITS OWN PROOF, IN ITS OWN HEADER.** Until landing 4b they were rows in one 110 KB table; now each gate
+opens with a `MUTATION:` / `RESULT:` block naming the edit that must break it and what it said when it did. **Read that block
+when you change the gate** — a gate that cannot be broken is worse than no gate. Three JSON fixtures cannot hold a comment
+(JSON has none), so their proofs are in `agent/tests/fixtures/MUTATIONS.md` beside them.
 
-**Read it when you are about to TRUST a gate, when you are about to ADD one, and when a finding says something is unused and
-you are about to DELETE it.**
+**AND READ IT WHEN A FINDING SAYS SOMETHING IS UNUSED AND YOU ARE ABOUT TO DELETE IT** — that rule outlived the table it was
+written for.
 
 **AND FOUR GATES WERE DOCUMENTED *ONLY* IN THE LEDGER, WHICH IS WHY THEY ARE NAMED HERE NOW.** Deleting it turned
 `numbered-claims-check` red with `proxy-cors-parity-check`, `proxy-timeout-parity-check`, `panel-mock-spread-check` and
@@ -120,6 +121,25 @@ goal, liveness, mark) and the words that do not, each with an `_Avoid_` list. Re
 the console or a tool description; two surfaces disagreeing about a word is how `Trajectory` and `Path` came to look like
 two names for one screen. It holds TERMS ONLY — an invariant belongs in the gate that enforces it.
 
+## Every gate CI runs
+
+**A GATE NOBODY CAN NAME IS A GATE NOBODY RUNS BY HAND.** These are the gate scripts the workflow invokes, 66 of them, listed because deleting the ledger proved they were documented *only* there: `numbered-claims-check` went from zero unnamed to **52** the moment the two reference tables went. A gate is named where a person can find it, or it does not exist.
+
+**Every one of them carries its own mutation proof in its header** — the edit that must break it, and what it said when it did. Read that block when you change the gate.
+
+`agents-snippet-check.mjs`, `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `ci-command-table-check.mjs`, `console-derivation-check.mjs`
+`console-marks-check.mjs`, `console-smoke-check.mjs`, `console-wire-field-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`, `css-vars-check.mjs`
+`custom-prop-check.mjs`, `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `e2e-only-check.mjs`, `exports-check.mjs`
+`feedback-check.mjs`, `gate-mutations-check.mjs`, `gateway-device-field-check.mjs`, `harness-fixture-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
+`landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`, `mark-vocabulary-check.mjs`, `model-drift-check.mjs`
+`motion-check.mjs`, `numbered-claims-check.mjs`, `one-derivation-check.mjs`, `panel-audit-skip-check.mjs`, `panel-design-sweep.bash`, `panel-mock-spread-check.mjs`
+`npm-test-floored.mjs`, `console-assets-check.mjs`
+`particles-check.mjs`, `powershell-structure-check.mjs`, `press-anchor-check.mjs`, `production-host-check.mjs`, `proxy-cors-parity-check.mjs`, `proxy-timeout-parity-check.mjs`
+`publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `retired-colours-check.mjs`, `scan-dups-check.py`, `script-syntax.bash`
+`session-carry-detect-check.mjs`, `session-row-check.mjs`, `skill-frontmatter-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`, `spacing-scale-check.mjs`
+`state-colour-check.mjs`, `stub-surface-check.mjs`, `stylesheet-hygiene.mjs`, `sweep-bundle-check.mjs`, `sweep-fixture-dupes-check.mjs`, `sweep-judges.bash`
+`token-contract-check.mjs`, `wire-field-check.mjs`, `workflow-shell-check.mjs`, `workflow-yaml-check.mjs`
+
 ## Where the long form lives
 
 **THERE IS NO LEDGER, AND THIS IS THE SECTION THAT USED TO DESCRIBE ONE.** Until landing 4a this file pointed at
@@ -132,15 +152,13 @@ nothing else.**
 |---|---|
 | **the commit message** | the measurement, the before/after, and the `VERIFIED:` line. This repository's commit bodies already carry them — they are the strongest artifact here, and they are now the record |
 | **`CONTEXT.md`** | a WORD and what it means. Terms only |
-| **`docs/agents/ledger-mutations.md`** | which mutation must break which gate. A reference table, not a journal — and landing 4b moves its rows into the gates they name |
-| **`docs/agents/ledger-appendix.md`** | prior findings, for "has this failed before?" |
-| **the gate itself** | any invariant that can be checked. If a sentence can be enforced, enforce it instead of writing it down |
+| **the gate itself** | any invariant that can be checked — including its own mutation proof, in its header. If a sentence can be enforced, enforce it instead of writing it down |
 
 **`scripts/test/docs-budget-check.mjs` IS THE GATE THAT HOLDS ALL OF THIS UP** — renamed in landing 4a from
 `ledger-budget-check`, because a gate called `ledger-budget-check` that no longer budgets a ledger is a name that lies. It
 enforces this file's 48,000-byte ceiling, refuses a narrative `###` section growing back into it, caps `CONTEXT.md` at 12,000
-bytes ("a glossary that grows into a rulebook has stopped being a glossary"), and keeps the two reference tables inside their
-own floors and ceilings.
+bytes ("a glossary that grows into a rulebook has stopped being a glossary"). It is the whole of the budget now: the
+instruction file and the glossary are all that is left of the long form.
 
 **AND THE RULE THAT REPLACED THE PROTOCOL IS THE ONE THIS FILE HAS ALWAYS CARRIED**: if a sentence does not change what you
 would DO, it does not belong in an instruction file — and it no longer has a ledger to hide in. What was 865 KB of narrative is now
@@ -418,3 +436,7 @@ tool is defined in its plugin's `tools.rs` (the registry caches at register time
 callable from the console, must be registered in `gateway/src/mcp-tools.ts` **and** matched by
 `isDeviceDirectTool()`; after adding or removing a tool run
 `SUMMRISE_REFRESH_SPEC=1 cargo test --features terminal,keyring spec_snapshot`.
+
+**MUTATION THAT MUST BREAK IT** (moved here from the ledger table, landing 4b): *add a parameter inside a device tool's
+`properties`* → **exit 101, snapshot diff.** A snapshot that does not notice a new parameter is a snapshot that is not
+pinning the surface.

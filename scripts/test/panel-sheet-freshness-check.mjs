@@ -1,3 +1,10 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: commit a sheet `agent/resources/panel-react` would not produce, or move its CI step to a job that installs no panel-react dependencies
+// RESULT:   exit 1 both ways: "a rebuild of the panel changed tracked files, so the COMMITTED sheet is not what the source produces" — and the diff it leaves IS the fix. Round 190's placement bug was the second case in reverse: the step sat in `ui`, which installs only gateway/ui's dependencies, and the check faithfully reported "the panel build itself failed" for a missing node_modules. Round 191 added exit 2 for a host that cannot rebuild at all, which is how `all-gates` runs it. **NAMED HERE IN ROUND 199 BECAUSE THE CENSUS COULD NOT SEE IT**: that census matched only an invocation written as `node scripts/test/...`, and this step carries the path-prefix form, so it was invisible — the same trap `all-gates.bash` hit before round 170
+
 // panel-sheet-freshness-check.mjs — A PANEL SOURCE CHANGE OWES ITS BUILT SHEET, AND A REBUILD MUST PROVE IT.
 //
 // WHY THIS EXISTS (round 177 of the standing goal, from a gap the fifteenth exploration measured). FIVE gates

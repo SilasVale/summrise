@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: delete the opening `---` of any `.agents/skills/*/SKILL.md`, or empty its `description:`
+// RESULT:   exit 1: "1 skill(s) the agent cannot load: tdd: no frontmatter block — the agent cannot see this skill". Clean tree exits 0 (35 skills, all loadable). ALSO asserts `name:` equals the directory name, because the DIRECTORY is what the catalog lists
+//
+// MUTATION: give an INVOCABLE skill (one with no `disable-model-invocation`) a description that merely describes it — e.g. replace `tdd`'s with "A calm, careful approach to building things well."
+// RESULT:   exit 1: "tdd: invocable by the model but its description names no TRIGGER — it describes the skill instead of saying when to reach for it". **AND THE NON-BITE HOLDS**: the SAME description plus `disable-model-invocation: true` PASSES — measured, because a gate that cannot tell those two apart gets reverted
+
 // skill-frontmatter-check — EVERY SKILL IN .agents/skills/ MUST BE ONE THE AGENT CAN ACTUALLY LOAD.
 //
 // WHY THIS EXISTS (round 170). This repository ships 35 skills and a malformed one fails SILENTLY: a skill whose `---` block is

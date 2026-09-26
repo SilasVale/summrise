@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: take a selector out of a `prefers-reduced-motion` block (`.mem-busy` from the panel's)
+// RESULT:   exit 1: "panel: .mem-busy runs \"mem-busy-spin 1s linear infini\" and no prefers-reduced-motion block stops it". It reads both sheets and accepts either idiom — a selector named in the block, or a global `*`. Written after the CONSOLE was found relying on `--ds-dur: 0s`, which reaches transitions and no `animation:` at all; the panel was the model for that fix and the gate then found SEVEN of its own twelve unsilenced. Verified on the rendered panel too: with reduced motion emulated, the only animation under `no-preference` is xterm's cursor and there are ZERO under `reduce`
+
 // motion-check.mjs — NOTHING ANIMATES FOR SOMEONE WHO ASKED FOR NO MOTION.
 //
 // WHY THIS EXISTS (round 13 of the standing goal). The objective's clause is "the chrome neutral and still", and the

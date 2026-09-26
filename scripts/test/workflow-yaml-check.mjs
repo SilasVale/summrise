@@ -1,3 +1,10 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: write a gate into `ci.yml` as an orphaned command line under a previous step's `run:` — the real defect, replanted character for character from `e92fbf32`
+// RESULT:   exit 1, naming the file and the line: `GITHUB CANNOT PARSE THIS FILE, SO NO JOB IN IT WILL EVER START`. **THE CONSEQUENCE THIS PROVES AGAINST IS NOT A RED STEP, IT IS NO STEPS**: the real occurrence left `ci.yml` unparseable for **~35 commits**, and GitHub answered every push with a completed run carrying **ZERO jobs** and `conclusion: failure` — no log to open, and indistinguishable in a count from a real red (`8ca63398` ran 11 jobs and succeeded; `e92fbf32` ran 0). TWO GATES COULD NOT SEE IT, and both are named here so the next reader does not re-derive them: `workflow-shell-check.mjs` extracts `run:` blocks and a line with no `run:` key is not one — while its header CLAIMED "the extraction goes through the YAML PARSER" and its own body said "Using a real parser would be better"; and `all-gates.bash` derives its list from the same file by regex, so it ran all 61 commands happily on a file GitHub had rejected. **The instrument read the file as TEXT; the other end reads it as YAML.** The gate now uses a real parser where the host has one and a portable fallback where it does not, and the fallback is DIFFERENTIALLY PROVEN rather than asserted: `--differential` replays every workflow revision in this repository's history through both — **293 revisions across 148 commits, zero disagreements**, the 35 broken ones included, so the reject direction is exercised. On the real broken bytes both instruments name the SAME line (663)
+
 // workflow-yaml-check — GITHUB HAS TO BE ABLE TO PARSE THE FILE, OR NOTHING IN IT RUNS AT ALL.
 //
 // MEASURED, round 273, and this is the largest outage in this repository's history. Three gates were wired into `ci.yml` by

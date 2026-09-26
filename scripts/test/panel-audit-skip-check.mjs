@@ -1,3 +1,10 @@
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: make the audit `exit(0)` on a skip, OR delete the `PROBE_SOURCE` import its measuring half evaluates, OR put its old local `cr < 4.5` back
+// RESULT:   exit 1 each way: the first names the skip/pass distinction; the other two read the SOURCE, because that half runs only where a browser exists — and it had never run anywhere (CI takes the emit path, which exits 2 first) until round 265 imported the probe it was calling by a name that no longer existed
+
 // A SKIP MUST NOT LOOK LIKE A PASS.
 //
 // `panel-render-audit.mjs` needs a Playwright runtime (`SUMMRISE_BROWSER_HELPER`). Where

@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: put a retired value back anywhere outside a comment (the accent `#d9480f` in the Rust status page)
+// RESULT:   exit 1, naming the file and the measurement that retired it. It strips comments FIRST, because its own first run failed on ten files that merely recorded the retirement — a gate that deletes its reasons is worse than no gate
+
 // retired-colours-check.mjs — a colour that was replaced may not come back anywhere.
 //
 // WHY (round 236). The device's status page carried `#d9480f` long after the stylesheets replaced it with

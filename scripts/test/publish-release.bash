@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: disable the stale-exe refusal
+# RESULT:   exit 1 — **after round 67 ADDED the case that does it**
+
 # The FIRST executable coverage of scripts/publish-release.sh (ledger D13: three
 # files mentioned it, all as SOURCE PINS — nothing ever RAN it). These cases drive
 # the REAL script and assert the refusals it owns, so they need no build, no

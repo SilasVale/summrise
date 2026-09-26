@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: append an orphan `fi` to a shell script
+# RESULT:   exit 1, with file and line
+
 # script-syntax.bash — every shell script in the repo must PARSE.
 #
 # WHY THIS EXISTS (round 28). A one-line edit to scripts/publish-release.sh left an orphan

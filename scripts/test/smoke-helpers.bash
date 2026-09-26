@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: accept a truncated sha256
+# RESULT:   exit 1, prints the offending value
+
 # smoke-helpers.bash — regression tests for the shared smoke snippet's pure
 # guards (scripts/smoke-index.sh, sourced, never executed). Plain bash
 # asserts, no framework (same convention as release-lib.bash); exit 0 = all

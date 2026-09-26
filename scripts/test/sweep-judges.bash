@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: plant a defect in a clean console report (an undersized target with no spacing, a theme lie, a stale delivered entry, an unreadable entry)
+# RESULT:   exit 1 per case — the CLEAN report, the spacing clause that must still PASS, and the current-entry note must all still work, so a judge that fails everything is caught too. Console-only since round 243: the extension's message-tone cases went with the extension, and its delivered-entry cases were TRANSFERRED to the console, which has the same `entryCheck`
+
 # sweep-judges.bash — the CONSOLE judge must fail what it exists to catch.
 #
 # WHY THIS EXISTS (round 179). `panel-design-sweep.bash` has gated the panel's judge since round 50, with a

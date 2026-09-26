@@ -25,18 +25,12 @@ import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INSTRUCTIONS = "AGENTS.md";
-// THE TWO REFERENCE TABLES THAT REMAIN. They are NOT the ledger: nothing appends to them as a round ritual, and their
-// content has a stated destination (the mutation table's rows move into the gates they name — landing 4b).
-const APPENDIX = "docs/agents/ledger-appendix.md";
-const MUTATIONS = "docs/agents/ledger-mutations.md";
-const GLOSSARY = "CONTEXT.md";
-const ARCHIVE_CEILING = 400_000;
-const ARCHIVE_FLOOR_APX = 100_000;
-// A GLOSSARY THAT GROWS INTO A RULEBOOK HAS STOPPED BEING A GLOSSARY, and the skill that prescribes the file says so:
-// "a glossary and nothing else... totally devoid of implementation details". The ceiling is what makes that checkable
-// rather than a matter of intent.
-const GLOSSARY_CEILING = 12_000;
+// THERE ARE NO REFERENCE TABLES ANY MORE (landing 4b). The mutation table's rows moved INTO the gates they name, and
+// the appendix's findings are in git history. What this gate budgets now is the instruction file and the glossary —
+// which is all that is left of the long form, and all that should be.
 // The harness truncates at 65,536 and NAME it here, so the number in the failure is the real one.
+const GLOSSARY = "CONTEXT.md";
+const GLOSSARY_CEILING = 12_000;
 const HARNESS_BUDGET = 65536;
 const CEILING = 48_000;
 
@@ -60,14 +54,6 @@ for (const s of subsections) {
   }
 }
 
-const appendix = existsSync(join(ROOT, APPENDIX)) ? readFileSync(join(ROOT, APPENDIX), "utf8") : "";
-const mutations = existsSync(join(ROOT, MUTATIONS)) ? readFileSync(join(ROOT, MUTATIONS), "utf8") : "";
-if (!mutations) failures.push(`${MUTATIONS} does not exist — the mutation table was DELETED rather than moved`);
-else if (Buffer.byteLength(mutations, "utf8") > ARCHIVE_CEILING) failures.push(`${MUTATIONS} is ${Buffer.byteLength(mutations, "utf8")} bytes and the ceiling is ${ARCHIVE_CEILING} — a table that outgrows its own file is the round-49 problem again`);
-if (!appendix) failures.push(`${APPENDIX} does not exist — the lookup tables were DELETED rather than moved`);
-else if (Buffer.byteLength(appendix, "utf8") < ARCHIVE_FLOOR_APX) failures.push(`${APPENDIX} is under ${ARCHIVE_FLOOR_APX} bytes — the tables were pruned rather than moved`);
-else if (Buffer.byteLength(appendix, "utf8") > ARCHIVE_CEILING) failures.push(`${APPENDIX} is ${Buffer.byteLength(appendix, "utf8")} bytes and the ceiling is ${ARCHIVE_CEILING} — a ceiling on each is what stops either growing back into the other`);
-
 const glossary = existsSync(join(ROOT, GLOSSARY)) ? readFileSync(join(ROOT, GLOSSARY), "utf8") : "";
 if (!glossary) failures.push(`${GLOSSARY} does not exist — the glossary was DELETED rather than moved, and every surface that names a thing now has nowhere to check the word`);
 else if (Buffer.byteLength(glossary, "utf8") > GLOSSARY_CEILING) failures.push(`${GLOSSARY} is ${Buffer.byteLength(glossary, "utf8")} bytes and the ceiling is ${GLOSSARY_CEILING} — it is a GLOSSARY: terms, not a rulebook, and not a place for implementation decisions`);
@@ -79,5 +65,5 @@ if (failures.length) {
 console.log(
   `docs-budget-check: ok — the instruction file fits (${bytes} of ${CEILING} bytes — the ENFORCED ceiling; the harness ` +
     `truncates at ${HARNESS_BUDGET}), the glossary is ${Buffer.byteLength(glossary, "utf8")} B of ${GLOSSARY_CEILING}, and ` +
-    `the reference tables are in ${APPENDIX} and ${MUTATIONS}`,
+    `the gates carry their own proofs`,
 );

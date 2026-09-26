@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: read the versioned installer instead of the versionless alias
+# RESULT:   exit 1
+
 # smoke-index.bash — the installer-ALIAS arm of smoke_index_release, driven with
 # `curl` stubbed as a shell function (the same instrument release-audit.bash uses:
 # functions beat PATH, so nothing about the smoke is re-implemented here).

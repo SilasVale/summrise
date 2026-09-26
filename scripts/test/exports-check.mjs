@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+// Read this when you change this file: the mutation is how you find out whether the gate can still
+// fail at all. A gate that cannot be broken is worse than no gate.
+//
+// MUTATION: export a name and use it only inside its own file (`export const URGENT_MS` in ApprovalGate), or export one used nowhere at all
+// RESULT:   exit 1 either way: "is exported but used only inside its own file — drop the `export`", or "is exported and used NOWHERE — delete it". It covers BOTH UIs, counts a test-only use as a SEAM rather than dead weight (34 in the panel, and a check that called those dead would be turned off within a round), and cannot see dynamic access (`mod[name]`) — nothing does that today. Its first fix run applied one remedy to both buckets and un-exported a type used nowhere, which only HID it; `noUnusedLocals` is already on in both tsconfigs, so the compiler is the second line of defence for what an un-export leaves behind
+
 // exports-check.mjs — A MODULE'S PUBLIC SURFACE SHOULD BE WHAT SOMEBODY USES.
 //
 // WHY THIS EXISTS (round 21 of the standing goal). The objective says prune whatever stops earning its place, and

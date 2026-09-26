@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: prune keeps 4 instead of 5 per minor
+# RESULT:   exit 1, actual/expected listed
+
 # release-lib.bash — regression tests for the extracted publish-release
 # stages (last-5-per-minor prune + version.json writer). Plain bash asserts,
 # no framework; exit 0 = all green. Run: bash scripts/test/release-lib.bash

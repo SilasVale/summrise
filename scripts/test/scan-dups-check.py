@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
+# Read this when you change this file: the mutation is how you find out whether the gate can still
+# fail at all. A gate that cannot be broken is worse than no gate.
+#
+# MUTATION: stop recognising `*_test.rs` files
+# RESULT:   exit 1, names the file
+
 """Regression tests for scripts/scan-dups.py pure units (code_lines,
 collect_files, is_test_file). Plain asserts, no framework (same convention
 as the .bash suites); exit 0 = all green. Run: python3
