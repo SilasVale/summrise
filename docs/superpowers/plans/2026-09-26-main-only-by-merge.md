@@ -43,10 +43,35 @@ Five input classes the spec implies but no task's own tests exercise. Each gets 
 - [ ] **Step 1: Confirm the current state — this is the failing test**
 
 ```bash
-git check-ignore -q .worktrees; echo "exit=$?"
+git check-ignore -q .worktrees/; echo "exit=$?"
 ```
 
-Expected: `exit=1` (not ignored). If it prints `exit=0`, the prerequisite is already met and this task is a no-op — say so and skip to Task 2.
+Expected: `exit=1` — not ignored, so the prerequisite is unmet. If it prints `exit=0`, the directory is already ignored, this task is a no-op, and you should say so and skip to Task 2.
+
+> **TWO TRAPS HERE, BOTH MEASURED, AND THE FIRST ONE IS IN THE SKILL ITSELF.**
+>
+> | query | `.worktrees` exists | no pattern | pattern present |
+> |---|---|---|---|
+> | `check-ignore .worktrees` (no slash) | **no** | exit 1 | **exit 1 — WRONG** |
+> | `check-ignore .worktrees` (no slash) | yes | exit 1 | exit 0 |
+> | `check-ignore .worktrees/` (slash) | no | exit 1 | exit 0 |
+> | `check-ignore .worktrees/` (slash) | yes | exit 1 | exit 0 |
+>
+> A directory-only pattern is reported as a match **only when the queried path ends in a slash, or the directory already
+> exists** — so the no-slash form answers "not ignored" for a correctly ignored directory that has not been created yet.
+> **`using-git-worktrees` uses exactly that form**, in the check it runs *before* creating the worktree:
+> `git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null`. It therefore sends a reader
+> to add a line that is already there. **Always query with the trailing slash.**
+>
+> **AND DO NOT "TEST IT BEHAVIOURALLY" WITH `git status` ALONE**: git does not track empty directories, so an empty
+> `.worktrees` is invisible to `git status` whether or not it is ignored, and a test built on that cannot distinguish the
+> two states. Measured, both ways. If you want the behavioural form, it needs a file inside:
+>
+> ```bash
+> mkdir -p .worktrees && touch .worktrees/probe
+> git status --porcelain --untracked-files=all | grep -q worktrees; echo "exit=$?"   # 0 = would commit, 1 = ignored
+> rm -rf .worktrees
+> ```
 
 - [ ] **Step 2: Add the line**
 
@@ -61,7 +86,7 @@ Append to `.gitignore`:
 - [ ] **Step 3: Verify it passes**
 
 ```bash
-git check-ignore -q .worktrees; echo "exit=$?"
+git check-ignore -q .worktrees/; echo "exit=$?"
 ```
 
 Expected: `exit=0`.
