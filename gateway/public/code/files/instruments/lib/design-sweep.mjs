@@ -1287,16 +1287,45 @@ export const TARGETS_SOURCE = `(() => {
   const centre = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const small = [];
+  // ── THE SPACING EXCEPTION HAS TWO HALVES AND ONLY ONE WAS IMPLEMENTED (round 16 of the standing goal) ────────────
+  // WCAG 2.5.8's exception reads: "if a 24 CSS pixel diameter circle is centered on the bounding box of each, the
+  // circles do not intersect ANOTHER TARGET or the circle for another undersized target". That is two tests, and this
+  // probe ran one of them: "nearest" is CENTRE-to-CENTRE, which is the circle-vs-circle half — correct against another
+  // undersized target, and wrong against a LARGE one, where the circle has to clear the other target's BOX.
+  //
+  // It is wrong in the direction that hides defects. A 20x20 icon sitting 5px from the edge of a 200px-wide button has
+  // its circle intersecting that button — the criterion fails — while the button's CENTRE is a hundred pixels away, so
+  // the centre test excused it. Twenty-seven undersized targets pass on spacing today (10 on the panel's overview, 9
+  // on rest, 8 on desktop, 2 on the console), and nothing said whether any of them is actually cramped.
+  //
+  // SO IT IS MEASURED BEFORE IT IS ENFORCED. "gapToBox" is the distance from this target's centre to the nearest other
+  // target's BOX, and nearW/nearH name that neighbour, so the judge can count the rows that pass today and would fail
+  // the full rule — a NOTE this round, a finding only once the number is known. Enforcing a criterion without knowing
+  // what it will say is how a check becomes a surprise.
+  // (NO BACKTICKS: this source is embedded in an emitted template literal, and the first version of this comment had
+  // them around three identifiers — which ended the literal and made the whole module stop parsing. The gate caught it
+  // at --emit, which is what that gate is for.)
+  const boxGap = (c, r) => {
+    const dx = Math.max(r.left - c.x, 0, c.x - r.right);
+    const dy = Math.max(r.top - c.y, 0, c.y - r.bottom);
+    return Math.hypot(dx, dy);
+  };
   for (const el of els) {
     const r = box(el);
     if (r.width >= 24 && r.height >= 24) continue;
-    // The spacing clause: a 24px circle centred here must not overlap another target's circle.
     const c = centre(r);
     let nearest = Infinity;
+    let gapToBox = Infinity;
+    let nearW = 0;
+    let nearH = 0;
+    let nearSel = null;
     for (const other of els) {
       if (other === el) continue;
-      const d = dist(c, centre(box(other)));
+      const or_ = box(other);
+      const d = dist(c, centre(or_));
       if (d < nearest) nearest = d;
+      const g = boxGap(c, or_);
+      if (g < gapToBox) { gapToBox = g; nearW = Math.round(or_.width); nearH = Math.round(or_.height); nearSel = name(other); }
     }
     small.push({
       sel: name(el),
@@ -1306,6 +1335,11 @@ export const TARGETS_SOURCE = `(() => {
       nearest: Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : null,
       // 24px circles overlap when their centres are closer than 24px.
       passesBySpacing: nearest >= 24,
+      // THE OTHER HALF, MEASURED AND NOT YET JUDGED: the circle's radius is 12, so the criterion wants the centre at
+      // least 12px clear of every other target's box.
+      gapToBox: Number.isFinite(gapToBox) ? Math.round(gapToBox * 10) / 10 : null,
+      nearSel, nearW, nearH,
+      passesByFullRule: nearest >= 24 && gapToBox >= 12,
     });
   }
   const bySel = new Map();

@@ -459,6 +459,21 @@ function judge(file) {
         findings.push(`target size (${where}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
       }
     }
+    // ── AND THE HALF OF THE EXCEPTION THAT WAS NEVER IMPLEMENTED, COUNTED BEFORE IT IS ENFORCED (round 16) ────────
+    // `passesBySpacing` is CENTRE-to-CENTRE, which is the circle-vs-circle test — right against another undersized
+    // target, and wrong against a LARGE one, where the circle has to clear the other target's BOX. It errs toward
+    // excusing: a small control crammed against a big button passes whenever that button's centre is far away. This
+    // note is the measurement that decides whether enforcing the full rule would find anything, because a criterion
+    // nobody has counted is a criterion that arrives as a surprise. It becomes a finding once this number is known.
+    const falsePasses = (t.distinct || []).filter((u) => u.passesBySpacing && u.passesByFullRule === false);
+    if (falsePasses.length) {
+      const worst = falsePasses.slice().sort((a, b) => (a.gapToBox ?? 99) - (b.gapToBox ?? 99))[0];
+      console.log(
+        `note: target size (${where}): ${falsePasses.length} of ${(t.distinct || []).length} undersized target(s) pass on CENTRE distance alone — ` +
+          `the 24px circle clears the nearest neighbour's centre but not its BOX. Worst: ${worst.sel} is ${worst.w}x${worst.h} with its centre ` +
+          `${worst.gapToBox}px from ${worst.nearSel} (${worst.nearW}x${worst.nearH})`,
+      );
+    }
   }
   for (const r of failures(report.rows)) {
     // A WAIVER IS FOR THE RATIO IT WAS MEASURED AT, NOT FOR THE ELEMENT (round 95). This used to be
