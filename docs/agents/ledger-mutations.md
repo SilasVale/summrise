@@ -917,6 +917,7 @@ Every one of these was reported as a defect and was an artefact of the pattern t
 | six undispatched routes | a route table's THIRD comparison shape (`Pattern::Exact` / `Pattern::Prefix` beside `path ==`) |
 | four dead CSS rules | a class named inside a COMMENT; a COMPOUND selector (`.notify-state.is-denied`); and a stem too short to search (`is-`, where the real form is `` `notify-state is-${perm}` ``) |
 | a check that "never runs" | — turned out to be a real absence, which is why the rule is "ask", not "distrust" |
+| `scripts/test/skill-frontmatter-check.mjs` (new, rounds 170-171) | delete the opening `---` of any `.agents/skills/*/SKILL.md`, or empty its `description:` | exit 1: "1 skill(s) the agent cannot load: tdd: no frontmatter block — the agent cannot see this skill". Clean tree exits 0 (35 skills, all loadable). ALSO asserts `name:` equals the directory name, because the DIRECTORY is what the catalog lists |
 
 **AN EXTRACTOR IS A HYPOTHESIS ABOUT A FILE'S FORMS, AND IT FAILS BY REPORTING WHAT IT CANNOT PARSE AS ABSENT.** So:
 read the RULE, not the name (`grep -n` the construct, do not grep the identifier); search the STEM the code builds from,

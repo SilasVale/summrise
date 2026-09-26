@@ -35,6 +35,35 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 171 — the skill-frontmatter gate, built in three places and proven in both directions
+
+Round 170 measured the gap (35 of 35 skills correct, nothing checking) and recorded the candidate rather than building it, because
+adding a gate here is three coordinated edits. This round paid that, and the failure it guards is the silent one:
+
+```
+1. scripts/test/skill-frontmatter-check.mjs   the check — 35 skills, all loadable
+2. .github/workflows/ci.yml                   the invocation, beside round 151's route-header gate
+3. ci-command-table-check                     declared WITH ITS REASON (a scripts/test file not named in ci.yml fails it)
+```
+
+**BOTH DIRECTIONS PROVEN** — the half round 124 reverted a gate for lacking:
+
+```
+mutated (the opening --- of tdd/SKILL.md deleted): exit 1
+  "1 skill(s) the agent cannot load: tdd: no frontmatter block — the agent cannot see this skill"
+restored (clean tree):                            exit 0   (35 skills, all loadable)
+```
+
+**AND IT CHECKS MORE THAN THE CANDIDATE ASKED FOR**: it also asserts that each skill's `name:` equals its DIRECTORY name, because the
+directory is what a catalog lists — a skill whose frontmatter says one thing and whose folder says another is reachable under a name
+nobody wrote down. **AND IT REFUSES TO PASS VACUOUSLY**: no `.agents/skills/` directory, or no `SKILL.md` anywhere, is a FAILURE rather
+than an empty success — the shape round 95 found in a check whose predicate a stale value already satisfied.
+
+**THE THREE-PLACE COST IS NOW MEASURED TWICE** (rounds 149 and 171) and both times the third edit was the one a hurried round would skip:
+`all-gates.bash` EXTRACTS its list from `ci.yml`, and `ci-command-table-check` requires every `scripts/test/` file to be named there —
+**so a gate dropped in without the other two turns the suite red instead of protecting it.**
+
+
 ### round 170 — 35 skills, every one healthy, and NOTHING checks them
 
 A fresh traversal, on the artifact the `writing-for-agents` skill itself governs: **this repository ships 35 skills under
