@@ -35,6 +35,14 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 163, one line**: the five phantom findings (128, 137, 146, 147, 161-162) are now a rule in AGENTS.md — **"before you act on
+what an extractor found, ask what form it cannot see"** — with each instance reduced to the FORM it missed: prose, the other direction, a
+third comparison shape, a comment, a compound selector, a stem too short to search. **Five instances is enough to state a shape rather than
+a list of incidents**, and the rule carries the two habits that would have caught all five: read the construct (`grep -n` the rule, not the
+identifier) and, before deleting, find the commit that added the thing — `git log -S` twice showed a past round restoring what this loop
+was about to remove.
+
+
 ### round 162 — round 161's four candidates dissolve under the rules themselves, and the extractor was wrong three ways
 
 Round 161 left four "rules nothing can apply" as a candidate and refused to delete them. That refusal was right, and **the count itself was
