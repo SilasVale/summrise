@@ -214,6 +214,37 @@ const fail = { api: false };
     }
     SETTLE.needed += Date.now() - t0;
   };
+
+  // ── THE REQUEST COUNTER, WITHOUT WHICH THIS SWEEP'S ACKNOWLEDGEMENT EXCUSE WAS ALWAYS ON ────────────────────────
+  // `ackPass` decides whether a control that never showed a busy state had ASKED THE DEVICE ANYTHING, and it reads
+  // `window.__calls` to answer that. Only the PANEL's fixture installs one (`panel-stub.cjs`), so on the console
+  // `(window.__calls || []).length` was ALWAYS 0 — `asked` was always false, every non-acked row carried the note "no
+  // request left this page in the 250ms after the press (0 of 0 in the whole window)", and the shared judge excused it.
+  // **A CONSOLE CONTROL THAT NEVER ACKNOWLEDGED A PRESS COULD NEVER FAIL THE RUN** (round 11 of the standing goal):
+  // the gap round 2 set out to close, arriving from the other side — that round gave the console a judge clause, and
+  // this clause's excuse was structurally on for every row it would ever see. It is the shape this suite keeps finding:
+  // a check whose premise was never installed reads exactly like a clean one.
+  //
+  // INSTALLED THE WAY THE PANEL'S STUB INSTALLS IT — a count of `/api/` fetches with a time beside each, because a
+  // bare count cannot tell a control's own request from a background one on a page that polls (round 26). It goes in
+  // through `addInitScript`, so it is present before the app's first line runs on every navigation, and the app's own
+  // `fetch` is wrapped rather than replaced: the route handler below still serves every response.
+  await page.addInitScript(() => {
+    window.__calls = [];
+    window.__callTimes = [];
+    const real = window.fetch.bind(window);
+    window.fetch = (...args) => {
+      try {
+        const u = String((args[0] && args[0].url) || args[0] || "");
+        if (u.indexOf("/api/") >= 0) {
+          window.__calls.push(u.replace(/^.*\/api\//, ""));
+          window.__callTimes.push(Date.now());
+        }
+      } catch (e) {}
+      return real(...args);
+    };
+  });
+
   await page.route('https://ai.saisi.online/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     // The login page exists only when /api/me answers 401, so it gets its own pass with the flag

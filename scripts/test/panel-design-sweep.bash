@@ -3,7 +3,7 @@
 # Read this when you change this file: the mutation is how you find out whether the gate can still
 # fail at all. A gate that cannot be broken is worse than no gate.
 #
-# MUTATION: plant a defect per axis in a report (86 checks as measured on 2026-09-26 — the axis list below is the part that stays accurate, the NUMBER is what drifts when a round adds a case without updating this cell: contrast, h1, skip, landmark, geometry, sliver, loud, mark-collision, name, title-only, reflow, focus, focus-empty, motion, motion-empty, type-floor, blind, theme-lie, harness-stale, prose, **ack** — the newest, round 2 of the standing goal: a control that never acknowledged a press, planted in BOTH axis loops. It is the case that found the console's judge had NO acknowledgement clause at all, so a console control that answers no press could not fail the run while the axis cost a third of that sweep — plus `prose-none` for the instrument's own floor, and the note assertions the axis loop cannot make)
+# MUTATION: plant a defect per axis in a report (87 checks as measured on 2026-09-26 — the axis list below is the part that stays accurate, the NUMBER is what drifts when a round adds a case without updating this cell: contrast, h1, skip, landmark, geometry, sliver, loud, mark-collision, name, title-only, reflow, focus, focus-empty, motion, motion-empty, type-floor, blind, theme-lie, harness-stale, prose, ack, **ack-nocounter** — the newest, round 11 of the standing goal: an acknowledgement row from a page that has NO request counter, which must FAIL rather than be excused by a note claiming a measurement nobody made. It plants an ACKNOWLEDGED row beside it on purpose: the first version planted the no-counter row alone and the case passed for the WRONG reason — with the new clause disabled the judge still failed the report, because an ack array with nothing acknowledged trips the vacuity floor — so mutating the clause left the gate green. That is the "failed for the wrong reason and proved nothing" shape, caught by doing the mutation instead of assuming it — plus `prose-none` for the instrument's own floor, and the note assertions the axis loop cannot make)
 # RESULT:   one check per axis (the newest being `false-claim`: a surface claiming a read failed while the fixture answered everything — the defect rounds 99-100 found by hand, twice; it applies only to a report that DECLARES what its fixture served (`sse` records), because the console has no backend and its "could not be read" is true)  **AND THE `ack` CASE FAILED THE FIRST TIME IT RAN, WHICH IS THE POINT**: the panel's judge rejected the planted row (exit 1, "never acknowledged the press") and the console's ACCEPTED it (exit 0, "nothing above found a defect") — 85 ok, 1 failed. The clause now lives in the shared `judgeReport`, the panel's copy is deleted, and both loops fail the same row; the run after that is 86 ok, 0 failed  **MARK-COLLISION (round 27): the silhouettes are now checked AS THE BROWSER PAINTS THEM.** The sheet-level unit tests cannot see a cascade override — round 25's `.plug-dot[error]` kept a stray halo through a test that passed — so the SURFACE probe reads the COMPUTED style of every state mark on every page, groups by family, and fails when two states of one mark paint identically. It cost no call sites: the probe every page already evaluates carries it. Verified on three rendered pages: four and five families each, ZERO collisions and no false positives
 
 # panel-design-sweep.bash — the design sweep tool must EMIT a valid script and JUDGE correctly.
@@ -449,12 +449,32 @@ elif which == "ack":
     r["ack"] = [{"density": "panel", "theme": "light", "page": "devices", "mode": "ack",
                  "sel": "button.btn", "where": "button.btn", "size": "54x26",
                  "acked": False, "via": None, "msToAck": None, "msToClear": None, "budgetMs": 100, "attempts": 2}]
+elif which == "ack-nocounter":
+    # AN UNMEASURED PREMISE IS NOT AN EXCUSE (round 11 of the standing goal). `ackPass` excuses a control that asked
+    # the device nothing, and only a page that HAS a request counter can tell "asked nothing" from "nobody looked".
+    # The console had none, so every one of its rows carried a note claiming a measurement that never happened — and a
+    # console control that never acknowledged a press could never fail the run. This plants exactly that row.
+    #
+    # AND IT PLANTS A SECOND ROW THAT IS ACKNOWLEDGED, WHICH IS NOT DECORATION. The first version planted the no-counter
+    # row alone and the case "passed" for the WRONG REASON: with the new clause disabled the judge still failed the
+    # report, because an ack array with NOTHING acknowledged trips the vacuity floor ("a pass that proves nothing is not
+    # a pass"). A planted defect that fails for another clause's reason proves nothing about this one — measured by
+    # mutating the clause and watching the gate stay green.
+    r["ack"] = [
+        {"density": "panel", "theme": "light", "page": "devices", "mode": "ack",
+         "sel": "button.ok", "where": "button.ok", "size": "54x26",
+         "acked": True, "via": "paint", "msToAck": 12, "msToClear": 40, "budgetMs": 100, "attempts": 1, "hasCounter": True},
+        {"density": "panel", "theme": "light", "page": "devices", "mode": "ack",
+         "sel": "button.btn", "where": "button.btn", "size": "54x26",
+         "acked": False, "via": None, "msToAck": None, "msToClear": None, "budgetMs": 100, "attempts": 2,
+         "hasCounter": False,
+         "note": "this page has NO request counter, so whether the control asked the device anything is UNMEASURED — the row is not evidence about feedback either way"}]
 else:
     raise SystemExit("unknown axis " + which)
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable prose prose-none ack; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable prose prose-none ack ack-nocounter; do
   plant "$axis" "$axis"
   if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
