@@ -35,6 +35,36 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 146 — I hypothesised an if-cascade with no route table, and the file already had one
+
+`agent/src/web/mod.rs` is **8,302 lines** and the largest file in the agent, and its dispatch begins with `if path == "/api/browser/actions"`,
+`if path == "/api/operation"`, … so the first read looks like a cascade. The header also LISTS ten routes, which makes a
+documented-vs-actual diff look like the obvious check. It was run, and it reported six routes "documented but not dispatched".
+
+**ALL SIX ARE FALSE POSITIVES OF MY OWN EXTRACTION, AND THE TRUTH IS BETTER THAN THE HYPOTHESIS**:
+
+```
+/api/status          ->  pattern: Pattern::Exact("/api/status")            line 933
+/api/spec            ->  pattern: Pattern::Exact("/api/spec")              line 927
+/api/plugins/status  ->  pattern: Pattern::Exact("/api/plugins/status")    line 1060
+/api/tools/          ->  Prefix "/api/tools/"  … and a comment at 802:
+                          "Move a row and `route_of` answers …"           <- ARM ORDER IS DOCUMENTED
+/panel               ->  path == "/panel" || path == "/panel/"             line 679
+```
+
+**There is a route TABLE — `Pattern::Exact` / `Pattern::Prefix`, with a `route_of` resolver and a comment warning that arm order
+matters.** My regex knew two comparison shapes (`path ==`, `path.starts_with`) and the file uses three, so it reported the routes it
+could not see as missing. **THAT IS THE THIRD PHANTOM FINDING THIS SESSION FROM A NAIVE EXTRACTOR** — round 128 read a header as a dead
+endpoint, round 137 checked one direction of a mirror, this one diffed two lists with the wrong vocabulary — and each was caught by
+opening the thing rather than by reasoning about it. **The rule the three of them share: an extractor is a hypothesis about a file's
+shape, and it fails by reporting what it cannot parse as absent.**
+
+**WHAT SURVIVES IS A BETTER CANDIDATE THAN THE ONE I STARTED WITH**: the header documents ten routes and the code has a `Pattern` table,
+so the two CAN be compared — the same documented-vs-actual assertion `ci-command-table-check` makes for CI, applied to the device's own
+surface. **It is specified rather than built**, and the mechanism is now known (`Pattern::Exact`/`Prefix` rows plus the header's `//!`
+list), which is the difference between this round and the one that would have started from my wrong hypothesis.
+
+
 **Round 145, one line — THE OWED DEPLOY IS PAID, WITH ITS VERIFICATION IN THE SAME COMMAND**: round 144 recorded that round 128's
 comment fix had left the live Source Viewer serving the sentence that reads as a dead endpoint, and refused to start a production
 deploy without budget to check it. This round ran it with the check chained:
