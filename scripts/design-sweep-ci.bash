@@ -80,10 +80,25 @@
 #
 # **THE COST IS THE `pages` BODY: 439s, 94% of the sweep, and it prints NOTHING for 7m20s** (10:58:15 → 11:05:35 in the
 # same log — the first output after "emitting and running" is the `pass pages` mark itself). That is where a shorter
-# design job has to be found, and the next instrument is marks INSIDE the density/theme/mode loop, one per iteration, so
-# focus, press, idle and the pages probes can be told apart.
+# design job has to be found, and it is not the probes: a second instrument counts what the page itself spends, at the
+# source rather than at the call sites (`panel-run.cjs`'s `BUDGET`), and run 36242110766 answered it —
 #
-# The per-pass marks stay: they are what turned a 464-second silence into this table.
+#     budget wait=1088x/429.8s nav=198x/17.6s eval=2100x/9.9s of 464.6s
+#
+# **92.5% OF THE PANEL SWEEP IS DELIBERATE FIXED SLEEPING**, 1088 waits averaging 395ms, against 27.5s of navigation
+# and probes together. The average says the bulk is small waits rather than the long settles, and those two have
+# OPPOSITE fixes — so the waits were then attributed to the value that asked for them (run 36242994398):
+#
+#     1800ms=56x/100.9s   1500ms=34x/51.0s   6000ms=8x/48.0s   900ms=38x/34.2s
+#     260ms=130x/33.9s    2000ms=14x/28.0s   2200ms=12x/26.4s  450ms=48x/21.6s
+#
+# The top eight are 344s of the 429.8s, and the four LARGEST — 1800, 1500, 2000 and 2200ms, 116 calls — are
+# settle-after-load sleeps costing **206s**, which is the part a condition-based wait could replace without weakening
+# anything. `6000ms x8` is `idlePass`'s observation window (the panel must be watched for six seconds to see whether it
+# writes to the DOM while idle), and the 260/450/900ms waits are the sampling loops inside `ackPass` and `pressPass`
+# that ARE the measurement — shortening those would make the instrument lie rather than make the job shorter.
+#
+# The per-pass marks and the budget stay: together they turned a 464-second silence into this table.
 #
 # WHAT IT NEEDS: a browser. The job installs one with the PROJECT'S playwright-core — see ci.yml for why naming
 # npx's playwright installs the wrong build number.
