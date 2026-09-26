@@ -35,6 +35,28 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 139 — the class closes: four generated artifacts, four guards, and no fifth gap
+
+Rounds 133-138 closed one shape — **generated, committed, unguarded** — by finding it three times. This round asked the question that
+ends a class rather than extending it: **what else in this repository is generated and committed?**
+
+```
+agent/resources/panel/panel.js               663,487 B   guarded by panel-sheet-freshness-check.mjs
+agent/summrise-agent-npm/bin/summrise.js     198,635 B   guarded by the pack chain (cmp against a fresh compile)
+index/components.json                          2,185 B   guarded by SETUP, at install time: a pin mismatch is REFUSED
+index/public/summrise-agent/version.json         669 B   guarded by the RELEASE AUDIT: CDN vs the GitHub asset, byte for byte
+```
+
+**NO FIFTH GAP.** The two JSONs are worth naming because their guards are NOT tests: one is enforced on the device by `setup`
+refusing a sha256 mismatch, the other by the release audit comparing the two channels. **A guard does not have to be a gate to be a
+guard, and this round is where that distinction stopped being a loophole and became an inventory.**
+
+**AND ONE WORRY WAS CHECKED RATHER THAN ASSUMED**: `git ls-files | grep -E "\.(exe|tgz|zip)$"` returns **nothing**, so the built exe
+the release flow copies into the package is a LOCAL artifact, not a committed mirror — which is why no guard for it is missing.
+**The inventory is the deliverable here**: after six rounds of finding this shape one instance at a time, the answer to "what else"
+is now a list with four entries and four mechanisms, and a reader can tell in one look whether a new generated file has a home.
+
+
 ### round 138 — the third unguarded copy, and this one I created myself three rounds into the e2e thread
 
 Round 137 closed the instruments mirror in both directions. The same question, asked once more, found a third copy of the same
