@@ -607,7 +607,19 @@ const fail = { api: false };
   {
     const count = (a) => (report[a] || []).length;
     const axes = {
-      press: (report.press || []).map((p) => `${p.page}@${p.width}:${p.measured || 0}of${(p.rows || []).length}`),
+      // THE DENOMINATOR IS NOT "HOW MANY CONTROLS WENT UNMEASURED". This read `3of10` on every console page, which
+      // looks like a coverage gap and is not one: the press pass is handed a CURATED ten-selector list and each page
+      // renders three of them, so the other seven rows say "not rendered on this page" — and the judge suppresses
+      // exactly those notes, because the absence of a control is not a defect in one. Measured from the log rather
+      // than assumed: `console/light` appears ZERO times in the judging output, which is only possible if every
+      // suppressed note matched /not rendered/. The honest reading is pressed/absent, with `found` appended where the
+      // pass DISCOVERED its set instead of being handed one.
+      press: (report.press || []).map((p) => {
+        const rows = p.rows || [];
+        const absent = rows.filter((r) => r.note && /not rendered/.test(r.note)).length;
+        const measured = p.measured != null ? p.measured : rows.filter((r) => !r.note).length;
+        return `${p.page}@${p.width}:${measured}pressed/${absent}absent${p.found == null ? "" : "/" + p.found + "found"}`;
+      }),
       ack: `${count("ack")}r/${(report.ack || []).filter((a) => a.acked).length}a/${(report.ack || []).filter((a) => a.asked).length}asked/${(report.ack || []).filter((a) => a.hasCounter === false).length}nocounter`,
       focus: (report.focus || []).map((f) => `${f.page || f.density}@${f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m`),
       hover: (report.hover || []).map((h) => `${h.page}@${h.width}:${h.interactive}i/${(h.underAA || []).length}aa`),
