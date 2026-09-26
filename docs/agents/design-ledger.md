@@ -35,6 +35,19 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 160, one line**: the whole suite re-run after the seven self-audit rounds (153-159), which changed only records and
+`AGENTS.md` — **and `AGENTS.md` grew by ~3 KB in that span**, which is the one file among them a gate measures directly:
+
+```
+bash scripts/test/all-gates.bash
+  -> 58 ok, 0 failed, 1 not runnable here (of 59 gate command(s)), AGENTS.md 28.9 KB of its 48 KB ceiling
+```
+
+**UNCHANGED FROM ROUND 152, AND THAT IS THE POINT OF RUNNING IT**: the rounds in between were corrections to WHAT THIS REPOSITORY
+SAYS rather than to what it does, so a green suite is the evidence that saying it differently did not change anything — and the
+instruction-file ceiling is the one gate that could have objected, because `AGENTS.md` is where most of those corrections landed.
+
+
 **Round 159, one line — "EVERYTHING IS PUSHED" IS TRUE, AND THE CLONE IS STILL NOT A MIRROR OF THE REMOTE**: round 155 found the local
 TAGS eighteen behind (API-created, never fetched). The same question asked of the BRANCH answers differently, and both were measured
 from outside this box:
