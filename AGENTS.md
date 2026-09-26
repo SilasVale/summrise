@@ -420,20 +420,29 @@ script to the device's node or to `browser_run_script`).
 **HOW TO HAND IT OVER, since a 38 KB script must not be pasted into anything:** emit it into the CDN's public dir
 (`node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js`), deploy, and let
 the DEVICE fetch it (`system_file_download` from `https://agent.saisi.online/summrise-agent/live-panel-probe.js`), then
-`browser_run_script` — **and do NOT `require()` it, which exports an empty object and runs nothing** (measured, round 183).
-**It is a STANDALONE script: evaluate it with the shared page in scope, which costs one line and no context** (measured, round 184):
+`browser_run_script`. **THE INVOCATION IS ONE LINE, BECAUSE ROUND 269 CHANGED THE SHAPE AND BOTH EARLIER INSTRUCTIONS
+DESCRIBED THE ONE BEFORE IT:**
 
 ```js
-const src = require('fs').readFileSync('D:/Summrise/live-panel-probe.js', 'utf8');
-const { page, attached, close } = await acquireBrowser();          // { page, attached, close } — not { browser, context }
-const probe = new Function('page', 'require', 'process', 'console', src + ';return probe;')(page, require, process, console);
-console.log(JSON.stringify(await probe({ page, base: 'http://127.0.0.1:18080' })));
-await close();
+require('D:/Summrise/live-panel-probe.js');   // the whole run: token from the device's config, both densities, JSON, exit code
 ```
 
+Round 183 wrote "do NOT `require()` it, which exports an empty object and runs nothing", and round 184 replaced that with
+a `new Function(src + ';return probe;')` wrapper. Both were true of the template-literal emitter, which exported a bare
+`probe` function. The emitter is a real module now and the assembler prints a bundled PROGRAM whose last statement is
+`__require("live-run.cjs")` — so requiring it IS running it, and the round-184 wrapper throws
+`ReferenceError: probe is not defined` (measured, round 7 of the standing goal). Nothing is passed in: the program reads
+the panel token out of the device's own config, navigates both densities itself, prints the JSON and exits with a verdict
+code.
+
 **AND DO NOT `page.goto` THE PANEL FIRST**: the attached view is ONE page shared with the operator's screen, usually already on the
-panel, so navigating it aborts (`net::ERR_ABORTED`). It reads the panel token from the device's own config and prints a JSON verdict —
-round 184's was `verdict: {ok: true}`, 92 rows across two densities, zero failing.
+panel, so navigating it aborts (`net::ERR_ABORTED`). The program does its own navigation, so this only bites a caller
+driving the attached view by hand.
+
+**MEASURED ON THE LIVE PANEL, release 1.2.474 (round 7 of the standing goal)**: `verdict: {ok: true}` — 91 rows over two
+densities (61 panel, 30 desktop), `textFailing: []`, `graphicFailing: []`, `unmeasurable: 0`, no mark collisions, no
+ring+fill, `errors: []`. Run headless (`ATTACHED=false`), which is the right mode for a batch measurement because it does
+not touch the operator's screen.
 
 **AND THE EMITTED FILE IN `index/public/` MUST NOT BE GITIGNORED** (the file above is the DEVICE's copy, which is a different thing):
 Workers Assets uploads the directory but HONOURS `.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
