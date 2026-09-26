@@ -110,6 +110,14 @@ export function IconRail({
           type="button"
           className={btn(page === p)}
           aria-current={page === p ? "page" : undefined}
+          // THE LABEL IS THE PAGE ID, CAPITALISED — and the first one was re-opened on 2026-09-26 and KEPT, with the
+          // reason written down rather than rediscovered. The page it opens renders `sessions: WorkspaceSession[]`
+          // (`TerminalWorkspace`), so "Terminal" names ONE TRANSPORT of what is on screen and `CONTEXT.md` lists that
+          // word under `Session`'s `_Avoid_`. The obvious fix — call it "Sessions" — is WORSE: History already has a
+          // section by that name for the RECORDED ones, and `HistoryPage.tsx` warns about exactly that collision ("a
+          // control that says 'Sessions' over a panel titled 'Archive' makes the reader check whether they are the same
+          // thing"). Live sessions and recorded sessions are two things, and one word for both would be the defect this
+          // label was accused of. The id stays `terminal` because it is internal; the label is what a person reads.
           title={p[0].toUpperCase() + p.slice(1)}
           aria-label={p[0].toUpperCase() + p.slice(1)}
           onClick={() => onPageChange(p)}
