@@ -80,6 +80,25 @@ const TIMING = P.timing;
   // The harness publishes window.__sse (opened, fail). Read as data, judged by the shared clause.
   const SSE = "(() => window.__sse || null)()";
   const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
+
+  // ── WHAT EACH PASS COSTS, because for seven minutes this run said nothing at all ────────────────
+  // The `design` job is this repository's CI long pole — 823s of a 14-minute run, measured 2026-09-26
+  // (run 36234166849, job 108382804074) — and THIS sweep is 464 of those seconds: the console is 241,
+  // the landing 42, the judging 0.2. For those 464 seconds the log carried exactly ONE line, the row
+  // count printed at the end, so "which pass costs what" could not be answered from CI at all and the
+  // round before this one had to write the question down instead of the number. It is printed now, and
+  // because the CI log timestamps every line these marks are also a clock.
+  //
+  // THE FIRST MARK IS NOT ONE PASS. `pages` renders the pages, and the focus, press, idle, targets and
+  // ack axes run INSIDE its density/theme loop — interleaved by construction, because separating them
+  // would mean rendering every page again. So the first number is `pages` plus those axes, and the four
+  // after it (unstyled, hover, motion, reflow) are each exactly one pass.
+  //
+  // A PASS THAT DID NOT RUN PRINTS NOTHING: a mark for a pass the caller did not ask for would read as
+  // a measurement of zero, which is the vacuity this suite refuses everywhere else.
+  const SWEEP_T0 = Date.now();
+  const passCost = (name) => console.log("pass " + name + " +" + (Date.now() - SWEEP_T0) + "ms");
+
   for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
     for (const theme of ['light', 'dark']) {
       // THE PAGE MUST BE RENDERED FOR *EITHER* PASS. The focus block below lives in this loop, so
@@ -918,6 +937,7 @@ const TIMING = P.timing;
     await page.waitForTimeout(2000);
     report.targets.push({ density, mode: 'rest', ...(await page.evaluate(TARGETS)) });
   }
+  if (wants("pages")) passCost("pages");
 
   // UNSTYLED CLASSES — the mirror of dead CSS, and the failure a PRUNE causes. Same collector the
   // console uses, from the shared core, embedded with JSON.stringify (round 88 shipped one embedded
@@ -931,6 +951,7 @@ const TIMING = P.timing;
     await page.waitForTimeout(1500);
     report.unstyled.push({ page: density, ...(await page.evaluate(UNSTYLED)) });
   }
+  if (wants("unstyled")) passCost("unstyled");
 
   // HOVER, measured rather than assumed. Nothing had ever looked at it: the static pair sweep reads
   // base rules and every rendered pass measures the resting DOM, while the panel carries 73 :hover
@@ -980,6 +1001,7 @@ const TIMING = P.timing;
       report.hover.push({ density, theme, interactive: handles.length, underAA: [...new Set(underAA)] });
     }
   }
+  if (wants("hover")) passCost("hover");
 
   // REDUCED MOTION, measured rather than assumed: render both densities with the preference
   // EMULATED and ask the page which elements still have a running transition or animation. Reading
@@ -1009,6 +1031,7 @@ const TIMING = P.timing;
     });
   }
   await page.emulateMedia({ reducedMotion: null });
+  if (wants("motion")) passCost("motion");
 
   // Reflow at the two widths WCAG 1.4.10 names, panel density only: the desktop density needs the
   // width it has, and its tab strip is the standard's own toolbar exception.
@@ -1020,6 +1043,7 @@ const TIMING = P.timing;
     await page.waitForTimeout(1500);
     report.reflow.push({ width, ...(await page.evaluate(REFLOW, SELECTOR)) });
   }
+  if (wants("reflow")) passCost("reflow");
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length }));

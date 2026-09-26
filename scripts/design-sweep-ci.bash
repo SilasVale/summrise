@@ -12,27 +12,59 @@
 # satisfied after a rebuild. Run here, the same sweeps measure what the checkout BUILDS, from the repository's
 # own stylesheet and assets, with nothing delivered in between.
 #
-# ALL THREE UIs. The panel renders a generated HARNESS; the console and the extension serve their own built
-# files. Each sweep takes its paths from the environment, so neither knows where it is running.
+# EVERY UI THIS REPOSITORY SERVES, plus the landing. The panel renders a generated HARNESS; the console serves its own
+# built files; the landing is RENDERED from the worker's own PAGE(). Each sweep takes its paths from the environment, so
+# none of them knows where it is running. (The extension was a fourth arm until round 243 removed it.)
 #
-# ── WHAT THIS COSTS, MEASURED 2026-09-26 (rounds 21-23 of the standing goal) ──────────────────────────────────────
+# ── WHAT THIS COSTS, MEASURED 2026-09-26 (run 36234166849, job 108382804074) ─────────────────────────────────────
 #
-# The `design` job is the LONG POLE of this repository's CI, and a push guard now refuses a push while any run is in
-# flight — so this step's duration IS the loop's push rate. Measured from a real run (36233462701):
+# The `design` job is the LONG POLE of this repository's CI, and a push guard refuses a push while any run is in
+# flight — so this step's duration IS the loop's push rate. The job is 823s of a ~14-minute run; the next longest job
+# in that same run is pack-chain at 389s, so nothing else is close. Split by the timestamps the CI log already carries:
 #
 #     steps 1-8 (checkout, deps, browsers, assembler)   ~76s
-#     step 9  · THIS SCRIPT                             749s and counting
+#     step 9  · THIS SCRIPT                             747s
+#       ├─ the panel sweep, `--passes=all`              464s
+#       ├─ the console sweep                            241s
+#       ├─ the landing sweep                             42s
+#       └─ judging all three reports                    0.2s
 #
-# and inside it, FOUR browser-driven sweeps run in sequence: the panel with `--passes=all`, then the console and the
-# second UI in a loop, then the landing. `--passes=all` is FIVE passes — `pages · hover · motion · reflow · unstyled` —
+# THREE browser-driven sweeps run in sequence (the extension was the fourth until round 243 removed it), and the panel's
+# 464s is the half worth attacking first. `--passes=all` is FIVE passes — `pages · hover · motion · reflow · unstyled` —
 # and `panel-design-sweep.mjs`'s own header names the cost: `pages` is "the heavy one" (1356 rows, 48 surfaces) while
 # `unstyled` "completes in seconds".
 #
-# **THE NEXT MEASUREMENT IS PER-PASS TIMING, AND THE QUESTION IT ANSWERS IS WHETHER THREE OF THE FIVE ARE DUPLICATES.**
-# `hover`, `motion` and `reflow` each have a standalone gate that runs elsewhere in CI (`press-anchor-check`,
-# `motion-check`, `feedback-check`) — so they may be measured TWICE. If they are, this step can run `pages,unstyled` and
-# give back minutes, which is a shorter CI rather than a weaker gate. Nobody has measured it yet; the number above is
-# where to start.
+# ── AND THE QUESTION THIS BLOCK USED TO ASK IS ANSWERED: THEY ARE NOT DUPLICATES ──────────────────────────────────
+#
+# It asked whether `hover`, `motion` and `reflow` are measured TWICE, because each has a standalone gate elsewhere in CI
+# (`press-anchor-check`, `motion-check`, `feedback-check`) — and if they were, this step could run `pages,unstyled` and
+# give back minutes. **They are not, and the difference is the one thing those gates cannot do: RENDER A PAGE.**
+#
+#   * `press-anchor-check` pins `pressDelta` as a PURE FUNCTION and asserts the emitted artifact reads the hovered
+#     snapshot before `mouse.down()`. It renders nothing. The `hover` pass measures hover-state CONTRAST on ~31
+#     interactive elements in a real browser. A wiring assertion is not a measurement of what the wiring found.
+#   * `motion-check` READS BOTH SHEETS and asserts every selector that runs an animation is named in a
+#     `prefers-reduced-motion` block. The `motion` pass renders with the preference EMULATED and asks the page what
+#     still animates — which the gate's own header says a sheet cannot answer ("a media query adds no specificity, so
+#     the answer depends on cascade order, selector scope and xterm's runtime-injected sheet"). Its "verified on the
+#     rendered panel too" was a ONE-OFF measurement, not a CI job.
+#   * `feedback-check` is about hover implying press, layout properties in transitions and the duration budget — ALL read
+#     from sheets. It is not a reflow check at all, so the third pairing above was simply wrong: **the reflow axis has
+#     no standalone counterpart anywhere in CI.** The two gates that do mention reflow (`landing-check`,
+#     `spacing-scale-check`) check that a width is CAPPED in the source; whether the rendered page scrolls sideways at
+#     320px is measured only here.
+#
+# The measurement behind that: NO gate in `scripts/test/` LAUNCHES a browser. The command, because the word alone is
+# misleading — three files there mention it (a fixture's own text, the playwright BUNDLE's filename, a route path):
+#
+#     grep -rnE "require\(['\"]playwright|from ['\"]playwright-core|acquireBrowser|local-browser" scripts/test/
+#     → exit 1, no matches
+#
+# So dropping these three passes would be a WEAKER gate, not a shorter one. The paragraph is kept as the record of a
+# premise that looked reasonable and was false.
+#
+# WHAT IS STILL WORTH MEASURING IS WHERE THE 464s GOES, and the panel payload prints it now: one `pass <name> +<ms>`
+# line per pass it ran, so the next run's log carries the split instead of a single row count at the end.
 #
 # WHAT IT NEEDS: a browser. The job installs one with the PROJECT'S playwright-core — see ci.yml for why naming
 # npx's playwright installs the wrong build number.
