@@ -457,21 +457,32 @@ function judge(file) {
     for (const u of t.distinct || []) {
       if (!u.passesBySpacing) {
         findings.push(`target size (${where}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+        continue;
+      }
+      // ── AND THE HALF OF THE EXCEPTION THAT WAS NEVER IMPLEMENTED, ENFORCED NOW (rounds 16-17) ───────────────────
+      // `passesBySpacing` is CENTRE-to-CENTRE — the circle-vs-circle test, right against another undersized target and
+      // wrong against a LARGE one, where the circle has to clear the other target's BOX. It erred toward excusing: a
+      // small control crammed against a big button passed whenever that button's centre was far away. Round 16
+      // measured what enforcing it would say before saying it; round 17 separated CROWDING from CONTAINMENT, because
+      // a nested control's circle is inside its container by construction and enforcing that would fail every one.
+      if (u.passesByFullRule === false) {
+        findings.push(
+          `target size (${where}): ${u.sel} is ${u.w}x${u.h} and its 24px circle reaches ${u.nearSel} (${u.nearW}x${u.nearH}) ` +
+            `${u.gapToBox}px away — the spacing clause wants the centre 12px clear of another target's BOX, not only 24px from its centre ("${u.text}")`,
+        );
       }
     }
-    // ── AND THE HALF OF THE EXCEPTION THAT WAS NEVER IMPLEMENTED, COUNTED BEFORE IT IS ENFORCED (round 16) ────────
-    // `passesBySpacing` is CENTRE-to-CENTRE, which is the circle-vs-circle test — right against another undersized
-    // target, and wrong against a LARGE one, where the circle has to clear the other target's BOX. It errs toward
-    // excusing: a small control crammed against a big button passes whenever that button's centre is far away. This
-    // note is the measurement that decides whether enforcing the full rule would find anything, because a criterion
-    // nobody has counted is a criterion that arrives as a surprise. It becomes a finding once this number is known.
-    const falsePasses = (t.distinct || []).filter((u) => u.passesBySpacing && u.passesByFullRule === false);
-    if (falsePasses.length) {
-      const worst = falsePasses.slice().sort((a, b) => (a.gapToBox ?? 99) - (b.gapToBox ?? 99))[0];
+    // AND CONTAINMENT IS A FACT, NOT A FAILURE (round 17). A small control nested inside a larger TARGET is a
+    // different question — nested interactive content — and the criterion's spacing clause cannot express it: the
+    // circle is inside the container by construction, so the literal reading fails every nested control in the
+    // product. It is named here so the number is visible without being enforced, which is where a genuinely ambiguous
+    // reading belongs.
+    const nested = (t.distinct || []).filter((u) => u.insideSel);
+    if (nested.length) {
       console.log(
-        `note: target size (${where}): ${falsePasses.length} of ${(t.distinct || []).length} undersized target(s) pass on CENTRE distance alone — ` +
-          `the 24px circle clears the nearest neighbour's centre but not its BOX. Worst: ${worst.sel} is ${worst.w}x${worst.h} with its centre ` +
-          `${worst.gapToBox}px from ${worst.nearSel} (${worst.nearW}x${worst.nearH})`,
+        `note: target size (${where}): ${nested.length} of ${(t.distinct || []).length} undersized target(s) sit INSIDE another target — ` +
+          `not a spacing failure (the circle is inside its container by construction), but a near-miss there activates the container: ` +
+          nested.map((u) => `${u.sel} ${u.w}x${u.h} in ${u.insideSel} ${u.insideW}x${u.insideH}`).join("; "),
       );
     }
   }

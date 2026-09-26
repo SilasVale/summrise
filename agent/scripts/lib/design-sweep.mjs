@@ -1319,11 +1319,34 @@ export const TARGETS_SOURCE = `(() => {
     let nearW = 0;
     let nearH = 0;
     let nearSel = null;
+    // CONTAINMENT IS NOT CROWDING, AND THE CRITERION'S OTHER HALF CANNOT TELL THEM APART (round 17 of the standing
+    // goal). A small control nested inside a larger TARGET — .side-action (22x22) lives inside .side-row, which is
+    // role="button" with its own onClick — has its circle inside that row by construction, so a literal reading of
+    // "the circles do not intersect another target" fails EVERY nested control in the product. That reading is not
+    // this repository's: .side-actions carries a comment from 2026-09-21 that gives the two 22x22 buttons a 4px gap
+    // precisely so their centres are 26px apart, calling centre distance "the criterion's own spacing clause, which is
+    // the half a compact UI usually satisfies".
+    //
+    // SO THE TWO CASES ARE SEPARATED RATHER THAN LUMPED. A neighbour that CONTAINS this target (or that this target
+    // contains) is not a crowding neighbour: a near-miss there lands on an ancestor, which is a different question —
+    // nested interactive content — and it is reported as its own fact instead of being enforced as a size failure.
+    // What IS enforced is the half that was never implemented: a small target whose circle reaches a neighbour BESIDE
+    // it. insideSel names the container when there is one.
+    // (NO BACKTICKS — and this is the SECOND round running that this comment had to be rewritten because of them. The
+    // emitter's parse guard refuses it at --emit, which is the mechanism working; the cost is a wasted edit.)
+    let insideSel = null;
+    let insideW = 0;
+    let insideH = 0;
     for (const other of els) {
       if (other === el) continue;
       const or_ = box(other);
       const d = dist(c, centre(or_));
       if (d < nearest) nearest = d;
+      const contains = other.contains(el) || el.contains(other);
+      if (contains) {
+        if (!insideSel) { insideSel = name(other); insideW = Math.round(or_.width); insideH = Math.round(or_.height); }
+        continue;
+      }
       const g = boxGap(c, or_);
       if (g < gapToBox) { gapToBox = g; nearW = Math.round(or_.width); nearH = Math.round(or_.height); nearSel = name(other); }
     }
@@ -1335,10 +1358,11 @@ export const TARGETS_SOURCE = `(() => {
       nearest: Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : null,
       // 24px circles overlap when their centres are closer than 24px.
       passesBySpacing: nearest >= 24,
-      // THE OTHER HALF, MEASURED AND NOT YET JUDGED: the circle's radius is 12, so the criterion wants the centre at
-      // least 12px clear of every other target's box.
+      // THE OTHER HALF: the circle's radius is 12, so the criterion wants the centre at least 12px clear of every
+      // target's box — every target that is not an ancestor or a descendant of this one.
       gapToBox: Number.isFinite(gapToBox) ? Math.round(gapToBox * 10) / 10 : null,
       nearSel, nearW, nearH,
+      insideSel, insideW, insideH,
       passesByFullRule: nearest >= 24 && gapToBox >= 12,
     });
   }
