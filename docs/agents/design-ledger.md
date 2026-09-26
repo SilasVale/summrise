@@ -35,6 +35,27 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 159, one line — "EVERYTHING IS PUSHED" IS TRUE, AND THE CLONE IS STILL NOT A MIRROR OF THE REMOTE**: round 155 found the local
+TAGS eighteen behind (API-created, never fetched). The same question asked of the BRANCH answers differently, and both were measured
+from outside this box:
+
+```
+local HEAD                 a80ff573c959a818809fdee2b8653de40c22e571
+local main                 a80ff573…
+origin/main (tracking ref) a80ff573…
+git ls-remote origin       a80ff573…  refs/heads/main          <- the git protocol
+GitHub API /commits/main   a80ff573…  "docs(ledger): all five panel.css gates run in CI…"   <- the API
+```
+
+**SO THE TWO CLAIMS ARE DIFFERENT CLAIMS, AND THIS SESSION MAKES BOTH**: *"my work is on the remote"* — verified, twice, against
+authorities rather than the tracking ref — and *"my clone knows what the remote has"* — **FALSE for tags, and that is the direction that
+hides finished work.** A tracking ref is a local cache of a remote fact; it agrees here because everything recent was pushed FROM here,
+and it would have agreed just as happily in round 155 while eighteen tags sat unfetched.
+
+**THE GENERAL FORM, WHICH IS THE SESSION'S OLDEST LESSON WEARING ITS LAST COSTUME**: `origin/main` and `git tag` are BOTH summaries of
+the remote, and neither is the remote. **`git ls-remote` and the API are.**
+
+
 **Round 158, one line — ALL FIVE `panel.css` GATES RUN IN CI, CHECKED RATHER THAN ASSUMED**: round 153 found that five gates read the
 committed panel sheet (`chrome-stillness`, `feedback`, `motion`, `state-colour`, `stylesheet-hygiene`). **A gate that reads a file but never
 runs is a gate whose verdict nobody has.** Each was checked for a `ci.yml` reference and a file in `scripts/test/`:
