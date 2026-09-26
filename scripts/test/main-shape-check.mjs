@@ -73,8 +73,20 @@ if (isMain) {
     process.env.GITHUB_REF_NAME ||
     execFileSync("git", ["branch", "--show-current"], { encoding: "utf8" }).trim() ||
     "(detached)";
-  const parents =
-    execFileSync("git", ["rev-list", "--parents", "-n", "1", "HEAD"], { encoding: "utf8" }).trim().split(/\s+/).length - 1;
+  // THE PARENT COUNT COMES FROM THE COMMIT OBJECT, NOT FROM A REV-LIST WALK, AND CI IS WHY (measured 2026-09-26).
+  //
+  // `actions/checkout@v4` defaults to `fetch-depth: 1`, so the runner holds a SHALLOW clone. Git grafts the shallow boundary
+  // commit and `git rev-list --parents -n 1 HEAD` answers with the SHA ALONE — ZERO PARENTS — for a commit that has two. The
+  // first version of this gate used exactly that, so it FAILED CI on a `main` that WAS a merge, and NO LOCAL RUN COULD
+  // REPRODUCE IT because a developer's clone is full. Measured in `git clone --depth 1`:
+  //
+  //     git rev-list --parents -n 1 HEAD    ->  '3a54cfa35e97c483fb868ed6c7ef7747790639e7'   (no parents at all)
+  //     git cat-file -p HEAD | grep ^parent ->  2 parent line(s)                            (the object always has them)
+  //
+  // It is this repository's own rule one level down — RUN THE COMMAND THE OTHER END RUNS — and this gate was the other end.
+  const parents = execFileSync("git", ["cat-file", "-p", "HEAD"], { encoding: "utf8" })
+    .split("\n")
+    .filter((l) => l.startsWith("parent ")).length;
   const r = verdict({ branch, parents });
   if (!r.ok) {
     console.error(`FAIL main-shape: ${r.why}`);
