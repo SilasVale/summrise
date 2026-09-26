@@ -35,6 +35,23 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 145, one line — THE OWED DEPLOY IS PAID, WITH ITS VERIFICATION IN THE SAME COMMAND**: round 144 recorded that round 128's
+comment fix had left the live Source Viewer serving the sentence that reads as a dead endpoint, and refused to start a production
+deploy without budget to check it. This round ran it with the check chained:
+
+```
+token loaded (53 chars)          from ~/.cloudflare-token
+./scripts/build.sh gateway       exit=0 · Current Version ID: 5ee39ab2 · checked 45 files, 0 drifted
+curl …/code/files/summrise-gate/src/plugins/translate.ts   http=200
+  → "THE PARENTHESIS THAT USED TO BE HERE SAID"     THE CORRECTED SENTENCE IS LIVE
+```
+
+**AND THE CHAINING IS THE POINT, NOT THE DEPLOY**: round 144's refusal was "a production deploy begun with no budget to verify it is
+worse than a recorded debt" — and the answer to that is not more budget, it is keeping the verification INSIDE the same command, so the
+deploy cannot land unverified. The `curl` looks for the NEW text by name, which is what makes its absence a failure rather than a
+page that merely answered 200. **A deploy and its check in one command are one action; split across two rounds they are a gamble.**
+
+
 **Round 144, one line — A GATEWAY DEPLOY IS OWED, RECORDED RATHER THAN STARTED**: round 128 corrected a comment in
 `gateway/src/plugins/translate.ts` and re-synced its mirror in `gateway/public/code/files/summrise-gate/`, and **the gateway is a
 DEPLOYED worker** — so the live Source Viewer still serves the OLD sentence, the one that reads as though `/v1/chat/completions` were a
