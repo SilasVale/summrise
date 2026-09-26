@@ -15,6 +15,25 @@
 # ALL THREE UIs. The panel renders a generated HARNESS; the console and the extension serve their own built
 # files. Each sweep takes its paths from the environment, so neither knows where it is running.
 #
+# ── WHAT THIS COSTS, MEASURED 2026-09-26 (rounds 21-23 of the standing goal) ──────────────────────────────────────
+#
+# The `design` job is the LONG POLE of this repository's CI, and a push guard now refuses a push while any run is in
+# flight — so this step's duration IS the loop's push rate. Measured from a real run (36233462701):
+#
+#     steps 1-8 (checkout, deps, browsers, assembler)   ~76s
+#     step 9  · THIS SCRIPT                             749s and counting
+#
+# and inside it, FOUR browser-driven sweeps run in sequence: the panel with `--passes=all`, then the console and the
+# second UI in a loop, then the landing. `--passes=all` is FIVE passes — `pages · hover · motion · reflow · unstyled` —
+# and `panel-design-sweep.mjs`'s own header names the cost: `pages` is "the heavy one" (1356 rows, 48 surfaces) while
+# `unstyled` "completes in seconds".
+#
+# **THE NEXT MEASUREMENT IS PER-PASS TIMING, AND THE QUESTION IT ANSWERS IS WHETHER THREE OF THE FIVE ARE DUPLICATES.**
+# `hover`, `motion` and `reflow` each have a standalone gate that runs elsewhere in CI (`press-anchor-check`,
+# `motion-check`, `feedback-check`) — so they may be measured TWICE. If they are, this step can run `pages,unstyled` and
+# give back minutes, which is a shorter CI rather than a weaker gate. Nobody has measured it yet; the number above is
+# where to start.
+#
 # WHAT IT NEEDS: a browser. The job installs one with the PROJECT'S playwright-core — see ci.yml for why naming
 # npx's playwright installs the wrong build number.
 set -euo pipefail
