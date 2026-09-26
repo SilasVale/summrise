@@ -35,6 +35,41 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 161 — four stylesheet rules nothing can apply, found by a second pass that dissolved eight of twelve
+
+`agent/resources/panel-react/src/styles/` is 5,950 lines and defines **618 classes**; the built sheet is what **five gates** read (round 153),
+so a rule nothing can apply costs every one of them. The first pass — every `.class` in the sheets, grepped literally across the panel's
+`.ts`/`.tsx` — returned **12 unreferenced**. **THE SECOND PASS DISSOLVED EIGHT OF THEM**, which is the whole reason this round is worth
+recording:
+
+```
+BY STEM, NOT BY LITERAL:
+  device-logs-verdict-ok / -quiet / -warn   DeviceLogsCard.tsx builds the name from a stem
+  s-bg / s-muted / s-warn                   useSSE.ts builds the name from a stem
+BY OWNERSHIP:
+  xterm-cursor / xterm-cursor-blink         they are in node_modules/@xterm/xterm/css/xterm.css —
+                                            a library's classes, applied at runtime, not ours to call dead
+```
+
+**AND THE REMAINING FOUR ARE CONFIRMED BY THE BUNDLE RATHER THAN BY THE SOURCE**:
+
+```
+brand-img        in built panel.js: 0   in built panel.css: 1
+is-denied        in built panel.js: 0   in built panel.css: 1
+is-granted       in built panel.js: 0   in built panel.css: 1
+side-nav-btn     in built panel.js: 0   in built panel.css: 1
+```
+
+`panel.js` contains **all of the panel's JavaScript**, so a class that appears zero times there and once in the sheet is a rule no code
+path can apply. **AND NOTHING GATES THIS**: `stylesheet-hygiene` checks that a COMMENT in a sheet does not look like code (its own header,
+round 87) — unused rules are unmeasured, which is why four have survived.
+
+**THEY ARE NOT DELETED HERE, AND THE REASON IS THE SAME ONE THAT MADE THIS ROUND CAREFUL**: a class can be applied by something a bundle
+does not contain — a browser extension, an operator's bookmarklet, a runtime string this grep cannot see — and **round 161 has already had
+one extractor answer dissolve under a better question.** Four rules in 5,950 lines are not a defect worth a guess; they are a CANDIDATE
+with three measurements behind it and one decision left, and the decision is not mine to make at the edge of a budget.
+
+
 **Round 160, one line**: the whole suite re-run after the seven self-audit rounds (153-159), which changed only records and
 `AGENTS.md` — **and `AGENTS.md` grew by ~3 KB in that span**, which is the one file among them a gate measures directly:
 
