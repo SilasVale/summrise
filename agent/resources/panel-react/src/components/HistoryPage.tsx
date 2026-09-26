@@ -20,21 +20,31 @@ import { ActivityPage } from "./ActivityPage";
 import { ArchivePage } from "./ArchivePage";
 import type { Session } from "../hooks/useSessions";
 
-/** The two halves of the record. Names match the section headings they reveal: a control that says
- *  "Sessions" over a panel titled "Archive" makes the reader check whether they are the same
- *  thing. */
+/** The two halves of the record.
+ *
+ *  THE LABELS WERE "Sessions" AND "Runs" UNTIL 2026-09-26, and the operator asked whether the two tabs should become one
+ *  page with a filter, "since a run and a session are two readings of the same work" (their inbox, row 19).
+ *
+ *  **THE ANSWER IS NO, AND THE DATA SAYS SO.** A session is the CONTAINER; a run is declared INSIDE one — `CONTEXT.md`
+ *  states it as "a run exists only where a session declared one", and records from a session that never declared one
+ *  belong to no run at all. So the two tabs are two GROUPINGS of the same records, and "one page with a filter" would be
+ *  exactly those two tabs plus a click. Merging them would not remove a concept; it would hide one.
+ *
+ *  WHAT MADE THEM READ AS DUPLICATES WAS THE LABELS, WHICH IS THE SAME DEFECT "Trajectory"/"Path" HAD: neither word said
+ *  what changes when you switch. **"By session" and "By run" name the axis**, so the switch explains itself and the
+ *  section headings below can keep the plain nouns. */
 const HISTORY_SCOPES = [
   {
     id: "sessions",
-    label: "Sessions",
+    label: "By session",
     title: "Every session this device recorded, and the trail inside any one of them",
-    hint: "this device · recorded sessions · newest first",
+    hint: "grouped by session · newest first",
   },
   {
     id: "runs",
-    label: "Runs",
+    label: "By run",
     title: "What this device has been doing, grouped by the run it belonged to",
-    hint: "this device · every session · the browser",
+    hint: "grouped by the run each record belonged to",
   },
 ] as const;
 
