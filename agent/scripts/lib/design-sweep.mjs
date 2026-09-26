@@ -462,6 +462,24 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       const r = el.getBoundingClientRect();
       return el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/)[0] : '') + ' ' + Math.round(r.width) + '<' + el.scrollWidth;
     }))].slice(0, 8),
+  // AND WHAT IS CLIPPED, SO THE INSTRUMENT CANNOT BE SILENCED BY HIDING THE OVERFLOW (round 28 of the standing goal).
+  // `spilling` names content drawn over something else; the obvious way to make that number go away is `overflow:
+  // hidden` on the box — which keeps the SAME content from being seen at all, and would leave the instrument reporting
+  // zero while the information is still gone. 1.4.10 asks for no loss of information OR functionality, so both halves
+  // are measured: `spilling` is content drawn on top of something, `clipped` is content that cannot be reached. A box
+  // that can SCROLL is neither — `sideScrollers` covers it, because the reader can get to the content.
+  clipped: [...new Set([...document.querySelectorAll(root + ' *')]
+    .filter((el) => {
+      const st = getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden') return false;
+      if (!(st.overflowX === 'hidden' || st.overflowX === 'clip')) return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
+    })
+    .map((el) => {
+      const r = el.getBoundingClientRect();
+      return el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/)[0] : '') + ' ' + Math.round(r.width) + '<' + el.scrollWidth;
+    }))].slice(0, 8),
 });
 }
 
@@ -1934,6 +1952,11 @@ export function judgeReport(report, opts = {}) {
     // something else, and 1.4.10 asks for no loss of information, not merely no sideways scroll.
     if ((r.spilling || []).length) {
       console.log(`note: content spilling out of its own box at ${r.width}px — ${r.spilling.join("; ")}`);
+    }
+    // AND WHAT CANNOT BE REACHED AT ALL (round 28): the same content, with `overflow: hidden` instead of a spill. Both
+    // are loss; measuring only the first would make hiding the overflow look like a fix.
+    if ((r.clipped || []).length) {
+      console.log(`note: content clipped with no way to reach it at ${r.width}px — ${r.clipped.join("; ")}`);
     }
   }
   const kept = [];
