@@ -5575,6 +5575,17 @@ button.dtab-close:hover { opacity: 1; }
    or touch user can open it. That is a design decision and a component change, not another number in this media query,
    and it is why the spill is still 5-7 elements rather than fixed. */
 @media (max-width: 760px) {
+  /* ── WHERE THIS NUMBER COMES FROM, AND WHERE IT DOES NOT (round 40 of the standing goal) ─────────────────────
+     It was the first value CHOSEN rather than derived, so both numbers are written down now.
+     **THE ROW STOPS FITTING AT 505px**: `#icon-rail` is 52 and `#context-rail` 244 (both `flex: 0 0` above this
+     breakpoint) and the canvas cannot go below the top bar's own minimum, 189 plus its 20px of padding —
+     52 + 244 + 189 + 20 = 505. Below that the row genuinely cannot hold both panes and the shell has to stack.
+     **760 IS A COMFORT CHOICE WITH 255px OF SLACK.** At 760 in the row layout the canvas would still be 464px, so
+     nothing is broken between 505 and 760; stacking there trades the rail's side position for a canvas that is not
+     pinned to its minimum. That is a design preference and it is labelled one, because a number that LOOKS derived
+     is a number the next reader will trust without checking — which is the whole of rounds 22-36.
+     `max-height: 40vh` on the stacked rail is a choice too: it leaves the canvas at least 60% of the viewport, and
+     the rail scrolls inside itself past that. */
   /* THE SHELL STACKS, SO THE RAIL GETS ITS WIDTH BACK (round 39 of the standing goal). Round 25 shrank the rails to
      make the document reflow and round 35 made the shrunken rail a scroller so nothing spilled — but round 31's
      arithmetic says a 60px rail cannot hold its 140px of content (40 + 140 + 189 = 369 > 320), so the rail was
