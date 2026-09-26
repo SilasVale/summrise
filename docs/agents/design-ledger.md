@@ -35,6 +35,17 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 166 (cont.) — AND THE VERIFICATION OF THE MOVE PRODUCED A FOURTH ARTEFACT**: the check that the moved material arrived
+searched for `powershell-structure-check IS PROVEN` and reported **FALSE IN BOTH FILES**, which reads as content lost in the move. **The
+file spells it `**`powershell-structure-check` IS PROVEN BY THREE AUTOMATED BITES**` — with backticks around the gate name — and the probe
+literal did not have them.** Re-run with the construct as the file writes it, all three probes answer `mutations: True | AGENTS.md: False`:
+the material is intact where it was put and gone from where it was taken.
+
+**FOUR ARTEFACTS IN THREE ROUNDS (161, 162, 166), AND THIS ONE ARRIVED WHILE CHECKING A MOVE MADE IN RESPONSE TO THE OTHER THREE.** The
+rule in `AGENTS.md` says read the RULE, not the name — and it was written about grepping an identifier; the same discipline applies to
+grepping for a HEADING. **A verification is an extractor too, and it fails the same way: by reporting a form it cannot match as ABSENT.**
+
+
 **Round 166, one line — THE GATES SECTION IS DISCLOSED, AND THE POINTER SAID A NUMBER I HAD NOT MEASURED**: round 165 measured that
 87% of `AGENTS.md` is reference and named `## Test` as the clearest case. This round moved the block that SAID SO ABOUT ITSELF —
 `### Which gates have been PROVEN to bite`, whose own text reads "THE GATES THE STANDING OBJECTIVE ADDED ARE IN THE LEDGER, NOT HERE"
