@@ -31,6 +31,8 @@ const DECLARED = {
     "it produces the binary the e2e step drives, so it is part of that step rather than a per-end check",
   "cargo xwin check -p summrise-agent --target x86_64-pc-windows-msvc --features terminal,keyring":
     "a cross-target CHECK whose command the Build section gives in full; the table is about the four ends' suites",
+  "node scripts/test/http-route-header-check.mjs": "the device's own HTTP surface: every route the header NAMES must exist in the "
+    + "Pattern table route_of resolves (rounds 146-150)",
   "node scripts/test/gate-mutations-check.mjs": "the audit itself; AGENTS.md points at the ledger for the gates it drives",
   "node scripts/test/stub-surface-check.mjs": "same: a gate, recorded in the ledger with its mutation",
   "bash scripts/design-sweep-ci.bash": "the design job's entry point, which the Build and design sections describe",

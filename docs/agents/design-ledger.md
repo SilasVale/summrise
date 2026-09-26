@@ -35,6 +35,34 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 151 — the route-header gate is BUILT, wired in three places, and proven in both directions
+
+Rounds 146-150 specified this gate and measured what adding one costs. This round paid it:
+
+```
+1. scripts/test/http-route-header-check.mjs      the check — 11 header routes vs 33 Exact + 5 Prefix
+2. .github/workflows/ci.yml                      the invocation, beside production-host-check
+3. ci-command-table-check                        declared WITH ITS REASON, which is where a gate with no AGENTS.md row belongs
+```
+
+**AND BOTH DIRECTIONS ARE PROVEN, WHICH IS WHAT ROUND 124 REVERTED A GATE FOR LACKING**:
+
+```
+mutated (a header route no Pattern row resolves): exit 1
+  "names 1 route(s) no Pattern row resolves — a reader is sent looking for something the device does not serve: /api/does-not-exist"
+restored (clean tree):                            exit 0   (11 routes resolve)
+```
+
+**AND THE EXTRACTION IS NOT A SINGLE REGEX, BECAUSE THE HEADER WRITES PROSE**: `GET /panel, /panel/` and
+`POST /api/plugins/playwright/start|stop` are one line each, and rounds 146 AND 147 each recorded a phantom finding from matching them
+literally. The check splits on `,`/`|`/whitespace and matches a templated route (`{name}`) by prefix — **the two mistakes that produced
+those phantoms are the two things it handles explicitly**, which is the only way a check written after them can claim to have learned.
+
+**AND IT REFUSES TO PASS VACUOUSLY**: no routes parsed from the header, or no `Pattern` rows found, is a FAILURE rather than an empty
+success — the shape round 95 found in a check whose predicate a stale value already satisfied, and the shape this ledger has spent the
+session insisting on.
+
+
 **Round 149, one line — THE GATE FOR ROUND 146'S CHECK IS THREE EDITS, AND THAT IS NOW MEASURED RATHER THAN ASSUMED**: the
 one-directional assertion is "every route the HTTP header NAMES must exist in the `Pattern` table" (the reverse is deliberately not
 asserted — round 147 made the header say `A SELECTION, NOT THE INVENTORY`). Adding it is NOT one file:
