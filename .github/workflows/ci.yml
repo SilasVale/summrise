@@ -759,6 +759,13 @@ jobs:
         # with a run carrying ZERO jobs and conclusion "failure", indistinguishable in a count from a real red and
         # with no log to open. THIS STEP IS ITS OWN `- name:`/`run:` PAIR, which is the shape whose absence it checks.
         run: node scripts/test/workflow-yaml-check.mjs
+      - name: main advances only by merge
+        # MAIN IS THE ONE BRANCH WHERE A MISTAKE IS EVERYONE'S. `main` had zero merge commits in its last 300 and red
+        # reached it three times (rounds 117, 128, 171), each by a status thrown away one step after it was read. The
+        # pre-commit hook refuses a non-merge commit on main locally; THIS runs server-side and cannot be bypassed with
+        # --no-verify. It is also the only half that can see a plain `git merge` that FAST-FORWARDED — which creates no
+        # commit at all, so the hook never runs and main advances linearly carrying the branch's non-merge commits.
+        run: node scripts/test/main-shape-check.mjs
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —
