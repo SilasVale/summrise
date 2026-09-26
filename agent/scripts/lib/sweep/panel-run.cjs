@@ -1135,6 +1135,14 @@ const TIMING = P.timing;
 
   // Reflow at the two widths WCAG 1.4.10 names, panel density only: the desktop density needs the
   // width it has, and its tab strip is the standard's own toolbar exception.
+  //
+  // RE-CHECKED IN ROUND 38 OF THE STANDING GOAL, BECAUSE A STATED EXEMPTION IS NOT THE SAME AS A TRUE ONE. Rounds 22-36
+  // spent themselves on an exemption that read "the 320px document scroll comes from tab children inside #tabs" and was
+  // satisfied VACUOUSLY (its scroller list was empty), so every other stated reason in this area is now suspect by
+  // default. This one holds up on both halves: the desktop density is the Electron window's shell, which is a desktop
+  // application window rather than a browser viewport at 400% zoom, and the toolbar exception is 1.4.10's own. It is
+  // also the reason the sweep produces exactly TWO reflow rows — if a later round wants a third, this is the sentence
+  // to argue with, and the argument is about the standard rather than about a missing loop.
   for (const width of wants("reflow") ? [640, 320] : []) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto('http://summrise.test/panel/?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
