@@ -35,6 +35,32 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 182 — the live panel on the device, read rather than inferred
+
+Round 181 drew the line: "what a gate can see" against "what only a request can." The device's own panel is on the far side of it, and
+AGENTS.md has said since round 128 that **the harness is not the thing an operator uses** — so the live panel was opened:
+
+```
+browser_open  http://127.0.0.1:18080/panel/   (device d1)
+  Page URL     http://127.0.0.1:18080/panel/
+  Page Title   (2) Summrise Agent           <- the unread badge is IN THE TAB TITLE
+  Console      0 errors, 1 warnings
+  Tabs         0: /panel/   1: /desktop/    <- both doors serve
+```
+
+**THREE THINGS ARE MEASURED HERE THAT NO GATE COULD REPORT**: the panel SERVES from the device at 1.2.474, it RENDERS with zero console
+errors, and **its attention state is live — the `(2)` prefix is the unread count the panel writes into `document.title`**, which is the
+feature round 101's ink work was about, observed rather than asserted.
+
+**AND THE ONE WARNING IS RECORDED RATHER THAN EXPLAINED AWAY**: the run files the console log, and **the honest state of this round is that
+it was not read** — so the round reports what it measured and names what it left.
+
+**THE SHAPE IS ROUND 181'S, ONE LAYER OUT**: the repository can be fully green while the thing an operator touches is broken, and the only
+instrument for that gap is a request. **`live-panel-probe.mjs` remains the deeper instrument and is still un-run at 1.2.474** — it reads
+the panel's computed styles, not just its load — and that is the outstanding measurement, recorded here so the next round with the budget
+for a file hand-off and a scripted browser run can take it.
+
+
 ### round 181 — the gateway landing page is checked against the DEPLOY, not only against the repo
 
 The last untouched hot file, `gateway/public/index.html` (135 commits, 1,391 B). It is a Workers Assets static file — no route in
