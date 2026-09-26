@@ -53,6 +53,34 @@ const TIMING = P.timing;
 (async () => {
   const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
+
+  // ── WHERE THE 436 SECONDS GO, in three numbers, because seven minutes of silence is not a measurement ──────────
+  // The per-pass marks (round 1 of the standing goal) showed that this sweep's BODY — `pages` plus the focus, press,
+  // idle, targets and ack axes that render inside its loop — is 436s of the sweep's 464s, and that the four passes
+  // after it are 28s between them. So the cost is in the body, and the body prints NOTHING for seven minutes: "is it
+  // the waits, the navigations, or the probes?" cannot be asked of a log with no lines in it.
+  //
+  // THREE BUCKETS, because they are the three things the body spends time on and each has a DIFFERENT fix: a fixed
+  // `waitForTimeout` is padding a condition-based wait could replace; a navigation is the fixture loading; an
+  // `evaluate` is a probe walking the DOM. They are counted at the SOURCE — the page's own methods — and not at the
+  // 51 call sites, because a call site somebody forgets is a number that is quietly wrong, and the shared passes call
+  // these too (13 waits and 20 evaluates in lib/design-sweep.mjs alone, which this wrapper also catches).
+  //
+  // IT IS A PASS-THROUGH: it must never change what the call returns, and `finally` is what keeps a rejected
+  // navigation counted instead of vanishing from the budget.
+  const BUDGET = { wait: [0, 0], nav: [0, 0], eval: [0, 0] };
+  const timed = (name, bucket) => {
+    const original = page[name].bind(page);
+    page[name] = async (...args) => {
+      const t0 = Date.now();
+      try { return await original(...args); } finally { BUDGET[bucket][0]++; BUDGET[bucket][1] += Date.now() - t0; }
+    };
+  };
+  timed("waitForTimeout", "wait");
+  timed("goto", "nav");
+  timed("reload", "nav");
+  timed("evaluate", "eval");
+
   const html = fs.readFileSync(HARNESS, 'utf8');
   // WHICH GENERATION OF THE HARNESS IS BEING MEASURED, in the report. The stamp is written by the audit that
   // generates the file; without it a delivered copy that predates a CSS fix reports findings that look real
@@ -1044,6 +1072,13 @@ const TIMING = P.timing;
     report.reflow.push({ width, ...(await page.evaluate(REFLOW, SELECTOR)) });
   }
   if (wants("reflow")) passCost("reflow");
+  // THE BUDGET, printed LAST so it covers every pass: what the whole run spent in waits, navigations and probes.
+  // `wait` is the bucket the per-pass marks cannot see — a fixed sleep is inside whichever pass called it — and it is
+  // the one that can be given back without weakening anything if it turns out to be most of the body.
+  {
+    const spent = Object.entries(BUDGET).map(([k, [n, ms]]) => `${k}=${n}x/${(ms / 1000).toFixed(1)}s`).join(" ");
+    console.log(`budget ${spent} of ${((Date.now() - SWEEP_T0) / 1000).toFixed(1)}s`);
+  }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length }));
