@@ -319,8 +319,10 @@ await close();
 
 **AND DO NOT `page.goto` THE PANEL FIRST**: the attached view is ONE page shared with the operator's screen, usually already on the
 panel, so navigating it aborts (`net::ERR_ABORTED`). It reads the panel token from the device's own config and prints a JSON verdict —
-round 184's was `verdict: {ok: true}`, 92 rows across two densities, zero failing. IT MUST NOT BE GITIGNORED: Workers Assets uploads the directory but HONOURS
-`.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
+round 184's was `verdict: {ok: true}`, 92 rows across two densities, zero failing.
+
+**AND THE EMITTED FILE IN `index/public/` MUST NOT BE GITIGNORED** (the file above is the DEVICE's copy, which is a different thing):
+Workers Assets uploads the directory but HONOURS `.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
 static asset (its route reads R2) and why the probe is committed like the panel build and `bin/summrise.js` are.
 
 Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from

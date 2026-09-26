@@ -35,6 +35,16 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 185 (cont.) — MY OWN INSERTION STRANDED AN ANTECEDENT, ONE ROUND AFTER WRITING THE RULE ABOUT IT**: the corrected hand-over was inserted
+INTO the middle of the paragraph it belonged to, so the original sentence's "**IT** MUST NOT BE GITIGNORED" — where **IT** was the emitted file under
+`index/public/` — ended up three sentences after its antecedent and immediately after text about the DEVICE's copy at `D:/Summrise/`.
+**Two different files, one pronoun, and the reader holding the wrong one would ignore the wrong path.**
+
+The fix names both: *"the emitted file in `index/public/` must not be gitignored (the file above is the DEVICE's copy, which is a different
+thing)"*. **And the class is round 168's dangling "the rule above" and round 143's positional promises — an insertion is a claim about its
+neighbourhood — which is why this one was caught in the same session it was written, by REREADING THE PARAGRAPH rather than the diff.**
+
+
 ### round 185 — the instruction round 183 broke is replaced by the one round 184 measured
 
 Round 183 proved that `AGENTS.md`'s hand-over step — "`browser_run_script` with `require('D:/Summrise/live-panel-probe.js');`" — **runs
