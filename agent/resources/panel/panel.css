@@ -5555,11 +5555,15 @@ button.dtab-close:hover { opacity: 1; }
    has no room for spacing, so the TARGET grows to the 24px minimum — which makes the top bar's ~189px load-bearing
    for a criterion this suite enforces. Shrinking it to win the reflow would trade 1.4.10 for 2.5.8, so the rails
    shrink instead: 40 + 60 leaves the canvas 220px at a 320px viewport, which is the 189px row plus its 20px of
-   padding with 11px to spare. Both keep `min-width: 0` so their own content clips rather than pushing the shell. */
+   padding with 11px to spare. Both keep `min-width: 0` so their own content clips rather than pushing the shell.
+
+   AND THE TOP BAR'S PADDING IS DELIBERATELY NOT OVERRIDDEN HERE. The first version of this rule set `padding: 6px 6px`
+   to buy eight more pixels, and `spacing-scale-check` refused it: the scale is [0,2,4,8,12,16,24], `padding` IS
+   scanned, and two off-scale literals took the panel's count from 299 to 301 — a gate that exists so the panel's
+   spacing cannot drift one declaration at a time. The eleven pixels of slack are enough without it. */
 @media (max-width: 760px) {
   #icon-rail { flex: 0 1 40px; min-width: 0; }
   #context-rail { flex: 0 1 60px; min-width: 0; }
-  #canvas-top { padding: 6px 6px; }
 }
 
 
