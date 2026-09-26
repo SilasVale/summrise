@@ -325,74 +325,76 @@ git commit -m "ci(gates): run main-shape-check, name it in AGENTS.md, and move t
 
 ---
 
-### Task 4: The pre-commit rule, and its end-to-end proof
+### Task 4: The rule, as its own script, and its proof
 
 **Files:**
-- Modify: `scripts/hooks/pre-commit` (one block, beside the archive-only rule)
-- Create: `scripts/test/main-only-by-merge.bash`
-- Test: that bash gate — a real temporary repository, both directions
+- Create: `scripts/hooks/main-only-by-merge`
+- Modify: `scripts/hooks/pre-commit` (ONE call site, placed AFTER the "is this Summrise?" guard)
+- Test: `scripts/test/main-only-by-merge.bash` — a real throwaway repository, the rule installed as its `pre-commit` hook
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: nothing
+- Produces: an executable `scripts/hooks/main-only-by-merge` that exits 0 when the commit may proceed and 1 when it may not
+
+> **THIS TASK'S DESIGN CHANGED BECAUSE THE FIRST VERSION WOULD HAVE PROVEN NOTHING.** The plan said to put the rule in a
+> block inside `scripts/hooks/pre-commit` and to prove it by copying that hook into a throwaway repository. **Measured by
+> opening the hook:** its fifth line is
+>
+> ```bash
+> if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then exit 0; fi
+> ```
+>
+> — it is designed to be symlinked into a GLOBAL `core.hooksPath` and must be inert in every other repository the operator
+> owns. A throwaway repository never reaches anything below that guard, so the proof would have reported five green cases
+> having run **nothing**. The rule is therefore its own script, which is testable there, and the call site is asserted
+> separately because **a rule nothing invokes is a rule that does not exist**.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `scripts/test/main-only-by-merge.bash`:
+Create `scripts/test/main-only-by-merge.bash`. It builds a throwaway repository, **builds its history FIRST and installs the
+rule as its `pre-commit` hook SECOND**, then runs six cases through the installed hook:
 
 ```bash
 #!/usr/bin/env bash
-# main-only-by-merge — THE HOOK RULE PROVEN ON A REAL REPOSITORY, IN BOTH DIRECTIONS.
-#
-# A rule about git history cannot be proven by editing a file and re-running a checker: the subject is a SEQUENCE of git
-# operations. So this builds a throwaway repository, points its core.hooksPath at this repo's real hook, and performs the
-# four sequences that matter. The fourth is the one that matters most — a rule that blocks its own introduction would be
-# reverted within a round.
+# main-only-by-merge — THE RULE PROVEN ON A REAL REPOSITORY, IN BOTH DIRECTIONS, PLUS ITS WIRING.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
+RULE="$PWD/scripts/hooks/main-only-by-merge"
 HOOK="$PWD/scripts/hooks/pre-commit"
-[ -f "$HOOK" ] || { echo "  no scripts/hooks/pre-commit — run from the repo" >&2; exit 2; }
+[ -f "$RULE" ] || { echo "  FAIL scripts/hooks/main-only-by-merge does not exist — there is no rule to prove" >&2; exit 1; }
 
 T=$(mktemp -d) || exit 2
 trap 'rm -rf "$T"' EXIT
 cd "$T" || exit 2
-git init -q . && git config user.email t@t && git config user.name t
-mkdir -p scripts/hooks && cp "$HOOK" scripts/hooks/pre-commit
-chmod +x scripts/hooks/pre-commit
+git init -q . && git symbolic-ref HEAD refs/heads/main
+git config user.email t@t.invalid && git config user.name t
+[ "$(git branch --show-current)" = "main" ] || { echo "  FAIL the fixture repo is not on main" >&2; exit 2; }
+echo one > f && git add f && git commit -qm "root"
+mkdir -p scripts/hooks && cp "$RULE" scripts/hooks/pre-commit && chmod +x scripts/hooks/pre-commit
 git config core.hooksPath scripts/hooks
-echo one > f && git add f && git commit -qm "root"          # a root commit on main is not a merge
+
 fail=0
-
-run() { # name, expected-exit, command...
-  local name="$1" want="$2"; shift 2
-  "$@" >/dev/null 2>&1; local got=$?
+run() { local name="$1" want="$2"; shift 2; "$@" >/dev/null 2>&1; local got=$?
   if [ "$got" = "$want" ]; then echo "  ok   $name (exit $got)"
-  else echo "  FAIL $name — expected exit $want, got $got"; fail=1; fi
-}
+  else echo "  FAIL $name — expected exit $want, got $got"; fail=1; fi; }
 
-# 1. a direct commit on main is REFUSED
-echo two > f
-run "direct commit on main is refused" 1 git commit -qm "direct"
-git checkout -q -- f 2>/dev/null || true
-git reset -q --hard HEAD
-
-# 2. a commit on a branch is ALLOWED
-git checkout -qb change/x
 echo two > f && git add f
-run "commit on a branch is allowed" 0 git commit -qm "on branch"
-
-# 3. a --no-ff merge into main is ALLOWED
-git checkout -q main
-run "--no-ff merge into main is allowed" 0 git merge --no-ff -q -m "merge change/x" change/x
-
-# 4. the rule does not block its own introduction: the merge above IS how a rule like this lands
-echo "  ok   the rule permitted the merge that would introduce it"
-
-# 5. --amend on main is REFUSED (rewriting main is the shape this exists to stop)
+run "a direct commit on main is refused" 1 git commit -qm "direct"
+git reset -q --hard HEAD
 echo three > f && git add f
 run "--amend on main is refused" 1 git commit -q --amend -m "rewrite"
-
-[ "$fail" = 0 ] && echo "main-only-by-merge: 5 case(s), both directions, on a real repository"
+git reset -q --hard HEAD
+git checkout -qb change/x
+echo four > f && git add f
+run "a commit on a branch is allowed" 0 git commit -qm "on branch"
+git checkout -q main
+run "a --no-ff merge into main is allowed" 0 git merge --no-ff -q -m "merge change/x" change/x
+parents=$(git rev-list --parents -n 1 HEAD | awk '{print NF-1}')
+if [ "$parents" = "2" ]; then echo "  ok   the merge produced a 2-parent commit"
+else echo "  FAIL the merge produced $parents parent(s)"; fail=1; fi
+if grep -q 'main-only-by-merge' "$HOOK"; then echo "  ok   scripts/hooks/pre-commit invokes the rule"
+else echo "  FAIL scripts/hooks/pre-commit does NOT invoke the rule"; fail=1; fi
+[ "$fail" = 0 ] && echo "main-only-by-merge: 6 case(s), both directions, through the installed hook"
 exit "$fail"
 ```
 
@@ -403,27 +405,31 @@ chmod +x scripts/test/main-only-by-merge.bash
 bash scripts/test/main-only-by-merge.bash; echo "exit=$?"
 ```
 
-Expected: **FAIL** on cases 1 and 5 — the hook does not have the rule yet, so it allows both. Cases 2, 3 and 4 pass vacuously. That is the failing test.
+Expected: **exit 1**, `scripts/hooks/main-only-by-merge does not exist — there is no rule to prove`.
 
-- [ ] **Step 3: Add the rule to `scripts/hooks/pre-commit`**
+- [ ] **Step 3: Write the rule and wire it**
 
-Insert beside the archive-only block:
+Create `scripts/hooks/main-only-by-merge`:
 
 ```bash
-# MAIN ADVANCES ONLY BY MERGE (spec 2026-09-26, landing 1). Measured: main had ZERO merge commits in its last 300, and red
-# reached it three times (rounds 117, 128, 171) because nothing structural stood in the way. A merge commit carries
-# MERGE_HEAD; a direct commit does not, and that is the whole test.
-#
-# THE SERVER-SIDE HALF IS `scripts/test/main-shape-check.mjs`, and it is not redundant: a plain `git merge` FAST-FORWARDS
-# when main has not moved, creating NO commit — so this hook never runs and main advances linearly carrying the branch's
-# non-merge commits. This hook cannot see that; a check of the pushed commit's parents can.
-#
-# THE EXEMPTION IS THE MERGE ITSELF, not a variable: `git merge` runs this hook with MERGE_HEAD present, so the commit
-# that lands work passes while the commit that bypasses the branch does not.
-if [ "$(git branch --show-current 2>/dev/null)" = "main" ] && ! git rev-parse --verify -q MERGE_HEAD >/dev/null; then
-  echo "pre-commit: this commit is being made directly on main." >&2
-  echo "  main advances only by merge. Open a branch, do the work there, then:  git merge --no-ff <branch>" >&2
-  echo "  (--no-ff matters: a plain merge fast-forwards and creates no commit at all.)" >&2
+#!/usr/bin/env bash
+# main-only-by-merge — MAIN ADVANCES ONLY BY MERGE.
+# Its own file, because `pre-commit` exits 0 unless agent/scripts/panel-design-sweep.mjs exists, so a proof cannot
+# observe a rule that lives below that guard. Called AFTER the guard, or it would refuse commits on `main` in every
+# other repository on this machine.
+set -uo pipefail
+branch=$(git branch --show-current 2>/dev/null || true)
+if [ "$branch" != "main" ]; then exit 0; fi
+if git rev-parse --verify -q MERGE_HEAD >/dev/null; then exit 0; fi
+echo "pre-commit: this commit is being made directly on main." >&2
+echo "  main advances only by merge. Open a branch, do the work there, then:  git merge --no-ff <branch>" >&2
+exit 1
+```
+
+Then in `scripts/hooks/pre-commit`, immediately after `fail=0`:
+
+```bash
+if ! bash scripts/hooks/main-only-by-merge; then
   fail=1
 fi
 ```
@@ -434,27 +440,30 @@ fi
 bash scripts/test/main-only-by-merge.bash; echo "exit=$?"
 ```
 
-Expected: **5 case(s), both directions**, `exit=0`.
+Expected: **6 cases, both directions**, `exit=0`.
 
 - [ ] **Step 5: Prove the proof bites — neuter the rule**
 
 ```bash
-cp scripts/hooks/pre-commit /tmp/hook.bak
-sed -i 's/^if \[ "\$(git branch --show-current 2>\/dev\/null)" = "main" \] \&\& ! git rev-parse --verify -q MERGE_HEAD >\/dev\/null; then$/if false; then/' scripts/hooks/pre-commit
+cp scripts/hooks/main-only-by-merge /tmp/rule.bak
+sed -i 's/^exit 1$/exit 0/' scripts/hooks/main-only-by-merge
 bash scripts/test/main-only-by-merge.bash; echo "exit=$?"
-cp /tmp/hook.bak scripts/hooks/pre-commit
+cp /tmp/rule.bak scripts/hooks/main-only-by-merge
 ```
 
-Expected: the neutered hook makes case 1 (and 5) **pass when they must fail**, so the script exits **1**. If it still exits 0, the script is not exercising the rule.
+Expected: **exit 1**, with cases 1 and 2 failing — the refusal cases pass when they must fail.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add scripts/hooks/pre-commit scripts/test/main-only-by-merge.bash
+git add scripts/hooks/main-only-by-merge scripts/hooks/pre-commit scripts/test/main-only-by-merge.bash
 git commit -m "fix(hooks): main advances only by merge, proven on a real repository in both directions"
 ```
 
----
+**THREE THINGS THE PROOF'S OWN FIRST RUNS CAUGHT, all recorded in the script's header rather than quietly fixed:**
+1. `git init` on this box defaults to `master`, so the rule — which matches `main` exactly, and correctly — was **inert** and two cases reported `exit 0` that should have been refused. The fixture now sets the unborn branch with `symbolic-ref` and asserts it.
+2. The merge case invoked the rule *by hand before merging*, when no merge was in progress, and reported a **correct refusal as a failure**. It now runs the real `git merge` through the installed hook, which is the only way `MERGE_HEAD` is ever set.
+3. Installing the hook before the root commit made the fixture **unable to create its own history** — the rule refuses a root commit on `main`, and `main-shape-check`'s fixture table asserts the same verdict, so the two halves agree. History is built first.
 
 ### Task 5: Land it — on a branch, merged `--no-ff`
 

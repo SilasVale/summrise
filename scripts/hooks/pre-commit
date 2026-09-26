@@ -36,6 +36,18 @@ fi
 
 fail=0
 
+# MAIN ADVANCES ONLY BY MERGE (spec 2026-09-26, landing 1). It lives in its own file, and it is called HERE — after the
+# "is this Summrise?" guard above — for two measured reasons:
+#
+#   * the guard exits 0 in every other repository, so a rule placed BEFORE it would refuse commits on `main` across every
+#     repository on this machine, which is exactly what that guard exists to prevent;
+#   * a proof of a rule that lives below that guard cannot copy this hook into a throwaway repository and observe anything,
+#     so the rule is its own script and `scripts/test/main-only-by-merge.bash` tests it there, on a real repository, in both
+#     directions — and asserts this call site, because a rule nothing invokes does not exist.
+if ! bash scripts/hooks/main-only-by-merge; then
+  fail=1
+fi
+
 # A COMMIT THAT CHANGES ONLY AN ARCHIVE IS REFUSED (round 189; widened to all four archives in round 273). The archives record what
 # a round CHANGED; when a commit changes nothing but an archive, the round produced no change for it to record, and the cheapest
 # possible commit becomes the round's whole output. Measured before this rule existed: 18 of the last 30 commits touched
