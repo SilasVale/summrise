@@ -68,15 +68,32 @@ const TIMING = P.timing;
   //
   // IT IS A PASS-THROUGH: it must never change what the call returns, and `finally` is what keeps a rejected
   // navigation counted instead of vanishing from the budget.
-  const BUDGET = { wait: [0, 0], nav: [0, 0], eval: [0, 0] };
-  const timed = (name, bucket) => {
+  const BUDGET = { wait: [0, 0], nav: [0, 0], eval: [0, 0], waitByMs: new Map() };
+  const timed = (name, bucket, onCall) => {
     const original = page[name].bind(page);
     page[name] = async (...args) => {
       const t0 = Date.now();
-      try { return await original(...args); } finally { BUDGET[bucket][0]++; BUDGET[bucket][1] += Date.now() - t0; }
+      try { return await original(...args); } finally {
+        const ms = Date.now() - t0;
+        BUDGET[bucket][0]++;
+        BUDGET[bucket][1] += ms;
+        if (onCall) onCall(args[0], ms);
+      }
     };
   };
-  timed("waitForTimeout", "wait");
+  // AND THE WAITS ARE ATTRIBUTED TO THE LITERAL THAT ASKED FOR THEM. The first run of this budget (run 36242110766)
+  // measured 1088 waits costing 429.8s of a 464.6s sweep — 92.5% — which says the sweep is mostly sleeping and does
+  // NOT say which sleep to fix. 429.8s over 1088 calls averages 395ms, so the bulk is small waits rather than the
+  // 1500-2200ms settles, and those two have OPPOSITE fixes: a settle after a load is padding a condition could
+  // replace, while a short wait inside `ackPass` IS the sampling mechanism that measures when a control answers.
+  // Guessing between them would be the mistake this suite exists to prevent, so the value is the key.
+  timed("waitForTimeout", "wait", (asked, real) => {
+    const key = String(asked);
+    const entry = BUDGET.waitByMs.get(key) || [0, 0];
+    entry[0]++;
+    entry[1] += real;
+    BUDGET.waitByMs.set(key, entry);
+  });
   timed("goto", "nav");
   timed("reload", "nav");
   timed("evaluate", "eval");
@@ -1076,8 +1093,13 @@ const TIMING = P.timing;
   // `wait` is the bucket the per-pass marks cannot see — a fixed sleep is inside whichever pass called it — and it is
   // the one that can be given back without weakening anything if it turns out to be most of the body.
   {
-    const spent = Object.entries(BUDGET).map(([k, [n, ms]]) => `${k}=${n}x/${(ms / 1000).toFixed(1)}s`).join(" ");
+    const spent = ["wait", "nav", "eval"].map((k) => `${k}=${BUDGET[k][0]}x/${(BUDGET[k][1] / 1000).toFixed(1)}s`).join(" ");
     console.log(`budget ${spent} of ${((Date.now() - SWEEP_T0) / 1000).toFixed(1)}s`);
+    // SORTED BY WHAT EACH VALUE COST, not by how often it was asked for: a 90ms wait inside a sampling loop is not a
+    // finding, and a 1500ms settle that runs 150 times is 225 seconds of the job.
+    const top = [...BUDGET.waitByMs.entries()].sort((a, b) => b[1][1] - a[1][1]).slice(0, 8)
+      .map(([asked, [n, ms]]) => `${asked}ms=${n}x/${(ms / 1000).toFixed(1)}s`).join(" ");
+    console.log(`budget waits by the value asked for (top 8 of ${BUDGET.waitByMs.size}): ${top}`);
   }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
