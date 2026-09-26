@@ -35,6 +35,19 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 144, one line — A GATEWAY DEPLOY IS OWED, RECORDED RATHER THAN STARTED**: round 128 corrected a comment in
+`gateway/src/plugins/translate.ts` and re-synced its mirror in `gateway/public/code/files/summrise-gate/`, and **the gateway is a
+DEPLOYED worker** — so the live Source Viewer still serves the OLD sentence, the one that reads as though `/v1/chat/completions` were a
+dead endpoint. The change is a comment, so no behaviour differs; what differs is **what an operator reading the viewer is told**, which
+is the whole reason that mirror exists.
+
+The scope is exactly two files and the command is the one AGENTS.md carries (`./scripts/build.sh gateway`, credential in
+`~/.cloudflare-token` — checked, it exists; `CLOUDFLARE_API_TOKEN` is not in the environment). **IT IS NOT STARTED HERE, AND THAT IS
+THE POINT OF THE LINE**: a production deploy begun with no budget left to verify it is worse than a recorded debt, because the record
+is what makes the next round run `curl` against the deployed viewer and read what it says. **This is the same pattern that got rounds
+54+56 and 65 and 73 shipped**: write down what is owed, with its command, where a reader will meet it.
+
+
 **Round 143, one line — THE POSITIONAL PROMISES SURVIVED THE REORDER, AND THE CHECK IS NOW A COMMAND**: round 142 moved 42 lines
 inside the Committing section, and moving text is exactly what breaks a sentence that points at its neighbours. So every positional
 reference in both instruction files was listed and read:
