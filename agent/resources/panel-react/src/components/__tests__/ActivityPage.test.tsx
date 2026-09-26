@@ -466,7 +466,7 @@ describe("ActivityPage — (d) the page works with ZERO sessions", () => {
     fireEvent.click(railBtn);
     // The merged page opens on Sessions; the runs are one click away, and that click is part of
     // what this test now proves (the merge must not hide the zero-session case).
-    fireEvent.click(await screen.findByRole("tab", { name: "Runs" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "By run" }));
     await waitFor(() =>
       expect(document.querySelector(".activity-page")).not.toBeNull(),
     );

@@ -21,7 +21,7 @@ describe("HistoryPage", () => {
   it("switches scope with a tablist, and the other half names itself too", () => {
     const { container } = render(<HistoryPage sessions={[]} />);
     const tabs = [...container.querySelectorAll('[role="tab"]')];
-    expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Sessions", "Runs"]);
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(["By session", "By run"]);
     fireEvent.click(tabs[1]);
     expectOneH1(container, "History");
     expectNoSkippedLevel(container);
