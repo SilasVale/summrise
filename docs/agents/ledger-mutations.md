@@ -861,3 +861,67 @@ asset → CDN `version.json` → npm `latest` → and on d1:
 - The dual-builder audit cannot run from this host — GitHub Releases are throttled to ~10 KB/s here. Compare
   `assets[].digest` against `version.json`'s sha256 instead, and say which you did.
 - `status` exits 0 on an UNKNOWN verdict, deliberately, and the reason is now written at the command.
+
+
+### Which gates have been PROVEN to bite
+
+**THE GATES THE STANDING OBJECTIVE ADDED ARE IN THE LEDGER, NOT HERE** (beginning with `contract-vocabulary-check`,
+`one-derivation-check`, `session-row-check`, `wire-field-check`, `console-wire-field-check`, `gateway-device-field-check`,
+`device-verdict-check`, `sweep-fixture-dupes-check` and `production-host-check`, plus the `harness-fixture-check` changes;
+`stub-surface-check` and `ci-command-table-check` came later, `session-carry-detect-check` later
+still, `device-version-rule-check` after that, and `workflow-shell-check` most recently). Each
+carries the mutation that must fail it, and each was
+written because the rule it holds had ALREADY cost a real defect. The MUTATION TABLE lives in
+`docs/agents/ledger-mutations.md` (it moved there in round 107, when its old host had fewer than two rows of headroom) —
+section "Which mutation must fail which gate" (moved there in round 49 with the other lookup table, so
+neither can eat the ledger) — rather than in this table (`inventory.md` §12 names the INSTRUMENTS and their
+verdicts, not the mutations), because THIS is the file that gets truncated when it grows — the rule below,
+applied to itself.
+
+**NO COUNT IS GIVEN HERE ON PURPOSE.** It said "ten" while the objective was at ten, and a round later there were twelve:
+the same drift this file records for the sweep's check count ("the NUMBER is what drifts when a round adds a case without
+updating this cell"). `numbered-claims-check.mjs` now holds the claim that a wired gate is a NAMED gate, which is the part
+that can be checked; the count is left to whoever wants to count.
+
+
+A gate that cannot fail is worse than no gate, and the only way to know is to break the thing it
+guards and watch what happens. Every gate below was audited that way (rounds 65-68) — none of them is
+assumed:
+
+**THE TABLE THAT WAS HERE LIVES IN ITS OWN ARCHIVE NOW** — `docs/agents/ledger-mutations.md`, section
+"Which mutation must fail which gate" (it was 91 KB of the ledger's 665 KB; the ledger keeps the rounds). It ran to 37 rows and 31 KB, which is 68% of this file: the
+truncation this section warns about, applied to itself. `scripts/test/gate-mutations-check.mjs` automates
+the mutations that can be automated and runs them on every push; the ledger holds the rest.
+
+**`powershell-structure-check` IS PROVEN BY THREE AUTOMATED BITES AND ONE NON-BITE.**
+`agent/deploy/**/*.ps1` is the code that runs AS ADMINISTRATOR on a customer's machine, and NOTHING here had ever
+parsed it: no `pwsh` exists on this box, so rounds 28, 31 and 32 each censused its brackets BY HAND against the
+previous version, and `script-syntax.bash` walks `git ls-files '*.sh' '*.bash'` — 27 files, with `.ps1` not among
+them. It asserts `{}` `()` `[]` balance OUTSIDE single-quoted strings, double-quoted strings, here-strings and
+comments, and says in the file what it cannot see. The bites live in `gate-mutations-check.mjs` — a `}` deleted from
+`agent/deploy/fix-tunnel.ps1`, and (round 50) a `{` opened inside a `$( … )` subexpression in a
+double-quoted string (round 50), and the same inside a `@" … "@` HERE-STRING (round 51) — both were invisible
+to the gate until their rounds, and in both cases the HEAD version of the gate exits 0 on the mutated file
+while the current one exits 1; the half that CANNOT live there is the non-bite, recorded here because a
+gate that cannot tell the two apart gets reverted: a `{` planted INSIDE a single-quoted string — the launcher
+scripts the installer writes (`summrise-online-setup.ps1:443`), the JSON manifests the integrity tests carry
+(`'{"version":"1.2.364"}'`) — must still PASS, and does.
+
+**AND BEFORE YOU ACT ON WHAT AN EXTRACTOR FOUND, ASK WHAT FORM IT CANNOT SEE — FIVE PHANTOM FINDINGS SAY WHY.**
+Every one of these was reported as a defect and was an artefact of the pattern that found it:
+
+| reported | the form the extractor could not see |
+|---|---|
+| a dead endpoint | the header's PROSE (`GET /panel, /panel/`, `POST …/start\|stop` — the comma and the pipe are separators, not text) |
+| a missing mirror direction | the same file read in ONE direction (a guard must look at what is ABSENT, not only at what is there) |
+| six undispatched routes | a route table's THIRD comparison shape (`Pattern::Exact` / `Pattern::Prefix` beside `path ==`) |
+| four dead CSS rules | a class named inside a COMMENT; a COMPOUND selector (`.notify-state.is-denied`); and a stem too short to search (`is-`, where the real form is `` `notify-state is-${perm}` ``) |
+| a check that "never runs" | — turned out to be a real absence, which is why the rule is "ask", not "distrust" |
+
+**AN EXTRACTOR IS A HYPOTHESIS ABOUT A FILE'S FORMS, AND IT FAILS BY REPORTING WHAT IT CANNOT PARSE AS ABSENT.** So:
+read the RULE, not the name (`grep -n` the construct, do not grep the identifier); search the STEM the code builds from,
+however short; and if the finding would DELETE something, find the commit that added it — `git log -S` has twice shown a
+past round restoring the thing this loop was about to remove.
+
+
+

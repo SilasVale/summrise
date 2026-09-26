@@ -35,6 +35,22 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 166, one line — THE GATES SECTION IS DISCLOSED, AND THE POINTER SAID A NUMBER I HAD NOT MEASURED**: round 165 measured that
+87% of `AGENTS.md` is reference and named `## Test` as the clearest case. This round moved the block that SAID SO ABOUT ITSELF —
+`### Which gates have been PROVEN to bite`, whose own text reads "THE GATES THE STANDING OBJECTIVE ADDED ARE IN THE LEDGER, NOT HERE"
+while restating them here — into `docs/agents/ledger-mutations.md`, beside the mutation table it kept pointing at.
+
+```
+moved 5,067 B; AGENTS.md 30,110 -> 25,647 B
+ledger-budget-check · numbered-claims-check · production-host-check · ci-command-table-check · workflow-shell-check   all exit 0
+```
+
+**AND THE FIRST DRAFT OF THE POINTER SAID "8,900 B" — A NUMBER WRITTEN BEFORE IT WAS TAKEN.** Caught by the same round that took it,
+and corrected in place with the correction visible rather than silently applied. **That is the third time in fifteen rounds that a
+number in this loop's own prose was the defect** (round 153 counted filenames, 154 counted a header, 155 counted a clone) — and the
+first time the number was in the file the reader trusts most.
+
+
 ### round 165 — 87% of AGENTS.md is REFERENCE, measured, and the ladder says where it goes
 
 The `writing-for-agents` skill arrived in this session's catalog and names the vocabulary for what rounds 129-164 were doing to
