@@ -529,7 +529,16 @@ async function clickGeom() {
     });
     ws.close();
     ws = null;
-    return (r.result && r.result.result && r.result.result.value) || "no-link";
+    // THE TWO FAILURES LOOKED IDENTICAL, AND A REAL FULL RUN PROVED IT (round 9 of the standing goal). The expression
+    // returns `JSON.stringify(null)` when the link is not on the page, so `value` is the four-character STRING "null" —
+    // truthy, so the old line returned it verbatim and the log read `geometry: null`. A reader cannot tell "the link was
+    // not in the embedded view" from "the CDP probe answered nothing", and those two need OPPOSITE responses: the first
+    // is the click path losing the page (the thing this triage exists to show), the second is this instrument being
+    // broken. A diagnostic that cannot say which is a diagnostic that costs the next round instead of saving it.
+    const value = r.result && r.result.result && r.result.result.value;
+    if (value === undefined || value === null) return "no-value-from-cdp (the probe answered, the expression produced nothing)";
+    if (value === "null") return "no-link-in-view (the Learn more link is not in the embedded view right now)";
+    return value;
   } catch (e) {
     try { ws && ws.close(); } catch {}
     return "geom-error:" + String((e && e.message) || e).slice(0, 80);

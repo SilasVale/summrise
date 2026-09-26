@@ -128,6 +128,35 @@ snapshot -> browser_click {target} on the injected same-origin link
 beyond navigation reach the page the user watches).
 (terminal 9, file 7, workflow 11, panel 2, mcp 12 [stdio 6 + http 6], evidence 2, browser 5).
 
+## Measured on the device (round 9 of the standing goal)
+
+All nine sections, `node e2e.js --token <device_token>` against d1 at release 1.2.474:
+
+```
+== 73/74 passed == (2 skipped)
+```
+
+The two skips are the `mcp http` arm's view checks: that arm launched its own private headless browser, so there is no
+embedded view for a click to drive. The suite says so rather than passing quietly, which is why they are counted
+separately from the pass.
+
+**THE ONE FAILURE IS A FLAKE, AND IT IS THE CHECK ROUND 313 CALLED DETERMINISTIC.**
+`mcp stdio click drives embedded view` missed during the full run — the view ended at `https://example.com/` instead of
+the injected link's target — and PASSED when the section was re-run alone (`--only mcp` →
+`https://example.com/inner-click-test`). So the same-origin click proof is still load-sensitive, and a full-suite run is
+the load that finds it.
+
+**AND ITS TRIAGE PRINTED `geometry: null`, WHICH WAS TWO CAUSES WEARING ONE STRING.** `clickGeom` returns the CDP
+expression's value and that expression is `JSON.stringify(...)`, so a page with no `Learn more` link yields the
+four-character STRING `"null"` — truthy, and printed verbatim. "The link is not in the embedded view" and "the probe
+answered nothing" read identically and need OPPOSITE responses: the first is the click path losing the page, which is
+what the triage exists to show; the second is the instrument being broken. It now says which.
+
+**AND THE COPY THE DEVICE FETCHES IS GATED NOW.** `index/public/summrise-agent/e2e.js` is how this suite reaches a
+device, and until this round nothing copied or checked it: no script syncs it and no gate read it. So a fix landed here
+changed nothing on the device until somebody remembered to copy it. `scripts/test/e2e-only-check.mjs` compares the two
+byte for byte and names the `cp` command in its failure. **If you edit `e2e.js`, re-sync the copy in the same commit.**
+
 ## Known device quirks (handled by the suite)
 
 - Right after a playwright-driven navigation, the desktop SPA target may
