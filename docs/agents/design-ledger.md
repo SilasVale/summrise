@@ -35,6 +35,14 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 142, one line**: the two shell rules added in rounds 129 and 141 had both landed INSIDE the pre-commit hook's
+story — between "A pre-commit hook runs the emitters" and "IT IS INSTALLED NOW" — so a reader met two shell hazards before
+learning whether the hook runs, and the installation paragraph still said "the paragraph after this one records what is
+installed". The 42 lines moved to the end of the section: **rationale → installed → proven → THEN the rules for running
+commands.** No wording changed, only position — and the lesson is that an insertion into a narrative is a claim about the
+narrative, made by someone who was looking at the paragraph and not at the section.
+
+
 **Round 140, one line**: round 139's inventory moved to `docs/agents/inventory.md` §12 — the checkpoint table whose stated
 purpose is that every clause names the INSTRUMENT and its VERDICT — as seven rows, two of which record guards that are NOT tests
 (`setup`'s pin refusal on the device, the release audit's byte comparison). **A finding belongs in the file that exists to hold it**,
