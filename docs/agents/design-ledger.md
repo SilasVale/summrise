@@ -35,6 +35,31 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 181 — the gateway landing page is checked against the DEPLOY, not only against the repo
+
+The last untouched hot file, `gateway/public/index.html` (135 commits, 1,391 B). It is a Workers Assets static file — no route in
+`gateway/src/*.ts` mentions it and `wrangler.jsonc` does not either — which is exactly the shape this repository has been burned by:
+**"Workers Assets uploads the directory but HONOURS `.gitignore`, so an ignored file is silently absent from the deploy."** So the four
+checks were run, and the fourth is the one nobody had made:
+
+```
+tracked in git            YES
+matched by .gitignore     no
+GET https://api.saisi.online/            http=200   <title>Summrise Gate</title>
+diff <(curl -s https://api.saisi.online/) gateway/public/index.html   ->  IDENTICAL
+```
+
+**AND THE FOURTH IS THE VALUE — IT IS THE LIVE-PANEL-PROBE LESSON APPLIED TO THE GATEWAY**: every other check compares the file to
+itself, its siblings or a gate's expectation, **and none of them can see what the DEPLOY is serving.** `curl` plus `diff` answers it in
+one line, and it is the same question round 128 asked of the Source Viewer and round 145 answered with a chained verification: **is the
+thing on the wire the thing in the repository?**
+
+**AND TWO GATES ALREADY COVER ITS WIRING** — `console-smoke-check.mjs` reads the file and asserts an `index-*.js` reference, and
+`console-assets-check.mjs` guards the hashed assets beside it — **so the page is not an unguarded artifact; it is one whose guard stops at
+the repository boundary.** That is not a defect and not a candidate: it is the line between what a gate can see and what only a request
+can.
+
+
 ### round 180 — at a green boundary, asking what is OWED, and answering it with a diff
 
 The suite is green, the device is current, and the last release is 1.2.474. **So the useful question is not what to improve but what is
