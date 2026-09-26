@@ -93,10 +93,36 @@
 #     260ms=130x/33.9s    2000ms=14x/28.0s   2200ms=12x/26.4s  450ms=48x/21.6s
 #
 # The top eight are 344s of the 429.8s, and the four LARGEST — 1800, 1500, 2000 and 2200ms, 116 calls — are
-# settle-after-load sleeps costing **206s**, which is the part a condition-based wait could replace without weakening
-# anything. `6000ms x8` is `idlePass`'s observation window (the panel must be watched for six seconds to see whether it
-# writes to the DOM while idle), and the 260/450/900ms waits are the sampling loops inside `ackPass` and `pressPass`
-# that ARE the measurement — shortening those would make the instrument lie rather than make the job shorter.
+# settle-after-load sleeps costing **206.3s**. `6000ms x8` is `idlePass`'s observation window (the panel must be watched
+# for six seconds to see whether it writes to the DOM while idle), and the 260/450/900ms waits are the sampling loops
+# inside `ackPass` and `pressPass` that ARE the measurement — shortening those would make the instrument lie rather than
+# make the job shorter.
+#
+# ── AND THE 206.3s IS NOW 35.5s, WITH THE MEASUREMENT UNCHANGED (run 36244831977) ─────────────────────────────────
+#
+# Reading the 34 sites showed they are all ONE idiom — `goto` → set the getting-started flag → `reload` → sleep →
+# measure — so the sleep exists only so the probes do not measure a page still filling in, and a clock answers that
+# badly in both directions. It is a condition now: **no mutation for 250ms**, which is the readiness `idlePass` already
+# trusts (that pass fails on a SINGLE DOM mutation over six seconds of idle). It is CAPPED at the old value, so a page
+# that never goes quiet waits exactly as long as before:
+#
+#     budget settle 116x asked=206.2s needed=35.5s capped=0
+#
+# **NOT ONE SETTLE HIT THE CAP**, so every page went quiet well inside the old fixed sleep: 170.7s of the 206.3s was
+# padding. And the measurement is PROVABLY unchanged, not merely still green — the panel report is identical to the
+# baseline (142 surfaces / 142 names, 7354 rows against the last four runs' 7352-7354) and so are the console
+# (1866/56) and the landing (118/4/4/4). The judge's own floors agree: a settle that fired early would drop surfaces,
+# names or a mark family to zero, and none of them moved.
+#
+#     the panel sweep   464.6s → 288.4s      `pass pages`  436.2s → 270.7s      the design job  805-833s → 665s
+#
+# (the job's range is the SEVEN runs before this one — 805, 815, 815, 823, 825, 829, 833 — against 665s here, so the
+# saving is 140-168s rather than a single convenient pair.)
+#
+# **AND WHAT IS LEFT IS NAMED, so the next round does not re-measure it**: `6000ms x8` (48.0s) is idlePass's
+# observation window and stays; 260/450/140/60ms (81.9s) are the sampling loops and stay; but `900ms x38` (34.2s),
+# `1200ms x14` (16.8s) and `1400ms x12` (16.8s) are settle-shaped literals that were NOT converted — they are the same
+# idiom with a different number, and the console sweep (243s of the job) has no budget instrument at all.
 #
 # The per-pass marks and the budget stay: together they turned a 464-second silence into this table.
 #
