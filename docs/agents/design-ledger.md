@@ -17,6 +17,13 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 189 — one index line, and a MECHANISM rather than a promise**: measured before it, **18 of the last 30 commits touched
+`docs/agents/design-ledger.md` and nothing else** — and nothing objected, because this file has **no byte ceiling** (457 KB) while its two
+sibling archives are capped at 400,000. The pre-commit hook now REFUSES a commit whose only staged change is this file, with a deliberate,
+visible exemption (`SUMMRISE_LEDGER_ONLY=1`) for the one legitimate case: correcting a wrong entry. **A ledger entry should ride along with
+the change it records; a round that changed nothing has nothing to record.**
+
+
 **Round 188 — one index line, and a structural fix**: 33 round entries written since round ~140 had been landing INSIDE the
 archived `## Committing` section instead of becoming `## sections of their own — the objective says "one section per round", and the
 mechanism was mine: every entry is inserted before `<!-- ledger-index:end -->`, the index sits at the TOP of the file, and the first

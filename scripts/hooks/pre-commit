@@ -35,6 +35,24 @@ if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then
 fi
 
 fail=0
+
+# A COMMIT THAT CHANGES ONLY THE LEDGER IS REFUSED (round 189). The ledger records what a round CHANGED; when a commit changes nothing
+# but the ledger, the round produced no change for it to record, and the cheapest possible commit becomes the round's whole output.
+# Measured before this rule existed: 18 of the last 30 commits touched docs/agents/design-ledger.md and NOTHING else, and that file has
+# no byte ceiling (457 KB) while its two sibling archives are capped at 400,000 — so nothing objected, ever.
+#
+# THE EXEMPTION IS DELIBERATE AND VISIBLE, not silent: a correction to a wrong ledger entry is a real thing to commit, so set
+#   SUMMRISE_LEDGER_ONLY=1 git commit ...
+# The variable is the record that a human chose it; there is no marker file to leave behind by accident.
+staged_only=$(git diff --cached --name-only 2>/dev/null | grep -v '^$' || true)
+if [ -n "$staged_only" ] && [ "$(printf '%s\n' "$staged_only" | grep -vc '^docs/agents/design-ledger\.md$')" = "0" ]; then
+  if [ "$SUMMRISE_LEDGER_ONLY" != "1" ]; then
+    echo "pre-commit: this commit changes ONLY docs/agents/design-ledger.md." >&2
+    echo "  The ledger records what a round changed; a round that changed nothing has nothing to record." >&2
+    echo "  If this IS a correction to a wrong entry, say so deliberately:  SUMMRISE_LEDGER_ONLY=1 git commit ..." >&2
+    fail=1
+  fi
+fi
 # FIVE EMITTERS, AND NOW ALL FIVE ARE LISTED (round 272). The count in this comment has been wrong twice: it said four
 # while the landing and the live probe were checked only by CI, then said six after an extension emitter that no longer
 # exists was removed. The set is: panel, console, landing, the harness (`panel-render-audit.mjs`, whose success code in
