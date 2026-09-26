@@ -158,8 +158,12 @@ if (offenders.length) {
       (offenders.length > 12 ? `\n  … and ${offenders.length - 12} more` : ""),
   );
   console.error(
-    "\nEither take the hostname out of the file, or add its path to ALLOWED in this script WITH A REASON. " +
-      "The list is a debt with owners, not a permission: it may only shrink.",
+    "\nEither take the hostname out of the file, or declare its path in ALLOWED in this script WITH A REASON — AND RAISE\n" +
+      "MAX_ALLOWED BY ONE IN THE SAME COMMIT. BOTH STEPS, because this message used to name only the first, and a reader who\n" +
+      "followed it met a SECOND refusal from the ratchet above: an instruction that cannot be carried out as written, which is\n" +
+      "the shape this repository keeps finding. Round 273 is the measurement — the loop followed this line, added the entry, and\n" +
+      "was stopped one commit later by the constant. The list is a debt with owners, not a permission: it may only shrink, and\n" +
+      "the one UP it has ever taken (42 -> 43, round 273) was a FILE being split, not a host being added.",
   );
   process.exit(1);
 }

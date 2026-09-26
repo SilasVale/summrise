@@ -43,6 +43,27 @@ here`**, the same nesting round 188 fixed for 33 entries one level up. (3) **The
 at all** — the only line spelling it is inside a fence — so round 188's "entries landing inside the archived `## Committing`"
 described a boundary a READER could not see, and only the unstripped heading regex could. That is (1) again, from the other side.
 
+**AND THE SPLIT RAN STRAIGHT INTO A SECOND GATE, WHICH IS THE PART TO KNOW BEFORE THE NEXT ONE. TWO RATCHETS IN TENSION:**
+`ledger-budget-check` counts **BYTES** and now enforces this file's 400,000 ceiling, so 134 KB had to move; `production-host-check`
+counts **FILES** that may name a deployment host, so the new file was an undeclared place — and its `ALLOWED` list is RATCHETED
+("it may only shrink"). **The debt did not grow and the gate prints both numbers: 407 occurrences in 111 files BEFORE the split and
+407 in 111 after it** — the same three URLs, character for character, in the same narrative. Only the declaration was incomplete.
+The constant went **42 → 43**, the first UP this ratchet has ever taken, with the reason written into `ALLOWED` beside the entry and
+into the ratchet's own comment, which had said "UP never" while the code it describes has a growth branch that prints its own
+condition. **The two rejected alternatives are the reason it is a visible bump and not a quiet one**: reword a round's own URLs to
+satisfy a ratchet (the tail wagging the dog, and this ledger does not rewrite its history), or name the new file so a WIDENED PREFIX
+covered it (the same growth with the evidence hidden — what the ratchet exists to prevent).
+
+**AND THE EPISODE FOUND ONE MORE DEFECT, IN A MESSAGE RATHER THAN IN A CHECK.** `production-host-check`'s failure line told a reader
+to "add its path to ALLOWED in this script WITH A REASON" — and a reader who did exactly that met a SECOND refusal from the ratchet,
+which wants `MAX_ALLOWED` raised as well. **Round 273 is the measurement: the loop followed that line, added the entry, and was
+stopped one commit later by the constant.** The message names both steps now. That is the same class this file records under *a rule
+and a comment*: an instruction that cannot be carried out as written is worse than none, because the reader blames themselves.
+**And the mutation audit noticed the anchor move before any human did** — `const MAX_ALLOWED = 42;` was that case's `from`, and
+`gate-mutations-check` reported *"its mutation's anchor is GONE … re-pair it, or the gate is unproven"*. It is the SECOND re-pair of
+that anchor, and the case's own comment predicted it in 2026-09-24: **an anchor that silently rots is a gate that silently stops
+being proven.** The second re-pair cost one line, because the first one wrote the reason down.
+
 **Round 189 — one index line, and a MECHANISM rather than a promise**: measured before it, **18 of the last 30 commits touched
 `docs/agents/design-ledger.md` and nothing else** — and nothing objected, because this file has **no byte ceiling** (457 KB) while its two
 sibling archives are capped at 400,000. **[ROUND 273: THAT SENTENCE IS FALSE — the ceiling is `ARCHIVE_CEILING = 400_000` and the check
