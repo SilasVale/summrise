@@ -63,8 +63,27 @@
 # So dropping these three passes would be a WEAKER gate, not a shorter one. The paragraph is kept as the record of a
 # premise that looked reasonable and was false.
 #
-# WHAT IS STILL WORTH MEASURING IS WHERE THE 464s GOES, and the panel payload prints it now: one `pass <name> +<ms>`
-# line per pass it ran, so the next run's log carries the split instead of a single row count at the end.
+# ── AND THE COST IS NOT WHERE THE QUESTION EXPECTED IT (measured 2026-09-26, run 36237314418) ────────────────────
+#
+# The payload printed its split on the very next run, and it closes the question twice over:
+#
+#     pass pages     +439204ms   ← `pages` AND the focus/press/idle/targets/ack axes inside its loop
+#     pass unstyled  +442791ms   →    3.6s
+#     pass hover     +457637ms   →   14.8s
+#     pass motion    +463848ms   →    6.2s
+#     pass reflow    +467224ms   →    3.4s
+#
+# **THE FOUR CLEANLY DELIMITED PASSES ARE 28 OF THE SWEEP'S 467 SECONDS.** So running `pages,unstyled` — the change the
+# paragraph above proposed — would have given back about **24 seconds of an 831-second job (2.9%)**, while removing the
+# rendered hover, motion and reflow coverage that nothing else in CI provides. "Give back minutes" was wrong by an order
+# of magnitude, and that is worth having on the record before anyone re-opens it.
+#
+# **THE COST IS THE `pages` BODY: 439s, 94% of the sweep, and it prints NOTHING for 7m20s** (10:58:15 → 11:05:35 in the
+# same log — the first output after "emitting and running" is the `pass pages` mark itself). That is where a shorter
+# design job has to be found, and the next instrument is marks INSIDE the density/theme/mode loop, one per iteration, so
+# focus, press, idle and the pages probes can be told apart.
+#
+# The per-pass marks stay: they are what turned a 464-second silence into this table.
 #
 # WHAT IT NEEDS: a browser. The job installs one with the PROJECT'S playwright-core — see ci.yml for why naming
 # npx's playwright installs the wrong build number.
