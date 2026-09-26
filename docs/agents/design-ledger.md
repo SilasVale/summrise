@@ -35,6 +35,36 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 162 — round 161's four candidates dissolve under the rules themselves, and the extractor was wrong three ways
+
+Round 161 left four "rules nothing can apply" as a candidate and refused to delete them. That refusal was right, and **the count itself was
+wrong — in three different ways, all visible by reading the RULES rather than the names**:
+
+```
+components.css:274   console's `.brand-img` so both rails present it the same way. */
+                     ^^ A CLASS NAMED INSIDE A COMMENT. My extractor counted a mention as a definition.
+components.css:1647  .notify-state.is-granted { color: var(--state-ok); ... }
+components.css:1648  .notify-state.is-denied  { color: var(--danger-on-soft); ... }
+                     ^^ COMPOUND SELECTORS. `is-granted` is not a class anything applies on its own;
+                        the question is whether `notify-state` plus a state class is built — and
+                        `notify-state` IS used in the panel, with the state half built from a stem
+                        (`is-` alone is too short for the stem search that dissolved the other six).
+desktop.css:411      .side-nav-btn,
+                     ^^ ONE ENTRY IN A SELECTOR LIST (.side-nav-btn, .side-action, .details-close, …)
+```
+
+**AND THE HISTORY SAYS THE SAME THING ABOUT THE ONE THAT LOOKED CLEANEST**: `is-denied` came from `a34f391f` ("attention that follows you
+out of the tab") and was touched again by `c3e775f0` — **"audit the state tokens used as graphics — one marginal border hardened, and a
+state restored"**. A past round LOOKED AT THAT RULE AND RESTORED IT DELIBERATELY. **Deleting it would undo a recorded decision, which is
+exactly what the repository's "read the ledger first" rule exists to prevent.**
+
+**SO THE CANDIDATE IS WITHDRAWN AND THE LESSON IS THE SESSION'S OLDEST ONE, NOW FROM THE OTHER SIDE**: every phantom finding in this thread
+(rounds 128, 137, 146, 147, 161) came from an extractor that could not see a form the file uses — a header’s prose, a mirror’s other
+direction, a route table’s third comparison shape, a comment, a compound selector, a stem too short to search. **AND ROUND 161 ALREADY KNEW
+THIS**: it dissolved eight of its own twelve in a second pass and then shipped the remaining four anyway. **The pause before deleting was
+right; the number attached to it was not, and a number is what the next reader acts on.**
+
+
 ### round 161 — four stylesheet rules nothing can apply, found by a second pass that dissolved eight of twelve
 
 `agent/resources/panel-react/src/styles/` is 5,950 lines and defines **618 classes**; the built sheet is what **five gates** read (round 153),
