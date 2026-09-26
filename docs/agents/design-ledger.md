@@ -35,6 +35,24 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 152, one line — THE GATE COUNT IS NOW 59, MEASURED RATHER THAN INFERRED**: round 151 added a gate to `ci.yml`, so the
+number the suite prints changed, and this round ran the whole thing to read it rather than adding one to the old one:
+
+```
+bash scripts/test/all-gates.bash
+  -> 58 ok, 0 failed, 1 not runnable here (of 59 gate command(s) in .github/workflows/ci.yml)
+```
+
+**58 ok / 0 failed, one more than the 57/58 before it, and the new check is among the passing.** The count comes from
+`ci-command-table-check`'s own extraction of the workflow, which is why the inventory's scripts row says in so many words that "the
+gate count is `gate-mutations-check`'s own line, never a number here" — **a carried count is a number that drifts, and this one was
+read from the tool that produces it.**
+
+**AND THE THREE-PLACE WIRING IS CONFIRMED END TO END BY THIS RUN**: the file alone would have failed `ci-command-table-check`
+(round 149 measured that enforcement), and the `ci.yml` line alone would have been a command with no check behind it. **Both, plus the
+declaration, is what makes the count go up by exactly one and nothing else change.**
+
+
 ### round 151 — the route-header gate is BUILT, wired in three places, and proven in both directions
 
 Rounds 146-150 specified this gate and measured what adding one costs. This round paid it:
