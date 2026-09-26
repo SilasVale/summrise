@@ -658,6 +658,18 @@ would say so — that is the point of writing it this way.
 | `index/public/summrise-agent/version.json` | 669 B | **not a test**: the release audit, CDN vs the GitHub asset |
 
 **A guard is not always a gate** — two of the seven are enforced by setup and by the release audit rather than by a check — and
+
+**AND THE DEVICE'S OWN ROUTE INVENTORY IS THE `Pattern` TABLE, NOT THE HEADER THAT DESCRIBES IT** (rounds 146-147). The HTTP surface
+lives in `agent/src/web/mod.rs` — **8,302 lines, the largest file in the agent** — and its authority is the table of
+`Pattern::Exact` / `Pattern::Prefix` rows that `route_of` resolves: **33 + 5 = 38 patterns**. The file's header says `Routes:` and
+then names **ten**, so for as long as anyone read the header as the list, **23 routes were invisible to a reader — `/api/settings`,
+`/api/monitors` and its three verbs, `/api/logs`, `/api/boots`, `/api/sessions`, `/api/vitals/history`, `/api/update`,
+`/api/run/mark-exit`**: most of what the panel calls. The header now says `A SELECTION, NOT THE INVENTORY` and points here.
+**A checker for the one direction that REMAINS checkable — every route the header NAMES must exist in the table — is specified in the
+ledger and not built**; adding a gate in this repository is three coordinated edits (the file, a `ci.yml` line, because
+`all-gates.bash` extracts the list FROM `ci.yml`, and `ci-command-table-check`, which enforces that every `scripts/test` file is
+named there).
+
 naming them that way is the difference between an inventory and a list of tests. **What is NOT here is as deliberate as what is**:
 `git ls-files | grep -E "\.(exe|tgz|zip)$"` returns nothing, so the built exe the release flow copies into the package is a LOCAL
 artifact and needs no guard rather than missing one.
