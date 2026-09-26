@@ -766,6 +766,15 @@ jobs:
         # --no-verify. It is also the only half that can see a plain `git merge` that FAST-FORWARDED — which creates no
         # commit at all, so the hook never runs and main advances linearly carrying the branch's non-merge commits.
         run: node scripts/test/main-shape-check.mjs
+      - name: main-shape works in the clone CI actually gives
+        # THE STEP ABOVE FAILED ITS FIRST CI RUN, AND NO LOCAL RUN COULD HAVE SEEN IT. `actions/checkout@v4` defaults to
+        # `fetch-depth: 1`, so the runner is SHALLOW; git grafts the boundary commit and `git rev-list --parents -n 1 HEAD`
+        # answers with the SHA ALONE for a commit that has two parents. The gate used that and refused a `main` that WAS a
+        # merge. It reads the commit object now, and this step builds a real shallow clone of a real repository whose HEAD
+        # is a real merge — the only fixture that reproduces the graft — and asserts the gate passes there.
+        #
+        # It is AGENTS.md's "run the command the other end runs" one level down, and this gate was the other end.
+        run: bash scripts/test/main-shape-shallow.bash
       - name: main-only-by-merge is proven on a real repository
         # THE OTHER HALF OF THE SAME RULE, and it is a SEPARATE STEP because the two halves fail differently. This one
         # installs `scripts/hooks/main-only-by-merge` as a throwaway repository's real pre-commit hook and runs six cases

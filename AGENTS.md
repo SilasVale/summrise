@@ -79,13 +79,21 @@ Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROV
 `docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45), and its index resolves a section title
 across all four archives it points at — so start there, never at a filename.
 
-**`main` ADVANCES ONLY BY MERGE** — three artifacts, and each one covers a way the others cannot:
+**`main` ADVANCES ONLY BY MERGE** — four artifacts, and each one covers a way the others cannot:
 
 | artifact | what it is | what it cannot see |
 |---|---|---|
 | `scripts/hooks/main-only-by-merge` | the rule, called by `scripts/hooks/pre-commit` **after** its "is this Summrise?" guard | a plain `git merge` that FAST-FORWARDS, which creates no commit and so never runs a hook; and `--no-verify` |
 | `scripts/test/main-shape-check.mjs` | the CI gate: `main` must be at a commit with **two or more parents** | nothing — but it only runs in CI, after the push |
 | `scripts/test/main-only-by-merge.bash` | the proof: installs the rule as a throwaway repo's real pre-commit hook and runs six cases through it | nothing outside that fixture |
+| `scripts/test/main-shape-shallow.bash` | the fixture for **the clone CI actually gives**: a real `git clone --depth 1` of a repo whose HEAD is a real merge | the full-clone shape, which is the only one a developer sees |
+
+**AND THE GATE FAILED ITS FIRST CI RUN WHILE PASSING EVERY LOCAL ONE**, which is why the fourth artifact exists.
+`actions/checkout@v4` defaults to `fetch-depth: 1`, so the runner is **shallow**; git grafts the boundary commit and
+`git rev-list --parents -n 1 HEAD` answers with the SHA alone — **zero parents** — for a commit that has two. The gate used
+that and refused a `main` that WAS a merge. It reads the commit object now (`git cat-file -p HEAD`), whose `parent` lines are
+there regardless of depth, and `main-shape-shallow.bash` builds the graft that no full clone can reproduce. It is this file's
+own rule one level down — **run the command the other end runs** — and the gate was the other end.
 
 Work reaches `main` through a branch that was verified and reviewed, merged with **`--no-ff`** — the flag matters, because
 a plain `git merge` fast-forwards when `main` has not moved. **A direct commit on `main` is refused by the hook and by the
