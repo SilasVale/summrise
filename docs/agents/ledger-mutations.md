@@ -73,6 +73,13 @@ pass; `panel-design-sweep.bash` plants both judge directions. **AND THE ACKNOWLE
 | `gateway/test/instruments-mirror.test.mjs` (the source -> mirror direction, round 137) | add a NEW instrument to `agent/scripts/` and never re-sync the mirror (e.g. `touch agent/scripts/newprobe.mjs`) | exit 1: "agent/scripts holds instruments that the Source Viewer does not publish, so a reader cannot reach code this repository tells them to run. Re-sync with `bash gateway/scripts/sync-code-viewer.sh` and commit the mirror." THE FIRST VERSION OF THIS TEST CHECKED ONLY mirrored -> source, so a new unmirrored instrument passed while the viewer was quietly incomplete; the gateway mirror's test had checked its own `missing` direction since it was written |
 | `gateway/test/instruments-mirror.test.mjs` (the published e2e copy, round 138) | edit `agent/scripts/e2e/e2e.js` and forget to re-copy it to `index/public/summrise-agent/e2e.js` | exit 1: "index/public/summrise-agent/e2e.js is not the suite in agent/scripts/e2e/e2e.js - and that file is what the device FETCHES to run a section against a real panel, so a stale copy measures a product that is not there." THE PAIR WAS COPIED BY HAND IN ROUNDS 103, 113 AND 114 WITH NO ASSERTION; it is the same shape as the panel build output, which IS gated (panel-sheet-freshness-check) |
 | `scripts/test/http-route-header-check.mjs` (new, rounds 146-151) | name a route in the HTTP surface's header that no `Pattern` row resolves (e.g. add `GET /api/does-not-exist` to the `//! Routes:` list) | exit 1: "the header names 1 route(s) no Pattern row resolves - a reader is sent looking for something the device does not serve: /api/does-not-exist". Clean tree exits 0 (11 header routes vs 33 Exact + 5 Prefix). THE REVERSE IS DELIBERATELY NOT ASSERTED: the header is a SELECTION by design (round 147), so asserting it would make every new table row a header edit |
+<!-- THIS TABLE HAS 44 MUTATION ROWS, AND THE COUNT IS THE COMMAND, NOT A CARRIED NUMBER (round 154).
+     `grep -c '^| '` reads 46 because it counts the header and the separator with the rows, and that is how this
+     number was reported for ten rounds of summaries. The counting command is:
+       awk '/^\| /{n++} END{print n-2}' docs/agents/ledger-mutations.md   ->  44
+     It is written down because round 153 paid for the same mistake one file over: a grep is a hypothesis about how
+     to count, and the tool that produces the number is the measurement. -->
+
 
 ### THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST (rounds 186-187)
 

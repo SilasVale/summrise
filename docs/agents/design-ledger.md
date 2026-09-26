@@ -35,6 +35,22 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 154, one line — THE MUTATION TABLE HAS 44 ROWS, AND MY SUMMARIES SAID 46 FOR TEN ROUNDS**: the number came from
+`grep -c '^| '`, which counts the HEADER and the SEPARATOR along with the rows:
+
+```
+grep -c '^| '                                        -> 46   <- what was carried
+awk '/^\| /{n++} END{print n-2}' docs/agents/ledger-mutations.md  -> 44   <- the mutation rows
+```
+
+**AND IT IS THE SAME MISTAKE AS ROUND 153, ONE FILE OVER**: there a `grep -l` counted FILENAMES where the tool's own message said
+FIVE; here a `grep -c` counted LINES where the table has 44 ROWS. **Both were caught by reading the thing instead of a summary of it,
+and neither number was wrong in a way that mattered — which is exactly why they are worth recording: a carried count that is off by two
+teaches the reader to stop checking, and this ledger has spent the session insisting that a count is a summary and the tool is the
+measurement.** The command now sits at the top of the table it counts, in an HTML comment, so the next reader does not have to
+re-derive it.
+
+
 **Round 153, one line — THE PANEL BUILD IS TWO ARTIFACTS, AND THREE GUARDS ALREADY KNEW**: round 139's inventory row named
 `agent/resources/panel/panel.js` as the guarded build output. `panel.css` sits beside it — 261,630 B, rebuilt in the SAME SECOND as the
 bundle, generated from `panel-react/src/styles/*.css` — and **FIVE checks read it** — `chrome-stillness`, `feedback`, `motion`, `state-colour`,
