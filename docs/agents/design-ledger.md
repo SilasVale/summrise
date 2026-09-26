@@ -35,6 +35,34 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 155 — the release count was right, and it could not have been checked locally
+
+The standard summary of this session carries "10 releases (1.2.465 → 1.2.474)". Rounds 153 and 154 had each corrected a carried count, so
+this one was measured too — **against `git tag` first, which is the obvious tool and the wrong one**:
+
+```
+git tag --list "v1.2.*" --sort=-v:refname | head -3     ->  v1.2.456, v1.2.455, v1.2.454
+git tag --list "v1.2.*" | awk … >=465 | wc -l           ->  0            <- NOTHING
+```
+
+**THE LOCAL CLONE HAS NO TAG ABOVE 1.2.456, AND THE REMOTE HAS 94 UP TO 1.2.474.** The cause is written in this repository's own
+release procedure and is not a defect: tags are created through the **GitHub API** (a `git push` of tags times out here), and the git
+mirror **refuses `git fetch --tags`** with HTTP 400. So the tags exist on the remote, are correct, and have simply never been fetched
+into this clone.
+
+**MEASURED AGAINST THE AUTHORITY INSTEAD**:
+
+```
+GET /repos/SilasVale/summrise/git/refs/tags?per_page=100
+  -> 94 tags on the remote, highest v1.2.474
+  -> releases from 1.2.465 up: 10 — 1.2.465 … 1.2.474
+```
+
+**SO THE NUMBER WAS RIGHT AND THE METHOD WAS THE HAZARD.** Anyone auditing "how many releases has this loop shipped" reaches for
+`git tag`, and on this clone that answers **zero for every release this session made** — an undercount of eighteen, in the direction
+that makes finished work look like it never happened. **The authority is the API, and the reason is that the tags were made there.**
+
+
 **Round 154, one line — THE MUTATION TABLE HAS 44 ROWS, AND MY SUMMARIES SAID 46 FOR TEN ROUNDS**: the number came from
 `grep -c '^| '`, which counts the HEADER and the SEPARATOR along with the rows:
 

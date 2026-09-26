@@ -644,6 +644,11 @@ This table is the one to read first. It was written at round 99 with four gates 
 clause below now names the INSTRUMENT that measures it and the VERDICT it currently returns. A clause with no instrument
 would say so — that is the point of writing it this way.
 
+**AND THE RELEASE COUNT IS NOT READABLE FROM THIS CLONE (round 155)**: `git tag --list "v1.2.*"` stops at **v1.2.456** while the
+remote has **94 tags up to v1.2.474**, because tags are created through the **GitHub API** (pushing them times out here) and the
+mirror **refuses `git fetch --tags`** (HTTP 400). **The authority is `GET /repos/…/git/refs/tags`, not `git tag`** — a local list
+that answers *zero* for every release this loop made is an undercount in the direction that makes finished work look unfinished.
+
 **AND EVERY GENERATED, COMMITTED ARTIFACT HAS A GUARD — the list, so a new one can be told in one look whether it has a home**
 (rounds 133-139 found this shape three times before the class was closed; the narratives are in the ledger under those rounds):
 
