@@ -54,6 +54,18 @@ All five were run by hand on the commit that added this table and all were green
 and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what
 CI invokes.
 
+**AND A CHANGE UNDER `agent/scripts/` IS A CHANGE UNDER `gateway/`.** The console's Source Viewer serves a byte-for-byte
+MIRROR of `agent/scripts/*.mjs` and their `lib/` (not `lib/sweep/`), so editing one of those files leaves
+`gateway/public/code/files/instruments/` stale and turns `gateway`'s `code viewer: the instruments mirror matches
+agent/scripts byte for byte` red — with an assertion that names the fix. Re-sync and commit the mirror:
+
+```bash
+bash gateway/scripts/sync-code-viewer.sh && cd gateway && npm test
+```
+
+Round 2 of the standing goal pushed a red `main` by running the design-sweep gates for a sweep change and not this one;
+the gate was right and the local check was incomplete.
+
 
 **READ THE EXIT CODE, NOT THE OUTPUT.** The suites do not share a reporter, and grepping for the wrong
 one returns NOTHING — which looks exactly like a suite that passed silently:
