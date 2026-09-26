@@ -4,6 +4,12 @@
 //
 // MUTATION: make the zero-selection guard exit 0
 // RESULT:   exit 1, "reported success having run nothing"
+//
+// MUTATION: append one comment line to index/public/summrise-agent/e2e.js — the copy the DEVICE fetches
+// RESULT:   exit 1, "index/public/summrise-agent/e2e.js is out of date, so the device fetches a suite nobody edited —
+//           re-sync with `cp agent/scripts/e2e/e2e.js index/public/summrise-agent/e2e.js` and commit the copy".
+//           Measured both ways: the assertion went RED the moment the source was edited without the copy (which is how
+//           it was found), the mutation above is caught, and restoring the copy turns it green again — 6 pass, 0 fail.
 
 // `--only` MUST NOT BE ABLE TO SELECT NOTHING AND REPORT SUCCESS.
 //
@@ -74,6 +80,25 @@ test("the section list is declared once and used for validation", async () => {
   const src = readFileSync(SUITE, "utf8");
   assert.match(src, /const SECTIONS = \[/, "the valid names must be declared, not implied by want() calls");
   assert.match(src, /did not run|DID NOT RUN/i, "the zero-check guard must say what happened");
+});
+
+test("the copy the DEVICE fetches is the suite, byte for byte", async () => {
+  // THE DELIVERY WAS UNGATED, WHICH IS THE CLASS THE CODE-VIEWER MIRROR GATE EXISTS FOR. This suite cannot be pasted
+  // into a device, so `index/public/summrise-agent/e2e.js` is how it gets there — and NOTHING copies or checks it: no
+  // script syncs it, no gate reads it, and `pack-chain`/`build-pins` only police files under `scripts/test`. So the
+  // device runs whatever was copied last, and a round that fixes a check here changes nothing on the device until
+  // somebody remembers. Found in round 9 of the standing goal, by running the suite from the CDN copy and then editing
+  // the source: the two had drifted the moment the edit landed, and no gate said so.
+  const { readFileSync } = await import("node:fs");
+  const DEPLOYED = path.join(ROOT, "index", "public", "summrise-agent", "e2e.js");
+  const src = readFileSync(SUITE, "utf8");
+  const dep = readFileSync(DEPLOYED, "utf8");
+  assert.equal(
+    dep,
+    src,
+    "index/public/summrise-agent/e2e.js is out of date, so the device fetches a suite nobody edited — " +
+      "re-sync with `cp agent/scripts/e2e/e2e.js index/public/summrise-agent/e2e.js` and commit the copy",
+  );
 });
 
 test("SECTIONS and the want() call sites are the SAME SET, both directions", async () => {
