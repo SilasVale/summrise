@@ -1486,6 +1486,50 @@ export function judgeReport(report, opts = {}) {
       findings.push(`${where}: the press pass measured ${row.measured || 0} control(s)${row.found == null ? "" : ` of the ${row.found} this page renders`} — a press pass that pressed nothing proves nothing`);
     }
   }
+  // IMMEDIATE FEEDBACK HAS A BUDGET (round 19) — AND IT IS JUDGED HERE NOW, FOR EVERY SWEEP THAT MEASURES IT.
+  //
+  // This clause lived in `panel-design-sweep.mjs`, so the PANEL's acknowledgement rows were judged and the CONSOLE's
+  // were not. The console has collected `report.ack` since it gained the pass — about 86s of CI per run, a third of
+  // its sweep — and its judge had no clause for that array at all, while TWO COMMENTS ASSERTED THE OPPOSITE
+  // (`console-run.cjs`: "the shared judge reads that array"; `ackNotes`'s own doc: the console's rows "were judged").
+  // MEASURED, not inferred: one row describing a control that never acknowledged a press exits 1 under the panel's
+  // judge and 0 under the console's — the same row, the same fixture. A console control that answers no press could
+  // not fail the run, and the axis it was measured on cost a third of that sweep.
+  //
+  // ONE DERIVATION, so the two sweeps cannot drift apart again: the clause belongs to the REPORT SHAPE, not to a UI.
+  // The panel's judge keeps only what is the panel's own; every row below is judged identically for both.
+  for (const a of report.ack || []) {
+    const where = `${a.density || "?"}${a.page ? " " + a.page : ""}`;
+    if (a.note) { console.log(`note: ${where} ${a.sel} — ${a.note}`); continue; }
+    if (!a.acked) {
+      // ONLY WHERE THERE WAS SOMETHING TO WAIT FOR. A control that asked the device nothing (a tab switching a
+      // snippet, a disclosure) cannot be late: its row says so rather than becoming a finding.
+      if (a.asked === false) {
+        console.log(`note: ${where} ${a.sel} — asked the device nothing, so there was nothing to acknowledge`);
+        continue;
+      }
+      // WHAT THIS CAN HONESTLY CLAIM: the control never acknowledged the press in the window. Whether it asked the
+      // device is NOT attributable from a request counter on a page that polls for its own reasons, so the finding
+      // does not say it did.
+      findings.push(`${where}: ${a.sel} (${a.where}) never acknowledged the press — no busy state and no painted change within the window (${a.size})`);
+      continue;
+    }
+    // EVERY ROW'S NUMBERS, ON EVERY RUN (round 26). The judge reported only the failures, so a CI-only failure could
+    // not be compared with a clean device run without re-running both by hand: eight controls "never acknowledged"
+    // in CI and answered in 6-13ms on the device, same sweep, same fixture. A measurement nobody can read is a
+    // measurement nobody can check.
+    for (const line of ackNotes([a], where)) console.log(line);
+    if (typeof a.msToAck === "number" && typeof a.budgetMs === "number" && a.msToAck > a.budgetMs) {
+      findings.push(`${where}: ${a.sel} (${a.where}) acknowledged the press after ${a.msToAck}ms — the budget is ${a.budgetMs}ms, so this feedback waited on the ${a.msToClear}ms network round trip instead of firing on the event`);
+    }
+  }
+  {
+    const acked = (report.ack || []).filter((a) => a.acked);
+    if (report.ack && report.ack.length && !acked.length) {
+      findings.push(`the acknowledgement pass measured ${report.ack.length} control(s) and NONE acknowledged — a pass that proves nothing is not a pass`);
+    }
+  }
+
   // A SURFACE MAY NOT CLAIM A READ FAILED WHEN THE FIXTURE ANSWERED EVERY CALL (round 100).
   //
   // This is the clause that would have caught rounds 99 and 100 by machine. A normal surface serves every endpoint,
