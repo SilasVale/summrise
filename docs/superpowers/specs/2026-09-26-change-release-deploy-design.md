@@ -83,7 +83,7 @@ appear in their text, so a reader can see which ones were pre-answered and by wh
 | | |
 |---|---|
 | `AGENTS.md` | a **map**, ≤ 12 KB: what this repo is · the red lines · the phase table (which skill, when) · the build/test/release entry points. The operational rules it keeps are the ones that change what you DO. |
-| `.agents/skills/summrise-change/SKILL.md` | the phases, this repo's gates, the standing answers, the commit discipline |
+| ~~`.agents/skills/summrise-*/SKILL.md`~~ | **WITHDRAWN — see the correction below.** `writing-skills` is explicit: *"Don't create for: ... Project-specific conventions (put in your instructions file)"*. The release sequence and the gate discipline ARE this repo's conventions, and they belong in `AGENTS.md` |
 | `.agents/skills/summrise-release/SKILL.md` | the release sequence, verbatim from today's `AGENTS.md` — it is hard-won and correct |
 | `.agents/skills/summrise-deploy/SKILL.md` | device update + the verification loop (`summrise status`, the live-panel probe) |
 | `.agents/skills/summrise-gates/SKILL.md` | **how** to add a gate and prove it bites, and how to run the mutation audit. **The mutations themselves are NOT here** — each lives in its own gate (§5), because a proof kept away from its subject is exactly the arrangement that let the ledger's table grow to 110 KB |
@@ -98,7 +98,7 @@ moment of relevance and no ceiling that anyone was enforcing.
 | the ledger's job | new home | the rule |
 |---|---|---|
 | the mutation table — 110 KB, the bite proofs for 23 gates | **into each gate as its own self-test** | the proof lives with the thing it proves. `harness-fixture-check.mjs` and `powershell-structure-check.mjs` already carry theirs this way; `gate-mutations-check.mjs` stays as the runner for the ones that can be automated |
-| domain vocabulary and invariants | **`CONTEXT.md`** — ONE file, at the root | the `domain-modeling` mechanism. Not a directory, not a set of files |
+| domain vocabulary | **`CONTEXT.md`** — ONE file, at the root | the `domain-modeling` mechanism, and THE SKILL IS STRICTER THAN THIS SPEC WAS: "a glossary and nothing else... totally devoid of implementation details". So it holds TERMS, not invariants — an invariant belongs in the gate that enforces it, which is where it already is |
 | decisions and their measurements | **the commit message** | already this repository's strongest artifact: the bodies carry the before/after, the exact command, and a VERIFIED section |
 | ~700 KB of round narratives | **nothing — git history** | they are already there, in more detail than the ledger's summary |
 | the index ("looking for one thing") | `CONTEXT.md` + the gate skills | |
@@ -201,3 +201,36 @@ it depends on nothing else.
 | `.worktrees` not ignored | `git check-ignore -q .worktrees` → non-zero |
 | the proxy accepts branch pushes | `git ls-remote --heads origin` → `refs/heads/release-1.2.463` |
 | `core.hooksPath` is `.githooks` | `git config --get core.hooksPath` |
+
+---
+
+## Correction, 2026-09-26 (round 4 of the goal) — the skills were the wrong home, and one of them was the wrong artifact
+
+Written after loading the two skills that own these artifacts, which is the order this should have happened in.
+
+**1 · THE FOUR `summrise-*` SKILLS ARE WITHDRAWN.** `writing-skills` states its "don't create" list plainly: *"Project-specific
+conventions (put in your instructions file)"*, and *"Pattern applies broadly (not project-specific)"* is in the create list. The
+release sequence, the gate discipline and the commit rules are this repository's conventions — they are not reusable technique,
+and a skill is the wrong shelf for them. **What §4 got RIGHT survives**: the phases are the superpowers skills themselves
+(`brainstorming` → `writing-plans` → `using-git-worktrees` → `test-driven-development` → `verification-before-completion` →
+`requesting-code-review` → `finishing-a-development-branch`), and those already exist and need no re-authoring here.
+
+**2 · `CONTEXT.md` IS A GLOSSARY, NOT A RULEBOOK.** §5 said "domain vocabulary and invariants"; `domain-modeling` says
+*"a glossary and nothing else... totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or
+a repository for implementation decisions."* So it holds **terms**. An invariant belongs in the gate that enforces it, which is
+where it already lives — and that is the same rule as the mutation table's.
+
+**3 · LANDING 3 SHRINKS TO A TRIM.** It was "shrink `AGENTS.md` to a map by moving its rules into skills". The rules are not
+going anywhere: they are conventions, and the instruction file is their home. What is left is a genuine trim, and it is not
+urgent — `AGENTS.md` is 26 KB against a 48,000-byte enforced ceiling and has been pruned twice already.
+
+**4 · AND LANDING 4 IS BIGGER THAN THIS SPEC SAID, MEASURED RATHER THAN ESTIMATED.** The mutation table holds **49 rows over 55
+named gates, and only 8 of those gates already carry an automated case** in `gate-mutations-check.mjs` — so ~41 proofs need a
+home in the gate they name, one file at a time. The earlier "60 rows" in this round's own working notes was a WRONG COUNT from
+a convenient command: it counted every table row in the file rather than the mutation table's, which is the third time this
+repository has recorded that lesson. **Landing 4 therefore splits:**
+
+| | |
+|---|---|
+| **4a** | retire the ROUND-NARRATIVE process — `design-ledger.md` and `ledger-early-rounds.md` (467 KB), with every gate that reads them rewired. This is the part the operator objected to: rounds writing markdown |
+| **4b** | move the 41 manual proofs into the gates they name, then retire `ledger-mutations.md` and `ledger-appendix.md` (415 KB of REFERENCE, not process — and a reference whose content has a stated home is not deleted before it gets there) |
