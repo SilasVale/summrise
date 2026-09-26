@@ -35,6 +35,45 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 183 — the probe reached the device, and the instruction for RUNNING it does not match the file
+
+Round 182 named the outstanding measurement: `live-panel-probe.mjs` had not been run at 1.2.474. This round took the first two steps of
+AGENTS.md's own hand-over, and the second step produced a finding about the FIRST.
+
+**WHAT WORKED**:
+
+```
+system_file_download  https://agent.saisi.online/summrise-agent/live-panel-probe.js
+  -> 38,126 B at D:\Summrise\live-panel-probe.js          (the "38 KB script" AGENTS.md describes)
+```
+
+**AND TWO THINGS DID NOT, BOTH MEASURED**:
+
+```
+require("D:/Summrise/live-panel-probe.js")
+  -> typeof object, keys []            NOT a callable and NOT a library: requiring it exports an EMPTY OBJECT
+                                        and does nothing. AGENTS.md says to run it exactly that way.
+
+browser_run_script got { page, attached: true, close }   <- the helper's real API, from browser_pw_info
+page.goto("http://127.0.0.1:18080/panel/")  ->  net::ERR_ABORTED
+                                        the ATTACHED view is a single shared page, ALREADY on the panel
+                                        (round 182 opened it), so navigating it aborts.
+```
+
+**THE FIRST IS THE SAME CLASS AS ROUNDS 128 AND 147**: an instruction that reads as precise ("then `browser_run_script` with
+`require('D:/Summrise/live-panel-probe.js');`") and does not match what the file does when run that way — **and it is in the RELEASE
+section of `AGENTS.md`, which is where a reader under time pressure is most likely to follow it literally.**
+
+**THE SECOND IS ROUND 137'S LESSON AGAIN, ONE INSTRUMENT OVER**: the attached view is ONE page shared with the operator's own screen, so a
+script that means to drive its own navigation must either use the page it finds or accept the private headless arm — which is exactly the
+distinction round 91-103 spent thirteen rounds learning about `about:blank` and `--headless`.
+
+**AND THE HONEST STATE IS THAT THE MEASUREMENT REMAINS UNTAKEN**: the probe is ON the device, its invocation shape is NOT what the
+instruction says, and this round ends without the verdict — **because reporting a verdict it did not get is the one outcome worse than
+reporting nothing.** The next round has three things it did not: the file's location, the helper's real return shape, and the knowledge
+that the instruction is wrong.
+
+
 ### round 182 — the live panel on the device, read rather than inferred
 
 Round 181 drew the line: "what a gate can see" against "what only a request can." The device's own panel is on the far side of it, and
