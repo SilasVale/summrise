@@ -139,9 +139,31 @@
 #
 # **WHAT IS LEFT IS NOW ALMOST ENTIRELY THE MEASUREMENT ITSELF.** Of the console's 130.2s of waiting, `6000ms x12`
 # (72.0s) is `idlePass`'s six-second observation window — twelve pages watched to see whether they write to the DOM
-# while idle — and `16ms x1522` (24.8s) is the press pass sampling. The panel's remaining convertible is its own
-# 900/1200/1400ms settles, 67.8s, which are the same idiom (after a click or a readiness selector) and were left for
-# their own verified run.
+# while idle — and `16ms x1522` (24.8s) is the press pass sampling.
+#
+# ── AND THE PANEL'S LAST CONVERTIBLE CHUNK IS GONE TOO (run 36247737756) ─────────────────────────────────────────
+#
+# Its 900/1200/1400ms literals — 38+14+12 calls, 67.8s, left out of the first conversion on purpose — are the same
+# idiom with a different number (after a rail-button click, after a reveal click, after a readiness selector):
+#
+#     budget settle 178x asked=271.6s needed=53.2s capped=0
+#
+# 178 settles now (was 116), and the 65.4s they added cost 16.3s of real waiting — 49.1s given back, capped=0 again.
+# **THE PANEL'S WAIT LIST HAS NO SETTLE LITERAL LEFT**: everything at or above 900ms is gone except `idlePass`'s
+# `6000ms x8` (48.0s), and the rest is sampling (260/450/140/60/16ms, 87.8s).
+#
+# **TWO SETTLES KEEP THEIR CLOCK, AND THE REASON IS THE CHECK RATHER THAN THE PAGE**: the motion pass's 1600ms and
+# 1200ms. Every other settle is covered by the equivalence this work is accepted on — one that fires early drops
+# surfaces, names or a rail page and the counts move — but `MOTION` reads computed `transitionDuration` and
+# `animationName`, so a page measured slightly too early reports FEWER animations and nothing in
+# `{rows, surfaces, names}` would say so. A condition there would be a change nobody could falsify until that axis has
+# its own floor in the judge. They cost 2.4s and 3.2s.
+#
+#     the panel sweep 464.6s → 245.5s   the console sweep 243s → 162.2s   the design job 805-833s → 552s
+#
+# i.e. **the CI long pole is 33% shorter than it was before this work began**, and every step of it is provably
+# measurement-neutral: at each of the THREE conversions the three reports were identical in their counts
+# (panel 142 surfaces / 142 names / 7352-7354 rows, console 1866/56, landing 118/4/4/4).
 #
 # The per-pass marks and the budget stay: together they turned a 464-second silence into this table.
 #
