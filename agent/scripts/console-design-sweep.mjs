@@ -156,28 +156,11 @@ function judge(file) {
       findings.push(`theme: ${t.page} was navigated as "${t.intended}" and rendered "${seen}" — the report would be describing a page it did not render`);
     }
   }
-  for (const t of report.targets || []) {
-    for (const u of t.distinct || []) {
-      if (!u.passesBySpacing) {
-        findings.push(`target size (${t.page}): ${u.sel} is ${u.w}x${u.h} with its nearest neighbour ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
-      }
-    }
-    // ── THE SECOND HALF OF THE SPACING CLAUSE IS MEASURED HERE AND ENFORCED ON THE PANEL (round 19) ─────────────
-    // The criterion lives in THREE judges — panel, console, landing — and round 17 strengthened ONE of them:
-    // `passesBySpacing` is centre-to-centre, which is wrong against a LARGE neighbour, where the circle has to clear
-    // that neighbour's BOX. The probe has computed `passesByFullRule` and `insideSel` for every sweep since round 17,
-    // so this sweep's report already carries the answer and only its judge never looked. Counted before it is
-    // enforced, for the reason rounds 16-17 paid for twice: a criterion nobody has counted arrives as a surprise.
-    const wouldFail = (t.distinct || []).filter((u) => u.passesBySpacing && u.passesByFullRule === false);
-    if (wouldFail.length) {
-      const worst = wouldFail.slice().sort((a, b) => (a.gapToBox ?? 99) - (b.gapToBox ?? 99))[0];
-      console.log(
-        `note: target size (${t.page}): ${wouldFail.length} of ${(t.distinct || []).length} undersized target(s) pass on CENTRE distance alone — ` +
-          `worst ${worst.sel} is ${worst.w}x${worst.h} with its centre ${worst.gapToBox}px from ${worst.nearSel} (${worst.nearW}x${worst.nearH}). ` +
-          `The PANEL enforces this half; this sweep does not yet.`,
-      );
-    }
-  }
+  // TARGET SIZE IS JUDGED IN THE SHARED JUDGE NOW — `judgeReport` owns the clause and this file's copy was DELETED
+  // (round 20 of the standing goal). It lived here, in the panel's judge and in the landing's, with three slightly
+  // different sentences, and round 17 strengthened only the panel's — so one page judged by two sweeps got two
+  // verdicts. The number round 19 measured here was ZERO (this sweep's `overview:22c/2u` passes the full rule), which
+  // is why enforcing it there was safe to do.
   for (const r of failures(report.rows).slice(0, 10)) {
     findings.unshift(`${r.cr} ${r.page}${r.width ? "@" + r.width + "px" : ""} ${r.sel} "${String(r.text).slice(0, 24)}"`);
   }
