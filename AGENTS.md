@@ -306,8 +306,20 @@ script to the device's node or to `browser_run_script`).
 **HOW TO HAND IT OVER, since a 38 KB script must not be pasted into anything:** emit it into the CDN's public dir
 (`node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js`), deploy, and let
 the DEVICE fetch it (`system_file_download` from `https://agent.saisi.online/summrise-agent/live-panel-probe.js`), then
-`browser_run_script` with `require('D:/Summrise/live-panel-probe.js');`. It reads the panel token from the device's own
-config and prints a JSON verdict. IT MUST NOT BE GITIGNORED: Workers Assets uploads the directory but HONOURS
+`browser_run_script` — **and do NOT `require()` it, which exports an empty object and runs nothing** (measured, round 183).
+**It is a STANDALONE script: evaluate it with the shared page in scope, which costs one line and no context** (measured, round 184):
+
+```js
+const src = require('fs').readFileSync('D:/Summrise/live-panel-probe.js', 'utf8');
+const { page, attached, close } = await acquireBrowser();          // { page, attached, close } — not { browser, context }
+const probe = new Function('page', 'require', 'process', 'console', src + ';return probe;')(page, require, process, console);
+console.log(JSON.stringify(await probe({ page, base: 'http://127.0.0.1:18080' })));
+await close();
+```
+
+**AND DO NOT `page.goto` THE PANEL FIRST**: the attached view is ONE page shared with the operator's screen, usually already on the
+panel, so navigating it aborts (`net::ERR_ABORTED`). It reads the panel token from the device's own config and prints a JSON verdict —
+round 184's was `verdict: {ok: true}`, 92 rows across two densities, zero failing. IT MUST NOT BE GITIGNORED: Workers Assets uploads the directory but HONOURS
 `.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
 static asset (its route reads R2) and why the probe is committed like the panel build and `bin/summrise.js` are.
 

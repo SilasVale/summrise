@@ -35,6 +35,29 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 185 — the instruction round 183 broke is replaced by the one round 184 measured
+
+Round 183 proved that `AGENTS.md`'s hand-over step — "`browser_run_script` with `require('D:/Summrise/live-panel-probe.js');`" — **runs
+nothing: requiring the emitted file exports an empty object.** Round 184 then ran it successfully by evaluating the device-resident
+source with the shared page in scope. **This round puts the measured form where the broken one was**, which is the whole of the round:
+
+```js
+const src = require('fs').readFileSync('D:/Summrise/live-panel-probe.js', 'utf8');
+const { page, attached, close } = await acquireBrowser();   // { page, attached, close } -- NOT { browser, context }
+const probe = new Function('page','require','process','console', src + ';return probe;')(page, require, process, console);
+console.log(JSON.stringify(await probe({ page, base: 'http://127.0.0.1:18080' })));
+```
+
+**AND IT CARRIES TWO THINGS I PAID FOR THIS ROUND RATHER THAN TWO THINGS I KNEW**: the helper's real return shape (my first attempt assumed
+`{ browser, context }` and died on `undefined.newPage`), and the warning not to `page.goto` the panel first (the attached view is ONE page
+shared with the operator's screen, so navigating it answers `net::ERR_ABORTED`). **Both are the difference between an instruction a reader
+can follow and one they can only fail at.**
+
+**THE CLASS IS ROUNDS 128 AND 147, AND THIS TIME BOTH HALVES ARRIVED IN THE SAME SESSION**: an instruction that reads as precise, a
+measurement that falsifies it, and the replacement written from the measurement. **Three rounds — 183 broke it, 184 worked around it, 185
+fixed it — which is the shortest this loop has ever taken a documentation defect from discovery to an instruction that works.**
+
+
 ### round 184 — the live panel measured at 1.2.474: green, and the numbers are the point
 
 Round 183 established the shape (a STANDALONE script, passed as source) and left the measurement untaken. This round took it **without
