@@ -35,6 +35,42 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 175 — the router and the catalog are two lists for two AUDIENCES, and their difference is the point
+
+`ask-matt` is 11,403 B and its description calls it "a router over the skills in this repo" — so a router names its targets, and a router
+naming a skill that no longer exists is worse than no router. Checked against the 35, it names **25**. The session's catalog holds **15**.
+**Eleven are in both — and the two differences are not symmetric defects:**
+
+```
+named by the router, NOT in the catalog (14):
+  grill-me · grill-with-docs · handoff · implement · improve-codebase-architecture · setup-matt-pocock-skills ·
+  teach · to-questionnaire · to-spec · to-tickets · triage · wait-what · wayfinder · ask-matt itself
+in the catalog, NOT named by the router (4):
+  git-guardrails-claude-code · migrate-to-shoehorn · scaffold-exercises · setup-pre-commit
+```
+
+**THE FOURTEEN ARE EXACTLY THE `disable-model-invocation` SET FROM ROUND 174** — the ones the MODEL may not invoke. **AND THAT IS WHAT MAKES
+THE TWO LISTS DIFFERENT ON PURPOSE**:
+
+| the list | whose pointer it is | what it holds |
+|---|---|---|
+| the SKILL CATALOG | the **model's** | skills the model may reach for (15) |
+| `ask-matt`'s ROUTER | the **human's** | skills a PERSON can ask for, including every disabled one (25) |
+
+**SO A ROUTER THAT NAMES A DISABLED SKILL IS NOT STALE — IT IS THE ONLY PLACE THAT SKILL IS FINDABLE**, because a disabled skill is absent
+from the catalog by construction. **The two lists are two audiences, and the difference between them is the design.**
+
+**WHAT REMAINS A CANDIDATE IS ONLY THE OTHER DIRECTION**: four skills the MODEL may invoke and the router does not send a HUMAN to
+(`git-guardrails-claude-code`, `migrate-to-shoehorn`, `scaffold-exercises`, `setup-pre-commit`). **That is a real question with a real
+answer either way** — an omission, or four skills a router rightly leaves alone because a person reaches them by naming the task
+("set up pre-commit") rather than by browsing. **It is recorded, not decided**, and it is the first candidate this session whose
+resolution needs an opinion rather than a measurement.
+
+**AND THE EXTRACTION DISSOLVED EIGHTEEN PHANTOMS ON THE WAY**: every hyphenated word in the router (`blockers-first`, `known-good`,
+`on-ramps`, `one-off`, `mid-conflict`) read as a skill name, for 29 "missing skills" that were English. **The sixth artefact of the
+thread, and the rule held: ask what form the extractor cannot see — here, that a hyphen does not make a skill.**
+
+
 ### round 174 — a description needs a trigger exactly when the model may invoke the skill, and 35 of 35 obey it
 
 Round 171's gate requires a `description` of at least 20 characters. **The skill's own rule is stronger — "the pointer's wording, not its
