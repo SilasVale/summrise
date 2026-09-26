@@ -149,6 +149,71 @@ const fail = { api: false };
 (async () => {
   const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
   const { page, close } = await acquireBrowser();
+
+  // ── THE SAME TWO INSTRUMENTS THE PANEL HAS HAD SINCE ROUNDS 3-4, because this sweep is now the larger half ──────
+  // The design job fell from 805-833s to 650s when the PANEL's settles stopped waiting for the clock, and this sweep
+  // was left at 243s of that job with NO measurement of where its own time goes. The panel's numbers say what that
+  // costs: 92.5% of its body was deliberate sleeping, and 116 fixed settles turned out to need 35.5s of the 206.2s
+  // they asked for. There is no reason to expect a different answer here, and no way to know without measuring.
+  //
+  // THE BUDGET counts at the SOURCE — the page's own methods — rather than at the ten call sites, so a site somebody
+  // forgets cannot make the number quietly wrong, and the shared passes' own waits and evaluates are caught too.
+  const SWEEP_T0 = Date.now();
+  const BUDGET = { wait: [0, 0], nav: [0, 0], eval: [0, 0], waitByMs: new Map() };
+  const timed = (name, bucket, onCall) => {
+    const original = page[name].bind(page);
+    page[name] = async (...args) => {
+      const t0 = Date.now();
+      try { return await original(...args); } finally {
+        const ms = Date.now() - t0;
+        BUDGET[bucket][0]++;
+        BUDGET[bucket][1] += ms;
+        if (onCall) onCall(args[0], ms);
+      }
+    };
+  };
+  timed("waitForTimeout", "wait", (asked, real) => {
+    const key = String(asked);
+    const entry = BUDGET.waitByMs.get(key) || [0, 0];
+    entry[0]++;
+    entry[1] += real;
+    BUDGET.waitByMs.set(key, entry);
+  });
+  timed("goto", "nav");
+  timed("reload", "nav");
+  timed("evaluate", "eval");
+
+  // ── AND A SETTLE THAT WAITS FOR THE PAGE INSTEAD OF FOR THE CLOCK, CAPPED AT THE OLD VALUE ─────────────────────
+  // Eight of the ten waits here are settle-shaped (1600ms x5, 1400, 1500, 1800) and every one follows a hash change
+  // or a theme set — the SPA re-rendering — so the condition is the same one the panel uses and `idlePass` already
+  // trusts: no DOM mutation for QUIET_MS means the page has stopped filling in. The cap is what makes it safe: a page
+  // that never goes quiet waits exactly as long as it does today, and `capped` counts how often.
+  //
+  // ONE DIFFERENCE FROM THE PANEL, and it is the page's: the console navigates by `location.hash`, which does NOT
+  // destroy the document, so the observer is installed ONCE and its clock is reset per settle. (The panel reloads, so
+  // its observer is necessarily re-created each time; installing a second one there would have leaked.)
+  const QUIET_MS = 250;
+  const SETTLE = { calls: 0, asked: 0, needed: 0, capped: 0 };
+  const settle = async (asked) => {
+    SETTLE.calls++;
+    SETTLE.asked += asked;
+    const t0 = Date.now();
+    try {
+      await page.evaluate(() => {
+        if (!window.__quietObs) {
+          window.__quietObs = new MutationObserver(() => { window.__quiet.last = Date.now(); });
+          window.__quietObs.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
+        }
+        window.__quiet = { last: Date.now() };
+      });
+      await page.waitForFunction((q) => !!window.__quiet && Date.now() - window.__quiet.last >= q, QUIET_MS, { timeout: asked });
+    } catch (e) {
+      // ONLY A TIMEOUT IS THE CAP. Anything else is a real failure and must not be absorbed into a counter.
+      if (!/Timeout|timeout/i.test(String(e && e.message))) throw e;
+      SETTLE.capped++;
+    }
+    SETTLE.needed += Date.now() - t0;
+  };
   await page.route('https://ai.saisi.online/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     // The login page exists only when /api/me answers 401, so it gets its own pass with the flag
@@ -192,7 +257,7 @@ const fail = { api: false };
       document.body.setAttribute('data-theme', 'dark');
       location.hash = h;
     }, hash);
-    await page.waitForTimeout(1600);
+    await settle(1600);
     // READ IT OFF THE PAGE rather than trusting the instruction (round 176's lesson).
     report.themeChecks.push({ page: label + '-dark', intended: 'dark', ...(await page.evaluate(THEME)) });
     const rows = await page.evaluate(PROBE);
@@ -251,7 +316,7 @@ const fail = { api: false };
     for (const [label, hash] of PAGES) {
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
       await page.evaluate((h) => { location.hash = h; }, hash);
-      await page.waitForTimeout(1600);
+      await settle(1600);
       if (wants('contrast')) {
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
@@ -355,7 +420,7 @@ const fail = { api: false };
     const render = async () => {
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
       await page.evaluate((h) => { location.hash = h; }, '#/');
-      await page.waitForTimeout(1400);
+      await settle(1400);
     };
     report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
   }
@@ -381,7 +446,7 @@ const fail = { api: false };
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
     await page.evaluate((h) => { location.hash = h; }, hash);
-    await page.waitForTimeout(1500);
+    await settle(1500);
     report.targets.push({ page: label, ...(await page.evaluate(TARGETS)) });
   }
 
@@ -399,7 +464,7 @@ const fail = { api: false };
         document.body.setAttribute('data-theme', a[0]);
         location.hash = a[1];
       }, [theme, '#/']);
-      await page.waitForTimeout(1600);
+      await settle(1600);
       report.unstyled.push({ page: 'overview-empty' + (theme === 'dark' ? '-dark' : ''), ...(await page.evaluate(UNSTYLED)) });
     }
     empty.fleet = false;
@@ -430,7 +495,7 @@ const fail = { api: false };
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
         }, [theme, hash]);
-        await page.waitForTimeout(1600);
+        await settle(1600);
         const name = label + (theme === 'dark' ? '-dark' : '');
         report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
         const rows = await page.evaluate(PROBE);
@@ -458,7 +523,7 @@ const fail = { api: false };
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
         }, [theme, hash]);
-        await page.waitForTimeout(1800);
+        await settle(1800);
         const name = label + '-fail' + (theme === 'dark' ? '-dark' : '');
         report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
         const rows = await page.evaluate(PROBE);
@@ -483,7 +548,7 @@ const fail = { api: false };
       try { localStorage.setItem('summrise-theme', t); } catch (e) {}
       document.body.setAttribute('data-theme', t);
     }, theme);
-    await page.waitForTimeout(1600);
+    await settle(1600);
     const name = 'login' + (theme === 'dark' ? '-dark' : '');
     report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
     for (const r of await page.evaluate(PROBE)) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
@@ -493,5 +558,16 @@ const fail = { api: false };
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
+  // THE BUDGET, printed LAST so it covers every pass — the same two lines the panel prints, so the two sweeps can be
+  // compared without translating between them. `asked` against `needed` is the whole question: equal means the clock
+  // was right, far apart means it was padding.
+  {
+    const spent = ["wait", "nav", "eval"].map((k) => `${k}=${BUDGET[k][0]}x/${(BUDGET[k][1] / 1000).toFixed(1)}s`).join(" ");
+    console.log(`budget ${spent} of ${((Date.now() - SWEEP_T0) / 1000).toFixed(1)}s`);
+    const top = [...BUDGET.waitByMs.entries()].sort((a, b) => b[1][1] - a[1][1]).slice(0, 8)
+      .map(([asked, [n, ms]]) => `${asked}ms=${n}x/${(ms / 1000).toFixed(1)}s`).join(" ");
+    console.log(`budget waits by the value asked for (top 8 of ${BUDGET.waitByMs.size}): ${top}`);
+    console.log(`budget settle ${SETTLE.calls}x asked=${(SETTLE.asked / 1000).toFixed(1)}s needed=${(SETTLE.needed / 1000).toFixed(1)}s capped=${SETTLE.capped}`);
+  }
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
