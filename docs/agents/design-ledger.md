@@ -35,6 +35,38 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 184 — the live panel measured at 1.2.474: green, and the numbers are the point
+
+Round 183 established the shape (a STANDALONE script, passed as source) and left the measurement untaken. This round took it **without
+pulling 38 KB through a context**: the script `readFileSync`s the emitted file from the device's own disk, evaluates it with the shared
+page in scope, and calls what it exports. **The whole delivery cost one line.**
+
+```
+probe source: 37,926 bytes      ATTACHED=true  url=http://127.0.0.1:18080/panel/
+{"densities": {
+   "panel":   {"rootNodes": 616, "tabs": 4, "rows": 62, "text": 49, "graphics": 13,
+               "textFailing": [], "graphicFailing": [], "unmeasurable": 0},
+   "desktop": {"rootNodes": 481, "tabs": 4, "rows": 30, "text": 18, "graphics": 12,
+               "textFailing": [], "graphicFailing": [], "unmeasurable": 0}},
+ "errors": [], "verdict": {"ok": true}}
+```
+
+**TWO DENSITIES, 92 MEASURED ROWS, ZERO FAILING, ZERO UNMEASURABLE, NO MARK COLLISIONS, NO ERRORS — on the DEVICE, at the release the
+device is running.** The eight mark families the panel draws are all present in both densities (`ag-dot`, `mark`, `monitor-chip`,
+`monitor-mark`, `rail-dot`, `sc-dot`, `side-dot`, `tab-dot`), and the four state families resolve
+(`mark[working,idle]`, `sc-dot[ai]`, `ag-dot[off]`, `monitor-mark[is-down]`).
+
+**AND THE INTERESTING NUMBER IS THE ONE THAT DIFFERS FROM ROUND 167**: that run reported **1488 root nodes and 14 live sessions**; today's
+reports **616 + 481 = 1,097 and 4 tabs per density.** **The difference is not drift — it is the session count**: fewer live sessions draw
+fewer nodes, which is exactly the harness-versus-device distinction this probe exists to measure, **and the reason a node count is only
+meaningful beside the state that produced it.** The probe prints that state in the same object (`tabs`, `connForm`, `railDots`), which is
+why the comparison can be made at all.
+
+**AND THE DELIVERY TECHNIQUE IS WORTH KEEPING**: evaluating a device-resident emitted script with the shared page in scope costs ONE LINE
+and no context, where the documented hand-over assumes the script is passed as text. **The file was already on the device; only the
+invocation was missing.**
+
+
 **Round 183 (cont.) — THE PROBE HAS BEEN RUN, AND MY "STILL UN-RUN" PREMISE WAS THE EIGHTH ARTEFACT**: the correction came from the
 file's own header, read one command after the ledger entry that got it wrong:
 
