@@ -34,7 +34,9 @@ const ci = ["ci.yml", "release.yml"]
 // THE APPENDIX IS DOCUMENTED SURFACE TOO (round 49): the lookup tables moved out of the ledger's
 // narrative and AGENTS.md POINTS AT THEM, so a gate named only there is named where an operator
 // reads — and this list is the definition of "where an operator reads".
-const docs = ["AGENTS.md", "docs/agents/design-ledger.md", "docs/agents/ledger-appendix.md", "docs/agents/ledger-mutations.md"]
+// AND SO IS THE FOURTH ARCHIVE (round 273): `ledger-early-rounds.md` holds the round narratives from
+// round 162 down to round 54, and a gate named in one of those rounds is named where an operator reads.
+const docs = ["AGENTS.md", "docs/agents/design-ledger.md", "docs/agents/ledger-appendix.md", "docs/agents/ledger-mutations.md", "docs/agents/ledger-early-rounds.md"]
   .map((f) => readFileSync(`${ROOT}/${f}`, "utf8"))
   .join("\n");
 

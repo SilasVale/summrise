@@ -29,6 +29,13 @@ const APPENDIX = "docs/agents/ledger-appendix.md";
 const MUTATIONS = "docs/agents/ledger-mutations.md";
 const ARCHIVE_CEILING = 400_000;
 const ARCHIVE_FLOOR_APX = 100_000;
+// EVERY ARCHIVE HAS A CEILING AND A FLOOR (round 273). The appendix had a FLOOR and no ceiling, while the
+// sentence above claims "a ceiling on each is what stops either growing back into the other" — true of two of
+// the three. The fourth archive arrived in the same round, and for the reason the disarmed check had been
+// hiding: `design-ledger.md` was 457,929 bytes against THIS ceiling while this gate printed `ok`.
+const APPENDIX_CEILING = 400_000;
+const EARLY = "docs/agents/ledger-early-rounds.md";
+const EARLY_FLOOR = 20_000;
 // The harness truncates at 65,536 and NAME it here, so the number in the failure is the real one.
 const HARNESS_BUDGET = 65536;
 const CEILING = 48_000;
@@ -54,6 +61,7 @@ for (const s of subsections) {
   }
 }
 
+let archiveBytes = 0;
 if (!existsSync(join(ROOT, ARCHIVE))) {
   failures.push(`${ARCHIVE} does not exist — the narratives were DELETED rather than moved, and the evidence is gone`);
 } else {
@@ -77,10 +85,24 @@ if (!mutations) failures.push(`${MUTATIONS} does not exist — the mutation tabl
 else if (Buffer.byteLength(mutations, "utf8") > ARCHIVE_CEILING) failures.push(`${MUTATIONS} is ${Buffer.byteLength(mutations, "utf8")} bytes and the ceiling is ${ARCHIVE_CEILING} — a table that outgrows its own file is the round-49 problem again`);
 if (!appendix) failures.push(`${APPENDIX} does not exist — the lookup tables were DELETED rather than moved`);
 else if (Buffer.byteLength(appendix, "utf8") < ARCHIVE_FLOOR_APX) failures.push(`${APPENDIX} is under ${ARCHIVE_FLOOR_APX} bytes — the tables were pruned rather than moved`);
+else if (Buffer.byteLength(appendix, "utf8") > APPENDIX_CEILING) failures.push(`${APPENDIX} is ${Buffer.byteLength(appendix, "utf8")} bytes and the ceiling is ${APPENDIX_CEILING} — a ceiling on each is what stops either growing back into the other, and this one had a floor and no ceiling`);
+// THE FOURTH ARCHIVE (round 273): the round-numbered entries older than round 188 moved out because the
+// ledger crossed the ceiling above — see the comment on the check itself, below.
+const early = existsSync(join(ROOT, EARLY)) ? readFileSync(join(ROOT, EARLY), "utf8") : "";
+if (!early) failures.push(`${EARLY} does not exist — the earlier rounds were DELETED rather than moved`);
+else if (Buffer.byteLength(early, "utf8") < EARLY_FLOOR) failures.push(`${EARLY} is only ${Buffer.byteLength(early, "utf8")} bytes — an archive under the floor means the prune deleted instead of moving`);
+else if (Buffer.byteLength(early, "utf8") > ARCHIVE_CEILING) failures.push(`${EARLY} is ${Buffer.byteLength(early, "utf8")} bytes and the ceiling is ${ARCHIVE_CEILING} — the fourth archive is capped like the other three`);
 // A TITLE RESOLVES ACROSS ALL THREE ARCHIVES (round 107): the index at the top of the ledger names sections wherever
 // they now live, and this check is what turns "a pointer nobody tests" into a failure. It caught this round's OWN split —
 // the index named a section that had just moved into the third file, which is the gate doing exactly its job.
-const headings = [...(archive + "\n" + appendix + "\n" + mutations).matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
+// FENCES ARE STRIPPED HERE TOO (round 273), WHICH IS THE SAME RULE THIS FILE ALREADY APPLIES TWENTY LINES UP: the
+// AGENTS.md subsection check strips them, because "headings inside fenced code blocks are not headings". This one did
+// not, so NINE `##`/`###` lines that are QUOTED CODE across the four archives — a listing of AGENTS.md's own sections,
+// and one round's table of them — were counted as headings a title could resolve against. MEASURED BEFORE CHANGING IT:
+// all nine index-named titles resolve either way (293 headings unstripped, 284 stripped, 0 unresolved both times), so
+// this is HARDENING rather than a fix — the check now reads what it says it reads, and the day a title exists only
+// inside a quoted block it will fail instead of passing.
+const headings = [...(archive + "\n" + appendix + "\n" + mutations + "\n" + early).replace(/```[\s\S]*?```/g, "").matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim());
 const named = [...index.matchAll(/`([^`]+)`/g)]
   .map((m) => m[1])
   .filter((s) => /^[A-Z0-9"]/.test(s) && s.length > 18);
@@ -91,9 +113,18 @@ if (brokenIndex.length) {
       `the pointer to it: ${brokenIndex.join(", ")}`,
   );
 }
-  const archiveBytes = existsSync(join(ROOT, ARCHIVE)) ? Buffer.byteLength(readFileSync(join(ROOT, ARCHIVE), "utf8"), "utf8") : 0;
+  archiveBytes = Buffer.byteLength(archive, "utf8");
   if (archiveBytes < ARCHIVE_FLOOR) {
     failures.push(`${ARCHIVE} is only ${archiveBytes} bytes — an archive under the floor means the prune deleted instead of moving`);
+  }
+  // THE CEILING IS CHECKED HERE, WHERE `failures` IS STILL READ (round 273 — the fix this round exists for).
+  // This line used to sit BELOW the `if (failures.length) … process.exit(1)` block, so it pushed onto an array
+  // nothing ever read again: the gate printed `ok — … (457929 B of 400000)` and exited 0 while the archive was
+  // 57,929 bytes over its own limit. TWO ROUNDS (188, 189) THEN RECORDED THE CONCLUSION THAT THIS FILE "has no
+  // byte ceiling" — true of the BEHAVIOUR, false of the CODE, and the difference is three lines of control flow.
+  // A CHECK PLACED AFTER THE ONLY CONSUMER OF ITS RESULT IS NOT A CHECK; it is a message that always agrees.
+  if (archiveBytes > ARCHIVE_CEILING) {
+    failures.push(`${ARCHIVE} is ${archiveBytes} bytes and the ceiling is ${ARCHIVE_CEILING} — an append-only record stops being readable long before it stops being writable, and this file was 660 KB when the lookup tables were split out (round 49)`);
   }
   const sections = (archive.match(/^### /gm) || []).length;
   if (sections < 8) failures.push(`${ARCHIVE} holds ${sections} section(s) — the ledger is where the rounds live, and it is thinning out`);
@@ -104,6 +135,4 @@ if (failures.length) {
   for (const f of failures) console.error(`ledger-budget-check: ${f}`);
   process.exit(1);
 }
-const archiveBytes = existsSync(join(ROOT, ARCHIVE)) ? Buffer.byteLength(readFileSync(join(ROOT, ARCHIVE), "utf8"), "utf8") : 0;
-if (archiveBytes > ARCHIVE_CEILING) failures.push(`${ARCHIVE} is ${archiveBytes} bytes and the ceiling is ${ARCHIVE_CEILING} — an append-only record stops being readable long before it stops being writable, and this file was 660 KB when the lookup tables were split out (round 49)`);
 console.log(`ledger-budget-check: ok — the instruction file fits (${bytes} of ${CEILING} bytes — the ENFORCED ceiling; the harness truncates at ${HARNESS_BUDGET}) and the long form is in ${ARCHIVE} (${archiveBytes} B of ${ARCHIVE_CEILING}) with the tables in ${APPENDIX}`);

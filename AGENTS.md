@@ -76,7 +76,8 @@ Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROV
   * **A CI job is red and you did not expect it to be** — a CANCELLED job (any push while a run is in flight) reports
     `conclusion: failure`, **indistinguishable from a real one in a count**; the rule is the log line that tells them apart.
 
-`docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45).
+`docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45), and its index resolves a section title
+across all four archives it points at — so start there, never at a filename.
 
 ### Which gates have been PROVEN to bite
 
@@ -89,8 +90,12 @@ you are about to DELETE it.**
 ## The design ledger
 
 THE LONG FORM LIVES IN `docs/agents/design-ledger.md` — one section per round: what was measured, what it cost, and
-what was learned. (It lives there because an instruction file that cannot be read whole is worse than a short one;
-the split is round 67's, in the ledger.)
+what was learned. **IT IS ONE OF FOUR ARCHIVES, AND ITS INDEX IS THE ONLY ENTRY POINT YOU NEED**: the index resolves a
+section title across all four — `design-ledger.md` (the recent rounds and the exploration series),
+`ledger-early-rounds.md` (rounds 54-162), `ledger-appendix.md` (the lookup tables) and `ledger-mutations.md` (the gate
+table). (It lives there because an instruction file that cannot be read whole is worse than a short one; the split is
+round 67's, the fourth archive is round 273's — and that round exists because the ceiling meant to prevent the split
+from ever being needed had been sitting below the only consumer of its own result, so it could not fail.)
 
 READ IT WHEN you are about to re-measure something, want the story behind a rule here, or wonder whether a failure has
 happened before. The numbers for contrast, silhouettes, the loud axis, idle repaint, the press passes and the wire

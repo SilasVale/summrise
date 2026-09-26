@@ -36,19 +36,27 @@ fi
 
 fail=0
 
-# A COMMIT THAT CHANGES ONLY THE LEDGER IS REFUSED (round 189). The ledger records what a round CHANGED; when a commit changes nothing
-# but the ledger, the round produced no change for it to record, and the cheapest possible commit becomes the round's whole output.
-# Measured before this rule existed: 18 of the last 30 commits touched docs/agents/design-ledger.md and NOTHING else, and that file has
-# no byte ceiling (457 KB) while its two sibling archives are capped at 400,000 — so nothing objected, ever.
+# A COMMIT THAT CHANGES ONLY AN ARCHIVE IS REFUSED (round 189; widened to all four archives in round 273). The archives record what
+# a round CHANGED; when a commit changes nothing but an archive, the round produced no change for it to record, and the cheapest
+# possible commit becomes the round's whole output. Measured before this rule existed: 18 of the last 30 commits touched
+# docs/agents/design-ledger.md and NOTHING else — and nothing objected, ever.
 #
-# THE EXEMPTION IS DELIBERATE AND VISIBLE, not silent: a correction to a wrong ledger entry is a real thing to commit, so set
+# ROUND 273 WIDENED IT, AND CORRECTED THE SENTENCE THAT USED TO SIT HERE. It read "that file has no byte ceiling (457 KB) while its
+# two sibling archives are capped at 400,000". THE FIRST HALF IS FALSE: the ceiling existed all along, and the check that applies it
+# sat BELOW the only consumer of its result, so it could never fail — the gate printed `ok — … (457929 B of 400000)` and exited 0
+# with the ledger 57,929 bytes over. The second half is no longer true either: every archive now carries a FLOOR and a CEILING, and
+# there are four of them. Leaving the old one-file pattern would have made the NEW archive the new loophole, which is the same
+# failure this rule exists to close, one file over.
+#
+# THE EXEMPTION IS DELIBERATE AND VISIBLE, not silent: a correction to a wrong archive entry is a real thing to commit, so set
 #   SUMMRISE_LEDGER_ONLY=1 git commit ...
 # The variable is the record that a human chose it; there is no marker file to leave behind by accident.
+ARCHIVES='^docs/agents/(design-ledger|ledger-appendix|ledger-mutations|ledger-early-rounds)\.md$'
 staged_only=$(git diff --cached --name-only 2>/dev/null | grep -v '^$' || true)
-if [ -n "$staged_only" ] && [ "$(printf '%s\n' "$staged_only" | grep -vc '^docs/agents/design-ledger\.md$')" = "0" ]; then
+if [ -n "$staged_only" ] && [ "$(printf '%s\n' "$staged_only" | grep -vcE "$ARCHIVES")" = "0" ]; then
   if [ "$SUMMRISE_LEDGER_ONLY" != "1" ]; then
-    echo "pre-commit: this commit changes ONLY docs/agents/design-ledger.md." >&2
-    echo "  The ledger records what a round changed; a round that changed nothing has nothing to record." >&2
+    echo "pre-commit: this commit changes ONLY ledger archives." >&2
+    echo "  An archive records what a round changed; a round that changed nothing has nothing to record." >&2
     echo "  If this IS a correction to a wrong entry, say so deliberately:  SUMMRISE_LEDGER_ONLY=1 git commit ..." >&2
     fail=1
   fi

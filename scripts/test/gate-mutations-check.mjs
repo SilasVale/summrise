@@ -386,6 +386,28 @@ const CASES = [
     from: "    $ErrorActionPreference = $oldEAP2\n",
     to: '    $ErrorActionPreference = $oldEAP2\n@"\n$(Write-Host { )\n"@\n',
   },
+
+  {
+    gate: "scripts/test/ledger-budget-check.mjs",
+    // THE MUTATION IS A BOUNDARY CROSSING, because that is the only kind that proves a CEILING (round 109: padding
+    // `ledger-mutations.md` to 303,249 B gave exit 0 — 303 KB is UNDER the ceiling, and a mutation that does not
+    // cross the boundary proves nothing). It is also the one padding size that CANNOT go stale: the ledger is under
+    // 400,000 by this gate's own rule, so 90,001 bytes always lands past it, whatever the ledger's current size.
+    // Measured when it was written: 327,127 + 90,001 = 417,128, exit 1 naming both numbers. And NOTHING ELSE this
+    // gate checks is disturbed: the index markers stay, every title the index names still resolves, and the section
+    // count is unchanged — so the ceiling is the only thing that can fail here.
+    //
+    // AND THIS CASE IS THE REGRESSION GUARD FOR ROUND 273'S DEFECT, which is why it belongs in the automated set
+    // rather than only in the table. The check it exercises had sat BELOW `if (failures.length) … process.exit(1)`
+    // since the ceiling was written, so it pushed onto an array nothing read again: the gate printed
+    // `ok — … (457929 B of 400000)` and exited 0 on a ledger 57,929 bytes over its own limit, and two rounds read
+    // that line and recorded "this file has no byte ceiling". Move the check back down and THIS case goes green,
+    // which is how a dead check announces itself the second time.
+    file: "docs/agents/design-ledger.md",
+    why: "the ledger padded 90,001 bytes past its 400,000-byte ceiling",
+    from: "## What is in here\n",
+    to: "## What is in here\n" + "x".repeat(90_000) + "\n",
+  },
 ];
 
 const run = (cmd, args) => {
