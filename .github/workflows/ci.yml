@@ -662,6 +662,7 @@ jobs:
         run: node scripts/test/production-host-check.mjs
         node scripts/test/http-route-header-check.mjs
         node scripts/test/skill-frontmatter-check.mjs
+        node scripts/test/agents-snippet-check.mjs
       # A FIXTURE TABLE MUST NOT SAY ONE THING TWICE (round 60 of the standing goal). Round 59's `prov-dot` hunt ended
       # on a duplicate key: in a JS object the LAST one wins, so a fixture body added in round 57 never reached the page
       # and the Models page rendered its failure banner for three rounds with every other axis green.

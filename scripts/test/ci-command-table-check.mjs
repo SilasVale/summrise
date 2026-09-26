@@ -31,6 +31,8 @@ const DECLARED = {
     "it produces the binary the e2e step drives, so it is part of that step rather than a per-end check",
   "cargo xwin check -p summrise-agent --target x86_64-pc-windows-msvc --features terminal,keyring":
     "a cross-target CHECK whose command the Build section gives in full; the table is about the four ends' suites",
+  "node scripts/test/agents-snippet-check.mjs": "every LABELLED code block in AGENTS.md must parse — round 183 failed on a snippet the "
+    + "doc told the reader to run (round 186)",
   "node scripts/test/skill-frontmatter-check.mjs": "every skill under .agents/skills/ must be one the agent can LOAD: a broken "
     + "frontmatter block fails SILENTLY by leaving the catalog (round 170)",
   "node scripts/test/http-route-header-check.mjs": "the device's own HTTP surface: every route the header NAMES must exist in the "

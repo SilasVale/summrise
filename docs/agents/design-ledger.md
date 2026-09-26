@@ -35,6 +35,38 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 187 — the snippet gate, built in four places and proven in both directions
+
+Round 186 measured that nothing had ever parsed `AGENTS.md`'s own code blocks and left the candidate. This round built it:
+
+```
+1. scripts/test/agents-snippet-check.mjs     the check
+2. .github/workflows/ci.yml                  the invocation, beside round 171's skill-frontmatter gate
+3. ci-command-table-check                    declared with its reason
+4. NAMED HERE                                 numbered-claims-check requires it -- round 171's fourth place, done up front this time
+```
+
+**AND IT COVERS MORE THAN THE CENSUS DID**: round 186 counted `AGENTS.md` alone (8 blocks, 7 labelled); the gate reads **both instruction
+files** and reports **9 labelled blocks** — `agent/AGENTS.md` carries two more, which the census had not looked at.
+
+**BOTH DIRECTIONS, WHICH IS THE HALF ROUND 124 REVERTED A GATE FOR LACKING**:
+
+```
+clean                                     -> exit 0   "9 labelled block(s) across 2 instruction file(s) all parse"
+BITE     a bash block broken (a `}` removed from the redirect form)  -> exit 1
+         "1 labelled block(s) that do not parse — a reader would run this and fail"
+NON-BITE the unlabelled DIRECTORY TREE                                 -> exit 0
+```
+
+**AND THE NON-BITE IS THE ROUND-186 RULE MADE EXECUTABLE**: only a LABELLED block claims to be code, so the Agent layout diagram — which is
+not shell and never claimed to be — must keep passing. **A check that flagged it would be reverted**, which is why the pass was measured
+as carefully as the failure.
+
+**WHAT IT CANNOT SEE, SAID IN THE FILE**: powershell has no parser on this box (the limit `powershell-structure-check` documents), and **a
+block that PARSES can still be wrong about the world** — this catches a broken line, not a broken instruction. **Round 183's defect would
+have sailed through it, and the file says so.**
+
+
 ### round 186 — AGENTS.md's runnable snippets all parse, and the rule is "only a LABELLED block claims to be code"
 
 Round 183 failed on a snippet **AGENTS.md told the reader to run**, so the instruction file's own code blocks were checked — and nothing in this
