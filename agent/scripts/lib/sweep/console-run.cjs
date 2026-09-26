@@ -409,20 +409,24 @@ const fail = { api: false };
         // alone. This measures them as the browser paints them. The pointer is moved OFF the element before release
         // so nothing is clicked; a target this page does not render is a NOTE, and the measured count is what keeps
         // a pass that pressed nothing from reading as clean.
-        // ── AND THE DOM, NOT ONLY THE LIST (round 15 of the standing goal) ─────────────────────────────────────────
-        // This pass was handed ten selectors and each page renders three of them, so the console's RENDERED press check
-        // covered three controls per page while the acknowledgement pass beside it discovered eight — and `pressPass`
-        // has supported `discover` all along, opt-in, with the reason written on it: "a list can only contain what
-        // somebody thought of, and the controls that answer nothing are exactly the ones nobody thought about". That is
-        // this repository's own argument for adding it to the ack pass in round 190, and to the PANEL's press pass in
-        // round 15 — where it found `.device-logs-toggle`, a button with `cursor: pointer` and no hover and no press at
-        // all, which `feedback-check` cannot see (it demands a press only where a HOVER exists) and which no curated
-        // list contained. The console's ten came from the same kind of list and its sheet-level guard has the same
-        // blind spot.
+        // ── AND THE DOM, NOT ONLY THE LIST — WHICH ON THIS SWEEP FINDS NOTHING, AND THE REASON IS WORTH KEEPING ───
+        // The argument for `discover` is this repository's own: "a list can only contain what somebody thought of, and
+        // the controls that answer nothing are exactly the ones nobody thought about". It was added to the ack pass in
+        // round 190 and to the PANEL's press pass in round 15, where it found `.device-logs-toggle` — a button with
+        // `cursor: pointer` and no hover and no press at all, invisible to `feedback-check` (which demands a press only
+        // where a HOVER exists) and absent from every curated list.
         //
-        // THE SAME SKIP AS THE ACK PASS, for the same reason: the rail button, the language button, the avatar and
-        // links are CHROME the mode passes already own, and spending the cap on them is what the ack pass's own comment
-        // warns about ("without the skip the cap is spent on the rail itself").
+        // **MEASURED HERE: `found` IS 0 ON EVERY CONSOLE PAGE** (run 364a3a3f — `5pressed/5absent/0found`,
+        // `3pressed/7absent/0found`, …). `pressPass` adds the CURATED targets to the skip list by design ("the curated
+        // list stays for the surfaces it was written for, and `discover` adds what the DOM knows that the list does
+        // not"), and this console's curated selectors are BROAD CLASSES: `.btn` matches every button on the page, so
+        // there is nothing left for the DOM to contribute. The ack pass beside it discovers eight per page because ITS
+        // curated list is EMPTY — the two calls look alike and are not.
+        //
+        // SO THIS IS A SAFETY NET, NOT A COVERAGE INCREASE, and saying which is the difference between a measurement
+        // and a claim. It costs one DOM query per page and it would catch the case the panel's did — a control whose
+        // class is in nobody's list — which is the only case it can catch. The skip below is the ack pass's, for the
+        // ack pass's reason: the rail button, the language button, the avatar and links are chrome the mode passes own.
         const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], {
           page: label, width, discover: 8, skip: ['.rail-btn', '.lang-btn', '.avatar', 'a'],
         }) : [];
