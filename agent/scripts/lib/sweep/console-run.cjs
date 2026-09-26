@@ -654,7 +654,12 @@ const fail = { api: false };
         return `${p.page}@${p.width}:${measured}pressed/${absent}absent${p.found == null ? "" : "/" + p.found + "found"}`;
       }),
       ack: `${count("ack")}r/${(report.ack || []).filter((a) => a.acked).length}a/${(report.ack || []).filter((a) => a.asked).length}asked/${(report.ack || []).filter((a) => a.hasCounter === false).length}nocounter`,
-      focus: (report.focus || []).map((f) => `${f.page || f.density}@${f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m`),
+      // AND `p/l/m` COULD NOT TELL "ESCAPED" FROM "UNACCOUNTED" (round 21 of the standing goal). This sweep's routes
+      // and users pages read `16p/15l/0m`, which looks like a press that went nowhere — and the only way that row can
+      // be green is `escaped: 1`, the tab cycle leaving the document. `unconfirmed` is printed too because it is the
+      // one of the four the judge FAILS ("a check that could not look is not a pass"), so a reader should see it at
+      // zero rather than have to infer it.
+      focus: (report.focus || []).map((f) => `${f.page || f.density}@${f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m/${f.escaped || 0}e/${f.unconfirmed || 0}u`),
       hover: (report.hover || []).map((h) => `${h.page}@${h.width}:${h.interactive}i/${(h.underAA || []).length}aa`),
       motion: (report.motion || []).map((m) => `${m.page || m.density}:${m.normal}->${m.reduced}`),
       idle: (report.idle || []).map((i) => `${i.page}:${i.mutations == null ? "?" : i.mutations}mut`),

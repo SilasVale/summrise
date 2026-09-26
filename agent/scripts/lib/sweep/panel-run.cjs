@@ -1185,8 +1185,18 @@ const TIMING = P.timing;
     const axes = {
       motion: (report.motion || []).map((m) => `${m.density}:${m.normal}->${m.reduced}`),
       hover: (report.hover || []).map((h) => `${h.density}/${h.theme}:${h.interactive}i/${(h.underAA || []).length}aa`),
-      focus: (report.focus || []).map((f) => `${f.density || f.page}/${f.theme || f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m`),
-      press: (report.press || []).map((p) => `${p.page || p.density}/${p.mode || "-"}:${p.measured || 0}of${p.found == null ? "?" : p.found}`),
+      // `p/l/m` COULD NOT TELL "ESCAPED" FROM "UNACCOUNTED" (round 21 of the standing goal). `focusPass` counts four
+      // things — pressed, landed, escaped, and `unconfirmed` (the press whose ring the pixels could not confirm, which
+      // the judge FAILS) — and this printed three. So `16p/15l/0m` on the console's routes page read as "one press went
+      // nowhere", when the only way it can be green is `escaped: 1`: the tab cycle leaving the document. Two numbers
+      // were missing from a line whose whole purpose is to be comparable, which is the third time this class has been
+      // fixed here (the console's press label in round 13, the ack premise in round 11).
+      focus: (report.focus || []).map((f) => `${f.density || f.page}/${f.theme || f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m/${f.escaped || 0}e/${f.unconfirmed || 0}u`),
+      // `4of?` SAID THE DENOMINATOR WAS UNKNOWN AND NOT WHY (round 21 of the standing goal). The mode loop HANDS this
+      // pass a curated list — no `discover` — so `found` is null by construction and always will be; the rail walks
+      // discover, so they carry `11found`. Printing `?` made a deliberate design look like a missing number, and the
+      // word costs nothing: `list` says which of the two this row is.
+      press: (report.press || []).map((p) => `${p.page || p.density}/${p.mode || "-"}:${p.measured || 0}pressed/${p.found == null ? "list" : p.found + "found"}`),
       ack: `${count("ack")}r/${(report.ack || []).filter((a) => a.acked).length}a`,
       targets: (report.targets || []).map((t) => `${t.density}/${t.mode}:${t.checked || 0}c/${t.undersized || 0}u`),
       idle: (report.idle || []).map((i) => `${i.density}/${i.page || "-"}:${i.mutations == null ? "?" : i.mutations}mut`),
