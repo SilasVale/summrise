@@ -813,6 +813,14 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     // rather than guessed. (Round 20: the first survey called the connect form's already-active tab a control that
     // ignores a press, when clicking it had nothing to do.)
     const callsBefore = await page.evaluate(() => (window.__calls || []).length);
+    // IS THE COUNTER THERE AT ALL? `(window.__calls || []).length` answers 0 for a page that has no counter, which is
+    // indistinguishable from a page whose counter saw nothing — and that is exactly what happened on the console
+    // (round 11 of the standing goal): only the PANEL's fixture installs `window.__calls`, so every console row got the
+    // note "no request left this page" and was excused, and A CONSOLE CONTROL THAT NEVER ACKNOWLEDGED A PRESS COULD
+    // NEVER FAIL THE RUN. The console installs a counter now; this flag is what keeps the two cases apart if another
+    // sweep ever runs `ackPass` without one, because "unmeasured" must not read as "measured zero" — the failure this
+    // whole suite is built to refuse.
+    const hasCounter = await page.evaluate(() => Array.isArray(window.__calls));
     const t0 = Date.now();
     await page.mouse.down();
     await page.mouse.up();
@@ -880,10 +888,12 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     rows.push({
       sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
       acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs, attempts, msFirstPress,
-      asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore,
+      asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore, hasCounter,
       ...(acked || asked
         ? {}
-        : { note: "no request left this page in the 250ms after the press (0 of " + (callsAfter - callsBefore) + " in the whole window) — there is nothing this control was waiting for, so the row is not evidence about feedback" }),
+        : { note: hasCounter
+            ? "no request left this page in the 250ms after the press (0 of " + (callsAfter - callsBefore) + " in the whole window) — there is nothing this control was waiting for, so the row is not evidence about feedback"
+            : "this page has NO request counter, so whether the control asked the device anything is UNMEASURED — the row is not evidence about feedback either way" }),
       ...label,
     });
     // AND PUT THE PAGE BACK: the next control is measured from rest, not from whatever this click did.
@@ -1500,6 +1510,16 @@ export function judgeReport(report, opts = {}) {
   // The panel's judge keeps only what is the panel's own; every row below is judged identically for both.
   for (const a of report.ack || []) {
     const where = `${a.density || "?"}${a.page ? " " + a.page : ""}`;
+    // AN UNMEASURED PREMISE IS NOT AN EXCUSE (round 11 of the standing goal). The clause below excuses a control that
+    // asked the device nothing — but only a page that HAS a request counter can tell "asked nothing" from "nobody
+    // looked", and the console had none, so EVERY one of its rows was excused by a note claiming a measurement that
+    // never happened, and a console control that never acknowledged a press could never fail the run. Both sweeps
+    // install a counter now; this clause is what makes its absence a FAILURE rather than a footnote — the rule the
+    // focus axis already follows ("a check that could not look must not read as a pass").
+    if (a.hasCounter === false) {
+      findings.push(`${where}: ${a.sel} was pressed on a page with NO request counter, so whether it asked the device anything is UNMEASURED — the acknowledgement axis proves nothing here`);
+      continue;
+    }
     if (a.note) { console.log(`note: ${where} ${a.sel} — ${a.note}`); continue; }
     if (!a.acked) {
       // ONLY WHERE THERE WAS SOMETHING TO WAIT FOR. A control that asked the device nothing (a tab switching a
