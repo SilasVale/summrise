@@ -503,6 +503,17 @@
 .side-action {
   font-size: var(--fs-sm);
   line-height: 1;
+  /* 24x24, WHICH IS THE CRITERION'S OWN NUMBER (round 18 of the standing goal). These two measured 22x22, and they sit
+     INSIDE .side-row — which is role="button" with its own onClick — so a near-miss aimed at "rename" activated the ROW
+     and switched sessions instead. 2.5.8's spacing clause cannot excuse that one: the clause is about NEIGHBOURS, and a
+     nested control's circle is inside its container by construction. Round 17 taught the sweep to name the case
+     (button.side-action 22x22 in div.side-row.active 232x34) and this is the fix it named: the target meets the size
+     OUTRIGHT, so no exception is needed at all. The row is 34px tall, so 24 fits without moving anything. */
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
   background: none;
   border: none;
