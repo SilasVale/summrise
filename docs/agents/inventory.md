@@ -644,6 +644,24 @@ This table is the one to read first. It was written at round 99 with four gates 
 clause below now names the INSTRUMENT that measures it and the VERDICT it currently returns. A clause with no instrument
 would say so — that is the point of writing it this way.
 
+**AND EVERY GENERATED, COMMITTED ARTIFACT HAS A GUARD — the list, so a new one can be told in one look whether it has a home**
+(rounds 133-139 found this shape three times before the class was closed; the narratives are in the ledger under those rounds):
+
+| generated and committed | size | what guards it |
+|---|---|---|
+| `agent/resources/panel/panel.js` | 663,487 B | `panel-sheet-freshness-check.mjs` |
+| `agent/summrise-agent-npm/bin/summrise.js` | 198,635 B | the pack chain — `cmp` against a fresh compile |
+| `gateway/public/code/files/summrise-gate/` | 54 files | `code-viewer-mirror.test.mjs` (missing · extra · differing) |
+| `gateway/public/code/files/instruments/` | 9 files | `instruments-mirror.test.mjs` (both directions) |
+| `index/public/summrise-agent/e2e.js` | 60,641 B | `instruments-mirror.test.mjs` — the pair the DEVICE fetches |
+| `index/components.json` | 2,185 B | **not a test**: `setup` REFUSES a sha256 pin mismatch on the device |
+| `index/public/summrise-agent/version.json` | 669 B | **not a test**: the release audit, CDN vs the GitHub asset |
+
+**A guard is not always a gate** — two of the seven are enforced by setup and by the release audit rather than by a check — and
+naming them that way is the difference between an inventory and a list of tests. **What is NOT here is as deliberate as what is**:
+`git ls-files | grep -E "\.(exe|tgz|zip)$"` returns nothing, so the built exe the release flow copies into the package is a LOCAL
+artifact and needs no guard rather than missing one.
+
 | the objective's clause | the instrument | the verdict now |
 |---|---|---|
 | one source of truth per fact | `contract-vocabulary-check` · `one-derivation-check` (endings AND mark states) · `session-row-check` · `device-verdict-check` · §14's four-end trace | green; ten facts, each with one home and a named "what stays with the caller" |
