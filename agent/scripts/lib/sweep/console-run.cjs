@@ -348,6 +348,15 @@ const fail = { api: false };
       await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
       await page.evaluate((h) => { location.hash = h; }, hash);
       await settle(1600);
+      // ── THE REFLOW PROBE WAS IMPORTED AND NEVER RUN (round 12 of the standing goal) ─────────────────────────────
+      // `REFLOW` has been destructured from the shared checks since this sweep was written, `report.reflow` has been
+      // declared beside every other axis, and NOTHING EVER PUSHED A ROW — so the console's WCAG 1.4.10 claim rested on
+      // round 224's HAND measurement ("640, 480 and 320 … all three are CLEAN (docOver 0)"), which nothing repeats,
+      // while the panel has run this probe at 640 and 320 all along and the shared judge has a reflow clause waiting
+      // for rows. The width this loop renders BECAUSE THE CRITERION NAMES IT was the width nothing asserted: a console
+      // regression that scrolled sideways at 320px would have been invisible, in a sweep that renders 320px on purpose.
+      // One probe per page per width, where the page is settled — the same place and the same call the panel uses.
+      if (wants('reflow')) report.reflow.push({ page: label, width, ...(await page.evaluate(REFLOW, SELECTOR)) });
       if (wants('contrast')) {
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
@@ -589,6 +598,29 @@ const fail = { api: false };
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length }));
+  // ── EVERY AXIS'S OWN NUMBER, the line the panel got in round 10 and this sweep did not ──────────────────────────
+  // The line above is the whole of what a CI log knows about this sweep's coverage: two numbers, for thirteen axes.
+  // The cost of that was paid twice — round 10 could not convert the panel's motion settles because no number would
+  // have shown a change, and round 11 could not see that this sweep's acknowledgement premise was never installed,
+  // because `asked` is computed on every ack row and PRINTED NOWHERE. `ack` below carries all four of its parts:
+  // rows, acknowledged, asked-the-device, and rows whose page had NO COUNTER (which the judge now fails outright).
+  {
+    const count = (a) => (report[a] || []).length;
+    const axes = {
+      press: (report.press || []).map((p) => `${p.page}@${p.width}:${p.measured || 0}of${(p.rows || []).length}`),
+      ack: `${count("ack")}r/${(report.ack || []).filter((a) => a.acked).length}a/${(report.ack || []).filter((a) => a.asked).length}asked/${(report.ack || []).filter((a) => a.hasCounter === false).length}nocounter`,
+      focus: (report.focus || []).map((f) => `${f.page || f.density}@${f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m`),
+      hover: (report.hover || []).map((h) => `${h.page}@${h.width}:${h.interactive}i/${(h.underAA || []).length}aa`),
+      motion: (report.motion || []).map((m) => `${m.page || m.density}:${m.normal}->${m.reduced}`),
+      idle: (report.idle || []).map((i) => `${i.page}:${i.mutations == null ? "?" : i.mutations}mut`),
+      targets: (report.targets || []).map((t) => `${t.page}:${t.checked || 0}c/${t.undersized || 0}u`),
+      unstyled: (report.unstyled || []).map((u) => `${u.page}:${u.styledClasses || 0}c/${u.sheetsUnreadable || 0}unread`),
+      reflow: (report.reflow || []).map((r) => `${r.page}@${r.width}:${r.docScrollsSideways ? "SCROLLS" : "ok"}`),
+      themes: (report.themeChecks || []).map((t) => `${t.page}:${t.stored || "-"}`),
+      entry: report.entryCheck ? `${report.entryCheck.bytes}b/${report.entryCheck.stale ? "STALE" : "current"}` : "?",
+    };
+    console.log(JSON.stringify({ axes }));
+  }
   // THE BUDGET, printed LAST so it covers every pass — the same two lines the panel prints, so the two sweeps can be
   // compared without translating between them. `asked` against `needed` is the whole question: equal means the clock
   // was right, far apart means it was padding.
