@@ -81,17 +81,15 @@ Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROV
 ### Which gates have been PROVEN to bite
 
 **`docs/agents/ledger-mutations.md` holds this** — the mutation table, the per-gate bite proofs, the `powershell-structure-check`
-bites and non-bites, and the rule about reading a RULE instead of a name. It was 5,067 B of this file's
-30,110 B (measured, round 166 — the first draft of this sentence said 8,900 B, which was a number written before it was taken) and it lives there for the
-reason it already gave: **the gates the standing objective added are in the ledger, not here.** Read it before you trust a
-gate, and before you delete anything a finding says is unused.
+bites and non-bites, and the rule about reading a RULE instead of a name.
+
+**Read it when you are about to TRUST a gate, and when a finding says something is unused and you are about to DELETE it.**
 
 ## The design ledger
 
 THE LONG FORM LIVES IN `docs/agents/design-ledger.md` — one section per round: what was measured, what it cost, and
-what was learned. It was split out in round 67 after this file grew past the workspace instruction budget and the
-harness began TRUNCATING its tail (the Release and layout sections below were being dropped silently — an instruction
-file that cannot be read whole is worse than a short one).
+what was learned. (It lives there because an instruction file that cannot be read whole is worse than a short one;
+the split is round 67's, in the ledger.)
 
 READ IT WHEN you are about to re-measure something, want the story behind a rule here, or wonder whether a failure has
 happened before. The numbers for contrast, silhouettes, the loud axis, idle repaint, the press passes and the wire

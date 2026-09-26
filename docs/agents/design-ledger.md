@@ -35,6 +35,33 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 169 — the pointers traded bookkeeping for triggers, and the file got 121 B BIGGER
+
+The skill's relevance test — "does it still bear on what the document does?" — was run on the two pointers the disclosure rounds left behind.
+Both were carrying the HISTORY OF THEIR OWN EDIT in an always-loaded file:
+
+```
+round 166 pointer: "It was 5,067 B of this file's 30,110 B (measured, round 166 — the first draft of this
+                    sentence said 8,900 B, which was a number written before it was taken)"
+design-ledger ptr: "It was split out in round 67 after this file grew past the workspace instruction budget
+                    and the harness began TRUNCATING its tail (the Release and layout sections below
+                    were being dropped silently — an instruction file that cannot be read whole ...)"
+```
+
+**NEITHER SENTENCE CHANGES WHAT A READER DOES**, and both are already in the ledger, which is where the skill says that kind of material belongs
+("cut identity the body already carries"). What replaced them is the half that DOES change behaviour — **when to reach the material**:
+
+```
+"Read it when you are about to TRUST a gate, and when a finding says something is unused
+ and you are about to DELETE it."
+```
+
+**AND THE FILE IS 121 B LARGER FOR IT: 23,559 -> 23,680 B.** That is worth recording precisely because this session has spent four rounds
+shrinking it, and a round that GROWS an instruction file needs its reason stated. **The reason is the skill's own ordering**: a pointer's
+triggers are the part that decides whether the target is ever reached, and the history of an edit is the part that decides nothing. Trading
+the second for the first is a good trade at a positive price — **and "the file got smaller" was never the goal; the ladder was.**
+
+
 **Round 168 (cont.) — THE VERIFICATION OF THE FIX PRODUCED A FIFTH ARTEFACT, AND THE SAME CHECK CLEARED IT**: re-running the four
 probes after restoring the triggers gave `terminal backend 1`, `file-relay 1`, **`evidence drawer 0`** and `do not push while CI is
 running 0`. The second zero is CORRECT — that sentence lives in `ledger-mutations.md` now, which is where the block went and why the
