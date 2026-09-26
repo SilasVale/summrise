@@ -35,6 +35,24 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 164, one line — FOUR RULES, EACH MOVED TO THE SECTION WHOSE SUBJECT IT IS**: rounds 129-163 added four blocks to
+`AGENTS.md`, and all four landed in `## Committing` — where a reader diagnosing a route or a stylesheet never looks:
+
+```
+### Which gates have been PROVEN to bite
+  **AND BEFORE YOU ACT ON WHAT AN EXTRACTOR FOUND …**      the rule about how a CLAIM is proven real
+## Committing
+  **AND DO NOT PUT A COMMAND WHOSE STATUS YOU NEED …**     how to RUN a command
+  **AND WHEN THE TEXT YOU ARE WRITING IS FULL OF BACKTICKS …**   how to CARRY text through a shell
+  **AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL …**     how to REPORT a number
+```
+
+**AND THE MOVE ITSELF OVERSHOT ON THE FIRST TRY**: the extraction ran from the extractor rule to `## Release`, which swept the
+QUOTING rule (a command rule) into the gates section as well. **Caught by reading the section headings after the edit rather than by
+trusting the cut** — the same check round 143 recorded for positional promises, applied to a move of my own — and the quoting rule is
+back beside the pipe rule where it belongs.
+
+
 **Round 163, one line**: the five phantom findings (128, 137, 146, 147, 161-162) are now a rule in AGENTS.md — **"before you act on
 what an extractor found, ask what form it cannot see"** — with each instance reduced to the FORM it missed: prose, the other direction, a
 third comparison shape, a comment, a compound selector, a stem too short to search. **Five instances is enough to state a shape rather than

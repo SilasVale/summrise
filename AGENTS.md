@@ -135,6 +135,24 @@ gate that cannot tell the two apart gets reverted: a `{` planted INSIDE a single
 scripts the installer writes (`summrise-online-setup.ps1:443`), the JSON manifests the integrity tests carry
 (`'{"version":"1.2.364"}'`) — must still PASS, and does.
 
+**AND BEFORE YOU ACT ON WHAT AN EXTRACTOR FOUND, ASK WHAT FORM IT CANNOT SEE — FIVE PHANTOM FINDINGS SAY WHY.**
+Every one of these was reported as a defect and was an artefact of the pattern that found it:
+
+| reported | the form the extractor could not see |
+|---|---|
+| a dead endpoint | the header's PROSE (`GET /panel, /panel/`, `POST …/start\|stop` — the comma and the pipe are separators, not text) |
+| a missing mirror direction | the same file read in ONE direction (a guard must look at what is ABSENT, not only at what is there) |
+| six undispatched routes | a route table's THIRD comparison shape (`Pattern::Exact` / `Pattern::Prefix` beside `path ==`) |
+| four dead CSS rules | a class named inside a COMMENT; a COMPOUND selector (`.notify-state.is-denied`); and a stem too short to search (`is-`, where the real form is `` `notify-state is-${perm}` ``) |
+| a check that "never runs" | — turned out to be a real absence, which is why the rule is "ask", not "distrust" |
+
+**AN EXTRACTOR IS A HYPOTHESIS ABOUT A FILE'S FORMS, AND IT FAILS BY REPORTING WHAT IT CANNOT PARSE AS ABSENT.** So:
+read the RULE, not the name (`grep -n` the construct, do not grep the identifier); search the STEM the code builds from,
+however short; and if the finding would DELETE something, find the commit that added it — `git log -S` has twice shown a
+past round restoring the thing this loop was about to remove.
+
+
+
 ## The design ledger
 
 THE LONG FORM LIVES IN `docs/agents/design-ledger.md` — one section per round: what was measured, what it cost, and
@@ -231,37 +249,6 @@ grep -E 'pass|fail' /tmp/out                            # output read afterwards
 
 **Redirect, check, THEN filter.** A pipe is for reading output; it is not a way to keep a status.
 
-**AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL THAT PRODUCES IT — THREE CONVENIENT COMMANDS ARE WRONG HERE.**
-All three were used by this loop to report a number, and all three were wrong in the same direction, which is the direction
-that makes finished work look unfinished:
-
-| do NOT count with | because | use |
-|---|---|---|
-| `grep -l <name> <dir>` | it counts FILES THAT MENTION a thing, not the thing: it said three gates read `panel.css`, and `panel-sheet-freshness-check.mjs:75` says **five** read it | read the tool's own message, or `grep -c` the count it prints |
-| `grep -c '^| ' <table>` | it counts the header row and the separator too: the mutation table read 46 and has **44** rows | `awk '/^\| /{n++} END{print n-2}' <table>` |
-| `git tag` | **this clone has no tag above 1.2.456** while the remote has 94 up to 1.2.474 — tags are made through the GitHub API and the mirror refuses `git fetch --tags` (HTTP 400), so `git tag` answers ZERO for every release this loop made | `GET /repos/SilasVale/summrise/git/refs/tags` |
-
-**A summary is a claim set.** If a number is going into a commit message, a ledger line or a report, the command that produced it
-belongs beside it — and a command that merely CORRELATES with the number is not that command.
-
-**AND BEFORE YOU ACT ON WHAT AN EXTRACTOR FOUND, ASK WHAT FORM IT CANNOT SEE — FIVE PHANTOM FINDINGS SAY WHY.**
-Every one of these was reported as a defect and was an artefact of the pattern that found it:
-
-| reported | the form the extractor could not see |
-|---|---|
-| a dead endpoint | the header's PROSE (`GET /panel, /panel/`, `POST …/start\|stop` — the comma and the pipe are separators, not text) |
-| a missing mirror direction | the same file read in ONE direction (a guard must look at what is ABSENT, not only at what is there) |
-| six undispatched routes | a route table's THIRD comparison shape (`Pattern::Exact` / `Pattern::Prefix` beside `path ==`) |
-| four dead CSS rules | a class named inside a COMMENT; a COMPOUND selector (`.notify-state.is-denied`); and a stem too short to search (`is-`, where the real form is `` `notify-state is-${perm}` ``) |
-| a check that "never runs" | — turned out to be a real absence, which is why the rule is "ask", not "distrust" |
-
-**AN EXTRACTOR IS A HYPOTHESIS ABOUT A FILE'S FORMS, AND IT FAILS BY REPORTING WHAT IT CANNOT PARSE AS ABSENT.** So:
-read the RULE, not the name (`grep -n` the construct, do not grep the identifier); search the STEM the code builds from,
-however short; and if the finding would DELETE something, find the commit that added it — `git log -S` has twice shown a
-past round restoring the thing this loop was about to remove.
-
-
-
 **AND WHEN THE TEXT YOU ARE WRITING IS FULL OF BACKTICKS, PUT IT THROUGH A QUOTED HEREDOC — NOT `python3 -c "…"`.**
 The two failures above were about KEEPING a status; this one is about the TEXT surviving the shell that carries it. Round 140
 wrote a ledger line with `python3 -c "…"` — DOUBLE-quoted — and every backtick in that line was executed as COMMAND
@@ -285,6 +272,19 @@ loud.** Choose a delimiter that cannot occur in the body:
 
 **The quoting is on the DELIMITER, not on the content**, and the NAME matters as much as the quoting.
 
+
+**AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL THAT PRODUCES IT — THREE CONVENIENT COMMANDS ARE WRONG HERE.**
+All three were used by this loop to report a number, and all three were wrong in the same direction, which is the direction
+that makes finished work look unfinished:
+
+| do NOT count with | because | use |
+|---|---|---|
+| `grep -l <name> <dir>` | it counts FILES THAT MENTION a thing, not the thing: it said three gates read `panel.css`, and `panel-sheet-freshness-check.mjs:75` says **five** read it | read the tool's own message, or `grep -c` the count it prints |
+| `grep -c '^| ' <table>` | it counts the header row and the separator too: the mutation table read 46 and has **44** rows | `awk '/^\| /{n++} END{print n-2}' <table>` |
+| `git tag` | **this clone has no tag above 1.2.456** while the remote has 94 up to 1.2.474 — tags are made through the GitHub API and the mirror refuses `git fetch --tags` (HTTP 400), so `git tag` answers ZERO for every release this loop made | `GET /repos/SilasVale/summrise/git/refs/tags` |
+
+**A summary is a claim set.** If a number is going into a commit message, a ledger line or a report, the command that produced it
+belongs beside it — and a command that merely CORRELATES with the number is not that command.
 
 ## Release — npm is the only channel
 
