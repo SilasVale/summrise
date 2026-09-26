@@ -122,7 +122,26 @@
 # **AND WHAT IS LEFT IS NAMED, so the next round does not re-measure it**: `6000ms x8` (48.0s) is idlePass's
 # observation window and stays; 260/450/140/60ms (81.9s) are the sampling loops and stay; but `900ms x38` (34.2s),
 # `1200ms x14` (16.8s) and `1400ms x12` (16.8s) are settle-shaped literals that were NOT converted — they are the same
-# idiom with a different number, and the console sweep (243s of the job) has no budget instrument at all.
+# idiom with a different number, and the console sweep (243s of the job) had no budget instrument at all.
+#
+# ── AND THE CONSOLE GOT THE SAME TWO INSTRUMENTS, WITH THE SAME RESULT (run 36246334584) ─────────────────────────
+#
+# It was 243s of the job with nothing measuring it. Its first budget:
+#
+#     budget wait=1756x/130.2s nav=62x/2.1s eval=2466x/4.8s of 162.3s
+#     budget settle 62x asked=101.0s needed=17.9s capped=0
+#
+# Eight of its ten waits were settle-shaped and are a condition now: **83.1s of the 101.0s was padding, and not one
+# settle hit the cap.** The console sweep is 162.3s, the design job 590s. Its navigation is nearly free (62 hash
+# changes, 2.1s) because it is an SPA — the panel reloads, which is why the panel's nav is 17.3s.
+#
+#     the panel sweep 464.6s → 295.1s   the console sweep 243s → 162.3s   the design job 805-833s → 590s
+#
+# **WHAT IS LEFT IS NOW ALMOST ENTIRELY THE MEASUREMENT ITSELF.** Of the console's 130.2s of waiting, `6000ms x12`
+# (72.0s) is `idlePass`'s six-second observation window — twelve pages watched to see whether they write to the DOM
+# while idle — and `16ms x1522` (24.8s) is the press pass sampling. The panel's remaining convertible is its own
+# 900/1200/1400ms settles, 67.8s, which are the same idiom (after a click or a readiness selector) and were left for
+# their own verified run.
 #
 # The per-pass marks and the budget stay: together they turned a 464-second silence into this table.
 #
