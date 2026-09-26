@@ -1157,5 +1157,31 @@ const TIMING = P.timing;
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length }));
+  // ── EVERY AXIS'S OWN NUMBER, because three of twelve cannot falsify a change ────────────────────────────────────
+  // The line above has carried `rows`, `surfaces` and `names` since this sweep was written, and those three are the
+  // ONLY evidence a CI log holds about what a run covered. That is enough for the contrast, hierarchy and naming axes
+  // and for nothing else. Round 6 of the standing goal left this file's motion pass waiting on two CLOCKS for exactly
+  // that reason — `MOTION` reads computed `transitionDuration` and `animationName`, so a page measured slightly early
+  // reports FEWER animations and nothing in those three numbers would say so. The claim made there was that the axis
+  // "has no floor in the judge"; re-reading it, **the floor IS there** (round 134: `normal === 0` fails with "the check
+  // found nothing to suppress"), so what was missing is not a floor but A NUMBER A READER CAN COMPARE. This is it, for
+  // every axis, on one line — so the next change to any of them is falsifiable from the log instead of from trust.
+  {
+    const count = (a) => (report[a] || []).length;
+    const axes = {
+      motion: (report.motion || []).map((m) => `${m.density}:${m.normal}->${m.reduced}`),
+      hover: (report.hover || []).map((h) => `${h.density}/${h.theme}:${h.interactive}i/${(h.underAA || []).length}aa`),
+      focus: (report.focus || []).map((f) => `${f.density || f.page}/${f.theme || f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m`),
+      press: (report.press || []).map((p) => `${p.page || p.density}/${p.mode || "-"}:${p.measured || 0}of${p.found == null ? "?" : p.found}`),
+      ack: `${count("ack")}r/${(report.ack || []).filter((a) => a.acked).length}a`,
+      targets: (report.targets || []).map((t) => `${t.density}/${t.mode}:${t.checked || 0}c/${t.undersized || 0}u`),
+      idle: (report.idle || []).map((i) => `${i.density}/${i.page || "-"}:${i.mutations == null ? "?" : i.mutations}mut`),
+      unstyled: (report.unstyled || []).map((u) => `${u.page}:${u.styledClasses || 0}c/${u.sheetsUnreadable || 0}unread`),
+      reflow: (report.reflow || []).map((r) => `${r.width}:${r.docScrollsSideways ? "SCROLLS" : "ok"}`),
+      nodes: (report.timing || []).map((t) => `${t.density}/${t.mode}:${t.nodes}`),
+      sse: `${(report.sse || []).filter((s) => s.opened).length}open/${(report.sse || []).filter((s) => s.fail).length}fail`,
+    };
+    console.log(JSON.stringify({ axes }));
+  }
   await close();
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
