@@ -108,6 +108,13 @@ bites and non-bites, and the rule about reading a RULE instead of a name.
 **Read it when you are about to TRUST a gate, when you are about to ADD one, and when a finding says something is unused and
 you are about to DELETE it.**
 
+## The vocabulary
+
+**`CONTEXT.md` at the root is this project's GLOSSARY** — the words that mean something specific here (device, session, run,
+goal, liveness, mark) and the words that do not, each with an `_Avoid_` list. Read it before naming anything in the panel,
+the console or a tool description; two surfaces disagreeing about a word is how `Trajectory` and `Path` came to look like
+two names for one screen. It holds TERMS ONLY — an invariant belongs in the gate that enforces it.
+
 ## The design ledger
 
 THE LONG FORM LIVES IN `docs/agents/design-ledger.md` — one section per round: what was measured, what it cost, and
