@@ -188,6 +188,10 @@ export function ActivityPage({ pollMs }: { pollMs?: number }) {
 
   const runCount = groups.filter((g) => g.group.state !== "unattributed").length;
   const records = groups.reduce((n, g) => n + g.rows.length, 0);
+  // HOW MANY GROUPS HAVE NO RECORDS, because the sentence that explains WHY is honest once and noise five times. The
+  // operator said exactly that about this page: "it is honest on one row and noise on five". So the reason is stated once
+  // above the list and each group states only the fact.
+  const emptyGroups = groups.filter((g) => g.rows.length === 0).length;
   const unattributed = groups.find((g) => g.group.state === "unattributed") ?? null;
 
   return (
@@ -244,6 +248,13 @@ export function ActivityPage({ pollMs }: { pollMs?: number }) {
           recorded — this page does not need a session open.
         </p>
       ) : (
+        <>
+          {emptyGroups > 0 && (
+            <p className="activity-empty-note">
+              A run records its own begin and end. A record carries the run id only when something inside it did, so a run
+              whose steps were never recorded shows as a group with nothing under it — {emptyGroups === 1 ? "one group" : `${emptyGroups} groups`} below.
+            </p>
+          )}
         <ol className="activity-groups">
           {groups.map(({ group, rows }) => (
             <li
@@ -259,11 +270,11 @@ export function ActivityPage({ pollMs }: { pollMs?: number }) {
                 <RunGroupHead group={group} />
               </div>
               {rows.length === 0 ? (
-                // The bucket is never empty (it exists only when something is in
-                // it); a run with no records is the case here — its begin and
-                // end were recorded and no record carries the id. Saying so is
-                // the honest half of the header above it.
-                <p className="activity-group-empty">No records carry this run id.</p>
+                // The bucket is never empty (it exists only when something is in it); a run with no records is the case
+                // here — its begin and end were recorded and no record carries the id. THE SENTENCE THAT SAID SO IS NOW
+                // THE PAGE-LEVEL NOTE ABOVE THE LIST, because repeating it on every empty group was noise: the reason
+                // belongs where it is read once, and the group states the fact.
+                <p className="activity-group-empty">no records</p>
               ) : (
                 <ul className="activity-rows">
                   {rows.map((row) => (
@@ -282,6 +293,7 @@ export function ActivityPage({ pollMs }: { pollMs?: number }) {
             </li>
           ))}
         </ol>
+        </>
       )}
     </section>
   );
