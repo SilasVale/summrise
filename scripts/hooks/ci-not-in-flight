@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# ci-not-in-flight — is this repository's CI still running? Refuse the push if it is.
+#
+# Called by `scripts/hooks/pre-push`. See that file for WHY this exists; this file is the check, kept separate so it can be
+# proven on fixtures (`scripts/test/ci-not-in-flight.bash`) rather than only in anger.
+#
+# THE TEST SEAM IS A FILE, NOT A SERVER: `SUMMRISE_CI_RUNS_FILE` holds a saved API response and skips the query entirely.
+# That is deliberate — this box is forbidden from listening on any port, so a stub server is not an option, and a fixture
+# file is a better one anyway: it is the exact bytes the API returned.
+set -uo pipefail
+
+REPO="${SUMMRISE_CI_REPO:-SilasVale/summrise}"
+TOKEN_FILE="${GITHUB_TOKEN_FILE:-$HOME/.github-token}"
+RUNS_FILE="${SUMMRISE_CI_RUNS_FILE:-}"
+
+if [ -n "$RUNS_FILE" ]; then
+  [ -r "$RUNS_FILE" ] || { echo "pre-push: $RUNS_FILE is not readable — failing OPEN" >&2; exit 0; }
+  json=$(cat "$RUNS_FILE")
+else
+  [ -r "$TOKEN_FILE" ] || { echo "pre-push: no token at $TOKEN_FILE — cannot tell, failing OPEN" >&2; exit 0; }
+  json=$(curl -sS --max-time 10 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+    "https://api.github.com/repos/$REPO/actions/runs?per_page=15" 2>/dev/null) \
+    || { echo "pre-push: the API did not answer — failing OPEN" >&2; exit 0; }
+fi
+
+printf '%s' "$json" | python3 -c '
+import json, sys
+LIVE = {"in_progress", "queued", "pending", "requested", "waiting"}
+try:
+    d = json.load(sys.stdin)
+except Exception as e:
+    print("pre-push: the response was not JSON (%s) — failing OPEN" % e, file=sys.stderr)
+    sys.exit(0)
+runs = [r for r in d.get("workflow_runs", []) if r.get("status") in LIVE]
+if not runs:
+    sys.exit(0)
+# NO BACKSLASHES INSIDE AN f-STRING: this box runs Python 3.8, which rejects them, and the first version of this file did
+# exactly that — so the check exited 1 on EVERY input, including the clean one, and the fixture caught it in one run.
+lines = []
+for r in runs[:5]:
+    sha = str(r.get("head_sha", ""))[:9]
+    lines.append("    %s  %-12s %s" % (sha, r.get("status"), r.get("name", "?")))
+sys.stderr.write("\n")
+sys.stderr.write("pre-push: REFUSED — this repository has CI still running, and a push SUPERSEDES it:\n")
+for l in lines:
+    sys.stderr.write(l + "\n")
+sys.stderr.write("\n")
+sys.stderr.write("  GitHub cancels the superseded run, and the cancellation is reported as `conclusion: cancelled` —\n")
+sys.stderr.write("  which a count cannot tell from a real failure, and which leaves that commit with no green CI\n")
+sys.stderr.write("  to point at. WAIT for it, then push. This repository has paid for this four times; three were this loop.\n")
+sys.stderr.write("\n")
+sys.stderr.write("  If you know the run does not matter:  git push --no-verify ...\n")
+sys.exit(1)
+'

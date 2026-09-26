@@ -114,6 +114,25 @@ mention. That is the ledger's own recorded failure mode arriving from the other 
 it"*), and the fix is the one this section already prescribes: **a gate is named where a person can find it, or it is a gate
 nobody can run by hand.**
 
+## Pushing: wait for the run in flight
+
+**A PUSH SUPERSEDES AN IN-FLIGHT CI RUN.** GitHub cancels it, and the cancellation is reported as `conclusion: cancelled` —
+which a count cannot tell from a real failure, and which leaves that commit with **no green CI to point at**. The rule has
+been here for months and this repository paid for it four times; **three were this loop, twice in three rounds**, which is
+what a rule that must be remembered costs.
+
+So it is a mechanism now, in the one place a push cannot skip:
+
+| artifact | what it is |
+|---|---|
+| `scripts/hooks/pre-push` | the hook. Installed as `.githooks/pre-push`, which `core.hooksPath` already points at |
+| `scripts/hooks/ci-not-in-flight` | the check, its own file so it can be proven on fixtures |
+| `scripts/test/ci-not-in-flight.bash` | the proof: 7 cases on saved API responses, **and it RUNS the hook the way git does** rather than grepping for the call site |
+
+**IT FAILS OPEN, DELIBERATELY.** No token, no answer, unparseable JSON — all exit 0, because blocking a push over a flaky
+mirror is a worse failure than the one it prevents, and this repository's git remote has been measured answering in 0s, 32s
+and >90s for the same request. `git push --no-verify` is the escape hatch, and the hook prints it.
+
 ## Two languages, and which one goes where
 
 **THE REPOSITORY IS WRITTEN IN ENGLISH**: commit messages, code comments, `AGENTS.md`, `CONTEXT.md`, the specs and plans.
