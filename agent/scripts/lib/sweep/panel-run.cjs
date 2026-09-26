@@ -204,7 +204,7 @@ const TIMING = P.timing;
         await page.reload({ waitUntil: 'load' });
         await page.waitForSelector('.side-row, .dtab, .tab', { timeout: 20000 });
         const toFirstRow = Date.now() - t0;
-        await page.waitForTimeout(1200);
+        await settle(1200);
         report.timing.push({ density, theme, mode: mode_, toFirstRowMs: toFirstRow, ...(await page.evaluate(TIMING)) });
 
         // FOCUS RINGS BY REAL TAB PRESSES, in ONE implementation shared with the console and the
@@ -364,7 +364,7 @@ const TIMING = P.timing;
       const b = [...(rail ? rail.querySelectorAll('button') : [])].find((x) => /setting/i.test((x.getAttribute('aria-label') || '') + (x.textContent || '')));
       if (b) b.click();
     });
-    await page.waitForTimeout(1400);
+    await settle(1400);
     const rows = await page.evaluate(PROBE);
     const name = (density === 'desktop' ? 'Desktop-settings-busy' : 'Settings-busy');
     for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'busy', page: name });
@@ -401,7 +401,7 @@ const TIMING = P.timing;
       const before = (await page.evaluate(THEME)).attr;
       for (let i = 0; i < buttons.length; i++) {
         await page.evaluate((k) => { const b = document.querySelectorAll('#icon-rail button, .desktop-rail button')[k]; if (b) b.click(); }, i);
-        await page.waitForTimeout(900);
+        await settle(900);
         const active = await readActive();
         // NOT EVERY RAIL BUTTON IS A PAGE. Measured (round 41): the rail holds EIGHT buttons and only SIX are pages —
         // the seventh is the THEME TOGGLE and the eighth opens the getting-started guide. Clicking the toggle flips
@@ -522,7 +522,7 @@ const TIMING = P.timing;
         const b = [...(rail ? rail.querySelectorAll('button') : [])].find((x) => new RegExp(want, 'i').test((x.getAttribute('aria-label') || '') + (x.textContent || '')));
         if (b) b.click();
       }, lands);
-      await page.waitForTimeout(1400);
+      await settle(1400);
       const rows = await page.evaluate(PROBE);
       const qTheme = /theme=([a-z]+)/.exec(query)[1];
       const pname = (density === 'desktop' ? 'Desktop-' : '') + page_;
@@ -573,7 +573,7 @@ const TIMING = P.timing;
         const rail = document.querySelector('.rail-btn[title="Plugins"]');
         if (rail) rail.click();
       });
-      await page.waitForTimeout(1200);
+      await settle(1200);
       const rname = 'PluginRunning-' + theme;
       const rrows = await page.evaluate(PROBE);
       for (const row of rrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-running', page: rname });
@@ -605,7 +605,7 @@ const TIMING = P.timing;
         const rail = document.querySelector('.rail-btn[title="Plugins"]');
         if (rail) rail.click();
       });
-      await page.waitForTimeout(900);
+      await settle(900);
       await page.evaluate(() => {
         // THE REAL MARKUP, NOT A GUESSED SELECTOR (round 68). The classes come from PluginsPage.tsx:
         // .plug-actions holds the controls and each is a .plug-btn. The first version guessed
@@ -616,7 +616,7 @@ const TIMING = P.timing;
         const btn = card && [...card.querySelectorAll('.plug-btn')].find((b) => /^Start/.test((b.textContent || '').trim()));
         if (btn) btn.click();
       });
-      await page.waitForTimeout(1200);
+      await settle(1200);
       const fname = 'PluginStartFail-' + theme;
       const frows = await page.evaluate(PROBE);
       for (const row of frows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-fail', page: fname });
@@ -781,7 +781,7 @@ const TIMING = P.timing;
             await page.evaluate(() => {
               for (const head of [...document.querySelectorAll('.traj-round-head')].slice(0, 12)) head.click();
             });
-            await page.waitForTimeout(900);
+            await settle(900);
           }
           await settle(1800);
           const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme
@@ -1106,6 +1106,12 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
+    // ── THE TWO SETTLES IN THIS PASS STAY CLOCKS, AND THE REASON IS THE CHECK RATHER THAN THE PAGE ────────────────
+    // Every other settle in this file is covered by the equivalence this change was accepted on: one that fires early
+    // drops surfaces, names or a rail page, and the report's counts move. THIS pass's numbers are not in those counts —
+    // `MOTION` reads computed `transitionDuration` and `animationName`, so a page measured slightly too early reports
+    // FEWER animations, and nothing in `{rows, surfaces, names}` would say so. Until the motion axis has its own floor
+    // in the judge, a condition here would be a change nobody could falsify. The two clocks cost 2.4s and 3.2s.
     await page.waitForTimeout(1600);
     const normal = await page.evaluate(MOTION);
     await page.emulateMedia({ reducedMotion: 'reduce' });
