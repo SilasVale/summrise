@@ -35,6 +35,29 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 186 — AGENTS.md's runnable snippets all parse, and the rule is "only a LABELLED block claims to be code"
+
+Round 183 failed on a snippet **AGENTS.md told the reader to run**, so the instruction file's own code blocks were checked — and nothing in this
+repository had ever parsed them:
+
+```
+fenced blocks in AGENTS.md: 8
+  by language:  bash 5 · powershell 1 · js 1 · (none) 1
+  `node --check` on the js block        -> parses
+  `bash -n` on each bash block          -> parses
+  the unlabelled block                  -> DOES NOT PARSE, and SHOULD NOT
+```
+
+**AND THE ONE FAILURE IS MY OWN RULE'S ARTEFACT, THE NINTH OF THE THREAD**: the unlabelled block is the **Agent layout directory tree**, which
+is not shell and never claimed to be. My check had guessed "unlabelled means shell" — **and the measurement supplies the correct rule instead:
+only a LABELLED block claims to be code, so only a labelled block can be checked for parsing.**
+
+**SO THERE IS NO DEFECT AND THERE IS A CANDIDATE**: a gate that extracts the fenced blocks from `AGENTS.md` and runs `node --check` / `bash -n`
+on the **labelled** ones would catch the version of round 183 where the broken thing is the snippet rather than the instruction — **and the
+number behind it is 7 checkable blocks, today all valid.** It is recorded rather than built for round 172's reason, and it is the first
+candidate this session whose mutation is "break a line in the file the reader trusts most".
+
+
 **Round 185 (cont.) — MY OWN INSERTION STRANDED AN ANTECEDENT, ONE ROUND AFTER WRITING THE RULE ABOUT IT**: the corrected hand-over was inserted
 INTO the middle of the paragraph it belonged to, so the original sentence's "**IT** MUST NOT BE GITIGNORED" — where **IT** was the emitted file under
 `index/public/` — ended up three sentences after its antecedent and immediately after text about the DEVICE's copy at `D:/Summrise/`.
