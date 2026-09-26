@@ -35,6 +35,42 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 165 — 87% of AGENTS.md is REFERENCE, measured, and the ladder says where it goes
+
+The `writing-for-agents` skill arrived in this session's catalog and names the vocabulary for what rounds 129-164 were doing to
+`AGENTS.md`: **sprawl** ("a document simply too long, even when every line is live and unique"), and **the ladder** as its cure
+("disclose reference behind pointers, and split by branch or sequence"). So the file was measured against the ladder rather than
+argued about:
+
+```
+AGENTS.md  30,110 B of 48,000 (62%)
+   1,134 B  STEPS      ## Build                 a command to run
+  10,250 B  REFERENCE  ## Test                  TEN bolded rules — the largest section in the file
+     996 B  REFERENCE  ## The design ledger
+   8,633 B  REFERENCE  ## Committing             NINE bolded rules, 29 indented code lines
+   7,193 B  REFERENCE  ## Release
+   1,527 B  STEPS      ## Agent layout
+  ------
+  26,082 B  REFERENCE of 30,110 B  =  87%
+```
+
+**EIGHTY-SEVEN PERCENT OF AN ALWAYS-LOADED FILE IS MATERIAL CONSULTED ON DEMAND.** The skill is explicit that this is not primarily a
+token question: "in-file reference that should be disclosed buries [the steps] and turns attending to them into a coin-flip: a
+variance lever, not just a legibility one." **`## Test` is the clearest case — 10,250 B, ten bolded rules, and it is the section a
+reader opens for ONE of them.**
+
+**AND IT IS SPECIFIED RATHER THAN DONE, WHICH IS THE DISCIPLINE THIS SESSION ALREADY PAID FOR TWICE**: the honest counter-argument is
+the file's own history — rounds 107 and 139 moved material OUT of instruction files, and the ledger records that **a pointer can fail
+to fire**, which is why `AGENTS.md` keeps what "changes what you would DO". A 10 KB move at the edge of a budget, touching a file that
+three gates parse (`ledger-budget-check`, `numbered-claims-check`, `ci-command-table-check`), is round 124's and round 144's lesson:
+**the pause is the deliverable, and the number is what the next round acts on.**
+
+**AND THE SKILL ALREADY SUPPLIED ONE CORRECTION TO THIS SESSION'S OWN WORK**: the four blocks added in rounds 157, 163 and 164 are
+each a PROHIBITION-shaped rule ("do NOT count with grep -l") where the skill asks for the positive target ("count with the tool that
+produces it") — **which those rules do state, second**. The positive half is there; the negative half spends context making the
+forbidden command more available than the one to use.
+
+
 **Round 164, one line — FOUR RULES, EACH MOVED TO THE SECTION WHOSE SUBJECT IT IS**: rounds 129-163 added four blocks to
 `AGENTS.md`, and all four landed in `## Committing` — where a reader diagnosing a route or a stylesheet never looks:
 
