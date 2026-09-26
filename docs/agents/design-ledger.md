@@ -35,6 +35,35 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 156 — every number in the standard summary now has an authority and a round
+
+Rounds 153, 154 and 155 each corrected or re-measured a number this session had been carrying, and this round finished the sweep by
+checking the last one — **`device current`, which had not been read since round 80, seventy-six rounds earlier**:
+
+```
+summrise status   (on d1)
+  status: RUNNING · install dir: D:\Summrise · panel: http://127.0.0.1:18080/panel/
+  release: 1.2.474 · this CLI: 1.2.474 · update: none in flight
+  latest: 1.2.474 (this device is current)
+```
+
+**AND THAT CLOSES AN AUDIT OF THE WHOLE SUMMARY LINE — five claims, five authorities, five rounds**:
+
+| the claim | its authority | measured in |
+|---|---|---|
+| 10 releases (1.2.465 → 1.2.474) | `GET /repos/…/git/refs/tags` — NOT `git tag`, which stops at 1.2.456 here | round 155 |
+| 59 gate commands, 58 green | `bash scripts/test/all-gates.bash` | round 152 |
+| the mutation table has 44 rows | `awk '/^\| /{n++} END{print n-2}'` — NOT `grep -c`, which counts the header | round 154 |
+| the device is current, 1.2.474 | `summrise status` on d1 | round 156 |
+| the gateway is deployed at 5ee39ab2 | `./scripts/build.sh gateway` output | round 145 |
+
+**THREE OF THE FIVE WERE WRONG OR UNVERIFIABLE WHEN FIRST CARRIED, AND ALL THREE IN THE SAME WAY**: a convenient command was treated as
+the authority — `grep -l` for a filenames count, `grep -c` for a row count, `git tag` for a release count. **Each convenience was one
+step from the tool that actually produces the number, and each error was in the direction of undercounting**: two filenames where five
+gates read the file, 46 lines where 44 are rows, and zero releases where ten were shipped. **A summary line is a claim set, and this
+session now knows what each claim rests on** — which is the only state in which the line is worth writing at the top of every round.
+
+
 ### round 155 — the release count was right, and it could not have been checked locally
 
 The standard summary of this session carries "10 releases (1.2.465 → 1.2.474)". Rounds 153 and 154 had each corrected a carried count, so
