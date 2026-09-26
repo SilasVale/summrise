@@ -759,6 +759,24 @@ jobs:
         # with a run carrying ZERO jobs and conclusion "failure", indistinguishable in a count from a real red and
         # with no log to open. THIS STEP IS ITS OWN `- name:`/`run:` PAIR, which is the shape whose absence it checks.
         run: node scripts/test/workflow-yaml-check.mjs
+      - name: main advances only by merge
+        # MAIN IS THE ONE BRANCH WHERE A MISTAKE IS EVERYONE'S. `main` had zero merge commits in its last 300 and red
+        # reached it three times (rounds 117, 128, 171), each by a status thrown away one step after it was read. The
+        # pre-commit hook refuses a non-merge commit on main locally; THIS runs server-side and cannot be bypassed with
+        # --no-verify. It is also the only half that can see a plain `git merge` that FAST-FORWARDED — which creates no
+        # commit at all, so the hook never runs and main advances linearly carrying the branch's non-merge commits.
+        run: node scripts/test/main-shape-check.mjs
+      - name: main-only-by-merge is proven on a real repository
+        # THE OTHER HALF OF THE SAME RULE, and it is a SEPARATE STEP because the two halves fail differently. This one
+        # installs `scripts/hooks/main-only-by-merge` as a throwaway repository's real pre-commit hook and runs six cases
+        # through it — a direct commit on main refused, --amend refused, a branch commit allowed, a --no-ff merge allowed,
+        # the merge really carrying two parents, and the call site asserted. It caught three defects in its own fixture on
+        # first run, all recorded in its header.
+        #
+        # AND IT IS HERE BECAUSE `build-pins.bash` REFUSED THE TREE WITHOUT IT: a test script that no workflow invokes is a
+        # test script nobody runs, and that gate said so by name — `actual: main-only-by-merge.bash, expected: none`. The
+        # first version of this task created the proof and forgot the wiring; the repository's own gate caught it.
+        run: bash scripts/test/main-only-by-merge.bash
       - name: smoke-helper regression checks
         run: bash scripts/test/smoke-helpers.bash
       # Dup-scanner normalizer: code_lines/is_test_file/collect_files —

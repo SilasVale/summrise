@@ -79,6 +79,19 @@ Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROV
 `docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45), and its index resolves a section title
 across all four archives it points at — so start there, never at a filename.
 
+**`main` ADVANCES ONLY BY MERGE** — three artifacts, and each one covers a way the others cannot:
+
+| artifact | what it is | what it cannot see |
+|---|---|---|
+| `scripts/hooks/main-only-by-merge` | the rule, called by `scripts/hooks/pre-commit` **after** its "is this Summrise?" guard | a plain `git merge` that FAST-FORWARDS, which creates no commit and so never runs a hook; and `--no-verify` |
+| `scripts/test/main-shape-check.mjs` | the CI gate: `main` must be at a commit with **two or more parents** | nothing — but it only runs in CI, after the push |
+| `scripts/test/main-only-by-merge.bash` | the proof: installs the rule as a throwaway repo's real pre-commit hook and runs six cases through it | nothing outside that fixture |
+
+Work reaches `main` through a branch that was verified and reviewed, merged with **`--no-ff`** — the flag matters, because
+a plain `git merge` fast-forwards when `main` has not moved. **A direct commit on `main` is refused by the hook and by the
+gate, and the hook lives in its own file precisely so it can be proven on a real repository** (a rule inside `pre-commit`
+sits below a guard that exits 0 in any repo that is not this one, so a fixture could never reach it).
+
 ### Which gates have been PROVEN to bite
 
 **`docs/agents/ledger-mutations.md` holds this** — the mutation table, the per-gate bite proofs, the `powershell-structure-check`
@@ -244,7 +257,12 @@ cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise
 # 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):
 #    --npm needs $NPM_TOKEN or ~/.npm-token, and publishes to `latest` (see below for why not alpha)
 ./scripts/publish-release.sh 1.2.N --npm
-# 3. ONE commit that includes agent/summrise-agent-npm/package.json and index/public/summrise-agent/version.json
+# 3. the release commit goes on a BRANCH, like everything else, and reaches main by merge
+#    (main advances only by merge — the rule is under Test, and the hook enforces it)
+git checkout -b release/1.2.N
+git add agent/summrise-agent-npm/package.json index/public/summrise-agent/version.json
+git commit -m "release: 1.2.N"
+git checkout main && git merge --no-ff release/1.2.N
 git push origin main          # CI green on the pushed commit
 # 4. tag through the API (git push of tags times out here) — this triggers release.yml.
 #    THE SHA MUST BE A PUSHED, CI-GREEN COMMIT, AND THE TAG MUST NOT MOVE ONTO DIFFERENT

@@ -49,3 +49,8 @@ docs/agents/release-reconcile.txt
 
 # machine-local hook links (round 118) — the command is in AGENTS.md, not the link
 .githooks/
+
+# Worktrees for the branch-per-change flow (using-git-worktrees). MUST be ignored: an unignored
+# worktree directory commits the whole tree into the repository. Measured 2026-09-26: it was NOT
+# ignored, which is why this is landing 1's first task rather than an assumption.
+.worktrees/
