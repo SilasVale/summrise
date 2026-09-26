@@ -394,12 +394,31 @@ function judge(file) {
       // emitted probe rather than reason about them from outside: hand it that exact element and that exact
       // box-shadow string and see which condition fails. Everything else about this row is settled.
       {
-        // Narrower than a regex on the text: the 320px scroll is this harness's artifact ONLY when
-        // every offending scroller is a tab child (round 50 traced them there). A reflow failure
-        // from anything else is a real finding and stays one.
+        // ── THE REASON THIS CARRIED WAS FALSE, AND THE MEASUREMENT THAT KILLED IT IS IN ROUNDS 22-24 ─────────────
+        // It said "the 320px document scroll comes from tab children inside #tabs — a harness artifact", and the
+        // comment above it claimed the exemption holds "ONLY when every offending scroller is a tab child". Three
+        // things are now measured, and none of them supports that:
+        //
+        //   * THE ROW NAMES NO SCROLLER AT ALL. Round 22's label prints the count — `320:SCROLLS/0sc` — and
+        //     `.every()` on an EMPTY list is vacuously true, so the exemption has been firing on a premise it does
+        //     not satisfy. (The predicate still reads that way; requiring a non-empty list is the owed fix.)
+        //   * `#tabs` CANNOT BE THE CAUSE. It carries `overflow-x: auto`, `min-width: 0` and `flex: 1`, so it is its
+        //     own scroller and clips its content — and round 23's `overflowing` list, once it stopped counting
+        //     elements that a scroll container already clips, named the TAB STRIP not at all.
+        //   * THE REAL CAUSE IS THE SHELL. `#icon-rail` is `flex: 0 0 52px` and `#context-rail` is `flex: 0 0 244px`
+        //     — both FIXED — so at a 320px viewport the canvas is left 24px while its top bar's own minimum is
+        //     `div.view-switch` at 189px (`flex: none`). 52 + 244 + 189 is where the wideners sit (right=497), and the
+        //     panel's stylesheets contain NO width-based media query at all — only `prefers-reduced-motion` — so
+        //     nothing in the product narrows the rails.
+        //
+        // The exemption STAYS, because the panel is an operator's desktop surface and the failure is a known,
+        // diagnosed one — but it says what is true now, and the next round's work is the breakpoint, not the tab strip.
         test: (text, entry) =>
           /^reflow @/.test(text) && !!entry && entry.sideScrollers.every((sc) => /tab/.test(sc)),
-        reason: "the 320px document scroll comes from tab children inside #tabs — a harness artifact",
+        reason:
+          "the panel does not reflow at 320px: #icon-rail (52px) and #context-rail (244px) are both flex: 0 0 and " +
+          "the sheet has no width breakpoint, so the canvas is left 24px for a top bar whose own minimum is 189px " +
+          "(rounds 22-24 measured; the row names NO scroller, so this predicate is satisfied vacuously)",
       },
     ],
   })];
