@@ -473,8 +473,7 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       const st = getComputedStyle(el);
       if (st.display === 'none' || st.visibility === 'hidden') return false;
       if (st.overflowX === 'auto' || st.overflowX === 'scroll' || st.overflowX === 'hidden' || st.overflowX === 'clip') return false;
-      const r = el.getBoundingClientRect();
-      return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
+      if (/xterm-helpers|xterm-char-measure-element/.test(el.className || '')) return false;
       // XTERM'S OWN LAYERS ARE NOT THE OPERATOR'S CONTENT (round 34 of the standing goal). `.xterm-helpers` and
       // `.xterm-char-measure-element` are positioned OFF-SCREEN by xterm itself — a measurement span and the a11y
       // layer — so a width on them says nothing about what a reader can see. **THE FIRST VERSION OF THIS LIST CALLED
@@ -482,6 +481,8 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       // FITTED — 29 columns at a 6.21px cell is 180px inside a 198px container — so the 250 belonged to xterm's
       // helper layer, not to the screen. A false positive here sends the next reader to fix a terminal that is fine.
       if (el.querySelector && el.querySelector('.xterm-helpers, .xterm-char-measure-element')) return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
     })
     .map((el) => {
       const r = el.getBoundingClientRect();
@@ -533,8 +534,6 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       const st = getComputedStyle(el);
       if (st.display === 'none' || st.visibility === 'hidden') return false;
       if (!(st.overflowX === 'hidden' || st.overflowX === 'clip')) return false;
-      const r = el.getBoundingClientRect();
-      return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
       // AND XTERM'S LAYERS ARE EXCLUDED HERE TOO, for the reason written on `spilling` above: they are off-screen by
       // design and hold no readable content, so calling one "content with no way to reach it" is the instrument lying.
       //
@@ -546,6 +545,8 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
       // unreachable here.
       if (/xterm-helpers|xterm-char-measure-element/.test(el.className || '')) return false;
       if (el.querySelector && el.querySelector('.xterm-helpers, .xterm-char-measure-element')) return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= 40 && r.height >= 20 && el.scrollWidth > Math.ceil(r.width) + 2;
     })
     .map((el) => {
       const r = el.getBoundingClientRect();
