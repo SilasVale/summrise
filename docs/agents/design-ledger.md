@@ -35,6 +35,33 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 168 — the pointer I wrote in round 167 had lost its TRIGGERS, which is a defect the skill names
+
+Round 167 moved two rules out of `## Test` and left a three-line pointer. The skill says exactly what that pointer has to do: "A pointer does
+two jobs: state what the material is, and list the **branches** that should trigger reaching it. A must-have target behind a weakly worded
+pointer is a variance bug." So the pointer was checked against the thing it replaced:
+
+```
+grep -c "terminal backend"          AGENTS.md -> 0
+grep -c "file-relay"                AGENTS.md -> 0
+grep -c "evidence drawer"           AGENTS.md -> 0
+```
+
+**THE TRIGGERS WERE GONE, AND A RULE THAT CANNOT BE REACHED AT THE MOMENT IT APPLIES IS NOT DISCLOSED, IT IS DELETED.** The e2e paragraph
+had said WHEN its section is owed ("after changing a terminal backend, a file-relay path, a workflow step, the panel's wiring, the MCP
+surface, the evidence drawer or the browser/playwright door"); the cancelled-job paragraph had said when IT applies ("a red job you did not
+expect, from a superseded run"). The pointer now carries both as branches, because that is the half that decides whether the reader ever
+arrives.
+
+**AND IT FOUND A SECOND DEFECT, ONE FILE OVER**: the moved cancelled-job text ended "which is why the rule above is do not push while CI is
+running" — and that rule lives in `## Release`, which the move had put BELOW it. A cross-reference that pointed UP now pointed at nothing.
+It names the location instead of a direction.
+
+**THE LESSON IS THE ONE THE SKILL GIVES AND THE ONE THIS SESSION KEEPS RELEARNING**: the move is judged by what the reader FINDS, not by
+what left the file. **Both defects were introduced by a disclosure that passed every gate** — `ledger-budget-check` measures bytes,
+`numbered-claims-check` measures claims, and neither can see that a pointer stopped naming its branches.
+
+
 ### round 167 — the two rule paragraphs that name no gate leave `## Test`, and AGENTS.md is 21.7% smaller than round 165 found it
 
 Round 165 measured `## Test` as the largest section in `AGENTS.md` (10,250 B, ten bolded rules) and the clearest disclosure case — "the

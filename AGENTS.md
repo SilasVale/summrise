@@ -67,9 +67,16 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 `exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
 "the suite did not run" and re-running it another way. The reporter table is what prevents that; the story is in the ledger.)
 
-**TWO RULES ABOUT WHAT NOTHING RUNS — the e2e sections that no schedule carries, and cancelled jobs that read as failures —
-are in `docs/agents/ledger-mutations.md`** under "Which gates have been PROVEN to bite": both are about how to READ a result
-rather than about running one here. `docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45).
+**TWO RULES ABOUT WHAT NOTHING RUNS — READ THEM BEFORE YOU TRUST A GREEN OR A RED.**
+Both live in `docs/agents/ledger-mutations.md` under "Which gates have been PROVEN to bite":
+
+  * **You changed a terminal backend, a file-relay path, a workflow step, the panel's wiring, the MCP surface, the evidence
+    drawer or the browser/playwright door** — then `agent/scripts/e2e/e2e.js` has a section for it, **seven of its nine
+    sections run in NO CI job and NO schedule**, and the rule is how to get the script onto a device and run it there.
+  * **A CI job is red and you did not expect it to be** — a CANCELLED job (any push while a run is in flight) reports
+    `conclusion: failure`, **indistinguishable from a real one in a count**; the rule is the log line that tells them apart.
+
+`docs/agents/design-ledger.md` holds the full stories (rounds 82-84 and 30/45).
 
 ### Which gates have been PROVEN to bite
 
