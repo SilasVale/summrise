@@ -52,9 +52,14 @@ _Avoid_: using "goal" for both without saying which.
 ## State
 
 **Liveness**:
-The one state an entity is in, and there are exactly five because five are derivable from what a device can report: a
-transport that is down, a question holding, activity, failure, and neither. Precedence is fixed — **a question outranks
-activity, and activity outranks quiet**.
+The one state an entity is in, and there are exactly five because five are derivable from what a device can report:
+`off` (a transport that is down), `waiting` (a question holding), `working` (activity), `failed` (a non-zero exit), and
+`idle` (neither). **The precedence is fixed and is the whole order, not a summary of it**: `off` › `waiting` › `working` ›
+`failed` › `idle`. The two that surprise a reader are the ends of it — a transport that is down outranks everything,
+because nothing below it can be answered; and **`failed` sits BELOW `working`**, so a session that is busy is not also
+drawn as failed. (This entry said only "a question outranks activity, and activity outranks quiet" until 2026-09-26, which
+named three of the five and omitted exactly the two a reader cannot guess. The code is `livenessOf` in
+`panel-react/src/lib/liveness.ts`, and it is the authority.)
 _Avoid_: status, health, condition.
 
 **Mark**:
