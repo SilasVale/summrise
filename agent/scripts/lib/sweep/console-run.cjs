@@ -665,7 +665,11 @@ const fail = { api: false };
       idle: (report.idle || []).map((i) => `${i.page}:${i.mutations == null ? "?" : i.mutations}mut`),
       targets: (report.targets || []).map((t) => `${t.page}:${t.checked || 0}c/${t.undersized || 0}u`),
       unstyled: (report.unstyled || []).map((u) => `${u.page}:${u.styledClasses || 0}c/${u.sheetsUnreadable || 0}unread`),
-      reflow: (report.reflow || []).map((r) => `${r.page}@${r.width}:${r.docScrollsSideways ? "SCROLLS" : "ok"}`),
+      // AND THE SCROLLER COUNT, for the same reason the panel prints it (round 22 of the standing goal): an excuse
+      // whose premise is "every offending scroller is X" is vacuously satisfied by an EMPTY list, so the count is part
+      // of the verdict. This sweep's rows are the ones that DID name scrollers — `pre.mt-8 228<401`, `pre 240<311` —
+      // which is why the notes in the log belong to it and not to the panel.
+      reflow: (report.reflow || []).map((r) => `${r.page}@${r.width}:${r.docScrollsSideways ? "SCROLLS" : "ok"}/${(r.sideScrollers || []).length}sc`),
       themes: (report.themeChecks || []).map((t) => `${t.page}:${t.stored || "-"}`),
       entry: report.entryCheck ? `${report.entryCheck.bytes}b/${report.entryCheck.stale ? "STALE" : "current"}` : "?",
     };
