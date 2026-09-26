@@ -35,6 +35,31 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 183 (cont.) — THE PROBE HAS BEEN RUN, AND MY "STILL UN-RUN" PREMISE WAS THE EIGHTH ARTEFACT**: the correction came from the
+file's own header, read one command after the ledger entry that got it wrong:
+
+```
+// Round 167 ran the probe against the real panel for the first time: 1488 root nodes, 14 live sessions, and zero
+// failing text or graphic rows. This script is that measurement, made repeatable, because a one-off check is not a guard.
+// IT RUNS ON THE DEVICE ... The emitter writes a STANDALONE script; run it with the device's bundled Playwright runtime
+// (see the sweeps' recipe: `browser_run_script`, which is how every other emitted script here is executed).
+// THE TOKEN IS READ FROM THE DEVICE'S OWN CONFIG IN-PROCESS and never printed.
+```
+
+**THREE CORRECTIONS, AND THE FIRST IS MINE**:
+
+  1. **The measurement was TAKEN — in round 167 — at 1488 root nodes, 14 live sessions and zero failing rows.** Round 182's "still un-run at
+     1.2.474" and round 183's "the measurement remains untaken" were both wrong, **and neither round opened the file that says so.**
+  2. **The instruction in `AGENTS.md` is not wrong, only incomplete**: the file IS a standalone script, and `browser_run_script` IS how it
+     runs — **it is passed as SOURCE, not required as a module**, which the header states and my attempt did not.
+  3. **The attached-view abort is real and is a usage note, not a defect**: a standalone script that drives its own navigation meets a
+     page already on the panel.
+
+**THE SHAPE IS THE ONE THIS SESSION HAS NOW RECORDED EIGHT TIMES, AND THIS TIME THE EXTRACTOR WAS A SENTENCE I WROTE**: "the probe has not
+been run" was an inference from not having seen a record of it, and the record was in the file's first twelve lines. **A round that names an
+outstanding measurement should open the instrument before declaring the measurement outstanding.**
+
+
 ### round 183 — the probe reached the device, and the instruction for RUNNING it does not match the file
 
 Round 182 named the outstanding measurement: `live-panel-probe.mjs` had not been run at 1.2.474. This round took the first two steps of
