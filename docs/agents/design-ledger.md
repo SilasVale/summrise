@@ -35,6 +35,43 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 177 — the seventh phantom, and the failure my round-171 self had ALREADY been warned about by name
+
+A fresh traversal of `agent/scripts/panel-design-sweep.mjs` (673 lines, 103 commits, the last untouched hot file) turned up a count to
+check: the pre-commit hook's comment says FIVE EMITTERS. Counting the emitter paths the hook NAMES gave **three**:
+
+```
+grep -oE "agent/scripts/[a-z-]+\.mjs" scripts/hooks/pre-commit | sort -u
+  -> live-panel-probe.mjs · panel-design-sweep.mjs · panel-render-audit.mjs
+```
+
+**AND THE HOOK ITSELF DISSOLVED IT, IN A COMMENT WRITTEN BEFORE THE QUESTION**: three of the five do not appear as literal paths because
+they come out of ONE loop —
+
+```
+# FIVE EMITTERS, AND NOW ALL FIVE ARE LISTED (round 272). The count in this comment has been wrong twice: it said four
+# while the landing and the live probe were checked only by CI, then said six after an extension emitter that no longer
+# exists was removed. The set is: panel, console, landing, the harness (panel-render-audit.mjs ...) and live-panel-probe.mjs
+for f in panel console landing; do ... done
+```
+
+**So the fifth count is right, my three was the SEVENTH ARTEFACT OF THE THREAD, and the file had already recorded the count's own history
+— "the count in this comment has been wrong twice" — which is the discipline this session spent seventeen rounds learning.** A hot file
+that documents its own drift is not the file to catch out.
+
+**AND THE SAME COMMENT CARRIES THE FAILURE MY ROUND-171 SELF MADE, BY NAME**:
+
+```
+# NOT `if ! cmd; then rc=$?` — that form reports the NEGATED status, so a success code of 2 arrives as 1 and a
+# failure as 0, which is how the first version of this hook passed a clean tree and failed nothing.
+```
+
+**Round 171 wrote `timeout 300 node $g.mjs >/dev/null 2>&1 && echo ok || echo FAIL` and swallowed the non-zero exit under `set -e` — the
+same inversion of a status, in a loop whose whole job was to keep statuses.** The principle was in this repository, in the file the loop
+had just wired a gate beside, **and it did not prevent it: a rule is only as available as the reader who has not yet needed it.** That is
+the honest half of this round — **not that the warning existed, but that its existence is not a mechanism.**
+
+
 ### round 176 — the candidate that needed a judgement gets one, and the judgement is DON'T PATCH A VENDORED FILE
 
 Round 175 left four skills the model may invoke and the router does not send a human to, and recorded that it needed "an opinion rather
