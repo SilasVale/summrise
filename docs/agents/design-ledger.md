@@ -35,6 +35,31 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 173 — the rest of round 166's move is clean, and the check that says so is one command
+
+Round 172 found that round 166's move had carried a PRINCIPLE ("a gate that cannot fail is worse than no gate") out of `AGENTS.md`
+along with the block it sat in, and that the loss took three rounds to surface. **The obvious follow-up is to ask what ELSE came with
+it**, and the shape of the question makes it checkable: a moved block keeps its old sentences, and the ones that point at their
+NEIGHBOURHOOD are the ones a move breaks.
+
+```
+the moved block in ledger-mutations.md : 8,983 B
+self-referential sentences in it      : 2  ("this table", "this section")
+  -> both resolve INSIDE ledger-mutations.md, which has both
+"the rule above"    in the block: 0  | in AGENTS.md: 0    <- round 168 removed it
+"AGENTS.md"         in the block: 2  | in AGENTS.md: 0    <- a file naming another, correct
+"docs/agents/design-ledger.md"  in the block: 0 | in AGENTS.md: 2
+```
+
+**THE MOVE CARRIED EXACTLY ONE PROBLEM AND ROUND 172 FIXED IT.** The two surviving self-references are the safe kind — they name the
+CONTAINER (`this table`, `this section`) rather than a DIRECTION (`above`, `below`, `the rule above`), and a container reference survives a
+move into a file that still contains the container.
+
+**SO THE OPERATING FORM AFTER A MOVE IS TWO CHECKS, AND BOTH ARE ONE COMMAND**: round 143's — list the POSITIONAL pointers and read the
+ones the move crossed — and this one — **list the sentences that name their NEIGHBOURHOOD, because those are the ones a move strands.**
+A sentence that names its container travels; a sentence that names a direction does not.
+
+
 ### round 172 — the four places, and the anchor that was not there
 
 Round 171 ended with a correction to its own title: adding a gate is **four** places, not three, because `numbered-claims-check` requires
