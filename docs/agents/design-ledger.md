@@ -35,6 +35,25 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 143, one line — THE POSITIONAL PROMISES SURVIVED THE REORDER, AND THE CHECK IS NOW A COMMAND**: round 142 moved 42 lines
+inside the Committing section, and moving text is exactly what breaks a sentence that points at its neighbours. So every positional
+reference in both instruction files was listed and read:
+
+```
+grep -nE "below|above|the paragraph after|the next section|paragraph below|section below|table above|row above" AGENTS.md agent/AGENTS.md
+```
+
+**TEN REFERENCES, AND NINE ARE UNAMBIGUOUS** ("the rule above is do not push while CI is running", "the Release and layout sections
+below", "use the npm flow above", "see below for why not alpha"). **The tenth was the one at risk** — `AGENTS.md:167`, inside the
+hook paragraph, promising that "**the paragraph after this one records what is installed and how it was proven**" — and it HOLDS:
+the paragraph after it is "TWO THINGS ABOUT INSTALLING IT", which carries both the `.githooks/` command and the empty-commit proof.
+
+**SO THE METHOD IS THE DELIVERABLE, AND IT IS ONE LINE**: after moving text in a document whose sentences point at each other, list the
+pointers and read the ones the move crossed. Round 142 learned that an insertion is a claim about its narrative; this round turns that
+into a check that costs a grep — **which is the same progression as rounds 129->130 and 141->142, where a lesson became a habit one
+round after it was learned.**
+
+
 **Round 142, one line**: the two shell rules added in rounds 129 and 141 had both landed INSIDE the pre-commit hook's
 story — between "A pre-commit hook runs the emitters" and "IT IS INSTALLED NOW" — so a reader met two shell hazards before
 learning whether the hook runs, and the installation paragraph still said "the paragraph after this one records what is
