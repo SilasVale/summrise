@@ -231,6 +231,20 @@ grep -E 'pass|fail' /tmp/out                            # output read afterwards
 
 **Redirect, check, THEN filter.** A pipe is for reading output; it is not a way to keep a status.
 
+**AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL THAT PRODUCES IT — THREE CONVENIENT COMMANDS ARE WRONG HERE.**
+All three were used by this loop to report a number, and all three were wrong in the same direction, which is the direction
+that makes finished work look unfinished:
+
+| do NOT count with | because | use |
+|---|---|---|
+| `grep -l <name> <dir>` | it counts FILES THAT MENTION a thing, not the thing: it said three gates read `panel.css`, and `panel-sheet-freshness-check.mjs:75` says **five** read it | read the tool's own message, or `grep -c` the count it prints |
+| `grep -c '^| ' <table>` | it counts the header row and the separator too: the mutation table read 46 and has **44** rows | `awk '/^\| /{n++} END{print n-2}' <table>` |
+| `git tag` | **this clone has no tag above 1.2.456** while the remote has 94 up to 1.2.474 — tags are made through the GitHub API and the mirror refuses `git fetch --tags` (HTTP 400), so `git tag` answers ZERO for every release this loop made | `GET /repos/SilasVale/summrise/git/refs/tags` |
+
+**A summary is a claim set.** If a number is going into a commit message, a ledger line or a report, the command that produced it
+belongs beside it — and a command that merely CORRELATES with the number is not that command.
+
+
 **AND WHEN THE TEXT YOU ARE WRITING IS FULL OF BACKTICKS, PUT IT THROUGH A QUOTED HEREDOC — NOT `python3 -c "…"`.**
 The two failures above were about KEEPING a status; this one is about the TEXT surviving the shell that carries it. Round 140
 wrote a ledger line with `python3 -c "…"` — DOUBLE-quoted — and every backtick in that line was executed as COMMAND

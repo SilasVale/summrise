@@ -35,6 +35,12 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+**Round 157, one line**: the three "convenient command vs authority" pairs from rounds 153-155 are now in AGENTS.md, because
+they pass its own test — **they change what a reader DOES on their next count.** `grep -l` counts files that mention a thing, `grep -c`
+counts headers with rows, and `git tag` counts a clone that has not fetched the API-made tags. **All three were wrong in the direction
+of undercounting**, and the block names the command to use beside each.
+
+
 ### round 156 — every number in the standard summary now has an authority and a round
 
 Rounds 153, 154 and 155 each corrected or re-measured a number this session had been carrying, and this round finished the sweep by
