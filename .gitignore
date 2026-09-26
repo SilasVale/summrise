@@ -54,3 +54,7 @@ docs/agents/release-reconcile.txt
 # worktree directory commits the whole tree into the repository. Measured 2026-09-26: it was NOT
 # ignored, which is why this is landing 1's first task rather than an assumption.
 .worktrees/
+
+# Python bytecode from a gate that compiles a .py to check it parses
+__pycache__/
+*.pyc
