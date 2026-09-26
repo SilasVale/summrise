@@ -478,6 +478,19 @@ sideScrollers: [...new Set([...document.querySelectorAll(root + ' *')]
   // change"** — and answering it needs a browser, which this checkout cannot launch (no chromium here; the device has
   // one). The fix is NOT `overflow: auto` on xterm's container: a terminal that scrolls sideways is worse than one
   // that refits, and xterm positions its screen absolutely inside that box.
+  //
+  // **AND THE MECHANISM ITSELF IS SOUND — MEASURED ON THE DEVICE (round 30), WHICH IS THE ONLY PLACE WITH A BROWSER.**
+  // The attached view was read WITHOUT navigating it (the operator's screen is not a test fixture), at its real width:
+  //
+  //     viewport 1093 · container 775 · containerScrollW 775 (NO overflow) · screen 758 (inside) · cols 24
+  //
+  // So the fit keeps the screen inside its container at a normal width, `scrollWidth === clientWidth`, and a third
+  // explanation is gone with it. What is left is specific to a NARROW viewport: either the fit does not re-run for a
+  // viewport-only change, or it clamps to a minimum column count — 24 columns at 758px is ~31.6px each, and the 320px
+  // screen measured 250px, which is ~8 columns. **DISTINGUISHING THOSE TWO NEEDS A BROWSER THIS CHECKOUT CANNOT
+  // LAUNCH AND A VIEW IT CAN NAVIGATE**: the device's browser was ATTACHED (the operator's own view) when this ran, and
+  // the script refused to navigate it — correctly. Re-run with the desktop view closed, or on a device whose view is
+  // free, and the answer is one `setViewportSize` away.
   clipped: [...new Set([...document.querySelectorAll(root + ' *')]
     .filter((el) => {
       const st = getComputedStyle(el);
