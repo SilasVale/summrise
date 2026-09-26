@@ -98,6 +98,44 @@ const TIMING = P.timing;
   timed("reload", "nav");
   timed("evaluate", "eval");
 
+  // ── A SETTLE THAT WAITS FOR THE PAGE INSTEAD OF FOR THE CLOCK ───────────────────────────────────────────────────
+  // The attribution (run 36242994398) put 206.3s of the sweep's 429.8s of waiting into four literals — 1800, 1500, 2000
+  // and 2200ms, 116 calls — and reading the 35 sites says why they are all the same thing: `goto` → set the
+  // getting-started flag → `reload` → sleep → measure. The sleep exists for ONE reason, that the probes must not
+  // measure a page still filling in, and a clock answers that question badly in both directions: too short measures a
+  // half-built page, too long wastes the difference. The budget says it is too long by most of 206 seconds.
+  //
+  // THE CONDITION IS THE ONE `idlePass` ALREADY TRUSTS. That pass asserts the panel writes NOTHING to the DOM while it
+  // is settled (it observes for six seconds and fails on a single mutation), so "no mutation for QUIET_MS" is not a
+  // guess about this page — it is the page saying it is ready, in the same language the suite already reads.
+  //
+  // IT IS CAPPED AT THE OLD VALUE, and that is what makes it safe to try: a page that never goes quiet waits exactly as
+  // long as it does today, and `capped` counts how often that happened. `needed` is the evidence — if the settles
+  // really need 206s, this will say so and the change gets reverted; if they need 30s, the difference is the win.
+  // A run whose report stops matching (the panel's 142 surfaces / 142 names are the stable part) is a run where the
+  // quiet came too early, and the number to raise is QUIET_MS.
+  const QUIET_MS = 250;
+  const SETTLE = { calls: 0, asked: 0, needed: 0, capped: 0 };
+  const settle = async (asked) => {
+    SETTLE.calls++;
+    SETTLE.asked += asked;
+    const t0 = Date.now();
+    try {
+      // A NAVIGATION DESTROYS THE OBSERVER, and that is correct: a new document must prove its own quiet.
+      await page.evaluate(() => {
+        window.__quiet = { last: Date.now() };
+        const obs = new MutationObserver(() => { window.__quiet.last = Date.now(); });
+        obs.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
+      });
+      await page.waitForFunction((q) => !!window.__quiet && Date.now() - window.__quiet.last >= q, QUIET_MS, { timeout: asked });
+    } catch (e) {
+      // ONLY A TIMEOUT IS THE CAP. Anything else is a real failure and must not be absorbed into a counter.
+      if (!/Timeout|timeout/i.test(String(e && e.message))) throw e;
+      SETTLE.capped++;
+    }
+    SETTLE.needed += Date.now() - t0;
+  };
+
   const html = fs.readFileSync(HARNESS, 'utf8');
   // WHICH GENERATION OF THE HARNESS IS BEING MEASURED, in the report. The stamp is written by the audit that
   // generates the file; without it a delivered copy that predates a CSS fix reports findings that look real
@@ -238,7 +276,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test/desktop/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(2000);
+    await settle(2000);
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty' });
     report.themeChecks.push({ page: 'Desktop-empty', intended: theme, ...(await page.evaluate(THEME)) });
@@ -260,7 +298,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test/desktop/?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(1800);
+    await settle(1800);
     await page.evaluate(() => { const b = document.querySelector('.btn-new'); if (b) b.click(); });
     await page.waitForTimeout(700);
     const pname = 'Desktop-NewMenu-' + theme;
@@ -289,7 +327,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(2000);
+    await settle(2000);
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty' });
     report.themeChecks.push({ page: 'Panel-empty', intended: theme, ...(await page.evaluate(THEME)) });
@@ -314,7 +352,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(1800);
+    await settle(1800);
     await page.evaluate(() => {
       const rail = document.querySelector('#icon-rail, .desktop-rail');
       const b = [...(rail ? rail.querySelectorAll('button') : [])].find((x) => /setting/i.test((x.getAttribute('aria-label') || '') + (x.textContent || '')));
@@ -345,7 +383,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(2000);
+      await settle(2000);
       const buttons = await page.evaluate(() => [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].map((b) => (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 18)));
       const readActive = () => page.evaluate(() => {
         const on = document.querySelector('#icon-rail button.active, .desktop-rail button.active') || document.querySelector('#icon-rail button[aria-current], .desktop-rail button[aria-current]');
@@ -442,7 +480,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=16&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(2000);
+      await settle(2000);
       const rows = await page.evaluate(PROBE);
       const name = (density === 'desktop' ? 'Desktop-16-sessions' : 'Terminal-16-sessions');
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'overflow', page: name });
@@ -471,7 +509,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + query + '&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       await page.evaluate((want) => {
         if (want === 'Terminal') return;
         const rail = document.querySelector('#icon-rail, .desktop-rail');
@@ -524,7 +562,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwrun=1&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1500);
+      await settle(1500);
       await page.evaluate(() => {
         const rail = document.querySelector('.rail-btn[title="Plugins"]');
         if (rail) rail.click();
@@ -550,7 +588,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwstart=fail&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       // THE PAGE THE CARD LIVES ON, WHICH THIS SURFACE NEVER VISITED (round 75). A device probe asked the page and the
       // page answered: with the plugin-fail flag loaded, the button and dot counts were both 0 and the body text was
       // the TERMINAL view — the plugin cards are on the Plugins PAGE. That is the third "one click the sweep never
@@ -593,7 +631,7 @@ const TIMING = P.timing;
         await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&monitorchange=' + dir + '&cb=' + stamp, { waitUntil: 'load' });
         await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
         await page.reload({ waitUntil: 'load' });
-        await page.waitForTimeout(1800);
+        await settle(1800);
         const mname = label + '-' + theme;
         const mrows = await page.evaluate(PROBE);
         for (const row of mrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'monitor-' + dir, page: mname });
@@ -613,7 +651,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&boot=replaced&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const bname = 'BootReplaced-' + theme;
       const brows = await page.evaluate(PROBE);
       for (const row of brows) report.rows.push({ ...row, density: 'panel', theme, mode: 'boot-replaced', page: bname });
@@ -629,7 +667,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&appr=off&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const aname = 'ApprovalOff-' + theme;
       const arows = await page.evaluate(PROBE);
       for (const row of arows) report.rows.push({ ...row, density: 'panel', theme, mode: 'approval-off', page: aname });
@@ -645,7 +683,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=pending&sessions=6&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const pname = 'LastFail-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail', page: pname });
@@ -665,7 +703,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&exitfail=active&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const pname = 'LastFailActive-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail-active', page: pname });
@@ -686,13 +724,13 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&logs=warn&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1500);
+      await settle(1500);
       const pname = 'LogsWarn-' + theme;
       await page.evaluate(() => {
         const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => /settings/i.test((x.getAttribute('aria-label') || '') + x.textContent));
         if (b) b.click();
       });
-      await page.waitForTimeout(1500);
+      await settle(1500);
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'logs-warn', page: pname });
       report.surfaces.push({ density: 'panel', theme, mode: 'logs-warn', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -721,7 +759,7 @@ const TIMING = P.timing;
           await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp + (trimmed ? '&trimmed=1' : ''), { waitUntil: 'load' });
           await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
           await page.reload({ waitUntil: 'load' });
-          await page.waitForTimeout(1500);
+          await settle(1500);
           await page.evaluate((want) => {
             const btn = [...document.querySelectorAll('.view-switch button, .desktop-view-switch button')]
               .find((b) => (b.textContent || '').trim() === want);
@@ -739,7 +777,7 @@ const TIMING = P.timing;
             });
             await page.waitForTimeout(900);
           }
-          await page.waitForTimeout(1800);
+          await settle(1800);
           const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme
             + (trimmed ? '-trimmed' : '');
           const rows = await page.evaluate(PROBE);
@@ -765,7 +803,7 @@ const TIMING = P.timing;
         const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => /history/i.test((x.getAttribute('aria-label') || '') + x.textContent));
         if (b) b.click();
       });
-      await page.waitForTimeout(1500);
+      await settle(1500);
     };
     for (const theme of ['light', 'dark']) {
       // (a) THE ARCHIVE WITH CONTENT
@@ -773,7 +811,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&rows=50&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1500);
+      await settle(1500);
       await gotoHistory();
       const rowsName = 'ArchiveRows-' + theme;
       const rowsA = await page.evaluate(PROBE);
@@ -787,7 +825,7 @@ const TIMING = P.timing;
         const b = document.querySelector('.archive-row');
         if (b) b.click();
       });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const trailName = 'ArchiveTrail-' + theme;
       const rowsB = await page.evaluate(PROBE);
       for (const row of rowsB) report.rows.push({ ...row, density: 'panel', theme, mode: 'archive-trail', page: trailName });
@@ -801,13 +839,13 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1500);
+      await settle(1500);
       await gotoHistory();
       await page.evaluate(() => {
         const b = [...document.querySelectorAll('.view-switch button, .desktop-view-switch button')].find((x) => (x.textContent || '').trim() === 'Runs');
         if (b) b.click();
       });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const runsName = 'HistoryRuns-' + theme;
       const rowsC = await page.evaluate(PROBE);
       for (const row of rowsC) report.rows.push({ ...row, density: 'panel', theme, mode: 'runs', page: runsName });
@@ -829,12 +867,12 @@ const TIMING = P.timing;
         await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
         await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
         await page.reload({ waitUntil: 'load' });
-        await page.waitForTimeout(2200);
+        await settle(2200);
         await page.evaluate(() => {
           const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => (x.getAttribute('aria-label') || '').toLowerCase() === 'settings');
           if (b) b.click();
         });
-        await page.waitForTimeout(2200);
+        await settle(2200);
         const name = (density === 'desktop' ? 'Desktop-' : '') + 'Settings-ack-' + theme;
         // THE CURATED PAIR STAYS ON THIS PAGE, AND THE REASON IS MEASURED (round 20). Discovery was tried here
         // first: the Settings page renders the connect form's controls ahead of everything else, so a cap of eight
@@ -859,12 +897,12 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(2200);
+      await settle(2200);
       await page.evaluate(() => {
         const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => (x.getAttribute('aria-label') || '').toLowerCase() === 'memory');
         if (b) b.click();
       });
-      await page.waitForTimeout(2200);
+      await settle(2200);
       const name = 'Memory-ack-' + theme;
       const rows = await ackPass(page, [], ACK_BUDGET_MS, {
         density: 'panel', theme, mode: 'ack', page: name, discover: 4,
@@ -888,7 +926,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&goal=none&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'NoGoal-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'no-goal', page: pname });
@@ -911,7 +949,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&held=1&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Held-' + theme;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'held', page: pname });
@@ -940,7 +978,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=pending&sessions=4&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1800);
+      await settle(1800);
       // 1. arm the two-step close on the LAST tab, so the states the other surfaces rely on stay on screen.
       await page.evaluate(() => {
         const closes = [...document.querySelectorAll('.tab .tab-close')];
@@ -979,7 +1017,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(2000);
+    await settle(2000);
     report.targets.push({ density, mode: 'rest', ...(await page.evaluate(TARGETS)) });
   }
   if (wants("pages")) passCost("pages");
@@ -993,7 +1031,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(1500);
+    await settle(1500);
     report.unstyled.push({ page: density, ...(await page.evaluate(UNSTYLED)) });
   }
   if (wants("unstyled")) passCost("unstyled");
@@ -1007,7 +1045,7 @@ const TIMING = P.timing;
       await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(1500);
+      await settle(1500);
       const underAA = [];
       // ONE PER FAMILY, not every instance. Re-running the whole-DOM probe after each hover costs a
       // pass over ~400 nodes, and 31 elements x 4 combinations made the sweep exceed the caller's
@@ -1085,7 +1123,7 @@ const TIMING = P.timing;
     await page.goto('http://summrise.test/panel/?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
-    await page.waitForTimeout(1500);
+    await settle(1500);
     report.reflow.push({ width, ...(await page.evaluate(REFLOW, SELECTOR)) });
   }
   if (wants("reflow")) passCost("reflow");
@@ -1100,6 +1138,9 @@ const TIMING = P.timing;
     const top = [...BUDGET.waitByMs.entries()].sort((a, b) => b[1][1] - a[1][1]).slice(0, 8)
       .map(([asked, [n, ms]]) => `${asked}ms=${n}x/${(ms / 1000).toFixed(1)}s`).join(" ");
     console.log(`budget waits by the value asked for (top 8 of ${BUDGET.waitByMs.size}): ${top}`);
+    // THE SETTLES ARE NOT IN `wait` ANY MORE — they no longer call `waitForTimeout` — so they get their own line, and
+    // `asked` against `needed` is the whole question: equal means the clock was right, far apart means it was padding.
+    console.log(`budget settle ${SETTLE.calls}x asked=${(SETTLE.asked / 1000).toFixed(1)}s needed=${(SETTLE.needed / 1000).toFixed(1)}s capped=${SETTLE.capped}`);
   }
   await diag("done rows=" + (report.rows || []).length + " findings-source-ready pid=" + process.pid);
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
