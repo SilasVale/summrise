@@ -54,12 +54,22 @@ _Avoid_: using "goal" for both without saying which.
 **Liveness**:
 The one state an entity is in, and there are exactly five because five are derivable from what a device can report:
 `off` (a transport that is down), `waiting` (a question holding), `working` (activity), `failed` (a non-zero exit), and
-`idle` (neither). **The precedence is fixed and is the whole order, not a summary of it**: `off` › `waiting` › `working` ›
-`failed` › `idle`. The two that surprise a reader are the ends of it — a transport that is down outranks everything,
-because nothing below it can be answered; and **`failed` sits BELOW `working`**, so a session that is busy is not also
-drawn as failed. (This entry said only "a question outranks activity, and activity outranks quiet" until 2026-09-26, which
-named three of the five and omitted exactly the two a reader cannot guess. The code is `livenessOf` in
-`panel-react/src/lib/liveness.ts`, and it is the authority.)
+`idle` (neither). **TWO ORDERS, AND THEY ARE NOT THE SAME ONE — CONFUSING THEM IS THE MISTAKE THIS ENTRY MADE TWICE.**
+
+| order | what it answers | sequence |
+|---|---|---|
+| **the decision order** | *which state is this entity IN* — first match wins | `off` → `waiting` → `working` → `failed` → `idle` |
+| **the urgency order** | *how LOUD may that state's mark be* — the code calls it the contract | `waiting` > `working` > `failed` > `idle` > `off` |
+
+**The two ends are opposite**, and that is what a reader gets wrong: `off` decides FIRST because nothing below it can be
+answered, and it is the QUIETEST mark because it says nothing can be done either way; `waiting` decides second and is the
+LOUDEST, because a question decays if it is not seen while work continues. **`failed` sits below `working` in both** — a
+session that is busy is not also drawn as failed.
+
+(The authority is `panel-react/src/lib/liveness.ts`: `livenessOf` for the decision order, `URGENCY` for the other. This
+entry first said "a question outranks activity, and activity outranks quiet" — three of five — and then, corrected once,
+used the word "outranks" for the DECISION order while the code reserves it for urgency, where `off` outranks nothing. Both
+versions were wrong the same way: one order where there are two.)
 _Avoid_: status, health, condition.
 
 **Mark**:
