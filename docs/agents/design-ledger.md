@@ -35,6 +35,33 @@ opening title, then read forward; nothing below reorders them.
 | the plugin system, the two UIs, and the deliveries | the nineteenth and twentieth passes and every round that dispositioned them — a trait that carried no behaviour, a spec snapshot that declined to carry parameter types, a refusal read as an empty timeline (and REVERSED: the hook merges), a disclaimer that named a gate which was not looking, a rule implemented twice with each half broken independently, and a publish step whose script had never parsed. Ends with the release that had been 137 commits late | `THE INSTRUCTION FILE WAS 68% EVIDENCE, AND THE MOVE BROKE IT FIRST` |
 <!-- ledger-index:end -->
 
+### round 180 — at a green boundary, asking what is OWED, and answering it with a diff
+
+The suite is green, the device is current, and the last release is 1.2.474. **So the useful question is not what to improve but what is
+OWED** — a release, or one of the seven e2e sections that run nowhere — and the answer is a diff rather than a feeling:
+
+```
+the release commit: 9150f240 (the 1.2.474 package.json bump)
+since then:  agent/src/web/mod.rs  | 11 insertions, 1 deletion   <- round 147, A DOC COMMENT
+             agent/src/tools       0 files    (terminal backends)
+             agent/src/plugins     0 files    (the MCP surface)
+             gateway/src           1 file     <- round 128, ALSO A COMMENT
+```
+
+**AND THE DIFF SETTLES BOTH OBLIGATIONS**:
+
+  * **No release is owed** — the only agent change is `//!` documentation, and a doc comment does not ship behaviour. **The device runs the
+    exe built BEFORE that comment**, which is why the comment can sit in the repository for thirty rounds without the device being behind:
+    the Artifact and the source differ by documentation, not by behaviour.
+  * **No e2e run is owed either, and this is the closer call**: `agent/src/web/` IS a cadence trigger (it is the panel's wiring, and the
+    MCP and browser doors are served through it) — **so the trigger was touched, by a comment.** Running the seven device-only sections
+    would measure a device whose behaviour nothing since the release has changed.
+
+**AND ONE THING IS WORTH NAMING FOR THE NEXT RELEASE**: the next artifact will include those eleven comment lines, so it will differ from
+1.2.474 for a documentation reason — **which the dual-builder audit is indifferent to, because both builders build from the same source.**
+The rule that matters holds: behaviour is what ships, and nothing here changed it.
+
+
 **Round 179, one line — THE WHOLE SUITE AFTER THE SKILLS GATE AND EIGHT DOCUMENTATION ROUNDS**: `skill-frontmatter-check` was wired into
 `ci.yml` in round 171 and extended in round 174, and rounds 172-178 then edited `AGENTS.md`, three archives and the mutation table. The last
 full run predated all of it:
