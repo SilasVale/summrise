@@ -426,7 +426,20 @@ const fail = { api: false };
         const pressRows = wants('press') ? await pressPass(page, ['.rail-btn', '.btn', '.icon-btn', '.lang-btn', '.auth-tab', '.btn-dashed', '.card-link', '.dev-mini', '.rail-avatar', '.user-pop-logout'], {
           page: label, width, discover: 8, skip: ['.rail-btn', '.lang-btn', '.avatar', 'a'],
         }) : [];
-        if (wants('press')) report.press.push({ density: 'console', theme: 'light', page: label, width, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
+        // AND THE COUNT OF WHAT THE PAGE HAD, which this entry DROPPED while the panel's carried it (round 15 of the
+        // standing goal). Without it two things were invisible: the judge's floor fell back to a constant 2 instead of
+        // `min(2, found)` — "a pass that pressed nothing proves nothing" is only a real floor when the pass knows what
+        // the page rendered — and, worse for this round, ADDING `discover` TO THE CALL ABOVE COULD NOT BE SEEN TO HAVE
+        // DONE ANYTHING. It found no new controls (the curated ten already cover this console's content controls, and
+        // the rest is chrome the mode passes own) and the log said nothing either way: the rows were identical before
+        // and after. `pressPass` puts `found` on a row — on the "(none)" row when discovery finds nothing — and the
+        // panel reads it back the same way this now does.
+        if (wants('press')) report.press.push({
+          density: 'console', theme: 'light', page: label, width,
+          found: pressRows.find((r) => r.found != null)?.found ?? null,
+          measured: pressRows.filter((r) => !r.note).length,
+          rows: pressRows,
+        });
         // IDLE REPAINT, AND THE CONSOLE HAD NEVER BEEN MEASURED FOR IT (round 79). The panel got this pass in round
         // 64 and it found a live duration being called a repaint; the console polls its own views twice a second, so
         // "the page is settled and writing nothing" is exactly the claim its live views could break. It runs on
