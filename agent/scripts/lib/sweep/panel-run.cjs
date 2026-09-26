@@ -1201,7 +1201,13 @@ const TIMING = P.timing;
       targets: (report.targets || []).map((t) => `${t.density}/${t.mode}:${t.checked || 0}c/${t.undersized || 0}u`),
       idle: (report.idle || []).map((i) => `${i.density}/${i.page || "-"}:${i.mutations == null ? "?" : i.mutations}mut`),
       unstyled: (report.unstyled || []).map((u) => `${u.page}:${u.styledClasses || 0}c/${u.sheetsUnreadable || 0}unread`),
-      reflow: (report.reflow || []).map((r) => `${r.width}:${r.docScrollsSideways ? "SCROLLS" : "ok"}`),
+      // THE SCROLLER COUNT IS PART OF THE VERDICT, NOT DECORATION (round 22 of the standing goal). The panel's 320px
+      // reflow finding is excused by a predicate in its judge — "every offending scroller is a tab child" — and
+      // `.every()` on an EMPTY list is vacuously TRUE, so a row that names NO scroller would be excused by a reason it
+      // does not satisfy. The probe only lists elements that are THEMSELVES horizontal scrollers
+      // (`overflowX: auto|scroll`), so an element that is merely WIDE produces exactly that empty list. This prints the
+      // count, because the excuse's premise has to be visible before anything is done about it.
+      reflow: (report.reflow || []).map((r) => `${r.width}:${r.docScrollsSideways ? "SCROLLS" : "ok"}/${(r.sideScrollers || []).length}sc`),
       nodes: (report.timing || []).map((t) => `${t.density}/${t.mode}:${t.nodes}`),
       sse: `${(report.sse || []).filter((s) => s.opened).length}open/${(report.sse || []).filter((s) => s.fail).length}fail`,
     };
