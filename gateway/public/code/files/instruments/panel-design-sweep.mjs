@@ -450,42 +450,11 @@ function judge(file) {
   // delays every reply by 900ms. The clause sat HERE, which is why the panel's rows were judged and the console's —
   // the same array, a third of that sweep's runtime — were judged by nothing at all. One report shape, one clause.
 
-  for (const t of report.targets || []) {
-    // THE LABEL NAMES THE PAGE AND THE STATE, because this axis now measures TWO of them: the resting page and the
-    // state a hover reveals (`mode: 'reveal'`). A finding that says only "panel" cannot be reproduced.
-    const where = `${t.density || '?'}${t.page ? ' ' + t.page : ''}${t.mode ? ' ' + t.mode : ''}`;
-    for (const u of t.distinct || []) {
-      if (!u.passesBySpacing) {
-        findings.push(`target size (${where}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
-        continue;
-      }
-      // ── AND THE HALF OF THE EXCEPTION THAT WAS NEVER IMPLEMENTED, ENFORCED NOW (rounds 16-17) ───────────────────
-      // `passesBySpacing` is CENTRE-to-CENTRE — the circle-vs-circle test, right against another undersized target and
-      // wrong against a LARGE one, where the circle has to clear the other target's BOX. It erred toward excusing: a
-      // small control crammed against a big button passed whenever that button's centre was far away. Round 16
-      // measured what enforcing it would say before saying it; round 17 separated CROWDING from CONTAINMENT, because
-      // a nested control's circle is inside its container by construction and enforcing that would fail every one.
-      if (u.passesByFullRule === false) {
-        findings.push(
-          `target size (${where}): ${u.sel} is ${u.w}x${u.h} and its 24px circle reaches ${u.nearSel} (${u.nearW}x${u.nearH}) ` +
-            `${u.gapToBox}px away — the spacing clause wants the centre 12px clear of another target's BOX, not only 24px from its centre ("${u.text}")`,
-        );
-      }
-    }
-    // AND CONTAINMENT IS A FACT, NOT A FAILURE (round 17). A small control nested inside a larger TARGET is a
-    // different question — nested interactive content — and the criterion's spacing clause cannot express it: the
-    // circle is inside the container by construction, so the literal reading fails every nested control in the
-    // product. It is named here so the number is visible without being enforced, which is where a genuinely ambiguous
-    // reading belongs.
-    const nested = (t.distinct || []).filter((u) => u.insideSel);
-    if (nested.length) {
-      console.log(
-        `note: target size (${where}): ${nested.length} of ${(t.distinct || []).length} undersized target(s) sit INSIDE another target — ` +
-          `not a spacing failure (the circle is inside its container by construction), but a near-miss there activates the container: ` +
-          nested.map((u) => `${u.sel} ${u.w}x${u.h} in ${u.insideSel} ${u.insideW}x${u.insideH}`).join("; "),
-      );
-    }
-  }
+  // TARGET SIZE IS JUDGED IN THE SHARED JUDGE NOW — `judgeReport` owns the clause and this file's copy was DELETED
+  // (round 20 of the standing goal). It lived here, in the console's judge and in the landing's, with three slightly
+  // different sentences — and round 17 strengthened only THIS one, so one page judged by two sweeps got two verdicts.
+  // The label that mattered is preserved there: the `where` is density + page + mode, because this axis measures the
+  // resting page AND the state a hover reveals, and a finding that says only "panel" cannot be reproduced.
   for (const r of failures(report.rows)) {
     // A WAIVER IS FOR THE RATIO IT WAS MEASURED AT, NOT FOR THE ELEMENT (round 95). This used to be
     // `DECORATIVE.find((d) => d.match.test(String(r.sel)))` and nothing else, so an entry written for one number set

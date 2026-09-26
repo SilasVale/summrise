@@ -1608,6 +1608,43 @@ export function judgeReport(report, opts = {}) {
     }
   }
 
+  // ── TARGET SIZE, IN ONE PLACE (round 20 of the standing goal) ───────────────────────────────────────────────────
+  // This criterion lived in THREE judges — panel, console, landing — with three slightly different sentences, and in
+  // round 17 only the PANEL's copy was strengthened with the spacing clause's second half. So one page judged by two
+  // sweeps got two verdicts, which is the shape "one derivation" exists to prevent. It is here now and all three judge
+  // it identically.
+  //
+  // THE TWO HALVES, AND WHY CONTAINMENT IS NOT ONE OF THEM. `passesBySpacing` is CENTRE-to-CENTRE — the circle-vs-circle
+  // test, right against another undersized target and wrong against a LARGE one, where the circle has to clear that
+  // neighbour's BOX. The probe computes both, plus `insideSel` (the container, when the target is nested). A nested
+  // control's circle is inside its container by construction, so the literal reading of "the circles do not intersect
+  // another target" fails EVERY nested control in the product: that is nested interactive content, a different question,
+  // and it is NAMED below rather than enforced. What IS enforced is crowding — a small target whose circle reaches a
+  // neighbour BESIDE it.
+  for (const t of report.targets || []) {
+    const where = [t.density, t.page, t.mode].filter(Boolean).join(" ") || "?";
+    for (const u of t.distinct || []) {
+      if (!u.passesBySpacing) {
+        findings.push(`target size (${where}): ${u.sel} is ${u.w}x${u.h} and its nearest neighbour is ${u.nearest}px away — 2.5.8 wants 24x24 or 24px of spacing ("${u.text}")`);
+        continue;
+      }
+      if (u.passesByFullRule === false) {
+        findings.push(
+          `target size (${where}): ${u.sel} is ${u.w}x${u.h} and its 24px circle reaches ${u.nearSel} (${u.nearW}x${u.nearH}) ` +
+            `${u.gapToBox}px away — the spacing clause wants the centre 12px clear of another target's BOX, not only 24px from its centre ("${u.text}")`,
+        );
+      }
+    }
+    const nested = (t.distinct || []).filter((u) => u.insideSel);
+    if (nested.length) {
+      console.log(
+        `note: target size (${where}): ${nested.length} of ${(t.distinct || []).length} undersized target(s) sit INSIDE another target — ` +
+          `not a spacing failure (the circle is inside its container by construction), but a near-miss there activates the container: ` +
+          nested.map((u) => `${u.sel} ${u.w}x${u.h} in ${u.insideSel} ${u.insideW}x${u.insideH}`).join("; "),
+      );
+    }
+  }
+
   // A SURFACE MAY NOT CLAIM A READ FAILED WHEN THE FIXTURE ANSWERED EVERY CALL (round 100).
   //
   // This is the clause that would have caught rounds 99 and 100 by machine. A normal surface serves every endpoint,
