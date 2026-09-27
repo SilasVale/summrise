@@ -24,15 +24,19 @@ Satellites (not in the request path): satellite proxies (Cloudflare/VPS AI egres
 - **Memory plugin**: device-local knowledge base shared across AI clients — 6 MCP tools (`memory_save/search/list/update/delete/export`), multi-word AND search, eager tombstone compaction.
 - **56 MCP tools** on the device (by name prefix, `grep -oE '"name": *"[a-z_]+"' agent/spec-tools.json | sed 's/.*"\(.*\)"/\1/' | sed 's/_.*//' | sort | uniq -c`): terminal (23: PTY/SSH/serial open/write/close/execute/read/screen/history/background jobs/saved connections/secrets/env + legacy aliases), system (9: file list/read/write/stat/download/upload, process list/kill, net test), memory (6), mcp-client (4), monitor (4: list/add/remove/probe), playwright (2), runs (2: run_begin/run_end), update (1: agent_update), design (1: page_view). The count is what `agent/spec-tools.json` carries, regenerated from the live registry by `cargo test spec_snapshot` — this line said 49 and had no monitor or runs entry at all until it was measured.
 - **Health endpoint**: `/api/status` reports version, uptime and live session count — consumed by the tray, the SPA status strip and AI health checks.
-- **npm-only distribution**: one-command install/update, WMI-survives-the-kill swap, electron auto-restart on update.
+- **Two ways to install**: a self-contained `SummriseAgent-Setup.exe` (no Node, no npm, elevates itself) or the npm package; updates are a WMI-launched swap that survives the CLI and the agent dying.
 
 ## Quick start (Windows)
+
+**One file, no Node required** — [SummriseAgent-Setup.exe](https://agent.saisi.online/summrise-agent/SummriseAgent-Setup.exe).
+
+**Or through npm:**
 
 ```powershell
 npm.cmd i -g https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz   # or pin an exact version
 summrise setup                 # pure local install (registry-first, no cloud needed)
 summrise setup --reg-key <key> # optional: register the device with a Summrise Gate console
-summrise update                # later: one-command update (exe + electron shell)
+summrise update                # later: swap the exe (run `npm i -g` FIRST when the CLI is behind — it refuses otherwise)
 ```
 
 The install dir is registry-first (`HKLM\SOFTWARE\Summrise\Agent\InstallDir`); all path resolution goes through `agent/src/paths.rs`. The terminal panel is served by the agent at `/panel` (token entered once in the browser), and the Electron desktop shell loads `/desktop/`.

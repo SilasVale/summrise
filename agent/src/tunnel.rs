@@ -376,8 +376,28 @@ pub(crate) async fn provision_tunnel(
     let cred = std::env::var("USERPROFILE")
         .map(|u| format!(r"{u}\.cloudflared\{id}.json"))
         .unwrap_or_else(|_| format!(".cloudflared/{id}.json"));
+    // **A TOKEN WHEN THE API CAN MINT ONE, BECAUSE `credentials-file` IS THE FILE THE API PATH NEVER WRITES.** See
+    // `fetch_tunnel_token_via_api`: the supervised `cloudflared … run` was starting against a non-existent path, dying,
+    // and being respawned forever, while the panel reported `tunnel: ok`.
+    let run_token = if cf_token.trim().is_empty() {
+        None
+    } else {
+        fetch_tunnel_token_via_api(cf_token, &id).await
+    };
+    let auth_line = match &run_token {
+        Some(t) => {
+            tracing::info!("[summrise-agent] tunnel: run token minted through the API");
+            format!("token: {t}")
+        }
+        None => {
+            tracing::warn!(
+                "[summrise-agent] tunnel: no run token from the API — falling back to credentials-file {cred}, which the interactive login writes"
+            );
+            format!("credentials-file: {cred}")
+        }
+    };
     let yml = format!(
-        "tunnel: {id}\ncredentials-file: {cred}\nallow-remote-config: false\ningress:\n  - hostname: {hostname}\n    service: {}\n  - service: http_status:404\n",
+        "tunnel: {id}\n{auth_line}\nallow-remote-config: false\ningress:\n  - hostname: {hostname}\n    service: {}\n  - service: http_status:404\n",
         ingress_service(port)
     );
     let cfg_path = crate::paths::tunnel_file();
@@ -663,6 +683,50 @@ async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> b
             false
         }
     }
+}
+
+/// Fetch the tunnel's own run token through the API.
+///
+/// **THE FOURTH PLACE THE SAME ASSUMPTION BROKE, AND THE ONE THAT KEPT THE TUNNEL FROM EVER RUNNING.**
+/// `tunnel.yml` named a `credentials-file` at `%USERPROFILE%\.cloudflared\<id>.json` — the file
+/// `cloudflared tunnel create` writes. Since 1.2.477 the create goes through the API, **which does not write it**, so
+/// the supervised `cloudflared tunnel --config … run` started against a path that did not exist, exited immediately, and
+/// was respawned by `winmain::supervise_tunnel` with backoff — a device looping on a tunnel that could never come up.
+/// The panel meanwhile said `tunnel: ok`, because that string only ever reported the CREATE.
+///
+/// A token is what the API can hand out and what `cloudflared` accepts in a config file, so the config no longer needs
+/// a file only the interactive path can produce. The `credentials-file` form stays as the FALLBACK, for a machine where
+/// a human did log in.
+async fn fetch_tunnel_token_via_api(cf_token: &str, tunnel_id: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let acc = client
+        .get("https://api.cloudflare.com/client/v4/accounts")
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let acc: serde_json::Value = acc.json().await.ok()?;
+    let account_id = acc["result"][0]["id"].as_str()?.to_string();
+    let tok = client
+        .get(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/token"
+        ))
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let body: serde_json::Value = tok.json().await.ok()?;
+    let t = body["result"].as_str().map(|s| s.to_string());
+    if t.is_none() {
+        tracing::warn!(
+            "[summrise-agent] tunnel: the API returned no run token: {}",
+            &body.to_string()[..body.to_string().len().min(300)]
+        );
+    }
+    t
 }
 
 /// Resolve an existing tunnel's UUID through the API by name.
