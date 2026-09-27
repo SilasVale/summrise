@@ -4896,6 +4896,18 @@ button.dtab-close:hover { opacity: 1; }
 
    MOTION IS OPTIONAL. The card fades in unless `prefers-reduced-motion`, and NOTHING here depends
    on the animation having run — the overlay is usable at frame zero. */
+  /* ── AND IT IS NOT A DEFECT, WHICH ROUNDS 76-77 CALLED IT (round 78 of the standing goal) ─────────────────────
+     A private browser on a FRESH panel showed Playwright refusing a real click on "New session" —
+     `<div class="gs-backdrop"> intercepts pointer events` — and a before/after confirmed it: with the guide up the
+     click is refused, and after `.gs-close` the SAME click opens the menu. Two rounds were spent calling that a
+     first-run usability defect. **THE COMPONENT SAYS OTHERWISE, TWICE OVER**: `GettingStarted.tsx` closes on a backdrop
+     click (`if (e.target === e.currentTarget) onClose()`), and the rule below carries "this is a first-run decision"
+     in its own comment. So the overlay is deliberate, dismissible two ways, and shown once per browser — and what
+     looked like a blocked control was a modal doing precisely what it documents.
+     THE LESSON IS THE ONE THIS LOOP KEEPS RELEARNING: a measurement that reports a defect is a claim about the
+     INSTRUMENT as much as about the product, and the cheapest disproof is to read the code the measurement is about.
+     What IS worth keeping from 76-77 is the technique — a real `page.click` with hit-testing, where a synthetic
+     `element.click()` had silently bypassed it and made a working control look dead. */
 .gs-backdrop {
   position: fixed;
   inset: 0;
