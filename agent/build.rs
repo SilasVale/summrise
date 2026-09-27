@@ -177,6 +177,20 @@ fn fnv1a64(bytes: &[u8], mut hash: u64) -> u64 {
 // THE DEFECT: `summrise-agent.exe` carried NO resource of any kind, so Windows had nothing to draw and Task
 // Manager showed the generic process glyph for the agent the whole product is about. Nothing in the
 // repository could catch it: no test reads a PE resource table, the icon existed in `brand/` (rendered by
+// ── AND ROUND 65 FOUND WHY THE GATE CANNOT SIMPLY BE ADDED TO CI (round 65 of the standing goal) ──────────
+// The obvious fix for the sentence above is a CI gate that reads the resource table. **NO CI JOB EVER HAS AN
+// EXE TO READ**: `cargo xwin check` type-checks without linking a release binary, and the `pack-chain` job is
+// named "npm artifact gates, no exe" for that reason. The artifact exists only when someone runs a release, so
+// a gate has exactly two possible homes and neither is the ordinary workflow:
+//
+//   * `scripts/publish-release.sh`, which already packs, manifests, prunes, deploys and smokes — the exe is on
+//     disk there, and a check before the upload would refuse to ship an icon-less build;
+//   * `.github/workflows/release.yml`, which builds the exe for the GitHub asset and is the only workflow that
+//     ever sees one.
+//
+// `objdump -x` already prints the type table (round 64 used it: `.rsrc` declares 3 types, the first is
+// `0x000003` = RT_ICON with 4 images), so the check is a few lines in whichever home is chosen — the question
+// was never how to parse PE, it was WHERE A GATE CAN RUN AT ALL.
 // `scripts/render-brand-icon.py` for exactly this purpose) and was wired into the desktop app and the
 // installer — and the SERVICE binary, the one Task Manager actually lists, was never given it.
 //
