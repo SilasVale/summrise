@@ -906,7 +906,23 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
         // THE ONE THAT ALREADY WORKS**, which is the derivation rule this repository states everywhere else: the
         // names probe's `name()` helper is the one to call here, and a third case guessed into this line would be
         // the same mistake a third time. Left as-is deliberately, with the note above it, rather than extended.
-        name: (el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+        // MIRRORS THE NAMES PROBE'S READER, IN ITS ORDER (round 45 of the standing goal). Two rounds were spent
+        // extending this line and both came back nameless, because the case that was missing is the FIRST one the
+        // working reader tries: `aria-labelledby`, which is how an icon button gets its name from a sibling node.
+        // This is a copy of a derivation that already passes, not a third guess — and the honest fix is still to
+        // share one helper (the file already carries two copies of this reader; see `const name = (el)`).
+        name: ((el) => {
+          const by = el.getAttribute("aria-labelledby");
+          if (by) {
+            const t = by.split(/\s+/).map((id) => (document.getElementById(id) || {}).textContent || "").join(" ").trim();
+            if (t) return t.slice(0, 40);
+          }
+          const label = el.getAttribute("aria-label"); if (label && label.trim()) return label.trim().slice(0, 40);
+          const text = (el.textContent || "").replace(/\s+/g, " ").trim(); if (text) return text.slice(0, 40);
+          const img = el.querySelector("img[alt]"); if (img && img.alt.trim()) return img.alt.trim().slice(0, 40);
+          const title = el.getAttribute("title"); if (title && title.trim()) return ("title-only: " + title.trim()).slice(0, 40);
+          return "";
+        })(el),
       };
     }
     return null;
