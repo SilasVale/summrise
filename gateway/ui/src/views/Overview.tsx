@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useAck } from "../lib/useAck";
 import { CONSOLE_POLL_MS, deviceIsUp, deviceTally } from "../lib/deviceState.ts";
 import { channelLabel, channelSignal, healthTone } from "../lib/channelState.ts";
 import { Link } from "react-router-dom";
@@ -75,7 +76,16 @@ export default function Overview() {
   // reacts) — the console's refresh button simply never had it. The sweep reads `disabled` as an acknowledgement
   // (`acked=true via=disabled ms=15 budget=100`), and this is the smallest change that gives it one: a local flag that
   // paints on the next render, cleared when the load settles. `loadDashboard` and the 60s poll are untouched.
-  const [refreshing, setRefreshing] = useState(false);
+
+
+  // **THE LAST HAND-ROLLED COPY, AND IT WAS THE ONE THAT FAILED.** This page's refresh button got a local `refreshing`
+  // flag in round 138 — the console's FIRST acknowledgement, written by hand because there was no mechanism to use. The
+  // mechanism exists now (`lib/useAck.ts`, ported in round 161) and every other console control uses it; this one was
+  // left behind, and the design sweep found it again: *"console overview: button.btn (button.btn.btn-secondary.btn-sm)
+  // acknowledged the press after 223ms — the budget is 100ms"*. **A hand-written copy of a mechanism is a copy that
+  // drifts**, which is the same lesson the panel's `IconRail` records about its liveness model.
+  // `busy` IS the `refreshing` this page used to track itself — same value, one owner.
+  const { busy: refreshing, ack: refreshAck, run: runRefreshAck } = useAck();
 
   const loadDashboard = useCallback(async () => {
     api
@@ -125,14 +135,9 @@ export default function Overview() {
     }
   }, [user?.role]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await loadDashboard();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [loadDashboard]);
+  const onRefresh = useCallback(() => {
+    void runRefreshAck("refresh", loadDashboard);
+  }, [loadDashboard, runRefreshAck]);
 
   useEffect(() => {
     loadDashboard();
@@ -221,7 +226,12 @@ export default function Overview() {
         title={t("overview.title")}
         description={t("overview.lede")}
         actions={
-          <button className="btn btn-secondary btn-sm" onClick={onRefresh} disabled={refreshing}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+            {...refreshAck("refresh")}
+          >
             {t("btn.refresh")}
           </button>
         }
