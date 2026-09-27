@@ -3198,8 +3198,13 @@ const commands = {
       `foreach($df in @('main.js','preload.js','url-policy.js')){ $ds='${q}\\components\\summrise-desktop-electron\\src\\'+$df+'.new'; if (Test-Path $ds) { $ok2=$false; foreach($i in 1..8){ try { Copy-Item -Force -ErrorAction Stop $ds ('${q}\\components\\summrise-desktop-electron\\src\\'+$df); $ok2=$true; break } catch { Start-Sleep -Milliseconds 500 } }; Remove-Item -Force -ErrorAction SilentlyContinue $ds; "[$(Get-Date -Format o)] desk $df ok=$ok2" | ${log} } }`,
       // NEVER leave the device dark: even a failed swap must bring the task
       // back up (it will run the old exe until the next update).
-      `try { Start-ScheduledTask SummriseAgent -ErrorAction Stop } catch { schtasks /Run /TN SummriseAgent }`,
-      `"[$(Get-Date -Format o)] task restarted" | ${log}`,
+      // **AND THE LINE THAT REPORTS IT SAYS WHAT HAPPENED, BECAUSE THE OLD ONE COULD NOT BE WRONG.**
+      // It read `"task restarted"` unconditionally, immediately after a try/catch whose BOTH arms could fail — so the log
+      // asserted a restart it had never verified. Measured 2026-09-28: a device took `summrise update`, the swap answered
+      // 502, and the device went dark (the tunnel went from 502 to **530/1033** — no connector at all), while this line
+      // would have said the task was back. `$rs` is the outcome, and it is what the log carries.
+      `$rs=$false; try { Start-ScheduledTask SummriseAgent -ErrorAction Stop; $rs=$true } catch { try { schtasks /Run /TN SummriseAgent; $rs=$true } catch {} }`,
+      `"[$(Get-Date -Format o)] task restart ok=$rs" | ${log}`,
       `try { Remove-Item -Force (${busyMarkerPs()}) } catch {}`,
       // Custom-port installs: the firewall rule must track the configured
       // bind port (baked at update time from the live config.yaml — the
