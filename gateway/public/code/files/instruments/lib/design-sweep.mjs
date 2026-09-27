@@ -720,7 +720,32 @@ export async function diag(line) {
  * NO REGEXES IN THIS FUNCTION, deliberately: it is inlined into the emitted script through `toString()`, and a single
  * backslash inside that template literal is eaten before the page sees it (rounds 55-58, four times).
  */
-export async function idlePass(page, ms = 6000) {
+export async function idlePass(page, ms = 2500) {
+  // ── THE WINDOW IS 2500ms, NOT 6000, AND THE MEASUREMENT THAT SETTLED IT IS BELOW ───────────────────────────
+  //
+  // WHAT THIS COSTS. The CI log carries the budget for both sweeps that call it:
+  //
+  //     panel:   budget wait=970x/153.7s  nav=198x/14.7s  eval=2355x/11.5s  of 237.8s
+  //     console: budget wait=1759x/130.2s nav=62x/2.0s    eval=2541x/4.8s   of 161.2s
+  //
+  // and inside the `wait` bucket the largest single line is this pass's own value:
+  //
+  //     panel   waits by the value asked for: 6000ms=8x/48.0s   ...
+  //     console waits by the value asked for: 6000ms=12x/72.0s  ...
+  //
+  // **20 OBSERVATIONS x 6s = 120 SECONDS**, and they are not padding — this is a SAMPLING window, not a wait for a
+  // condition, which is why the file's own rule about replacing fixed waits does not apply to it. The window exists to
+  // answer ONE question ("is this surface still?") and its dominant real signal is PERIODIC: the panel ticks a live
+  // duration once a second, which is the finding round 68 taught the report to name.
+  //
+  // **A 1-SECOND PERIOD IS VISIBLE IN ~2.2 SECONDS.** 2500ms therefore still catches the case that made this pass
+  // worth having, and gives back ~70s across the 20 calls. WHAT IT GIVES UP, stated rather than hidden: a ONE-SHOT
+  // mutation that happens after t=2.5s is now missed, where 6000ms would have caught it. That is a real narrowing of
+  // the window and it is the reason this number is a constant with this comment rather than a silent edit — if a
+  // surface is ever found mutating late, the answer is to raise it back for that surface, not to raise it for all.
+  //
+  // The counts this returns are SAMPLES, so a shorter window reports FEWER ticks of the same finding; the verdict
+  // (mutating vs still) is unchanged, which is what the judge reads.
   await page.evaluate(() => {
     const el = document.getElementById("root") || document.body;
     const state = { mutations: 0, byTarget: {}, samples: [] };
