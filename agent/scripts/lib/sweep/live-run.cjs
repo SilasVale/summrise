@@ -39,6 +39,17 @@ const CONFIGS = P.configPaths;
   // operator's window is as intrusive as navigating it. What it measures is whatever page they have open, which is one
   // density rather than two, and the output says so instead of pretending to be the full run.
   const readonly = attached;
+  // AND IT MUST BE THE PANEL, WHICH ROUND 107 PROVED THE HARD WAY: the first read-only run measured the operator's
+  // BROWSER TAB — a search page — and reported THIRTEEN PROBLEMS about it (`div.est_common`, `span.sb_form_placeholder
+  // _query`, `div.question` are the search engine's classes, and `state.rootNodes` was 0 because the panel's root had no
+  // nodes). A verdict about the wrong page is worse than no verdict, and it is the error class this loop keeps finding:
+  // an instrument reporting a defect where it was pointed at the wrong thing. **A READ-ONLY MEASUREMENT CANNOT CHOOSE
+  // ITS PAGE, SO IT MUST REFUSE ANY PAGE THAT IS NOT THE PANEL** — checked by URL, before anything is measured.
+  if (readonly && !/127\.0\.0\.1:18080\/(panel|desktop)\//.test(page.url())) {
+    console.log(JSON.stringify({ error: 'the attached view is not the panel, so a read-only measurement of it would be a verdict about whatever page it is', at: page.url().slice(0, 120), fix: 'open the panel in that view, or close it so the helper takes the private arm' }));
+    await close();
+    process.exit(3);
+  }
   if (readonly) {
     console.log(JSON.stringify({ note: 'the browser helper ATTACHED to the visible view — measuring it READ-ONLY: no navigation, no resize, whatever page is open' }));
   }
