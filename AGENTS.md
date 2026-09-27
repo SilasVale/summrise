@@ -156,6 +156,35 @@ missed `production-host-check` until after a commit, and re-learned `pack-chain`
 mirror is a worse failure than the one it prevents, and this repository's git remote has been measured answering in 0s, 32s
 and >90s for the same request. `git push --no-verify` is the escape hatch, and the hook prints it.
 
+## A status says what was CHECKED
+
+**EVERY SENTENCE A SURFACE SHOWS ABOUT THE DEVICE'S STATE IS A CLAIM, AND A CLAIM NOBODY CHECKED IS A LIE THE READER
+BELIEVES.** Measured over five releases on 2026-09-27/28: the operator read `registered · tunnel: ok` while a remote client
+got **530**, three separate times, asking *"为什么还没有上线呢"* each time. The string came from `RemoteConfig::Updated` —
+**it reported the STEP it had just taken in the grammar of the OUTCOME the reader wanted**, and nothing on that path had
+asked whether anything could reach the device. It asks now (`tunnel_health_via_api`, 1.2.483): the API's own `status` and
+`conns_active`, with `healthy` and zero connectors counted as NOT reachable, because the status alone is not the test.
+
+**THE PATTERNS THAT ALREADY EXIST HERE, AND THEY ARE THE ONES TO COPY:**
+
+| surface | what it says | why it is honest |
+|---|---|---|
+| the panel's liveness | `sseState` drives `connected` / `disconnected` | it is the SSE connection's OWN state, and `IconRail` carries the rule — **ONE MODEL, ONE PLACE**; a second copy is how two surfaces come to disagree about one device |
+| the relay chip | `vitals.relay.connected` | the relay's fact, reported by the relay |
+| `UpdateCard` | **`checked 12s ago`** | a TIMESTAMP, not a verdict — and its tests already cover the degenerate cases (`56 years ago`, `497204h ago`) |
+| the landing | **`No Windows installer is published for this release`** | it says what it knows instead of offering the `Setup.exe` alias, which serves the PREVIOUS installer after a tgz-only publish |
+
+**SO THE RULE IS NARROW, AND IT IS NOT "ADD MORE CAVEATS":** when a surface reports a state, name **the thing that was
+observed** and **when**. A step that succeeded is not an outcome; a configuration that was written is not a service that is
+up; a request that returned 200 is not a device that answered. **If nothing was checked, say that** — *"reachability NOT
+VERIFIED"* is a better sentence than a confident `ok`, because the reader can act on it.
+
+**AND DO NOT WEAKEN A CRITERION TO MATCH A MESSAGE.** The same week produced the mirror image: the design sweep reported
+`acknowledged the press after 823ms — this feedback waited on the 824ms network round trip` for a button whose handler is
+synchronous and whose popover has no network on it at all. **The judge was speculating about a cause its own row cannot
+check** — the failure round 99 wrote a paragraph about, arriving from the other side. The fix was the CRITERION (`:active`
+is only visible while the mouse is down, and every sample was taken after the up), not the button.
+
 ## Two languages, and which one goes where
 
 **THE REPOSITORY IS WRITTEN IN ENGLISH**: commit messages, code comments, `AGENTS.md`, `CONTEXT.md`, the specs and plans.
