@@ -326,14 +326,19 @@ cmd="${1:-agent}"
 case "$cmd" in
   agent|command)  build_agent "${2:-release}" ;;
   gateway)  deploy_worker gateway "Summrise Gate" ;;
-  # ── AND THE DEPLOY'S SMOKE DOES NOT COVER THE STATIC ASSETS, WHICH IS ROUND 101's GAP (round 102) ───────────────
-  # The smoke checks `/api/version` and it passed on every deploy — while `index/public/summrise-agent/
-  # live-panel-probe.js` was served a RELEASE BEHIND what was committed, because committing under `index/public/` does
-  # not deploy it. A served file is not covered by an API smoke, and nothing else looked: the loop found it only when the
-  # DEVICE fetched 39,334 bytes where the committed file was 39,884. **THE CHECK THAT WOULD HAVE CAUGHT IT IS ONE
-  # `cmp`** — fetch one known served file and compare it with the committed copy — and it belongs HERE, after the
-  # deploy, because before it the CDN is legitimately behind. Not added yet: the honest first step is to name it where
-  # the smoke runs rather than to bolt a second check onto a shared `deploy_worker` without reading what it already does.
+  # ── AND READING `deploy_worker` SAYS THE CHECK DOES NOT BELONG HERE (rounds 101-103) ────────────────────────────
+  # Round 101 found the CDN serving `live-panel-probe.js` a release behind what was committed, and its smoke — which
+  # checks `/api/version` — passed throughout, because a served FILE is not covered by an API smoke. Round 102 recorded
+  # the gap here and left the check unwritten rather than bolting it onto the shared function blind. **ROUND 103 READ THE
+  # FUNCTION, AND IT ALREADY COVERS THE ANALOGOUS CASE FOR THE GATEWAY**: `deploy_worker` builds `gateway/ui` into
+  # `gateway/public` before deploying, with the reasoning spelled out — "wrangler publishes that as assets, so a deploy
+  # that skips the build ships whatever was last generated, silently" (round 241).
+  #
+  # THE INDEX CASE CANNOT BE COVERED THE SAME WAY, AND THAT IS THE POINT: `index/public/` is COMMITTED, not built, so
+  # there is nothing for the deploy to regenerate and no way for it to know a change was never deployed. The gap is in
+  # the WORKFLOW, not in the deploy — which is why round 101's note in AGENTS.md (emit, DEPLOY, then compare with one
+  # `cmp`) is the complete fix, and why nothing is added here. **A GATE THAT CANNOT SEE ITS OWN PREMISE IS WORSE THAN NO
+  # GATE**, and this one would have had to guess at what the CDN ought to be serving.
   index)    deploy_worker index "Summrise Index" ;;
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
