@@ -630,26 +630,48 @@ async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> b
         Ok(c) => c,
         Err(_) => return false,
     };
-    let zone = hostname.split('.').skip(1).collect::<Vec<_>>().join(".");
-    if zone.is_empty() {
-        return false;
+    // **THE ZONE IS NOT "THE HOSTNAME MINUS ITS FIRST LABEL", WHICH IS WHAT THIS ASSUMED.** Measured 2026-09-27, from
+    // the device's own log:
+    //
+    //     tunnel route: no zone id for 'agent.saisi.online'
+    //     tunnel route: neither the API nor cloudflared could point
+    //                   'desktop-9vh92bj.agent.saisi.online' at the tunnel — remote clients will get 530
+    //
+    // The hostname was `desktop-9vh92bj.agent.saisi.online`; stripping one label asks for the zone `agent.saisi.online`,
+    // which does not exist — the zone is **`saisi.online`**, and `agent` is a subdomain inside it. So the DNS record was
+    // never created and the tunnel, once it finally ran, was reachable by nothing.
+    //
+    // A hostname can sit any number of labels deep, so the candidates are tried SHORTEST-LAST — the API is asked about
+    // each suffix in turn and the first one it recognises is the zone. `desktop-9vh92bj.agent.saisi.online` tries
+    // `agent.saisi.online`, then `saisi.online`, and stops there.
+    let labels: Vec<&str> = hostname.split('.').collect();
+    let mut zone_id: Option<String> = None;
+    let mut tried: Vec<String> = Vec::new();
+    for start in 1..labels.len().saturating_sub(1) {
+        let candidate = labels[start..].join(".");
+        tried.push(candidate.clone());
+        let zr = client
+            .get(format!(
+                "https://api.cloudflare.com/client/v4/zones?name={candidate}"
+            ))
+            .header("authorization", format!("Bearer {cf_token}"))
+            .send()
+            .await;
+        if let Ok(r) = zr {
+            if let Ok(j) = r.json::<serde_json::Value>().await {
+                if let Some(id) = j["result"][0]["id"].as_str() {
+                    tracing::info!("[summrise-agent] tunnel route: zone '{candidate}'");
+                    zone_id = Some(id.to_string());
+                    break;
+                }
+            }
+        }
     }
-    let zr = client
-        .get(format!(
-            "https://api.cloudflare.com/client/v4/zones?name={zone}"
-        ))
-        .header("authorization", format!("Bearer {cf_token}"))
-        .send()
-        .await;
-    let zone_id = match zr {
-        Ok(r) => match r.json::<serde_json::Value>().await {
-            Ok(j) => j["result"][0]["id"].as_str().map(|s| s.to_string()),
-            Err(_) => None,
-        },
-        Err(_) => None,
-    };
     let Some(zone_id) = zone_id else {
-        tracing::warn!("[summrise-agent] tunnel route: no zone id for '{zone}'");
+        tracing::warn!(
+            "[summrise-agent] tunnel route: none of {:?} is a zone this token can read — check the token's Zone:Read permission",
+            tried
+        );
         return false;
     };
     let body = serde_json::json!({
