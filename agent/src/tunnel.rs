@@ -270,6 +270,12 @@ pub(crate) async fn provision_tunnel(
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
     let mut tunnel_id = find_tunnel_id_by_name(&list_text, &tunnel_name);
+    // WHY THE CREATE'S OUTPUT IS KEPT (measured 2026-09-27): it was parsed for a UUID and
+    // then dropped, so a failed create reached the operator as `list_out=""` — the list
+    // taken BEFORE the create, which on a first install is always empty and therefore says
+    // nothing. The create's own stderr is what names the cause; the operator had to run
+    // the command by hand to read it.
+    let mut create_note = String::new();
     if tunnel_id.is_none() {
         let mut create_cmd = tokio::process::Command::new(&cf);
         create_cmd.args(["tunnel", "create", &tunnel_name]);
@@ -282,6 +288,11 @@ pub(crate) async fn provision_tunnel(
             ),
             Err(_) => (String::new(), String::new()),
         };
+        create_note = format!(
+            "create_out={:?} create_err={:?}",
+            &created_text[..created_text.len().min(300)],
+            &created_err[..created_err.len().min(300)],
+        );
         tunnel_id = parse_tunnel_id(&created_text).or_else(|| parse_tunnel_id(&created_err));
         if tunnel_id.is_none() {
             let mut list2_cmd = tokio::process::Command::new(&cf);
@@ -298,7 +309,7 @@ pub(crate) async fn provision_tunnel(
         // Include the raw list output in the error so a device report
         // pinpoints WHY parsing failed (auth? empty list? different format?).
         let diag = format!(
-            "could not determine tunnel id for '{tunnel_name}'. login_ok={} list_out={:?}",
+            "could not determine tunnel id for '{tunnel_name}'. login_ok={} {create_note} list_before={:?}",
             login_ok,
             &list_text[..list_text.len().min(400)],
         );
@@ -428,32 +439,68 @@ async fn ensure_cf_credentials() {
     if sys_cf.join("cert.pem").exists() {
         return; // already authenticated
     }
-    // Candidate user profiles to copy from.
-    for user in ["Administrator", "admin", "user"] {
-        let src = std::path::PathBuf::from(r"C:\Users")
-            .join(user)
-            .join(".cloudflared");
-        let cert = src.join("cert.pem");
-        if cert.exists() {
-            let _ = std::fs::create_dir_all(&sys_cf);
-            if std::fs::copy(&cert, sys_cf.join("cert.pem")).is_ok() {
-                // Copy all *.<uuid>.json credentials too.
-                if let Ok(rd) = std::fs::read_dir(&src) {
-                    for e in rd.flatten() {
-                        let name = e.file_name().to_string_lossy().to_string();
-                        if name.ends_with(".json") && e.path().is_file() {
-                            let _ = std::fs::copy(e.path(), sys_cf.join(&name));
-                        }
-                    }
-                }
-                tracing::info!(
-                    "[summrise-agent] provision_tunnel: copied cloudflared credentials from {user}"
-                );
-                return;
+    // Candidate profiles to copy from — EVERY profile, not three guessed names.
+    //
+    // MEASURED 2026-09-27 ON A FRESH WINDOWS MACHINE: the list was
+    // ["Administrator", "admin", "user"], and the operator's account was "13122". The copy
+    // therefore never ran, `cloudflared tunnel create` executed with no origin certificate,
+    // and the panel reported
+    //   "could not determine tunnel id for 'summrise-agent-d1'. login_ok=true list_out=\"\""
+    // while the REAL cause — "Cannot determine default origin certificate path. No file
+    // cert.pem in [~/.cloudflared ...]" — appeared only when the operator ran the same
+    // command by hand. **A profile is whatever `C:\Users` actually contains**, and guessing
+    // names is how a supported install path becomes unreachable for everyone else.
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(r"C:\Users") {
+        for e in rd.flatten() {
+            let p = e.path().join(".cloudflared");
+            if p.join("cert.pem").is_file() {
+                candidates.push(p);
             }
         }
     }
-    tracing::warn!("[summrise-agent] provision_tunnel: no cert.pem found in any user profile — tunnel auth may fail");
+    // AND THE SERVICE PROFILES, which the three-name list never covered either: a `login`
+    // run BY the service writes its cert into one of these, which is exactly why a
+    // cert.pem can exist on the machine and still be invisible to an operator's shell
+    // (the two `~` are different directories).
+    for extra in [
+        r"C:\Windows\ServiceProfiles\LocalService",
+        r"C:\Windows\ServiceProfiles\NetworkService",
+        r"C:\Windows\System32\config\systemprofile",
+    ] {
+        let p = std::path::PathBuf::from(extra).join(".cloudflared");
+        if p.join("cert.pem").is_file() {
+            candidates.push(p);
+        }
+    }
+    for src in candidates {
+        let cert = src.join("cert.pem");
+        let _ = std::fs::create_dir_all(&sys_cf);
+        if std::fs::copy(&cert, sys_cf.join("cert.pem")).is_ok() {
+            // Copy all *.<uuid>.json credentials too.
+            if let Ok(rd) = std::fs::read_dir(&src) {
+                for e in rd.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.ends_with(".json") && e.path().is_file() {
+                        let _ = std::fs::copy(e.path(), sys_cf.join(&name));
+                    }
+                }
+            }
+            tracing::info!(
+                "[summrise-agent] provision_tunnel: copied cloudflared credentials from {}",
+                src.display()
+            );
+            return;
+        }
+    }
+    // SAY WHAT WILL HAPPEN, NOT JUST THAT SOMETHING DID NOT. The old line ("no cert.pem
+    // found in any user profile") named neither the searched set nor the consequence, and
+    // the consequence is a cloudflared error an operator has to reproduce by hand to read.
+    tracing::warn!(
+        "[summrise-agent] provision_tunnel: no cert.pem in any profile under C:\\Users or the \
+         service profiles — `cloudflared tunnel create` will fail with 'Cannot determine default \
+         origin certificate path'; run `summrise tunnel login` first"
+    );
 }
 
 /// Ingress service URL for the agent's configured port (custom ports must
