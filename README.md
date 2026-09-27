@@ -2,6 +2,12 @@
 
 [![CI](https://github.com/SilasVale/summrise/actions/workflows/ci.yml/badge.svg)](https://github.com/SilasVale/summrise/actions/workflows/ci.yml)
 
+**A Windows machine you can hand to an AI.** Summrise runs a headless MCP server on a device and gives it a terminal
+(PTY / SSH / serial), a real browser, a memory store and a file relay — reachable from a local panel, from a console over a
+Cloudflare tunnel, or from any MCP client. One Rust binary, one npm package, no cloud account required for local use.
+
+> **Install in two commands** · **Windows 10/11** · **MIT** · **Rust + TypeScript**
+
 Summrise turns a Windows device into an **AI-controllable workspace** — terminal, SSH, serial and browser sessions exposed to AI through MCP, plus an Electron desktop shell and a device-local memory. One repository for the front door, the device agent and the download distribution.
 
 ```
@@ -19,12 +25,15 @@ Satellites (not in the request path): satellite proxies (Cloudflare/VPS AI egres
 
 ## Highlights
 
-- **OSC 633 shell integration** (the VS Code approach): PowerShell prompts and command boundaries arrive as invisible sequences — clean terminal display, accurate exit codes, no wrapper text, no front-end filters.
-- **Electron desktop shell** (TypeScript): live agent status in the tray, native menu (sessions + page navigation), CDP :9333 so AI can drive the same window the user watches, browser-window reuse + cap, hide-to-tray with a one-time notification.
-- **Memory plugin**: device-local knowledge base shared across AI clients — 6 MCP tools (`memory_save/search/list/update/delete/export`), multi-word AND search, eager tombstone compaction.
-- **56 MCP tools** on the device (by name prefix, `grep -oE '"name": *"[a-z_]+"' agent/spec-tools.json | sed 's/.*"\(.*\)"/\1/' | sed 's/_.*//' | sort | uniq -c`): terminal (23: PTY/SSH/serial open/write/close/execute/read/screen/history/background jobs/saved connections/secrets/env + legacy aliases), system (9: file list/read/write/stat/download/upload, process list/kill, net test), memory (6), mcp-client (4), monitor (4: list/add/remove/probe), playwright (2), runs (2: run_begin/run_end), update (1: agent_update), design (1: page_view). The count is what `agent/spec-tools.json` carries, regenerated from the live registry by `cargo test spec_snapshot` — this line said 49 and had no monitor or runs entry at all until it was measured.
-- **Health endpoint**: `/api/status` reports version, uptime and live session count — consumed by the tray, the SPA status strip and AI health checks.
-- **Two ways to install**: a self-contained `SummriseAgent-Setup.exe` (no Node, no npm, elevates itself) or the npm package; updates are a WMI-launched swap that survives the CLI and the agent dying.
+- **Terminal that behaves** — OSC 633 shell integration (the VS Code approach): prompts and command boundaries arrive as
+  invisible sequences, so the display stays clean and exit codes stay true. PTY, SSH and serial behind one surface.
+- **A real browser, driven** — Playwright over CDP, plus an Electron shell whose UI an AI can drive.
+- **Memory that persists** — a device-local knowledge base shared across every AI client, with multi-word search.
+- **Reachable when you need it** — local panel by default; a console and a Cloudflare tunnel when a remote client needs in.
+  The tunnel is provisioned through the Cloudflare API, so a device running as SYSTEM needs no interactive login.
+- **Two ways to install** — a self-contained `SummriseAgent-Setup.exe` (no Node, no npm, elevates itself) or the npm package.
+- **Measured, not asserted** — the design of every surface is checked by gates that render it; the counts in this file are
+  reproducible from commands beside them.
 
 ## Quick start (Windows)
 
