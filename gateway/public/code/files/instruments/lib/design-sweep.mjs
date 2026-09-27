@@ -879,6 +879,15 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
   // and not a timing artefact. A pass that wants to measure Search the way a user meets it should type a query first;
   // until it does, that note is the correct reading rather than a mystery, and this comment is where the next reader
   // of it should look. (Placed HERE, not beside the note: the note is inside a template literal and round 47 broke the
+  // ── AND ROUND 49 READ THE MECHANISM, WHICH SETTLES THE NOTE'S TWO READINGS (round 49 of the standing goal) ──────
+  // `useAck.ts` is `run(key, fn) { setBusyOn(key); try { await fn(); } finally { setBusyOn(null); } }` plus
+  // `ack(key) => { "data-busy": busyOn === key ? "1" : undefined }`. **WHEN THE ACTION DOES NO ASYNC WORK THE TWO STATE
+  // UPDATES BATCH INTO ONE RENDER AND THE ATTRIBUTE IS NEVER PAINTED**, so this probe's first sample sees nothing — which
+  // is the note's TIMING reading, with its real cause named: React batching, not a loaded machine. For `[Search]` with an
+  // empty query that is also CORRECT behaviour (nothing happened, so nothing is acknowledged), and it is why round 48's
+  // fill did not move the axis: a filled query makes the action await a tool call, the busy state then paints — **and the
+  // axis did not move, so the fill did not reach the component**, which is the thing to check next (a native setter plus
+  // an `input` event is the usual way past React's value tracker, and it is evidently not enough here).
   // emitted script by inserting into it — the second time this loop has paid for that, after round 41's stylesheet.)
   const rows = [];
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
