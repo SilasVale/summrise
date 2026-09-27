@@ -327,11 +327,29 @@ pub(crate) async fn provision_tunnel(
         );
         return diag;
     };
-    // 3. DNS route (best-effort)
-    let mut route_cmd = tokio::process::Command::new(&cf);
-    route_cmd.args(["tunnel", "route", "dns", &tunnel_name, &hostname]);
-    crate::spawn::hidden(&mut route_cmd); // same no-console ask as the login spawn above
-    let _ = route_cmd.output().await;
+    // 3. DNS route — THE API FIRST, for the same reason the create does, and because the
+    //    `cloudflared` form needs the certificate this path exists to avoid. The old shape was
+    //    `let _ = route_cmd.output().await;` under "best-effort", so a failure here was SILENT and the
+    //    device reported `tunnel: ok` while nothing could reach it (530).
+    let mut routed = false;
+    if !cf_token.trim().is_empty() {
+        routed = route_dns_via_api(cf_token, &id, &hostname).await;
+        if routed {
+            tracing::info!("[summrise-agent] tunnel route: '{hostname}' -> {id} (Cloudflare API)");
+        }
+    }
+    if !routed {
+        let mut route_cmd = tokio::process::Command::new(&cf);
+        route_cmd.args(["tunnel", "route", "dns", &tunnel_name, &hostname]);
+        crate::spawn::hidden(&mut route_cmd); // same no-console ask as the login spawn above
+        let out = route_cmd.output().await;
+        routed = out.map(|o| o.status.success()).unwrap_or(false);
+        if !routed {
+            tracing::warn!(
+                "[summrise-agent] tunnel route: neither the API nor cloudflared could point '{hostname}' at the tunnel — remote clients will get 530 until it exists"
+            );
+        }
+    }
     // 3b. Update the tunnel's REMOTE config via the Cloudflare API — cloudflared
     //     prefers the remote config when one exists, and a stale remote (old
     //     127.0.0.2 ingress) would override the local tunnel.yml. Point the
@@ -564,6 +582,80 @@ fn tunnel_outcome(local: Result<(), String>, remote: RemoteConfig, hostname: &st
 ///
 /// It RETURNS its verdict. It used to return `()` through eight bare `return`s, which made a
 /// failed remote update invisible everywhere while the local file claimed 127.0.0.1.
+/// Point the hostname at the tunnel through the Cloudflare API.
+///
+/// **THE SAME DEFECT AS `create_tunnel_via_api`, ONE STEP LATER, AND IT WAS INVISIBLE.** `cloudflared tunnel
+/// route dns` needs the same origin certificate the create did, so on a machine with no interactive login it
+/// failed — and this call site reads `let _ = route_cmd.output().await;` under the comment "best-effort", so
+/// NOTHING was reported. Measured 2026-09-27: the panel said `tunnel: ok` (the create now goes through the API)
+/// while a remote client still got **530**, because no DNS record existed for the hostname. The tunnel was
+/// built and nothing could reach it.
+///
+/// A tunnel route is a PROXIED CNAME to `<tunnel-id>.cfargotunnel.com`. The zone comes from the hostname's own
+/// domain part, which is what makes this work without knowing the account's zone layout in advance.
+async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let zone = hostname.split('.').skip(1).collect::<Vec<_>>().join(".");
+    if zone.is_empty() {
+        return false;
+    }
+    let zr = client
+        .get(format!(
+            "https://api.cloudflare.com/client/v4/zones?name={zone}"
+        ))
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await;
+    let zone_id = match zr {
+        Ok(r) => match r.json::<serde_json::Value>().await {
+            Ok(j) => j["result"][0]["id"].as_str().map(|s| s.to_string()),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    };
+    let Some(zone_id) = zone_id else {
+        tracing::warn!("[summrise-agent] tunnel route: no zone id for '{zone}'");
+        return false;
+    };
+    let body = serde_json::json!({
+        "type": "CNAME",
+        "name": hostname,
+        "content": format!("{tunnel_id}.cfargotunnel.com"),
+        "proxied": true,
+    });
+    let cr = client
+        .post(format!(
+            "https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
+        ))
+        .header("authorization", format!("Bearer {cf_token}"))
+        .json(&body)
+        .send()
+        .await;
+    match cr {
+        Ok(r) => {
+            let ok = r.status().is_success();
+            if !ok {
+                let txt = r.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "[summrise-agent] tunnel route: the API refused '{hostname}': {}",
+                    &txt[..txt.len().min(300)]
+                );
+            }
+            ok
+        }
+        Err(e) => {
+            tracing::warn!("[summrise-agent] tunnel route: {e}");
+            false
+        }
+    }
+}
+
 /// Create the tunnel through the Cloudflare API and return its UUID.
 ///
 /// **WHY THIS EXISTS RATHER THAN `cloudflared tunnel create`, MEASURED 2026-09-27 ON A FRESH
