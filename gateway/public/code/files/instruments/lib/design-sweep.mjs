@@ -910,6 +910,16 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
   // device's is attached to the operator's screen (round 32 made the shipped probe refuse to drive it — correctly), so
   // this is the SECOND question held up by that one condition, after round 30's terminal-fit measurement. Both are
   // answerable the moment the desktop view is closed; neither is answerable from this checkout.
+  //
+  // ── AND THE INVESTIGATION CLOSES HERE, BECAUSE THE NOTE IS NOT A FAILURE (round 56 of the standing goal) ────────
+  // Read what the note SAYS: "acknowledged only on the SECOND press". **THE CONTROL IS ACKNOWLEDGED** — this pass presses
+  // twice by design, the second press is what satisfies it, and the row is counted in the axis (which is why the panel
+  // reads `8a` of 16 rather than 7). The note is a WARNING ABOUT WHEN, not a report that something is broken: it is the
+  // pass saying "this control needed a second press, and that is either the machine or the control". Rounds 43-54 chased
+  // it through five explanations and found no defect at any of them — the mechanism, the fill, the closure, the sampling
+  // and the selector are all correct — which is the right answer to have reached and the right place to stop. **A NOTE
+  // THAT IS INFORMATIONAL SHOULD NOT COST FIFTEEN ROUNDS**, and the reason it did is that its two readings are offered
+  // without a third option: "nothing is wrong, this is the protocol working".
   // emitted script by inserting into it — the second time this loop has paid for that, after round 41's stylesheet.)
   const rows = [];
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
