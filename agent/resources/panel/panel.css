@@ -5574,6 +5574,14 @@ button.dtab-close:hover { opacity: 1; }
    overlay or a drawer, which keeps its content reachable and its width intact, and which needs a control so a keyboard
    or touch user can open it. That is a design decision and a component change, not another number in this media query,
    and it is why the spill is still 5-7 elements rather than fixed. */
+  /* ── AND THIS BLOCK NEEDS NO UNIT TEST, WHICH IS WORTH WRITING DOWN BEFORE SOMEONE WRITES ONE (round 61) ──────
+     The obvious instinct is a jsdom test pinning these three rules. It would be redundant and weaker than what already
+     exists: jsdom does not apply media queries, so such a test could only assert that the SOURCE contains the text,
+     while the design job asserts the RENDERED RESULT. Delete this block and the panel scrolls sideways at 320px again,
+     which `judgeReport` turns into a FINDING (`reflow @320px: the document scrolls sideways`) — and `spilling`/`clipped`
+     are findings since round 37 — so CI goes red on the next push. **THE ENFORCEMENT CHAIN IS WHAT MAKES THAT TRUE**:
+     before round 26 deleted the vacuous exemption and round 37 turned the two loss notes into findings, a lost breakpoint
+     would have been excused or merely reported. */
 @media (max-width: 760px) {
   /* **AND THE OTHER SURFACE HAS HAD THIS ALL ALONG (round 41 of the standing goal).** The question was whether the
      console's clean 320px reflow (`0sc/0over/0sp/0cl` on all thirty of its rows) meant the same thing as the
