@@ -2388,13 +2388,14 @@ h3 { font-size: var(--fs-base); }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 }
+/* **A SLOT FOR THE MARK, NOT A TILE THAT CARRIES A LETTER.** The rule was a 56px brand-gradient square with a bold
+   white `V` in it, and `V` is not in the product's name — while `BrandMark` draws `brand/logo.svg` (THE ONE MARK) and
+   already had its own gradients. Putting that mark ON a gradient tile would have made two gradients fight, so the tile is
+   neutral now and the mark supplies the colour. Measured from the device browser in round 149, where the empty state
+   rendered as the literal text "V No sessions yet". */
 .empty-mark {
   display: inline-flex; align-items: center; justify-content: center;
   width: 56px; height: 56px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--brand-grad-a), var(--brand-grad-b));
-  color: #fff;
-  font-weight: var(--fw-bold); font-size: var(--fs-xl);
   margin-bottom: var(--sp-3);
 }
 .empty-card p { color: var(--chrome-ink-dim); margin: 0 0 var(--sp-4); font-size: var(--fs-md); }
@@ -4433,6 +4434,8 @@ h3 { font-size: var(--fs-base); }
   box-shadow: var(--shadow-lg);
   text-align: center;
 }
+/* A NEUTRAL SLOT FOR THE MARK, like `.empty-mark` — see the note there. This tile used to paint the brand gradient and
+   put a white `V` on it; `BrandMark` draws the mark's own gradients, so the tile supplies only the box. */
 .app-crash-mark {
   width: 44px;
   height: 44px;
@@ -4440,8 +4443,6 @@ h3 { font-size: var(--fs-base); }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, var(--brand-grad-a), var(--brand-grad-b));
-  color: #fff;
   font-weight: var(--fw-bold);
   font-size: var(--fs-xl);
   margin-bottom: 6px;
