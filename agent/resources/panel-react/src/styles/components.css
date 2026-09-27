@@ -3061,7 +3061,36 @@
 }
 .desktop-settings h2 { font-size: var(--fs-lg); margin: 0 0 var(--sp-1); }
 .desktop-settings h3 { font-size: var(--fs-md); margin: var(--sp-4) 0 6px; }
-.settings-section { margin-bottom: var(--sp-2); }
+.settings-section {
+  /* ── A SECTION IS A CARD, BECAUSE THE PAGE HAD NO VISUAL CONTAINERS AT ALL ────────────────────────────────
+     Until 2026-09-28 this rule was ONE LINE — `margin-bottom: var(--sp-2)` — and the page was therefore six
+     `h2`-headed blocks of prose and controls laid flat on one white surface, with nothing but bold text to separate
+     them. The operator's read of it: *"这个页面太过混乱需要重新设计"*. The tokens below are the repository's own
+     (`--line-soft`, `--radius`, `--sp-4`, `--surface-recessed`), so this adds no colour and no scale of its own. */
+  background: var(--surface-recessed);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+/* THE HEADING IS THE CARD'S TITLE, SO IT SITS TIGHT TO ITS OWN CONTENT AND DOES NOT COMPETE WITH THE PAGE HEADER.
+   It had NO rule before, which is why an `h2` and a `<summary>` read at the same weight on screen. */
+/* AND IT USES THE SAME TOKENS `.desktop-settings h2` ALREADY DOES — `var(--fs-lg)` and `var(--fw-semi)` — because
+   `src/lib/designScale.test.ts` refuses a size outside `--fs-2xs|xs|sm|base|md|lg|xl`, and refuses a NUMBER that merely
+   happens to match one. The first version of this rule wrote a raw pixel value and the test answered *"a size outside …
+   is drift"* — **the gate was right and the number was mine.**
+   AND THE SECOND ATTEMPT STILL FAILED, FOR A REASON WORTH KEEPING: this comment quoted that forbidden declaration
+   verbatim, and the test scans the FILE, so the quotation tripped it. **A COMMENT THAT QUOTES WHAT A GATE FORBIDS
+   TRIPS THE GATE** — and the third attempt tripped `stylesheet-hygiene` by writing the comment TERMINATOR inside this
+   prose, which closed the block early: the same accident round 41 had with a media query, reproduced in a sentence
+   about round 41. **NEVER WRITE THAT PAIR OF CHARACTERS IN A COMMENT'S TEXT.** */
+.settings-section > h2 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+}
+/* THE FIRST PARAGRAPH OF A CARD IS ITS LEDE, so it keeps the reader's eye and the controls below it get room. */
+.settings-section > p { margin: 0 0 var(--sp-3); }
 /* PROSE HAS A MEASURE, AND THIS PAGE HAD NONE (round 265). Measured on the live panel at 1440px, in BOTH
    densities: twelve paragraphs on this page rendered as SINGLE lines of 93-206 characters
    (`.muted monitor-lede` 206, `.muted notify-hint` 193, `.muted restart-note` 188, `.muted` 151 / 135 / 123,
