@@ -223,7 +223,7 @@ const TIMING = P.timing;
         // ONE PAGE, not six: the measurement is a SIX-SECOND window, and running it on every page of every density
         // and theme would spend two and a half minutes proving the same thing. Terminal is the panel's default page.
         if (wants("idle")) {
-          const idle = await idlePass(page, 6000);
+          const idle = await idlePass(page);
           report.idle = report.idle || [];
           // This is the page the mode loop just loaded — the default one, Terminal — because the rail walk that
           // names the other pages happens further down. Calling it label here was the first version's bug: there is
