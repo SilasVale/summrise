@@ -201,22 +201,25 @@ node agent/scripts/panel-render-audit.mjs >/dev/null || [ $? -eq 2 ]
 cp /tmp/panel-render-audit/panel-harness.html "$TMP/panel-harness.html"
 grep -o 'summrise-harness-build" content="[^"]*"' "$TMP/panel-harness.html" || true
 
-echo "── panel: emitting and running (all passes) ──"
-node agent/scripts/panel-design-sweep.mjs --emit --passes=all > "$TMP/panel.js"
-node --check "$TMP/panel.js"
-SUMMRISE_PANEL_HARNESS="$TMP/panel-harness.html" \
-SUMMRISE_SWEEP_REPORT="$TMP/panel-report.json" \
-SUMMRISE_BROWSER_HELPER="$HELPER" \
-  node "$TMP/panel.js"
-if [ ! -s "$TMP/panel-report.json" ]; then
-  echo "FAIL: the panel sweep wrote no report — a run that did not finish is not a pass" >&2
-  exit 1
-fi
+run_panel() {
+  echo "── panel: emitting and running (all passes) ──"
+  node agent/scripts/panel-design-sweep.mjs --emit --passes=all > "$TMP/panel.js" || return 1
+  node --check "$TMP/panel.js" || return 1
+  SUMMRISE_PANEL_HARNESS="$TMP/panel-harness.html" \
+  SUMMRISE_SWEEP_REPORT="$TMP/panel-report.json" \
+  SUMMRISE_BROWSER_HELPER="$HELPER" \
+    node "$TMP/panel.js" || return 1
+  if [ ! -s "$TMP/panel-report.json" ]; then
+    echo "FAIL: the panel sweep wrote no report — a run that did not finish is not a pass" >&2
+    return 1
+  fi
+}
 
 # THE CONSOLE serves its own built files from the repository, so it needs no harness — only a root that points
 # at what this checkout produces. (The extension was a second arm here until round 243 removed it: it shipped
 # nowhere, its default was off, and the half it existed for had already been deleted.)
-for ui in console; do
+run_console() {
+ for ui in console; do
   # BUILD IT, DO NOT SERVE THE PUBLISHED COPY (round 76). This arm pointed at `gateway/public`, which the RELEASE
   # flow copies a console into — so the design job was sweeping the console that was last published, not the one in
   # this checkout, in a script whose own header says it runs "against what this repository builds". Two console fixes
@@ -239,16 +242,18 @@ for ui in console; do
     node "$TMP/$ui.js"
   if [ ! -s "$TMP/$ui-report.json" ]; then
     echo "FAIL: the $ui sweep wrote no report" >&2
-    exit 1
+    return 1
   fi
-done
+ done
+}
 
 # THE LANDING IS GENERATED, NOT BUILT, AND IT HAD NEVER BEEN RENDERED BY ANY GATE (round 81). `--emit` renders the page
 # the WORKER serves — by calling PAGE(), the same entry point index/src/index.js serves and the index tests call — in
 # BOTH installer states, into a directory this job then serves. The two states are the point: when a release publishes
 # no installer the page swaps the primary button for a hint, a different element with a different contrast question,
 # and only a browser can see it. Nothing is delivered in between, so the root is set for the emit AND the run.
-echo "── landing: rendering the page the worker serves ──"
+run_landing() {
+  echo "── landing: rendering the page the worker serves ──"
 SUMMRISE_LANDING_OUT="$TMP/landing" node agent/scripts/landing-design-sweep.mjs --emit > "$TMP/landing.js" 2>"$TMP/landing-emit.log"
 cat "$TMP/landing-emit.log"
 node --check "$TMP/landing.js"
@@ -260,6 +265,30 @@ if [ ! -s "$TMP/landing-report.json" ]; then
   echo "FAIL: the landing sweep wrote no report — a run that did not finish is not a pass" >&2
   exit 1
 fi
+
+}
+
+# ── DISPATCH: three independent browser-driven sweeps, concurrently (round 145) ─────────────────────────────
+#
+# WHY. This script's own cost block measured them in sequence — panel 464s, console 241s, landing 42s, 747s of a job
+# that is already the long pole of this repository's CI — and a push guard refuses a push while any run is in flight,
+# so this step's duration IS the loop's push rate. **They share nothing**: each emits its own program, launches its own
+# browser, and writes its own files under "$TMP" (panel.js/panel-report.json, console.js/console-report.json +
+# console-build/, landing.js/landing-report.json + landing/). The prerequisites above stay serial (the panel's harness,
+# the console's build) and the judging below stays serial — it takes 0.2s and needs all three reports.
+#
+# **THE STATUSES ARE COLLECTED ONE BY ONE, AND THAT IS THE POINT.** `wait` with no argument returns the LAST job's
+# status; this repository has paid twice for exactly that shape ("a pipeline exits with its LAST command's status").
+# A sweep that failed while a later one succeeded would have reported a clean run.
+echo "── three sweeps, concurrently ──"
+run_panel   & P_PANEL=$!
+run_console & P_CONSOLE=$!
+run_landing & P_LANDING=$!
+rc=0
+wait "$P_PANEL"   || { echo "FAIL: the panel sweep failed" >&2;   rc=1; }
+wait "$P_CONSOLE" || { echo "FAIL: the console sweep failed" >&2; rc=1; }
+wait "$P_LANDING" || { echo "FAIL: the landing sweep failed" >&2; rc=1; }
+[ "$rc" -eq 0 ] || exit 1
 
 # THE JUDGE IS THE VERDICT, for each UI in turn, reading the report that sweep just wrote. A stale harness and a
 # partial pass set are both findings, so neither can pass as a clean run.
