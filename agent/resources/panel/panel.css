@@ -5232,14 +5232,27 @@ button.dtab-close:hover { opacity: 1; }
 /* THE FOLDS ON SETTINGS (1.2.448). The operator's complaint was that the page was cluttered: the client snippets and the
    diagnostics are both real, and neither is a setting, so they now live behind a summary instead of in the reading order. The
    summary is chrome — neutral, one line, the same ink as a section heading — because it is a doorway, not a state. */
+/* ── A FOLDED CARD IS STILL A CARD ────────────────────────────────────────────────────────────────────────────────
+   Round 138 turned the six `.settings-section`s into cards; these two `details` kept the OLD language — `margin:
+   var(--sp-4) 0` (a rhythm nothing else on the page uses) and a single `border-top` line — so on a page of cards they
+   read as leftovers from a different design. Measured in the operator's own read of the page, and visible the moment the
+   sections became containers.
+   **The hierarchy is the point, not the uniformity**: a fold's title is `--fs-base` where a section's is `--fs-lg`, so
+   "the settings" and "the reference material" separate at a glance while sharing one visual grammar. The folds are also
+   the two things the file already calls *"neither is a setting"* — a `details` keeps them one click away and out of the
+   reading order, and now it keeps them in the same language too. */
 .settings-fold {
-  margin: var(--sp-4) 0;
-  border-top: 1px solid var(--line);
+  background: var(--surface-recessed);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 0 var(--sp-4);
+  margin-bottom: var(--sp-3);
 }
 .settings-fold > summary {
   padding: var(--sp-3) 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: var(--fw-semi);
+  color: var(--ink);
   cursor: pointer;
 }
 /* NO COLOUR OF ITS OWN: the summary inherits the page's ink, and the first version of this rule named `--ink-dim`, a token that
