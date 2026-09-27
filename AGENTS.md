@@ -437,6 +437,25 @@ from. The non-PowerShell form, which needs no quoting because the 8.3 short name
 And `summrise update` returns a **502 from the device agent** while it swaps the exe and restarts — that is the swap, not a
 failure; `summrise status` afterwards is what says whether it took (it did: `latest: 1.2.475 (this device is current)`).
 
+**AND THREE THINGS BITE A FIRST-TIME WINDOWS INSTALL, ALL MEASURED ON 2026-09-27 WHILE INSTALLING A FRESH MACHINE:**
+
+  1. **`summrise` IS REFUSED BY POWERSHELL'S EXECUTION POLICY.** npm writes three shims and PowerShell prefers the `.ps1`
+     one, which the default `Restricted` policy blocks: *"无法加载文件 …\summrise.ps1，因为在此系统上禁止运行脚本"*. **Use
+     `summrise.cmd <command>`** — it bypasses the policy entirely and changes nothing on the machine. (Or
+     `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, once.)
+  2. **IT NEEDS AN ELEVATED SHELL, AND SAYS SO BADLY.** The install dir defaults to `C:\Program Files\Summrise` and the
+     registry key is `HKLM`, so a normal user's `summrise desktop` dies with
+     `EPERM: operation not permitted, mkdir 'C:\Program Files\Summrise\scripts'` — a stack trace where the useful sentence
+     is "run `summrise setup` as administrator". **Open PowerShell as administrator for `setup`.**
+  3. **THE FIRST `setup` CAN STALL AT "reconciling desktop shortcut (retired-exe repair)"** — that step instantiates
+     `WScript.Shell` over COM and removes two retired executables, and it hung once. **Re-running `setup` went straight
+     past it**; the step is cosmetic, `setup` is idempotent, and Ctrl+C there costs nothing.
+
+**AND THE WHOLE INSTALL IS TWO COMMANDS** (the second one now starts the agent itself):
+
+    npm i -g summrise-agent@1.2.475        # exact version: `latest` can resolve stale and still report success
+    summrise.cmd setup                     # components + registry + tasks + the agent
+
 **AND A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** A stale `latest`
 resolved from npm's cache or this box's mirror printed `changed 1 package` and left the OLD version in
 place. The URL above has no resolution step, so it is immune; an EXACT version (`summrise-agent@1.2.455`)
