@@ -1107,6 +1107,16 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       await page.waitForTimeout(120);
       const again = await read(sel);
       if (again) before = again;
+      // ── AND THE REMAINING SENSITIVITY IS NOT THE TIMING BASIS, IT IS WHAT THE BUDGET MEASURES (round 97) ──────
+      // Round 96 saw the design job fail on a DOCUMENTATION-ONLY commit with `console overview: button.btn
+      // acknowledged the press after 144ms — the budget is 100ms, so this feedback waited on the 1640ms network`.
+      // The re-run passed, so it is a flake; the interesting part is that the judge's own message NAMED THE CAUSE and
+      // failed anyway. A budget of 100ms on the second press is a budget on FEEDBACK, and `useAck` sets `data-busy`
+      // synchronously on press (rounds 49-51) — so a control whose attribute appears 144ms later appeared late for a
+      // reason that is not the control: React paints on the next render, and that render waits on the request the
+      // control just made. **THE OPEN QUESTION IS THEREFORE WHETHER THE BUDGET SHOULD STOP AT THE PAINT OR KEEP
+      // MEASURING THE NETWORK**, which is the same shape as the settle-budget work in rounds 20-25 and is worth the
+      // same treatment: measure what the criterion is about, and let the network be reported rather than scored.
       // THE SECOND PRESS IS THE ONE THAT COUNTS, AND IT IS TIMED FROM ITSELF. CI reported every row as
       // "acknowledged the press after 1513ms — the budget is 100ms" because the metric ran from the FIRST press,
       // which on that runner never registered at all (the control answered in ~5ms to the second one). Timing from a
