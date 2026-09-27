@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAck } from "../lib/useAck";
 import { useTranslation } from "../i18n.ts";
 import { useToast } from "../contexts/ToastContext.tsx";
 import { api, ApiError } from "../api/client.ts";
@@ -39,6 +40,12 @@ export default function Keys() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [keys, setKeys] = useState<Record<string, KeyInfo | undefined>>({});
+
+  // **FOUR ASYNC CONTROLS, ONE MECHANISM.** Test, Usage, Clear and Save all await the network, and each carried only its
+  // own `disabled` flag — the console's habit before `lib/useAck.ts` existed (round 161). The two synchronous controls on
+  // this page (Edit and Cancel) deliberately do NOT get it: a control that changes state in its own click handler cannot
+  // be "waiting on the network", which is what round 137 established about a synchronous toggle.
+  const { ack: keyAck, run: runKeyAck } = useAck();
   // A FAILED READ IS NOT AN EMPTY ACCOUNT. `keys` starts empty and stays empty when `/api/me` fails,
   // and an empty object renders every card as "not configured" — nine confident claims about nine
   // credentials, on the page whose whole job is those credentials. This flag is what tells the two
@@ -305,7 +312,8 @@ export default function Keys() {
                 <button
                   className="btn btn-ghost btn-mini"
                   disabled={testing === name}
-                  onClick={() => handleTest(name)}
+                  onClick={() => void runKeyAck(`test:${name}`, () => handleTest(name))}
+                  {...keyAck(`test:${name}`)}
                 >
                   {testing === name ? t("btn.testing") : t("btn.test")}
                 </button>
@@ -315,12 +323,17 @@ export default function Keys() {
                   <button
                     className="btn btn-ghost btn-mini"
                     disabled={usageLoading === name}
-                    onClick={() => handleUsage(name)}
+                    onClick={() => void runKeyAck(`usage:${name}`, () => handleUsage(name))}
+                    {...keyAck(`usage:${name}`)}
                   >
                     {usageLoading === name ? t("btn.usageLoading") : t("btn.usage")}
                   </button>
                 )}
-                <button className="btn btn-danger btn-mini" onClick={() => handleClear(name)}>
+                <button
+                  className="btn btn-danger btn-mini"
+                  onClick={() => void runKeyAck(`clear:${name}`, () => handleClear(name))}
+                  {...keyAck(`clear:${name}`)}
+                >
                   {t("btn.clear")}
                 </button>
               </div>
@@ -337,7 +350,11 @@ export default function Keys() {
                     onKeyDown={(e) => e.key === "Enter" && handleSave(name)}
                     autoFocus
                   />
-                  <button className="btn btn-primary btn-mini" onClick={() => handleSave(name)}>
+                  <button
+                    className="btn btn-primary btn-mini"
+                    onClick={() => void runKeyAck(`save:${name}`, () => handleSave(name))}
+                    {...keyAck(`save:${name}`)}
+                  >
                     {t("btn.save")}
                   </button>
                   <button
