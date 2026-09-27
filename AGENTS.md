@@ -405,6 +405,20 @@ summrise update
 summrise status
 ```
 
+**THAT BLOCK IS POWERSHELL, AND ITS `--prefix` SUBSTITUTION FAILS SILENTLY ANYWHERE ELSE** (measured round 90 of the standing
+goal). Run from a `cmd`-style shell — which is what a device tool's terminal often is — `(Split-Path (Get-Command
+summrise).Source)` is not evaluated: npm reads it as a PACKAGE NAME, fails with `E404 … '(Get-Command@*'`, and the obvious
+repair is worse. Substituting the `install dir:` that `summrise status` prints installs into the WRONG place and reports
+`added 1 package` — the agent's install dir is not the npm prefix, which is the directory the `summrise` command resolves
+from. The non-PowerShell form, which needs no quoting because the 8.3 short name has no spaces:
+
+    where summrise                                   # -> D:\Program Files\nodejs\summrise
+    npm i -g --prefix D:\PROGRA~1\nodejs https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
+    summrise status                                  # `this CLI:` is the ONLY proof; npm prints "changed 1 package" either way
+
+And `summrise update` returns a **502 from the device agent** while it swaps the exe and restarts — that is the swap, not a
+failure; `summrise status` afterwards is what says whether it took (it did: `latest: 1.2.475 (this device is current)`).
+
 **AND A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** A stale `latest`
 resolved from npm's cache or this box's mirror printed `changed 1 package` and left the OLD version in
 place. The URL above has no resolution step, so it is immune; an EXACT version (`summrise-agent@1.2.455`)
