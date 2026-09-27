@@ -853,13 +853,13 @@ export function ackNotes(rows, where) {
   const out = [];
   for (const a of rows || []) {
     out.push(
-      `note: ack ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""} — acked=${a.acked} via=${a.via || "none"} ` +
+      `note: ack ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""}${a.name ? " [" + a.name + "]" : ""} — acked=${a.acked} via=${a.via || "none"} ` +
         `ms=${a.msToAck === null || a.msToAck === undefined ? "-" : a.msToAck} budget=${a.budgetMs} ` +
         `presses=${a.presses ?? a.attempts ?? 1}`,
     );
     if (a.acked && (a.attempts || 1) > 1) {
       out.push(
-        `note: ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded ` +
+        `note: ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""}${a.name ? " [" + a.name + "]" : ""} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded ` +
           `machine is a timing artefact and on a real control is an acknowledgement that depends on state`,
       );
     }
@@ -892,6 +892,11 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
         attr: el.getAttribute("data-busy") === "1" ? "data-busy" : el.disabled === true ? "disabled" : el.getAttribute("aria-busy") === "true" ? "aria-busy" : null,
         transform: st.transform, opacity: st.opacity, background: st.backgroundColor,
         where: el.tagName.toLowerCase() + (typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : ""),
+        // THE CONTROL'S OWN NAME (round 44 of the standing goal): `where` is the CLASS CHAIN, so a note that prints
+        // it still points at every control sharing those classes — nine of them on the Memory page. The accessible
+        // name is what identifies one control, and it is read the way a screen reader reads it: aria-label first,
+        // then the visible text.
+        name: (el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
       };
     }
     return null;
