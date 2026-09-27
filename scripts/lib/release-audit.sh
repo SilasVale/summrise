@@ -146,14 +146,23 @@ print(next((a["id"] for a in json.load(sys.stdin) if a["name"] == sys.argv[1]), 
       return 3
     fi
     echo "  the release-asset host stalled or failed; retrying through the API asset URL (id ${aid})" >&2
+    # EXIT 3 MEANS "COULD NOT CHECK", WHICH IS NOT "CHECKED AND DIFFERENT" (round 86 of the standing goal).
+    # Round 85 measured what the confusion costs: `--audit-only 1.2.475` reported a DOWNLOAD failure while the CDN's
+    # artifact and the GitHub asset actually DIFFERED by 20 bytes (sha256 90a9b760… vs 2fa54a0d…) — a P0 dual-builder
+    # violation that the audit was supposed to catch and instead could not reach. A caller reading only the status saw
+    # one number for both conditions, and a log that says "cannot download" reads like an environment problem rather
+    # than like an unchecked release. A mismatch still returns 1; only the three unreachable-asset paths return 3.
+    #
+    # **AND THIS BLOCK USED TO SIT INSIDE THE COMMAND, WHICH BROKE THE FALLBACK ENTIRELY** (measured 2026-09-27 on
+    # `--audit-only 1.2.477`): bash starts a comment at a word boundary, so the `#` swallowed the rest of that line,
+    # `curl` was left with NO URL, and the URL line was executed as a command —
+    #     curl: no URL specified!
+    #     scripts/lib/release-audit.sh: line 157: https://api.github.com/...: No such file or directory
+    # The direct download had stalled (this box's route to the release-asset host is flaky), so the fallback was the
+    # ONLY path left, and it had never worked. **A COMMENT BETWEEN A COMMAND AND ITS LAST ARGUMENT IS A COMMENT THAT
+    # DELETES THE ARGUMENT.**
     curl -fsSL -m 300 --speed-limit 20000 --speed-time 20 \
       -H "Authorization: Bearer ${token}" -H "Accept: application/octet-stream" \
-      # EXIT 3 MEANS "COULD NOT CHECK", WHICH IS NOT "CHECKED AND DIFFERENT" (round 86 of the standing goal).
-      # Round 85 measured what the confusion costs: `--audit-only 1.2.475` reported a DOWNLOAD failure while the CDN's
-      # artifact and the GitHub asset actually DIFFERED by 20 bytes (sha256 90a9b760… vs 2fa54a0d…) — a P0 dual-builder
-      # violation that the audit was supposed to catch and instead could not reach. A caller reading only the status saw
-      # one number for both conditions, and a log that says "cannot download" reads like an environment problem rather
-      # than like an unchecked release. A mismatch still returns 1; only the three unreachable-asset paths return 3.
       "${base}/releases/assets/${aid}" -o "$work/gh.tgz" || {
       echo "::error::release audit: cannot download the GitHub asset, direct OR through the API" >&2
       return 3
