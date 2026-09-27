@@ -326,6 +326,14 @@ cmd="${1:-agent}"
 case "$cmd" in
   agent|command)  build_agent "${2:-release}" ;;
   gateway)  deploy_worker gateway "Summrise Gate" ;;
+  # ── AND THE DEPLOY'S SMOKE DOES NOT COVER THE STATIC ASSETS, WHICH IS ROUND 101's GAP (round 102) ───────────────
+  # The smoke checks `/api/version` and it passed on every deploy — while `index/public/summrise-agent/
+  # live-panel-probe.js` was served a RELEASE BEHIND what was committed, because committing under `index/public/` does
+  # not deploy it. A served file is not covered by an API smoke, and nothing else looked: the loop found it only when the
+  # DEVICE fetched 39,334 bytes where the committed file was 39,884. **THE CHECK THAT WOULD HAVE CAUGHT IT IS ONE
+  # `cmp`** — fetch one known served file and compare it with the committed copy — and it belongs HERE, after the
+  # deploy, because before it the CDN is legitimately behind. Not added yet: the honest first step is to name it where
+  # the smoke runs rather than to bolt a second check onto a shared `deploy_worker` without reading what it already does.
   index)    deploy_worker index "Summrise Index" ;;
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
