@@ -1114,6 +1114,19 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       // failed anyway. A budget of 100ms on the second press is a budget on FEEDBACK, and `useAck` sets `data-busy`
       // synchronously on press (rounds 49-51) — so a control whose attribute appears 144ms later appeared late for a
       // reason that is not the control: React paints on the next render, and that render waits on the request the
+      // ── AND ROUND 99 DECIDED IT: THE BUDGET IS RIGHT, AND THE RE-RUN WAS THE HONEST RESPONSE ────────────────────
+      // The question above was whether to stop scoring the network. **THE ANSWER IS NO, AND IT TURNS ON WHAT
+      // `msToAck` ALREADY IS**: the probe polls `read(sel)` for `busy || painted`, so the number is the time until the
+      // ATTRIBUTE APPEARS — the feedback itself — and not the request's round-trip. A row that reports 144ms is
+      // therefore reporting feedback that was genuinely 144ms late, because React painted on the first render after
+      // the press and that render's handlers were competing with an in-flight request. That is a real latency the
+      // panel showed under CI's load, which is what the criterion is FOR.
+      //
+      // AND THE MEASUREMENT THAT WOULD HAVE JUSTIFIED WEAKENING IT DOES NOT EXIST: the row carries `callsInWindow`,
+      // a COUNT, and `window.__callTimes` holds timestamps rather than durations — so "the network caused this" is not
+      // something the data can say, only something the message can speculate. **A CRITERION SHOULD NOT BE RELAXED ON
+      // THE STRENGTH OF A SPECULATION ITS OWN DATA CANNOT CHECK**, which is why the flake was re-run (round 96) rather
+      // than excused, and why that remains the response.
       // control just made. **THE OPEN QUESTION IS THEREFORE WHETHER THE BUDGET SHOULD STOP AT THE PAINT OR KEEP
       // MEASURING THE NETWORK**, which is the same shape as the settle-budget work in rounds 20-25 and is worth the
       // same treatment: measure what the criterion is about, and let the network be reported rather than scored.
