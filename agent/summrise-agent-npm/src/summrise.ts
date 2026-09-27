@@ -2449,6 +2449,21 @@ const commands = {
         "setup: no tunnel configured (local mode). Enable later with `summrise tunnel install <hostname>`.",
       );
     }
+    // START THE AGENT, BECAUSE `setup` IS WHERE AN OPERATOR EXPECTS THE THING TO BE RUNNING.
+    // MEASURED 2026-09-27, ON A FRESH WINDOWS MACHINE: the documented journey was
+    // `setup` -> `start` -> `desktop`, and the operator asked why it takes several commands.
+    // `setup` already registers AND starts SummriseDesktop above; the AGENT task was the one
+    // left to a separate command, and nothing about that split was useful to the person typing
+    // it. `summrise start` remains for a stopped agent -- this removes the step from the
+    // install, not the command.
+    const agentRun = svc("Run");
+    if (agentRun && agentRun.status === 0) {
+      console.log("setup: SummriseAgent started");
+    } else {
+      console.log(
+        `setup: WARNING -- could not start SummriseAgent (status ${agentRun ? agentRun.status : "spawn error"}); run: summrise start`,
+      );
+    }
   },
 
   // ── monitor ────────────────────────────────────────────────────────────
