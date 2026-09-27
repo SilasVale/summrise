@@ -2810,6 +2810,15 @@ const commands = {
             `if ((-not (Test-Path '${q}\\etc\\config.yaml')) -or (-not (Test-Path '${q}\\etc\\summrise-agent.hostname'))) { "[$(Get-Date -Format o)] migration gate FAILED (etc\\config.yaml/hostname missing) -- aborting, old version keeps running" | ${log}; try { Remove-Item -Force (${busyMarkerPs()}) } catch {}; exit 1 }`,
             // A running exe cannot be overwritten on Windows — stop the service
             // first (task end + process kill), THEN swap with retry.
+            // **THE RESTART IS IN A `finally` NOW, WHICH IS THE WHOLE POINT.** It used to be the LAST statement of a ~24-step
+            // sequence — 12 copy retries, a registry block, a Remove-Item, a three-file desktop loop — with nothing guarding
+            // it, so an unhandled error, a dead WMI process or a WMI timeout anywhere in between meant the start never ran and
+            // the device stayed dark. Measured 2026-09-28: a device took `summrise update`, the swap answered 502, and its
+            // tunnel went from 502 to **530 / error code 1033** (no connector at all). The task's own watchdog does not cover
+            // it either — `RestartCount 8 -RestartInterval 1min` fires on a CRASH, and a STOPPED task is not a crash.
+            // **`try`/`finally` WITHOUT `catch` IS DELIBERATE**: the failure still propagates to the exit code, and the restart
+            // happens regardless. PowerShell runs a `finally` block for an uncaught exception and for `exit`.
+            "try {",
             "try { Stop-ScheduledTask SummriseAgent -ErrorAction Stop } catch {}",
             "Get-Process summrise-agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
             "Start-Sleep -Milliseconds 1500",
@@ -2834,8 +2843,10 @@ const commands = {
             // asserted a restart it had never verified. Measured 2026-09-28: a device took `summrise update`, the swap answered
             // 502, and the device went dark (the tunnel went from 502 to **530/1033** — no connector at all), while this line
             // would have said the task was back. `$rs` is the outcome, and it is what the log carries.
-            `$rs=$false; try { Start-ScheduledTask SummriseAgent -ErrorAction Stop; $rs=$true } catch { try { schtasks /Run /TN SummriseAgent; $rs=$true } catch {} }`,
-            `"[$(Get-Date -Format o)] task restart ok=$rs" | ${log}`,
+            "} finally {",
+            `  $rs=$false; try { Start-ScheduledTask SummriseAgent -ErrorAction Stop; $rs=$true } catch { try { schtasks /Run /TN SummriseAgent; $rs=$true } catch {} }`,
+            `  "[$(Get-Date -Format o)] task restart ok=$rs" | ${log}`,
+            "}",
             `try { Remove-Item -Force (${busyMarkerPs()}) } catch {}`,
             // Custom-port installs: the firewall rule must track the configured
             // bind port (baked at update time from the live config.yaml — the
