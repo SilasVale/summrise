@@ -92,11 +92,13 @@ describe("recessed content surfaces", () => {
     };
     const bare = css;
     let checked = 0;
+    let rules = 0;
     for (const m of bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const body = m[2];
       if (!/linear-gradient/.test(body)) continue;
       const colour = /(?:^|;)\s*color\s*:\s*([^;]+);/.exec(body);
       if (!colour) continue;
+      rules++;
       const fg = parseColour(colour[1].trim());
       if (!fg) continue;
       for (const stop of stopsOf(body)) {
@@ -110,9 +112,20 @@ describe("recessed content surfaces", () => {
         ).toBeGreaterThanOrEqual(4.5);
       }
     }
-    // THE MEASURED NUMBER, not a guess: one rule (`.empty-mark`) x two stops. A floor of "more than
-    // two" failed on the honest implementation.
-    expect(checked, "the gradient check must actually measure something").toBeGreaterThanOrEqual(2);
+    // **THE FLOOR IS CONDITIONAL, AND THE CONDITION IS THE POINT.** It was a bare `>= 2`, calibrated when exactly one
+    // rule painted text on a gradient (`.empty-mark`) across two stops. **Round 150 removed the last two rules that
+    // did** — both wore a white `V` on a brand-gradient tile, and both now draw `BrandMark`, which brings its own
+    // gradients — so the check has nothing to measure and an unconditional floor reports that as a failure.
+    // **The check stays armed rather than deleted or weakened**: the moment a rule paints text on a gradient again,
+    // the floor applies to it, and until then the message says which of the two situations this is.
+    if (rules === 0) {
+      expect(checked, "no rule paints text on a gradient — nothing to measure").toBe(0);
+    } else {
+      expect(
+        checked,
+        `${rules} rule(s) paint text on a gradient, so at least one stop per theme must have been measured`,
+      ).toBeGreaterThanOrEqual(2);
+    }
   });
 
   // THE HARD-CODED COLOURS THAT REMAIN, triaged in round 76 so the next round does not re-open them:

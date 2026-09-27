@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "../hooks/useSessions";
 import { TabBar, type SessionView } from "./TabBar";
-import { Icon } from "../ui/Icon";
+import { BrandMark, Icon } from "../ui/Icon";
 import { TerminalPane } from "./TerminalPane";
 import { TrajectoryView } from "./TrajectoryView";
 import { PathView } from "./PathView";
@@ -269,7 +269,12 @@ export function TerminalWorkspace({
                 {sessions.length === 0 && (
                   <div id="empty-state">
                     <div className="empty-card">
-                      <span className="empty-mark">V</span>
+                      {/* **THE MARK, NOT THE LETTER.** This was `<span className="empty-mark">V</span>` — a bare capital on a
+                        brand-gradient tile — while `brand/logo.svg` (THE ONE MARK, "the summrise at sunrise") already existed and
+                        `BrandMark` already drew it for this panel. **A product whose empty state wears a letter that is not in its
+                        own name** is the kind of thing only a rendered measurement finds; `Icon.test.tsx` keeps every copy of the
+                        mark in step with `brand/logo.svg`, so this uses the component rather than a fourth copy. */}
+                        <span className="empty-mark"><BrandMark size={30} /></span>
                       <p>No sessions yet</p>
                     </div>
                   </div>
@@ -328,7 +333,12 @@ export function TerminalWorkspace({
               {sessions.length === 0 ? (
                 <div id="empty-state">
                   <div className="empty-card">
-                    <span className="empty-mark">V</span>
+                    {/* **THE MARK, NOT THE LETTER.** This was `<span className="empty-mark">V</span>` — a bare capital on a
+                        brand-gradient tile — while `brand/logo.svg` (THE ONE MARK, "the summrise at sunrise") already existed and
+                        `BrandMark` already drew it for this panel. **A product whose empty state wears a letter that is not in its
+                        own name** is the kind of thing only a rendered measurement finds; `Icon.test.tsx` keeps every copy of the
+                        mark in step with `brand/logo.svg`, so this uses the component rather than a fourth copy. */}
+                        <span className="empty-mark"><BrandMark size={30} /></span>
                     <p>No sessions yet</p>
                   </div>
                 </div>
