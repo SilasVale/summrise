@@ -141,6 +141,17 @@ So it is a mechanism now, in the one place a push cannot skip:
 | `scripts/hooks/ci-not-in-flight` | the check, its own file so it can be proven on fixtures |
 | `scripts/test/ci-not-in-flight.bash` | the proof: 7 cases on saved API responses, **and it RUNS the hook the way git does** rather than grepping for the call site |
 
+**AND THE RULE HAS A COST, SO SPEND IT IN BATCHES — MEASURED 2026-09-27, WHEN THE LOOP SPENT ~35 MINUTES WAITING.**
+`ci.yml` already triggers on `main` ONLY (`push: branches: [main]`), so a branch costs nothing and the run happens at the
+merge. What that means in practice is that **EVERY MERGE IS A ~7-MINUTE SERIALIZATION**, because this hook then refuses
+the next push until the run finishes. Five fixes merged one at a time is five waits; the same five merged once is one.
+**BATCH THE MERGES.**
+
+**AND RUN `scripts/test/all-gates.bash` BEFORE THE PUSH RATHER THAN GUESSING WHICH GATE WILL GO RED.** Its own header
+says what it is: *"Run every gate `ci.yml` invokes, locally, in one command."* It answers in SECONDS what the design job
+answers in minutes, and on 2026-09-27 this loop instead ran gates one at a time, by name, from memory — which is how it
+missed `production-host-check` until after a commit, and re-learned `pack-chain`'s mode rule three separate times.
+
 **IT FAILS OPEN, DELIBERATELY.** No token, no answer, unparseable JSON — all exit 0, because blocking a push over a flaky
 mirror is a worse failure than the one it prevents, and this repository's git remote has been measured answering in 0s, 32s
 and >90s for the same request. `git push --no-verify` is the escape hatch, and the hook prints it.
