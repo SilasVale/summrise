@@ -871,6 +871,15 @@ export function ackNotes(rows, where) {
 }
 
 export async function ackPass(page, targets, budgetMs, label = {}) {
+  // ── THE QUESTION THE SECOND-PRESS NOTE HAS CARRIED IS ANSWERED FOR THE CONTROL IT NAMES (round 47) ────────────
+  // The note offers two readings — "a timing artefact" or "an acknowledgement that depends on state" — and for
+  // `[Search]` on the Memory page the SECOND is the true one. `MemoryPage.tsx` wires that button to `search()`, which
+  // guards on `query.trim()` and calls nothing when the query is empty; this pass presses controls WITHOUT TYPING, so
+  // the first press is a LEGITIMATE no-op for the state the harness puts the control in — not a defect in the control
+  // and not a timing artefact. A pass that wants to measure Search the way a user meets it should type a query first;
+  // until it does, that note is the correct reading rather than a mystery, and this comment is where the next reader
+  // of it should look. (Placed HERE, not beside the note: the note is inside a template literal and round 47 broke the
+  // emitted script by inserting into it — the second time this loop has paid for that, after round 41's stylesheet.)
   const rows = [];
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
   // acknowledgement at all — which raises the obvious question the list cannot answer: how many others are there?
