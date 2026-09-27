@@ -15,6 +15,17 @@
 //
 // A CLEAN RESULT NOTHING ENFORCES IS ONE COMMIT FROM NOT BEING TRUE, so this is the ratchet: zero ad-hoc busy
 // flags, and a floor on how many components use the mechanism (a scan that read nothing is not a clean scan).
+//
+// ── AND ONE FACT ABOUT THE MECHANISM IS RECORDED HERE BECAUSE NOTHING PINS IT YET (round 50 of the standing goal) ──
+// `run()` sets `busyOn` and clears it in a `finally`. **WHEN THE ACTION DOES NO ASYNC WORK THE TWO STATE UPDATES BATCH
+// INTO ONE RENDER AND `data-busy` IS NEVER PAINTED** — so a control whose handler completes synchronously acknowledges
+// nothing, however many times it is pressed and however fast the machine is. The design-sweep's ack note has offered two
+// readings for that since it was written ("a timing artefact" or "an acknowledgement that depends on state"); reading the
+// hook settled it in favour of the first, with the cause named: React batching, not load.
+//
+// THIS FILE CANNOT PIN IT — it scans source and never renders, so a rendering test (React Testing Library is already in
+// the suite: see the `.tsx` cases beside this one) is what would turn the paragraph above into a ratchet. Until then it is
+// a fact with a witness and no gate, which is exactly the state this header exists to complain about.
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
