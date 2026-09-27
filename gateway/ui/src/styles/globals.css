@@ -1786,6 +1786,13 @@ body[data-theme="dark"] .note.tip {
   color: var(--text-secondary);
 }
 
+/* ── THE FORM'S PRIMARY ACTION IS THE SAME HEIGHT AS ITS FIELDS ────────────────────────────────────────────────────
+   Measured on the live console from a device browser (round 147): the two inputs rendered 330x43 and the submit button
+   330x32. **A form whose main action is shorter than the fields above it reads as an afterthought** — the eye follows one
+   column down and hits a step inward at the moment it is asked to commit. `.btn`'s own padding is right everywhere else;
+   inside this form the button joins the field rhythm instead. */
+.auth-form .btn-block { padding: 11px 13px; }
+
 /* The current-route summary. One line and a link — choosing happens on the
    Models page, where the whole catalogue is. */
 .current-route {
