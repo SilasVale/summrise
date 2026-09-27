@@ -888,6 +888,19 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
   // fill did not move the axis: a filled query makes the action await a tool call, the busy state then paints — **and the
   // axis did not move, so the fill did not reach the component**, which is the thing to check next (a native setter plus
   // an `input` event is the usual way past React's value tracker, and it is evidently not enough here).
+
+  // AND ROUNDS 51-53 KILLED THE NEXT TWO EXPLANATIONS (round 53 of the standing goal).
+  // `useAck.batching.test.tsx` pins the mechanism: an async action paints `data-busy`, a synchronous one never does.
+  // `sweepFill.test.tsx` pins the technique: the native setter plus an `input` event DOES reach a controlled component's
+  // state, and that test is written so a plain assignment cannot fake it. And `MemoryPage.tsx`'s `search` carries
+  // `[query, namespace, tag, load, run]`, so no stale closure is reading an empty query.
+  //
+  // AND THIS PASS POLLS: the press is followed by `read(sel)` in a loop that breaks on `busy || painted` and is bounded by
+  // `budgetMs`, so an attribute that IS painted is caught rather than raced past. With all four of those true the first
+  // press should acknowledge — and it does not, which leaves ONE candidate standing: the fill step above does not match
+  // the Memory page's input in the real DOM, even though the technique it uses is proven. A jsdom test can settle the
+  // technique and cannot settle the selector; that needs a browser, and the device's is attached to the operator's screen
+  // (round 32 made the shipped probe refuse to drive it).
   // emitted script by inserting into it — the second time this loop has paid for that, after round 41's stylesheet.)
   const rows = [];
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
