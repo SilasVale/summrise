@@ -1791,7 +1791,11 @@ body[data-theme="dark"] .note.tip {
    330x32. **A form whose main action is shorter than the fields above it reads as an afterthought** — the eye follows one
    column down and hits a step inward at the moment it is asked to commit. `.btn`'s own padding is right everywhere else;
    inside this form the button joins the field rhythm instead. */
-.auth-form .btn-block { padding: var(--sp-3); }
+/* **AND THE FIRST ATTEMPT DID NOTHING, WHICH IS WHY THE RENDERED RE-MEASUREMENT EXISTS.** `.btn` carries
+   `height: 32px`, so a padding override changes the space INSIDE a fixed box and the button stays 32px tall — measured
+   after the deploy: `SUBMIT : 330x32 (was 330x32)`. The padding only decides the height once the height stops being
+   fixed. */
+.auth-form .btn-block { height: auto; padding: var(--sp-3); }
 
 /* The current-route summary. One line and a link — choosing happens on the
    Models page, where the whole catalogue is. */
