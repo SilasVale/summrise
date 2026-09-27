@@ -212,6 +212,16 @@ if ! cmp -s "$EXE_BUILD" "$NPM_DIR/summrise-agent.exe"; then
   echo "  cp $EXE_BUILD $NPM_DIR/summrise-agent.exe" >&2
   exit 1
 fi
+# THE STAGED EXE MUST CARRY AN ICON, AND THIS IS THE ONLY PLACE THAT CAN ASK (round 68 of the standing goal).
+# `agent/build.rs` records the defect — the exe once shipped with NO resource of any kind, so Task Manager drew the
+# generic process glyph for the product's own agent — and the blind spot: no test reads a PE resource table. Round 65
+# established why there is no CI gate for it (no CI job ever has an exe: the pack-chain job is named "no exe"), and
+# round 66 that its negative case cannot be a rebuild (build.rs panics before an icon-less exe exists). So it runs
+# HERE, on the artifact that is about to be uploaded, and the check ships with a hand-built stripped copy as its proof.
+if ! python3 scripts/pe-icon-check.py "$NPM_DIR/summrise-agent.exe"; then
+  echo "::error::the staged exe carries no icon resource — Task Manager would draw a generic glyph for this agent" >&2
+  exit 1
+fi
 SRC_TS=$(git log -1 --format=%ct -- agent/src agent/build.rs agent/resources/panel-react agent/resources/panel agent/Cargo.toml agent/Cargo.lock)
 # AN EMPTY ANSWER IS "I CANNOT DATE THE INPUTS", NOT "ZERO" (round 127).
 # `git log <path>` exits 0 with NO OUTPUT when the path list matches no commit at
