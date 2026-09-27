@@ -191,6 +191,15 @@ fn fnv1a64(bytes: &[u8], mut hash: u64) -> u64 {
 // `objdump -x` already prints the type table (round 64 used it: `.rsrc` declares 3 types, the first is
 // `0x000003` = RT_ICON with 4 images), so the check is a few lines in whichever home is chosen — the question
 // was never how to parse PE, it was WHERE A GATE CAN RUN AT ALL.
+//
+// AND ROUND 66 FOUND WHAT THE GATE'S MUTATION CANNOT BE, WHICH CHANGES WHAT IT IS FOR. The obvious negative case is
+// to rename `brand/icon.ico` away and rebuild. **THAT PRODUCES NO EXE AT ALL**: the guard below panics first, with a
+// message that names the Task Manager symptom, so a missing icon is already caught earlier and harder than any
+// post-build check could catch it. What is left for a resource gate is the OTHER half of the historical defect — the
+// file present and the resource compiler silently failing to embed it — and that mutation has to be built by hand
+// (a copy of the exe with its `.rsrc` entry stripped), not by rebuilding. A gate whose proof is written as a rebuild
+// would therefore pass vacuously and prove nothing, which is the trap this repository's MUTATION/RESULT headers exist
+// to prevent.
 // `scripts/render-brand-icon.py` for exactly this purpose) and was wired into the desktop app and the
 // installer — and the SERVICE binary, the one Task Manager actually lists, was never given it.
 //
