@@ -31,6 +31,13 @@ const CONFIGS = P.configPaths;
   // and costs a browser launch to learn. So the number is read here, and a reading below the threshold exits with a
   // MESSAGE instead — the same fact, delivered before anything tries to start. The threshold is deliberately the LOW
   // end (150 MB): it only refuses what the data says is certain, and leaves the uncertain high readings to be spent.
+  //
+  // AND ROUND 121 PRODUCED THE EVIDENCE FOR THAT LIMITATION WITH THIS GUARD ITSELF, the cleanest form the argument has
+  // taken: the pre-check did NOT fire (so it read >= 150 MB, and the device had recovered from 47 MB two rounds earlier)
+  // and the launch CRASHED ANYWAY — 0xC0000409, empty stdout, NO VERDICT. So the guard's own SILENCE was the datum: it
+  // refuses only what is certain, and when it stays silent the outcome is still a coin toss. A GUARD THAT KNOWS WHAT IT
+  // CANNOT PROMISE IS WORTH MORE THAN ONE THAT TRIES — this one turns a certain failure into a message and leaves an
+  // uncertain one to be spent, which is exactly what happened here.
   {
     let free = null;
     try {
