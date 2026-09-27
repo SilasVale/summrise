@@ -163,6 +163,25 @@ const CONFIGS = P.configPaths;
     process.exit(1);
   }
   const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
+  // ── AND IT READS THE DEVICE'S OWN COMMIT FIRST, BECAUSE A CRASH IS NOT A VERDICT (round 117 of the standing goal) ──
+  // Rounds 108-116 established the asymmetry: a LOW commit reading predicts failure almost exactly (at 63 MB this
+  // process's heap was capped at ~50 MB and it died at 348 ms), while a HIGH one does not predict success (123 MB
+  // completed, 207 MB crashed). Every low attempt produced a NATIVE CRASH with no output, which tells a reader nothing
+  // and costs a browser launch to learn. So the number is read here, and a reading below the threshold exits with a
+  // MESSAGE instead — the same fact, delivered before anything tries to start. The threshold is deliberately the LOW
+  // end (150 MB): it only refuses what the data says is certain, and leaves the uncertain high readings to be spent.
+  {
+    let free = null;
+    try {
+      const out = require('child_process').execSync('wmic OS get FreeVirtualMemory /format:list', { encoding: 'utf8', timeout: 20000 });
+      const m = /FreeVirtualMemory=(\d+)/.exec(out);
+      if (m) free = Math.round(Number(m[1]) / 1024);
+    } catch (e) { free = null; }
+    if (free !== null && free < 150) {
+      console.log(JSON.stringify({ error: 'the device has too little free commit for a browser launch', freeCommitMB: free, thresholdMB: 150, why: 'low readings predict failure almost exactly (63 MB against a ~50 MB heap cap in round 113) while high ones do not predict success, so this refuses only what the data says is certain', fix: 'free commit — svchost.exe PID 2312 of the NetworkService group holds 24.6 GB of a 32 GB limit; restarting that service frees it without a reboot' }));
+      process.exit(4);
+    }
+  }
   const { page, attached, close } = await acquireBrowser();
   // ── THE OPERATOR'S SCREEN IS NOT A TEST FIXTURE (round 32 of the standing goal) ─────────────────────────────────
   // This program NAVIGATES (`page.goto` below, once per density). `acquireBrowser()` attaches to the visible embedded
