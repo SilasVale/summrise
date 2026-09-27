@@ -890,6 +890,31 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     const skip = [...targets.filter((t) => !t.includes(",")), ...(label.skip || [])];
     const d = await discoverPressTargets(page, label.discover, skip);
     targets = [...targets.filter((t) => !t.includes(",")), ...d.targets];
+  // ── AND THE PAGE IS PUT IN A STATE A USER WOULD BE IN (round 48 of the standing goal) ────────────────────────────
+  // Round 47 answered the second-press note for `[Search]`: `search()` guards on `query.trim()`, this pass presses
+  // controls WITHOUT TYPING, and an empty query makes the first press a legitimate no-op. **MEASURING CONTROLS WITH EVERY
+  // INPUT EMPTY IS MEASURING A STATE A USER IS RARELY IN** — so a short sample query goes into the visible text inputs
+  // before the press loop. It changes what this axis MEASURES (a control that needs a query can now acknowledge on its
+  // first press) and that is the point; the alternative was to special-case one control by name, which is the shape
+  // `discover` exists to avoid. The native value setter is used because React tracks the value on the element and a
+  // plain assignment does not fire its change detection.
+  if (label.discover) {
+    await page.evaluate(() => {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      const setArea = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+      for (const el of document.querySelectorAll('input, textarea')) {
+        const type = (el.getAttribute("type") || "text").toLowerCase();
+        if (["hidden", "checkbox", "radio", "file", "submit", "button", "range", "color", "date", "time"].includes(type)) continue;
+        const r = el.getBoundingClientRect();
+        const st = getComputedStyle(el);
+        if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+        if (el.value) continue;
+        const setter = el.tagName === "TEXTAREA" ? setArea : set;
+        setter.call(el, "probe");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+  }
   }
   const read = (sel) => page.evaluate((s) => {
     for (const el of document.querySelectorAll(s)) {
