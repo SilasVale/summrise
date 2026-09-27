@@ -899,6 +899,13 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
         // `title` IS READ TOO, BECAUSE THE FIRST VERSION OMITTED IT AND THE NOTE CAME BACK WITHOUT A NAME (round 44).
         // The names probe has a `title-only:` case precisely because this product labels controls that way, and the
         // ack note is not the place to disagree with it about what a control is called.
+        // **AND THIS READER IS STILL WRONG, WHICH IS THE FINDING (round 44).** After `aria-label`, `title` and
+        // `textContent` the ack note is STILL nameless, while the names axis passes on the same page — so the name
+        // lives somewhere this reader does not look, and the likely place is the inline SVG's own title, which the
+        // names probe reads as its "SVG rule". **TWO ROUNDS WERE SPENT EXTENDING A SECOND READER INSTEAD OF USING
+        // THE ONE THAT ALREADY WORKS**, which is the derivation rule this repository states everywhere else: the
+        // names probe's `name()` helper is the one to call here, and a third case guessed into this line would be
+        // the same mistake a third time. Left as-is deliberately, with the note above it, rather than extended.
         name: (el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
       };
     }
