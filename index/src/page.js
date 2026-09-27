@@ -381,10 +381,20 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
           <div class="step-num">2</div>
           <div class="step-body">The setup installs the agent service, fetches the boxed components it needs (the tunnel binary, the browser bundle, the desktop runtime), auto-registers the device, and prints the panel URL + token. Copy them for the next step.</div>
         </div>
-        <div class="step">
-          <div class="step-num">3</div>
-          <div class="step-body">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) ${safeInstaller}</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code. <b>Install from the URL, never the bare package name</b>: the package name alone has a resolution step, and a stale cached <code>latest</code> leaves the OLD CLI in place while printing <code>changed 1 package</code> — the same failure this step is about, one layer down.</div>
-        </div>
+      </div>
+      <!-- THE THIRD "STEP" WAS NOT A STEP.
+           Measured on the live page from a device browser (round 146): the three step divs rendered 145 / 105 / 246 px
+           tall, and the third is a CAVEAT — updates need a flag, and without it npm reports success while nothing
+           happens — wearing a step number. A NUMBERED LIST IS A PROMISE ABOUT SEQUENCE, and a reader who follows it
+           does the update flag as a third installation step. The facts are unchanged and the warning keeps every word;
+           it is a note under the list now, which is what it always was.
+           AND THIS COMMENT IS INSIDE A TEMPLATE LITERAL: the first version of it quoted the CSS class and the flag with
+           backticks, which CLOSED the template and made the module stop parsing — the round-93 accident, caught by
+           node --check before the commit rather than by five red CI jobs after it. -->
+
+      <p class="hint">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) ${safeInstaller}</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code. <b>Install from the URL, never the bare package name</b>: the package name alone has a resolution step, and a stale cached <code>latest</code> leaves the OLD CLI in place while printing <code>changed 1 package</code> — the same failure this step is about, one layer down.</div>
+        </p>
+
       </div>
     </div>
   </main>
