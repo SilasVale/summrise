@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAck } from "../lib/useAck";
 import { useTranslation } from "../i18n.ts";
 import { useToast } from "../contexts/ToastContext.tsx";
 import { api, ApiError, type User } from "../api/client.ts";
@@ -21,6 +22,12 @@ export default function Users() {
   // measurement): `handleChangePw` and `handleToggle` answered only after the network, while the invite button beside them
   // disables on the event. Same pattern, one field each — the id for the row being toggled, a flag for the password button.
   const [pwBusy, setPwBusy] = useState(false);
+
+  // **THREE HAND-ROLLED ACKNOWLEDGEMENTS BECOME ONE MECHANISM.** The comment above records an earlier measurement: this
+  // page's change-password and enable/disable buttons "answered only after the network", and the local flags were the
+  // fix. They worked, and they were the console's second and third private copies of a pattern the panel has had shared
+  // since rounds 49-51 — `lib/useAck.ts` is the port, and `data-busy` is what the design sweep reads first.
+  const { ack: userAck, run: runAck } = useAck();
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // THREE STATES, NOT TWO. Both reads used to swallow their failure into `noop`, so
@@ -126,7 +133,12 @@ export default function Users() {
             onChange={(e) => setNewPw(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleChangePw()}
           />
-          <button className="btn btn-primary" disabled={pwBusy} onClick={handleChangePw}>
+          <button
+            className="btn btn-primary"
+            disabled={pwBusy}
+            onClick={() => void runAck("pw", handleChangePw)}
+            {...userAck("pw")}
+          >
             {t("adminpw.change")}
           </button>
         </div>
@@ -139,7 +151,8 @@ export default function Users() {
           <button
             className="btn btn-primary btn-sm"
             disabled={inviteLoading}
-            onClick={handleGenerateInvite}
+            onClick={() => void runAck("invite", handleGenerateInvite)}
+            {...userAck("invite")}
           >
             {t("invite.gen")}
           </button>
@@ -191,7 +204,8 @@ export default function Users() {
                     <button
                       className="btn btn-ghost btn-mini"
                       disabled={togglingId === u.id}
-                      onClick={() => handleToggle(u.id, u.enabled)}
+                      onClick={() => void runAck(u.id, () => handleToggle(u.id, u.enabled))}
+                      {...userAck(u.id)}
                     >
                       {u.enabled ? t("btn.disable") : t("btn.enable")}
                     </button>
