@@ -573,8 +573,16 @@ fn tunnel_outcome(local: Result<(), String>, remote: RemoteConfig, hostname: &st
 /// must not depend on the one artifact only the interactive path can produce. What the operator
 /// saw instead:
 ///
-///     registered · tunnel: could not determine tunnel id for 'summrise-agent-d1'.
-///     login_ok=true create_out="" create_err="... Cannot determine default origin certificate path"
+/// ```text
+/// registered · tunnel: could not determine tunnel id for 'summrise-agent-d1'.
+/// login_ok=true create_out="" create_err="... Cannot determine default origin certificate path"
+/// ```
+///
+/// **THE INDENTED FORM OF THAT QUOTATION WAS A DOC TEST, AND IT DID NOT COMPILE** — rustdoc treats an
+/// indented block in a doc comment as Rust, and `'summrise-agent-d1'` is a character literal with
+/// twelve characters in it (`error[E0762]: unterminated character literal`). The fence says `text`,
+/// so it is read as the transcript it is. **CI caught this and the local run did not**: `cargo test`
+/// on this crate runs doc tests, and the run that preceded the commit did not reach them.
 ///
 /// The account id comes from the token itself (`GET /accounts`), the same call
 /// `update_remote_config` already makes, and `config_src: "cloudflare"` matches what that function
