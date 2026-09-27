@@ -232,6 +232,13 @@ const TIMING = P.timing;
         }
         if (wants("press")) {
           const pressTargets = ['.rail-btn', '.desktop-rail-btn', '.tab', '.dtab', '.side-row', '.side-add'];
+          // ── THE CURATED LIST HERE IS HALF OF A DELIBERATE SPLIT, NOT AN OVERSIGHT (round 57 of the standing goal) ──
+          // The axes line prints `4pressed/list` for these rows while the rail walks print `11pressed/11found`, and the
+          // asymmetry has been named as a gap since round 21. It is not one: the two passes DIVIDE the controls. This
+          // pass owns the chrome — the rail buttons, the session tabs and the side rows — and the rail walk below
+          // discovers with a cap and SKIPS exactly those, which its own comment states: "Skipping them here is what lets
+          // the cap reach the page's OWN controls." So `list` is the honest label for a pass that was handed a list, and
+          // the discovery this loop kept looking for is one call away, doing its job on the controls this list cannot name.
           const pressRows = await pressPass(page, pressTargets, { density, theme, mode: mode_ });
           report.press = report.press || [];
           report.press.push({ density, theme, mode: mode_, measured: pressRows.filter((r) => !r.note).length, rows: pressRows });
