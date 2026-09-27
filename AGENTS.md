@@ -441,6 +441,17 @@ DESCRIBED THE ONE BEFORE IT:**
 require('D:/Summrise/live-panel-probe.js');   // the whole run: token from the device's config, both densities, JSON, exit code
 ```
 
+**AND "DEPLOY" IS A REAL STEP, NOT A FIGURE OF SPEECH — MEASURED IN ROUND 101.** Committing a change under
+`index/public/` does NOT change what the CDN serves: the loop regenerated this probe, committed it (39,884 bytes),
+and the device fetched **39,334 — the previous copy** — because `./scripts/build.sh index` had not been run. The
+comparison that catches it is one command, and it is worth running after ANY change to a served file:
+
+    curl -s -o /tmp/cdn.js -w '%{size_download}\n' https://agent.saisi.online/summrise-agent/live-panel-probe.js
+    cmp -s /tmp/cdn.js index/public/summrise-agent/live-panel-probe.js && echo served || echo STALE
+
+**A COMMIT IS NOT A DEPLOY, AND THE DEVICE ONLY EVER SEES THE DEPLOY** — the same shape as the `agent/scripts/` →
+`gateway/` mirror rule above, arriving from the other side.
+
 Round 183 wrote "do NOT `require()` it, which exports an empty object and runs nothing", and round 184 replaced that with
 a `new Function(src + ';return probe;')` wrapper. Both were true of the template-literal emitter, which exported a bare
 `probe` function. The emitter is a real module now and the assembler prints a bundled PROGRAM whose last statement is
