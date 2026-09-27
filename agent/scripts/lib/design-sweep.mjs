@@ -1162,10 +1162,29 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       // first one was lost, and the judge reports it as its own note.
       const t1 = Date.now();
       await page.mouse.down();
+      // ── AND READ THE PRESSED STATE WHILE THE BUTTON IS STILL DOWN (round 137) ────────────────────────────────────
+      // `:active` — the scale, the dim, the inset — exists ONLY between `mouse.down()` and `mouse.up()`, and the loop
+      // below runs after the up. **A CONTROL WHOSE ONLY FEEDBACK IS ITS PRESSED STYLE COULD THEREFORE NEVER BE
+      // ACKNOWLEDGED**, and the 60x16ms window (~960ms) is what the row reported instead of the truth.
+      //
+      // MEASURED 2026-09-28 ON THE CONSOLE'S `rail-avatar`, and the code says it plainly: its `onClick` is
+      // `setUserOpen((o) => !o)` — synchronous — and the popover it opens is synchronous too (no await, no fetch, no
+      // effect). There is no network anywhere on that path, so the row's own explanation (*"this feedback waited on the
+      // 824ms network round trip"*) was a SPECULATION THE DATA COULD NOT SUPPORT — the same failure round 99 wrote a
+      // paragraph about, arriving from the other side. What actually happened: `.rail-avatar:active`'s scale had
+      // already reverted before the first `read()`.
+      //
+      // THIS IS NOT A WEAKENING. A pressed state is feedback the user can SEE, and the criterion is about feedback;
+      // measuring it is what the budget was always for. It cannot excuse a slow control either — `duringPress` is one
+      // sample taken microseconds after the press, so a control that paints nothing until its request returns still
+      // reports the request.
+      const duringPress = await read(sel);
       await page.mouse.up();
       for (let i = 0; i < 60; i++) {
         const now = await read(sel);
-        const painted = now && before && (now.transform !== before.transform || now.opacity !== before.opacity || now.background !== before.background);
+        const changed = (a, b) =>
+          a && b && (a.transform !== b.transform || a.opacity !== b.opacity || a.background !== b.background);
+        const painted = changed(now, before) || changed(duringPress, before);
         if (now && (now.busy || painted)) { acked = now; msToAck = Date.now() - t1; msFirstPress = t1 - t0; break; }
         await page.waitForTimeout(16);
       }
