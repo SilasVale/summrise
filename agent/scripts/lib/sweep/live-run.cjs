@@ -32,25 +32,22 @@ const CONFIGS = P.configPaths;
   // for. AGENTS.md already warns that navigating the attached view aborts (`net::ERR_ABORTED`); it does not say the
   // navigation is THEIRS. The helper reports which arm it took, so this refuses rather than guesses: close the desktop
   // view and the same command takes the private-headless arm and works.
-  if (attached) {
-    console.log(JSON.stringify({
-      error: 'the browser helper ATTACHED to the visible view, which is the operator\'s own screen, and this probe navigates',
-      fix: 'close the desktop app\'s browser view so the helper takes the private-headless arm, then re-run',
-      // AND THE CONDITION ALTERNATES, SO A REFUSAL IS NOT A VERDICT (rounds 95-100 of the standing goal): the same
-      // command took the PRIVATE arm in round 95 — it crashed natively at 106 MB of free commit rather than refusing —
-      // and was refused again in rounds 98 and 100 with 239 MB free. The view is opened and closed as the operator uses
-      // the device, so a refusal means "not this minute" rather than "not this release". Worth knowing before
-      // concluding anything about the panel from an absence of measurements.
-    }));
-    await close();
-    process.exit(2);
+  // ── AN ATTACHED VIEW IS MEASURED READ-ONLY INSTEAD OF REFUSED (round 105 of the standing goal) ──────────────────
+  // Rounds 91-104 refused here, correctly: this program NAVIGATES, and the attached view is the operator's own screen.
+  // But refusing produced NOTHING for fourteen rounds, and round 30 had already shown the honest middle: an attached
+  // view can be READ. So the refusal became a MODE — no `goto`, and no `setViewportSize` either, because resizing the
+  // operator's window is as intrusive as navigating it. What it measures is whatever page they have open, which is one
+  // density rather than two, and the output says so instead of pretending to be the full run.
+  const readonly = attached;
+  if (readonly) {
+    console.log(JSON.stringify({ note: 'the browser helper ATTACHED to the visible view — measuring it READ-ONLY: no navigation, no resize, whatever page is open' }));
   }
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 120)));
   const out = { configAt: where, densities: {} };
-  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
-    await page.setViewportSize(vp);
-    await page.goto('http://127.0.0.1:18080' + path_ + '?token=' + token, { waitUntil: 'load' });
+  for (const [density, path_, vp] of (readonly ? [['attached', null, null]] : [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])) {
+    if (!readonly) await page.setViewportSize(vp);
+    if (!readonly) await page.goto('http://127.0.0.1:18080' + path_ + '?token=' + token, { waitUntil: 'load' });
     await page.waitForTimeout(3500);
     const state = await page.evaluate(() => ({
       connForm: !!document.getElementById('conn-form'),
