@@ -62,6 +62,20 @@ export default function Overview() {
   // be rendered as "you have none". The first-run hint below is the one thing on this page that
   // makes a claim about what is MISSING, so it is the one thing that must not guess.
   const [providers, setProviders] = useState<ProviderView[] | null>(null);
+  // **THE REFRESH BUTTON'S FEEDBACK WAITED ON THE NETWORK, AND THE DESIGN SWEEP CAUGHT IT THREE TIMES IN ONE DAY.**
+  // Its `onClick` was `loadDashboard` itself, so the only visible change came when the request returned and the page
+  // re-rendered. The sweep's own numbers, from three separate CI runs:
+  //
+  //     acknowledged the press after  144ms — the budget is 100ms, so this feedback waited on the 1640ms network round
+  //     acknowledged the press after  586ms — the budget is 100ms, so this feedback waited on the 2146ms network round
+  //     never acknowledged the press — no busy state and no painted change within the window (66x28)
+  //
+  // **A PRESS MUST BE ACKNOWLEDGED BY THE PAGE, NOT BY THE SERVER.** This is the same rule the panel's `useAck` has
+  // enforced since rounds 49-51 (set the busy state synchronously; never let a request decide whether the control
+  // reacts) — the console's refresh button simply never had it. The sweep reads `disabled` as an acknowledgement
+  // (`acked=true via=disabled ms=15 budget=100`), and this is the smallest change that gives it one: a local flag that
+  // paints on the next render, cleared when the load settles. `loadDashboard` and the 60s poll are untouched.
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     api
@@ -110,6 +124,15 @@ export default function Overview() {
       }
     }
   }, [user?.role]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadDashboard();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadDashboard]);
 
   useEffect(() => {
     loadDashboard();
@@ -198,7 +221,7 @@ export default function Overview() {
         title={t("overview.title")}
         description={t("overview.lede")}
         actions={
-          <button className="btn btn-secondary btn-sm" onClick={loadDashboard}>
+          <button className="btn btn-secondary btn-sm" onClick={onRefresh} disabled={refreshing}>
             {t("btn.refresh")}
           </button>
         }
