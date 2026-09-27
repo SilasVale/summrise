@@ -178,7 +178,7 @@ const CONFIGS = P.configPaths;
       if (m) free = Math.round(Number(m[1]) / 1024);
     } catch (e) { free = null; }
     if (free !== null && free < 150) {
-      console.log(JSON.stringify({ error: 'the device has too little free commit for a browser launch', freeCommitMB: free, thresholdMB: 150, why: 'low readings predict failure almost exactly (63 MB against a ~50 MB heap cap in round 113) while high ones do not predict success, so this refuses only what the data says is certain', fix: 'free commit — svchost.exe PID 2312 of the NetworkService group holds 24.6 GB of a 32 GB limit; restarting that service frees it without a reboot' }));
+      fix: 'free commit — the leak is Dnscache (the Windows DNS Client, svchost.exe PID 2312 of the NetworkService group), holding 24.6 GB of a 32 GB commit limit. Round 119 named it with `wmic service where ProcessId=2312 get Name,DisplayName,State`. Restarting the DNS cache is low-risk because it re-populates: net stop dnscache && net start dnscache (admin), or a reboot',
       process.exit(4);
     }
   }
