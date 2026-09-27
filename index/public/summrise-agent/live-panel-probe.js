@@ -182,6 +182,14 @@ const CONFIGS = P.configPaths;
   // BROWSER TAB — a search page — and reported THIRTEEN PROBLEMS about it (`div.est_common`, `span.sb_form_placeholder
   // _query`, `div.question` are the search engine's classes, and `state.rootNodes` was 0 because the panel's root had no
   // nodes). A verdict about the wrong page is worse than no verdict, and it is the error class this loop keeps finding:
+  // ── AND THE DEVICE'S COMMIT READING IS NECESSARY BUT NOT SUFFICIENT (rounds 107-111 of the standing goal) ────────
+  // The pre-check before each attempt reads `FreeVirtualMemory` and skips when it is low. That is right as far as it
+  // goes, and round 111 shows where it stops: at **207 MB free the run still crashed natively** (`0xC0000409`, a
+  // fail-fast, with EMPTY stdout), the same signature as round 95 at 106 MB — while round 107 COMPLETED a full
+  // measurement at 123 MB. So the number does not order the outcomes, because Chromium's launch spikes well past the
+  // free commit at the moment it starts. **THE READING TELLS YOU WHEN NOT TO BOTHER, NOT WHEN IT WILL WORK** — an
+  // attempt is always a gamble, and the honest thing to do with a failure here is report it rather than conclude
+  // anything about the panel.
   // an instrument reporting a defect where it was pointed at the wrong thing. **A READ-ONLY MEASUREMENT CANNOT CHOOSE
   // ITS PAGE, SO IT MUST REFUSE ANY PAGE THAT IS NOT THE PANEL** — checked by URL, before anything is measured.
   if (readonly && !/127\.0\.0\.1:18080\/(panel|desktop)\//.test(page.url())) {
