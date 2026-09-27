@@ -32,6 +32,15 @@ const CONFIGS = P.configPaths;
   // MESSAGE instead — the same fact, delivered before anything tries to start. The threshold is deliberately the LOW
   // end (150 MB): it only refuses what the data says is certain, and leaves the uncertain high readings to be spent.
   //
+    //
+    // AND ROUND 126 LOCATED THE FAILURE ONE LEVEL EARLIER, WITH A MINIMAL TEST THAT NEVER MENTIONS A BROWSER: calling
+    // `acquireBrowser()` and closing it — nothing else — died with `Fatal javascript OOM in Committing semi space
+    // failed` and empty stdout. SO THE CRASH IS NOT THE BROWSER'S LAUNCH; IT IS THE HELPER'S OWN NODE PROCESS FAILING
+    // TO ALLOCATE, before a page exists. **WHICH MEANS THIS GUARD MEASURES THE WRONG THING**: it reads the OS's free
+    // commit, while what decides the outcome is whether a FRESH node process can get a heap — and rounds 121-125 read
+    // >= 150 MB on that OS number and died anyway. The threshold is still worth keeping (it is certain below ~60 MB),
+    // but it is a proxy, and the honest description of the high-reading crashes is 'a new process could not allocate',
+    // not 'the browser could not start'.
   // AND ROUND 121 PRODUCED THE EVIDENCE FOR THAT LIMITATION WITH THIS GUARD ITSELF, the cleanest form the argument has
   // taken: the pre-check did NOT fire (so it read >= 150 MB, and the device had recovered from 47 MB two rounds earlier)
   // and the launch CRASHED ANYWAY — 0xC0000409, empty stdout, NO VERDICT. So the guard's own SILENCE was the datum: it
