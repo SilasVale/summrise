@@ -239,6 +239,21 @@ if [ "$EXE_TS" -lt "$SRC_TS" ]; then
   echo "  ./scripts/build.sh agent && cp $EXE_BUILD $NPM_DIR/summrise-agent.exe" >&2
   exit 1
 fi
+# THE STAGED EXE MUST CARRY AN ICON, AND THIS IS THE ONLY PLACE THAT CAN ASK (rounds 65-71 of the standing goal).
+# `agent/build.rs` records the defect — the exe once shipped with NO resource of any kind, so Task Manager drew the
+# generic process glyph for the product's own agent — and the blind spot: no test reads a PE resource table. No CI job
+# can (none has an exe; the pack-chain job is named "no exe"), and `scripts/test/` may not hold a file CI cannot invoke
+# — which is how round 67 turned `main` red in two jobs. So it runs here, on the artifact about to be uploaded.
+#
+# IT SITS AFTER THE TIMESTAMP CHECKS ON PURPOSE, AND THAT ORDER WAS MEASURED RATHER THAN CHOSEN (round 71).
+# `scripts/test/publish-release.bash` plants a STAND-IN staged exe — not a PE file — to exercise the timestamp refusal,
+# and expects the message above. Put this check before that and the stand-in is rejected first, the script exits for the
+# wrong reason, and the case fails with "18 checks passed, 1 failed" — which is exactly what CI reported on the first
+# attempt, reproduced locally in CI's own condition (both artifacts absent) before the cause was visible.
+if [ -f "$NPM_DIR/summrise-agent.exe" ] && ! python3 scripts/pe-icon-check.py "$NPM_DIR/summrise-agent.exe"; then
+  echo "::error::the staged exe carries no icon resource — Task Manager would draw a generic glyph for this agent" >&2
+  exit 1
+fi
 if [ "$EXE_TS" -lt "$((NOW_TS - 30*24*3600))" ]; then
   echo "::error::$EXE_BUILD is older than 30 days — rebuild regardless of source changes" >&2
   exit 1
