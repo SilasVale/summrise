@@ -9,7 +9,7 @@
 // and the toast timer is cleaned up on unmount.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { callTool } from "../lib/api";
-import { Icon } from "../ui/Icon";
+import { BrandMark, Icon } from "../ui/Icon";
 import { useAck } from "../lib/useAck";
 
 interface MemEntry {
@@ -323,10 +323,21 @@ export function MemoryPage() {
              toolbar above does exactly that from the UI — and `startNew` does not set
              `busy`, so the sentence rendered DIRECTLY BENEATH the create form it
              claimed was impossible. */
-          <p className="muted">
-            No memory entries yet — use + New, or let AI clients save knowledge
-            via memory_save.
-          </p>
+          /* **THE PANEL SAYS "NOTHING HERE YET" ONE WAY, AND THIS PAGE SAID IT ANOTHER.** Measured from the device browser
+             in round 165: the Memory page rendered the sentence bare, while `TerminalWorkspace` renders the same situation
+             as an `.empty-card` with `BrandMark` — which round 150 had just corrected there. **Two empty states in one
+             product is a difference a reader feels without being able to name it**, and this is the half that was behind.
+             The sentence itself is unchanged: it was already good, and the comment above it records why its CONDITION
+             matters (it once rendered beneath the create form it claimed was impossible). */
+          <div id="empty-state">
+            <div className="empty-card">
+              <span className="empty-mark"><BrandMark size={30} /></span>
+              <p className="muted">
+                No memory entries yet — use + New, or let AI clients save knowledge
+                via memory_save.
+              </p>
+            </div>
+          </div>
         )}
         {entries.length >= 50 && (
           <p className="muted">
