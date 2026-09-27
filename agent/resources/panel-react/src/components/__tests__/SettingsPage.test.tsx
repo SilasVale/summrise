@@ -201,14 +201,18 @@ describe("SettingsPage — the configured bind", () => {
   it("shows a loopback bind with the reason and the alternatives", () => {
     render(<SettingsPage config={{ host: "127.0.0.1", port: 18080 }} />);
     expect(screen.getByText(/Bound to 127\.0\.0\.1:18080/)).toBeTruthy();
-    expect(screen.getByText(/this machine only/)).toBeTruthy();
+    // **CASE-INSENSITIVE ON PURPOSE.** The reachability sentence became the card's own footnote in round 142, so it
+    // starts with a capital — and the first version of this test failed on THAT, not on the sentence: it pinned
+    // capitalization, which is not the behaviour it exists to check. **A test that breaks when a sentence is
+    // re-punctuated is a test of the punctuation.**
+    expect(screen.getByText(/this machine only/i)).toBeTruthy();
     expect(screen.getByText(/the relay, a VPN, or ssh -L/)).toBeTruthy();
   });
 
   it("does NOT tell a network-bound device that it is local", () => {
     render(<SettingsPage config={{ host: "0.0.0.0", port: 18080 }} />);
     expect(screen.getByText(/Bound to 0\.0\.0\.0:18080/)).toBeTruthy();
-    expect(screen.queryByText(/this machine only/)).toBeNull();
+    expect(screen.queryByText(/this machine only/i)).toBeNull();
     expect(screen.getByText(/keep the device token secret/)).toBeTruthy();
   });
 

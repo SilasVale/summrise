@@ -352,7 +352,15 @@ export function SettingsPage({
       {/* AND THE ADDRESS IS THE DEVICE'S, NOT A LITERAL (round 199). It was 127.0.0.1:18080, which is the local agent's port
           and a lie for every remote or tunnelled user — the rule `ConnectCard` states two files away: "A hardcoded value here
           would be wrong for every remote/tunnel user." `location.host` is the same string the browser itself is talking to. */}
-      <p className="muted">Device: local agent on {location.host}</p>
+      {/* ── THE PAGE OPENED WITH FOUR FLAT PARAGRAPHS OF DIM PROSE, AND THEY ARE ALL ONE SUBJECT ────────────────
+          Round 138 turned the settings into cards and round 141 followed the folds; this header kept the old shape, so
+          the page still BEGAN with a wall of `muted` text before the first container — the operator's *"这个页面太过混乱"*
+          surviving at the top after being fixed below. **Four lines about one machine are a card about one machine.**
+          The reachability sentence is NOT deleted: it is genuinely useful and it is REFERENCE, so it becomes the card's
+          quiet footnote instead of its opening sentence. */}
+      <div className="settings-section">
+        <h2>This device</h2>
+        <p className="muted">Local agent on {location.host}</p>
       {/* AND WHAT IT IS BOUND TO, WHICH IS A DIFFERENT FACT. The line above is the address this browser reached the agent
           on; this is the address the agent was CONFIGURED to listen on. They agree for a local browser and differ for a
           relayed or tunnelled caller — and until 1.2.448 the configured bind existed only inside config.yaml on the device,
@@ -362,9 +370,13 @@ export function SettingsPage({
         <p className="muted">
           Bound to {config.host}
           {typeof config.port === "number" ? `:${config.port}` : ""}
+        </p>
+      ) : null}
+      {config?.host ? (
+        <p className="hint">
           {isLoopback(config.host)
-            ? " — this machine only. To reach it from another one: the relay, a VPN, or ssh -L."
-            : " — reachable on the network; keep the device token secret."}
+            ? "This machine only. To reach it from another one: the relay, a VPN, or ssh -L."
+            : "Reachable on the network; keep the device token secret."}
         </p>
       ) : null}
 
@@ -384,6 +396,7 @@ export function SettingsPage({
       {config?.path ? (
         <p className="muted">Config file: <code>{config.path}</code></p>
       ) : null}
+      </div>
 
       {/* FOLDED, NOT DELETED. The client snippets are what a new client needs and the diagnostics are what a BROKEN device
           needs; neither is a setting, and both were competing with the twenty controls that are. A `details` keeps them one
