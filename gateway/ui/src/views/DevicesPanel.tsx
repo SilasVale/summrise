@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAck } from "../lib/useAck";
 import { useAuth } from "../contexts/AuthContext.tsx";
 import { useTranslation, type TranslationKey } from "../i18n.ts";
 import { useToast } from "../contexts/ToastContext.tsx";
@@ -61,6 +62,12 @@ export default function DevicesPanel() {
   const [deviceStatuses, setDeviceStatuses] = useState<Record<string, DeviceStatus>>({});
   const [statusAt, setStatusAt] = useState<number | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
+
+  // **THE ACKNOWLEDGEMENT FIRES ON THE EVENT, NOT INSIDE THE LOADER.** `statusBusy` is set by `loadStatus`, which is
+  // correct and synchronous — but it is the LOADER's flag, and the sweep reads `data-busy` first. This hook sets both
+  // attributes in the same tick as the click, which is the half of "responsive" that has nothing to do with the network.
+  // Ported from the panel, where every control has had it since rounds 49-51 (see `lib/useAck.ts`).
+  const { ack: refreshAck, run: runAck } = useAck();
   const [regKey, setRegKey] = useState("");
   const [regKeys, setRegKeys] = useState<RegKeyInfo[] | null>(null);
   const [install, setInstall] = useState<{
@@ -275,7 +282,12 @@ export default function DevicesPanel() {
         description={t("devices.lede")}
         actions={
           <>
-            <button className="btn btn-ghost" onClick={handleRefresh} disabled={statusBusy}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => void runAck("refresh", handleRefresh)}
+              disabled={statusBusy}
+              {...refreshAck("refresh")}
+            >
               {statusBusy ? t("devices.checking") : t("devices.refresh")}
             </button>
             <button
