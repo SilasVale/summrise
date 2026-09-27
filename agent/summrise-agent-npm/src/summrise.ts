@@ -1888,14 +1888,25 @@ const commands = {
     let tunnelHost = ti >= 0 ? args[ti + 1] : "";
     let wantTunnel =
       args.includes("--tunnel") || !!process.env.CLOUDFLARE_API_TOKEN;
-    // Device hostname for self-register: explicit --hostname, else default
-    // d1.agent.saisi.online. Written to summrise-agent.hostname (the agent's
-    // self-register reads it at boot).
+    // Device hostname for self-register: explicit --hostname, else THIS MACHINE'S NAME.
+    //
+    // **THE DEFAULT USED TO BE `d1.agent.saisi.online` — THE DEVELOPER'S OWN DEVICE — AND EVERY
+    // FRESH INSTALL INHERITED IT** (measured 2026-09-27 on a second Windows machine). The operator
+    // asked the obvious question: *"为什么注册还是d1，新设备不是应该是其他的吗"*. Everything
+    // downstream followed from that one string: the console registered the new machine as `d1`, and
+    // the tunnel was named `summrise-agent-d1` — colliding with the real one, which this file's own
+    // self-register path reports as `(hostname/token conflict — resolve via the console Devices
+    // page)`. **A DEFAULT THAT NAMES SOMEBODY ELSE'S MACHINE IS NOT A DEFAULT.**
+    //
+    // `COMPUTERNAME` is what Windows calls the machine; lower-cased it is a valid DNS label, and
+    // the suffix keeps it under the zone the tunnel route is created in. `SUMMRISE_HOSTNAME` still
+    // wins when set, and `--hostname` still wins over both.
     const hi = args.indexOf("--hostname");
+    const machineName = (process.env.COMPUTERNAME || "device").toLowerCase().replace(/[^a-z0-9-]/g, "-");
     const deviceHost =
       hi >= 0
         ? args[hi + 1]
-        : process.env.SUMMRISE_HOSTNAME || "d1.agent.saisi.online";
+        : process.env.SUMMRISE_HOSTNAME || `${machineName}.agent.saisi.online`;
     // review #1 (HIGH): the hostname write ran BEFORE the mkdirSync below —
     // on a FRESH machine DIR doesn't exist yet → ENOENT throw → setup died
     // having installed nothing. Ensure the dir first.
