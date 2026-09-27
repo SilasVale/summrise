@@ -175,6 +175,11 @@ const CONFIGS = P.configPaths;
     console.log(JSON.stringify({
       error: 'the browser helper ATTACHED to the visible view, which is the operator\'s own screen, and this probe navigates',
       fix: 'close the desktop app\'s browser view so the helper takes the private-headless arm, then re-run',
+      // AND THE CONDITION ALTERNATES, SO A REFUSAL IS NOT A VERDICT (rounds 95-100 of the standing goal): the same
+      // command took the PRIVATE arm in round 95 — it crashed natively at 106 MB of free commit rather than refusing —
+      // and was refused again in rounds 98 and 100 with 239 MB free. The view is opened and closed as the operator uses
+      // the device, so a refusal means "not this minute" rather than "not this release". Worth knowing before
+      // concluding anything about the panel from an absence of measurements.
     }));
     await close();
     process.exit(2);
