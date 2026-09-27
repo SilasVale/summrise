@@ -896,7 +896,10 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
         // it still points at every control sharing those classes — nine of them on the Memory page. The accessible
         // name is what identifies one control, and it is read the way a screen reader reads it: aria-label first,
         // then the visible text.
-        name: (el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+        // `title` IS READ TOO, BECAUSE THE FIRST VERSION OMITTED IT AND THE NOTE CAME BACK WITHOUT A NAME (round 44).
+        // The names probe has a `title-only:` case precisely because this product labels controls that way, and the
+        // ack note is not the place to disagree with it about what a control is called.
+        name: (el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
       };
     }
     return null;
