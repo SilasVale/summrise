@@ -418,7 +418,17 @@ pub(crate) async fn provision_tunnel(
     // here. Assembling it here is exactly what left the FAILED branch with no coverage:
     // round 112 measured that mutating this tail back to a bare `format!("ok ({hostname})")`
     // kept the WHOLE suite green, because nothing could call into the decision.
-    tunnel_outcome(install_tunnel_config(&cfg_path, &yml), remote, &hostname)
+    let health = if cf_token.trim().is_empty() {
+        None
+    } else {
+        tunnel_health_via_api(cf_token, &id).await
+    };
+    tunnel_outcome(
+        install_tunnel_config(&cfg_path, &yml),
+        remote,
+        &hostname,
+        health,
+    )
 }
 
 /// Write the tunnel config, and bump the restart signal ONLY if it landed.
@@ -586,14 +596,38 @@ enum RemoteConfig {
 /// Pure on purpose. This is the branch the operator actually reads, and while it lived inline
 /// in `provision_tunnel` it had no coverage at all (round 112: mutating it back to a bare `ok`
 /// kept the suite green). As a value-taking function, every case is testable.
-fn tunnel_outcome(local: Result<(), String>, remote: RemoteConfig, hostname: &str) -> String {
+fn tunnel_outcome(
+    local: Result<(), String>,
+    remote: RemoteConfig,
+    hostname: &str,
+    health: Option<(String, u64)>,
+) -> String {
     if let Err(e) = local {
         // A failed local write is never dressed up as a partial success: the OLD tunnel.yml
         // is still the file cloudflared will read.
         return format!("FAILED: {e} — the tunnel was NOT (re)configured and was left as it was");
     }
     match remote {
-        RemoteConfig::Updated => format!("ok ({hostname})"),
+        RemoteConfig::Updated => {
+            // **AND THE SENTENCE NOW SAYS WHAT WAS VERIFIED.** `ok (host)` used to mean "the remote config was updated",
+            // which is a step, not an outcome — see `tunnel_health_via_api`. The tunnel is provisioned either way; what
+            // the reader needs to know is whether anything can REACH it.
+            //
+            // `health` ARRIVES AS A VALUE, because this function is PURE ON PURPOSE (round 112) and its cases are what
+            // the suite covers. Awaiting in here was the first attempt and the compiler refused it, correctly: the API
+            // call belongs in the async caller, and the DECISION belongs here where it can be tested.
+            match health {
+                Some((status, conns)) if status == "healthy" && conns > 0 => {
+                    format!("ok ({hostname}) — {conns} live connection(s), verified via the API")
+                }
+                Some((status, conns)) => format!(
+                    "provisioned ({hostname}) but NOT REACHABLE — the API reports status '{status}' with {conns} live connection(s); remote clients will get 530 until a connector is up"
+                ),
+                None => format!(
+                    "provisioned ({hostname}) — reachability NOT VERIFIED (the API did not answer); remote clients may get 530"
+                ),
+            }
+        }
         // NO SILENT SUCCESS: the local file is right, but cloudflared prefers a remote
         // configuration when one exists. The operator gets the consequence AND the cause —
         // "it failed" without a reason is not actionable.
@@ -705,6 +739,43 @@ async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> b
             false
         }
     }
+}
+
+/// Ask the API whether the tunnel is actually CONNECTED, and say so in the caller's own words.
+///
+/// **`tunnel: ok (host)` WAS A CLAIM NOTHING HAD CHECKED.** The string came from the remote-config step — `ok (host)` is
+/// what `RemoteConfig::Updated` returns — so the Gateway card reported *"the configuration was written"* in the grammar of
+/// *"the tunnel works"*. Measured over five releases on 2026-09-27/28: the operator read `registered · tunnel: ok` while a
+/// remote client got **530**, three separate times, and asked *"为什么还没有上线呢"* each time. **The panel was not lying
+/// about a step; it was answering a question it had not asked.**
+///
+/// Cloudflare's own tunnel object carries the answer: `status` is `healthy`, `degraded` or `down`, and `conns_active`
+/// counts live connectors. This is the check the card's sentence always implied, and it costs one GET.
+async fn tunnel_health_via_api(cf_token: &str, tunnel_id: &str) -> Option<(String, u64)> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .ok()?;
+    let acc = client
+        .get("https://api.cloudflare.com/client/v4/accounts")
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let acc: serde_json::Value = acc.json().await.ok()?;
+    let account_id = acc["result"][0]["id"].as_str()?.to_string();
+    let r = client
+        .get(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}"
+        ))
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let body: serde_json::Value = r.json().await.ok()?;
+    let status = body["result"]["status"].as_str()?.to_string();
+    let conns = body["result"]["conns_active"].as_u64().unwrap_or(0);
+    Some((status, conns))
 }
 
 /// Fetch the tunnel's own run token through the API.
@@ -1143,14 +1214,20 @@ mod tests {
                 Err("could not write D:\\Summrise\\etc\\tunnel.yml (access denied)".into()),
                 RemoteConfig::Updated,
                 "d1.agent.saisi.online",
+                Some(("healthy".into(), 2)),
             ),
             "FAILED: could not write D:\\Summrise\\etc\\tunnel.yml (access denied) — the tunnel was NOT (re)configured and was left as it was"
         );
 
         // Both landed — the only case allowed to be a plain success.
         assert_eq!(
-            tunnel_outcome(Ok(()), RemoteConfig::Updated, "d1.agent.saisi.online"),
-            "ok (d1.agent.saisi.online)"
+            tunnel_outcome(
+                Ok(()),
+                RemoteConfig::Updated,
+                "d1.agent.saisi.online",
+                Some(("healthy".into(), 2))
+            ),
+            "ok (d1.agent.saisi.online) — 2 live connection(s), verified via the API"
         );
 
         // THE CASE THIS EXISTS FOR: the local file is correct and the REMOTE config is not,
@@ -1160,6 +1237,43 @@ mod tests {
             Ok(()),
             RemoteConfig::Failed("Cloudflare answered HTTP 403".into()),
             "d1.agent.saisi.online",
+            None,
+        );
+
+        // **THE THREE HEALTH BRANCHES, BECAUSE A BRANCH THE SUITE CANNOT REACH IS THE FAILURE THIS FUNCTION EXISTS TO
+        // PREVENT** (round 112: mutating the old inline version back to a bare `ok` kept the suite green). Each of these
+        // is a DIFFERENT sentence the operator reads, and the middle one is the case that cost five releases:
+        // the tunnel is provisioned, the panel used to say `ok`, and a remote client got 530.
+        assert_eq!(
+            tunnel_outcome(
+                Ok(()),
+                RemoteConfig::Updated,
+                "h",
+                Some(("healthy".into(), 3))
+            ),
+            "ok (h) — 3 live connection(s), verified via the API"
+        );
+        let not_reachable =
+            tunnel_outcome(Ok(()), RemoteConfig::Updated, "h", Some(("down".into(), 0)));
+        assert!(
+            not_reachable.contains("NOT REACHABLE") && not_reachable.contains("530"),
+            "a provisioned-but-unconnected tunnel must say so, not report ok: {not_reachable}"
+        );
+        let unverified = tunnel_outcome(Ok(()), RemoteConfig::Updated, "h", None);
+        assert!(
+            unverified.contains("NOT VERIFIED"),
+            "silence from the API is not a success: {unverified}"
+        );
+        // AND `healthy` WITH ZERO CONNECTORS IS NOT REACHABLE EITHER — the status alone would have said ok.
+        let no_conns = tunnel_outcome(
+            Ok(()),
+            RemoteConfig::Updated,
+            "h",
+            Some(("healthy".into(), 0)),
+        );
+        assert!(
+            no_conns.contains("NOT REACHABLE"),
+            "a healthy status with no live connector reaches nothing: {no_conns}"
         );
         assert!(partial.starts_with("PARTIAL"), "{partial}");
         assert!(partial.contains("d1.agent.saisi.online"), "{partial}");
@@ -1177,6 +1291,7 @@ mod tests {
             Err("nope".into()),
             RemoteConfig::Failed("also nope".into()),
             "h",
+            None,
         );
         assert!(both.starts_with("FAILED: "), "{both}");
         assert!(!both.contains("PARTIAL"), "{both}");
@@ -1197,17 +1312,24 @@ mod tests {
             .split("async fn update_remote_config")
             .next()
             .unwrap();
-        let call = body
-            .split("tunnel_outcome(install_tunnel_config")
-            .nth(1)
-            .expect("provision_tunnel must decide the outcome from install_tunnel_config's result")
-            .split(';')
-            .next()
-            .unwrap();
+        // **THE ANCHOR SURVIVES `cargo fmt`, WHICH THE FIRST VERSION DID NOT.** It split on
+        // `"tunnel_outcome(install_tunnel_config"`, and when the call grew a fourth argument rustfmt reflowed it onto
+        // four lines — so the literal stopped existing and this test panicked with "must decide the outcome from
+        // install_tunnel_config's result" on a call site that was still perfectly correct. **A source-text test
+        // anchored on a FORMATTED LINE is a test that breaks when the formatter moves, which is not a change in
+        // behaviour.** It anchors on the call and the closing paren now, and asserts on what is INSIDE.
+        // **AND IT MUST NOT SPLIT ON THE FIRST `)` EITHER — THAT ONE BELONGS TO `install_tunnel_config(...)`.** The
+        // second attempt did, so the fragment ended inside the inner call and the assertion failed on a call site that
+        // was correct: `tunnel_outcome(install_tunnel_config(&cfg_path, &yml` — no `remote` in it, because the argument
+        // list had not started yet. A WINDOW is the shape that survives both reflow and nesting.
+        let at = body
+            .find("tunnel_outcome(")
+            .expect("provision_tunnel must call tunnel_outcome");
+        let call = &body[at..(at + 400).min(body.len())];
         assert!(
-            call.contains("remote"),
-            "the verdict the API returned must REACH the card — passing a literal here is the \
-             discarded-verdict defect again: tunnel_outcome(install_tunnel_config{call}"
+            call.contains("install_tunnel_config") && call.contains("remote"),
+            "the verdict the API returned must REACH the card, decided from install_tunnel_config's result — passing \
+             a literal here is the discarded-verdict defect again: tunnel_outcome({call})"
         );
     }
 }
