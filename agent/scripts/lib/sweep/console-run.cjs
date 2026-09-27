@@ -342,6 +342,14 @@ const fail = { api: false };
   // with its own horizontal scroller, which is the case 1.4.10 exempts for content that needs two dimensions.
   // The panel was not so lucky at 640 (round 215), and that is the point: the width a check does not render is
   // the width where a real failure can sit unremarked.
+  // ── AND THE WIDTHS ALREADY STRADDLE EVERY BREAKPOINT (round 42 of the standing goal) ─────────────────────────
+  // The question was whether these five widths cover `globals.css`'s breakpoints or merely happen to pass: the sheet
+  // carries 396, 400, 560, 768, 900, 980, 1080 and 1140, and this loop measures 1440, 900, 720, 640 and 320. Checked
+  // one by one, EVERY breakpoint has a measured width on each side — 396/400/560 sit between 640 and 320, 768 between
+  // 900 and 720, 980/1080/1140 between 1440 and 900 — and 900 is measured EXACTLY. So a later round that wants to add
+  // a width (1080 is the tempting one) should know it is already covered on both sides, and that the console's clean
+  // `0sp/0cl` at 320 is a measurement rather than a coincidence. Adding one would cost a navigation per page for a
+  // straddle that exists.
   for (const width of (wants('reflow') ? [1440, 900, 720, 640, 320] : [1440])) {
     await page.setViewportSize({ width, height: 900 });
     for (const [label, hash] of PAGES) {
