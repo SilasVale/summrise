@@ -276,6 +276,15 @@ pub(crate) async fn provision_tunnel(
     // choose between two working setups.
     if tunnel_id.is_none() && !cf_token.trim().is_empty() {
         tunnel_id = create_tunnel_via_api(cf_token, &tunnel_name).await;
+        if tunnel_id.is_none() {
+            // THE REFUSAL MAY BE "IT ALREADY EXISTS", WHICH IS SUCCESS (see `find_tunnel_id_via_api`).
+            tunnel_id = find_tunnel_id_via_api(cf_token, &tunnel_name).await;
+            if tunnel_id.is_some() {
+                tracing::info!(
+                    "[summrise-agent] provision_tunnel: '{tunnel_name}' already exists — adopting it (the API's create refusal is not a failure)"
+                );
+            }
+        }
         if tunnel_id.is_some() {
             tracing::info!(
                 "[summrise-agent] provision_tunnel: created '{tunnel_name}' through the Cloudflare API (no origin certificate needed)"
@@ -654,6 +663,53 @@ async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> b
             false
         }
     }
+}
+
+/// Resolve an existing tunnel's UUID through the API by name.
+///
+/// **WHY THIS EXISTS: THE API'S "ALREADY EXISTS" WAS BEING READ AS A FAILURE.** Measured 2026-09-27, from the device's own
+/// log:
+///
+/// ```text
+/// 15:22:17 INFO  created 'summrise-agent-desktop-9vh92bj' through the Cloudflare API
+/// 15:58:38 WARN  the API refused to create 'summrise-agent-desktop-9vh92bj':
+///                {"code":1013,"message":"You already have a tunnel with this name..."}
+/// ```
+///
+/// The FIRST press built the tunnel. The SECOND was refused because it already existed — which is SUCCESS reported as
+/// failure — and `create_tunnel_via_api` returned `None`, so `provision_tunnel` fell through to `cloudflared tunnel
+/// create`, which needs the origin certificate this whole path exists to avoid. The panel then showed the CERTIFICATE
+/// error, hiding the one sentence that mattered: *you already have a tunnel with this name*.
+///
+/// The `cloudflared tunnel list` at the top of `provision_tunnel` cannot cover this either — it needs the same
+/// certificate, which is why `list_before` was empty on a machine that had a working tunnel.
+async fn find_tunnel_id_via_api(cf_token: &str, name: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let acc = client
+        .get("https://api.cloudflare.com/client/v4/accounts")
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let acc: serde_json::Value = acc.json().await.ok()?;
+    let account_id = acc["result"][0]["id"].as_str()?.to_string();
+    let list = client
+        .get(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel?name={name}&is_deleted=false"
+        ))
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let body: serde_json::Value = list.json().await.ok()?;
+    body["result"]
+        .as_array()
+        .and_then(|a| a.iter().find(|t| t["name"].as_str() == Some(name)))
+        .and_then(|t| t["id"].as_str())
+        .map(|s| s.to_string())
 }
 
 /// Create the tunnel through the Cloudflare API and return its UUID.
