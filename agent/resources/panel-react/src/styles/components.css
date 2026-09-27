@@ -142,6 +142,15 @@
    is exactly why the failure stayed invisible. */
 .btn-ghost { background: transparent; border-color: transparent; color: var(--chrome-ink-dim); }
 .btn-ghost:hover { color: var(--accent-on-soft); background: var(--accent-soft); }
+/* ── THE MISSING RUNG: THERE WAS NO "PRIMARY ACTION" VARIANT AT ALL ───────────────────────────────────────────────
+   The vocabulary was `.btn-ghost` (tertiary), `.btn-danger` (destructive) and `.btn-mini` (size) — and NOTHING for the
+   one action a card exists to offer. So `Save & connect` wore `btn-ghost`, indistinguishable from the `Save` buttons
+   beside it, and the confirm step reached for `btn-danger` — RED, the colour this file reserves for destructive acts —
+   to mean "Connect". **The colour was not decoration there; it was a missing rung being improvised.**
+   Measured 2026-09-28 in the operator's own read of the Settings page: *"这个页面太过混乱需要重新设计"*.
+   `--accent` is the panel's existing emphasis token, so this adds no colour of its own. */
+.btn-primary { color: var(--accent-fg); background: var(--accent-solid); border-color: transparent; }
+.btn-primary:hover { background: var(--accent-solid-hover); }
 .btn-danger { color: var(--danger-on-soft); background: var(--danger-soft); border-color: transparent; }
 .btn-danger:hover { background: var(--danger); color: #fff; }
 .btn-mini { padding: var(--sp-1) 10px; font-size: var(--fs-sm); border-radius: var(--radius-sm2); }
@@ -3124,6 +3133,12 @@
 .settings-input-narrow { width: 7ch; }   /* a 1-64 field plus the spinner */
 .settings-check { display: flex; align-items: center; gap: var(--sp-2); }
 .settings-actions { display: flex; gap: var(--sp-2); }
+
+/* A PATH IN A SETTINGS CARD IS A FACT, NOT AN EMPHASIS. The global `code` rule wears `--accent-soft`, which is right
+   for a snippet in prose and wrong here: the config file's location is information the reader needs to READ, and an
+   accent background makes it look like something to act on. Measured in the same read — the orange path was the one
+   element on the page wearing a colour that meant nothing. */
+.settings-section code { background: var(--surface-chip); color: var(--ink); }
 
 .settings-status { margin-top: var(--sp-2); }
 

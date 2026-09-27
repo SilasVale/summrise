@@ -452,13 +452,13 @@ export function SettingsPage({
             {gwConfirm ? (
               <>
                 <span className="mem-confirm-hint">save & connect?</span>
-                <button className="btn btn-danger btn-mini" onClick={connectGateway} disabled={gwBusy} {...gwAck("connect")}>
+                <button className="btn btn-primary btn-mini" onClick={connectGateway} disabled={gwBusy} {...gwAck("connect")}>
                   {gwBusyOn === "connect" ? "Connecting…" : "Connect"}
                 </button>
                 <button className="btn btn-ghost btn-mini" onClick={() => setGwConfirm(false)} disabled={gwBusy} {...gwAck("cancel")}>Cancel</button>
               </>
             ) : (
-              <button className="btn btn-ghost btn-mini" onClick={() => setGwConfirm(true)} disabled={gwBusy} {...gwAck("arm")}>
+              <button className="btn btn-primary btn-mini" onClick={() => setGwConfirm(true)} disabled={gwBusy} {...gwAck("arm")}>
                 Save & connect
               </button>
             )}
