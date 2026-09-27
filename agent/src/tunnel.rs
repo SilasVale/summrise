@@ -270,6 +270,18 @@ pub(crate) async fn provision_tunnel(
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
     let mut tunnel_id = find_tunnel_id_by_name(&list_text, &tunnel_name);
+    // THE API FIRST, WHEN A TOKEN IS PRESENT — see `create_tunnel_via_api` for why. `cloudflared
+    // tunnel create` stays as the FALLBACK rather than being deleted, because it is the path that
+    // works on a machine where a human HAS logged in interactively, and this file should not
+    // choose between two working setups.
+    if tunnel_id.is_none() && !cf_token.trim().is_empty() {
+        tunnel_id = create_tunnel_via_api(cf_token, &tunnel_name).await;
+        if tunnel_id.is_some() {
+            tracing::info!(
+                "[summrise-agent] provision_tunnel: created '{tunnel_name}' through the Cloudflare API (no origin certificate needed)"
+            );
+        }
+    }
     // WHY THE CREATE'S OUTPUT IS KEPT (measured 2026-09-27): it was parsed for a UUID and
     // then dropped, so a failed create reached the operator as `list_out=""` — the list
     // taken BEFORE the create, which on a first install is always empty and therefore says
@@ -552,6 +564,54 @@ fn tunnel_outcome(local: Result<(), String>, remote: RemoteConfig, hostname: &st
 ///
 /// It RETURNS its verdict. It used to return `()` through eight bare `return`s, which made a
 /// failed remote update invisible everywhere while the local file claimed 127.0.0.1.
+/// Create the tunnel through the Cloudflare API and return its UUID.
+///
+/// **WHY THIS EXISTS RATHER THAN `cloudflared tunnel create`, MEASURED 2026-09-27 ON A FRESH
+/// WINDOWS MACHINE.** That command requires an ORIGIN CERTIFICATE, and the only supported way to
+/// obtain one is an INTERACTIVE `cloudflared tunnel login` — a browser, a human, and a zone to
+/// pick. The token path exists precisely so a device can be provisioned without any of that, so it
+/// must not depend on the one artifact only the interactive path can produce. What the operator
+/// saw instead:
+///
+///     registered · tunnel: could not determine tunnel id for 'summrise-agent-d1'.
+///     login_ok=true create_out="" create_err="... Cannot determine default origin certificate path"
+///
+/// The account id comes from the token itself (`GET /accounts`), the same call
+/// `update_remote_config` already makes, and `config_src: "cloudflare"` matches what that function
+/// then PUTs.
+async fn create_tunnel_via_api(cf_token: &str, name: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let acc = client
+        .get("https://api.cloudflare.com/client/v4/accounts")
+        .header("authorization", format!("Bearer {cf_token}"))
+        .send()
+        .await
+        .ok()?;
+    let acc: serde_json::Value = acc.json().await.ok()?;
+    let account_id = acc["result"][0]["id"].as_str()?.to_string();
+    let created = client
+        .post(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel"
+        ))
+        .header("authorization", format!("Bearer {cf_token}"))
+        .json(&serde_json::json!({ "name": name, "config_src": "cloudflare" }))
+        .send()
+        .await
+        .ok()?;
+    let body: serde_json::Value = created.json().await.ok()?;
+    let id = body["result"]["id"].as_str().map(|s| s.to_string());
+    if id.is_none() {
+        tracing::warn!(
+            "[summrise-agent] provision_tunnel: the API refused to create '{name}': {}",
+            &body.to_string()[..body.to_string().len().min(300)]
+        );
+    }
+    id
+}
+
 async fn update_remote_config(
     cf_token: &str,
     tunnel_id: &str,
