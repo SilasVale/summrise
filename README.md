@@ -8,8 +8,6 @@ Cloudflare tunnel, or from any MCP client. One Rust binary, one npm package, no 
 
 > **Install in two commands** · **Windows 10/11** · **MIT** · **Rust + TypeScript**
 
-Summrise turns a Windows device into an **AI-controllable workspace** — terminal, SSH, serial and browser sessions exposed to AI through MCP, plus an Electron desktop shell and a device-local memory. One repository for the front door, the device agent and the download distribution.
-
 ```
 Summrise Gate (front door, Cloudflare Worker) — console, BYOK AI gateway, /mcp proxy
         │
