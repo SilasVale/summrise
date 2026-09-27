@@ -767,8 +767,25 @@ h3 { font-size: var(--fs-base); }
    to mean "Connect". **The colour was not decoration there; it was a missing rung being improvised.**
    Measured 2026-09-28 in the operator's own read of the Settings page: *"这个页面太过混乱需要重新设计"*.
    `--accent` is the panel's existing emphasis token, so this adds no colour of its own. */
-.btn-primary { color: var(--accent-fg); background: var(--accent-solid); border-color: transparent; }
-.btn-primary:hover { background: var(--accent-solid-hover); }
+/* ── AND IT IS A SOFT FILL, NOT A SOLID ONE — THE FIRST VERSION WAS RIGHT AND "IMPROVING" IT WAS THE MISTAKE ──
+   This rule was written with `--accent-soft`/`--accent-ink` and then rewritten to `--accent-solid`/`--accent-fg` because
+   those tokens exist and are purpose-named. **The design sweep refused it in eleven rows:**
+   *"panel-Settings: 2 loud elements — a page has ONE focal point at most — button.rail-btn active 1444px2
+   rgba(217,72,15,0.9); button.btn btn-primary btn-mini 2673px2 rgb(176,58,10)"*. The rail's active item is the same
+   accent hue, so a solid primary button made a SECOND focal point of the same colour and 1.8x the area.
+   **A primary action has to be findable, not loud** — a soft fill separates it from `.btn-ghost` (which has no
+   background) without competing with the navigation the reader is already using. */
+/* ── AND THE ACCENT IS A MARK HERE, NEVER INK — WHICH TOOK TWO REFUSALS TO LEARN ────────────────────────────────
+   The first version was `--accent-soft` + `--accent-ink`; the second was `--accent-solid` + `--accent-fg`. **The design
+   sweep refused the second for loudness** (*"2 loud elements — a page has ONE focal point at most … the rail's active item
+   is the same accent hue"*), **and `themeContrast.test.ts` refused the first on the numbers**:
+   *".btn-primary [light] var(--accent-ink) on var(--accent-soft) = 3.83 (needs 4.5)"* and
+   *"--accent-ink … is a MARK weight that measures 2.56-4.27"*. **This repository's tokens say which colours may paint
+   TEXT**, and `--accent-ink` is not one of them.
+   So the accent is the BORDER and the FILL (both marks) and the label is `--ink`, the body colour — findable against
+   `.btn-ghost` (which has neither) without becoming a second focal point. */
+.btn-primary { color: var(--ink); background: var(--accent-soft); border-color: var(--accent-solid); }
+.btn-primary:hover { background: var(--accent-soft); border-color: var(--accent-solid-hover); }
 .btn-danger { color: var(--danger-on-soft); background: var(--danger-soft); border-color: transparent; }
 .btn-danger:hover { background: var(--danger); color: #fff; }
 .btn-mini { padding: var(--sp-1) 10px; font-size: var(--fs-sm); border-radius: var(--radius-sm2); }
