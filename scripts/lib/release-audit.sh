@@ -143,19 +143,25 @@ audit_release_asset() {
 print(next((a["id"] for a in json.load(sys.stdin) if a["name"] == sys.argv[1]), ""))' "$tgz" <<< "$assets" 2>/dev/null)" || aid=""
     if [[ -z "$aid" ]]; then
       echo "::error::release audit: cannot download the GitHub asset (and could not read its id for the API fallback)" >&2
-      return 1
+      return 3
     fi
     echo "  the release-asset host stalled or failed; retrying through the API asset URL (id ${aid})" >&2
     curl -fsSL -m 300 --speed-limit 20000 --speed-time 20 \
       -H "Authorization: Bearer ${token}" -H "Accept: application/octet-stream" \
+      # EXIT 3 MEANS "COULD NOT CHECK", WHICH IS NOT "CHECKED AND DIFFERENT" (round 86 of the standing goal).
+      # Round 85 measured what the confusion costs: `--audit-only 1.2.475` reported a DOWNLOAD failure while the CDN's
+      # artifact and the GitHub asset actually DIFFERED by 20 bytes (sha256 90a9b760… vs 2fa54a0d…) — a P0 dual-builder
+      # violation that the audit was supposed to catch and instead could not reach. A caller reading only the status saw
+      # one number for both conditions, and a log that says "cannot download" reads like an environment problem rather
+      # than like an unchecked release. A mismatch still returns 1; only the three unreachable-asset paths return 3.
       "${base}/releases/assets/${aid}" -o "$work/gh.tgz" || {
       echo "::error::release audit: cannot download the GitHub asset, direct OR through the API" >&2
-      return 1
+      return 3
     }
   fi
   curl -fsSL -m 300 --retry 5 --retry-delay 3 --retry-connrefused \
     "${cdn}/summrise-agent/${tgz}" -o "$work/cdn.tgz" \
-    || { echo "::error::release audit: cannot download the CDN tgz" >&2; return 1; }
+    || { echo "::error::release audit: cannot download the CDN tgz" >&2; return 3; }
 
   local cdn_sha gh_sha
   cdn_sha="$(sha256sum "$work/cdn.tgz" | cut -d' ' -f1)"
