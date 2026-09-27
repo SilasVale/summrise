@@ -901,6 +901,15 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
   // the Memory page's input in the real DOM, even though the technique it uses is proven. A jsdom test can settle the
   // technique and cannot settle the selector; that needs a browser, and the device's is attached to the operator's screen
   // (round 32 made the shipped probe refuse to drive it).
+  //
+  // AND THE SELECTOR MATCHES TOO, WHICH ROUND 54 READ OUT OF THE SOURCE: `MemoryPage.tsx` renders the search box as a
+  // plain `<input className="mem-input" aria-label="Search memory by title, content or tag" …>` with NO `type` attribute,
+  // so the fill's filter reads it as `text`, does not skip it, finds it visible inside `.mem-toolbar`, and finds it empty.
+  // **EVERY MECHANISM THIS LOOP CAN READ IS CORRECT AND THE BEHAVIOUR STILL DIFFERS**, which is the point at which reading
+  // stops being the instrument: what is left is the live DOM at the instant of the press, and that needs a browser. The
+  // device's is attached to the operator's screen (round 32 made the shipped probe refuse to drive it — correctly), so
+  // this is the SECOND question held up by that one condition, after round 30's terminal-fit measurement. Both are
+  // answerable the moment the desktop view is closed; neither is answerable from this checkout.
   // emitted script by inserting into it — the second time this loop has paid for that, after round 41's stylesheet.)
   const rows = [];
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
