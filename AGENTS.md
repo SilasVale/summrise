@@ -154,6 +154,24 @@ That is a standing instruction from the operator (their inbox, row 7) and it is 
 read literally once as *"session language is English"*, which produced English replies to a Chinese question. The row in the
 inbox is annotated now; this paragraph is the version an agent reads before it answers.
 
+**PREFER RUST. A CHANGE TO A `.mjs`/`.cjs`/`.js` FILE NEEDS A REASON, NOT A HABIT.** The operator said it twice in one
+session — *"我不太喜欢js，你一直改js"* — and the loop's own record agrees with them: rounds 108-134 were spent retrying a
+blocked device measurement and editing sweep scripts, which is drift, not work.
+
+**THE CARVE-OUTS ARE REAL AND SHOULD NOT BE ARGUED WITH, ONLY NAMED:**
+
+| stays JS/TS | why |
+|---|---|
+| `agent/resources/panel-react/`, `gateway/ui/` | browser UIs — and they are already TypeScript (100 `.tsx` + 118 `.ts`, zero `.js`) |
+| `gateway/src/*.ts` | Cloudflare Workers runs V8 |
+| `agent/summrise-agent-npm/bin/summrise.js` | npm is how the CLI is delivered |
+| `agent/scripts/live-panel-probe.mjs` and the code the sweeps INJECT into a page | the device calls it through `browser_run_script`, which takes a JS file, and the measurement runs in the DOM |
+
+**WHAT IS A LEGITIMATE RUST TARGET, IF THE OPERATOR ASKS FOR IT:** the sweeps' DRIVER and JUDGE — `lib/design-sweep.mjs`
+and the five `lib/sweep/*.cjs` payloads, ~5,200 of the 7,572 lines under `agent/scripts/`. They are pure logic over JSON
+plus a Playwright driver, and `agent/src/plugins/design/` already shows the in-product half of that idea in Rust. It is NOT
+done by default: it costs a build stage and a Node↔Rust boundary, so it is the operator's call, not the loop's.
+
 ## The vocabulary
 
 **`CONTEXT.md` at the root is this project's GLOSSARY** — the words that mean something specific here (device, session, run,
