@@ -298,7 +298,7 @@ const fail = { api: false };
     // THE SAME WINDOW IN DARK, off the page that was just set to it. The panel's idle finding was a THEME-shaped
     // one once (the rail dot froze its paint across a flip), so the dark pass is not a formality here.
     if (wants('idle')) {
-      const idle = await idlePass(page, 6000);
+      const idle = await idlePass(page);
       report.idle.push({ page: label + '-dark', width: 1440, density: 'console', theme: 'dark', seconds: 6, ...idle });
     }
     // A FALSE POSITIVE WORTH REMEMBERING. While deciding whether this pass was needed I probed the page by
@@ -460,7 +460,7 @@ const fail = { api: false };
         // The window lives inside the 1440 block where the other per-class passes are, because width changes what
         // is on screen and the idle question is about what a settled page does.
         if (wants('idle')) {
-          const idle = await idlePass(page, 6000);
+          const idle = await idlePass(page);
           report.idle.push({ page: label, width, density: 'console', theme: 'light', seconds: 6, ...idle });
         }
 

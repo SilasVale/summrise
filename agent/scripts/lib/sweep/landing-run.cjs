@@ -83,7 +83,7 @@ const PAGES = ["installer", "npm-only"];
       if (wants("names")) report.names.push({ page: where, ...(await page.evaluate(NAMES, SELECTOR)) });
       if (wants("focus")) report.focus.push(await focusPass(page, 14, { page: where, width: 1440 }));
       if (wants("idle")) {
-        const idle = await idlePass(page, 6000);
+        const idle = await idlePass(page);
         report.idle.push({ page: where, width: 1440, density: "landing", theme: scheme, seconds: 6, ...idle });
       }
       if (wants("unstyled")) report.unstyled.push({ page: where, ...(await page.evaluate(UNSTYLED)) });
