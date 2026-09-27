@@ -853,13 +853,13 @@ export function ackNotes(rows, where) {
   const out = [];
   for (const a of rows || []) {
     out.push(
-      `note: ack ${where} ${a.sel} — acked=${a.acked} via=${a.via || "none"} ` +
+      `note: ack ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""} — acked=${a.acked} via=${a.via || "none"} ` +
         `ms=${a.msToAck === null || a.msToAck === undefined ? "-" : a.msToAck} budget=${a.budgetMs} ` +
         `presses=${a.presses ?? a.attempts ?? 1}`,
     );
     if (a.acked && (a.attempts || 1) > 1) {
       out.push(
-        `note: ${where} ${a.sel} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded ` +
+        `note: ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded ` +
           `machine is a timing artefact and on a real control is an acknowledgement that depends on state`,
       );
     }
