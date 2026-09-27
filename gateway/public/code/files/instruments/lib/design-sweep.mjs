@@ -1067,7 +1067,13 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     const callsAfter = await page.evaluate(() => (window.__calls || []).length);
     const asked = callsInPress > 0;
     rows.push({
-      sel, size: box.w + "x" + box.h, where: acked ? acked.where : (before ? before.where : sel),
+      // **THE NAME WAS COMPUTED AND THEN DROPPED HERE (round 46 of the standing goal).** Three rounds concluded the
+      // READER was wrong — it was not. This row is assembled field by field, `name` was never one of the fields, and
+      // so `a.name` was `undefined` for every row no matter what the probe returned. That is the same class as rounds
+      // 13, 21, 34 and 43 (the instrument holds the datum and does not pass it on), one level deeper: the datum was
+      // computed, returned, and then discarded when the row was built.
+      sel, size: box.w + "x" + box.h, name: (acked && acked.name) || (before && before.name) || "",
+      where: acked ? acked.where : (before ? before.where : sel),
       acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs, attempts, msFirstPress,
       asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore, hasCounter,
       ...(acked || asked
