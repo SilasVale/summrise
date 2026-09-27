@@ -48,6 +48,12 @@ const CONFIGS = P.configPaths;
   // goes, and round 111 shows where it stops: at **207 MB free the run still crashed natively** (`0xC0000409`, a
   // fail-fast, with EMPTY stdout), the same signature as round 95 at 106 MB — while round 107 COMPLETED a full
   // measurement at 123 MB. So the number does not order the outcomes, because Chromium's launch spikes well past the
+  //
+  // AND ROUND 114 PUT A SECOND POINT ON IT, WHICH IS WHY THE READING IS STILL WORTH TAKING: at **63 MB free the node
+  // process's heap was capped at ~50 MB** the round before — the same number seen from the other side — so a LOW
+  // reading predicts the crash almost exactly. **THE ASYMMETRY IS THE USEFUL PART**: low means certain failure, high
+  // means uncertain (123 MB completed, 207 MB crashed). A guard that skips low readings is therefore not superstition
+  // even though it cannot promise success, and that is what the pre-check has been doing.
   // free commit at the moment it starts. **THE READING TELLS YOU WHEN NOT TO BOTHER, NOT WHEN IT WILL WORK** — an
   // attempt is always a gamble, and the honest thing to do with a failure here is report it rather than conclude
   // anything about the panel.
