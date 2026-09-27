@@ -23,9 +23,9 @@
 // readings for that since it was written ("a timing artefact" or "an acknowledgement that depends on state"); reading the
 // hook settled it in favour of the first, with the cause named: React batching, not load.
 //
-// THIS FILE CANNOT PIN IT — it scans source and never renders, so a rendering test (React Testing Library is already in
-// the suite: see the `.tsx` cases beside this one) is what would turn the paragraph above into a ratchet. Until then it is
-// a fact with a witness and no gate, which is exactly the state this header exists to complain about.
+// AND IT IS PINNED NOW, ONE FILE OVER: `useAck.batching.test.tsx` renders the hook and asserts both halves — an async
+// action paints `data-busy` while it is in flight, and a synchronous one NEVER does, across repeated presses. This file
+// still cannot do it (it scans source and never renders), which is why the ratchet lives beside it rather than here.
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
