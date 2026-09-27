@@ -12,6 +12,11 @@ resource directory stripped) — a rebuild cannot produce one, because the build
 
 Exit 0 when an RT_ICON (type 3) resource is present; exit 1 with a reason otherwise.
 
+WHY IT LIVES IN `scripts/` AND NOT `scripts/test/` (round 67, measured): `scripts/test/build-pins.bash` FAILS with
+"every scripts/test file is invoked from ci.yml", and this one CANNOT be — no CI job has an exe to read (round 65). Putting
+it there turned `main` red in two jobs, which is the repository's own rule saying where a check that needs an artifact
+belongs: beside the release flow that produces one.
+
 MUTATION: zero the resource data directory entry (index 2) in a COPY of the exe —
     python3 -c "import struct;b=bytearray(open(SRC,'rb').read());pe=struct.unpack_from('<I',b,0x3C)[0];opt=pe+24;dd=opt+112;struct.pack_into('<II',b,dd+16,0,0);open(DST,'wb').write(b)"
   (PE32+ here; for PE32 the fixed optional-header size is 96 rather than 112.)
