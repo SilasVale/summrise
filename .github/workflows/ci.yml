@@ -390,15 +390,20 @@ jobs:
       # animation on both sheets is now declared with one of three purposes and its reason — STATE (motion that
       # describes something still happening), ENTRANCE (a thing arriving, one-shot), ATTENTION ("this changed").
       # A new animation fails until somebody writes down which it is.
-      - name: the chrome is still — every animation is a declared state or acknowledgement
-        run: node scripts/test/chrome-stillness-check.mjs
+      # THE CHROME IS STILL MOVED TO RUST — `agent/tests/chrome_stillness.rs`, which the `agent` job's
+      # `cargo test -p summrise-agent` runs. The step here ran `scripts/test/chrome-stillness-check.mjs`, and that
+      # file is DELETED rather than left beside the new gate: two gates for one rule is two gates. Before the `.mjs`
+      # went, both implementations were run over the same tree (four cases, bodies `cmp`-identical: 120 / 332 / 280 /
+      # 476 bytes) AND over four adversarial fixtures extracted from the Rust file (2083 / 1574 / 1867 bytes,
+      # identical), so this is a move and not a second opinion.
       # THE INSTRUCTION FILE'S BUDGET MOVED TO RUST — `agent/tests/docs_budget.rs`, which the `agent` job's
       # `cargo test -p summrise-agent` runs. It was `scripts/test/docs-budget-check.mjs` behind a step HERE, and
       # that file is deleted rather than left beside the new gate: two gates for one rule is two gates. The two
       # were run over the same tree, on the same inputs, and agreed on the verdict and on the message text before
-      # the `.mjs` went, so this is a move and not a second opinion. Nothing replaced the step, deliberately — the
-      # ceiling it enforces is now checked by a job CI already runs, which is the whole reason the move is worth
-      # making, and a `cargo test` step here would compile the crate a second time in a job with no Rust cache.
+      # the `.mjs` went, so this is a move and not a second opinion.
+      # NEITHER STEP WAS REPLACED, DELIBERATELY — the rules they enforced are now checked by a job CI already runs,
+      # which is the whole reason the moves are worth making, and a `cargo test` step here would compile the crate a
+      # second time in a job with no Rust cache.
       # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
       # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
