@@ -8,13 +8,24 @@
 //! Rust port reproduced it in a new language, one module at a time, and nobody noticed because each
 //! copy is defensible on its own.
 //!
-//! **THE FOUR OLDER COPIES ARE STILL THERE, AND THAT IS RECORDED RATHER THAN QUIETLY FIXED.** They
-//! are byte-identical in behaviour but not in signature (`runs.rs`'s `put` takes a `&JsValue` where
-//! the others take an `&Object`) and each carries a comment that is about ITS family's boundary
-//! conditions — `monitors.rs`'s `num` and `boot.rs`'s `non_empty` differ on purpose and say so.
-//! Folding them in is a change to four families at once, so it wants its own commit, its own
-//! differential over the four families' tests, and its own size measurement. What this module does
-//! is stop the count going to five.
+//! **THREE OF THE FOUR COPIES ARE FOLDED IN AS OF 2026-09-29, AND THE REST ARE NOT — both halves
+//! measured rather than asserted.** `type_of`, `prop` and `opt_num` were byte-identical in all four
+//! modules (`archive.rs`'s `prop` spelled the same test through an `is_object_like` helper, which is
+//! the same predicate), so each module now imports them from here and twelve definitions became
+//! three. **THE WASM GOT SMALLER FOR IT: 59,283 → 59,143 bytes raw, 24,741 → 24,713 gz** — a
+//! deduplication that is also a size win, which is not the usual direction for this crate.
+//!
+//! WHAT IS STILL DUPLICATED, and each for a reason a mechanical sweep would have destroyed:
+//!
+//!   * `put` — three modules take an `&Object` and `runs.rs` takes a `&JsValue`. Unifying means
+//!     `obj.as_ref()` at ~40 call sites in three files, which is churn rather than deduplication.
+//!   * `opt_str` — `Option<String>` in three, `Option<&str>` in `runs.rs`, for the same reason.
+//!   * `finite_number` / `finite_num` / `num` — three names, and `monitors.rs`'s carries a comment
+//!     about `typeof` versus `Number.isFinite` that its family's tests pin. `evicted.rs` reads the
+//!     same field with `typeof … === "number"` and NO finiteness test, on purpose, and says so.
+//!   * `non_empty_string` / `non_empty` / `non_empty_str` — these DIFFER IN BEHAVIOUR: `boot.rs`'s
+//!     does not trim and `" "` is a usable value there, `archive.rs`'s does. Each module's header
+//!     says so, and folding them would silently pick one family's rule for another's field.
 //!
 //! THE SEMANTICS ARE `monitors.rs`'s, copied verbatim, because that module has the most complete set
 //! and because the differences between the copies are the thing that must not drift.

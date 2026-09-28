@@ -24,12 +24,8 @@
 //! 8,879-gz `{:.3}` lesson (P0's baseline) and the correctness trap turn out to have the same fix.
 
 use js_sys::{Array, Number, Object, Reflect};
+use crate::js::{opt_num, prop, type_of};
 use wasm_bindgen::prelude::*;
-
-/// JS `typeof v`.
-fn type_of(v: &JsValue) -> String {
-    v.js_typeof().as_string().unwrap_or_default()
-}
 
 /// `str(v)` — a string, or the EMPTY string. NOT `boot.rs`'s `non_empty`, and the difference is a
 /// real one this file's own tests pinned: `parseMonitorChange({ev, id, at_ms})` answers
@@ -75,17 +71,6 @@ fn is_true(v: &JsValue) -> bool {
     type_of(v) == "boolean" && v.as_bool().unwrap_or(false)
 }
 
-/// A property read that never throws, for the reason `archive.rs` and `boot.rs` both state:
-/// `Reflect::get` REFUSES a primitive target where JS auto-boxes. `(j ?? {})`, `(r.summary ?? {})`
-/// and `(p ?? {})` are all this one guard spelled out — and it is why `parseMonitors(42)` answers an
-/// empty list rather than raising, which is the test that calls it with `42` and `"text"`.
-fn prop(v: &JsValue, key: &str) -> JsValue {
-    if v.is_null() || v.is_undefined() || type_of(v) != "object" {
-        return JsValue::UNDEFINED;
-    }
-    Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
-}
-
 /// An array-valued property as a list, or nothing at all when it is not an array. `Array.isArray`
 /// is the test, not truthiness: `{targets: "nope"}` is an EMPTY list and not a one-row list.
 fn rows(v: &JsValue, key: &str) -> Vec<JsValue> {
@@ -99,13 +84,6 @@ fn rows(v: &JsValue, key: &str) -> Vec<JsValue> {
 
 fn put(obj: &Object, key: &str, value: &JsValue) -> Result<(), JsValue> {
     Reflect::set(obj.as_ref(), &JsValue::from_str(key), value).map(|_| ())
-}
-
-fn opt_num(n: Option<f64>) -> JsValue {
-    match n {
-        Some(x) => JsValue::from_f64(x),
-        None => JsValue::NULL,
-    }
 }
 
 fn opt_str(s: Option<String>) -> JsValue {
