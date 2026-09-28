@@ -232,15 +232,24 @@ export function MonitorsCard({
             {monitors.intervalSecs ? ` (every ${monitors.intervalSecs}s)` : ""} and keeps the last{" "}
             {monitors.seriesMax ? `${monitors.seriesMax} readings` : "readings"} — so the answer
             survives the session, the terminal and the panel being closed.
-            {down > 0 && (
-              <>
-                {" "}
-                <strong>
-                  {down} of {monitors.targets.length} are down right now.
-                </strong>
-              </>
-            )}
           </p>
+
+          {/* **AN ALARM WAS THE LAST CLAUSE OF A SENTENCE ABOUT HOW PROBING WORKS.** An independent review
+              measured it: `{down} of {n} are down right now.` rendered as a `<strong>` INSIDE `p.muted`, so
+              the one fact on this card that requires the reader to DO something inherited the muted ink
+              (4.63:1 — the same as the explanation above it) and sat at the end of three lines describing
+              the mechanism. **The most urgent fact on the card was typographically the least important
+              thing in it** — the same disease as the device token, on the same page.
+
+              `monitor-fact-down` is not invented here: the class already exists for this state AND
+              `state-colour-check.mjs` already names it, which is why this is a repair rather than a new
+              style. The value it carries is `--state-fail-ink`, decoupled from `--danger-on-soft` on
+              purpose — the token file records that the obvious candidate draws 2.16:1 in dark. */}
+          {down > 0 && (
+            <p className="monitor-fact-down">
+              {down} of {monitors.targets.length} are down right now.
+            </p>
+          )}
 
           {monitors.targets.length > 0 && (
             <ul className="monitor-list">

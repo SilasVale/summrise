@@ -749,8 +749,9 @@ async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> b
 /// remote client got **530**, three separate times, and asked *"为什么还没有上线呢"* each time. **The panel was not lying
 /// about a step; it was answering a question it had not asked.**
 ///
-/// Cloudflare's own tunnel object carries the answer: `status` is `healthy`, `degraded` or `down`, and `conns_active`
-/// counts live connectors. This is the check the card's sentence always implied, and it costs one GET.
+/// Cloudflare's own tunnel object carries the answer: `status` is `healthy`, `degraded` or `down`, and the live
+/// connectors are the **`connections` ARRAY** — NOT a `conns_active` counter, which this file asserted for three
+/// releases while the field did not exist. This is the check the card's sentence always implied, and it costs one GET.
 async fn tunnel_health_via_api(cf_token: &str, tunnel_id: &str) -> Option<(String, u64)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
@@ -774,7 +775,22 @@ async fn tunnel_health_via_api(cf_token: &str, tunnel_id: &str) -> Option<(Strin
         .ok()?;
     let body: serde_json::Value = r.json().await.ok()?;
     let status = body["result"]["status"].as_str()?.to_string();
-    let conns = body["result"]["conns_active"].as_u64().unwrap_or(0);
+    // **THE COUNT CAME FROM A FIELD CLOUDFLARE DOES NOT SEND.** `conns_active` is not in the tunnel
+    // object the API returns; the live connectors are the `connections` ARRAY. Measured 2026-09-28
+    // on desktop-14rjcr8: the panel read `status 'healthy' with 0 live connection(s); remote clients
+    // will get 530` while `GET /cfd_tunnel/{id}` listed FOUR connectors and the edge answered **200**.
+    // So `conns` was always 0, the `ok (host) — N live connection(s)` branch in `tunnel_outcome` was
+    // UNREACHABLE, and every healthy tunnel was reported as NOT REACHABLE with a consequence named.
+    //
+    // **AND AN ABSENT COUNT IS NOT ZERO.** `unwrap_or(0)` is how that lie was told, one layer below
+    // the sentence this function exists to keep honest. With neither field in the response there is
+    // no number to report, so this returns `None` — which `tunnel_outcome` renders as *"reachability
+    // NOT VERIFIED"*. A zero the API never sent is not a measurement.
+    let result = &body["result"];
+    let conns = result["connections"]
+        .as_array()
+        .map(|a| a.len() as u64)
+        .or_else(|| result["conns_active"].as_u64())?;
     Some((status, conns))
 }
 
