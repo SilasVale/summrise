@@ -42,11 +42,32 @@ echo "── wasm-pack build --target web --no-opt ──"
 wasm-pack build --target web --no-opt
 
 if [ -n "$WASM_OPT" ]; then
-  echo "── wasm-opt -Oz (binaryen 132) ──"
+  # THE VERSION IS READ, NOT SPELLED — the line used to say "binaryen 132" as a literal, and this
+  # box's `npm i binaryen` is 132 while the next one may not be. A build log that names the wrong
+  # toolchain is worse than one that names none.
+  echo "── wasm-opt -Oz (binaryen $("$WASM_OPT" --version 2>/dev/null | sed -nE 's/.*version ([0-9]+).*/\1/p' | head -1)) ──"
   "$WASM_OPT" -Oz --enable-bulk-memory --enable-nontrapping-float-to-int "$BG_SRC" -o "$BG_SRC.opt"
   mv "$BG_SRC.opt" "$BG_SRC"
 else
-  echo "wasm-opt not found — set WASM_OPT=/path/to/wasm-opt (npm i binaryen gives one)" >&2
+  # A MISSING OPTIMIZER IS A FAILURE, NOT A WARNING (2026-09-29), and the numbers are why. This
+  # branch used to print one line to stderr and carry on, which shipped an UNOPTIMIZED artifact into
+  # a COMMITTED binary — and the three files below are committed, so nothing downstream ever
+  # re-derives it. MEASURED on this box, same source, same day:
+  #
+  #     with wasm-opt -Oz     54,700 bytes / 23,167 gzipped   <- the committed artifact, reproduced
+  #     without it           109,391 bytes / 30,266 gzipped   <- +7,099 gz, +31% of the served asset
+  #
+  # The first build in this session did exactly that: it overwrote the committed wasm with the
+  # unoptimized one, and `git status` was the only thing that said so. **A COST THAT APPEARS IN A
+  # BINARY AND NOWHERE ELSE IS THE COST THIS REPOSITORY KEEPS PAYING** — the plan's own `{:.3}`
+  # lesson is the same class, one formatter away from 8,879 gz. `wasm-pack` cannot fetch binaryen
+  # here (its download is the 14-minute hang this file's header describes), but `npm i binaryen`
+  # takes two seconds and gives a wasm-opt, which is why the message names it rather than the URL.
+  echo "build.sh: NO wasm-opt, so this would commit an UNOPTIMIZED artifact — 109,391 bytes / 30,266 gz" >&2
+  echo "          against the committed 54,700 / 23,167. The three files below are COMMITTED, so this is" >&2
+  echo "          the only place the cost could be caught. Fix it with:" >&2
+  echo "              npm i binaryen   &&   WASM_OPT=\$PWD/node_modules/.bin/wasm-opt ./build.sh" >&2
+  exit 1
 fi
 
 mkdir -p "$GLUE_DST" "$(dirname "$ASSET_DST")"

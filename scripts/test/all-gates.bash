@@ -134,8 +134,28 @@ for cmd in "${gates[@]}"; do
     # 3 IS A FAILURE, NOT AN EXEMPTION (round 172). A gate that ran and could not measure — its patterns
     # went stale, a floor read nothing — has proved nothing, and "proved nothing" must not read as "not
     # applicable". Three gates printed FAIL and exited 2, which this case used to swallow.
-    3) fail=$((fail + 1)); printf '  FAIL  %s (ran but could not measure)\n' "$cmd"; printf '%s\n' "$out" | tail -4 | sed 's/^/          /' ;;
-    *) fail=$((fail + 1)); printf '  FAIL  %s\n' "$cmd"; printf '%s\n' "$out" | tail -4 | sed 's/^/          /' ;;
+    # A FAILING GATE MUST NAME WHAT FAILED, AND `tail -4` IS WHERE THAT NAME WAS THROWN AWAY.
+    # MEASURED on `3024bc5e`: this runner reported `cargo test -p summrise-agent --features
+    # terminal,keyring` as "756 passed; 1 failed" and NOTHING ELSE — because the name of the failing
+    # test sits in cargo's `failures:` block, a dozen lines ABOVE the summary that `tail -4` keeps.
+    # The next round was left holding a red it could not act on, and the cost of finding that out was
+    # a CI cycle. **A GATE WHOSE OUTPUT DOES NOT NAME THE FAILURE IS A GATE SOMEBODY RE-RUNS HOPING.**
+    # So the naming lines come FIRST and the tail is kept after them: nothing that used to be printed
+    # is removed, and what is added is the one line a reader needs in order to act.
+    #   * `^failures:` and the test paths under it — cargo's own list, which is the measured case. The
+    #     indented arm is anchored on a Rust test PATH (`    module::path::name`), so it does not also
+    #     collect cargo's `    Finished …` line, which the first version of this did.
+    #   * `panicked at` — a unit test's panic line, which cargo prints above that list.
+    #   * `FAILED` — every reporter in this repository ends with one (the suite has three).
+    # `awk '!seen[$0]++'` rather than two prints: the summary line is in BOTH blocks, and a report that
+    # repeats itself is a report a reader learns to skim. `pipefail` is on and awk exits 0, so the
+    # pipeline's status stays what it was.
+    3) fail=$((fail + 1)); printf '  FAIL  %s (ran but could not measure)\n' "$cmd"
+       { printf '%s\n' "$out" | grep -E '^(failures:|    [a-z_][A-Za-z0-9_:]*$)|panicked at|FAILED' | head -12
+         printf '%s\n' "$out" | tail -4; } | awk '!seen[$0]++' | sed 's/^/          /' ;;
+    *) fail=$((fail + 1)); printf '  FAIL  %s\n' "$cmd"
+       { printf '%s\n' "$out" | grep -E '^(failures:|    [a-z_][A-Za-z0-9_:]*$)|panicked at|FAILED' | head -12
+         printf '%s\n' "$out" | tail -4; } | awk '!seen[$0]++' | sed 's/^/          /' ;;
   esac
 done
 
