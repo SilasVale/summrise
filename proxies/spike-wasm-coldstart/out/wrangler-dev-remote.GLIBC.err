@@ -1,0 +1,24 @@
+
+ ⛅️ wrangler 4.127.0
+────────────────────
+Support for remote bindings in `wrangler dev` is now available as a replacement for `wrangler dev --remote`. Try it out now by running `wrangler dev` with the `remote` option enabled on your resources and let us know how it goes!
+This gives you access to remote resources in development while retaining all the usual benefits of local dev: fast iteration speed, breakpoint debugging, and more.
+
+Refer to https://developers.cloudflare.com/workers/development-testing/#remote-bindings for more information.
+Your Worker has access to the following bindings:
+Binding                                                           Resource                  
+env.RESULTS (6c8bcaff0e7f4f929cebcdd80032da47)                    KV Namespace              
+env.TARGET_TS ("https://coldstart-spike-ts.zhengsaisi...")        Environment Variable      
+env.TARGET_RUST ("https://coldstart-spike-rust.zhengsai...")      Environment Variable      
+
+⎔ Starting remote preview...
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mwrite EPIPE[0m
+
+
+[32mIf you think this is a bug then please create an issue at https://github.com/cloudflare/workers-sdk/issues/new/choose[0m
+/home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.32' not found (required by /home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd)
+/home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.33' not found (required by /home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd)
+/home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by /home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd)
+/home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.35' not found (required by /home/zhengsaisi/.nvm/versions/node/v24.20.0/lib/node_modules/wrangler/node_modules/@cloudflare/workerd-linux-64/bin/workerd)
+🪵  Logs were written to "/home/zhengsaisi/.config/.wrangler/logs/wrangler-2026-09-28_13-12-43_685.log"

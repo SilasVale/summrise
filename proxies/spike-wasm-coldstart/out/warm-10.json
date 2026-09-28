@@ -1,0 +1,894 @@
+{
+ "stamp": "2026-09-28T13:20:42.772Z",
+ "tag": "warm-10",
+ "selfColo": "AMS",
+ "suite": {
+  "warm": 20,
+  "bursts": 0,
+  "burst": 6,
+  "work": 1,
+  "workN": 300000
+ },
+ "runs": [
+  {
+   "label": "ts",
+   "base": "https://coldstart-spike-ts.zhengsaisi.workers.dev",
+   "isolates": 1,
+   "colos": [
+    "AMS"
+   ],
+   "errors": [],
+   "statuses": [
+    200
+   ],
+   "stats": {
+    "warm_ms": {
+     "n": 20,
+     "min": 10,
+     "p50": 14,
+     "p90": 21,
+     "p99": 88,
+     "max": 88,
+     "mean": 18.7,
+     "sd": 16.519987893458033
+    },
+    "cold_ms": null,
+    "cold_isolateAgeMs": null,
+    "cold_handlerMs": null,
+    "warm_handlerMs": {
+     "n": 20,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "work_ms": {
+     "n": 1,
+     "min": 12,
+     "p50": 12,
+     "p90": 12,
+     "p99": 12,
+     "max": 12,
+     "mean": 12,
+     "sd": 0
+    },
+    "work_handlerMs": {
+     "n": 1,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "work_acc": [
+     146613704860
+    ]
+   },
+   "samples": [
+    {
+     "rid": "ts-w0",
+     "ms": 10,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 191,
+      "isolateAgeMs": 9530,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w1",
+     "ms": 10,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 192,
+      "isolateAgeMs": 9540,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w2",
+     "ms": 11,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 193,
+      "isolateAgeMs": 9551,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w3",
+     "ms": 13,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 194,
+      "isolateAgeMs": 9565,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w4",
+     "ms": 14,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 195,
+      "isolateAgeMs": 9577,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w5",
+     "ms": 15,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 196,
+      "isolateAgeMs": 9594,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w6",
+     "ms": 15,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 197,
+      "isolateAgeMs": 9609,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w7",
+     "ms": 13,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 198,
+      "isolateAgeMs": 9623,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w8",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 199,
+      "isolateAgeMs": 9636,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w9",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 200,
+      "isolateAgeMs": 9649,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w10",
+     "ms": 21,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 201,
+      "isolateAgeMs": 9667,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w11",
+     "ms": 14,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 202,
+      "isolateAgeMs": 9685,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w12",
+     "ms": 14,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 203,
+      "isolateAgeMs": 9698,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w13",
+     "ms": 15,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 204,
+      "isolateAgeMs": 9713,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w14",
+     "ms": 30,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 205,
+      "isolateAgeMs": 9743,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w15",
+     "ms": 88,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 206,
+      "isolateAgeMs": 9834,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w16",
+     "ms": 17,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 207,
+      "isolateAgeMs": 9849,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w17",
+     "ms": 20,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 208,
+      "isolateAgeMs": 9872,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w18",
+     "ms": 18,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 209,
+      "isolateAgeMs": 9889,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-w19",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 210,
+      "isolateAgeMs": 9904,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "ts-k0",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 170,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "b39e7345-634f-48d4-a58f-69b3abb362c5",
+      "requestIndex": 211,
+      "isolateAgeMs": 9913,
+      "handlerMs": 0,
+      "n": 300000,
+      "acc": 146613704860,
+      "msg": "hello"
+     }
+    }
+   ]
+  },
+  {
+   "label": "rust",
+   "base": "https://coldstart-spike-rust.zhengsaisi.workers.dev",
+   "isolates": 1,
+   "colos": [
+    "AMS"
+   ],
+   "errors": [],
+   "statuses": [
+    200
+   ],
+   "stats": {
+    "warm_ms": {
+     "n": 20,
+     "min": 9,
+     "p50": 10,
+     "p90": 12,
+     "p99": 14,
+     "max": 14,
+     "mean": 10.65,
+     "sd": 1.5256146302392355
+    },
+    "cold_ms": null,
+    "cold_isolateAgeMs": null,
+    "cold_handlerMs": null,
+    "warm_handlerMs": {
+     "n": 20,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "work_ms": {
+     "n": 1,
+     "min": 9,
+     "p50": 9,
+     "p90": 9,
+     "p99": 9,
+     "max": 9,
+     "mean": 9,
+     "sd": 0
+    },
+    "work_handlerMs": {
+     "n": 1,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "work_acc": [
+     146613704860
+    ]
+   },
+   "samples": [
+    {
+     "rid": "rust-w0",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 191,
+      "isolateAgeMs": 9851,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w1",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 192,
+      "isolateAgeMs": 9862,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w2",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 193,
+      "isolateAgeMs": 9872,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w3",
+     "ms": 13,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 194,
+      "isolateAgeMs": 9883,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w4",
+     "ms": 11,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 195,
+      "isolateAgeMs": 9896,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w5",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 196,
+      "isolateAgeMs": 9907,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w6",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 197,
+      "isolateAgeMs": 9919,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w7",
+     "ms": 10,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 198,
+      "isolateAgeMs": 9928,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w8",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 199,
+      "isolateAgeMs": 9938,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w9",
+     "ms": 11,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 200,
+      "isolateAgeMs": 9951,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w10",
+     "ms": 10,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 201,
+      "isolateAgeMs": 9959,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w11",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 202,
+      "isolateAgeMs": 9970,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w12",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 203,
+      "isolateAgeMs": 9980,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w13",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 135,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 204,
+      "isolateAgeMs": 9990,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w14",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 136,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 205,
+      "isolateAgeMs": 10000,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w15",
+     "ms": 14,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 136,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 206,
+      "isolateAgeMs": 10013,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w16",
+     "ms": 11,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 136,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 207,
+      "isolateAgeMs": 10026,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w17",
+     "ms": 10,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 136,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 208,
+      "isolateAgeMs": 10036,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w18",
+     "ms": 12,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 136,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 209,
+      "isolateAgeMs": 10047,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-w19",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 136,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 210,
+      "isolateAgeMs": 10057,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "warm"
+     }
+    },
+    {
+     "rid": "rust-k0",
+     "ms": 9,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 153,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "b7d0b41abd185306",
+      "requestIndex": 211,
+      "isolateAgeMs": 10068,
+      "handlerMs": 0,
+      "n": 300000,
+      "acc": 146613704860,
+      "msg": "hello"
+     }
+    }
+   ]
+  }
+ ]
+}

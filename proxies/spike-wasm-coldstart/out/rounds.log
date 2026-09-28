@@ -1,0 +1,52 @@
+cold round 1/8 (redeploying ts)
+  deployed ts version=fb31b4d4-8a5f-46a2-883f-6ac329fb8bc8 startup=not reported
+cold-r1.json colo=AMS tag=cold-r1-ts-vfb31b4d4-8a5f-46a2-883f-6ac329fb8bc8 ts[iso=1 cold=1:91-91 warm=-] rust[iso=1 cold=1:91-91 warm=-]
+    ts ms=91.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=91.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 2/8 (redeploying rust)
+  deployed rust version=37ee1714-b2a3-44f3-99f1-8b7be78ce282 startup=2
+cold-r2.json colo=AMS tag=cold-r2-rust-v37ee1714-b2a3-44f3-99f1-8b7be78ce282 ts[iso=1 cold=1:52-52 warm=-] rust[iso=1 cold=1:59-59 warm=-]
+    ts ms=52.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=59.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 3/8 (redeploying ts)
+  deployed ts version=02d255b5-4338-4587-a5f1-29476fb0b2fc startup=not reported
+cold-r3.json colo=LHR tag=cold-r3-ts-v02d255b5-4338-4587-a5f1-29476fb0b2fc ts[iso=1 cold=1:64-64 warm=-] rust[iso=1 cold=1:47-47 warm=-]
+    ts ms=64.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=47.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+cold round 4/8 (redeploying rust)
+  deployed rust version=a5d48728-59e4-4eaf-b3ea-b262e2fbe256 startup=1
+cold-r4.json colo=AMS tag=cold-r4-rust-va5d48728-59e4-4eaf-b3ea-b262e2fbe256 ts[iso=1 cold=1:65-65 warm=-] rust[iso=1 cold=1:53-53 warm=-]
+    ts ms=65.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=53.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 5/8 (redeploying ts)
+  deployed ts version=87e78055-d04c-458d-85c8-0a58f9057b1c startup=not reported
+cold-r5.json colo=AMS tag=cold-r5-ts-v87e78055-d04c-458d-85c8-0a58f9057b1c ts[iso=1 cold=1:113-113 warm=-] rust[iso=1 cold=1:96-96 warm=-]
+    ts ms=113.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=96.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 6/8 (redeploying rust)
+  deployed rust version=132fba37-3bd0-41bf-9b4d-dc09f0d6b055 startup=2
+cold-r6.json colo=AMS tag=cold-r6-rust-v132fba37-3bd0-41bf-9b4d-dc09f0d6b055 ts[iso=1 cold=1:35-35 warm=-] rust[iso=1 cold=1:50-50 warm=-]
+    ts ms=35.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=50.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 7/8 (redeploying ts)
+  deployed ts version=e4d27d35-f0ba-4e56-b3c6-e79af1818bc9 startup=not reported
+cold-r7.json colo=LHR tag=cold-r7-ts-ve4d27d35-f0ba-4e56-b3c6-e79af1818bc9 ts[iso=1 cold=1:41-41 warm=-] rust[iso=1 cold=1:54-54 warm=-]
+    ts ms=41.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=54.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+cold round 8/8 (redeploying rust)
+  deployed rust version=909c085a-19ea-4e72-9b72-a7a1cf8d7fbe startup=2
+cold-r8.json colo=AMS tag=cold-r8-rust-v909c085a-19ea-4e72-9b72-a7a1cf8d7fbe ts[iso=1 cold=1:96-96 warm=-] rust[iso=1 cold=1:88-88 warm=-]
+    ts ms=96.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=88.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+warm-1.json colo=AMS tag=warm-1 ts[iso=1 cold=- warm=20:p50=19.0] rust[iso=1 cold=- warm=20:p50=16.0]
+warm-2.json colo=AMS tag=warm-2 ts[iso=1 cold=- warm=20:p50=13.0] rust[iso=1 cold=- warm=20:p50=12.0]
+warm-3.json colo=AMS tag=warm-3 ts[iso=1 cold=- warm=20:p50=17.0] rust[iso=1 cold=- warm=20:p50=15.0]
+warm-4.json colo=AMS tag=warm-4 ts[iso=1 cold=- warm=20:p50=12.0] rust[iso=1 cold=- warm=20:p50=10.0]
+warm-5.json colo=AMS tag=warm-5 ts[iso=1 cold=- warm=20:p50=10.0] rust[iso=1 cold=- warm=20:p50=12.0]
+warm-6.json colo=AMS tag=warm-6 ts[iso=1 cold=- warm=20:p50=13.0] rust[iso=1 cold=- warm=20:p50=10.0]
+warm-7.json colo=AMS tag=warm-7 ts[iso=1 cold=- warm=20:p50=12.0] rust[iso=1 cold=- warm=20:p50=12.0]
+warm-8.json colo=AMS tag=warm-8 ts[iso=1 cold=- warm=20:p50=11.0] rust[iso=1 cold=- warm=20:p50=12.0]
+warm-9.json colo=AMS tag=warm-9 ts[iso=1 cold=- warm=20:p50=14.0] rust[iso=1 cold=- warm=20:p50=14.0]
+warm-10.json colo=AMS tag=warm-10 ts[iso=1 cold=- warm=20:p50=14.0] rust[iso=1 cold=- warm=20:p50=10.0]
+warm-11.json colo=AMS tag=warm-11 ts[iso=1 cold=- warm=20:p50=15.0] rust[iso=1 cold=- warm=20:p50=11.0]
+warm-12.json colo=AMS tag=warm-12 ts[iso=1 cold=- warm=20:p50=11.0] rust[iso=1 cold=- warm=20:p50=12.0]

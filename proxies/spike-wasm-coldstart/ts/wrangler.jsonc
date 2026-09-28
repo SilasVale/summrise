@@ -1,0 +1,9 @@
+{
+  // THROWAWAY. Deployed only for the P3.0 cold-start measurement and deleted
+  // immediately afterwards (`wrangler delete --name coldstart-spike-ts`).
+  "name": "coldstart-spike-ts",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "observability": { "enabled": false }
+}

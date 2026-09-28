@@ -1,0 +1,40 @@
+cold round 1/8 (redeploying ts)
+  deployed ts version=5fdf6642-6b7f-42e7-8bc2-1afd4de28a39 startup=not reported
+cold-r1.json colo=LHR tag=cold-r1-ts-v5fdf6642-6b7f-42e7-8bc2-1afd4de28a39 ts[iso=1 cold=1:81-81 warm=-] rust[iso=1 cold=1:126-126 warm=-]
+    ts ms=81.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=126.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+cold round 2/8 (redeploying rust)
+  deployed rust version=e252fccb-2ca9-443f-ad70-bfbd6df2f78b startup=1
+cold-r2.json colo=AMS tag=cold-r2-rust-ve252fccb-2ca9-443f-ad70-bfbd6df2f78b ts[iso=1 cold=1:65-65 warm=-] rust[iso=1 cold=1:52-52 warm=-]
+    ts ms=65.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=52.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 3/8 (redeploying ts)
+  deployed ts version=0e0ba882-85da-4054-8ad5-feb7a293265c startup=not reported
+cold-r3.json colo=LHR tag=cold-r3-ts-v0e0ba882-85da-4054-8ad5-feb7a293265c ts[iso=1 cold=1:80-80 warm=-] rust[iso=1 cold=1:61-61 warm=-]
+    ts ms=80.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=61.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+cold round 4/8 (redeploying rust)
+  deployed rust version=9a8f18c2-d211-43a0-93a4-9c8f67d79737 startup=2
+cold-r4.json colo=AMS tag=cold-r4-rust-v9a8f18c2-d211-43a0-93a4-9c8f67d79737 ts[iso=1 cold=1:28-28 warm=-] rust[iso=1 cold=1:35-35 warm=-]
+    ts ms=28.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=35.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 5/8 (redeploying ts)
+  deployed ts version=3bd4ab21-1c08-416c-a7f1-46ce6d784a35 startup=not reported
+cold-r5.json colo=LHR tag=cold-r5-ts-v3bd4ab21-1c08-416c-a7f1-46ce6d784a35 ts[iso=1 cold=1:69-69 warm=-] rust[iso=1 cold=1:54-54 warm=-]
+    ts ms=69.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=54.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+cold round 6/8 (redeploying rust)
+  deployed rust version=cb699ca0-95e3-49cc-8725-8bc80b4037e6 startup=1
+cold-r6.json colo=LHR tag=cold-r6-rust-vcb699ca0-95e3-49cc-8725-8bc80b4037e6 ts[iso=1 cold=1:31-31 warm=-] rust[iso=1 cold=1:44-44 warm=-]
+    ts ms=31.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=44.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+cold round 7/8 (redeploying ts)
+  deployed ts version=0959476f-df07-48f1-83ea-3c2e387fd1af startup=not reported
+cold-r7.json colo=AMS tag=cold-r7-ts-v0959476f-df07-48f1-83ea-3c2e387fd1af ts[iso=1 cold=1:53-53 warm=-] rust[iso=1 cold=1:63-63 warm=-]
+    ts ms=53.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+    rust ms=63.0 requestIndex=1 handlerMs=0 colo=AMS status=200
+cold round 8/8 (redeploying rust)
+  deployed rust version=8dbb2904-4b40-44ff-b186-e6e5dafc2d6c startup=1
+cold-r8.json colo=LHR tag=cold-r8-rust-v8dbb2904-4b40-44ff-b186-e6e5dafc2d6c ts[iso=1 cold=1:91-91 warm=-] rust[iso=1 cold=1:90-90 warm=-]
+    ts ms=91.0 requestIndex=1 handlerMs=0 colo=LHR status=200
+    rust ms=90.0 requestIndex=1 handlerMs=0 colo=LHR status=200

@@ -1,0 +1,376 @@
+{
+ "generatedAt": "2026-09-28T13:25:54.470Z",
+ "kvKeys": 58,
+ "runs": 45,
+ "rows": 2128,
+ "workers": {
+  "ts": {
+   "samples": 1064,
+   "errors": 657,
+   "colos": [
+    "LHR",
+    "AMS",
+    "FRA",
+    "TPE"
+   ],
+   "cold_ms": {
+    "n": 20,
+    "min": 28,
+    "p50": 69,
+    "p90": 96,
+    "p99": 154,
+    "max": 154,
+    "mean": 72.7,
+    "sd": 29.4
+   },
+   "cold_ms_manual": {
+    "n": 19,
+    "min": 28,
+    "p50": 69,
+    "p90": 96,
+    "p99": 113,
+    "max": 113,
+    "mean": 68.4,
+    "sd": 23.3
+   },
+   "warm_ms": {
+    "n": 372,
+    "min": 7,
+    "p50": 12,
+    "p90": 19,
+    "p99": 30,
+    "max": 88,
+    "mean": 13.5,
+    "sd": 6.4
+   },
+   "warm_ms_manual": {
+    "n": 293,
+    "min": 7,
+    "p50": 13,
+    "p90": 20,
+    "p99": 31,
+    "max": 88,
+    "mean": 14.4,
+    "sd": 6.9
+   },
+   "cold_handlerMs": {
+    "n": 20,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0,
+    "sd": 0
+   },
+   "warm_handlerMs": {
+    "n": 372,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0,
+    "sd": 0
+   },
+   "work_handlerMs": {
+    "n": 15,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0,
+    "sd": 0
+   },
+   "work_ms": {
+    "n": 15,
+    "min": 10,
+    "p50": 14,
+    "p90": 26,
+    "p99": 42,
+    "max": 42,
+    "mean": 17,
+    "sd": 7.8
+   },
+   "work_acc": [
+    146613704860
+   ],
+   "distinctIsolates": 20
+  },
+  "rust": {
+   "samples": 1064,
+   "errors": 771,
+   "colos": [
+    "LHR",
+    "AMS",
+    "FRA",
+    "TPE"
+   ],
+   "cold_ms": {
+    "n": 19,
+    "min": 35,
+    "p50": 61,
+    "p90": 96,
+    "p99": 126,
+    "max": 126,
+    "mean": 68.2,
+    "sd": 22.4
+   },
+   "cold_ms_manual": {
+    "n": 18,
+    "min": 35,
+    "p50": 59,
+    "p90": 96,
+    "p99": 126,
+    "max": 126,
+    "mean": 67.8,
+    "sd": 22.9
+   },
+   "warm_ms": {
+    "n": 261,
+    "min": 8,
+    "p50": 12,
+    "p90": 17,
+    "p99": 25,
+    "max": 27,
+    "mean": 12.7,
+    "sd": 3.5
+   },
+   "warm_ms_manual": {
+    "n": 244,
+    "min": 8,
+    "p50": 12,
+    "p90": 17,
+    "p99": 25,
+    "max": 27,
+    "mean": 12.9,
+    "sd": 3.5
+   },
+   "cold_handlerMs": {
+    "n": 19,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0,
+    "sd": 0
+   },
+   "warm_handlerMs": {
+    "n": 261,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0,
+    "sd": 0
+   },
+   "work_handlerMs": {
+    "n": 13,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0,
+    "sd": 0
+   },
+   "work_ms": {
+    "n": 13,
+    "min": 9,
+    "p50": 12,
+    "p90": 18,
+    "p99": 20,
+    "max": 20,
+    "mean": 12.9,
+    "sd": 3
+   },
+   "work_acc": [
+    146613704860
+   ],
+   "distinctIsolates": 19
+  }
+ },
+ "coldPairs": {
+  "n": 16,
+  "ts_ms": {
+   "n": 16,
+   "min": 28,
+   "p50": 65,
+   "p90": 96,
+   "p99": 113,
+   "max": 113,
+   "mean": 65.9,
+   "sd": 24.3
+  },
+  "rust_ms": {
+   "n": 16,
+   "min": 35,
+   "p50": 54,
+   "p90": 96,
+   "p99": 126,
+   "max": 126,
+   "mean": 66.4,
+   "sd": 23.7
+  },
+  "ts_minus_rust": {
+   "n": 16,
+   "min": -45,
+   "p50": 0,
+   "p90": 17,
+   "p99": 19,
+   "max": 19,
+   "mean": -0.5,
+   "sd": 16.4
+  },
+  "allCold": true,
+  "rows": [
+   {
+    "tag": "cold-r1-ts-vfb31b4d4-8a5f-46a2-883f-6ac329fb8bc8",
+    "colo": "AMS",
+    "ts": 91,
+    "rust": 91,
+    "diff": 0,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r2-rust-v37ee1714-b2a3-44f3-99f1-8b7be78ce282",
+    "colo": "AMS",
+    "ts": 52,
+    "rust": 59,
+    "diff": -7,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r3-ts-v02d255b5-4338-4587-a5f1-29476fb0b2fc",
+    "colo": "LHR",
+    "ts": 64,
+    "rust": 47,
+    "diff": 17,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r4-rust-va5d48728-59e4-4eaf-b3ea-b262e2fbe256",
+    "colo": "AMS",
+    "ts": 65,
+    "rust": 53,
+    "diff": 12,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r5-ts-v87e78055-d04c-458d-85c8-0a58f9057b1c",
+    "colo": "AMS",
+    "ts": 113,
+    "rust": 96,
+    "diff": 17,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r6-rust-v132fba37-3bd0-41bf-9b4d-dc09f0d6b055",
+    "colo": "AMS",
+    "ts": 35,
+    "rust": 50,
+    "diff": -15,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r7-ts-ve4d27d35-f0ba-4e56-b3c6-e79af1818bc9",
+    "colo": "LHR",
+    "ts": 41,
+    "rust": 54,
+    "diff": -13,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r8-rust-v909c085a-19ea-4e72-9b72-a7a1cf8d7fbe",
+    "colo": "AMS",
+    "ts": 96,
+    "rust": 88,
+    "diff": 8,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r1-ts-v5fdf6642-6b7f-42e7-8bc2-1afd4de28a39",
+    "colo": "LHR",
+    "ts": 81,
+    "rust": 126,
+    "diff": -45,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r2-rust-ve252fccb-2ca9-443f-ad70-bfbd6df2f78b",
+    "colo": "AMS",
+    "ts": 65,
+    "rust": 52,
+    "diff": 13,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r3-ts-v0e0ba882-85da-4054-8ad5-feb7a293265c",
+    "colo": "LHR",
+    "ts": 80,
+    "rust": 61,
+    "diff": 19,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r4-rust-v9a8f18c2-d211-43a0-93a4-9c8f67d79737",
+    "colo": "AMS",
+    "ts": 28,
+    "rust": 35,
+    "diff": -7,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r5-ts-v3bd4ab21-1c08-416c-a7f1-46ce6d784a35",
+    "colo": "LHR",
+    "ts": 69,
+    "rust": 54,
+    "diff": 15,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r6-rust-vcb699ca0-95e3-49cc-8725-8bc80b4037e6",
+    "colo": "LHR",
+    "ts": 31,
+    "rust": 44,
+    "diff": -13,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r7-ts-v0959476f-df07-48f1-83ea-3c2e387fd1af",
+    "colo": "AMS",
+    "ts": 53,
+    "rust": 63,
+    "diff": -10,
+    "tsIndex": 1,
+    "rustIndex": 1
+   },
+   {
+    "tag": "cold-r8-rust-v8dbb2904-4b40-44ff-b186-e6e5dafc2d6c",
+    "colo": "LHR",
+    "ts": 91,
+    "rust": 90,
+    "diff": 1,
+    "tsIndex": 1,
+    "rustIndex": 1
+   }
+  ]
+ }
+}

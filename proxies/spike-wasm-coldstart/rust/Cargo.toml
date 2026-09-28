@@ -1,0 +1,18 @@
+[package]
+name = "coldstart-spike-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "0.8.7"
+js-sys = "0.3"
+
+# No [profile.release] overrides on purpose: the deployed module is what
+# `worker-build --release` produces with the default profile, so the size and
+# CPU numbers below are the numbers a naive migration would get, not a tuned
+# best case. (The plan's P2 finding is exactly that a naive port pays costs it
+# cannot see.)

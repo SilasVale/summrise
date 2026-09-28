@@ -1,0 +1,152 @@
+{
+ "stamp": "2026-09-28T13:22:37.695Z",
+ "tag": "cold-r4-rust-v9a8f18c2-d211-43a0-93a4-9c8f67d79737",
+ "selfColo": "AMS",
+ "suite": {
+  "warm": 0,
+  "bursts": 1,
+  "burst": 1,
+  "work": 0,
+  "workN": 300000
+ },
+ "runs": [
+  {
+   "label": "ts",
+   "base": "https://coldstart-spike-ts.zhengsaisi.workers.dev",
+   "isolates": 1,
+   "colos": [
+    "AMS"
+   ],
+   "errors": [],
+   "statuses": [
+    200
+   ],
+   "stats": {
+    "warm_ms": null,
+    "cold_ms": {
+     "n": 1,
+     "min": 28,
+     "p50": 28,
+     "p90": 28,
+     "p99": 28,
+     "max": 28,
+     "mean": 28,
+     "sd": 0
+    },
+    "cold_isolateAgeMs": {
+     "n": 1,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "cold_handlerMs": {
+     "n": 1,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "warm_handlerMs": null,
+    "work_ms": null,
+    "work_handlerMs": null,
+    "work_acc": []
+   },
+   "samples": [
+    {
+     "rid": "ts-b0-0",
+     "ms": 28,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 149,
+     "body": {
+      "ok": true,
+      "who": "ts",
+      "isolateId": "1ee7ca4c-02d4-4c8c-83be-a080871361e2",
+      "requestIndex": 1,
+      "isolateAgeMs": 0,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "burst"
+     }
+    }
+   ]
+  },
+  {
+   "label": "rust",
+   "base": "https://coldstart-spike-rust.zhengsaisi.workers.dev",
+   "isolates": 1,
+   "colos": [
+    "AMS"
+   ],
+   "errors": [],
+   "statuses": [
+    200
+   ],
+   "stats": {
+    "warm_ms": null,
+    "cold_ms": {
+     "n": 1,
+     "min": 35,
+     "p50": 35,
+     "p90": 35,
+     "p99": 35,
+     "max": 35,
+     "mean": 35,
+     "sd": 0
+    },
+    "cold_isolateAgeMs": {
+     "n": 1,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "cold_handlerMs": {
+     "n": 1,
+     "min": 0,
+     "p50": 0,
+     "p90": 0,
+     "p99": 0,
+     "max": 0,
+     "mean": 0,
+     "sd": 0
+    },
+    "warm_handlerMs": null,
+    "work_ms": null,
+    "work_handlerMs": null,
+    "work_acc": []
+   },
+   "samples": [
+    {
+     "rid": "rust-b0-0",
+     "ms": 35,
+     "status": 200,
+     "colo": "AMS",
+     "bytes": 131,
+     "body": {
+      "ok": true,
+      "who": "rust",
+      "isolateId": "04df7928578490c4",
+      "requestIndex": 1,
+      "isolateAgeMs": 0,
+      "handlerMs": 0,
+      "n": 0,
+      "acc": 0,
+      "msg": "burst"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+{
+  // THROWAWAY. Deployed only for the P3.0 cold-start measurement and deleted
+  // immediately afterwards (`wrangler delete --name coldstart-spike-rust`).
+  "name": "coldstart-spike-rust",
+  "main": "build/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "build": { "command": "worker-build --release" },
+  "observability": { "enabled": false }
+}

@@ -1,0 +1,23 @@
+{
+  // THROWAWAY. The traffic source for the P3.0 measurement: `*.workers.dev` is
+  // TLS-reset from this box and from the devices, so the only client that can
+  // reach the two targets is one running inside Cloudflare. Cron needs no
+  // inbound path; KV is how the results come back (the API is reachable).
+  // Deleted with everything else: `wrangler delete --name coldstart-spike-driver`.
+  "name": "coldstart-spike-driver",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "kv_namespaces": [{ "binding": "RESULTS", "id": "6c8bcaff0e7f4f929cebcdd80032da47" }],
+  // The driver itself is routed on saisi.online (that is how it is triggered),
+  // and a Worker's subrequest to ITS OWN ZONE does not re-enter the Workers
+  // routes — it goes to the origin, which for a proxied placeholder record does
+  // not exist. Measured: every sample came back 522 in 19ms. workers.dev is a
+  // different zone, so the subrequests do reach the target workers.
+  "vars": {
+    "TARGET_TS": "https://coldstart-spike-ts.zhengsaisi.workers.dev",
+    "TARGET_RUST": "https://coldstart-spike-rust.zhengsaisi.workers.dev"
+  },
+  "triggers": { "crons": ["*/1 * * * *"] },
+  "observability": { "enabled": true }
+}
