@@ -227,11 +227,19 @@ export function MonitorsCard({
         </p>
       ) : (
         <>
+          {/* **THE LEDE ARGUED FOR THE CARD'S OWN EXISTENCE TO SOMEONE WHO HAD ALREADY OPENED IT.**
+              An independent review measured it: this was the page's longest line (206 chars), and it
+              ended *"— so the answer survives the session, the terminal and the panel being closed"*, a
+              justification addressed to a reader still deciding whether the feature should exist.
+
+              **BUT THE CLAUSE WAS NOT ONLY SALES COPY.** *Persistence across a restart* is a real
+              property a reader does ask about, so deleting the whole clause would have lost a fact to
+              win an argument. The fact stays; the pitch does not. Same three facts, no case pleaded. */}
           <p className="muted monitor-lede">
             This device probes each target over TCP on its own timer
             {monitors.intervalSecs ? ` (every ${monitors.intervalSecs}s)` : ""} and keeps the last{" "}
-            {monitors.seriesMax ? `${monitors.seriesMax} readings` : "readings"} — so the answer
-            survives the session, the terminal and the panel being closed.
+            {monitors.seriesMax ? `${monitors.seriesMax} readings` : "readings"}, kept across sessions,
+            restarts and panel closures.
           </p>
 
           {/* **AN ALARM WAS THE LAST CLAUSE OF A SENTENCE ABOUT HOW PROBING WORKS.** An independent review
