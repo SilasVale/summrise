@@ -250,7 +250,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 `agents-snippet-check.mjs`, `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `ci-command-table-check.mjs`, `console-derivation-check.mjs`
 `console-marks-check.mjs`, `console-smoke-check.mjs`, `console-wire-field-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`, `css-vars-check.mjs`
-`custom-prop-check.mjs`, `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `e2e-only-check.mjs`, `exports-check.mjs`
+`custom-prop-check.mjs`, `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `e2e-only-check.mjs`, `exports-check.mjs`
 `feedback-check.mjs`, `gate-mutations-check.mjs`, `gateway-device-field-check.mjs`, `harness-fixture-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`, `mark-vocabulary-check.mjs`, `model-drift-check.mjs`
 `motion-check.mjs`, `numbered-claims-check.mjs`, `one-derivation-check.mjs`, `panel-audit-skip-check.mjs`, `panel-design-sweep.bash`, `panel-mock-spread-check.mjs`
@@ -275,11 +275,12 @@ nothing else.**
 | **`CONTEXT.md`** | a WORD and what it means. Terms only |
 | **the gate itself** | any invariant that can be checked — including its own mutation proof, in its header. If a sentence can be enforced, enforce it instead of writing it down |
 
-**`scripts/test/docs-budget-check.mjs` IS THE GATE THAT HOLDS ALL OF THIS UP** — renamed in landing 4a from
-`ledger-budget-check`, because a gate called `ledger-budget-check` that no longer budgets a ledger is a name that lies. It
+**`agent/tests/docs_budget.rs` IS THE GATE THAT HOLDS ALL OF THIS UP** — renamed in landing 4a from
+`ledger-budget-check`, because a gate whose name no longer budgets a ledger is a name that lies. It
 enforces this file's 48,000-byte ceiling, refuses a narrative `###` section growing back into it, caps `CONTEXT.md` at 12,000
 bytes ("a glossary that grows into a rulebook has stopped being a glossary"). It is the whole of the budget now: the
-instruction file and the glossary are all that is left of the long form.
+instruction file and the glossary are all that is left. **IT IS RUST NOW** — `cargo test -p summrise-agent`
+runs it in the `agent` job; the `.mjs` is gone.
 
 **AND THE RULE THAT REPLACED THE PROTOCOL IS THE ONE THIS FILE HAS ALWAYS CARRIED**: if a sentence does not change what you
 would DO, it does not belong in an instruction file — and it no longer has a ledger to hide in.

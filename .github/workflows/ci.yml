@@ -422,15 +422,13 @@ jobs:
       # A new animation fails until somebody writes down which it is.
       - name: the chrome is still — every animation is a declared state or acknowledgement
         run: node scripts/test/chrome-stillness-check.mjs
-      # AN INSTRUCTION FILE THAT CANNOT BE READ WHOLE IS WORSE THAN A SHORT ONE. `AGENTS.md` reached 65,366 bytes
-      # in round 67 and the workspace harness TRUNCATES at 65,536 — it dropped the tail, which is the Release and
-      # Agent-layout sections, and nothing failed. The operational sections and the gate table stay in the
-      # instruction file; the round narratives live in `docs/agents/design-ledger.md`.
-      - name: the instruction file fits, and the glossary is a glossary
-        # RENAMED IN LANDING 4a. It used to also budget `design-ledger.md` and `ledger-early-rounds.md` and resolve an
-        # index across all four archives; those two files are DELETED, and the round-narrative process with them. What is
-        # left was never about the process: the instruction file's ceiling, the two reference tables, and the glossary's.
-        run: node scripts/test/docs-budget-check.mjs
+      # THE INSTRUCTION FILE'S BUDGET MOVED TO RUST — `agent/tests/docs_budget.rs`, which the `agent` job's
+      # `cargo test -p summrise-agent` runs. It was `scripts/test/docs-budget-check.mjs` behind a step HERE, and
+      # that file is deleted rather than left beside the new gate: two gates for one rule is two gates. The two
+      # were run over the same tree, on the same inputs, and agreed on the verdict and on the message text before
+      # the `.mjs` went, so this is a move and not a second opinion. Nothing replaced the step, deliberately — the
+      # ceiling it enforces is now checked by a job CI already runs, which is the whole reason the move is worth
+      # making, and a `cargo test` step here would compile the crate a second time in a job with no Rust cache.
       # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
       # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
