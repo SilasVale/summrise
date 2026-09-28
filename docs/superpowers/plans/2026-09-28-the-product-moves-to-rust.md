@@ -234,3 +234,52 @@ worktree 的三个假前提 · "听起来对"的假设 · 门禁悄悄豁免 · 
 5. **免费版每次调用上限 **50 个子请求**** ✓（**#49 ok ✓，第 50 个抛 "Too many subrequests by single Worker
    invocation" ✓**）——**那给任何重跑定了规模 ✓。**
 6. **`wrangler dev --remote` 起不来** ✗（workerd 要 GLIBC ≥ 2.32 ✓，这台是 2.31 ✓）。
+
+
+### P3.1：每个 Worker 的**冷请求比例**——而它**移除了**那个反对意见（`bce816ec`）
+
+**P3.0 说**"第一步不是搬任何一个 ✓，是量每个 Worker 的冷请求比例" ✓。**而这一节就是那个测量 ✓。**
+
+**窗口 168 小时 ✓，冻结在 `2026-09-28T13:39:00Z` ✓，Cloudflare 自己的 per-request 数据 ✓（**µs ✓**）**：
+
+| Worker | 请求数 | 冷比例 | **× 9.0 ms** |
+|---|---|---|---|
+| `gateway/` → `vale-gate` | **36 180** | **0.6 % … 2.7 %** | **0.06 … 0.24 ms/req** |
+| `index/` → `summrise-dist` | **7 952** | **4.0 % … 6.3 %** | **0.36 … 0.57 ms/req** |
+| `proxies/` → **三个**脚本 | **168** | **18.5 % … 51.8 %** | **1.66 … 4.66 ms/req** |
+| · `summrise-relay` | 154 | 12.3 … 48.7 % | 1.11 … 4.38 ms |
+| · `opencode-go-proxy` | 13 | 84.6 % | 7.62 ms |
+| · `zen-us-proxy` | **1** | **100 %** | 9.00 ms |
+
+**而对着每个 Worker 自己的 `cpuTime`/请求** ✓：**`gateway` **+0.4–1.5 %** ✓ · `index` **+43–68 %** ✗ ·
+`proxies` **+58–1122 %** ✗**——**而那个才是标题 ✓。**
+
+**而它的**主结论**是**反的**** ✓✓：
+- **"the whole penalty is **under 15 s of CPU per week across all three**"** ✓（**2.2–8.7 / 2.9–4.5 / 0.3–0.8 s ✓**）
+- **"It is **not a billing problem; it is per-request latency**."** ✓
+- **"So: decide P3 on **types and unity** (P3.0's own reason) and **take the blast-radius order** —
+  **this measurement's contribution is that it REMOVES the cold-start objection to `proxies`-first**"** ✓✓✓
+→ **即：**计划原来的顺序**可以留着**** ✓✓——**而**它当初选那个顺序的理由**（爆炸半径 ✓）也是对的 ✓**——
+  **而这一测量的贡献是**它移除了那个反对意见**✓，**而不是改那个顺序**✗✓**
+→ **而 168 vs 36 180 是 **215×**** ✓✓（**"1 req per 5.4 h per colo vs 7.5 min" ✓**）
+
+**而"便宜到能搬"的**只有 `gateway`**** ✓✓——**`index` ✗ 与 `proxies` ✗ 都不是 ✓。**
+
+**而上限** ✓✓：**"this is a traffic-shape measurement whose one free parameter is a **distribution,
+not a number**"** ✓——**而**isolate 的存活不是一个固定的超时**✓✓**：**同一个 colo（AMS ✓）
+出过**37 分钟的幸存者**✓ 和**900 秒内的死亡**✓**——**而那个顺序 `proxies > index > gateway`
+**在每一行都成立**** ✓✓（**60 s → 21 600 s ✓**）。
+
+**而它抓到**三处同一个方向的错误**** ✓✓✓——**"All three errors pointed toward the more dramatic answer."** ✓：
+1. **第一次扫描（4 个 `curl` ✓，**没有钉 colo**✓）报**2 秒就被驱逐**** ✗——**因为这台机器在 AMS/LHR 之间
+   **交替答**✓，而**两个 colo 是两个 isolate 池**✓**——**"that would have put gateway near 100 % cold and
+   **reversed the conclusion**"** ✓✓
+2. **而它自己的第一稿把**钉住的连接**读成了 isolate 存活 ✗**——**而 `freshconn.mjs` 证明**新连接**确实
+   **复用暖 isolate**✓✓**
+3. **而结构界第一次数了**每一个**合格桶里的请求 ✓，而只有**第一个**是确定冷的 ✗**——
+   **"it said gateway **15.0 %** where the honest floor is **5.1 %**"** ✓
+
+**而它同时更正三条** ✓：**① "`analytics.mjs` 能"**不充分**✗**（**它带的是到达过程 ✓，**不带 isolate 存活**✗**）·
+**② "三个 Worker" 是**五个部署脚本**✗✓**（**`proxies/` 是三个 ✓**）·
+**③ 而**第六个脚本 `vale-dist`**在账号上而**不在任何计划里**** ✗✓——**`BRAND.md:280` 说它 domainless ✓，
+**而它在同一个窗口里服务了 620 个请求**✓**——**即它不是死的 ✓**。
