@@ -1,0 +1,20 @@
+# The wasm crates carry their OWN toolchain file, and the repository root's is NOT edited.
+#
+# WHY NOT THE ROOT ONE. `rust-toolchain.toml` at the repository root is the single source of truth
+# for the release pipeline's two builders, and its own comment says a change there must be visible
+# in history because it is what makes the two `summrise-agent.exe` builds byte-identical. A wasm
+# target does not affect that exe — but editing the file that guarantees it, to build something
+# that is not the exe, is how a guarantee stops being one.
+#
+# WHY A NESTED FILE IS ENOUGH. rustup resolves the NEAREST toolchain file walking up from the
+# working directory, so a build inside this directory gets THIS file, and a build inside `agent/`
+# still walks up to the root's. The CHANNEL IS THE SAME 1.98.1 on purpose: one compiler version
+# for the exe and for the wasm, so a toolchain bump stays one deliberate commit at the root.
+#
+# AND IT IS WHAT MAKES A FRESH MACHINE WORK. The root file declares only
+# `x86_64-pc-windows-msvc`; `wasm32-unknown-unknown` is installed on this box because someone ran
+# `rustup target add` by hand, which no checkout reproduces. A target listed here is one rustup
+# ensures, so `git clone && ./build.sh` works without a remembered command.
+[toolchain]
+channel = "1.98.1"
+targets = ["wasm32-unknown-unknown"]

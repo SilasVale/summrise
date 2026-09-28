@@ -1,0 +1,43 @@
+[package]
+name = "ui-logic"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# NO `[workspace] members` LINE HERE ON PURPOSE — the empty table is what keeps this crate out of
+# any workspace it happens to sit near, which is the same arrangement `agent/resources/panel-logic`
+# uses and for the same reason: the release pipeline must never try to build a wasm cdylib for
+# x86_64-pc-windows-msvc, and this crate must never be built for the host (its surface is `js_sys`,
+# which has no host implementation). `gateway/` has no Cargo workspace at all today, so the table is
+# insurance rather than a fix — and it is cheap insurance on a directory that sits inside a repo
+# where `agent/Cargo.toml` lists its members explicitly.
+[workspace]
+
+[dependencies]
+# BOTH PINNED TO WHAT IS INSTALLED (`wasm-bindgen --version` -> 0.2.129). wasm-pack REFUSES a
+# mismatch between the crate and the CLI, and when the crate does not pin one it fetches a matching
+# CLI from GitHub releases — which is the path that never finishes on this box (P0's README).
+# Pinning makes the build use the CLI already on PATH and turns the version into a decision in a
+# file rather than a side effect. `js-sys` is the same generation as the bindings it belongs to.
+wasm-bindgen = "=0.2.129"
+js-sys = "=0.3.106"
+
+# NO SERDE, AND THAT IS A MEASURED DECISION RATHER THAN A PREFERENCE (P0, 2026-09-28, same machine,
+# same flags, `wasm-opt -Oz` after the build):
+#
+#   serde_json          43,824 gz wasm + 2,140 gz glue   (a JSON string in, a JSON string out)
+#   serde-wasm-bindgen  31,046 gz wasm + 3,967 gz glue   (JsValue in, JsValue out, no text)
+#   js-sys only          see build.sh's output            (JsValue in, JsValue out, no serde)
+#
+# serde_json is ~37 KB gz over the js-sys floor — **39% of the console's entire 112,718 gz
+# first-load payload** — paid for a serialization round trip these functions do not need. The same
+# class of cost as the brief's `format!("{{:.3}}")` warning (8,879 gz), four times larger.
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
