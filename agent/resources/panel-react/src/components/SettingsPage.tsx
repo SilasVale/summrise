@@ -360,13 +360,15 @@ export function SettingsPage({
           quiet footnote instead of its opening sentence. */}
       <div className="settings-section">
         <h2>This device</h2>
-        <p className="muted">Local agent on {location.host}</p>
-      {/* AND WHAT IT IS BOUND TO, WHICH IS A DIFFERENT FACT. The line above is the address this browser reached the agent
-          on; this is the address the agent was CONFIGURED to listen on. They agree for a local browser and differ for a
-          relayed or tunnelled caller — and until 1.2.448 the configured bind existed only inside config.yaml on the device,
-          so "where is that set?" had no answer anywhere in the interface. The second half is printed ONLY for a loopback
-          bind: there it is both true and useful, and for a network-bound device it would be a lie. */}
-      {config?.host ? (
+      {/* **TWO LINES DELETED, AND NEITHER LOSES ANYTHING.**
+          `Local agent on {location.host}` printed the address the pinned status strip already prints on every page
+          (`127.0.0.1:18080`), so the reader met the same string twice, twenty pixels apart.
+          And `Bound to …` was rendered unconditionally, so for a local browser — the normal case — it repeated the
+          line above it VERBATIM. It is a different fact only when the two disagree, and that is now the only time
+          it is shown. Both deletions are the class this page kept failing at: prose that restates something the
+          screen is already saying. */}
+      {config?.host &&
+      `${config.host}${typeof config.port === "number" ? `:${config.port}` : ""}` !== location.host ? (
         <p className="muted">
           Bound to {config.host}
           {typeof config.port === "number" ? `:${config.port}` : ""}
@@ -388,11 +390,18 @@ export function SettingsPage({
           name and said the rest of this page was clutter. The token is this device's credential and the panel already holds
           it; the config file is where every value below comes from. Each used to require knowing where to look — one inside a
           client snippet, the other inside a YAML file on disk. */}
-      <p className="muted">
-        Device token: <code>{revealed ? token : "••••••••••••"}</code>{" "}
-        <button className="btn" onClick={() => setRevealed((v) => !v)}>{revealed ? "Hide" : "Reveal"}</button>{" "}
+      {/* **AND THE TOKEN WAS THE THIRD LINE OF A GREY PARAGRAPH.** An independent review measured it: the credential the
+          operator asked for BY NAME sat in `p.muted` — `--muted` ink, with `<code>` rendering one size SMALLER than the
+          sentence holding it — while two `<button>`s floated on the prose baseline, positioned by literal `{" "}` text
+          nodes. The most important fact on the card was typographically the least important thing in it. It has its own
+          row now, built from `settings-row-bar` (the same bar the Session buffer and Memory fields use), which already
+          wraps — so a long token pushes the buttons down instead of overflowing. */}
+      <div className="settings-row-bar">
+        <span className="muted">Device token:</span>
+        <code>{revealed ? token : "••••••••••••"}</code>
+        <button className="btn" onClick={() => setRevealed((v) => !v)}>{revealed ? "Hide" : "Reveal"}</button>
         <button className="btn" onClick={() => void navigator.clipboard?.writeText(token)}>Copy</button>
-      </p>
+      </div>
       {config?.path ? (
         <p className="muted">Config file: <code>{config.path}</code></p>
       ) : null}
