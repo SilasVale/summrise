@@ -349,18 +349,46 @@ fn the_task_has_one_definition() {
     // A SUBSTRING CHECK FOR "0" WOULD NOT CATCH A REGRESSION — "10" contains one, which is how
     // the ten-minute value survived a test that read `/ExecutionTimeLimit.*0/`. So this asserts
     // the WHOLE argument, on the comment-stripped text, because prose can satisfy a scan.
-    const UNLIMITED: &str = "-ExecutionTimeLimit (New-TimeSpan -Seconds 0)";
+    //
+    // AND IT IS SCOPED TO THE DESKTOP TASK'S OWN TEXT, which a weaker draft of this assertion
+    // taught me by surviving a mutation: "this file contains `-Seconds 0` somewhere" PASSED with
+    // the desktop line changed to `-Seconds 30`, because src/summrise.ts holds FOUR such lines —
+    // the agent task, the desktop task, the update flow's heal and SummrisePlaywright — and the
+    // neighbours satisfied it. Every `ExecutionTimeLimit` in the desktop task's own text must be
+    // the unlimited one, AND there must be at least one, because an ABSENT limit is Task
+    // Scheduler's 72-hour default: the round-118 defect arriving from the other side.
+    const UNLIMITED: &str = " (New-TimeSpan -Seconds 0)";
     let ps1_code = without_comments(&ps1, '#');
     let cli_code = without_comments(&cli, '/');
-    for (text, who) in [(&ps1_code, "the installer"), (&cli_code, "the CLI")] {
+    let desktop_fn = {
+        let start = cli_code
+            .find("export function desktopTaskPs(")
+            .expect("the CLI must still build the desktop task");
+        let rest = &cli_code[start..];
+        let end = rest
+            .find("\n}")
+            .expect("desktopTaskPs must still close at column 0");
+        &rest[..end]
+    };
+    for (text, who) in [
+        (ps1_code.as_str(), "the installer"),
+        (desktop_fn, "the CLI's desktopTaskPs"),
+    ] {
+        let mut seen = 0;
+        for tail in text.split("ExecutionTimeLimit").skip(1) {
+            seen += 1;
+            assert!(
+                tail.starts_with(UNLIMITED),
+                "{who} must give SummriseDesktop NO execution limit: its action WAITS on \
+                 electron, so any finite limit kills a live shell every time it expires. \
+                 Found: {}",
+                tail.chars().take(48).collect::<String>()
+            );
+        }
         assert!(
-            text.contains(UNLIMITED),
-            "{who} must leave SummriseDesktop with NO execution limit: its action WAITS on \
-             electron, so any finite limit kills a live shell every time it expires"
-        );
-        assert!(
-            !text.contains("ExecutionTimeLimit (New-TimeSpan -Minutes"),
-            "{who} sets a finite execution limit on a task whose process must live indefinitely"
+            seen > 0,
+            "{who} must still SET the execution limit, to zero — omitting it leaves Task \
+             Scheduler's 72-hour default, which is the defect round 118 fixed for the agent"
         );
     }
 
