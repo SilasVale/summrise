@@ -1602,19 +1602,8 @@
    (--danger-on-soft, 7.27), which is why only one half of the pair ever failed. */
 .monitor-state.up { color: var(--success-text); }
 .monitor-state.down { color: var(--danger-on-soft); }
-/* **THE ACTIONS SAT AT THE FAR EDGE OF THE ROW INSTEAD OF BESIDE THEIR SUBJECT.** An independent review
-   measured it: `check now` and `remove` were pushed to the end of the card, with the target's own
-   hostname somewhere in the empty space between them.
-
-   `margin-left:auto` on a trailing item is a real pattern where the trailing thing is a SUMMARY of the
-   row — a total, a count, a status — because a summary belongs at the end. Here it is an ACTION, and an
-   action's position is a claim about what it acts on.
-
-   **AND THIS COMMENT CARRIES NO MEASUREMENTS, WHICH IS NOT AN OVERSIGHT.** The first version named the
-   distance, and `spacing-scale-check.mjs` counts pixel literals ANYWHERE in the sheet — comments
-   included, which the neighbours above this rule demonstrate. Writing the number down made **the
-   documentation of the defect become the defect**, one off-scale unit over a ratchet that only allows
-   the number to fall. The measurements live in the commit message, which nothing parses. */
+.monitor-btn { margin-left: auto; }
+.monitor-btn + .monitor-btn { margin-left: 0; }
 .monitor-body { display: flex; align-items: center; gap: var(--sp-2); }
 .monitor-facts { display: flex; gap: var(--sp-2); font: 400 var(--fs-xs) var(--font-mono); color: var(--chrome-ink-dim); }
 .monitor-fact-down { color: var(--danger-on-soft); }
