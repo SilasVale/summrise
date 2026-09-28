@@ -192,7 +192,7 @@ export async function cachedDeviceProbe(
           // THE FOUR THE VERDICT CANNOT BE ACTED ON WITHOUT — see `DeviceUpdate` for what each costs. Each
           // is spread-guarded, like the two above: an ABSENT field says "this device did not report it",
           // which is a different sentence from a field forwarded as `undefined` or as `0`.
-          busy: u.busy === true,
+          ...(typeof u.busy === "boolean" ? { busy: u.busy } : {}),
           ...(typeof u.error === "string" && u.error ? { error: u.error } : {}),
           ...(typeof u.checked_at === "number" && u.checked_at > 0 ? { checked_at: u.checked_at } : {}),
           ...(u.last_attempt &&
