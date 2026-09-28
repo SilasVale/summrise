@@ -5,6 +5,25 @@
 #
 # MUTATION: disable the stale-exe refusal
 # RESULT:   exit 1 — **after round 67 ADDED the case that does it**
+#
+# MUTATION: put the acknowledgement's old sentence back on the reconcile gate's footer —
+#           restore `(this run ADDS to the ledger; it does not clear it)` in place of the four
+#           lines that say what the flag actually does. This is the ONE mutation this suite
+#           needs that changes no behaviour at all, which is the point: the defect WAS the
+#           sentence, so a case that only drove the script would have stayed green through it.
+# RESULT:   exit 1 — `publish-release: 23 checks passed, 2 failed`, and both failures are the
+#           sentence checks, the second printing the restored line it refused:
+#             FAIL the refusal still promises a ledger write the flag does not make
+#             FAIL the refusal does not say what the acknowledgement does:   Or acknowledge:  rerun
+#             with --acknowledge-unreconciled  (this run ADDS to the ledger; it does not clear it)
+#
+#           AND THE TWO BEHAVIOURAL CASES STAYED GREEN UNDER THIS MUTATION — measured, not assumed,
+#           and it is why the case is written the way it is. The ledger really is byte-identical and
+#           the next publish really does refuse again in BOTH trees, because the flag never wrote
+#           anything: the behaviour is identical either side of this defect. So what the mutation
+#           moves is the SENTENCE, and the SENTENCE is what has to be asserted. (Restored with
+#           `git checkout -- scripts/publish-release.sh` — never a /tmp copy, which is how a stale
+#           backup once made a mutated run measure an unmutated tree.)
 
 # The FIRST executable coverage of scripts/publish-release.sh (ledger D13: three
 # files mentioned it, all as SOURCE PINS — nothing ever RAN it). These cases drive
@@ -84,8 +103,8 @@ WANT_VERSION=$(python3 -c "import json;print(json.load(open('agent/summrise-agen
 # packages a different tree (1.2.453 does, on purpose and on the record). Without the
 # flag the case reads that refusal and reports ITSELF as failed -- which is how this
 # suite sat at 8/10 for two checks that belonged to a state it does not own. The flag
-# is the documented escape ("this run ADDS to the ledger"), so the case reaches the
-# exe check it is actually about.
+# is the documented escape ("it carries THIS run past this refusal and leaves the
+# ledger untouched"), so the case reaches the exe check it is actually about.
 out=$(bash scripts/publish-release.sh "$WANT_VERSION" --acknowledge-unreconciled 2>&1); rc=$?
 touch -d "@$SAVED_BUILD_MTIME" "$BUILD_EXE"
 [ "$CREATED_BUILD" = "1" ] && rm -f "$BUILD_EXE"
@@ -345,6 +364,46 @@ if ! grep -q 'refusing to publish' <<<"$out"; then
   ok "--acknowledge-unreconciled carries the run past a pending ledger entry"
 else
   bad "the acknowledgement did not clear the gate"
+fi
+# ── THE ACKNOWLEDGEMENT LINE PROMISED A WRITE THE CODE DOES NOT MAKE (measured 2026-09-28) ──────
+# It said "this run ADDS to the ledger; it does not clear it", and the run does NEITHER: the flag is
+# read in exactly one place — the guard that SKIPS the refusal — and `reconcile_record`, the ledger's
+# only writer, is called from the `--skip-reconcile` branch, which is a different flag. The sentence
+# now says what the flag does, and the claims it makes are the cases below.
+#
+# THE BEHAVIOUR DID NOT CHANGE, WHICH IS WHY THESE ASSERTIONS ARE ABOUT THE SENTENCE: a case that only
+# DROVE the script would have stayed green through this defect and through its repair alike. The first
+# two cases test the two claims the new sentence makes; the last two test the sentence itself, because
+# a reader ACTS on it (it told them the debt was now on the record) and a reworded version of the old
+# claim would read just as true.
+LED_BEFORE=$(sha256sum "$LED")
+out=$(RECONCILE_LEDGER="$LED" timeout 600 bash scripts/publish-release.sh 1.2.999 --acknowledge-unreconciled --dry-run 2>&1)
+LED_AFTER=$(sha256sum "$LED")
+if [ "$LED_BEFORE" = "$LED_AFTER" ]; then
+  ok "an acknowledged run leaves the ledger BYTE-IDENTICAL (the sentence claims this; this is the measurement)"
+else
+  bad "the acknowledgement wrote to the ledger: $(diff <(printf '%s\n' "$LED_BEFORE") <(printf '%s\n' "$LED_AFTER") | head -3 | tr '\n' ' ')"
+fi
+# AND THE SECOND CLAIM — "the next publish refuses again" — is tested by RUNNING the next publish:
+# same fixture ledger, no flag, and the refusal must come back.
+out=$(RECONCILE_LEDGER="$LED" timeout 300 bash scripts/publish-release.sh 1.2.999 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'refusing to publish' <<<"$out"; then
+  ok "and the NEXT publish refuses again — acknowledging is not settling (rc=$rc)"
+else
+  bad "the debt stopped refusing after an acknowledgement: rc=$rc $(head -c 200 <<<"$out")"
+fi
+# THE RENDERED SENTENCE, which is the artifact a reader sees. Absent first: the old promise must not
+# come back in ANY wording, and the source may quote it in a comment (this one does) — so the
+# assertion is on what the refusal PRINTED, not on what the file says.
+if grep -q 'ADDS to the ledger' <<<"$out"; then
+  bad "the refusal still promises a ledger write the flag does not make"
+else
+  ok "the refusal no longer promises a ledger write that does not happen"
+fi
+if grep -q 'leaves the ledger untouched' <<<"$out" && grep -q 'Acknowledging is not settling' <<<"$out"; then
+  ok "and it says what DOES happen: the ledger is untouched, and acknowledging is not settling"
+else
+  bad "the refusal does not say what the acknowledgement does: $(grep -A3 'Or acknowledge' <<<"$out" | head -4 | tr '\n' ' ')"
 fi
 rm -f "$LED" "$EMPTY"
 
