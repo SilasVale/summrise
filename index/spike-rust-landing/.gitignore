@@ -1,0 +1,7 @@
+# Build output and local toolchain artefacts.
+target/
+# NO TRAILING SLASH. `node_modules/` matches only a real directory, and the
+# convenience link measure.mjs needs is a SYMLINK — so the first attempt staged
+# it, pointing at an absolute path outside the repo. The slash-less rule covers
+# both the directory and the link.
+node_modules
