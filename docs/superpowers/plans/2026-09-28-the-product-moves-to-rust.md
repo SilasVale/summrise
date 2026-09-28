@@ -226,7 +226,7 @@ worktree 的三个假前提 · "听起来对"的假设 · 门禁悄悄豁免 · 
 
 1. **`wrangler tail` 在这台机器上跑不了** ✗（`tail.developers.workers.dev` 是 TLS-reset ✓）。
 2. **`*.workers.dev` 从这台机器**和两台 Windows 设备**都 TLS-reset（SNI 被封）** ✗——
-   **所以"side by side"需要一条临时的 `saisi.online` 路由 ✓。**
+   **所以"side by side"需要一条临时的 `the deployment zone` 路由 ✓。**
 3. **而一个 Worker 对**自己 zone**的子请求**不重入 Workers routes**** ✓（**每个样本 522 in 19 ms ✓**）——
    **所以 driver 必须走 `workers.dev` 调目标 ✓。**
 4. **8 个并发请求**不会**产生 8 个 isolate** ✗✓（**measured: isolates = 1 ✓——**并发排队到暖 isolate ✓**）——
