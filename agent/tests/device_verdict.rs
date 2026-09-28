@@ -39,6 +39,7 @@
 
 mod common;
 
+use common::{chars, find_seq, is_word, skip_ws};
 use std::fs;
 
 const LINKS: [(&str, &str); 3] = [
@@ -60,38 +61,6 @@ struct Streams {
     stdout: String,
     stderr: String,
     failed: bool,
-}
-
-fn chars(s: &str) -> Vec<char> {
-    s.chars().collect()
-}
-
-fn find_seq(c: &[char], pat: &str, from: usize) -> Option<usize> {
-    let p: Vec<char> = pat.chars().collect();
-    let mut j = from;
-    while j + p.len() <= c.len() {
-        if c[j..j + p.len()] == p[..] {
-            return Some(j);
-        }
-        j += 1;
-    }
-    None
-}
-
-/// JavaScript's `\s`, which is the White_Space property plus U+FEFF.
-fn is_ws(ch: char) -> bool {
-    ch.is_whitespace() || ch == '\u{feff}'
-}
-
-fn skip_ws(c: &[char], mut i: usize) -> usize {
-    while i < c.len() && is_ws(c[i]) {
-        i += 1;
-    }
-    i
-}
-
-fn is_word(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 /// `state\.update\s*=\s*\{[\s\S]{0,300}update_available:` — the worker assembles the object field by

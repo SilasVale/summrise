@@ -36,6 +36,47 @@ pub fn is_word(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
+// ── the character-space helpers the PATTERN gates share ────────────────────────────────────────────
+//
+// WHY THESE LIVE HERE AND NOT IN EACH GATE. Four gates read a pattern out of a source file
+// (`device_verdict`, `proxy_cors_parity`, `proxy_timeout_parity`, `exports_check`) and each needs
+// "find this literal, skip the whitespace a regex's `\s*` would skip, check a `\b`". Written per file
+// that is four copies of one rule in the new language — the defect `decomment` was extracted to remove
+// on the JS side — so it is one definition here, and the JS regex each helper mirrors is named on it.
+
+/// The text as characters. JavaScript indexes strings by UTF-16 code unit and Rust by byte, so a
+/// pattern gate works in CHARACTER space on both sides and the two agree.
+pub fn chars(s: &str) -> Vec<char> {
+    s.chars().collect()
+}
+
+/// The first index at or after `from` where `pat` sits. Every needle these gates use is ASCII.
+pub fn find_seq(c: &[char], pat: &str, from: usize) -> Option<usize> {
+    let p: Vec<char> = pat.chars().collect();
+    let mut j = from;
+    while j + p.len() <= c.len() {
+        if c[j..j + p.len()] == p[..] {
+            return Some(j);
+        }
+        j += 1;
+    }
+    None
+}
+
+/// JavaScript's `\s`: the Unicode White_Space property PLUS U+FEFF, which `char::is_whitespace` does
+/// not have. The difference is one character wide and this is where it would have been.
+pub fn is_js_space(c: char) -> bool {
+    c.is_whitespace() || c == '\u{feff}'
+}
+
+/// What a regex's `\s*` consumes: every whitespace character at the cursor, newlines included.
+pub fn skip_ws(c: &[char], mut i: usize) -> usize {
+    while i < c.len() && is_js_space(c[i]) {
+        i += 1;
+    }
+    i
+}
+
 /// `/\/\*[\s\S]*?\*\//g` — block comments, non-greedy to the FIRST `*/`. With no `*/` the regex does
 /// not match at all and the `/*` stays in the text, which is what the JS does.
 pub fn strip_block_comments(text: &str) -> String {

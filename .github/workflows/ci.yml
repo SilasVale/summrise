@@ -406,14 +406,11 @@ jobs:
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
       - name: the console's state dots differ in shape, and are legible
         run: node scripts/test/console-marks-check.mjs
-      # A COMMENT THAT ASSERTS PARITY IS NOT A COMPARISON: five files carry the same CORS allowlist,
-      # and the test whose NAME claims to be the drift guard reads no gateway file at all.
-      - name: the five CORS allowlists agree with the one the gateway owns
-        run: node scripts/test/proxy-cors-parity-check.mjs
-      # ONE DOCUMENTED NUMBER, SEVEN IMPLEMENTATIONS in three deployment units — the README states a
-      # single 30s budget that nothing compared across the surfaces.
-      - name: the header-timeout budget is the one number the README states
-        run: node scripts/test/proxy-timeout-parity-check.mjs
+      # A COMMENT THAT ASSERTS PARITY IS NOT A COMPARISON: five files carry the same CORS allowlist, and the test
+      # whose NAME claims to be the drift guard reads no gateway file at all. It is a RUST gate now
+      # (`agent/tests/proxy_cors_parity.rs`, batch 6 of the P1 migration), run by the `cargo test` step in this job.
+      # AND ONE DOCUMENTED NUMBER, SEVEN IMPLEMENTATIONS in three deployment units — the README states a single 30s
+      # budget that nothing compared across the surfaces. Also Rust (`agent/tests/proxy_timeout_parity.rs`).
 
       # STATE COLOUR IS FOR STATE. Measured first — 163 uses of an ok/warn/fail/running/danger token across the
       # panel and console sheets, essentially all of them on the state layer, a destructive action, a category
@@ -432,11 +429,10 @@ jobs:
       # to cyan/violet/pink behind every surface) and drawing by HUE rather than by the token's colour.
       - name: every copy of the particle field reads the brand as colours
         run: node scripts/test/particles-check.mjs
-      # A MODULE'S PUBLIC SURFACE SHOULD BE WHAT SOMEBODY USES. Measured first: 67 + 9 exports were referenced
-      # nowhere. Twenty-four of the panel's were used INSIDE their own file (drop the keyword), and three were used
-      # nowhere at all — including the console's <StatusChip>, whose CSS family stayed behind for 35 lines.
-      - name: no export that nothing imports
-        run: node scripts/test/exports-check.mjs
+      # A MODULE'S PUBLIC SURFACE SHOULD BE WHAT SOMEBODY USES — a RUST gate now (`agent/tests/exports_check.rs`,
+      # batch 6 of the P1 migration), run by the `cargo test` step in this job. Measured first: 67 + 9 exports were
+      # referenced nowhere. Twenty-four of the panel's were used INSIDE their own file (drop the keyword), and three
+      # were used nowhere at all — including the console's <StatusChip>, whose CSS family stayed behind for 35 lines.
       - name: every bash gate under a hostile umask
         run: |
           umask 077
