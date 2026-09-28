@@ -157,7 +157,14 @@ export function ConnectCard() {
   return (
     <>
       <div className="settings-section">
-        <h2>Connect an AI client</h2>
+        {/* **THE FOLD'S OWN SUMMARY ALREADY SAYS THIS, BYTE FOR BYTE.** This card is rendered INSIDE
+            `<details><summary>Connect an AI client</summary>` (SettingsPage.tsx:414), so opening the
+            fold printed the same six words twice, ~20px apart: once as the 13px semibold summary and
+            once as this 17px `<h2>`. An independent reviewer found it by grepping the string.
+
+            It is the same deletion as 9975b363 one card over — a heading naming something a visible
+            label had already named — and it survived that round because I had counted HEADINGS rather
+            than looking at what the reader sees. */}
         <p className="connect-lede">
           This panel is the <b>human</b> view of the machine. AI clients drive
           it over MCP — point one here and it can operate this device with the
