@@ -1,0 +1,47 @@
+{
+  "_why": "THE SAME PAGE AFTER THE FIX: `2pressed/2found`, both rows `changed: true` with `props: [\"transform\"]` (`none -> matrix(1, 0, 0, 1, 0, 1)` measured with a real pointer). The judge must find NOTHING here — the pair is what proves the criterion distinguishes the defect from the button.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [],
+    "press": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "mode": "rail",
+        "page": "Settings",
+        "found": 2,
+        "measured": 2,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-primary.btn-mini",
+            "size": "111x24",
+            "changed": true,
+            "reached": true,
+            "props": [
+              "transform"
+            ]
+          },
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-ghost.btn-mini",
+            "size": "50x24",
+            "changed": true,
+            "reached": true,
+            "props": [
+              "transform"
+            ]
+          }
+        ]
+      }
+    ],
+    "notes": []
+  },
+  "expect": {
+    "findings": [],
+    "lines": [],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 0 surface(s) · 0 name checks"
+  }
+}

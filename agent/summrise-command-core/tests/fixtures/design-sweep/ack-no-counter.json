@@ -1,0 +1,44 @@
+{
+  "_why": "AN UNMEASURED PREMISE IS NOT AN EXCUSE: a control pressed on a page with NO request counter, so whether it asked the device anything is unmeasured. An ACKNOWLEDGED row sits beside it on purpose — planted alone, the report would also trip the `NONE acknowledged` floor and the case would pass for the wrong reason.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [],
+    "ack": [
+      {
+        "density": "console",
+        "page": "Models",
+        "sel": "button.btn",
+        "where": "button.btn.btn-primary",
+        "size": "86x32",
+        "hasCounter": false,
+        "acked": false,
+        "asked": null
+      },
+      {
+        "density": "console",
+        "page": "Keys",
+        "sel": "button.btn",
+        "where": "button.btn.btn-primary",
+        "size": "86x32",
+        "hasCounter": true,
+        "acked": true,
+        "asked": true,
+        "via": "disabled",
+        "msToAck": 6,
+        "budgetMs": 100
+      }
+    ],
+    "notes": []
+  },
+  "expect": {
+    "findings": [
+      "console Models: button.btn was pressed on a page with NO request counter, so whether it asked the device anything is UNMEASURED — the acknowledgement axis proves nothing here"
+    ],
+    "lines": [
+      "note: ack console Keys button.btn (button.btn.btn-primary) — acked=true via=disabled ms=6 budget=100 presses=1"
+    ],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 0 surface(s) · 0 name checks"
+  }
+}

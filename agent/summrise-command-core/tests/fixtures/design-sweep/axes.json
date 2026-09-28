@@ -1,0 +1,515 @@
+{
+  "_why": "ONE PLANTED DEFECT PER AXIS, IN ONE REPORT — the breadth case. Every clause that can fire does, so the equivalence is a comparison of the whole judged surface rather than of the handful of clauses a narrower corpus would exercise. It also carries the exemption bookkeeping: one rule SETS A FINDING ASIDE, one is DORMANT as declared, and one matched nothing and does not say why it stays.",
+  "opts": {
+    "navless": [],
+    "proseFloor": 90,
+    "unstyledFloor": 100,
+    "implicitStates": {
+      "terminal": "a VIEW NAME; the element's .view class does the styling"
+    },
+    "ignore": [
+      {
+        "contains": [
+          "reflow @320px",
+          "div.tabrow"
+        ],
+        "reason": "the harness's tab strip is a tab-child artifact, and the finding names it"
+      },
+      {
+        "contains": [
+          "a rule that matches nothing at all"
+        ],
+        "reason": "a guard for a state that currently passes",
+        "dormant": "4 hover surfaces, underAA empty — nothing to excuse today"
+      },
+      {
+        "contains": [
+          "another rule nothing needs"
+        ],
+        "reason": "an entry with nothing to declare"
+      }
+    ]
+  },
+  "report": {
+    "harnessBuild": "h-old",
+    "expectedHarnessBuild": "h-new",
+    "harnessStale": true,
+    "passes": "all",
+    "entryCheck": {
+      "bytes": 1,
+      "sha": "old",
+      "stale": true,
+      "expected": {
+        "bytes": 2,
+        "sha": "new"
+      }
+    },
+    "surfaces": [
+      {
+        "page": "Settings",
+        "width": 1280,
+        "h1Count": 2,
+        "firstIsH1": false,
+        "mains": 0,
+        "navs": 3,
+        "skipped": 1,
+        "over": [
+          "div.card 340>320"
+        ],
+        "clipped": [
+          "span.cmd-duration"
+        ],
+        "slivers": [
+          "div.rail-dot 1x24"
+        ],
+        "loud": [
+          "div.card.hero",
+          "span.badge"
+        ],
+        "loudUnreadable": 2,
+        "loudUnreadableSamples": [
+          "color(display-p3 1 0 0)",
+          "lab(50% 40 59.5)"
+        ],
+        "marks": {
+          "ringFill": [
+            "span.plug-dot"
+          ],
+          "collisions": [
+            "cmd-dot ok vs cmd-dot fail"
+          ],
+          "families": [],
+          "present": []
+        },
+        "measure": {
+          "measured": 40,
+          "worst": [
+            {
+              "sel": "p.note",
+              "cpl": 206,
+              "chars": 477,
+              "lines": 3,
+              "w": 1339,
+              "fs": 14,
+              "maxw": "none"
+            }
+          ]
+        },
+        "claims": [
+          "could not be read"
+        ]
+      }
+    ],
+    "names": [
+      {
+        "page": "Settings",
+        "width": 1280,
+        "unnamed": [
+          "button.icon",
+          "a.close"
+        ],
+        "titleOnly": [
+          "button.help"
+        ]
+      }
+    ],
+    "focus": [
+      {
+        "page": "Settings",
+        "density": "panel",
+        "theme": "dark",
+        "pressed": 8,
+        "landed": 0,
+        "escaped": 8,
+        "missing": 3,
+        "unconfirmed": 2,
+        "unconfirmedOn": [
+          "a.skip",
+          "button.btn"
+        ],
+        "paintConfirmed": 4
+      }
+    ],
+    "press": [
+      {
+        "density": "panel",
+        "theme": "dark",
+        "mode": "rail",
+        "page": "Settings",
+        "found": 4,
+        "measured": 1,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-primary",
+            "size": "111x24",
+            "changed": false,
+            "reached": true
+          },
+          {
+            "sel": "a.link",
+            "where": "a.link",
+            "size": "40x18",
+            "changed": false,
+            "reached": false,
+            "note": "the pointer never reached this control"
+          },
+          {
+            "sel": "span.row",
+            "where": "span.row",
+            "size": "200x24",
+            "changed": true,
+            "reached": true,
+            "note": "not rendered in this theme"
+          }
+        ]
+      }
+    ],
+    "ack": [
+      {
+        "density": "panel",
+        "page": "Settings",
+        "sel": "button.btn",
+        "where": "button.btn.btn-primary",
+        "size": "111x24",
+        "hasCounter": true,
+        "acked": false,
+        "asked": true
+      },
+      {
+        "density": "panel",
+        "page": "Settings",
+        "sel": "button.save",
+        "where": "button.save",
+        "size": "111x24",
+        "hasCounter": true,
+        "acked": true,
+        "asked": true,
+        "via": "data-busy",
+        "msToAck": 912,
+        "msToClear": 940,
+        "budgetMs": 100,
+        "attempts": 2,
+        "presses": 2
+      },
+      {
+        "density": "panel",
+        "page": "Models",
+        "sel": "button.add",
+        "where": "button.add",
+        "size": "86x32",
+        "hasCounter": false,
+        "acked": true,
+        "asked": true
+      }
+    ],
+    "targets": [
+      {
+        "density": "panel",
+        "page": "Settings",
+        "distinct": [
+          {
+            "sel": "button.mini",
+            "w": 18,
+            "h": 18,
+            "text": "x",
+            "passesBySpacing": false,
+            "nearest": 4
+          },
+          {
+            "sel": "button.nested",
+            "w": 20,
+            "h": 20,
+            "text": "in",
+            "passesBySpacing": true,
+            "passesByFullRule": false,
+            "nearSel": "div.card",
+            "nearW": 300,
+            "nearH": 200,
+            "gapToBox": 6,
+            "insideSel": "div.card",
+            "insideW": 300,
+            "insideH": 200
+          }
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "sel": "span.tiny",
+        "page": "Settings",
+        "kind": "text",
+        "size": 9,
+        "text": "a note that is far too long to print in full",
+        "cr": 4.1
+      },
+      {
+        "sel": "span.grad",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad2",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad3",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad4",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad5",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad6",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad7",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad8",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad9",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad10",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.grad11",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "gradient",
+        "cr": null
+      },
+      {
+        "sel": "span.sessions",
+        "page": "Settings",
+        "kind": "text",
+        "size": 12,
+        "text": "Sessions unavailable",
+        "cr": 5.1
+      }
+    ],
+    "sse": [
+      {
+        "page": "Settings",
+        "opened": true,
+        "fail": false
+      },
+      {
+        "page": "History",
+        "opened": false,
+        "fail": false
+      }
+    ],
+    "idle": [
+      {
+        "density": "panel",
+        "theme": "dark",
+        "page": "Settings",
+        "seconds": 6,
+        "mutations": 0,
+        "byTarget": {}
+      },
+      {
+        "density": "panel",
+        "theme": "dark",
+        "page": "History",
+        "seconds": 6,
+        "mutations": 7,
+        "byTarget": {
+          "__probe": 1,
+          "#text": 6
+        }
+      }
+    ],
+    "motion": [
+      {
+        "density": "panel",
+        "stillAnimating": [
+          "div.spinner",
+          "span.pulse",
+          "div.skeleton",
+          "span.extra"
+        ],
+        "normal": 19
+      },
+      {
+        "density": "desktop",
+        "stillAnimating": [],
+        "normal": 0
+      }
+    ],
+    "unstyled": [
+      {
+        "page": "Settings",
+        "classes": [
+          "terminal",
+          "card-glow",
+          "inert-extra"
+        ],
+        "sheetsUnreadable": 1,
+        "styledClasses": 38
+      }
+    ],
+    "hover": [
+      {
+        "density": "panel",
+        "theme": "dark",
+        "underAA": [
+          "span.badge 2.33",
+          "a.link 3.9",
+          "div.dot 4.2",
+          "span.extra 4.4"
+        ]
+      }
+    ],
+    "reflow": [
+      {
+        "width": 320,
+        "docScrollsSideways": true,
+        "docScrollWidth": 340,
+        "viewport": 320,
+        "sideScrollers": [
+          "div.tabrow 340>320"
+        ],
+        "overflowing": [
+          "div.tabrow"
+        ],
+        "spilling": [
+          "div.card 340>320"
+        ],
+        "clipped": [
+          "span.cmd-duration"
+        ],
+        "term": {
+          "cols": 38,
+          "containerW": 300,
+          "cellW": 8
+        }
+      }
+    ],
+    "notes": [
+      "Settings@1280px: 2 background(s) in a colour syntax this probe cannot read — skipped, not counted (color(display-p3 1 0 0); lab(50% 40 59.5))"
+    ]
+  },
+  "expect": {
+    "findings": [
+      "Settings@1280px: h1 count 2, first-is-h1 false",
+      "Settings@1280px: 1 skipped heading level(s)",
+      "Settings@1280px: 0 main landmark(s), expected exactly 1",
+      "Settings@1280px: 3 nav landmarks — a page has one navigation",
+      "Settings@1280px: overflow — div.card 340>320",
+      "Settings@1280px: clipping — span.cmd-duration",
+      "Settings@1280px: sliver — div.rail-dot 1x24",
+      "Settings@1280px: p.note renders 206 characters PER LINE (477 chars in 3 line(s) over 1339px at 14px, max-width none) — past 90 a reader loses the line return; this sheet's own ledes cap at 66ch",
+      "Settings@1280px: 1 mark(s) are a FILL inside a RING — the vocabulary is solid / ring / halo / empty, and a mark that is two of them is neither: span.plug-dot",
+      "Settings@1280px: states of one mark paint identically — cmd-dot ok vs cmd-dot fail",
+      "Settings@1280px: 2 loud elements — a page has ONE focal point at most — div.card.hero; span.badge",
+      "Settings@1280px: 2 control(s) with NO accessible name — button.icon, a.close",
+      "Settings@1280px: 1 control(s) named only by title — button.help",
+      "the delivered entry is 1 bytes / sha old but this sweep was emitted against 2 / new — every measurement below is of a stale build",
+      "the harness is build h-old but this sweep was emitted against h-new — every measurement below is of a stale fixture",
+      "Settings: 2 focus candidate(s) could not be confirmed against the pixels — a.skip, button.btn — the check could not look, so it cannot say",
+      "Settings: 3 Tab stop(s) with no visible focus ring",
+      "panel/dark: focus landed on nothing in 8 Tab press(es) (8 escaped to the body) — that is a report of no focusable targets, not of good focus rings",
+      "panel/dark rail Settings: button.btn (button.btn.btn-primary) renders NOTHING when pressed — before and during are identical (111x24)",
+      "panel/dark rail Settings: the press pass measured 1 control(s) of the 4 this page renders — a press pass that pressed nothing proves nothing",
+      "panel Settings: button.btn (button.btn.btn-primary) never acknowledged the press — no busy state and no painted change within the window (111x24)",
+      "panel Settings: button.save (button.save) acknowledged the press after 912ms — the budget is 100ms, so this feedback waited on the 940ms network round trip instead of firing on the event",
+      "panel Models: button.add was pressed on a page with NO request counter, so whether it asked the device anything is UNMEASURED — the acknowledgement axis proves nothing here",
+      "target size (panel Settings): button.mini is 18x18 and its nearest neighbour is 4px away — 2.5.8 wants 24x24 or 24px of spacing (\"x\")",
+      "target size (panel Settings): button.nested is 20x20 and its 24px circle reaches div.card (300x200) 6px away — the spacing clause wants the centre 12px clear of another target's BOX, not only 24px from its centre (\"in\")",
+      "Settings claims a read failed — \"could not be read\" — while the fixture answered every call: either the panel is wrong about the device, or the fixture never stubbed an endpoint the card needs",
+      "panel/dark/Settings: the idle observer did not see its own probe mutation — a blind instrument reports a still panel forever, so this measurement proves nothing",
+      "panel/dark/History: 6 DOM mutation(s) in 6s while idle — nothing changed under static fixtures, so this is a repaint of unchanged output (#text x6)",
+      "reduced motion (panel): 4 element(s) still animate — div.spinner; span.pulse; div.skeleton",
+      "reduced motion (desktop): 0 elements animate WITHOUT the preference, so this result proves nothing about prefers-reduced-motion — the check found nothing to suppress",
+      "class name(s) with no matching rule on Settings: card-glow, inert-extra — on screen, matched by nothing",
+      "unstyled check on Settings: 1 stylesheet(s) could not be read, so their classes look unstyled — the basis is incomplete",
+      "unstyled check on Settings: only 38 styled classes found (floor 100) — the collector read almost nothing, so its silence means nothing",
+      "type floor: span.tiny renders at 9px on Settings — the scale's floor is 10px (\"a note that is far too l\")",
+      "only 2 of 13 rows could be measured (84.6% unmeasurable, floor 10%) — the absences below prove nothing",
+      "hover (panel/dark): 4 element(s) below AA while hovered — span.badge 2.33; a.link 3.9; div.dot 4.2",
+      "Settings: the panel renders \"Sessions unavailable\" and the harness did not report the failure fixture — this surface was measured with the push missing",
+      "History: the harness never opened the SSE stream, so this surface was measured in the RECONNECTING state — the fixture failed, not the panel",
+      "reflow @320px: the document scrolls sideways (340 > 320)",
+      "reflow @320px: content is spilling out of its own box — div.card 340>320",
+      "reflow @320px: content is clipped with no way to reach it — span.cmd-duration"
+    ],
+    "lines": [
+      "note: harness build h-old",
+      "note: the pixels overruled the computed-style focus verdict 4 time(s) of 8 press(es) — the rings are painted, the style check cannot see them",
+      "note: panel/dark rail Settings a.link — the pointer never reached this control",
+      "note: panel/dark rail Settings has 4 control(s) and the pass pressed the first 3 (cap) — the rest were not measured",
+      "note: ack panel Settings button.save — acked=true via=data-busy ms=912 budget=100 presses=2",
+      "note: panel Settings button.save acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded machine is a timing artefact and on a real control is an acknowledgement that depends on state",
+      "note: panel Settings button.save took 912ms against a 100ms budget",
+      "note: target size (panel Settings): 1 of 2 undersized target(s) sit INSIDE another target — not a spacing failure (the circle is inside its container by construction), but a near-miss there activates the container: button.nested 20x20 in div.card 300x200",
+      "note: terminal is unstyled by design — a VIEW NAME; the element's .view class does the styling",
+      "note: scrollers at 320px (allowed for toolbars) — div.tabrow 340>320",
+      "note: the 320px overflow comes from — div.tabrow",
+      "note: content spilling out of its own box at 320px — div.card 340>320",
+      "note: content clipped with no way to reach it at 320px — span.cmd-duration",
+      "note: the terminal at 320px renders 38 column(s) in a 300px container (cell 8px)",
+      "note: 2 of 3 ignore entr(ies) matched none of this run's 41 finding(s) and does not say why it stays — an exemption nothing needs is weight; prune it, or declare it dormant with the measurement that makes it a guard:",
+      "  the harness's tab strip is a tab-child artifact, and the finding names it",
+      "  an entry with nothing to declare",
+      "note: ignore entry dormant as declared — 4 hover surfaces, underAA empty — nothing to excuse today"
+    ],
+    "notes": [
+      "Settings@1280px: 2 background(s) in a colour syntax this probe cannot read — skipped, not counted (color(display-p3 1 0 0); lab(50% 40 59.5))"
+    ],
+    "summary": "panel: 13 text nodes · 1 surface(s) · 1 name checks · worst prose line 206 chars (p.note) · 11 unmeasurable"
+  }
+}

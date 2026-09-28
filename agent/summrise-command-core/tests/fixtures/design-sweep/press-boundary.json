@@ -1,0 +1,59 @@
+{
+  "_why": "THE BOUNDARY ROW: the vacuity floor is 2 for a curated list and `min(2, found)` for a discovered one. Two rows sit on either side of it — `measured: 2` with no `found` passes, `measured: 1` fails — so an off-by-one in either direction is visible.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [],
+    "press": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "page": "History",
+        "measured": 2,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "a",
+            "size": "60x24",
+            "changed": true,
+            "reached": true
+          },
+          {
+            "sel": "button.btn",
+            "where": "b",
+            "size": "60x24",
+            "changed": true,
+            "reached": true
+          }
+        ]
+      },
+      {
+        "density": "panel",
+        "theme": "light",
+        "page": "Memory",
+        "found": 4,
+        "measured": 1,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "c",
+            "size": "60x24",
+            "changed": true,
+            "reached": true
+          }
+        ]
+      }
+    ],
+    "notes": []
+  },
+  "expect": {
+    "findings": [
+      "panel/light Memory: the press pass measured 1 control(s) of the 4 this page renders — a press pass that pressed nothing proves nothing"
+    ],
+    "lines": [
+      "note: panel/light Memory has 4 control(s) and the pass pressed the first 1 (cap) — the rest were not measured"
+    ],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 0 surface(s) · 0 name checks"
+  }
+}

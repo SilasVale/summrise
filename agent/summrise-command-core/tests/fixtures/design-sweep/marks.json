@@ -1,0 +1,40 @@
+{
+  "_why": "THE STATES A SHEET DECLARES AND THIS RUN NEVER PAINTED: `cmd-dot` declares three and renders one, so two silhouettes and their collisions are unverified. Also in view: a family the CLASS IS ON SCREEN for but the probe did not attribute (a naming question, not a missing surface), a family the report never mentions at all, and `.update-state` — a `*-state` class the sheet styles as a TEXT LINE, declared with its reason rather than filtered by a heuristic.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [
+      {
+        "page": "Terminal",
+        "marks": {
+          "families": [
+            "cmd-dot[data-state=\"ok\"]"
+          ],
+          "present": [
+            "cmd-dot",
+            "led-dot"
+          ],
+          "ringFill": [],
+          "collisions": []
+        }
+      }
+    ],
+    "notes": []
+  },
+  "css": "/* a comment with .cmd-dot[data-state=\"ghost\"] in it — stripped before the scan */\n.cmd-dot[data-state=\"ok\"] { background: var(--ok); }\n.cmd-dot[data-state=\"fail\"], .cmd-dot[data-state=\"unknown\"] { background: var(--fail); }\n.cmd-dot.is-unknown { opacity: .5; }\n.led-dot[data-live=\"on\"] { background: var(--ok); }\n.plug-dot[error] { box-shadow: inset 0 0 0 1px var(--fail); }\n.update-state.is-error { color: var(--fail); }\n.btn-primary:hover { transform: translateY(1px); }",
+  "expect": {
+    "findings": [
+      "Terminal: h1 count undefined, first-is-h1 undefined",
+      "Terminal: undefined main landmark(s), expected exactly 1",
+      "Terminal: undefined nav landmark(s), expected exactly 1"
+    ],
+    "lines": [],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 1 surface(s) · 0 name checks",
+    "marks": [
+      "note: mark family cmd-dot declares 4 state(s) and this run rendered 1 (data-state=\"ok\") over 1 surface(s) — NO SURFACE RENDERED data-state=ok, data-state=fail, data-state=unknown, is-unknown, so those silhouettes and their collisions are unverified",
+      "note: mark family led-dot declares 1 state(s) and the CLASS IS ON SCREEN — the probe did not record it as a family of its own, either because its marks carry a state attribute (the family is then the FIRST class, which is how mark tab-dot is measured as mark) or because they are larger than the 40px the mark probe measures. Not a missing surface; a naming and sizing question.",
+      "note: mark family plug-dot declares 1 state(s) and this run rendered 0 (none) over 1 surface(s) — NO SURFACE RENDERED error, so those silhouettes and their collisions are unverified"
+    ]
+  }
+}
