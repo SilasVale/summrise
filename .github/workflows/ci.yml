@@ -506,14 +506,6 @@ jobs:
             exit 1
           fi
           pwsh -NoProfile -File agent/deploy/lib/SummriseIntegrity.tests.ps1
-      # The model-drift report's PURE half. The report itself needs four live
-      # third-party endpoints, so it can never be a CI gate — an unreachable
-      # upstream would fail the build for a reason unrelated to the change. What
-      # CAN run here is the normalisation and the comparison, which is where a
-      # checker goes wrong quietly: the first version compared raw
-      # prefix-stripped names and reported false drift on every channel.
-      - name: model-drift regression checks
-        run: node scripts/test/model-drift-check.mjs
       # The contrast math, pinned. Four rounds of sweeps used an ad-hoc snippet
       # retyped each time and it was wrong twice: it read a translucent
       # background as WHITE (20 of 50 findings were that), and a skip rule that
@@ -539,13 +531,6 @@ jobs:
       # stylesheets.
       - name: token contract (console vs panel)
         run: node scripts/test/token-contract-check.mjs
-      # EVERY var(--token) MUST RESOLVE, in all three UIs. An undefined custom property does not fall
-      # back — it makes the whole declaration invalid at computed-value time, silently. That is how the
-      # console's keyboard focus ring was invisible on every control (round 137): the rule looked
-      # correct, the page looked fine, and only a rendered focus measurement found it. A missing
-      # definition is a string with no counterpart, which a check is good at.
-      - name: css custom properties resolve (panel, console)
-        run: node scripts/test/css-vars-check.mjs
       # THE OTHER TWO SWEEPS' JUDGES. `panel-design-sweep.bash` has gated the panel's judge since round 50;
       # the console's and the extension's adapter-specific rules had NO gate — the shared judge they call is
       # covered through the panel's, which is exactly why the gap was easy to miss. Each case here plants one

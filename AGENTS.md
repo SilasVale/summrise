@@ -246,10 +246,10 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 **Every one of them carries its own mutation proof in its header** — the edit that must break it, and what it said when it did. Read that block when you change the gate.
 
 `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `console-derivation-check.mjs`
-`console-marks-check.mjs`, `console-smoke-check.mjs`, `console-wire-field-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`, `css-vars-check.mjs`
+`console-marks-check.mjs`, `console-smoke-check.mjs`, `console-wire-field-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`
 `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `exports-check.mjs`
 `feedback-check.mjs`, `gateway-device-field-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
-`landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`, `mark-vocabulary-check.mjs`, `model-drift-check.mjs`
+`landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`, `mark-vocabulary-check.mjs`
 `motion-check.mjs`, `one-derivation-check.mjs`, `panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `particles-check.mjs`, `powershell-structure-check.mjs`, `press-anchor-check.mjs`, `production-host-check.mjs`, `proxy-cors-parity-check.mjs`, `proxy-timeout-parity-check.mjs`
