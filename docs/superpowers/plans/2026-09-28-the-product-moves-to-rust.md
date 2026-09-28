@@ -182,6 +182,43 @@ worktree 的三个假前提 · "听起来对"的假设 · 门禁悄悄豁免 · 
 **要么给 `agent` job 加 `npm ci` ＋ 一个浏览器** ✓——**而那会让每一个 Rust 提交都多付一次装依赖的钱 ✓**，
 **为了 5 个门禁 ✓。这个决定属于操作者 ✓。**
 
+### 而普查还有**两条约束**，而它们是**读出来的、不是假设的**（2026-09-29 ✓）
+
+**上一节的表只问了"它 spawn 什么"✓。而这一轮要动 `contrast-probe-check` 和 `main-shape-check` 时，
+两条各自不同的约束把两个都挡下来了 ✓——而两条都不是 grep 能看出来的 ✓。**
+
+**约束 ②：**门禁的**主体**必须是**数据**，不能是它**执行**的 JS** ✓✓。
+`contrast-probe-check` **import 了 `contrast-probe.mjs` 然后调用它** ✓：
+`assert.equal(contrastRatio({r:162,g:163,b:172}, bg), 5.49)` ✓。
+**它钉的是**那个 JS 模块的数学**✓——**而把它翻成 Rust 就是钉 Rust 的数学 ✓，那**是另一个门禁**✓✓**
+（**而"另一个门禁"在这里不是小事：探针跑在浏览器里，而那个模块是浏览器真正执行的那份 ✓**）。
+**判据因此要精确到**主体还是工具**✓**：`token-contract-check` 也 import 了 `contrastRatio` ✓，
+**但它的**主体是两套 CSS token**✓，对比度只是**工具**✓——**工具可以重写 ✓（`console_marks.rs` 里已经有一份 ✓），主体不能 ✗**。
+按这条：`state-colour-check` 过 ✓（`loudnessOf` 是工具 ✓），**`landing-check` 不过** ✗
+（**它的主体就是 `index/src/page.js` 里那些字 ✓，而"把 JS 当文本读"是一个**更弱的检查**✓**）。
+
+**约束 ③：**门禁的**证明**不能在**别人的仓库**里运行它** ✓✓。
+`main-shape-check` 的证明是 `main-shape-shallow.bash` ✓：它**真的 `git clone --depth 1`** 到一个临时目录 ✓，
+`cd` 进去，然后 `node "$GATE"` ✓——**因为要复现的正是**浅克隆的 graft**✓，而那是别的方法造不出来的 ✓。
+**而 `cargo test` 永远是**对着自己那个 crate 的仓库**跑的 ✓——**所以这个门禁**不能是 cargo test**✓✓**，
+**除非把它的证明也一起改掉 ✓——**而那正是这个门禁存在的理由 ✓**。
+
+**所以可搬集合是 3 个，不是 6 个**✓✓：
+
+| 门禁 | 行数 | 为什么能 |
+|---|---|---|
+| `token-contract-check` ✓ | 514 | 主体是两套 CSS ✓，对比度是工具 ✓ |
+| `feedback-check` ✓ | 301 | 主体是三张样式表 ✓ |
+| `state-colour-check` ✓ | 150 | 主体是 CSS 的颜色 ✓，`loudnessOf` 是工具 ✓ |
+
+**而三条约束合起来是一句话 ✓**：**一个门禁能搬进 `cargo test`，当且仅当它读**数据**、不 spawn 依赖、且它的证明**就在本仓库里**** ✓✓。
+
+**AND ONE MORE THING THIS ROUND FOUND, WHICH THE PLAN WARNED ABOUT AND HAD NOT NAMED** ✓：
+**`main-shape-check.mjs` 根本没有 `MUTATION:` 块** ✓（`grep -c MUTATION` = 0 ✓）。
+**计划那句"先读那个门禁的头——不要假设它有 `MUTATION:` 块（至少有一个根本没有）"✓，那个"一个"就是它 ✓。**
+**而它并不是没有证明 ✓——它的证明是那张**六行 fixture 表** ✓（`SELF_TEST` ✓，含那对"`main` ＋ 1 个父提交必须拒 ✓、
+`change/x` ＋ 1 个父提交必须过 ✓"✓）——**只是那张表在**正文里** ✓，不在头部的 `MUTATION:`/`RESULT:` 形状里 ✓。**
+
 ### 数字（Cloudflare 自己的 per-request `cpuTime`，单位 **µs**）
 
 | | TypeScript | Rust→wasm | 比 |
