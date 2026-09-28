@@ -1,4 +1,4 @@
-# SummriseIntegrity.tests.ps1 — plain asserts, no Pester. Exit 0 = all green.
+﻿# SummriseIntegrity.tests.ps1 — plain asserts, no Pester. Exit 0 = all green.
 # Run: pwsh -File agent/deploy/lib/SummriseIntegrity.tests.ps1
 #
 # These cover the two halves the installer's CDN fallback depends on: reading a

@@ -1,4 +1,4 @@
-# fix-tunnel.ps1 — repair the cloudflared tunnel config after a Summrise Agent
+﻿# fix-tunnel.ps1 — repair the cloudflared tunnel config after a Summrise Agent
 # migration. The old install used a tunnel named summrise-command-dN with the
 # *.command.saisi.online hostname; the new install created summrise-agent-dN with
 # *.agent.saisi.online. If the agent-owned tunnel.yml still references the
