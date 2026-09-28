@@ -1,0 +1,5 @@
+# Build output and wrangler's local cache. `probe-wasm/target` is 276 MB of a
+# build that does not even succeed here (wasm-bindgen SIGSEGV — see README).
+target/
+build/
+.wrangler/

@@ -1,0 +1,17 @@
+# `node freshconn.mjs` — the run that separated "the isolate died" from "fresh
+# connections are routed elsewhere". Transcribed from the run's own output: the
+# probe Worker was deleted at teardown, so this cannot be re-run against the same
+# script — the source is committed and a redeploy reproduces it.
+#
+# Question: a fresh connection 240 s after the last request got a DIFFERENT
+# isolate. Was that isolate dead, or does a fresh connection simply never reuse a
+# warm one? Six fresh connections, 1 s apart, answers it.
+fresh#0 colo=LHR id=265b84c1 idx=1 age=0ms
+fresh#1 colo=AMS id=af0e82a0 idx=1 age=0ms
+fresh#2 colo=AMS id=cade4e7d idx=2 age=2236204ms      <- a 37-MINUTE-old isolate, reached by a FRESH connection
+fresh#3 colo=LHR id=d96254c0 idx=1 age=0ms
+fresh#4 colo=AMS id=735fbb82 idx=1 age=0ms
+fresh#5 colo=LHR id=265b84c1 idx=2 age=9653ms         <- fresh#0's isolate, reused 5 s later on a NEW connection
+
+LHR samples: 3, distinct isolates among them: 2
+distinct colos: 2

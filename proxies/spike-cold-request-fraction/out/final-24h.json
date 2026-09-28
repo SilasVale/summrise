@@ -1,0 +1,329 @@
+{
+ "hours": 24,
+ "to": "2026-09-28T13:39:00.000Z",
+ "reps": 300,
+ "measuredCurve": [
+  {
+   "g": 1,
+   "n": 3,
+   "s": 1
+  },
+  {
+   "g": 3,
+   "n": 3,
+   "s": 1
+  },
+  {
+   "g": 7,
+   "n": 3,
+   "s": 1
+  },
+  {
+   "g": 15,
+   "n": 3,
+   "s": 1
+  },
+  {
+   "g": 30,
+   "n": 2,
+   "s": 1
+  },
+  {
+   "g": 60,
+   "n": 2,
+   "s": 1
+  },
+  {
+   "g": 120,
+   "n": 2,
+   "s": 1
+  },
+  {
+   "g": 240,
+   "n": 1,
+   "s": 1
+  },
+  {
+   "g": 900,
+   "n": 1,
+   "s": 0
+  }
+ ],
+ "maxTestedGapS": 900,
+ "workers": {
+  "vale-gate": {
+   "requests": 12333,
+   "colos": 13,
+   "buckets": 2218,
+   "bracket": {
+    "L_survived": 240,
+    "D_evicted": 900,
+    "lowerCertainCold": 0.0036,
+    "certainWarm": 0.9581,
+    "upperCertainCold": 0.0419
+   },
+   "structural": {
+    "G30s": 0.026,
+    "G60s": 0.026,
+    "G120s": 0.0186,
+    "G240s": 0.0127,
+    "G300s": 0.0105,
+    "G600s": 0.0054,
+    "G900s": 0.0036,
+    "G1800s": 0.0023,
+    "G2220s": 0.0021,
+    "G3600s": 0.0018,
+    "G21600s": 0.0013
+   },
+   "model": {
+    "tailAlive": {
+     "poisson": 0.0036,
+     "uniform": 0.0036,
+     "burst": 0.0036
+    },
+    "tailDead": {
+     "poisson": 0.0036,
+     "uniform": 0.0036,
+     "burst": 0.0036
+    }
+   },
+   "coldFracRange": [
+    0.0036,
+    0.0036
+   ],
+   "penaltyMsPerRequestRange": [
+    0.03,
+    0.03
+   ]
+  },
+  "summrise-dist": {
+   "requests": 3079,
+   "colos": 16,
+   "buckets": 1470,
+   "bracket": {
+    "L_survived": 240,
+    "D_evicted": 900,
+    "lowerCertainCold": 0.027,
+    "certainWarm": 0.7499,
+    "upperCertainCold": 0.2501
+   },
+   "structural": {
+    "G30s": 0.1221,
+    "G60s": 0.1221,
+    "G120s": 0.075,
+    "G240s": 0.0458,
+    "G300s": 0.0416,
+    "G600s": 0.0296,
+    "G900s": 0.027,
+    "G1800s": 0.0205,
+    "G2220s": 0.0192,
+    "G3600s": 0.014,
+    "G21600s": 0.0062
+   },
+   "model": {
+    "tailAlive": {
+     "poisson": 0.027,
+     "uniform": 0.027,
+     "burst": 0.027
+    },
+    "tailDead": {
+     "poisson": 0.027,
+     "uniform": 0.027,
+     "burst": 0.027
+    }
+   },
+   "coldFracRange": [
+    0.027,
+    0.027
+   ],
+   "penaltyMsPerRequestRange": [
+    0.24,
+    0.24
+   ]
+  },
+  "opencode-go-proxy": {
+   "requests": 3,
+   "colos": 2,
+   "buckets": 3,
+   "bracket": {
+    "L_survived": 240,
+    "D_evicted": 900,
+    "lowerCertainCold": 1,
+    "certainWarm": 0,
+    "upperCertainCold": 1
+   },
+   "structural": {
+    "G30s": 1,
+    "G60s": 1,
+    "G120s": 1,
+    "G240s": 1,
+    "G300s": 1,
+    "G600s": 1,
+    "G900s": 1,
+    "G1800s": 1,
+    "G2220s": 1,
+    "G3600s": 1,
+    "G21600s": 1
+   },
+   "model": {
+    "tailAlive": {
+     "poisson": 1,
+     "uniform": 1,
+     "burst": 1
+    },
+    "tailDead": {
+     "poisson": 1,
+     "uniform": 1,
+     "burst": 1
+    }
+   },
+   "coldFracRange": [
+    1,
+    1
+   ],
+   "penaltyMsPerRequestRange": [
+    9,
+    9
+   ]
+  },
+  "zen-us-proxy": {
+   "requests": 1,
+   "colos": 1,
+   "buckets": 1,
+   "bracket": {
+    "L_survived": 240,
+    "D_evicted": 900,
+    "lowerCertainCold": 1,
+    "certainWarm": 0,
+    "upperCertainCold": 1
+   },
+   "structural": {
+    "G30s": 1,
+    "G60s": 1,
+    "G120s": 1,
+    "G240s": 1,
+    "G300s": 1,
+    "G600s": 1,
+    "G900s": 1,
+    "G1800s": 1,
+    "G2220s": 1,
+    "G3600s": 1,
+    "G21600s": 1
+   },
+   "model": {
+    "tailAlive": {
+     "poisson": 1,
+     "uniform": 1,
+     "burst": 1
+    },
+    "tailDead": {
+     "poisson": 1,
+     "uniform": 1,
+     "burst": 1
+    }
+   },
+   "coldFracRange": [
+    1,
+    1
+   ],
+   "penaltyMsPerRequestRange": [
+    9,
+    9
+   ]
+  },
+  "summrise-relay": {
+   "requests": 144,
+   "colos": 5,
+   "buckets": 120,
+   "bracket": {
+    "L_survived": 240,
+    "D_evicted": 900,
+    "lowerCertainCold": 0.2361,
+    "certainWarm": 0.3542,
+    "upperCertainCold": 0.6458
+   },
+   "structural": {
+    "G30s": 0.7361,
+    "G60s": 0.7361,
+    "G120s": 0.5903,
+    "G240s": 0.4861,
+    "G300s": 0.4722,
+    "G600s": 0.3194,
+    "G900s": 0.2361,
+    "G1800s": 0.1111,
+    "G2220s": 0.0972,
+    "G3600s": 0.0764,
+    "G21600s": 0.0347
+   },
+   "model": {
+    "tailAlive": {
+     "poisson": 0.2365,
+     "uniform": 0.2361,
+     "burst": 0.2365
+    },
+    "tailDead": {
+     "poisson": 0.2364,
+     "uniform": 0.2361,
+     "burst": 0.2364
+    }
+   },
+   "coldFracRange": [
+    0.2361,
+    0.2365
+   ],
+   "penaltyMsPerRequestRange": [
+    2.12,
+    2.13
+   ]
+  },
+  "proxies/ GROUP": {
+   "requests": 148,
+   "scripts": [
+    "opencode-go-proxy",
+    "zen-us-proxy",
+    "summrise-relay"
+   ],
+   "colos": null,
+   "buckets": 124,
+   "bracket": {
+    "L_survived": 240,
+    "D_evicted": 900,
+    "lowerCertainCold": 0.2567,
+    "upperCertainCold": 0.6554
+   },
+   "structural": {
+    "G30s": 0.7432,
+    "G60s": 0.7432,
+    "G120s": 0.6014,
+    "G240s": 0.5,
+    "G300s": 0.4865,
+    "G600s": 0.3378,
+    "G900s": 0.2567,
+    "G1800s": 0.1351,
+    "G2220s": 0.1216,
+    "G3600s": 0.1014,
+    "G21600s": 0.0608
+   },
+   "model": {
+    "tailDead": {
+     "poisson": 0.257,
+     "uniform": 0.2567,
+     "burst": 0.257
+    },
+    "tailAlive": {
+     "poisson": 0.2571,
+     "uniform": 0.2567,
+     "burst": 0.2571
+    }
+   },
+   "coldFracRange": [
+    0.2567,
+    0.2571
+   ],
+   "penaltyMsPerRequestRange": [
+    2.31,
+    2.31
+   ]
+  }
+ }
+}

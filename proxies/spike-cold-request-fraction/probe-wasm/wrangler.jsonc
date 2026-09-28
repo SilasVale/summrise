@@ -1,0 +1,11 @@
+{
+  // THROWAWAY. The Rust half of the isolate-survival probe: the question is
+  // whether the RUNTIME changes the eviction point, since the whole penalty
+  // under study is paid by wasm isolates. Deleted after the measurement.
+  "name": "p30-coldfrac-probe-wasm",
+  "main": "build/index.js",
+  "compatibility_date": "2026-08-01",
+  "routes": [{ "pattern": "p30frac.saisi.online/wasm/*", "zone_id": "79860b60a8681147d0ce38294d404ead" }],
+  "build": { "command": "worker-build --release" },
+  "observability": { "enabled": false }
+}

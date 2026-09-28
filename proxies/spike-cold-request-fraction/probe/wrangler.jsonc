@@ -1,0 +1,6 @@
+{
+  "name": "p30-coldfrac-probe",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "routes": [{ "pattern": "p30frac.saisi.online/*", "zone_id": "79860b60a8681147d0ce38294d404ead" }]
+}

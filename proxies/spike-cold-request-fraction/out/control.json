@@ -1,0 +1,24 @@
+{
+ "gapS": 240,
+ "trials": [
+  {
+   "arm": "same-connection",
+   "gapS": 240,
+   "coloA": "LHR",
+   "coloB": "LHR",
+   "same": true,
+   "idA": "119c2f71-c79c-4c92-91f7-37288f3023f1",
+   "idB": "119c2f71-c79c-4c92-91f7-37288f3023f1"
+  },
+  {
+   "arm": "fresh-connection",
+   "gapS": 240,
+   "coloA": "LHR",
+   "coloB": "LHR",
+   "same": false,
+   "idA": "119c2f71-c79c-4c92-91f7-37288f3023f1",
+   "idB": "7e0e795d-e514-4c6c-8c90-6d0ba622cc7e",
+   "requestIndex": 1
+  }
+ ]
+}

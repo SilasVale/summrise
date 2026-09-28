@@ -1,0 +1,21 @@
+=== DELETE workers ===
+  DELETE p30-coldfrac-probe -> HTTP 200 success= True
+  DELETE p30-coldfrac-tail900 -> HTTP 200 success= True
+  DELETE p30-coldfrac-tail1800 -> HTTP 200 success= True
+  DELETE p30-coldfrac-tail3600 -> HTTP 200 success= True
+  DELETE p30-coldfrac-probe-wasm -> HTTP 404 success= False
+=== DELETE routes matching p30 ===
+=== DELETE DNS records matching p30 ===
+  DELETE dns AAAA p30frac.saisi.online -> HTTP 200
+  DELETE dns AAAA p30tail1800.saisi.online -> HTTP 200
+  DELETE dns AAAA p30tail3600.saisi.online -> HTTP 200
+  DELETE dns AAAA p30tail900.saisi.online -> HTTP 200
+
+=== RE-QUERY (the part that makes the teardown a fact) ===
+VERIFY workers matching p30 : NONE
+VERIFY all workers on account: opencode-go-proxy, summrise-dist, summrise-relay, vale-dist, vale-gate, zen-us-proxy
+VERIFY routes matching p30  : NONE
+VERIFY all routes on zone   : zen-us.saisi.online/*, agent.saisi.online/files/*
+VERIFY dns matching p30     : NONE
+VERIFY probe host answers   :
+  https://p30frac.saisi.online/probe -> HTTP 530

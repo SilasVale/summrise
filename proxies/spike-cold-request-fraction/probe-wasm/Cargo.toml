@@ -1,0 +1,12 @@
+[package]
+name = "p30-coldfrac-probe-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "0.8.7"
+js-sys = "0.3"
