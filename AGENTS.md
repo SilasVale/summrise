@@ -272,7 +272,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `press-anchor-check.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
 `smoke-helpers.bash`, `smoke-index.bash`
-`state-colour-check.mjs`, `sweep-judges.bash`
+`sweep-judges.bash`
 `token-contract-check.mjs`
 
 ## Where the long form lives
