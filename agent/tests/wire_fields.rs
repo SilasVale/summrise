@@ -252,6 +252,69 @@ const PANEL_PARSERS: [&str; 6] = [
 /// Field reads that are NOT device fields, declared with the reason.
 const NOT_DEVICE_FIELDS: [&str; 2] = ["session_id", "ev"];
 
+/// THE PARSERS THAT HAVE MOVED, WHICH THIS GATE COULD NOT SEE — and the way it went blind is the
+/// reason this list is here rather than a note. `archive.rs`, `boot.rs`, `monitors.rs` and `runs.rs`
+/// each moved a family's parse out of TypeScript and into this crate, and each one took its fields
+/// out of a scan that only ever looked at the six files above. NOTHING SAID SO: the floor below was
+/// 20, the TypeScript that remained read more than that, and the gate went on printing "every one
+/// spoken by the harness" while covering a smaller and smaller share of the panel. **A RULE THAT
+/// ONLY HOLDS FOR THE FILES THAT HAVE NOT MOVED YET IS A RULE THAT EXPIRES** — and it expired
+/// silently, one verified migration at a time.
+///
+/// THE SIXTH FAMILY IS WHAT MADE IT SAY SO: `lib/evicted.ts` and `useVitalsSeries.ts` lost their
+/// parses, the count fell to 19, and the floor refused with "the parsers moved, so this proves
+/// nothing" — which is exactly what had happened, four families earlier than the gate noticed.
+const PANEL_LOGIC: [&str; 6] = [
+    "agent/resources/panel-logic/src/archive.rs",
+    "agent/resources/panel-logic/src/boot.rs",
+    "agent/resources/panel-logic/src/evicted.rs",
+    "agent/resources/panel-logic/src/monitors.rs",
+    "agent/resources/panel-logic/src/runs.rs",
+    "agent/resources/panel-logic/src/vitals.rs",
+];
+
+/// THE RUST PARSERS READ A WIRE KEY AS A STRING, not as a property, so `snake_reads` cannot see it:
+/// a moved family calls `prop(&raw, "idle_ms")`. This is the same invariant in the shape the port
+/// gave it — and THE FIELD RULE IS THE SAME ONE (`is_field_name`: at least one `_`, lowercase and
+/// digits only), so `prop(&detail, "ev")` and `prop(&j, "targets")` are not wire fields here either,
+/// for the same reason they are not in the TypeScript.
+fn prop_reads(text: &str) -> Vec<String> {
+    let s: Vec<char> = text.chars().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut i = 0;
+    while i < s.len() {
+        // `prop(`, and then the FIRST string literal before the call closes — that literal is the key.
+        if !(i + 5 <= s.len() && s[i..i + 5].iter().collect::<String>() == "prop(") {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 5;
+        while j < s.len() && s[j] != ')' && s[j] != '"' {
+            j += 1;
+        }
+        if j >= s.len() || s[j] != '"' {
+            i += 1;
+            continue;
+        }
+        let start = j + 1;
+        let mut k = start;
+        while k < s.len() && s[k] != '"' {
+            k += 1;
+        }
+        if k >= s.len() {
+            break;
+        }
+        let name: String = s[start..k].iter().collect();
+        let cs: Vec<char> = name.chars().collect();
+        if is_field_name(&cs, 0, cs.len()) && seen.insert(name.clone()) {
+            out.push(name);
+        }
+        i = k + 1;
+    }
+    out
+}
+
 /// THE HARNESS'S FIELDS NOW COME FROM TWO FILES (round 270). The emitter builds the page; the stubbed
 /// device API it inlines — every fixture response the panel reads — is `lib/sweep/panel-stub.cjs`.
 /// Reading only the emitter left this corpus empty and reported `first_seq` as a field the panel reads
@@ -285,6 +348,7 @@ fn panel_check() -> Result<String, String> {
 
     let mut reads = 0;
     let mut missing = Vec::new();
+    // THE TYPESCRIPT THAT HAS NOT MOVED, by property access.
     for rel in PANEL_PARSERS {
         let text = decomment(&read(rel));
         for field in snake_reads(&text, 8) {
@@ -303,8 +367,34 @@ fn panel_check() -> Result<String, String> {
             }
         }
     }
+    // AND THE RUST THAT HAS — the same two questions, asked of the parsers this gate could not see.
+    for rel in PANEL_LOGIC {
+        let text = decomment(&read(rel));
+        for field in prop_reads(&text) {
+            if NOT_DEVICE_FIELDS.contains(&field.as_str()) {
+                continue;
+            }
+            reads += 1;
+            if !spoken(&other_end, &field) {
+                missing.push(format!(
+                    "{rel}: reads \"{field}\", which neither the device harness nor any fixture carries"
+                ));
+            } else if !spoken(&producers, &field) {
+                missing.push(format!(
+                    "{rel}: reads \"{field}\", which only a fixture carries — no Rust or gateway source sends it"
+                ));
+            }
+        }
+    }
 
-    if reads < 20 {
+    // THE FLOOR IS 40, MEASURED RATHER THAN CARRIED (2026-09-29). It was 20, and 20 was one field
+    // above what the SIX TYPESCRIPT FILES ALONE still read (19) — so the number that was supposed to
+    // catch a collapse was sitting on the exact value a collapse produces, and it only said so
+    // because the sixth family happened to take the count one below it. With the moved families in
+    // the scan the count is **47**, so 40 is the same kind of margin this file's siblings use: below
+    // anything a working tree produces, above anything a single-language scan can reach (19 from
+    // TypeScript alone, 28 from the Rust alone).
+    if reads < 40 {
         return Err(format!(
             "FAIL read only {reads} wire field(s) — the parsers moved, so this proves nothing"
         ));
@@ -317,9 +407,12 @@ fn panel_check() -> Result<String, String> {
         ));
     }
     Ok(format!(
-        "wire-field: {reads} field(s) read by {} panel parser(s) — every one spoken by the harness or a fixture AND by a \
-         producer (the agent's Rust or the gateway), so none of them renders only in a stub",
-        PANEL_PARSERS.len()
+        "wire-field: {reads} field(s) read by {} panel parser(s) — {} TypeScript file(s) that still parse and {} Rust \
+         file(s) that have taken over — every one spoken by the harness or a fixture AND by a producer (the agent's \
+         Rust or the gateway), so none of them renders only in a stub",
+        PANEL_PARSERS.len() + PANEL_LOGIC.len(),
+        PANEL_PARSERS.len(),
+        PANEL_LOGIC.len()
     ))
 }
 
@@ -438,7 +531,7 @@ fn gateway_check() -> Result<String, String> {
 fn panel_wire_fields() {
     let msg = panel_check().unwrap_or_else(|e| panic!("{e}"));
     println!("{msg}");
-    assert!(msg.contains("field(s) read by 6 panel parser(s)"), "{msg}");
+    assert!(msg.contains("field(s) read by 12 panel parser(s)"), "{msg}");
 }
 
 #[test]
