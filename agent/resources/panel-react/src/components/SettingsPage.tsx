@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { callApi, getToken } from "../lib/api";
+import { callApi } from "../lib/api";
 import { useDeviceRead } from "../hooks/useDeviceRead";
 import { ConnectCard } from "./ConnectCard";
 import { DeviceLogsCard } from "./DeviceLogsCard";
@@ -44,6 +44,20 @@ function isLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
 }
 
+/** A WALL-CLOCK STAMP FOR A STATUS LINE — `14:31:02`. Local time, for the reason `MonitorsCard`'s
+ *  own copy of this formatter gives: the operator reading it is standing next to the device (or
+ *  comparing against their own watch), and a stamp they have to convert is one they cannot use.
+ *
+ *  PRIVATE, like the three siblings that already do this (`MonitorsCard`, `RestartHistoryCard`,
+ *  `TrajectoryView`), rather than a fourth export promising a shared rule: the panel's wall-clock
+ *  formatters belong to the surfaces that print them, and unifying that family is its own pass (the
+ *  note `lib/duration.ts` carries for the duration family, which is the same situation). */
+function clock(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 /** HOW TO REACH THIS MACHINE — the sentence, and the one thing besides the bind that changes it.
  *
  *  `relayConfigured` IS THREE-VALUED, AND THE THREE VALUES ARE THREE DIFFERENT FACTS:
@@ -81,7 +95,7 @@ function reachabilityHint(host: string, relayConfigured?: boolean): string {
 }
 
 /** WHAT THE DEVICE'S SETTINGS READ PUTS INTO THIS PAGE'S FIELDS — the five editable values it seeds,
- *  as the inputs render them.
+ *  as the inputs render them, PLUS the one read-only fact the Memory card prints (`memPath`).
  *
  *  `gwStatus` IS THE ONE THAT IS NOT JUST A COPY OF THE BODY: the device has a gateway sentence to
  *  say only when a console is configured (`console_url`), so `null` here means "this reply did not
@@ -95,6 +109,12 @@ interface SettingsSeed {
   memEntries: string;
   memBytesMb: string;
   memRetention: string;
+  /** WHERE THE MEMORY STORE'S FILE IS, resolved by the DEVICE (`/api/settings`'s `memory_path`,
+   *  from the same helper the store is built with). `""` = this reply carried none — an older
+   *  agent, or a failed read — and the card then prints the store's relative tail and says the
+   *  root is not reported rather than inventing one. See the sentence in the Memory card for what
+   *  the placeholder it replaced got wrong. */
+  memPath: string;
 }
 
 /** THE VALUES THE FIELDS SHOW BEFORE THE DEVICE ANSWERS — byte-for-byte the defaults this page's
@@ -106,6 +126,7 @@ const SETTINGS_DEFAULTS: SettingsSeed = {
   memEntries: "10000",
   memBytesMb: "64",
   memRetention: "",
+  memPath: "",
 };
 
 /** THE DEVICE'S ANSWER AS THE FIELDS TAKE IT. Each field is written ONLY when the body carries it,
@@ -146,6 +167,10 @@ function seedSettings(previous: SettingsSeed, body: unknown): SettingsSeed {
   if (j && typeof j.memory_max_entries === "number") next.memEntries = String(j.memory_max_entries);
   if (j && typeof j.memory_max_bytes_mb === "number") next.memBytesMb = String(j.memory_max_bytes_mb);
   if (j && typeof j.memory_retention_days === "number") next.memRetention = String(j.memory_retention_days);
+  // THE FILE'S REAL LOCATION, when this agent reports one. Kept as `""` when it does not, which the
+  // Memory card renders as the relative tail plus the gap — never as a path built here: the browser
+  // cannot know this machine's DataDir, and a guessed root is what `<install>/memory/...` was.
+  if (j && typeof j.memory_path === "string" && j.memory_path) next.memPath = j.memory_path;
   return next;
 }
 
@@ -203,8 +228,6 @@ export function SettingsPage({
    *  direction. See `reachabilityHint`. */
   relayConfigured?: boolean;
 }) {
-  const [revealed, setRevealed] = useState(false);
-  const token = getToken();
   const [bufferMb, setBufferMb] = useState(SETTINGS_DEFAULTS.bufferMb);
   const [status, setStatus] = useState("");
 
@@ -248,6 +271,36 @@ export function SettingsPage({
   const [gwKey, setGwKey] = useState("");
   const [gwTunnel, setGwTunnel] = useState(false);
   const [gwStatus, setGwStatus] = useState(SETTINGS_DEFAULTS.gwStatus ?? "");
+  /** WHEN THE LINE ABOVE BECAME TRUE — `0` while there is nothing observed to stamp.
+   *
+   *  WHY THE CARD NEEDS IT. Measured on the live page (1.2.492): `console configured · cloudflared.exe
+   *  running (reachability not checked)` was the only status sentence on this page carrying no "when",
+   *  while every sibling had one (`checked 2s ago`, `down 42m`, `79 readings over 39m`). A reader
+   *  cannot tell a fact observed two seconds ago from one observed two hours ago, and the tunnel
+   *  state is exactly the kind that changes without the page noticing — `/api/settings` is read ONCE,
+   *  because its fields are editable and a cadence would be a poll nobody asked for (see the read's
+   *  own comment).
+   *
+   *  AND IT IS THE PANEL'S OWN CLOCK, deliberately, because the DEVICE REPORTS NO TIME FOR IT —
+   *  measured: `/api/settings` answers ten keys and not one of them is a time, and `/api/status`
+   *  carries `uptime_secs` as its only time-like field. This is the moment the panel learned the
+   *  fact, on the clock the reader compares against (the same clock the monitor log's stamps and the
+   *  update card's `checked 2s ago` are read on). Stamping the device's clock here would be a claim
+   *  the reply does not support. */
+  const [gwSaidAt, setGwSaidAt] = useState(0);
+
+  /** SAY IT, AND SAY WHEN — the ONE setter for this card's status line, because the pair is one fact
+   *  and six hand-written `setGwStatus` calls are how one of them ends up without a stamp (the trap
+   *  this file's own `edited` helper exists to avoid, one screen down).
+   *
+   *  `atMs = 0` IS FOR A STEP, NOT AN OBSERVATION: "connecting…" and "gateway URL required" report
+   *  something in progress or something the panel itself decided, and stamping those would date a
+   *  sentence that makes no claim about the device. Every sentence that DOES make one — the reply's
+   *  own reading, the connect result, the failure — carries the moment the panel learned it. */
+  function sayGw(text: string, atMs: number = Date.now()) {
+    setGwStatus(text);
+    setGwSaidAt(atMs);
+  }
   // FOUR CONTROLS SHARE THIS ONE (the confirm, its Cancel, the trigger, and the Connect that owns the label).
   // Unlike GoalBar and PathView, the label was never WRONG here: only `connectGateway` sets this flag, so
   // "Connecting…" could only appear while a connect was actually in flight. What the hook adds is that the flag
@@ -294,14 +347,17 @@ export function SettingsPage({
   });
   // THE SEED LANDS IN THE FIVE FIELDS — all of them, unconditionally, because the value ALREADY
   // carries the operator's edits: assigning a field they typed in writes their own text back. The
-  // gateway sentence is the one exception, `null` meaning the reply had nothing to say about it.
+  // gateway sentence is the one exception, `null` meaning the reply had nothing to say about it —
+  // and it is stamped with the moment it landed, because the sentence asserts a device state and
+  // the page is the only party that knows when it learned it (see `gwSaidAt`).
   useEffect(() => {
     setBufferMb(seed.bufferMb);
     setGwUrl(seed.gwUrl);
-    if (seed.gwStatus !== null) setGwStatus(seed.gwStatus);
+    if (seed.gwStatus !== null) sayGw(seed.gwStatus);
     setMemEntries(seed.memEntries);
     setMemBytesMb(seed.memBytesMb);
     setMemRetention(seed.memRetention);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed]);
   // A FAILED READ SAYS SO, in the sentence this page has always used for it. The module keeps the
   // fields on a failure (that rule is its own), so the sentence is all that is left to state here.
@@ -351,10 +407,10 @@ export function SettingsPage({
 
   // Save gateway config + register + optional tunnel, one click.
   async function connectGateway() {
-    if (!gwUrl.trim()) { setGwStatus("gateway URL required"); return; }
+    if (!gwUrl.trim()) { sayGw("gateway URL required", 0); return; }
     setGwConfirm(false);
     await runGw("connect", async () => {
-    setGwStatus("connecting…");
+    sayGw("connecting…", 0);
     try {
       const j = await callApi("/api/gateway/connect", {
         method: "POST",
@@ -369,7 +425,7 @@ export function SettingsPage({
           j.registered ? "registered" : "not registered",
           `tunnel: ${j.tunnel || "skipped"}`,
         ];
-        setGwStatus(parts.join(" · "));
+        sayGw(parts.join(" · "));
         // SPA audit MED-1: a used one-time reg-key must NOT linger in the
         // visible form (screen share / shoulder surf) — wipe it on success.
         setGwKey("");
@@ -394,16 +450,16 @@ export function SettingsPage({
   // operator typed is an edit that wins — and the wipe this function exists to perform could then
   // never happen. The module owns the read that SEEDS this page's form, not this one.
   async function gwFailure(prefix: string, msg: string) {
-    if (!gwKey.trim()) { setGwStatus(msg || prefix); return; }
+    if (!gwKey.trim()) { sayGw(msg || prefix); return; }
     try {
       const st = await callApi("/api/settings");
       if (st && st.console_url) {
         setGwKey("");
-        setGwStatus(`${msg || prefix} — but the gateway IS bound now: do NOT re-send the same key`);
+        sayGw(`${msg || prefix} — but the gateway IS bound now: do NOT re-send the same key`);
         return;
       }
     } catch { /* fall through to the plain error */ }
-    setGwStatus(msg || prefix);
+    sayGw(msg || prefix);
   }
 
   return (
@@ -456,11 +512,17 @@ export function SettingsPage({
           nodes. The most important fact on the card was typographically the least important thing in it. It has its own
           row now, built from `settings-row-bar` (the same bar the Session buffer and Memory fields use), which already
           wraps — so a long token pushes the buttons down instead of overflowing. */}
+      {/* **THE ROW KEEPS THE FACT AND LOSES THE ACTIONS (1.2.493).** A second review measured the SAME credential
+          dressed twice, ~470px apart on one screen: `Reveal` / `Copy` here at 31px height, radius 10, 13px/600, and
+          `Reveal token` / `Copy config` in the fold at 26px, radius 8, 12px/400. The pair moved to the fold, where the
+          snippet they act on is — the snippet IS what those buttons produce, and a reveal that changes a `<pre>` the
+          reader cannot see from here is a control separated from its own effect.
+          **WHAT IS LOST:** these were the only way to get the token without opening a fold (`Connect an AI client`,
+          one line below, holds it now). What is NOT lost is the fact: the masked token still says this device HAS a
+          credential, and `Config file:` under it still names the file that credential is in. */}
       <div className="settings-row-bar">
         <span className="muted">Device token:</span>
-        <code>{revealed ? token : "••••••••••••"}</code>
-        <button className="btn" onClick={() => setRevealed((v) => !v)}>{revealed ? "Hide" : "Reveal"}</button>
-        <button className="btn" onClick={() => void navigator.clipboard?.writeText(token)}>Copy</button>
+        <code>••••••••••••</code>
       </div>
       {config?.path ? (
         <p className="muted">Config file: <code>{config.path}</code></p>
@@ -560,7 +622,16 @@ export function SettingsPage({
             )}
           </div>
         </div>
-        {gwStatus && <p className="hint settings-status">{gwStatus}</p>}
+        {/* THE "WHEN" IS PART OF THE SENTENCE, not a second line under it: `checked 2s ago`, `down 42m` and
+            `79 readings over 39m` all read as one claim, and a status sentence whose age is somewhere else on the
+            card is the defect this appends to. Rendered only where the line reports an observation — a step in
+            progress ("connecting…") has no age to state. */}
+        {gwStatus && (
+          <p className="hint settings-status">
+            {gwStatus}
+            {gwSaidAt ? ` · as of ${clock(gwSaidAt)}` : ""}
+          </p>
+        )}
       </div>
 
       <div className="settings-section">
@@ -614,8 +685,23 @@ export function SettingsPage({
 
       <div className="settings-section">
         <h2>Memory</h2>
+        {/* **THE PLACEHOLDER WAS NOT JUST UNRESOLVED — IT NAMED A DIRECTORY THE FILE IS NOT IN.** The line read
+            `<install>/memory/memory.jsonl` on a page that prints this machine's real paths twice (`Config file:
+            D:\Summrise\etc\config.yaml`, `Read from C:\ProgramData\Summrise\logs`). Measured on the device
+            (1.2.492): those two are the INSTALL dir and the DATA dir, and they differ — so "install" resolved to
+            `D:\Summrise\memory\memory.jsonl`, which does not exist (`ENOENT`), while
+            `C:\ProgramData\Summrise\memory\memory.jsonl` is the store, 1437 bytes of real entries. The device
+            resolves it now (`/api/settings`'s `memory_path`, from the helper the store is built with) and this
+            prints it.
+            **AND THE FALLBACK NAMES THE GAP RATHER THAN A ROOT:** with no `memory_path` — an older agent, or a
+            failed read — the relative tail is still true (`default_memory_dir()` is `data_dir()/memory`, and that
+            is the one part the browser can know), so it is printed with the fact that the root is unreported.
+            Nothing here is assembled from a guess. */}
         <p className="muted">
-          Memory entries live in <code>&lt;install&gt;/memory/memory.jsonl</code>.
+          Memory entries live in <code>{seed.memPath || "memory/memory.jsonl"}</code>
+          {seed.memPath
+            ? "."
+            : " under the device's data directory (this agent does not report which one)."}
         </p>
         {/* **THREE IDENTICAL BOXES AND NOT ONE OF THEM SAID WHAT IT WAS.** Measured by an independent
             review of this page: `grep '<label'` found only the two that wrap checkboxes, so every

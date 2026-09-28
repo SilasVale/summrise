@@ -283,27 +283,57 @@ describe("SettingsPage — the gateway line says what was observed", () => {
   }
   const statusLine = (container: HTMLElement) =>
     container.querySelector(".settings-status")?.textContent ?? null;
+  /** THE CLAIM, SEPARATED FROM WHEN IT WAS MADE — so a test can pin the sentence without pinning a clock
+   *  reading. The stamp is a real `Date.now()`; asserting its value would be asserting the test's own runtime. */
+  const claim = (container: HTMLElement) =>
+    (statusLine(container) ?? "").replace(/ · as of \d\d:\d\d:\d\d$/, "");
+  const stamp = (container: HTMLElement) =>
+    ((statusLine(container) ?? "").match(/ · as of (\d\d:\d\d:\d\d)$/) ?? [])[1] ?? null;
 
   it("names the console and the cloudflared process, and admits nothing was reachability-checked", async () => {
     answerWith({ tunnel_configured: true, tunnel_running: true });
     const { container } = render(<SettingsPage />);
     await waitFor(() =>
-      expect(statusLine(container)).toBe(
+      expect(claim(container)).toBe(
         "console configured · cloudflared.exe running (reachability not checked)",
       ),
     );
     // THE WORD THAT WAS NEVER EARNED IS GONE FROM THE LINE — `connected` was produced by a non-empty string.
     expect(statusLine(container)).not.toMatch(/connected/);
+    // **AND THE LINE CARRIES ITS OWN "WHEN" NOW.** Measured on the live page before this change: it was the
+    // ONLY status sentence there with no time, while every sibling had one (`checked 2s ago`, `down 42m`,
+    // `79 readings over 39m`, `UP 5m 41s`). The SHAPE is asserted, not the value — the value is a clock.
+    expect(stamp(container)).toMatch(/^\d\d:\d\d:\d\d$/);
   });
 
   it("says the process is NOT running rather than 'tunnel: configured'", async () => {
     answerWith({ tunnel_configured: true, tunnel_running: false });
     const { container } = render(<SettingsPage />);
     await waitFor(() =>
-      expect(statusLine(container)).toBe(
+      expect(claim(container)).toBe(
         "console configured · cloudflared.exe not running (reachability not checked)",
       ),
     );
+  });
+
+  it("stamps an observation and does NOT stamp a step that is still in flight", async () => {
+    // "connecting…" reports something the panel is DOING, not something it OBSERVED — dating it would put a
+    // clock on a sentence that makes no claim about the device, and the reader would take the stamp for the
+    // age of a reading. The connect request is left pending so the step's own sentence is what is measured.
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/gateway/connect") return new Promise(() => {});
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET")) return SETTINGS;
+      return { ok: true };
+    });
+    const { container } = render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("Memory max entries")).toBeTruthy());
+    expect(statusLine(container)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Gateway URL"), { target: { value: "https://api.saisi.online" } });
+    fireEvent.click(screen.getByText("Save & connect"));
+    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(statusLine(container)).toBe("connecting…"));
+    expect(stamp(container)).toBeNull();
   });
 
   it("still shows nothing at all when the reply carries no console", async () => {
@@ -330,11 +360,19 @@ describe("SettingsPage — the two things that stay on the surface", () => {
     mockCallApi.mockResolvedValue({ ok: true });
   });
 
-  it("shows the device token masked, with a way to reveal it", () => {
-    render(<SettingsPage />);
+  it("shows the device token masked as a FACT, with no second set of controls on the card", () => {
+    const { container } = render(<SettingsPage />);
     expect(screen.getByText(/Device token:/)).toBeTruthy();
     expect(screen.getByText("••••••••••••")).toBeTruthy();
-    expect(screen.getByText("Reveal")).toBeTruthy();
+    // **THE ACTIONS MOVED INTO THE FOLD, WITH THE SNIPPET THEY PRODUCE.** Measured before this change: the same
+    // credential was dressed twice on one screen, ~470px apart — `Reveal` / `Copy` here (31px tall, radius 10,
+    // 13px/600) and `Reveal token` / `Copy config` in the fold (26px, radius 8, 12px/400). Asserted on the CARD's
+    // own row, and on the two labels being gone rather than "no buttons anywhere" (the Connect card in the fold
+    // still has its three, which is where the pair belongs).
+    const deviceCard = container.querySelector(".desktop-settings .settings-section")!;
+    expect([...deviceCard.querySelectorAll(".settings-row-bar button")]).toEqual([]);
+    expect(screen.queryByText("Reveal")).toBeNull();
+    expect(screen.queryByText("Copy")).toBeNull();
   });
 
   it("shows the config file the agent reports", () => {
@@ -348,5 +386,42 @@ describe("SettingsPage — the two things that stay on the surface", () => {
     const folds = [...container.querySelectorAll("details")].map((d) => d.querySelector("summary")?.textContent);
     expect(folds).toContain("Connect an AI client");
     expect(folds).toContain("Diagnostics");
+  });
+});
+
+
+// ── THE MEMORY PATH, WHICH WAS A PLACEHOLDER ON A PAGE THAT PRINTS THIS MACHINE'S REAL PATHS TWICE ───────────────────────
+// `<install>/memory/memory.jsonl` sat beside `Config file: D:\Summrise\etc\config.yaml` and `Read from
+// C:\ProgramData\Summrise\logs` — two resolved paths and one unresolved one. Measured on the device (1.2.492), those
+// two are the INSTALL dir and the DATA dir, and they are different directories: `D:\Summrise\memory\memory.jsonl` does
+// not exist (ENOENT) while `C:\ProgramData\Summrise\memory\memory.jsonl` is the store, 1437 bytes of real entries. So
+// the placeholder did not merely lack a root; the root it implied held nothing. The device resolves it now.
+describe("SettingsPage — the memory path is the device's, not a placeholder", () => {
+  const REAL = "C:\\ProgramData\\Summrise\\memory\\memory.jsonl";
+
+  it("prints the file the device resolved", async () => {
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET"))
+        return { ...SETTINGS, memory_path: REAL };
+      return { ok: true };
+    });
+    const { container } = render(<SettingsPage />);
+    await waitFor(() => expect(container.textContent).toContain(REAL));
+    expect(container.textContent).not.toContain("<install>");
+  });
+
+  it("names the gap rather than inventing a root when the agent reports none", async () => {
+    // The relative tail is the one part the browser CAN know (`default_memory_dir()` is `data_dir()/memory`), so it
+    // is printed — with the fact that the root is unreported. A guess here is what the placeholder was.
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET")) return SETTINGS;
+      return { ok: true };
+    });
+    const { container } = render(<SettingsPage />);
+    await waitFor(() => expect(container.textContent).toMatch(/memory\/memory\.jsonl/));
+    expect(container.textContent).toContain(
+      "under the device's data directory (this agent does not report which one)",
+    );
+    expect(container.textContent).not.toContain("<install>");
   });
 });

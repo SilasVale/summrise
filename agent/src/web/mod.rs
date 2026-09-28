@@ -2414,6 +2414,21 @@ async fn api_settings_get(state: &AppState) -> serde_json::Value {
         "memory_retention_days": mem.retention_days,
         "memory_entries": mem_entries,
         "memory_bytes": mem_bytes,
+        // WHERE THE MEMORY FILE ACTUALLY IS, resolved by the helper the store was BUILT from
+        // (`state.rs`: `MemoryStore::new(plugins::memory::default_memory_dir(), …)`), so this
+        // cannot drift from the file the caps above are enforced against.
+        //
+        // THE SETTINGS PAGE USED TO PRINT `<install>/memory/memory.jsonl`, AND THAT IS THE WRONG
+        // DIRECTORY ON ANY registry-FIRST INSTALL — which is every installer install. Measured on
+        // d1 (1.2.492): the install dir is `D:\Summrise` (that is where `etc\config.yaml` is) while
+        // `C:\ProgramData\Summrise\memory\memory.jsonl` is the file that EXISTS, 1437 bytes of real
+        // entries. `memory` lives under `paths::data_dir()`, not under the install dir, and the two
+        // differ the moment `DataDir` is set — which it is on a default install. So a placeholder
+        // here was not merely unresolved; the path it implied was a file that does not exist.
+        "memory_path": crate::plugins::memory::default_memory_dir()
+            .join("memory.jsonl")
+            .display()
+            .to_string(),
     })
 }
 
@@ -7178,6 +7193,21 @@ mod tests {
         assert!(
             v["console_url"].is_null(),
             "unbound config must read back null: {v}"
+        );
+        // THE PATH THE SETTINGS PAGE PRINTS IS THE FILE THE STORE WRITES. It comes from the same
+        // `default_memory_dir()` the store was constructed with, and it is under DataDir — NOT under
+        // the install dir, which is a different directory on every registry-first install. A string
+        // that merely LOOKS like a path is exactly the placeholder this field replaced, so the
+        // assertion is on the last two components AND on the root it sits under.
+        let mem_path = v["memory_path"].as_str().expect("memory_path is a string");
+        assert!(
+            std::path::Path::new(mem_path).ends_with("memory/memory.jsonl"),
+            "memory_path must name the store's own file: {mem_path}"
+        );
+        assert!(
+            std::path::Path::new(mem_path).starts_with(crate::paths::data_dir()),
+            "memory_path must sit under data_dir(): `<install>/memory/...` is the wrong root on a \
+             registry-first install: {mem_path}"
         );
         // AND THE KEY SET, against the fixture the panel is checked against. The shape assertions
         // above cover the fields someone thought to name; this covers the ones nobody did. The risk on

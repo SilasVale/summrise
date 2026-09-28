@@ -130,6 +130,31 @@ describe("ConnectCard", () => {
     await waitFor(() => expect(snippet()).not.toContain(TOKEN));
   });
 
+  // **THE 401 COPY.** Measured in the live DOM: while the token is masked the `<pre>` reads
+  // `"Authorization": "Bearer <your-device-token>"`, and `doCopy("snippet", snippet)` copies exactly that — so
+  // the paste target cannot authenticate, and the only feedback was the label becoming `Copied`, which is
+  // indistinguishable from having copied a working config. The label carries the qualification now, AND KEEPS IT
+  // THROUGH THE FEEDBACK: the click's own answer must not be the unqualified word the button just stopped using.
+  it("says the copied config has no token, and says it again in the feedback", async () => {
+    await renderCard();
+    const copy = screen.getByText("Copy config (token masked)");
+    fireEvent.click(copy);
+    await screen.findByText("Copied (token masked)");
+    // The two words the defect was made of: `Copy config` and `Copied`, unqualified, must not be what a masked
+    // card shows — a reader who sees either believes the paste is usable.
+    expect(screen.queryByText("Copy config")).toBeNull();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("drops the qualification once the token is revealed, because it is then untrue", async () => {
+    await renderCard();
+    fireEvent.click(screen.getByText("Reveal token"));
+    await waitFor(() => expect(screen.getByText("Copy config")).toBeTruthy());
+    expect(screen.queryByText("Copy config (token masked)")).toBeNull();
+    fireEvent.click(screen.getByText("Copy config"));
+    await screen.findByText("Copied");
+  });
+
   it("never puts the credential in a URL (ADR 0004) — for EVERY client", async () => {
     await renderCard();
     fireEvent.click(screen.getByText("Reveal token"));
