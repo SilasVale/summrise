@@ -187,12 +187,12 @@ is only visible while the mouse is down, and every sample was taken after the up
 
 ## Measuring a surface from the DEVICE's browser
 
-**THIS BOX HAS NO BROWSER; THE PROVISIONED DEVICE DOES, AND IT IS THE WAY TO SEE THE CONSOLE AND THE LANDING.** Their
-sweeps run "where a browser is" — which is why the panel was measured and they were not. The device reaches
-`agent.saisi.online` (the landing, public) and `api.saisi.online` (the console's login page, public) from
-`browser_run_script`, so `page.evaluate` can return computed styles, box geometry and text. Measured this way for the first
-time on rounds 146-147, which found the landing's third "step" (a caveat wearing a step number: 246px against 145 and 105)
-and the console's submit button (32px against its fields' 43px).
+**THIS BOX HAS NO BROWSER OUT OF THE BOX — BUT IT CAN HAVE ONE WITHOUT ROOT: the measured recipe is in
+`agent/resources/panel-react/scripts/local-browser.mjs`; it runs the real panel sweep HERE, against what this checkout
+builds.** **THE DEVICE IS STILL HOW THE LIVE SURFACES ARE SEEN** — it reaches `agent.saisi.online` and
+`api.saisi.online` (both public) from `browser_run_script`, so `page.evaluate` returns computed styles, box geometry and
+text. Measured this way on rounds 146-147, which found the landing's third "step" (a caveat wearing a step number: 246px
+against 145 and 105) and the console's submit button (32px against its fields' 43px).
 
 **THREE WALLS, ALL HIT IN ONE ROUND, AND NONE OF THEM IS THE SURFACE:**
 
@@ -200,8 +200,8 @@ and the console's submit button (32px against its fields' 43px).
     never idle and `page.goto` times out after 45s. Use `domcontentloaded` for anything that talks to the agent.
   * **DO NOT DRIVE WINDOWS PATHS THROUGH `terminal_execute`.** Two attempts came back mangled — `Get-ChildItem \etc` with
     the variable eaten, then `dir "C:\Program Files (x86)\…"` answering *"文件名、目录名或卷标语法不正确"* — because the shell
-    that receives the command is not the one the quoting was written for (the trap the PowerShell `--prefix` block already
-    documents). **`browser_run_script` runs Node ON the device with the bundled runtime: read files with `fs`.** That is
+    that receives the command is not the one the quoting was written for (the `--prefix` trap below).
+    **`browser_run_script` runs Node ON the device with the bundled runtime: read files with `fs`.** That is
     how the panel's own config and token are reachable.
   * **AND A DESIGN READING IS NOT A LAYOUT READING.** The console's login page was called "a 103px word in a lot of empty
     space" from a partial dump. The full measurement shows a logo and wordmark (the `h1` starts at x=131 inside a block
