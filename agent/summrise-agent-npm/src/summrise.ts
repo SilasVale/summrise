@@ -253,25 +253,35 @@ export const psq = (x: string) => String(x).replace(/'/g, "''");
  *  MEASURED on desktop-14rjcr8 (release 1.2.490), ONE VARIABLE AT A TIME:
  *
  *    | window's AppUserModelID          | shortcut carries it  | taskbar draws   |
- *    | online.saisi.summrise.agent      | ID + icon, read back | Electron logo   |
- *    | online.saisi.summrise.desktop    | ID + icon, read back | THE SUNRISE     |
+ *    | window's AppUserModelID       | shortcuts carrying it          | taskbar draws |
+ *    | online.saisi.summrise.agent   | both desktops + Start Menu     | Electron logo |
+ *    | online.saisi.summrise.desktop | both desktops + Start Menu     | THE SUNRISE   |
+ *    | online.saisi.summrise.desktop | both desktops, Start Menu GONE | Electron logo |
  *
- *  Everything else was identical across the two runs: the same three shortcuts (both
- *  desktops and an all-users Start Menu one) written by the same `IPropertyStore` call and
- *  read back, the same `icon.ico` (rendered and checked — it IS the sunrise), and the same
- *  shell restarted under the `SummriseDesktop` task, with the running process appending
- *  `AUMID-SET-OK` to a log from inside `setAppUserModelId` so the ID was provably set in
- *  BOTH runs. Only the string differed.
+ *  That third row is the one that decides where the identity has to live, and it was taken
+ *  WITHOUT restarting anything: the same running shell, the same AppUserModelID already set,
+ *  and the icon fell back to the Electron logo the moment the Start Menu shortcut was
+ *  deleted. So the shortcut this lookup resolves is the **Start Menu** one — a desktop
+ *  shortcut is not enough, and writing the identity onto `Summrise.lnk` in
+ *  `%PUBLIC%\Desktop` alone changes nothing. Microsoft's appids.md does say to apply the ID
+ *  to "all of the shortcuts" when an application has several launch locations, and it lists
+ *  the Start menu FIRST; the measurement is what says which of them the taskbar actually
+ *  reads.
  *
- *  The cause is the OLD ID's history, and it is the shell's bookkeeping rather than anything
- *  on the window: releases up to 1.2.489 set that AUMID on the process while no shortcut
- *  anywhere carried it, so the shell resolved it against the backing executable and kept the
- *  result. `shell:AppsFolder` still lists it as `name=[Electron]
- *  path=[online.saisi.summrise.agent]` — a stale app entry named after `electron.exe`, which
- *  a fresh ID has not got. An ID already resolved to the wrong image is NOT repaired by
- *  adding the shortcut afterwards; the association has to be under a name the machine has
- *  never seen. Keep this string STABLE from here: changing it again costs the pin and the
- *  jump list, so this is a one-time migration, not a knob.
+ *  The other variables were held: the same `IPropertyStore` call read back on every
+ *  shortcut, the same `icon.ico` (downloaded and RENDERED — it is the orange sunrise), the
+ *  same shell restarted under the `SummriseDesktop` task, and in each restarted run the
+ *  running process appended `AUMID-SET-OK` to a log from inside `setAppUserModelId`, so "the
+ *  ID was set" is measured rather than assumed.
+ *
+ *  WHY THE OLD ID WAS DEAD. Releases up to 1.2.489 set `online.saisi.summrise.agent` on the
+ *  process while no shortcut anywhere carried it, so the shell resolved that ID against the
+ *  backing executable — stock `electron.exe` — and kept the result. `shell:AppsFolder` still
+ *  lists it as `name=[Electron] path=[online.saisi.summrise.agent]`, an app entry named after
+ *  `electron.exe`. An ID already resolved to the wrong image is not repaired by writing the
+ *  shortcut afterwards; the association has to be under a name the machine has never seen.
+ *  Keep this string STABLE from here: changing it again costs the pin and the jump list, so
+ *  this is a one-time migration, not a knob.
  */
 export const DESKTOP_AUMID = "online.saisi.summrise.desktop";
 
@@ -411,31 +421,60 @@ export function deskShortcutRepairPs(
   sink: string,
 ): string[] {
   const { id, icon } = lnkIdentity(`${deskDirQ}\\icon.ico`);
+  // BOTH shortcuts get the identity, and the START MENU one is the load-bearing half:
+  // deleting it from a running shell reverted the taskbar to the Electron logo with the ID
+  // still set on the process and both desktop shortcuts still carrying it (see DESKTOP_AUMID).
+  // The desktop link is kept because it is what a person double-clicks and because
+  // appids.md says to apply the ID to "all of the shortcuts" a user can launch from.
+  const lnk = (p: string, tag: string) => [
+    `  try { $dWs${tag} = New-Object -ComObject WScript.Shell; $dSc${tag} = $dWs${tag}.CreateShortcut(${p}); $dSc${tag}.TargetPath = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'; $dSc${tag}.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $dPs1 + '"'; $dSc${tag}.WorkingDirectory = '${deskDirQ}'; $dSc${tag}.IconLocation = $dIco + ',0'; $dSc${tag}.Save(); 'desk: ' + ${p} + ' repointed to electron shell' | ${sink} } catch { ('desk: ' + ${p} + ' repair failed: ' + $_.Exception.Message) | ${sink} }`,
+    `  if ($dSet) { try { [SummriseLnk]::Write(${p}, $dId, $dRes); ('desk: ' + ${p} + ' taskbar identity [' + [SummriseLnk]::Read(${p}) + ']') | ${sink} } catch { ('desk: ' + ${p} + ' identity write failed: ' + $_.Exception.Message) | ${sink} } }`,
+  ];
   return [
     `$dLnk = Join-Path $env:PUBLIC 'Desktop\\Summrise.lnk'`,
+    // ALL-USERS Start Menu: the shortcut the shell's app resolver actually reads, and it is
+    // CREATED here when absent — a machine that never had one is exactly the machine whose
+    // taskbar shows the Electron logo, and no amount of desktop-side repair reaches it.
+    // `setup` already requires elevation (HKLM writes, Program Files), so ProgramData is
+    // writable on every path that calls this.
+    `$dSm = Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Summrise.lnk'`,
     `$dIco = '${deskDirQ}\\icon.ico'`,
     `$dPs1 = '${scriptsQ}\\start-desktop.ps1'`,
     `$dId = '${id}'`,
     `$dRes = '${icon}'`,
     `$dSet = $false`,
-    `$dNeed = $false`,
-    `if (Test-Path $dLnk) {`,
-    // Compiled only when there IS a link to write, so a headless install does not pay for
-    // it. The `-as [type]` guard keeps a second call in one process from turning a
-    // "type already exists" throw into a silent skip of the write below.
+    `$dShell = (Test-Path $dIco) -and (Test-Path $dPs1)`,
+    // Compiled when there is a SHELL to point at, not when a desktop link happens to exist:
+    // the Start Menu shortcut is created from nothing, so gating this on `$dLnk` would skip
+    // the identity on precisely the installs that need it. The `-as [type]` guard keeps a
+    // second call in one process from turning a "type already exists" throw into a silent
+    // skip of every write below.
+    `if ($dShell) {`,
     `  $dCs = @'\n${LNK_PROPS_CS}\n'@`,
     `  try { if (-not ('SummriseLnk' -as [type])) { Add-Type -TypeDefinition $dCs }; $dSet = [bool]('SummriseLnk' -as [type]) } catch { ('desk: lnk identity helper unavailable: ' + $_.Exception.Message) | ${sink} }`,
+    `}`,
+    `$dNeed = $false`,
+    `if (Test-Path $dLnk) {`,
     `  try { $dEx = (New-Object -ComObject WScript.Shell).CreateShortcut($dLnk); if (($dEx.TargetPath -like '*summrise-desktop.exe') -or ($dEx.TargetPath -like '*summrise-tray.exe') -or (-not (Test-Path $dEx.TargetPath))) { $dNeed = $true } } catch { $dNeed = $true }`,
     // ...and a link that is otherwise healthy still needs repairing when its identity is
     // missing or names a different ID/icon. `Read` returns "id|icon", so ONE comparison
     // covers both properties — and it is the same call the verification below prints.
     `  if ($dSet) { try { if (([SummriseLnk]::Read($dLnk)) -ne ($dId + '|' + $dRes)) { $dNeed = $true } } catch { $dNeed = $true } }`,
     `}`,
-    `if ($dNeed -and (Test-Path $dIco) -and (Test-Path $dPs1)) {`,
-    `  try { $dWs = New-Object -ComObject WScript.Shell; $dSc = $dWs.CreateShortcut($dLnk); $dSc.TargetPath = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'; $dSc.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $dPs1 + '"'; $dSc.WorkingDirectory = '${deskDirQ}'; $dSc.IconLocation = $dIco + ',0'; $dSc.Save(); 'desk: Summrise.lnk repointed to electron shell' | ${sink} } catch { ('desk: Summrise.lnk repair failed: ' + $_.Exception.Message) | ${sink} }`,
-    // The verification is the READ-BACK, not the absence of an exception: SetValue+Commit
-    // returning cleanly is a claim about a call, and this records what the file now carries.
-    `  if ($dSet) { try { [SummriseLnk]::Write($dLnk, $dId, $dRes); ('desk: Summrise.lnk taskbar identity [' + [SummriseLnk]::Read($dLnk) + ']') | ${sink} } catch { ('desk: Summrise.lnk identity write failed: ' + $_.Exception.Message) | ${sink} } }`,
+    // The Start Menu link is created when ABSENT and rewritten when its identity is wrong —
+    // it is never deleted, and a link that already matches is left alone so a second `setup`
+    // does not churn the file.
+    `$dSmNeed = $false`,
+    `if ($dShell) {`,
+    `  if (-not (Test-Path $dSm)) { $dSmNeed = $true }`,
+    `  elseif (-not $dSet) { $dSmNeed = $true }`,
+    `  else { try { if (([SummriseLnk]::Read($dSm)) -ne ($dId + '|' + $dRes)) { $dSmNeed = $true } } catch { $dSmNeed = $true } }`,
+    `}`,
+    `if ($dNeed -and $dShell) {`,
+    ...lnk("$dLnk", "1"),
+    `}`,
+    `if ($dSmNeed -and $dShell) {`,
+    ...lnk("$dSm", "2"),
     `}`,
     `foreach ($dRx in @('summrise-desktop.exe','summrise-tray.exe')) { $dRp = '${deskDirQ}\\' + $dRx; if (Test-Path $dRp) { try { Remove-Item -Force -ErrorAction Stop $dRp; ('desk: removed retired ' + $dRx) | ${sink} } catch { ('desk: retired ' + $dRx + ' locked, kept') | ${sink} } } }`,
   ];

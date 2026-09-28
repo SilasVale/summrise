@@ -436,13 +436,13 @@ test("deskShortcutRepairPs: writes System.AppUserModel.ID + RelaunchIconResource
   );
   assert.match(
     body,
-    /\('desk: Summrise\.lnk taskbar identity \[' \+ \[SummriseLnk\]::Read\(\$dLnk\) \+ '\]'\)/,
+    /\('desk: ' \+ \$dLnk \+ ' taskbar identity \[' \+ \[SummriseLnk\]::Read\(\$dLnk\) \+ '\]'\)/,
     "the verification is a READ-BACK of the written file, printed to the sink",
   );
   // `IconLocation` is what EXPLORER draws for the .lnk file; these two are what the
   // TASKBAR GROUP uses. Removing the former to add the latter would trade one
   // wrong picture for another.
-  assert.match(body, /\$dSc\.IconLocation = \$dIco \+ ',0'/, "IconLocation is kept");
+  assert.match(body, /\$dSc1\.IconLocation = \$dIco \+ ',0'/, "IconLocation is kept");
   // A link that is otherwise healthy is still repaired when its identity is absent —
   // the state every existing install is in, and the bug this change exists to fix.
   assert.match(
@@ -452,7 +452,31 @@ test("deskShortcutRepairPs: writes System.AppUserModel.ID + RelaunchIconResource
   );
   assert.ok(
     body.includes("if (Test-Path $dLnk) {"),
-    "repair-only: a headless install still must not sprout a desktop icon",
+    "repair-only: a headless install still must not sprout a DESKTOP icon",
+  );
+  // ...but the START MENU shortcut is a different thing and IS created: it is the one the
+  // shell's app resolver reads, and a machine that never had one is exactly the machine whose
+  // taskbar shows the Electron logo. MEASURED: deleting it from a running shell put the
+  // Electron logo back with the ID still set on the process and both desktop links correct.
+  assert.match(
+    body,
+    /ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Summrise\.lnk'/,
+    "the all-users Start Menu shortcut is where the taskbar's identity has to be written",
+  );
+  assert.match(
+    body,
+    /if \(-not \(Test-Path \$dSm\)\) \{ \$dSmNeed = \$true \}/,
+    "created when absent, not only repaired",
+  );
+  assert.match(
+    body,
+    /\[SummriseLnk\]::Write\(\$dSm, \$dId, \$dRes\)/,
+    "the Start Menu link carries the identity too",
+  );
+  assert.match(
+    body,
+    /if \(\$dShell\) \{/,
+    "the interop is compiled when a SHELL is installed, not when a desktop link exists",
   );
   assert.ok(
     !/throw\b/.test(body) && !body.includes("exit 1"),
