@@ -524,45 +524,56 @@ export function SettingsPage({
       <div className="settings-section">
         <h2>Memory</h2>
         <p className="muted">
-          Memory entries live in <code>&lt;install&gt;/memory/memory.jsonl</code>, shared across
-          AI clients (Claude Code / DSH / this desktop). Capacity applies
-          immediately and persists across restarts; retention empty = keep
-          forever. AI clients save knowledge via <code>memory_save</code> and
-          query via <code> memory_search</code>.
+          Memory entries live in <code>&lt;install&gt;/memory/memory.jsonl</code>.
         </p>
+        {/* **THREE IDENTICAL BOXES AND NOT ONE OF THEM SAID WHAT IT WAS.** Measured by an independent
+            review of this page: `grep '<label'` found only the two that wrap checkboxes, so every
+            number field here carried an `aria-label` — invisible — and nothing else. A reader could
+            not tell entries from MiB from days; the only hint was one placeholder on the third. The
+            paragraph above made it worse by ending with "retention empty = keep forever", which is
+            the placeholder restated. `settings-check` is reused rather than a new class invented:
+            it is already `flex` + `gap: 8px`, which is exactly a label beside its control. */}
         <div className="settings-row-bar">
-          <input
-            className="settings-input-narrow"
-            type="number"
-            min={1}
-            step={1}
-            value={memEntries}
-            onChange={edited("memEntries", setMemEntries)}
-            aria-label="Memory max entries"
-          />
-          <input
-            className="settings-input-narrow"
-            type="number"
-            min={1}
-            step={1}
-            value={memBytesMb}
-            onChange={edited("memBytesMb", setMemBytesMb)}
-            aria-label="Memory max MiB"
-          />
-          <input
-            className="settings-input-narrow"
-            type="number"
-            min={1}
-            step={1}
-            value={memRetention}
-            onChange={edited("memRetention", setMemRetention)}
-            placeholder="retention days (empty = forever)"
-            aria-label="Memory retention days"
-          />
+          <label className="settings-check">
+            <span>Entries</span>
+            <input
+              className="settings-input-narrow"
+              type="number"
+              min={1}
+              step={1}
+              value={memEntries}
+              onChange={edited("memEntries", setMemEntries)}
+              aria-label="Memory max entries"
+            />
+          </label>
+          <label className="settings-check">
+            <span>MiB</span>
+            <input
+              className="settings-input-narrow"
+              type="number"
+              min={1}
+              step={1}
+              value={memBytesMb}
+              onChange={edited("memBytesMb", setMemBytesMb)}
+              aria-label="Memory max MiB"
+            />
+          </label>
+          <label className="settings-check">
+            <span>Retention days</span>
+            <input
+              className="settings-input-narrow"
+              type="number"
+              min={1}
+              step={1}
+              value={memRetention}
+              onChange={edited("memRetention", setMemRetention)}
+              placeholder="forever"
+              aria-label="Memory retention days"
+            />
+          </label>
           <button className="btn btn-ghost btn-mini" onClick={saveMemory} disabled={memBusy} {...memAck("memory")} aria-label="Save memory capacity">Save</button>
         </div>
         {memStatus && <p className="hint">{memStatus}</p>}
-        {onOpenMemory && <button className="btn btn-ghost btn-mini" onClick={onOpenMemory}>Open Memory</button>}
       </div>
     </div>
   );
