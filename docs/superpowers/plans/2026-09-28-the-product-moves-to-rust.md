@@ -397,17 +397,32 @@ not a number**"** ✓——**而**isolate 的存活不是一个固定的超时**
 **判据** ✓✓：**① 那个不变式（一句话 ✓）· ② 它是**唯一**检查它的吗 ✓（**判据是一个 `grep` ✓**）·
 ③ `MUTATION:` 块在不在 ✓。**
 
-**搬 8**（**全部开工了 ✓**）：
-| 门禁 | 不变式 | 而它的事故 |
-|---|---|---|
-| **`workflow-yaml-check`** | 每个 workflow 都能被 YAML 解析 | **35 个提交 · 0 个 job · `conclusion: failure` · 无日志可开** |
-| **`chrome-stillness`** | 每条动画必须申报为 STATE / ENTRANCE(≤400ms) / ATTENTION(≤5s) | **一个装饰性脉冲只对**要求了的人**静音** |
-| **`console-marks`** | 5 个 mark 家族：每状态一个轮廓 **且** 两主题墨色 ≥3:1 | **`--text-faint` 在浅色下 **2.46:1**** |
-| **`feedback`** | 三张表：`:hover` 必有 `:active` · transition 不动布局 · ≤240ms · 有 reduced-motion 块 | **74 个 `:hover` 对 3 个 `:active`** |
-| **`motion`** | 每条动画必须在 reduced-motion 里**按名字**被静音 | **`--ds-dur: 0s` 够不到它 4 条动画中的 **0** 条** |
-| **`particles`** | 三份粒子场（含落地页 **Rust**）只用品牌 token / `rgba()` 三元组 / 尊重 reduced-motion / 参数一致 | **退役的 `--aura-*` 调色板**在画整个产品的背景 |
-| **`token-contract`** | 两端都定义的同名 token 必须解析到同值、无死回退、间距刻度一致 | **16 个同名 token 有 12 个不同值** |
-| **`docs-budget`** | `AGENTS.md` ≤48,000 B · `CONTEXT.md` ≤12,000 B · 7 个操作章节在 | **`AGENTS.md` 到 65,366 B，撞上 65,536 的截断** |
+**搬 8**（**全部开工了 ✓**）——**而这一列是 2026-09-29 实测的进度 ✓，判据是那个 `.mjs` 还在不在**：
+| 门禁 | 现状（`ls scripts/test/<名>.mjs`） | 不变式 | 而它的事故 |
+|---|---|---|---|
+| **`workflow-yaml-check`** | **搬了 ✓ → `agent/tests/workflow_yaml.rs`**（`b3230b0c`，合入 `446a1f01`） | 每个 workflow 都能被 YAML 解析 | **35 个提交 · 0 个 job · `conclusion: failure` · 无日志可开** |
+| **`chrome-stillness`** | **搬了 ✓ → `agent/tests/chrome_stillness.rs`**（`c799c34d`，合入 `bccfb8a9`） | 每条动画必须申报为 STATE / ENTRANCE(≤400ms) / ATTENTION(≤5s) | **一个装饰性脉冲只对**要求了的人**静音** |
+| **`console-marks`** | **还在 ✗** | 5 个 mark 家族：每状态一个轮廓 **且** 两主题墨色 ≥3:1 | **`--text-faint` 在浅色下 **2.46:1**** |
+| **`feedback`** | **还在 ✗** | 三张表：`:hover` 必有 `:active` · transition 不动布局 · ≤240ms · 有 reduced-motion 块 | **74 个 `:hover` 对 3 个 `:active`** |
+| **`motion`** | **还在 ✗**（**最小的一个 ✓：123 行，两张表，一条 `prefers-reduced-motion` 规则 ✓**） | 每条动画必须在 reduced-motion 里**按名字**被静音 | **`--ds-dur: 0s` 够不到它 4 条动画中的 **0** 条** |
+| **`particles`** | **还在 ✗** | 三份粒子场（含落地页 **Rust**）只用品牌 token / `rgba()` 三元组 / 尊重 reduced-motion / 参数一致 | **退役的 `--aura-*` 调色板**在画整个产品的背景 |
+| **`token-contract`** | **还在 ✗**（**最大的一个 ✗：514 行 ✓**） | 两端都定义的同名 token 必须解析到同值、无死回退、间距刻度一致 | **16 个同名 token 有 12 个不同值** |
+| **`docs-budget`** | **搬了 ✓ → `agent/tests/docs_budget.rs`**（`7bf53b7c`，合入 `40c48cbe`） | `AGENTS.md` ≤48,000 B · `CONTEXT.md` ≤12,000 B · 7 个操作章节在 | **`AGENTS.md` 到 65,366 B，撞上 65,536 的截断** |
+
+**而三条搬完的，每条都留下了一个数 ✓**：`docs-budget` 是**九个输入两版同判 ✓**（含 48,000 整与 48,001
+超一字节 ✓）· `chrome-stillness` 是**四个树上的用例 ＋ 三个 fixture 探针，正文逐字节相同 ✓**
+（120 / 332 / 280 / 476 与 2083 / 1574 / 1867 ✓）· `workflow-yaml` 是**全history 335 个 revision-file
+对，两版同判、同拒那 3 个 ✓**——**而它把 Node 那条路**去掉了**✓**：`serde_yaml` 在进程内 ✓，
+于是**那个「没有 PyYAML 时的兜底」和 `--differential` 开关一起消失了 ✓✓**。
+
+**而 `chrome-stillness` 那一条是**从「哪里都没到」捞回来的 ✓✓**：那 690 行**写完了却没提交 ✗**
+（`git log --all -- '*chrome_stillness*'` 答**空** ✓），**而它连 `cargo clippy` 都过不去 ✗**
+（7 个 error ✓：三个 `map_or` ＋ 四个 doc 缩进 ✓）——**即它离落地只差一次 clippy ✓，
+而没人跑它，因为没人有它 ✓**。
+
+**而地板跟着走，且**规则化**了 ✓**：三次搬迁各自手改过一次地板 ✗，于是它现在写的是**规则**✓——
+**地板 = 推导出的条数 − 4 ✓**（4 是 round 170 那个「留一次有意的删除、不留一次塌方」的余量 ✓），
+**每次照同一条推导重量一遍 ✓**：32 → 31 → 30 → 29，地板 26 → 26 → 25。
 
 **留 10**，**每一个都有它自己的理由** ✓：**`console-assets` ✓（**驱动 `npm run build` ✓**）·
 `console-smoke` ✓（**跑 Node 脚本，要构建产物 ✓**）· `contrast-probe` ✓（**AGENTS.md 豁免：
