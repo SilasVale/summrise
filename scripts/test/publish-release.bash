@@ -290,6 +290,44 @@ if [ "$rc" -ne 0 ] && grep -q 'refusing to publish' <<<"$out" && grep -q '9\.9\.
 else
   bad "the reconcile gate did not fire for a fixture ledger: rc=$rc $(head -c 200 <<<"$out")"
 fi
+# AND THE REFUSAL MUST NAME WHAT IT OBSERVED (measured 2026-09-28). It used to assert one cause
+# for every pending version — "these versions are on the CDN with no GitHub release to audit
+# against" — and on that day its own ledger entry, 1.2.453, had BOTH clauses false: the release
+# existed (HTTP 200) and the CDN answered 404 for its tgz. The gate asks GitHub now, so the
+# sentence has to follow the ANSWER.
+#
+# BOTH LIMBS ARE ACCEPTED HERE ON PURPOSE, and that is not a weakened assertion: with a token on
+# a developer's box the probe answers, in CI there is no GITHUB_TOKEN and it cannot — and the
+# property under test is that the refusal says WHICH of the two happened rather than asserting a
+# cause it never checked. The tgz_gone limb needs the live CDN, so it is measured by hand (the
+# command is in the commit) while its sentence and its mapping are pinned offline, with no
+# network, in scripts/test/release-lib.bash.
+if grep -q 'GitHub release v9.9.99: does not exist' <<<"$out"; then
+  ok "the refusal NAMES the release as absent — because the probe answered"
+elif grep -q 'could not check whether release v9\.9\.99 exists' <<<"$out"; then
+  ok "the refusal says the question could not be asked, and claims neither cause"
+else
+  bad "the refusal named neither an observation nor its absence: $(head -c 200 <<<"$out")"
+fi
+
+# ── A PROBE THAT CANNOT RUN IS A VERDICT, NOT A CRASH — the failure mode this gate must not
+# acquire by asking a question it used to only assume. `curl` is shadowed by a stub that exits 7
+# with no output (what this box's route to GitHub has actually done), so the probe fails the same
+# way on every machine and with or without a token. The run must still refuse BY THE GATE, in the
+# unanswerable limb, with the probe's own words beside it.
+NETSTUB=$(mktemp -d)
+printf '#!/bin/sh\nexit 7\n' > "$NETSTUB/curl"; chmod +x "$NETSTUB/curl"
+out=$(PATH="$NETSTUB:$PATH" GITHUB_TOKEN=stub-for-a-failing-probe RECONCILE_LEDGER="$LED" \
+      timeout 120 bash scripts/publish-release.sh 9.9.99 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'refusing to publish' <<<"$out" \
+   && grep -q 'could not check whether release v9\.9\.99 exists' <<<"$out" \
+   && grep -q 'the probe said: ' <<<"$out"; then
+  ok "a probe that fails is reported as unanswerable, not as a cause (and the run does not crash)"
+else
+  bad "a failing probe did not produce the unanswerable limb: rc=$rc $(head -c 250 <<<"$out")"
+fi
+rm -rf "$NETSTUB"
+
 # THE OTHER SIDE, which is what makes the case above evidence rather than decoration: an EMPTY
 # ledger must let the run continue to the NEXT gate. Without it, "the gate fired" could be any
 # refusal at all.
