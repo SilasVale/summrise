@@ -87,8 +87,18 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
+// **WHERE THE DEVICE'S OWN CONFIG LIVES, AND THE LIST WAS MISSING THE INSTALLER'S LAYOUT.** Measured 2026-09-28 on a
+// machine provisioned by `SummriseAgent-Setup.exe`: the probe refused with
+// `{"error":"no token found in any known config","tried":["D:\\Summrise\\etc\\config.yaml", …]}` — **correctly, and it said
+// where it had looked, which is what made the gap visible in one run.** The installer lands at `C:\Program Files (x86)\Summrise`
+// (NSIS's default for its bitness), so **every device it provisions was unmeasurable by this probe.** The registry
+// (`HKLM\SOFTWARE\Summrise\Agent\InstallDir`) is the authoritative source, but reading it from Node means spawning a
+// process; these two paths are where the installer actually puts it, and the `ProgramData` entries above stay for
+// hand-built layouts.
 const CONFIG_PATHS = [
-  "D:\\\\Summrise\\\\etc\\\\config.yaml", // layout-v2 (where it is today)
+  "D:\\\\Summrise\\\\etc\\\\config.yaml", // layout-v2 (d1's hand-built install)
+  "C:\\\\Program Files (x86)\\\\Summrise\\\\etc\\\\config.yaml", // the installer's default
+  "C:\\\\Program Files\\\\Summrise\\\\etc\\\\config.yaml", // a 64-bit install of the same installer
   "C:\\\\ProgramData\\\\Summrise\\\\config.yaml",
   "C:\\\\ProgramData\\\\Summrise\\\\etc\\\\config.yaml",
 ];
