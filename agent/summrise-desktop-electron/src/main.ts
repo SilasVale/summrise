@@ -850,8 +850,8 @@ if (gotTheLock) {
       // whatever the agent turned out to be. show:false keeps it off screen until the
       // first document has painted (ready-to-show, below); backgroundColor paints that
       // first frame in the shell's own ink instead of Chromium's white, which is the one
-      // of the two documents that had NOT already fixed this (WAIT_HTML hardcodes
-      // background:#111, and the SPA's chrome is dark).
+      // of the two documents that had NOT already fixed this (the wait page
+      // hardcoded background:#111, and the SPA's chrome is dark).
       show: false,
       backgroundColor: "#111",
       // Taskbar + title-bar icon: without this Windows shows the stock
@@ -933,38 +933,129 @@ if (gotTheLock) {
     // and the watchdog could not fire (the device stayed stuck in silence,
     // the exact failure the watchdog exists to prevent).
     const agentReady = async (): Promise<boolean> => agentResponds(800);
-    // stage-n: the wait page now carries a "Start Agent" action — the
-    // header comment promised it but it never existed. The button calls the
-    // shell's own /api/shell/start-agent (schtasks /run SummriseAgent — the
-    // only sanctioned spawn path), then keeps polling until the agent is
-    // up. This turns a dead-end white screen into a recoverable state when
-    // the SummriseAgent task is down (crash, stopped task, update mid-swap).
-    const WAIT_HTML = `<!doctype html><meta charset="utf-8"><title>Summrise</title>
-      <style>body{font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}div{text-align:center}p{color:#999}button{margin-top:18px;padding:10px 22px;font-size:15px;border-radius:8px;border:1px solid #444;background:#222;color:#eee;cursor:pointer}button:hover{background:#333}button:disabled{opacity:.5;cursor:default}</style>
+    // stage-n: the wait page carries a "Start Agent" action — the header
+    // comment promised it but it never existed. The button calls the shell's
+    // own /api/shell/start-agent (schtasks /run SummriseAgent — the only
+    // sanctioned spawn path). This turns a dead-end white screen into a
+    // recoverable state when the SummriseAgent task is down (crash, stopped
+    // task, update mid-swap).
+    //
+    // REWRITTEN (round 276). Three defects, all of them measured on the
+    // device's own window at 1200x761, and all three are the same defect
+    // wearing different clothes: THE PAGE ASSERTED THINGS IT HAD NOT CHECKED.
+    //
+    //   1. The heading said "Summrise Agent is not running". Nothing on this
+    //      path checked that. `loadDesktop` reaches this page when a request
+    //      to one address does not ANSWER — the agent may be running and
+    //      wedged, on another port, mid-restart, or still booting. The file's
+    //      own comment above `agentReady` says a wedged-but-listening agent
+    //      "holds the port yet never answers", which is the case the heading
+    //      got wrong. It now names the observation (a request went out and
+    //      nothing came back) and the address it went to.
+    //   2. The subtext said "waiting for …" and then never showed the wait.
+    //      No attempt count, no clock — so a four-second boot and a six-hour
+    //      corpse rendered identically. It now carries both, and both TICK
+    //      (below), so the operator can tell patience from action.
+    //   3. The button threw its answer away. `/api/shell/start-agent` returns
+    //      `{ok, error}` — `startAgentTask()` is `runSchtasks([...])` — and
+    //      the page did `await fetch(...)` and printed "started" regardless,
+    //      so a REFUSED start read exactly like an accepted one. It reads the
+    //      body now and says which happened.
+    //
+    // AND THE PAGE OWNS ITS OWN CLOCK, which is why `loadWaitPage` below will
+    // not re-load a page that is already showing: a reload every 2-30 s wiped
+    // the button's answer before it could be read, and re-rendered the
+    // evidence from zero. The page polls the shell's own /api/shell/agent-status
+    // (the shell is alive by construction — it is what draws this page) and
+    // navigates itself to the SPA the moment the agent answers.
+    //
+    // THE COLOURS ARE THE DARK THEME'S TOKEN VALUES, LITERALLY, AND THAT IS
+    // DELIBERATE: this page is drawn while the agent is mute, so it cannot
+    // load the SPA's token sheet — but a fallback using its own greys is a
+    // different product's screen. Values copied from
+    // panel-react/src/styles/tokens.css `body[data-theme="dark"]`:
+    // --bg #131418, --chrome-ink #ecedef, --chrome-ink-dim #a2a3ac,
+    // --accent-solid #b03a0a, --accent-solid-hover #a63308, --accent-fg #fff,
+    // --chrome-danger-ink #ff8787.
+    //
+    // NO BACKTICKS AND NO `${` BELOW except the two interpolations that are
+    // meant: this is a template literal, and the incident class the pre-commit
+    // hook was built for is a stray backtick inside one.
+    const waitPageHtml = (checks: number): string => `<!doctype html><meta charset="utf-8"><title>Summrise</title>
+      <style>
+        body{font-family:system-ui,sans-serif;background:#131418;color:#ecedef;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+        div{text-align:center;max-width:640px;padding:0 24px}
+        h2{margin:0;font-size:24px;font-weight:600}
+        p{margin:10px 0 0;font-size:15px;color:#a2a3ac}
+        #action{margin-top:12px;font-size:14px}
+        #action.failed{color:#ff8787}
+        button{margin-top:18px;padding:10px 22px;font-size:15px;border-radius:8px;border:0;background:#b03a0a;color:#fff;cursor:pointer}
+        button:hover:not(:disabled){background:#a63308}
+        button:disabled{opacity:.5;cursor:default}
+      </style>
       <div>
-        <h2>Summrise Agent is not running</h2>
-        <p id="status">waiting for ${agentBase().replace("http://", "")}…</p>
+        <h2>The Summrise Agent isn&#39;t answering</h2>
+        <p id="status">no reply from ${agentBase().replace("http://", "")}</p>
+        <p id="action" hidden></p>
         <button id="start">Start Agent</button>
       </div>
       <script>
-        const btn = document.getElementById("start");
-        const st = document.getElementById("status");
-        let busy = false;
-        btn.addEventListener("click", async () => {
+        var BASE = ${JSON.stringify(agentBase().replace("http://", ""))};
+        var CTRL = "http://127.0.0.1:9444";
+        var btn = document.getElementById("start");
+        var st = document.getElementById("status");
+        var act = document.getElementById("action");
+        var checks = ${checks};
+        var lastCheckAt = Date.now();
+        function say(el, text, failed) {
+          el.hidden = false;
+          el.textContent = text;
+          el.className = failed ? "failed" : "";
+        }
+        function age(ms) { return ms < 1500 ? "just now" : Math.round(ms / 1000) + "s ago"; }
+        function paint() {
+          st.textContent = "no reply from " + BASE + " \\u00b7 last check " + age(Date.now() - lastCheckAt)
+            + " \\u00b7 " + checks + (checks === 1 ? " check" : " checks");
+        }
+        paint();
+        setInterval(paint, 1000);
+        function poll() {
+          fetch(CTRL + "/api/shell/agent-status").then(function (r) { return r.json(); }).then(function (j) {
+            checks += 1; lastCheckAt = Date.now(); paint();
+            if (j && j.running) { location.replace("http://" + BASE + "/desktop/"); return; }
+            setTimeout(poll, 2000);
+          }).catch(function () {
+            checks += 1; lastCheckAt = Date.now(); paint();
+            setTimeout(poll, 2000);
+          });
+        }
+        setTimeout(poll, 2000);
+        var busy = false;
+        btn.addEventListener("click", async function () {
           if (busy) return;
           busy = true; btn.disabled = true;
-          st.textContent = "starting SummriseAgent task…";
+          say(act, "asking the SummriseAgent task to start\\u2026", false);
           try {
-            await fetch("http://127.0.0.1:9444/api/shell/start-agent", { method: "POST" });
-            st.textContent = "started — waiting for the agent to come up…";
+            var r = await fetch(CTRL + "/api/shell/start-agent", { method: "POST" });
+            var j = null;
+            try { j = await r.json(); } catch (e) { j = null; }
+            if (j && j.ok) {
+              say(act, "the SummriseAgent task was started \\u2014 waiting for it to answer", false);
+            } else {
+              say(act, "the start request FAILED: " + ((j && j.error) || ("HTTP " + r.status)), true);
+            }
           } catch (e) {
-            st.textContent = "start request failed (" + e + ") — the task may already be starting";
+            say(act, "the start request did not reach the shell: " + e, true);
           }
-          setTimeout(() => { busy = false; btn.disabled = false; }, 3000);
+          setTimeout(function () { busy = false; btn.disabled = false; }, 3000);
         });
       </script>`;
-    const loadWaitPage = (): void => {
-      win?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(WAIT_HTML)}`).catch(() => {});
+    const loadWaitPage = (checks: number): void => {
+      // DO NOT RE-LOAD A PAGE THAT IS ALREADY SHOWING (see the note above): the
+      // reload wiped the button's answer and reset the evidence line, which is
+      // what made the only control on this screen unfalsifiable.
+      if (win?.webContents.getURL().startsWith("data:text/html")) return;
+      win?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(waitPageHtml(checks))}`).catch(() => {});
     };
     let retryMs = 2000;
     const nextRetry = (): number => { retryMs = Math.min(retryMs * 2, 30000); return retryMs; };
@@ -998,8 +1089,11 @@ if (gotTheLock) {
         resetRetry();
         win?.loadURL(`${agentBase()}/desktop/`).catch(() => { /* did-fail-load retries below */ });
       } else {
-        loadWaitPage();
+        // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
+        // failed probe IS one: the count the operator reads is the number of
+        // times the shell has asked and got nothing, including this one.
         agentMissCount += 1;
+        loadWaitPage(agentMissCount);
         if (agentMissCount >= AUTO_START_AFTER_MISSES && Date.now() - lastAutoStartAt > AUTO_START_MIN_GAP_MS) {
           lastAutoStartAt = Date.now();
           agentMissCount = 0;
