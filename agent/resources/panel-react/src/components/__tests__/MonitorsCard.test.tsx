@@ -95,8 +95,8 @@ const monitors = (targets: ReturnType<typeof target>[]): Monitors => ({
 });
 
 describe("parseMonitors", () => {
-  it("reads targets, summaries and series, and tolerates a body it cannot use", () => {
-    const m = parseMonitors({
+  it("reads targets, summaries and series, and tolerates a body it cannot use", async () => {
+    const m = await parseMonitors({
       ok: true,
       interval_secs: 15,
       series_max: 240,
@@ -118,12 +118,12 @@ describe("parseMonitors", () => {
     expect(m.targets[0].series[1].ms).toBeNull();
     expect(m.targets[0].series[1].tsMs).toBe(probe(1, false).tsMs);
     // An unusable body is an EMPTY list, not a throw, and a probe with no stamp is dropped.
-    expect(parseMonitors(null).targets).toEqual([]);
-    expect(parseMonitors({ targets: [{ id: "x", series: [{ ok: true }] }] }).targets[0].series).toEqual([]);
+    expect((await parseMonitors(null)).targets).toEqual([]);
+    expect((await parseMonitors({ targets: [{ id: "x", series: [{ ok: true }] }] })).targets[0].series).toEqual([]);
   });
 
-  it("keeps 'no probes' as null rather than inventing a share", () => {
-    const m = parseMonitors({ targets: [{ id: "x:22", host: "x", port: 22, summary: { probes: 0, up: 0, down: 0 }, series: [] }] });
+  it("keeps 'no probes' as null rather than inventing a share", async () => {
+    const m = await parseMonitors({ targets: [{ id: "x:22", host: "x", port: 22, summary: { probes: 0, up: 0, down: 0 }, series: [] }] });
     expect(m.targets[0].summary.upPct).toBeNull();
     expect(m.targets[0].summary.upNow).toBeNull();
   });
@@ -394,8 +394,8 @@ describe("the outage log and the device speaking", () => {
     expect(container.querySelectorAll(".monitor-log")).toHaveLength(0);
   });
 
-  it("reads a change frame, and refuses one it cannot use", () => {
-    const a = parseMonitorChange({
+  it("reads a change frame, and refuses one it cannot use", async () => {
+    const a = (await parseMonitorChange({
       ev: "monitor-change",
       id: "192.168.1.1:22",
       host: "192.168.1.1",
@@ -403,17 +403,17 @@ describe("the outage log and the device speaking", () => {
       up: false,
       at_ms: now,
       lasted_ms: 61_000,
-    })!;
+    }))!;
     expect(a.id).toBe("192.168.1.1:22");
     expect(a.up).toBe(false);
     expect(a.lastedMs).toBe(61_000);
     expect(a.key).toBe(`192.168.1.1:22:${now}`);
     // A different event, a frame with no id, and one with no stamp: all null, never a banner
     // about something that did not happen.
-    expect(parseMonitorChange({ ev: "sessions-changed" })).toBeNull();
-    expect(parseMonitorChange({ ev: "monitor-change", at_ms: now })).toBeNull();
-    expect(parseMonitorChange({ ev: "monitor-change", id: "x:1" })).toBeNull();
-    expect(parseMonitorChange(null)).toBeNull();
+    expect(await parseMonitorChange({ ev: "sessions-changed" })).toBeNull();
+    expect(await parseMonitorChange({ ev: "monitor-change", at_ms: now })).toBeNull();
+    expect(await parseMonitorChange({ ev: "monitor-change", id: "x:1" })).toBeNull();
+    expect(await parseMonitorChange(null)).toBeNull();
   });
 
   /** jsdom reports `visibilityState: "prerender"`, which the banner (the VISIBLE-tab channel)

@@ -17,12 +17,32 @@ export function archive_entries(payload: any): any;
  */
 export function parse_boot_history(j: any): any;
 
+/**
+ * `parseMonitorChange(detail)` — one `monitor-change` frame → one alert, or `null`.
+ *
+ * `null` and not a throw: this runs inside an event handler, and a frame this build cannot use must
+ * not become an exception in a listener — nor a banner about something that did not happen.
+ */
+export function parse_monitor_change(detail: any): any;
+
+/**
+ * `parseMonitors(j)` — `GET /api/monitors`'s body → the monitor list.
+ *
+ * Never throws, and never invents a value: a body this build cannot use is an EMPTY list, a target
+ * with no id is DROPPED (a target the panel cannot name is not one it can address), and a probe or
+ * a transition with no usable stamp is dropped too — it cannot be placed on the time axis, and the
+ * alternative is a chart drawn from guesswork.
+ */
+export function parse_monitors(j: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly archive_entries: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];
+    readonly parse_monitor_change: (a: any) => [number, number, number];
+    readonly parse_monitors: (a: any) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

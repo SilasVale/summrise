@@ -151,23 +151,28 @@ export function useAttentionNotifications(
     const onFrame = (e: Event) => {
       // The device's push obeys the same rule as the poll: hidden tab, or nothing.
       if (!shouldNotify(document.visibilityState)) return;
-      const change = parseMonitorChange((e as CustomEvent).detail);
-      if (!change) return;
-      const body = change.up
-        ? `back up after ${humanMs(change.lastedMs)} down`
-        : `DOWN — it had been up ${humanMs(change.lastedMs)}`;
-      // The SAME key the poll derives for this state (`stateKey`): whichever of the two notices
-      // arrives first is the one that notifies, and the other is deduped. The first version of
-      // this used two keys and "cleared" the poll's — which RE-ARMED it, and the device sent two
-      // notifications for one outage (caught by the live test on d1, not by the unit tests).
-      notifier.current?.notify(
-        {
-          key: stateKey(change.id, change.atMs),
-          title: change.up ? "Summrise: host back up" : "Summrise: host down",
-          body: `${change.host}:${change.port} is ${body}`,
-        },
-        permission,
-      );
+      // THE DETAIL IS READ BEFORE THE AWAIT: `parseMonitorChange` is a promise now (it is Rust —
+      // `panel-logic/src/monitors.rs`), and what crosses the await is the parsed change, never the
+      // dispatcher's event object.
+      const detail = (e as CustomEvent).detail;
+      void parseMonitorChange(detail).then((change) => {
+        if (!change) return;
+        const body = change.up
+          ? `back up after ${humanMs(change.lastedMs)} down`
+          : `DOWN — it had been up ${humanMs(change.lastedMs)}`;
+        // The SAME key the poll derives for this state (`stateKey`): whichever of the two notices
+        // arrives first is the one that notifies, and the other is deduped. The first version of
+        // this used two keys and "cleared" the poll's — which RE-ARMED it, and the device sent two
+        // notifications for one outage (caught by the live test on d1, not by the unit tests).
+        notifier.current?.notify(
+          {
+            key: stateKey(change.id, change.atMs),
+            title: change.up ? "Summrise: host back up" : "Summrise: host down",
+            body: `${change.host}:${change.port} is ${body}`,
+          },
+          permission,
+        );
+      });
     };
     window.addEventListener("summrise-monitor-change", onFrame);
     return () => window.removeEventListener("summrise-monitor-change", onFrame);

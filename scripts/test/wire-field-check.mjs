@@ -93,7 +93,16 @@ for (const rel of PARSERS) {
   // ANY receiver, because the hooks name their answers differently (`j`, `d`, `st`, `row`, `next`, …) — the narrow
   // first version matched ten fields and its own floor said so. A snake_case property is the signal: the panel is
   // camelCase throughout, so an underscore name is a WIRE field wherever it is read from.
-  for (const m of text.matchAll(/\b\w{1,8}\??\.([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b/g)) {
+  //
+  // AND A FIELD IS READ, WHILE A WASM EXPORT IS CALLED (P2, 2026-09-28). The panel's migrated parsers are
+  // `await panelLogic()` and then `logic.parse_monitors(j)` — a CALL on the glue, whose export names are
+  // snake_case because Rust is. This gate matched `parse_monitors` and reported it as a field the panel reads
+  // that no fixture carries, which is true and irrelevant: a device sends data, never a function. The fix is
+  // the `(?!\s*\()` below rather than two more names in `NOT_DEVICE_FIELDS`, because the migration adds one
+  // export name per family and an exemption list that grows with it is a gate being quietly exempted — the
+  // failure mode the migration's own error-prevention plan names. What this gate is ABOUT is unchanged: every
+  // snake_case field the panel READS still has to be spoken by the harness, a fixture and a producer.
+  for (const m of text.matchAll(/\b\w{1,8}\??\.([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b(?!\s*\()/g)) {
     const field = m[1];
     if (seen.has(field) || NOT_DEVICE_FIELDS.has(field)) continue;
     seen.add(field);

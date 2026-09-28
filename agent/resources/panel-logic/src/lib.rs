@@ -30,10 +30,14 @@
 //! serializing it to text and parsing it back inside the wasm would pay ~37 KB gz, 13.5% of the
 //! panel's entire first-load payload, for a round trip nobody asked for.
 
-use wasm_bindgen::prelude::*;
-
+// NO `use wasm_bindgen::prelude::*;` HERE, and it is not an oversight: this file declares the
+// modules and re-exports their functions, and each module imports the prelude for its own
+// `#[wasm_bindgen]` attribute. The line was here and unused — the build said so on every run, which
+// is how a warning becomes furniture.
 mod archive;
 mod boot;
+mod monitors;
 
 pub use archive::archive_entries;
 pub use boot::parse_boot_history;
+pub use monitors::{parse_monitor_change, parse_monitors};

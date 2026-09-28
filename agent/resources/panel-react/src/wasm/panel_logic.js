@@ -31,9 +31,52 @@ export function parse_boot_history(j) {
     }
     return takeFromExternrefTable0(ret[0]);
 }
+
+/**
+ * `parseMonitorChange(detail)` — one `monitor-change` frame → one alert, or `null`.
+ *
+ * `null` and not a throw: this runs inside an event handler, and a frame this build cannot use must
+ * not become an exception in a listener — nor a banner about something that did not happen.
+ * @param {any} detail
+ * @returns {any}
+ */
+export function parse_monitor_change(detail) {
+    const ret = wasm.parse_monitor_change(detail);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `parseMonitors(j)` — `GET /api/monitors`'s body → the monitor list.
+ *
+ * Never throws, and never invents a value: a body this build cannot use is an EMPTY list, a target
+ * with no id is DROPPED (a target the panel cannot name is not one it can address), and a probe or
+ * a transition with no usable stamp is dropped too — it cannot be placed on the time axis, and the
+ * alternative is a chart drawn from guesswork.
+ * @param {any} j
+ * @returns {any}
+ */
+export function parse_monitors(j) {
+    const ret = wasm.parse_monitors(j);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
+        __wbg___wbindgen_boolean_get_5b446f51afd21013: function(arg0) {
+            const v = arg0;
+            const ret = typeof(v) === 'boolean' ? v : undefined;
+            return isLikeNone(ret) ? 0xFFFFFF : ret ? 1 : 0;
+        },
+        __wbg___wbindgen_is_falsy_16bd49b68658263e: function(arg0) {
+            const ret = !arg0;
+            return ret;
+        },
         __wbg___wbindgen_is_null_e343b7d08827ba72: function(arg0) {
             const ret = arg0 === null;
             return ret;
@@ -97,6 +140,10 @@ function __wbg_get_imports() {
         },
         __wbg_set_145a351398b48c65: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = Reflect.set(arg0, arg1, arg2);
+            return ret;
+        }, arguments); },
+        __wbg_toString_aad181a510c306d8: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.toString(arg1);
             return ret;
         }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0) {

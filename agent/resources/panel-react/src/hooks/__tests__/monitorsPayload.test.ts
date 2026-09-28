@@ -57,8 +57,8 @@ const target = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("parseMonitors", () => {
-  it("reads a target whole, including the transitions it actually ships", () => {
-    const { targets } = parseMonitors({ targets: [target()] });
+  it("reads a target whole, including the transitions it actually ships", async () => {
+    const { targets } = await parseMonitors({ targets: [target()] });
     expect(targets.length).toBe(1);
     const t = targets[0];
     expect(t.id).toBe("mon-router");
@@ -76,8 +76,8 @@ describe("parseMonitors", () => {
     expect(t.series[1].ms).toBeNull();
   });
 
-  it("drops what it cannot place in time, in both arrays, rather than guessing", () => {
-    const { targets } = parseMonitors({
+  it("drops what it cannot place in time, in both arrays, rather than guessing", async () => {
+    const { targets } = await parseMonitors({
       targets: [
         target({
           transitions: [{ up: true, lasted_ms: 1000 }],
@@ -89,17 +89,17 @@ describe("parseMonitors", () => {
     expect(targets[0].series).toEqual([]);
   });
 
-  it("keeps a latency that was never measured NULL, not zero", () => {
-    const { targets } = parseMonitors({
+  it("keeps a latency that was never measured NULL, not zero", async () => {
+    const { targets } = await parseMonitors({
       targets: [target({ summary: { probes: 0, up: 0, down: 0, up_pct: null, up_now: null, since_ms: null, drops: null, latency: null } })],
     });
     expect(targets[0].summary.latency).toBeNull();
     expect(targets[0].summary.upPct, "'no probes yet' is unknown, never 0%").toBeNull();
   });
 
-  it("answers a body it cannot use with an empty list, never a throw", () => {
+  it("answers a body it cannot use with an empty list, never a throw", async () => {
     for (const junk of [null, undefined, 42, "text", {}, { targets: "nope" }]) {
-      expect(parseMonitors(junk).targets).toEqual([]);
+      expect((await parseMonitors(junk)).targets).toEqual([]);
     }
   });
 });
@@ -126,8 +126,8 @@ describe("parseMonitorChange — the frame the device pushes", () => {
     status: 502,
   };
 
-  it("reads a real change, keyed so a repeat replaces rather than repeats", () => {
-    const alert = parseMonitorChange(frame);
+  it("reads a real change, keyed so a repeat replaces rather than repeats", async () => {
+    const alert = await parseMonitorChange(frame);
     expect(alert).not.toBeNull();
     expect(alert!.host).toBe("192.168.1.1");
     expect(alert!.port).toBe(8000);
@@ -136,20 +136,20 @@ describe("parseMonitorChange — the frame the device pushes", () => {
     expect(alert!.status).toBe(502);
     // The key is id + timestamp, so the same transition arriving twice does not stack in the strip.
     expect(alert!.key).toBe("mon-ont:1789002000000");
-    expect(parseMonitorChange(frame)!.key).toBe(alert!.key);
+    expect((await parseMonitorChange(frame))!.key).toBe(alert!.key);
   });
 
-  it("refuses a frame that is not this event, or that cannot be placed in time", () => {
+  it("refuses a frame that is not this event, or that cannot be placed in time", async () => {
     // The `ev` guard is what keeps one window event from being handled by the wrong listener — and a
     // frame with no stamp cannot be keyed, so it is dropped rather than shown twice.
-    expect(parseMonitorChange({ ...frame, ev: "sessions-changed" })).toBeNull();
-    expect(parseMonitorChange({ ...frame, at_ms: undefined })).toBeNull();
-    expect(parseMonitorChange({ ...frame, id: "" })).toBeNull();
-    expect(parseMonitorChange(null)).toBeNull();
+    expect(await parseMonitorChange({ ...frame, ev: "sessions-changed" })).toBeNull();
+    expect(await parseMonitorChange({ ...frame, at_ms: undefined })).toBeNull();
+    expect(await parseMonitorChange({ ...frame, id: "" })).toBeNull();
+    expect(await parseMonitorChange(null)).toBeNull();
   });
 
-  it("keeps an unknown port or status absent rather than inventing one", () => {
-    const bare = parseMonitorChange({ ev: "monitor-change", id: "m1", at_ms: 1_789_000_000_000 });
+  it("keeps an unknown port or status absent rather than inventing one", async () => {
+    const bare = await parseMonitorChange({ ev: "monitor-change", id: "m1", at_ms: 1_789_000_000_000 });
     expect(bare!.port, "a missing port is 0 only because the alert renders host:port").toBe(0);
     expect(bare!.status, "no HTTP status is null, not 200").toBeNull();
     // AND AN ABSENT HOST IS THE EMPTY STRING, not null: this file's `str` helper returns "" where the
@@ -162,8 +162,8 @@ describe("parseMonitorChange — the frame the device pushes", () => {
 });
 
 describe("the monitors fixture, end to end", () => {
-  it("parses the example the DEVICE promises, value for value", () => {
-    const parsed = parseMonitors(fixture.example);
+  it("parses the example the DEVICE promises, value for value", async () => {
+    const parsed = await parseMonitors(fixture.example);
     // the envelope
     expect(parsed.intervalSecs).toBe(15);
     expect(parsed.seriesMax).toBe(240);
@@ -191,8 +191,8 @@ describe("the monitors fixture, end to end", () => {
     ]);
   });
 
-  it("reads the HTTP target's two extra facts, which a TCP target leaves null", () => {
-    const parsed = parseMonitors({ targets: [{ ...fixture.example.targets[0], ...fixture.example_http }], interval_secs: 15, series_max: 240 });
+  it("reads the HTTP target's two extra facts, which a TCP target leaves null", async () => {
+    const parsed = await parseMonitors({ targets: [{ ...fixture.example.targets[0], ...fixture.example_http }], interval_secs: 15, series_max: 240 });
     const s = parsed.targets[0].summary;
     expect(s.lastStatus).toBe(503);
     expect(s.lastExpectOk).toBe(false);
