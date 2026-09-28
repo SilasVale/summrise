@@ -1633,7 +1633,16 @@ body[data-theme="dark"] .note.tip {
 /* Pinned to the aside's own top-right. It was absolutely positioned inside the
    CARD until the brand block moved out — at which point the card got shorter and
    the button landed on its top border, which is what the first screenshot of
-   this redesign showed. */
+   this redesign showed.
+
+   THE BARE `.auth-lang` BASE RULE THAT USED TO FOLLOW THIS ONE IS GONE, and
+   nothing is lost by its removal: `.auth-lang` is rendered in exactly one place
+   — the div in `Auth.tsx`, a child of this `<aside>` — so this selector matches
+   every element the base matched, which left the base with no element to apply
+   to. It was not a harmless duplicate either: it carried 18/18 against these
+   24/24, so any element that ever escaped this selector would have been
+   positioned by numbers nobody chose. `gateway/ui/test/deadCascade.test.mjs` is
+   what found it, and what keeps the next one out. */
 .auth-aside .auth-lang {
   position: absolute;
   top: 24px;
@@ -1664,12 +1673,6 @@ body[data-theme="dark"] .note.tip {
   box-shadow: var(--shadow-lg);
   padding: 32px;
   position: relative;
-}
-
-.auth-lang {
-  position: absolute;
-  top: 18px;
-  right: 18px;
 }
 
 .auth-brand {
