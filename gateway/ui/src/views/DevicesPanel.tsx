@@ -130,6 +130,25 @@ export default function DevicesPanel() {
     return () => clearInterval(poll);
   }, [loadStatus]);
 
+  // **THE EFFECT ABOVE POLLS THE STATUS OF THE ROWS ON SCREEN; NOTHING RE-READ WHICH ROWS EXIST.**
+  // `loadDevices` ran once, in the mount effect, so a device that registered AFTER the page was opened
+  // never appeared on it — no matter how long the operator waited. Measured 2026-09-28: the operator
+  // asked why a newly-registered device was missing from this page, and this asymmetry was the answer.
+  //
+  // **AND THE PAGE LOOKED LIVE THE WHOLE TIME**, which is the part that matters: chips tick, `statusAt`
+  // advances, and one half of the view is frozen at mount. **A surface that refreshes part of itself
+  // teaches the reader to trust all of it.**
+  //
+  // A SEPARATE, SLOWER CADENCE RATHER THAN A SECOND CALL INSIDE THE 60 s POLL — the comment above that
+  // one gives the reason (`KV-budget friendly`). Re-reading the row list five times less often than the
+  // statuses bounds how long a new device can be invisible without multiplying the gateway's read load.
+  // The multiplier is written as an expression rather than a second constant so the relationship between
+  // the two cadences cannot drift apart unnoticed.
+  useEffect(() => {
+    const poll = setInterval(() => void loadDevices(), CONSOLE_POLL_MS * 5);
+    return () => clearInterval(poll);
+  }, [loadDevices]);
+
   // Gateway MCP config (uses the current account's token)
   const gwMcpJson = {
     mcpServers: {
