@@ -4,7 +4,7 @@
   "description": "Summrise Gate worker (Cloudflare) — KV cache unit tests via node --test",
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"test/**/*.{cjs,mjs,js,cts,mts,ts}\"",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "typecheck": "tsc --noEmit",
