@@ -282,8 +282,7 @@ bytes ("a glossary that grows into a rulebook has stopped being a glossary"). It
 instruction file and the glossary are all that is left of the long form.
 
 **AND THE RULE THAT REPLACED THE PROTOCOL IS THE ONE THIS FILE HAS ALWAYS CARRIED**: if a sentence does not change what you
-would DO, it does not belong in an instruction file — and it no longer has a ledger to hide in. What was 865 KB of narrative is now
-`git log`, which had it in more detail all along.
+would DO, it does not belong in an instruction file — and it no longer has a ledger to hide in.
 
 ## Committing
 
@@ -554,13 +553,9 @@ comparison that catches it is one command, and it is worth running after ANY cha
 **A COMMIT IS NOT A DEPLOY, AND THE DEVICE ONLY EVER SEES THE DEPLOY** — the same shape as the `agent/scripts/` →
 `gateway/` mirror rule above, arriving from the other side.
 
-Round 183 wrote "do NOT `require()` it, which exports an empty object and runs nothing", and round 184 replaced that with
-a `new Function(src + ';return probe;')` wrapper. Both were true of the template-literal emitter, which exported a bare
-`probe` function. The emitter is a real module now and the assembler prints a bundled PROGRAM whose last statement is
-`__require("live-run.cjs")` — so requiring it IS running it, and the round-184 wrapper throws
-`ReferenceError: probe is not defined` (measured, round 7 of the standing goal). Nothing is passed in: the program reads
-the panel token out of the device's own config, navigates both densities itself, prints the JSON and exits with a verdict
-code.
+**REQUIRING IT IS RUNNING IT.** The assembler prints a bundled PROGRAM whose last statement is `__require("live-run.cjs")`;
+an earlier round's `new Function` wrapper throws `ReferenceError`. Nothing is passed in — the program reads the panel token
+from the device's own config, navigates both densities, prints the JSON and exits with a verdict code.
 
 **AND DO NOT `page.goto` THE PANEL FIRST**: the attached view is ONE page shared with the operator's screen, usually already on the
 panel, so navigating it aborts (`net::ERR_ABORTED`). The program does its own navigation, so this only bites a caller
@@ -568,12 +563,16 @@ driving the attached view by hand.
 
 **MEASURED ON THE LIVE PANEL, release 1.2.474 (round 7 of the standing goal)**: `verdict: {ok: true}` — 91 rows over two
 densities (61 panel, 30 desktop), `textFailing: []`, `graphicFailing: []`, `unmeasurable: 0`, no mark collisions, no
-ring+fill, `errors: []`. Run headless (`ATTACHED=false`), which is the right mode for a batch measurement because it does
-not touch the operator's screen.
+ring+fill, `errors: []`. **AND `ATTACHED=false` IS NOT A SWITCH.** The helper attaches whenever the desktop CDP
+(`127.0.0.1:9333`) answers; force headless by pointing `SUMMRISE_CDP_ENDPOINT` at a dead port, and install
+`chrome-headless-shell` first — the boxed `playwright-core` does not ship it, and its own CLI installs it
+(`node node_modules/playwright-core/cli.js install chromium-headless-shell`; `npx playwright` does not exist for that
+package). Measured 2026-09-28: the probe refused on an installer-provisioned device, then measured 38 panel and 9 desktop
+rows headless once both were fixed.
 
-**AND THE EMITTED FILE IN `index/public/` MUST NOT BE GITIGNORED** (the file above is the DEVICE's copy, which is a different thing):
-Workers Assets uploads the directory but HONOURS `.gitignore`, so an ignored file is silently absent from the deploy — which is why the playwright zip was never a
-static asset (its route reads R2) and why the probe is committed like the panel build and `bin/summrise.js` are.
+**AND THE EMITTED FILE IN `index/public/` MUST NOT BE GITIGNORED**: Workers Assets uploads the directory but HONOURS
+`.gitignore`, so an ignored file is silently absent from the deploy — which is why the probe is committed like the panel
+build and `bin/summrise.js` are.
 
 Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
 an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
